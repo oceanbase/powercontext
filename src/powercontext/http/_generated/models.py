@@ -778,34 +778,38 @@ class ImportExternalSkillRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
 
 
+class SourceType(StrEnum):
+    CONTENT = "content"
+
+
 class CreateSourceRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")] = "content"
-    content: Annotated[Any, Field(description="JSON value validated by the selected Source adapter.")]
-    metadata: dict[str, Any] = {}
+    source_type: SourceType = SourceType.CONTENT
+    content: Annotated[Any, Field(description="JSON value persisted by the built-in content Source adapter.")]
 
 
-class SourceCollectionItem(BaseModel):
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    metadata: dict[str, Any]
-    created_at: Annotated[AwareDatetime | None, Field(...)]
-    position: Annotated[StrictInt, Field(ge=1)]
-    content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
-    score: Annotated[StrictFloat | None, Field(ge=0.0, le=1.0)]
-    snippets: list[StrictStr]
+class ListArtifactsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ReplaceArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: dict[str, Any]
 
 
 class SourceRecord(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    source_type: SourceType
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
-    metadata: dict[str, Any]
-    created_at: Annotated[AwareDatetime | None, Field(...)]
     position: Annotated[StrictInt, Field(ge=1)]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
 
@@ -814,7 +818,7 @@ class SourceTypeReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    source_type: SourceType
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
@@ -830,19 +834,17 @@ class CaptureStatus(StrEnum):
     ACCEPTED = "accepted"
 
 
+class BaseArtifactFamily(StrEnum):
+    MEMORY = "memory"
+    EXPERIENCE = "experience"
+    SKILL = "skill"
+    HANDOFF = "handoff"
+
+
 class StatsPeriod(StrEnum):
     TODAY = "today"
     FIELD_7D = "7d"
     FIELD_30D = "30d"
-
-
-class TextSearchMode(StrEnum):
-    AUTO = "auto"
-    KEYWORD = "keyword"
-
-
-class TextSearchUsedMode(StrEnum):
-    KEYWORD = "keyword"
 
 
 class CandidateFamily(StrEnum):
@@ -953,27 +955,36 @@ class PreparedHandoffSchema(StrEnum):
 
 class ArtifactCollectionItem(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    artifact_ref: ArtifactReference
-    created_at: Annotated[AwareDatetime | None, Field(...)]
+    family: BaseArtifactFamily
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    revision: Annotated[StrictInt, Field(ge=1)]
+    sources: list[SourceTypeReference]
+    artifacts: list[ArtifactReference]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
-    score: Annotated[StrictFloat | None, Field(ge=0.0, le=1.0)]
-    snippets: list[StrictStr]
+
+
+class ArtifactCreated(BaseModel):
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    family: BaseArtifactFamily
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    revision: Annotated[StrictInt, Field(ge=1)]
+    sources: list[SourceTypeReference]
+    artifacts: list[ArtifactReference]
 
 
 class ArtifactPage(BaseModel):
-    query: Annotated[StrictStr | None, Field(...)]
-    mode: Annotated[TextSearchUsedMode | None, Field(...)]
     items: list[ArtifactCollectionItem]
     next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
 class ArtifactRevision(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    artifact_ref: ArtifactReference
+    family: BaseArtifactFamily
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    revision: Annotated[StrictInt, Field(ge=1)]
     content: dict[str, Any]
-    source_refs: list[SourceTypeReference]
-    artifact_refs: list[ArtifactReference]
-    created_at: Annotated[AwareDatetime | None, Field(...)]
+    sources: list[SourceTypeReference]
+    artifacts: list[ArtifactReference]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
 
 
@@ -1634,46 +1645,8 @@ class CreateArtifactRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    family: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    family: BaseArtifactFamily
     content: dict[str, Any]
-    source_refs: Annotated[list[SourceTypeReference], Field(validate_default=True)] = []
-    artifact_refs: Annotated[list[ArtifactReference], Field(validate_default=True)] = []
-
-
-class ListArtifactsRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query: Annotated[StrictStr | None, Field(max_length=8192)] = None
-    mode: TextSearchMode | None = None
-    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
-    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
-
-
-class ListSourcesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query: Annotated[StrictStr | None, Field(max_length=8192)] = None
-    mode: TextSearchMode | None = None
-    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
-    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
-
-
-class ReplaceArtifactRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: dict[str, Any]
-    source_refs: Annotated[list[SourceTypeReference], Field(validate_default=True)] = []
-    artifact_refs: Annotated[list[ArtifactReference], Field(validate_default=True)] = []
-
-
-class SourcePage(BaseModel):
-    query: Annotated[StrictStr | None, Field(...)]
-    mode: Annotated[TextSearchUsedMode | None, Field(...)]
-    items: list[SourceCollectionItem]
-    next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
 class ArtifactCandidate(BaseModel):

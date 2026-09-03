@@ -75,8 +75,8 @@ def test_js_operations_record_method_path_location_and_scope() -> None:
     assert by_id["get_artifact"]["successStatuses"] == [200, 304]
     assert by_id["get_artifact"]["emptyStatuses"] == [304]
     assert by_id["replace_artifact"]["headerParams"] == ["If-Match"]
-    assert by_id["delete_artifact"]["successStatuses"] == [204]
-    assert by_id["delete_artifact"]["emptyStatuses"] == [204]
+    assert "delete_artifact" not in by_id
+    assert "list_sources" not in by_id
 
 
 def test_committed_js_operations_match_openapi() -> None:

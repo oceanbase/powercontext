@@ -85,7 +85,6 @@ class StatisticsRepository:
                 select(ARTIFACT_HEADS_TABLE.c.family, func.count())
                 .where(
                     ARTIFACT_HEADS_TABLE.c.scope_id == scope,
-                    ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
                 )
                 .group_by(ARTIFACT_HEADS_TABLE.c.family)
                 .order_by(ARTIFACT_HEADS_TABLE.c.family)

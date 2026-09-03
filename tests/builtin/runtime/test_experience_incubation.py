@@ -21,6 +21,7 @@ import pytest
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
 from powercontext.builtin.inference import InferenceUnavailableError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
@@ -174,6 +175,34 @@ def test_incubation_uses_the_fixed_source_window_budget() -> None:
             assert first.current_cursor == 32
             assert second.source_count == 1
             assert second.current_cursor == 33
+
+    asyncio.run(scenario())
+
+
+def test_incubation_skips_lineage_only_sources_but_advances_the_full_window() -> None:
+    async def scenario() -> None:
+        pipeline = _TaskOutcomePipeline()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()),
+            experience_pipeline=pipeline,
+        ) as runtime:
+            created = await runtime.records.for_scope("lineage-only").create_artifact(
+                "memory",
+                ArtifactWrite(
+                    content={
+                        "manifest": {"entries": [], "format": "flat-v1"},
+                        "changes": [],
+                        "schema": "powercontext.memory.v1",
+                    }
+                ),
+            )
+            result = await runtime.experience.for_scope("lineage-only").incubate()
+
+            assert created.revision == 1
+            assert result.current_cursor == 1
+            assert result.source_count == 0
+            assert result.candidate_count == 0
+            assert pipeline.calls == []
 
     asyncio.run(scenario())
 

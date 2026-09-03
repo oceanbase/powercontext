@@ -23,8 +23,10 @@ from powercontext.http import (
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
+    ArtifactCreated,
     ArtifactReference,
     ArtifactRevision,
+    BaseArtifactFamily,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CommitHandoffRequest,
@@ -50,7 +52,6 @@ from powercontext.http import (
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListMemoryEntriesRequest,
-    ListSourcesRequest,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -68,6 +69,7 @@ from powercontext.http import (
     SkillProposal,
     SkillValidationItem,
     SourceRecord,
+    SourceType,
     SourceTypeReference,
     StatsPeriod,
     WorkSourceReceipt,
@@ -82,7 +84,6 @@ from powercontext.http._generated.operations import (
     CREATE_ARTIFACT,
     CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
-    DELETE_ARTIFACT,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -103,7 +104,6 @@ from powercontext.http._generated.operations import (
     LIST_EXTERNAL_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
-    LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -497,19 +497,17 @@ def test_generated_transport_rejects_values_outside_openapi(
         model.model_validate(value)
 
 
-def test_base_access_contract_uses_only_the_nine_scoped_operations() -> None:
+def test_base_access_contract_uses_only_the_seven_scoped_operations() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     expected_operations = {
         ("/v1/scopes/{scope_id}/sources", "post"): "create_source",
-        ("/v1/scopes/{scope_id}/sources/{source_type}", "get"): "list_sources",
         ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}", "get"): "get_source",
         ("/v1/scopes/{scope_id}/artifacts", "post"): "create_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}", "get"): "list_artifacts",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "get"): "get_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "put"): "replace_artifact",
-        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "delete"): "delete_artifact",
         (
             "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
             "get",
@@ -523,7 +521,7 @@ def test_base_access_contract_uses_only_the_nine_scoped_operations() -> None:
     }
     assert actual_operations == expected_operations
     assert not any(
-        operation_id in {"search_sources", "search_artifacts", "list_scopes"}
+        operation_id in {"list_sources", "search_sources", "search_artifacts", "delete_artifact", "list_scopes"}
         for operation_id in actual_operations.values()
     )
     assert not any("search-results" in path or path == "/v1/scopes" for path in paths)
@@ -535,44 +533,37 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
 
     source = schemas["CreateSourceRequest"]
     assert source["required"] == ["content"]
-    assert set(source["properties"]) == {"source_type", "content", "metadata"}
+    assert set(source["properties"]) == {"source_type", "content"}
+    assert source["properties"]["source_type"]["enum"] == ["content"]
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
     assert artifact["required"] == ["family", "content"]
-    assert set(artifact["properties"]) == {"family", "content", "source_refs", "artifact_refs"}
+    assert set(artifact["properties"]) == {"family", "content"}
     assert not {"scope_id", "source_id", "artifact_id"} & set(source["properties"] | artifact["properties"])
 
-    assert CreateSourceRequest(content="evidence").source_type == "content"
-    assert CreateArtifactRequest(family="decision", content={"value": 1}).source_refs == []
+    assert CreateSourceRequest(content="evidence").source_type is SourceType.CONTENT
+    assert (
+        CreateArtifactRequest(family=BaseArtifactFamily.MEMORY, content={"manifest": {}}).family
+        is BaseArtifactFamily.MEMORY
+    )
     for model, payload in (
         (CreateSourceRequest, {"scope_id": "scope", "content": "evidence"}),
         (CreateSourceRequest, {"source_id": "source", "content": "evidence"}),
-        (CreateArtifactRequest, {"artifact_id": "artifact", "family": "decision", "content": {}}),
+        (CreateArtifactRequest, {"artifact_id": "artifact", "family": "memory", "content": {}}),
     ):
         with pytest.raises(ValidationError):
             model.model_validate(payload)
 
 
-def test_source_artifact_collections_combine_list_and_search_queries() -> None:
+def test_artifact_collection_only_accepts_pagination() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
-    for path in (
-        "/v1/scopes/{scope_id}/sources/{source_type}",
-        "/v1/scopes/{scope_id}/artifacts/{family}",
-    ):
-        parameters = paths[path]["get"]["parameters"]
-        assert [parameter["name"] for parameter in parameters if parameter["in"] == "query"] == [
-            "query",
-            "mode",
-            "limit",
-            "cursor",
-        ]
-        assert "type" not in {parameter["name"] for parameter in parameters}
-
-    assert ListSourcesRequest().model_dump() == {"query": None, "mode": None, "limit": 50, "cursor": None}
-    assert ListArtifactsRequest(query="refund").query == "refund"
+    assert "/v1/scopes/{scope_id}/sources/{source_type}" not in paths
+    parameters = paths["/v1/scopes/{scope_id}/artifacts/{family}"]["get"]["parameters"]
+    assert [parameter["name"] for parameter in parameters if parameter["in"] == "query"] == ["limit", "cursor"]
+    assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None}
 
 
 def test_base_access_uses_a_dedicated_source_type_reference() -> None:
@@ -581,41 +572,36 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
 
     assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id"}
     assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id"}
-    for schema_name in ("CreateArtifactRequest", "ReplaceArtifactRequest", "ArtifactRevision"):
-        assert schemas[schema_name]["properties"]["source_refs"]["items"] == {
+    for schema_name in ("ArtifactCreated", "ArtifactRevision", "ArtifactCollectionItem"):
+        assert schemas[schema_name]["properties"]["sources"]["items"] == {
             "$ref": "#/components/schemas/SourceTypeReference"
         }
-    assert SourceTypeReference(source_type="content", source_id="source").source_type == "content"
+    assert "sources" not in schemas["CreateArtifactRequest"]["properties"]
+    assert "sources" not in schemas["ReplaceArtifactRequest"]["properties"]
+    assert SourceTypeReference(source_type=SourceType.CONTENT, source_id="source").source_type is SourceType.CONTENT
 
 
-def test_base_access_operations_describe_no_content_and_conditional_get() -> None:
+def test_base_access_operations_describe_create_and_conditional_get() -> None:
     assert CREATE_SOURCE.request_type is CreateSourceRequest
     assert CREATE_ARTIFACT.request_type is CreateArtifactRequest
-    assert LIST_SOURCES.request_type is ListSourcesRequest
+    assert CREATE_ARTIFACT.response_type is ArtifactCreated
     assert LIST_ARTIFACTS.request_type is ListArtifactsRequest
     assert GET_SOURCE.request_type is None
     assert GET_ARTIFACT.request_type is None
     assert GET_ARTIFACT_REVISION.request_type is None
     assert REPLACE_ARTIFACT.response_type is ArtifactRevision
-    assert DELETE_ARTIFACT.request_type is None
-    assert DELETE_ARTIFACT.response_type is None
-    assert DELETE_ARTIFACT.success_status == 204
     assert 304 in GET_ARTIFACT.responses
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     item_path = contract["paths"]["/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}"]
-    allow_header = contract["components"]["responses"]["OperationNotSupported"]["headers"]["Allow"]
-    assert allow_header["required"] is True
-    assert allow_header["schema"] == {"type": "string"}
     get_parameters = {parameter["name"]: parameter for parameter in item_path["get"]["parameters"]}
     assert get_parameters["If-None-Match"]["required"] is False
     assert "content" not in item_path["get"]["responses"]["304"]
 
-    for method in ("put", "delete"):
-        parameters = {item["name"]: item for item in item_path[method]["parameters"]}
-        assert parameters["If-Match"]["required"] is True
-        assert set(item_path[method]["responses"]) >= {"412", "428"}
-    assert "content" not in item_path["delete"]["responses"]["204"]
+    parameters = {item["name"]: item for item in item_path["put"]["parameters"]}
+    assert parameters["If-Match"]["required"] is True
+    assert parameters["If-Match"]["schema"] == {"type": "string", "minLength": 1}
+    assert set(item_path["put"]["responses"]) >= {"412", "428"}
 
 
 def test_generated_response_models_ignore_unknown_fields() -> None:

@@ -20,6 +20,8 @@ from powercontext.builtin.sources.content import (
     ContentCapture,
     ContentSource,
     ContentSourceAdapter,
+    ContentSourceInternal,
+    ContentSourceTarget,
 )
 from powercontext.builtin.sources.external_skill import (
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -44,6 +46,8 @@ __all__ = [
     "ContentCapture",
     "ContentSource",
     "ContentSourceAdapter",
+    "ContentSourceInternal",
+    "ContentSourceTarget",
     "ExternalSkillImportMode",
     "ExternalSkillSnapshotCapture",
     "ExternalSkillSnapshotSource",

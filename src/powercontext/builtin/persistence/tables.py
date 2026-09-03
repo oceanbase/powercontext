@@ -20,7 +20,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Date,
-    DateTime,
     ForeignKeyConstraint,
     Integer,
     LargeBinary,
@@ -85,7 +84,6 @@ SOURCES_TABLE = Table(
     Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
     Column("payload", _canonical_payload_type(), nullable=False),
     Column("journal_position", BigInteger, nullable=False),
-    Column("created_at", DateTime(timezone=True)),
     UniqueConstraint("scope_id", "journal_position", name="uq_pc_sources_scope_journal_position"),
 )
 
@@ -105,7 +103,6 @@ ARTIFACTS_TABLE = Table(
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, primary_key=True),
     Column("content", _canonical_payload_type(), nullable=False),
-    Column("created_at", DateTime(timezone=True)),
 )
 
 ARTIFACT_HEADS_TABLE = Table(
@@ -116,7 +113,6 @@ ARTIFACT_HEADS_TABLE = Table(
     Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("revision", Integer, nullable=False),
     Column("searchable_text", _entry_text_type()),
-    Column("deleted_at", DateTime(timezone=True)),
     ForeignKeyConstraint(
         ("scope_id", "family", "artifact_id", "revision"),
         (

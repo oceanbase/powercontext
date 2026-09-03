@@ -1536,68 +1536,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourceRecord"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "405": {"$ref": "#/components/responses/OperationNotSupported"},
                     "409": {"$ref": "#/components/responses/Conflict"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/scopes/{scope_id}/sources/{source_type}": {
-            "get": {
-                "tags": ["sources"],
-                "summary": "List or search Sources",
-                "description": "List when query is absent or blank; search when query is nonblank.",
-                "operationId": "list_sources",
-                "parameters": [
-                    {
-                        "name": "scope_id",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
-                    },
-                    {
-                        "name": "source_type",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
-                    },
-                    {
-                        "name": "query",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"type": "string", "maxLength": 8192},
-                    },
-                    {
-                        "name": "mode",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"$ref": "#/components/schemas/TextSearchMode"},
-                    },
-                    {
-                        "name": "limit",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
-                    },
-                    {
-                        "name": "cursor",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 4096},
-                    },
-                ],
-                "responses": {
-                    "200": {
-                        "description": "One stable page of Sources or Source search results.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourcePage"}}},
-                    },
-                    "400": {"$ref": "#/components/responses/BadRequest"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "405": {"$ref": "#/components/responses/OperationNotSupported"},
-                    "410": {"$ref": "#/components/responses/CursorExpired"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1620,7 +1559,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "source_type",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                        "schema": {"type": "string", "enum": ["content"]},
                     },
                     {
                         "name": "source_id",
@@ -1637,7 +1576,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "404": {"$ref": "#/components/responses/NotFound"},
-                    "405": {"$ref": "#/components/responses/OperationNotSupported"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1648,10 +1586,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "post": {
                 "tags": ["artifacts"],
                 "summary": "Create an Artifact",
-                "description": "Commit revision one for a "
-                "family that permits direct "
-                "creation. The Server "
-                "generates artifact_id.",
+                "description": "Validate family content "
+                "and atomically create "
+                "revision one with its "
+                "system provenance Source.",
                 "operationId": "create_artifact",
                 "parameters": [
                     {
@@ -1673,10 +1611,9 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "ETag": {"$ref": "#/components/headers/ArtifactETag"},
                             "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
                         },
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRevision"}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCreated"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "405": {"$ref": "#/components/responses/OperationNotSupported"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -1687,8 +1624,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "/v1/scopes/{scope_id}/artifacts/{family}": {
             "get": {
                 "tags": ["artifacts"],
-                "summary": "List or search current Artifact heads",
-                "description": "List when query is absent or blank; search when query is nonblank.",
+                "summary": "List current Artifact heads",
+                "description": "List current heads for exactly one built-in Artifact family.",
                 "operationId": "list_artifacts",
                 "parameters": [
                     {
@@ -1701,19 +1638,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
-                    },
-                    {
-                        "name": "query",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"type": "string", "maxLength": 8192},
-                    },
-                    {
-                        "name": "mode",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"$ref": "#/components/schemas/TextSearchMode"},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
                     },
                     {
                         "name": "limit",
@@ -1730,7 +1655,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 ],
                 "responses": {
                     "200": {
-                        "description": "One stable page of current Artifact heads or search results.",
+                        "description": "One stable page of current Artifact heads.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPage"}}},
                     },
@@ -1759,7 +1684,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
                     },
                     {
                         "name": "artifact_id",
@@ -1771,7 +1696,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "If-None-Match",
                         "in": "header",
                         "required": False,
-                        "schema": {"type": "string", "pattern": '^"revision:[1-9][0-9]*"$'},
+                        "schema": {"type": "string", "minLength": 1},
                     },
                 ],
                 "responses": {
@@ -1813,7 +1738,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
                     },
                     {
                         "name": "artifact_id",
@@ -1825,7 +1750,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "If-Match",
                         "in": "header",
                         "required": True,
-                        "schema": {"type": "string", "pattern": '^"revision:[1-9][0-9]*"$'},
+                        "schema": {"type": "string", "minLength": 1},
                     },
                 ],
                 "requestBody": {
@@ -1845,53 +1770,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "404": {"$ref": "#/components/responses/NotFound"},
-                    "405": {"$ref": "#/components/responses/OperationNotSupported"},
-                    "412": {"$ref": "#/components/responses/PreconditionFailed"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "428": {"$ref": "#/components/responses/PreconditionRequired"},
-                    "503": {"$ref": "#/components/responses/Unavailable"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            },
-            "delete": {
-                "tags": ["artifacts"],
-                "summary": "Delete the current Artifact head",
-                "description": "Record a tombstone without deleting immutable historical revisions.",
-                "operationId": "delete_artifact",
-                "parameters": [
-                    {
-                        "name": "scope_id",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
-                    },
-                    {
-                        "name": "family",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
-                    },
-                    {
-                        "name": "artifact_id",
-                        "in": "path",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
-                    },
-                    {
-                        "name": "If-Match",
-                        "in": "header",
-                        "required": True,
-                        "schema": {"type": "string", "pattern": '^"revision:[1-9][0-9]*"$'},
-                    },
-                ],
-                "responses": {
-                    "204": {
-                        "description": "The Artifact head is deleted and immutable history is retained.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "405": {"$ref": "#/components/responses/OperationNotSupported"},
                     "412": {"$ref": "#/components/responses/PreconditionFailed"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "428": {"$ref": "#/components/responses/PreconditionRequired"},
@@ -1916,7 +1794,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
                     },
                     {
                         "name": "artifact_id",
@@ -1963,43 +1841,56 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ArtifactCollectionItem": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "artifact_ref": {"$ref": "#/components/schemas/ArtifactReference"},
-                    "created_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
+                    "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-                    "score": {"type": "number", "maximum": 1.0, "minimum": 0.0, "nullable": True},
-                    "snippets": {"items": {"type": "string"}, "type": "array"},
                 },
                 "type": "object",
-                "required": ["scope_id", "artifact_ref", "created_at", "content_digest", "score", "snippets"],
+                "required": ["scope_id", "family", "artifact_id", "revision", "sources", "artifacts", "content_digest"],
+            },
+            "ArtifactCreated": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "revision": {"type": "integer", "minimum": 1.0},
+                    "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
+                    "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                },
+                "type": "object",
+                "required": ["scope_id", "family", "artifact_id", "revision", "sources", "artifacts"],
             },
             "ArtifactPage": {
                 "properties": {
-                    "query": {"type": "string", "nullable": True},
-                    "mode": {"allOf": [{"$ref": "#/components/schemas/TextSearchUsedMode"}], "nullable": True},
                     "items": {"items": {"$ref": "#/components/schemas/ArtifactCollectionItem"}, "type": "array"},
                     "next_cursor": {"type": "string", "nullable": True},
                 },
                 "type": "object",
-                "required": ["query", "mode", "items", "next_cursor"],
+                "required": ["items", "next_cursor"],
             },
             "ArtifactRevision": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "artifact_ref": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "revision": {"type": "integer", "minimum": 1.0},
                     "content": {"additionalProperties": True, "type": "object"},
-                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
-                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
-                    "created_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
+                    "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
                 },
                 "type": "object",
                 "required": [
                     "scope_id",
-                    "artifact_ref",
+                    "family",
+                    "artifact_id",
+                    "revision",
                     "content",
-                    "source_refs",
-                    "artifact_refs",
-                    "created_at",
+                    "sources",
+                    "artifacts",
                     "content_digest",
                 ],
             },
@@ -4170,18 +4061,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "CreateArtifactRequest": {
                 "properties": {
-                    "family": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
                     "content": {"additionalProperties": True, "type": "object"},
-                    "source_refs": {
-                        "items": {"$ref": "#/components/schemas/SourceTypeReference"},
-                        "type": "array",
-                        "default": [],
-                    },
-                    "artifact_refs": {
-                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
-                        "type": "array",
-                        "default": [],
-                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -4189,15 +4070,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "CreateSourceRequest": {
                 "properties": {
-                    "source_type": {
-                        "type": "string",
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[\\x21-\\x7E]+$",
-                        "default": "content",
-                    },
-                    "content": {"description": "JSON value validated by the selected Source adapter."},
-                    "metadata": {"additionalProperties": True, "type": "object", "default": {}},
+                    "source_type": {"type": "string", "enum": ["content"], "default": "content"},
+                    "content": {"description": "JSON value persisted by the built-in content Source adapter."},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -4205,18 +4079,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ListArtifactsRequest": {
                 "properties": {
-                    "query": {"type": "string", "maxLength": 8192, "nullable": True},
-                    "mode": {"allOf": [{"$ref": "#/components/schemas/TextSearchMode"}], "nullable": True},
-                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
-                    "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "ListSourcesRequest": {
-                "properties": {
-                    "query": {"type": "string", "maxLength": 8192, "nullable": True},
-                    "mode": {"allOf": [{"$ref": "#/components/schemas/TextSearchMode"}], "nullable": True},
                     "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
                     "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
                 },
@@ -4224,84 +4086,26 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "ReplaceArtifactRequest": {
-                "properties": {
-                    "content": {"additionalProperties": True, "type": "object"},
-                    "source_refs": {
-                        "items": {"$ref": "#/components/schemas/SourceTypeReference"},
-                        "type": "array",
-                        "default": [],
-                    },
-                    "artifact_refs": {
-                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
-                        "type": "array",
-                        "default": [],
-                    },
-                },
+                "properties": {"content": {"additionalProperties": True, "type": "object"}},
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],
             },
-            "SourceCollectionItem": {
-                "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
-                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
-                    "metadata": {"additionalProperties": True, "type": "object"},
-                    "created_at": {"type": "string", "format": "date-time", "nullable": True},
-                    "position": {"type": "integer", "minimum": 1.0},
-                    "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-                    "score": {"type": "number", "maximum": 1.0, "minimum": 0.0, "nullable": True},
-                    "snippets": {"items": {"type": "string"}, "type": "array"},
-                },
-                "type": "object",
-                "required": [
-                    "scope_id",
-                    "source_type",
-                    "source_id",
-                    "metadata",
-                    "created_at",
-                    "position",
-                    "content_digest",
-                    "score",
-                    "snippets",
-                ],
-            },
-            "SourcePage": {
-                "properties": {
-                    "query": {"type": "string", "nullable": True},
-                    "mode": {"allOf": [{"$ref": "#/components/schemas/TextSearchUsedMode"}], "nullable": True},
-                    "items": {"items": {"$ref": "#/components/schemas/SourceCollectionItem"}, "type": "array"},
-                    "next_cursor": {"type": "string", "nullable": True},
-                },
-                "type": "object",
-                "required": ["query", "mode", "items", "next_cursor"],
-            },
             "SourceRecord": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "source_type": {"type": "string", "enum": ["content"]},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "content": {"description": "Persisted canonical JSON content."},
-                    "metadata": {"additionalProperties": True, "type": "object"},
-                    "created_at": {"type": "string", "format": "date-time", "nullable": True},
                     "position": {"type": "integer", "minimum": 1.0},
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
                 },
                 "type": "object",
-                "required": [
-                    "scope_id",
-                    "source_type",
-                    "source_id",
-                    "content",
-                    "metadata",
-                    "created_at",
-                    "position",
-                    "content_digest",
-                ],
+                "required": ["scope_id", "source_type", "source_id", "content", "position", "content_digest"],
             },
             "SourceTypeReference": {
                 "properties": {
-                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "source_type": {"type": "string", "enum": ["content"]},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                 },
                 "additionalProperties": False,
@@ -4318,9 +4122,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
+            "BaseArtifactFamily": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
-            "TextSearchMode": {"type": "string", "enum": ["auto", "keyword"]},
-            "TextSearchUsedMode": {"type": "string", "enum": ["keyword"]},
             "CandidateFamily": {"type": "string", "enum": ["experience", "skill"]},
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
             "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},
@@ -4366,18 +4169,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
-            "OperationNotSupported": {
-                "description": "The Source type or Artifact family does not permit this operation.",
-                "headers": {
-                    "Allow": {
-                        "description": "HTTP methods supported by the selected Source type or Artifact family.",
-                        "required": True,
-                        "schema": {"type": "string"},
-                    },
-                    "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
-                },
-                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
-            },
             "PreconditionFailed": {
                 "description": "If-Match does not identify the current Artifact head.",
                 "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -4416,8 +4207,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         },
         "headers": {
             "ArtifactETag": {
-                "description": "Strong validator for the current immutable Artifact revision.",
-                "schema": {"type": "string", "pattern": '^"revision:[1-9][0-9]*"$'},
+                "description": "Opaque strong validator for the "
+                "current Artifact head. Clients must "
+                "replay it verbatim.",
+                "schema": {"type": "string", "minLength": 1},
             },
             "BearerChallenge": {
                 "description": "Authentication scheme required by the Server.",

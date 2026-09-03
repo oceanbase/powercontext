@@ -90,6 +90,7 @@ from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
+from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -308,9 +309,14 @@ class RelationalContexts:
         self.database = database
         self.index = NoMemoryIndex() if index is None else index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
+        source_repository = SourceRepository(_SOURCE_ADAPTERS)
+        artifact_repository = ArtifactRepository(
+            (Handoff, Memory, Experience, Skill),
+            sources=source_repository,
+        )
         self.repositories = _Repositories(
-            sources=SourceRepository(_SOURCE_ADAPTERS),
-            artifacts=ArtifactRepository((Handoff, Memory, Experience, Skill)),
+            sources=source_repository,
+            artifacts=artifact_repository,
             candidates=CandidateRepository({
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,
@@ -322,8 +328,8 @@ class RelationalContexts:
         self.records = RelationalRecordService(
             database,
             self.repositories.sources,
+            self.repositories.artifacts,
             id_factory=id_factory,
-            protected_artifact_families=self.repositories.artifacts.families,
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
@@ -562,7 +568,9 @@ class _RelationalSources:
         ref = self._as_ref(source)
         try:
             async with self._database.connection(self._bound_connection) as connection:
-                return (await self._repository.get(connection, self._scope_id, ref)).value
+                value = (await self._repository.get(connection, self._scope_id, ref)).value
+                require_source_eligible(ref, value)
+                return value
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
 
@@ -645,6 +653,7 @@ class _RelationalTriggers:
                     raise HandoffEvidenceUnavailableError(
                         HandoffSourceCitation(source_ref=request.boundary_source)
                     ) from None
+                require_source_eligible(request.boundary_source, source.value)
                 state_row = await self._services.repositories.cursors.load(
                     connection,
                     self._services.scope_id,
@@ -720,6 +729,22 @@ class _RelationalTriggers:
                 )
 
             action = transition.actions[0]
+            if not sources:
+                async with self._services.database.transaction() as connection:
+                    await self._services.repositories.cursors.save(
+                        connection,
+                        self._services.scope_id,
+                        SOURCE_WINDOW_TRIGGER_NAME,
+                        transition.state,
+                        expected_generation=None if state_row is None else state_row.generation,
+                    )
+                return MemoryFlushResult(
+                    previous_cursor=action.after,
+                    high_watermark=high_watermark,
+                    current_cursor=action.through,
+                    source_count=0,
+                    memory_ref=None,
+                )
             prepared = await self._prepare_memory(sources)
             async with self._services.database.transaction() as connection:
                 _, source_catalog = self._services.sources(connection)
@@ -749,7 +774,9 @@ class _RelationalTriggers:
             self._services.scope_id,
             after=action.after,
         )
-        return tuple(row.value for row in rows if row.journal_position <= action.through)
+        return tuple(
+            row.value for row in rows if row.journal_position <= action.through and is_generation_eligible(row.value)
+        )
 
     async def _prepare_memory(self, sources: tuple[Source, ...]) -> MemoryWritePlan:
         _, source_catalog = self._services.sources()
@@ -804,9 +831,26 @@ class _RelationalExperienceIncubator:
             pipeline = self._services.experience_pipeline
             if pipeline is None:
                 raise RuntimeError("Experience incubation pipeline is not configured")  # noqa: TRY003
-            plans = await pipeline.incubate(tuple(row.value for row in rows))
-            _validate_experience_plans(plans, rows)
             action = transition.actions[0]
+            eligible_rows = tuple(row for row in rows if is_generation_eligible(row.value))
+            if not eligible_rows:
+                async with self._services.database.transaction() as connection:
+                    await self._services.repositories.cursors.save(
+                        connection,
+                        self._services.scope_id,
+                        EXPERIENCE_INCUBATION_CURSOR_NAME,
+                        transition.state,
+                        expected_generation=None if state_row is None else state_row.generation,
+                    )
+                return ExperienceIncubationResult(
+                    previous_cursor=action.after,
+                    high_watermark=high_watermark,
+                    current_cursor=action.through,
+                    source_count=0,
+                    candidate_count=0,
+                )
+            plans = await pipeline.incubate(tuple(row.value for row in eligible_rows))
+            _validate_experience_plans(plans, eligible_rows)
             async with self._services.database.transaction() as connection:
                 review = self._services.review(connection)
                 for plan in plans:
@@ -828,7 +872,7 @@ class _RelationalExperienceIncubator:
                 previous_cursor=action.after,
                 high_watermark=high_watermark,
                 current_cursor=action.through,
-                source_count=len(rows),
+                source_count=len(eligible_rows),
                 candidate_count=len(plans),
             )
 

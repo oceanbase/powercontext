@@ -84,7 +84,7 @@ describe('PowerContextClient', () => {
       const headers = new Headers(init?.headers)
       if (call === 1) {
         expect(url).toBe(
-          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/decision%20records?query=recent+work&limit=5',
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/memory?limit=5',
         )
         expect(init?.method).toBe('GET')
         expect(init?.body).toBeUndefined()
@@ -92,7 +92,7 @@ describe('PowerContextClient', () => {
       }
       if (call === 2) {
         expect(url).toBe(
-          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/decision%20records/artifact%2F1',
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/memory/artifact%2F1',
         )
         expect(init?.method).toBe('PUT')
         expect(headers.get('If-Match')).toBe('"revision:1"')
@@ -105,10 +105,7 @@ describe('PowerContextClient', () => {
         expect(init?.body).toBeUndefined()
         return new Response(null, { status: 304 })
       }
-      expect(init?.method).toBe('DELETE')
-      expect(headers.get('If-Match')).toBe('"revision:2"')
-      expect(init?.body).toBeUndefined()
-      return new Response(null, { status: 204 })
+      throw new Error('unexpected request')
     })
     const client = new PowerContextClient({
       baseUrl: 'http://127.0.0.1:8000/',
@@ -117,10 +114,10 @@ describe('PowerContextClient', () => {
     })
     const path = {
       scope_id: 'scope/team',
-      family: 'decision records',
+      family: 'memory',
     }
 
-    await client.request('list_artifacts', { ...path, query: 'recent work', limit: 5, ignored: 'value' })
+    await client.request('list_artifacts', { ...path, limit: 5, ignored: 'value' })
     await client.request('replace_artifact', {
       ...path,
       artifact_id: 'artifact/1',
@@ -132,12 +129,7 @@ describe('PowerContextClient', () => {
       artifact_id: 'artifact/1',
       if_none_match: '"revision:2"',
     })).resolves.toMatchObject({ kind: 'json', value: null, status: 304 })
-    await expect(client.request('delete_artifact', {
-      ...path,
-      artifact_id: 'artifact/1',
-      if_match: '"revision:2"',
-    })).resolves.toMatchObject({ kind: 'json', value: null, status: 204 })
-    expect(fetchImpl).toHaveBeenCalledTimes(4)
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
   it('returns markdown text and raw bytes for get_handoff_report', async () => {

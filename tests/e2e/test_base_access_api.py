@@ -24,16 +24,22 @@ import pytest
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
+    BaseArtifactFamily,
     CreateArtifactRequest,
     CreateSourceRequest,
     ListArtifactsRequest,
-    ListSourcesRequest,
     ReplaceArtifactRequest,
-    SourceTypeReference,
-    TextSearchMode,
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
+
+
+def _memory_content() -> dict[str, object]:
+    return {
+        "manifest": {"entries": [], "format": "flat-v1"},
+        "changes": [],
+        "schema": "powercontext.memory.v1",
+    }
 
 
 def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
@@ -47,150 +53,95 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
 
     async def scenario() -> None:
         scope_id = "git:github.com/oceanbase/powercontext"
-        family = "company.example/decision"
+        encoded_scope = quote(scope_id, safe="")
         async with (
             app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
-                base_url="http://testserver",
-            ) as transport,
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
-            unsupported = await transport.post(
-                f"/v1/scopes/{quote(scope_id, safe='')}/artifacts",
-                json={"family": "memory", "content": {}},
-            )
-            assert unsupported.status_code == 405
-            assert unsupported.headers["Allow"] == "GET"
             source = await client.create_source(
                 scope_id,
-                CreateSourceRequest(
-                    content="Keep Source writes separate from Memory generation.",
-                    metadata={"channel": "e2e"},
-                ),
+                CreateSourceRequest(content={"statement": "Keep the public Source immutable."}),
             )
-            loaded_source = await client.get_source(scope_id, "content", source.source_id)
-            listed_sources = await client.list_sources(
-                scope_id,
+            assert await client.get_source(scope_id, "content", source.source_id) == source
+            assert source.content == {"statement": "Keep the public Source immutable."}
+            assert set(source.model_dump()) == {
+                "scope_id",
+                "source_type",
+                "source_id",
                 "content",
-                ListSourcesRequest(),
-            )
-            found_sources = await client.list_sources(
-                scope_id,
-                "content",
-                ListSourcesRequest(query="Memory generation"),
-            )
-            with pytest.raises(ServerResponseError) as invalid_query:
-                await client.list_sources(
-                    scope_id,
-                    "content",
-                    ListSourcesRequest(mode=TextSearchMode.AUTO),
-                )
-            assert invalid_query.value.status_code == 400
-            assert invalid_query.value.code == "invalid_request"
-            with pytest.raises(ServerResponseError) as invalid_cursor:
-                await client.list_sources(
-                    scope_id,
-                    "content",
-                    ListSourcesRequest(cursor="not-a-valid-cursor"),
-                )
-            assert invalid_cursor.value.status_code == 400
-            assert invalid_cursor.value.code == "invalid_cursor"
+                "position",
+                "content_digest",
+            }
 
-            first = await client.create_artifact(
-                scope_id,
-                CreateArtifactRequest(
-                    family=family,
-                    content={"body": "Use full replacement updates."},
-                    source_refs=[SourceTypeReference(source_type=source.source_type, source_id=source.source_id)],
-                ),
+            invalid_source_type = await transport.get(
+                f"/v1/scopes/{encoded_scope}/sources/private/{quote(source.source_id, safe='')}"
             )
-            artifact_id = first.artifact_ref.artifact_id
-            loaded_first = await client.get_artifact(scope_id, family, artifact_id)
+            assert invalid_source_type.status_code == 422
+            invalid_family = await transport.post(
+                f"/v1/scopes/{encoded_scope}/artifacts",
+                json={"family": "document", "content": {}},
+            )
+            assert invalid_family.status_code == 422
+
+            created = await client.create_artifact(
+                scope_id,
+                CreateArtifactRequest(family=BaseArtifactFamily.MEMORY, content=_memory_content()),
+            )
+            assert created.revision == 1
+            assert len(created.sources) == 1
+            assert created.artifacts == []
+            assert "content" not in created.model_dump()
+
+            system_source = await client.get_source(
+                scope_id,
+                created.sources[0].source_type.value,
+                created.sources[0].source_id,
+            )
+            assert system_source.content == _memory_content()
+            assert "internal" not in system_source.model_dump()
+
+            head_path = f"/v1/scopes/{encoded_scope}/artifacts/memory/{quote(created.artifact_id, safe='')}"
+            raw_head = await transport.get(head_path)
+            assert raw_head.status_code == 200
+            etag = raw_head.headers["ETag"]
+            loaded = await client.get_artifact(scope_id, "memory", created.artifact_id)
+            assert loaded is not None
+            assert loaded.sources == created.sources
             not_modified = await client.get_artifact(
                 scope_id,
-                family,
-                artifact_id,
-                if_none_match='"revision:1"',
+                "memory",
+                created.artifact_id,
+                if_none_match=etag,
             )
-            listed_artifacts = await client.list_artifacts(
+            assert not_modified is None
+
+            listed = await client.list_artifacts(scope_id, "memory", ListArtifactsRequest())
+            assert [item.artifact_id for item in listed.items] == [created.artifact_id]
+            assert "content" not in listed.items[0].model_dump()
+            assert listed.items[0].sources == created.sources
+
+            replaced = await client.replace_artifact(
                 scope_id,
-                family,
-                ListArtifactsRequest(),
+                "memory",
+                created.artifact_id,
+                ReplaceArtifactRequest(content=_memory_content()),
+                expected_etag=etag,
             )
-            found_artifacts = await client.list_artifacts(
-                scope_id,
-                family,
-                ListArtifactsRequest(query="replacement updates"),
-            )
-            second = await client.replace_artifact(
-                scope_id,
-                family,
-                artifact_id,
-                ReplaceArtifactRequest(
-                    content={"body": "Use If-Match with full replacement updates."},
-                    source_refs=[SourceTypeReference(source_type=source.source_type, source_id=source.source_id)],
-                    artifact_refs=[first.artifact_ref],
-                ),
-                expected_revision=1,
-            )
-            exact_first = await client.get_artifact_revision(
-                scope_id,
-                family,
-                artifact_id,
-                1,
-            )
+            assert replaced.revision == 2
+            assert replaced.sources == []
+            exact_first = await client.get_artifact_revision(scope_id, "memory", created.artifact_id, 1)
+            assert exact_first.revision == 1
 
             with pytest.raises(ServerResponseError) as stale:
                 await client.replace_artifact(
                     scope_id,
-                    family,
-                    artifact_id,
-                    ReplaceArtifactRequest(content={"body": "stale"}),
-                    expected_revision=1,
+                    "memory",
+                    created.artifact_id,
+                    ReplaceArtifactRequest(content=_memory_content()),
+                    expected_etag=etag,
                 )
             assert stale.value.status_code == 412
             assert stale.value.code == "revision_conflict"
-
-            deleted = await client.delete_artifact(
-                scope_id,
-                family,
-                artifact_id,
-                expected_revision=2,
-            )
-            with pytest.raises(ServerResponseError) as missing:
-                await client.get_artifact(scope_id, family, artifact_id)
-            assert missing.value.status_code == 404
-            exact_second = await client.get_artifact_revision(
-                scope_id,
-                family,
-                artifact_id,
-                2,
-            )
-
-        assert source == loaded_source
-        assert source.scope_id == scope_id
-        assert source.source_type == "content"
-        assert source.source_id
-        assert source.created_at is not None
-        assert [item.source_id for item in listed_sources.items] == [source.source_id]
-        assert [item.source_id for item in found_sources.items] == [source.source_id]
-        assert "content" not in listed_sources.items[0].model_dump()
-        assert listed_sources.query is None
-        assert found_sources.query == "Memory generation"
-        assert found_sources.mode == "keyword"
-        assert loaded_first == first
-        assert not_modified is None
-        assert first.created_at is not None
-        assert [item.artifact_ref.artifact_id for item in listed_artifacts.items] == [artifact_id]
-        assert [item.artifact_ref.artifact_id for item in found_artifacts.items] == [artifact_id]
-        assert "content" not in listed_artifacts.items[0].model_dump()
-        assert found_artifacts.query == "replacement updates"
-        assert found_artifacts.mode == "keyword"
-        assert second.artifact_ref.revision == 2
-        assert second.created_at is not None
-        assert exact_first == first
-        assert exact_second == second
-        assert deleted is None
 
     asyncio.run(scenario())

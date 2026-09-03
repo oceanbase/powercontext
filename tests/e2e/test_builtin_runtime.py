@@ -20,6 +20,7 @@ import json
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput, MemoryRerankDecision
 from powercontext.builtin.inference import InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     CaptureSource,
@@ -32,7 +33,11 @@ from powercontext.builtin.sources import ContentSource
 
 
 class _ContentCandidatePipeline:
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
+        self.calls += 1
         return tuple(
             MemoryEntryInput(
                 kind="fact",
@@ -88,6 +93,34 @@ def test_builtin_runtime_uses_sqlite_fts_without_vector_extension(tmp_path, monk
             assert no_memory.content is None
             assert no_match.status == "empty"
             assert no_match.content is None
+
+    asyncio.run(scenario())
+
+
+def test_memory_flush_skips_lineage_only_sources_and_advances_its_cursor() -> None:
+    async def scenario() -> None:
+        pipeline = _ContentCandidatePipeline()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()),
+            candidate_pipeline=pipeline,
+        ) as runtime:
+            created = await runtime.records.for_scope("lineage-only").create_artifact(
+                "memory",
+                ArtifactWrite(
+                    content={
+                        "manifest": {"entries": [], "format": "flat-v1"},
+                        "changes": [],
+                        "schema": "powercontext.memory.v1",
+                    }
+                ),
+            )
+            result = await runtime.memory.for_scope("lineage-only").flush()
+
+            assert created.revision == 1
+            assert result.current_cursor == 1
+            assert result.source_count == 0
+            assert result.memory_ref is None
+            assert pipeline.calls == 0
 
     asyncio.run(scenario())
 

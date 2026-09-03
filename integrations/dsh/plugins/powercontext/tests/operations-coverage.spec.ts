@@ -74,11 +74,8 @@ describe('operations coverage', () => {
       successStatuses: [200, 304],
       emptyStatuses: [304],
     })
-    expect(OPERATIONS.delete_artifact).toMatchObject({
-      headerParams: ['If-Match'],
-      successStatuses: [204],
-      emptyStatuses: [204],
-    })
+    expect(OPERATIONS).not.toHaveProperty('delete_artifact')
+    expect(OPERATIONS).not.toHaveProperty('list_sources')
   })
 
   it('matches every generated operation field', () => {

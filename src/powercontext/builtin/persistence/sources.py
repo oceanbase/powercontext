@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
-from datetime import UTC, datetime
 from typing import Any, cast
 
 from pydantic import BaseModel
@@ -48,7 +47,6 @@ class StoredSource(BaseModel):
     ref: SourceRef
     value: Source
     journal_position: int
-    created_at: datetime | None = None
 
 
 class SourceRepository:
@@ -71,8 +69,6 @@ class SourceRepository:
         scope_id: str,
         source: Source,
         /,
-        *,
-        created_at: datetime | None = None,
     ) -> StoredSource:
         """Add one stable Source or return an identical existing capture."""
 
@@ -88,7 +84,6 @@ class SourceRepository:
             return self._decode_row(existing)
 
         position = await _next_journal_position(connection, scope_id)
-        persisted_at = _normalize_datetime(datetime.now(UTC) if created_at is None else created_at)
         try:
             await connection.execute(
                 insert(SOURCES_TABLE).values(
@@ -97,7 +92,6 @@ class SourceRepository:
                     source_id=ref.source_id,
                     payload=payload,
                     journal_position=position,
-                    created_at=persisted_at,
                 )
             )
         except IntegrityError:
@@ -110,12 +104,7 @@ class SourceRepository:
             if stored_bytes(existing["payload"], column="payload") != payload:
                 raise StoredPayloadConflictError("source", (scope_id, ref)) from None
             return self._decode_row(existing)
-        return StoredSource(
-            ref=ref,
-            value=source,
-            journal_position=position,
-            created_at=persisted_at,
-        )
+        return StoredSource(ref=ref, value=source, journal_position=position)
 
     async def get(
         self,
@@ -224,7 +213,6 @@ class SourceRepository:
             ref=indexed,
             value=cast(Source, source),
             journal_position=int(row["journal_position"]),
-            created_at=None if row["created_at"] is None else _normalize_datetime(row["created_at"]),
         )
 
 
@@ -292,7 +280,3 @@ def _require_identity(field: str, value: object, maximum: int) -> None:
         raise InvalidRepositoryArgumentError(field, "must be a non-empty trimmed string")
     if len(value) > maximum:
         raise InvalidRepositoryArgumentError(field, f"must not exceed {maximum} characters")
-
-
-def _normalize_datetime(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)

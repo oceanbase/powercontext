@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
@@ -25,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 from powercontext.artifacts import ArtifactRef
 from powercontext.sources import SourceRef
 
-TextSearchMode = Literal["auto", "keyword"]
+BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff"]
 
 
 class _RecordModel(BaseModel):
@@ -36,55 +35,40 @@ class SourceRecord(_RecordModel):
     """One durable Source and its journal position."""
 
     scope_id: str
-    source_type: str
+    source_type: Literal["content"]
     source_id: str
     content: JsonValue
-    metadata: dict[str, JsonValue]
-    created_at: datetime | None
     position: int
     content_digest: str
-
-
-class SourceCollectionItem(_RecordModel):
-    """One Source collection projection without its potentially large content."""
-
-    scope_id: str
-    source_type: str
-    source_id: str
-    metadata: dict[str, JsonValue]
-    created_at: datetime | None
-    position: int
-    content_digest: str
-    score: float | None = None
-    snippets: tuple[str, ...] = ()
-
-
-class SourceRecordPage(_RecordModel):
-    """One stable page for either Source listing or keyword search."""
-
-    query: str | None
-    mode: Literal["keyword"] | None
-    items: tuple[SourceCollectionItem, ...]
-    next_cursor: str | None
 
 
 class ArtifactWrite(_RecordModel):
-    """Complete content and direct lineage for one Artifact revision."""
+    """Complete family-specific content for one Artifact write."""
 
     content: dict[str, JsonValue]
-    source_refs: tuple[SourceRef, ...] = ()
-    artifact_refs: tuple[ArtifactRef, ...] = ()
+
+
+class ArtifactCreated(_RecordModel):
+    """Identity and server-owned lineage returned by Artifact Create."""
+
+    scope_id: str
+    family: BaseArtifactFamily
+    artifact_id: str
+    revision: int
+    sources: tuple[SourceRef, ...]
+    artifacts: tuple[ArtifactRef, ...]
 
 
 class ArtifactRecord(_RecordModel):
     """One immutable Artifact revision with direct lineage."""
 
     scope_id: str
-    artifact_ref: ArtifactRef
+    family: BaseArtifactFamily
+    artifact_id: str
+    revision: int
     content: dict[str, JsonValue]
-    source_refs: tuple[SourceRef, ...]
-    artifact_refs: tuple[ArtifactRef, ...]
-    created_at: datetime | None
+    sources: tuple[SourceRef, ...]
+    artifacts: tuple[ArtifactRef, ...]
     content_digest: str
 
 
@@ -92,27 +76,19 @@ class ArtifactCollectionItem(_RecordModel):
     """One active Artifact head without content or lineage."""
 
     scope_id: str
-    artifact_ref: ArtifactRef
-    created_at: datetime | None
+    family: BaseArtifactFamily
+    artifact_id: str
+    revision: int
+    sources: tuple[SourceRef, ...]
+    artifacts: tuple[ArtifactRef, ...]
     content_digest: str
-    score: float | None = None
-    snippets: tuple[str, ...] = ()
 
 
 class ArtifactRecordPage(_RecordModel):
-    """One stable page for Artifact listing or keyword search."""
+    """One stable page of current Artifact heads."""
 
-    query: str | None
-    mode: Literal["keyword"] | None
     items: tuple[ArtifactCollectionItem, ...]
     next_cursor: str | None
-
-
-class ArtifactDeletion(_RecordModel):
-    """The durable deletion state for one Artifact lifecycle."""
-
-    artifact_ref: ArtifactRef
-    deleted_at: datetime
 
 
 class ScopeSummary(_RecordModel):
@@ -191,9 +167,9 @@ class CursorExpiredError(BaseAccessError):
 class ArtifactRevisionPreconditionError(BaseAccessError):
     """Report an Artifact ETag that no longer identifies the current head."""
 
-    def __init__(self, provided_revision: int, current_revision: int) -> None:
-        self.provided_revision = provided_revision
-        self.current_revision = current_revision
+    def __init__(self, provided_etag: str, current_etag: str) -> None:
+        self.provided_etag = provided_etag
+        self.current_etag = current_etag
         super().__init__("Artifact revision precondition failed")
 
 
@@ -205,7 +181,6 @@ class RecordService(Protocol):
         scope_id: str,
         source_type: str,
         content: JsonValue,
-        metadata: Mapping[str, JsonValue],
         /,
     ) -> SourceRecord: ...
 
@@ -221,25 +196,13 @@ class RecordService(Protocol):
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord: ...
 
-    async def query_sources(
-        self,
-        scope_id: str,
-        source_type: str,
-        /,
-        *,
-        query: str | None,
-        mode: TextSearchMode | None,
-        limit: int,
-        cursor: str | None,
-    ) -> SourceRecordPage: ...
-
     async def create_artifact(
         self,
         scope_id: str,
         family: str,
         write: ArtifactWrite,
         /,
-    ) -> ArtifactRecord: ...
+    ) -> ArtifactCreated: ...
 
     async def get_artifact(self, scope_id: str, family: str, artifact_id: str, /) -> ArtifactRecord: ...
 
@@ -258,8 +221,6 @@ class RecordService(Protocol):
         family: str,
         /,
         *,
-        query: str | None,
-        mode: TextSearchMode | None,
         limit: int,
         cursor: str | None,
     ) -> ArtifactRecordPage: ...
@@ -269,18 +230,9 @@ class RecordService(Protocol):
         scope_id: str,
         family: str,
         artifact_id: str,
-        expected_revision: int,
+        expected_etag: str,
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord: ...
-
-    async def delete_artifact(
-        self,
-        scope_id: str,
-        family: str,
-        artifact_id: str,
-        expected_revision: int,
-        /,
-    ) -> ArtifactDeletion: ...
 
     async def list_scopes(self, *, limit: int, cursor: str | None) -> ScopeSummaryPage: ...

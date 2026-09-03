@@ -24,8 +24,8 @@ from powercontext.client.settings import ClientSettings
 from powercontext.http import (
     CaptureContentSourceRequest,
     GetHandoffReportRequest,
-    ListSourcesRequest,
-    TextSearchMode,
+    ListArtifactsRequest,
+    ReplaceArtifactRequest,
 )
 
 
@@ -177,7 +177,7 @@ def test_client_downloads_handoff_report_bytes_and_sets_download_flag() -> None:
     asyncio.run(scenario())
 
 
-def test_client_serializes_scoped_source_paths_and_combined_list_query() -> None:
+def test_client_serializes_scoped_artifact_paths_and_list_query() -> None:
     async def scenario() -> None:
         requests: list[httpx.Request] = []
 
@@ -186,19 +186,15 @@ def test_client_serializes_scoped_source_paths_and_combined_list_query() -> None
             return httpx.Response(
                 200,
                 json={
-                    "query": "durable source",
-                    "mode": "keyword",
                     "items": [
                         {
                             "scope_id": "scope one",
-                            "source_type": "content",
-                            "source_id": "source-1",
-                            "metadata": {},
-                            "created_at": None,
-                            "position": 1,
+                            "family": "memory",
+                            "artifact_id": "memory-1",
+                            "revision": 1,
+                            "sources": [],
+                            "artifacts": [],
                             "content_digest": f"sha256:{'0' * 64}",
-                            "score": 1.0,
-                            "snippets": ["durable source"],
                         }
                     ],
                     "next_cursor": None,
@@ -207,26 +203,16 @@ def test_client_serializes_scoped_source_paths_and_combined_list_query() -> None
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
             client = PowerContextClient("https://memory.example", http_client=http_client)
-            page = await client.list_sources(
+            page = await client.list_artifacts(
                 "scope one",
-                "content",
-                ListSourcesRequest(
-                    query="durable source",
-                    mode=TextSearchMode.KEYWORD,
-                    limit=7,
-                    cursor="cursor-1",
-                ),
+                "memory",
+                ListArtifactsRequest(limit=7, cursor="cursor-1"),
             )
 
-        assert [item.source_id for item in page.items] == ["source-1"]
+        assert [item.artifact_id for item in page.items] == ["memory-1"]
         assert len(requests) == 1
-        assert requests[0].url.path == "/v1/scopes/scope one/sources/content"
-        assert dict(requests[0].url.params) == {
-            "query": "durable source",
-            "mode": "keyword",
-            "limit": "7",
-            "cursor": "cursor-1",
-        }
+        assert requests[0].url.path == "/v1/scopes/scope one/artifacts/memory"
+        assert dict(requests[0].url.params) == {"limit": "7", "cursor": "cursor-1"}
 
     asyncio.run(scenario())
 
@@ -256,28 +242,41 @@ def test_client_decodes_declared_not_modified_without_a_body() -> None:
     asyncio.run(scenario())
 
 
-def test_client_decodes_delete_no_content_and_sends_precondition() -> None:
+def test_client_sends_opaque_replace_precondition_verbatim() -> None:
     async def scenario() -> None:
         requests: list[httpx.Request] = []
 
         def respond(request: httpx.Request) -> httpx.Response:
             requests.append(request)
-            return httpx.Response(204)
+            return httpx.Response(
+                200,
+                json={
+                    "scope_id": "scope-a",
+                    "family": "memory",
+                    "artifact_id": "artifact-1",
+                    "revision": 4,
+                    "content": {"manifest": {}},
+                    "sources": [],
+                    "artifacts": [],
+                    "content_digest": f"sha256:{'0' * 64}",
+                },
+            )
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
             client = PowerContextClient("https://memory.example", http_client=http_client)
-            result = await client.delete_artifact(
+            result = await client.replace_artifact(
                 "scope-a",
-                "document",
+                "memory",
                 "artifact-1",
-                expected_revision=3,
+                ReplaceArtifactRequest(content={"manifest": {}}),
+                expected_etag='"opaque-v4"',
             )
 
-        assert result is None
+        assert result.revision == 4
         assert len(requests) == 1
-        assert requests[0].method == "DELETE"
-        assert requests[0].url.path == "/v1/scopes/scope-a/artifacts/document/artifact-1"
-        assert requests[0].headers["If-Match"] == '"revision:3"'
+        assert requests[0].method == "PUT"
+        assert requests[0].url.path == "/v1/scopes/scope-a/artifacts/memory/artifact-1"
+        assert requests[0].headers["If-Match"] == '"opaque-v4"'
 
     asyncio.run(scenario())
 

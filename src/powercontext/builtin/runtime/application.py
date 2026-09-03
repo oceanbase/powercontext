@@ -72,7 +72,7 @@ from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.records import (
-    ArtifactDeletion,
+    ArtifactCreated,
     ArtifactRecord,
     ArtifactRecordPage,
     ArtifactWrite,
@@ -80,8 +80,6 @@ from powercontext.builtin.records import (
     RecordService,
     ScopeSummaryPage,
     SourceRecord,
-    SourceRecordPage,
-    TextSearchMode,
 )
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
@@ -291,7 +289,6 @@ class ScopedRecordApplication:
         self,
         source_type: str,
         content: JsonValue,
-        metadata: Mapping[str, JsonValue],
         /,
     ) -> SourceRecord:
         async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
@@ -299,39 +296,18 @@ class ScopedRecordApplication:
                 self.scope_id,
                 source_type,
                 content,
-                metadata,
             )
 
     async def get_source(self, source_type: str, source_id: str, /) -> SourceRecord:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._runtime._records().get_source(self.scope_id, source_type, source_id)
 
-    async def query_sources(
-        self,
-        source_type: str,
-        /,
-        *,
-        query: str | None,
-        mode: TextSearchMode | None,
-        limit: int,
-        cursor: str | None,
-    ) -> SourceRecordPage:
-        async with self._runtime._scope_operation(self.scope_id):
-            return await self._runtime._records().query_sources(
-                self.scope_id,
-                source_type,
-                query=query,
-                mode=mode,
-                limit=limit,
-                cursor=cursor,
-            )
-
     async def create_artifact(
         self,
         family: str,
         write: ArtifactWrite,
         /,
-    ) -> ArtifactRecord:
+    ) -> ArtifactCreated:
         async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._records().create_artifact(self.scope_id, family, write)
 
@@ -359,8 +335,6 @@ class ScopedRecordApplication:
         family: str,
         /,
         *,
-        query: str | None,
-        mode: TextSearchMode | None,
         limit: int,
         cursor: str | None,
     ) -> ArtifactRecordPage:
@@ -368,8 +342,6 @@ class ScopedRecordApplication:
             return await self._runtime._records().query_artifacts(
                 self.scope_id,
                 family,
-                query=query,
-                mode=mode,
                 limit=limit,
                 cursor=cursor,
             )
@@ -378,7 +350,7 @@ class ScopedRecordApplication:
         self,
         family: str,
         artifact_id: str,
-        expected_revision: int,
+        expected_etag: str,
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord:
@@ -387,23 +359,8 @@ class ScopedRecordApplication:
                 self.scope_id,
                 family,
                 artifact_id,
-                expected_revision,
+                expected_etag,
                 write,
-            )
-
-    async def delete_artifact(
-        self,
-        family: str,
-        artifact_id: str,
-        expected_revision: int,
-        /,
-    ) -> ArtifactDeletion:
-        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
-            return await self._runtime._records().delete_artifact(
-                self.scope_id,
-                family,
-                artifact_id,
-                expected_revision,
             )
 
 

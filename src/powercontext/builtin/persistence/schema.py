@@ -18,14 +18,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import MetaData, Table, text
+from sqlalchemy import MetaData, Table
 from sqlalchemy.ext.asyncio import AsyncConnection
-
-_RECORD_COLUMNS = {
-    "pc_sources": {"created_at": "DATETIME NULL"},
-    "pc_artifacts": {"created_at": "DATETIME NULL"},
-    "pc_artifact_heads": {"deleted_at": "DATETIME NULL"},
-}
 
 
 async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /) -> None:
@@ -43,34 +37,3 @@ async def create_tables(connection: AsyncConnection, tables: Sequence[Table], /)
                 checkfirst=True,
             )
         )
-
-    await ensure_record_columns(connection, {table.name for table in tables})
-
-
-async def ensure_record_columns(connection: AsyncConnection, selected_tables: set[str], /) -> None:
-    """Add nullable lifecycle timestamps to schemas created before base access existed."""
-
-    dialect = connection.dialect.name
-    for table_name, required in _RECORD_COLUMNS.items():
-        if table_name not in selected_tables:
-            continue
-        if dialect == "sqlite":
-            rows = (await connection.exec_driver_sql(f"PRAGMA table_info('{table_name}')")).mappings()
-            existing = {str(row["name"]) for row in rows}
-        elif dialect == "mysql":
-            rows = (
-                await connection.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema = DATABASE() AND table_name = :table_name"
-                    ),
-                    {"table_name": table_name},
-                )
-            ).scalars()
-            existing = {str(value) for value in rows}
-        else:
-            raise ValueError(f"unsupported record schema migration dialect: {dialect}")  # noqa: TRY003
-
-        for column_name, column_type in required.items():
-            if column_name not in existing:
-                await connection.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")

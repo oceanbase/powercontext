@@ -225,6 +225,7 @@ from powercontext.http import (
     SkillProposal,
     SkillValidationItem,
     SourceReference,
+    SourceType,
     SourceTypeReference,
     TaskCheck,
     WorkClaim,
@@ -844,7 +845,7 @@ def runtime_source_reference(value: SourceReference) -> SourceRef:
 
 
 def source_type_reference(value: SourceRef) -> SourceTypeReference:
-    return SourceTypeReference(source_type=value.source_type, source_id=value.source_id)
+    return SourceTypeReference(source_type=SourceType(value.source_type), source_id=value.source_id)
 
 
 def runtime_source_type_reference(value: SourceTypeReference) -> SourceRef:

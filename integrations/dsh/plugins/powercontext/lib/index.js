@@ -677,22 +677,6 @@ const OPERATIONS = {
 		successStatuses: [201],
 		emptyStatuses: []
 	},
-	list_sources: {
-		method: "GET",
-		path: "/v1/scopes/{scope_id}/sources/{source_type}",
-		location: "query",
-		scope: true,
-		pathParams: ["scope_id", "source_type"],
-		queryParams: [
-			"query",
-			"mode",
-			"limit",
-			"cursor"
-		],
-		headerParams: [],
-		successStatuses: [200],
-		emptyStatuses: []
-	},
 	get_source: {
 		method: "GET",
 		path: "/v1/scopes/{scope_id}/sources/{source_type}/{source_id}",
@@ -725,12 +709,7 @@ const OPERATIONS = {
 		location: "query",
 		scope: true,
 		pathParams: ["scope_id", "family"],
-		queryParams: [
-			"query",
-			"mode",
-			"limit",
-			"cursor"
-		],
+		queryParams: ["limit", "cursor"],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
@@ -764,21 +743,6 @@ const OPERATIONS = {
 		headerParams: ["If-Match"],
 		successStatuses: [200],
 		emptyStatuses: []
-	},
-	delete_artifact: {
-		method: "DELETE",
-		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
-		location: null,
-		scope: true,
-		pathParams: [
-			"scope_id",
-			"family",
-			"artifact_id"
-		],
-		queryParams: [],
-		headerParams: ["If-Match"],
-		successStatuses: [204],
-		emptyStatuses: [204]
 	},
 	get_artifact_revision: {
 		method: "GET",

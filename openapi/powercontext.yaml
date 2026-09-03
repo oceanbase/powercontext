@@ -1723,83 +1723,8 @@ paths:
                 $ref: "#/components/schemas/SourceRecord"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "405":
-          $ref: "#/components/responses/OperationNotSupported"
         "409":
           $ref: "#/components/responses/Conflict"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "503":
-          $ref: "#/components/responses/Unavailable"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/scopes/{scope_id}/sources/{source_type}:
-    get:
-      tags: [sources]
-      summary: List or search Sources
-      description: List when query is absent or blank; search when query is nonblank.
-      operationId: list_sources
-      parameters:
-        - name: scope_id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 256
-            pattern: '.*\S.*'
-        - name: source_type
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
-        - name: query
-          in: query
-          required: false
-          schema:
-            type: string
-            maxLength: 8192
-        - name: mode
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/TextSearchMode"
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 50
-        - name: cursor
-          in: query
-          required: false
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 4096
-      responses:
-        "200":
-          description: One stable page of Sources or Source search results.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SourcePage"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "405":
-          $ref: "#/components/responses/OperationNotSupported"
-        "410":
-          $ref: "#/components/responses/CursorExpired"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1825,9 +1750,7 @@ paths:
           required: true
           schema:
             type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
+            enum: [content]
         - name: source_id
           in: path
           required: true
@@ -1850,8 +1773,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-        "405":
-          $ref: "#/components/responses/OperationNotSupported"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1862,7 +1783,7 @@ paths:
     post:
       tags: [artifacts]
       summary: Create an Artifact
-      description: Commit revision one for a family that permits direct creation. The Server generates artifact_id.
+      description: Validate family content and atomically create revision one with its system provenance Source.
       operationId: create_artifact
       parameters:
         - name: scope_id
@@ -1892,11 +1813,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactRevision"
+                $ref: "#/components/schemas/ArtifactCreated"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "405":
-          $ref: "#/components/responses/OperationNotSupported"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -1908,8 +1827,8 @@ paths:
   /v1/scopes/{scope_id}/artifacts/{family}:
     get:
       tags: [artifacts]
-      summary: List or search current Artifact heads
-      description: List when query is absent or blank; search when query is nonblank.
+      summary: List current Artifact heads
+      description: List current heads for exactly one built-in Artifact family.
       operationId: list_artifacts
       parameters:
         - name: scope_id
@@ -1925,20 +1844,7 @@ paths:
           required: true
           schema:
             type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
-        - name: query
-          in: query
-          required: false
-          schema:
-            type: string
-            maxLength: 8192
-        - name: mode
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/TextSearchMode"
+            enum: [memory, experience, skill, handoff]
         - name: limit
           in: query
           required: false
@@ -1956,7 +1862,7 @@ paths:
             maxLength: 4096
       responses:
         "200":
-          description: One stable page of current Artifact heads or search results.
+          description: One stable page of current Artifact heads.
           headers:
             X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
@@ -1995,9 +1901,7 @@ paths:
           required: true
           schema:
             type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
+            enum: [memory, experience, skill, handoff]
         - name: artifact_id
           in: path
           required: true
@@ -2011,7 +1915,7 @@ paths:
           required: false
           schema:
             type: string
-            pattern: '^"revision:[1-9][0-9]*"$'
+            minLength: 1
       responses:
         "200":
           description: The current visible Artifact head.
@@ -2060,9 +1964,7 @@ paths:
           required: true
           schema:
             type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
+            enum: [memory, experience, skill, handoff]
         - name: artifact_id
           in: path
           required: true
@@ -2076,7 +1978,7 @@ paths:
           required: true
           schema:
             type: string
-            pattern: '^"revision:[1-9][0-9]*"$'
+            minLength: 1
       requestBody:
         required: true
         content:
@@ -2099,66 +2001,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-        "405":
-          $ref: "#/components/responses/OperationNotSupported"
-        "412":
-          $ref: "#/components/responses/PreconditionFailed"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "428":
-          $ref: "#/components/responses/PreconditionRequired"
-        "503":
-          $ref: "#/components/responses/Unavailable"
-        "500":
-          $ref: "#/components/responses/InternalError"
-    delete:
-      tags: [artifacts]
-      summary: Delete the current Artifact head
-      description: Record a tombstone without deleting immutable historical revisions.
-      operationId: delete_artifact
-      parameters:
-        - name: scope_id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 256
-            pattern: '.*\S.*'
-        - name: family
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
-        - name: artifact_id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
-        - name: If-Match
-          in: header
-          required: true
-          schema:
-            type: string
-            pattern: '^"revision:[1-9][0-9]*"$'
-      responses:
-        "204":
-          description: The Artifact head is deleted and immutable history is retained.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "405":
-          $ref: "#/components/responses/OperationNotSupported"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
         "422":
@@ -2188,9 +2030,7 @@ paths:
           required: true
           schema:
             type: string
-            minLength: 1
-            maxLength: 128
-            pattern: '^[\x21-\x7E]+$'
+            enum: [memory, experience, skill, handoff]
         - name: artifact_id
           in: path
           required: true
@@ -2233,10 +2073,10 @@ components:
       description: Static bearer token used when local Server authentication is enabled.
   headers:
     ArtifactETag:
-      description: Strong validator for the current immutable Artifact revision.
+      description: Opaque strong validator for the current Artifact head. Clients must replay it verbatim.
       schema:
         type: string
-        pattern: '^"revision:[1-9][0-9]*"$'
+        minLength: 1
     BearerChallenge:
       description: Authentication scheme required by the Server.
       schema:
@@ -2283,20 +2123,6 @@ components:
     Conflict:
       description: The command conflicts with current immutable state.
       headers:
-        X-PowerContext-Request-ID:
-          $ref: "#/components/headers/RequestId"
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    OperationNotSupported:
-      description: The Source type or Artifact family does not permit this operation.
-      headers:
-        Allow:
-          description: HTTP methods supported by the selected Source type or Artifact family.
-          required: true
-          schema:
-            type: string
         X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
@@ -2397,42 +2223,65 @@ components:
           default: 8000
     ArtifactCollectionItem:
       type: object
-      required: [scope_id, artifact_ref, created_at, content_digest, score, snippets]
+      required: [scope_id, family, artifact_id, revision, sources, artifacts, content_digest]
       properties:
         scope_id:
           type: string
           minLength: 1
           maxLength: 256
           pattern: '.*\S.*'
-        artifact_ref:
-          $ref: "#/components/schemas/ArtifactReference"
-        created_at:
+        family:
+          $ref: "#/components/schemas/BaseArtifactFamily"
+        artifact_id:
           type: string
-          format: date-time
-          nullable: true
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        revision:
+          type: integer
+          minimum: 1
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceTypeReference"
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
-        score:
-          type: number
-          minimum: 0
-          maximum: 1
-          nullable: true
-        snippets:
+    ArtifactCreated:
+      type: object
+      required: [scope_id, family, artifact_id, revision, sources, artifacts]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        family:
+          $ref: "#/components/schemas/BaseArtifactFamily"
+        artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        revision:
+          type: integer
+          minimum: 1
+        sources:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/SourceTypeReference"
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
     ArtifactPage:
       type: object
-      required: [query, mode, items, next_cursor]
+      required: [items, next_cursor]
       properties:
-        query:
-          type: string
-          nullable: true
-        mode:
-          allOf:
-            - $ref: "#/components/schemas/TextSearchUsedMode"
-          nullable: true
         items:
           type: array
           items:
@@ -2442,30 +2291,34 @@ components:
           nullable: true
     ArtifactRevision:
       type: object
-      required: [scope_id, artifact_ref, content, source_refs, artifact_refs, created_at, content_digest]
+      required: [scope_id, family, artifact_id, revision, content, sources, artifacts, content_digest]
       properties:
         scope_id:
           type: string
           minLength: 1
           maxLength: 256
           pattern: '.*\S.*'
-        artifact_ref:
-          $ref: "#/components/schemas/ArtifactReference"
+        family:
+          $ref: "#/components/schemas/BaseArtifactFamily"
+        artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        revision:
+          type: integer
+          minimum: 1
         content:
           type: object
           additionalProperties: true
-        source_refs:
+        sources:
           type: array
           items:
             $ref: "#/components/schemas/SourceTypeReference"
-        artifact_refs:
+        artifacts:
           type: array
           items:
             $ref: "#/components/schemas/ArtifactReference"
-        created_at:
-          type: string
-          format: date-time
-          nullable: true
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
@@ -5240,23 +5093,10 @@ components:
       required: [family, content]
       properties:
         family:
-          type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
+          $ref: "#/components/schemas/BaseArtifactFamily"
         content:
           type: object
           additionalProperties: true
-        source_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/SourceTypeReference"
-          default: []
-        artifact_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/ArtifactReference"
-          default: []
     CreateSourceRequest:
       type: object
       additionalProperties: false
@@ -5264,50 +5104,14 @@ components:
       properties:
         source_type:
           type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
+          enum: [content]
           default: content
         content:
-          description: JSON value validated by the selected Source adapter.
-        metadata:
-          type: object
-          additionalProperties: true
-          default: {}
+          description: JSON value persisted by the built-in content Source adapter.
     ListArtifactsRequest:
       type: object
       additionalProperties: false
       properties:
-        query:
-          type: string
-          maxLength: 8192
-          nullable: true
-        mode:
-          allOf:
-            - $ref: "#/components/schemas/TextSearchMode"
-          nullable: true
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-        cursor:
-          type: string
-          minLength: 1
-          maxLength: 4096
-          nullable: true
-    ListSourcesRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        query:
-          type: string
-          maxLength: 8192
-          nullable: true
-        mode:
-          allOf:
-            - $ref: "#/components/schemas/TextSearchMode"
-          nullable: true
         limit:
           type: integer
           minimum: 1
@@ -5326,78 +5130,9 @@ components:
         content:
           type: object
           additionalProperties: true
-        source_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/SourceTypeReference"
-          default: []
-        artifact_refs:
-          type: array
-          items:
-            $ref: "#/components/schemas/ArtifactReference"
-          default: []
-    SourceCollectionItem:
-      type: object
-      required: [scope_id, source_type, source_id, metadata, created_at, position, content_digest, score, snippets]
-      properties:
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '.*\S.*'
-        source_type:
-          type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
-        source_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '^[\x21-\x7E]+$'
-        metadata:
-          type: object
-          additionalProperties: true
-        created_at:
-          type: string
-          format: date-time
-          nullable: true
-        position:
-          type: integer
-          minimum: 1
-        content_digest:
-          type: string
-          pattern: '^sha256:[0-9a-f]{64}$'
-        score:
-          type: number
-          minimum: 0
-          maximum: 1
-          nullable: true
-        snippets:
-          type: array
-          items:
-            type: string
-    SourcePage:
-      type: object
-      required: [query, mode, items, next_cursor]
-      properties:
-        query:
-          type: string
-          nullable: true
-        mode:
-          allOf:
-            - $ref: "#/components/schemas/TextSearchUsedMode"
-          nullable: true
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/SourceCollectionItem"
-        next_cursor:
-          type: string
-          nullable: true
     SourceRecord:
       type: object
-      required: [scope_id, source_type, source_id, content, metadata, created_at, position, content_digest]
+      required: [scope_id, source_type, source_id, content, position, content_digest]
       properties:
         scope_id:
           type: string
@@ -5406,9 +5141,7 @@ components:
           pattern: '.*\S.*'
         source_type:
           type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
+          enum: [content]
         source_id:
           type: string
           minLength: 1
@@ -5416,13 +5149,6 @@ components:
           pattern: '^[\x21-\x7E]+$'
         content:
           description: Persisted canonical JSON content.
-        metadata:
-          type: object
-          additionalProperties: true
-        created_at:
-          type: string
-          format: date-time
-          nullable: true
         position:
           type: integer
           minimum: 1
@@ -5436,9 +5162,7 @@ components:
       properties:
         source_type:
           type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
+          enum: [content]
         source_id:
           type: string
           minLength: 1
@@ -5457,15 +5181,12 @@ components:
     CaptureStatus:
       type: string
       enum: [accepted]
+    BaseArtifactFamily:
+      type: string
+      enum: [memory, experience, skill, handoff]
     StatsPeriod:
       type: string
       enum: [today, 7d, 30d]
-    TextSearchMode:
-      type: string
-      enum: [auto, keyword]
-    TextSearchUsedMode:
-      type: string
-      enum: [keyword]
     CandidateFamily:
       type: string
       enum: [experience, skill]

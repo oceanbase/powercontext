@@ -33,6 +33,7 @@ from powercontext.http import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    ArtifactCreated,
     ArtifactPage,
     ArtifactRevision,
     AttachHandoffReportWorkspaceRequest,
@@ -87,7 +88,6 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
-    ListSourcesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -118,7 +118,6 @@ from powercontext.http import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
-    SourcePage,
     SourceRecord,
     StoredHandoffReportActivity,
     UpdateHandoffReportProjectRequest,
@@ -139,7 +138,6 @@ from powercontext.http._generated.operations import (
     CREATE_HANDOFF_REPORT_PROJECT,
     CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
-    DELETE_ARTIFACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
@@ -170,7 +168,6 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
-    LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -456,17 +453,8 @@ class PowerContextClient:
             path_parameters={"scope_id": scope_id, "source_type": source_type, "source_id": source_id},
         )
 
-    async def list_sources(self, scope_id: str, source_type: str, request: ListSourcesRequest) -> SourcePage:
-        """List Sources or search them when the request includes a query."""
-
-        return await self._request(
-            LIST_SOURCES,
-            request,
-            path_parameters={"scope_id": scope_id, "source_type": source_type},
-        )
-
-    async def create_artifact(self, scope_id: str, request: CreateArtifactRequest) -> ArtifactRevision:
-        """Commit revision one for a direct Artifact family."""
+    async def create_artifact(self, scope_id: str, request: CreateArtifactRequest) -> ArtifactCreated:
+        """Atomically commit revision one and its system provenance Source."""
 
         return await self._request(CREATE_ARTIFACT, request, path_parameters={"scope_id": scope_id})
 
@@ -506,7 +494,7 @@ class PowerContextClient:
         )
 
     async def list_artifacts(self, scope_id: str, family: str, request: ListArtifactsRequest) -> ArtifactPage:
-        """List Artifact heads or search them when the request includes a query."""
+        """List current Artifact heads for one family."""
 
         return await self._request(
             LIST_ARTIFACTS,
@@ -521,7 +509,7 @@ class PowerContextClient:
         artifact_id: str,
         request: ReplaceArtifactRequest,
         *,
-        expected_revision: int,
+        expected_etag: str,
     ) -> ArtifactRevision:
         """Commit a complete next revision using optimistic concurrency."""
 
@@ -529,23 +517,7 @@ class PowerContextClient:
             REPLACE_ARTIFACT,
             request,
             path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
-            extra_headers={"If-Match": _artifact_etag(expected_revision)},
-        )
-
-    async def delete_artifact(
-        self,
-        scope_id: str,
-        family: str,
-        artifact_id: str,
-        *,
-        expected_revision: int,
-    ) -> None:
-        """Delete an Artifact head while preserving immutable revisions."""
-
-        await self._request(
-            DELETE_ARTIFACT,
-            path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
-            extra_headers={"If-Match": _artifact_etag(expected_revision)},
+            extra_headers={"If-Match": expected_etag},
         )
 
     async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
@@ -818,12 +790,6 @@ def _operation_path(
     if "{" in path or "}" in path:
         raise ValueError(f"{operation.operation_id} requires path parameters")  # noqa: TRY003
     return path
-
-
-def _artifact_etag(revision: int) -> str:
-    if isinstance(revision, bool) or revision < 1:
-        raise ValueError("expected_revision must be positive")  # noqa: TRY003
-    return f'"revision:{revision}"'
 
 
 def _decode_error(content: bytes) -> ErrorResponse | None:

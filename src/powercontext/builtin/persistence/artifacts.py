@@ -17,10 +17,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -43,6 +42,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACTS_TABLE,
 )
+from powercontext.builtin.source_eligibility import ArtifactLineageTarget, require_source_eligible
 from powercontext.errors import (
     ArtifactFamilyMismatchError,
     RevisionConflictError,
@@ -51,10 +51,27 @@ from powercontext.limits import MAX_SCOPE_ID_LENGTH
 from powercontext.sources import SourceRef
 
 
+class RepositoryArtifactDraft(BaseModel):
+    """A family-validated draft accepted by the shared Artifact repository."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    family: str
+    content: BaseModel
+    sources: tuple[SourceRef, ...] = ()
+    artifacts: tuple[ArtifactRef, ...] = ()
+
+
 class ArtifactRepository:
     """Store composed Artifact types in the shared revision schema."""
 
-    def __init__(self, artifact_types: Iterable[type[Artifact[Any]]], /) -> None:
+    def __init__(
+        self,
+        artifact_types: Iterable[type[Artifact[Any]]],
+        /,
+        *,
+        sources: Any | None = None,
+    ) -> None:
         self._by_family = {artifact_type.family: artifact_type for artifact_type in artifact_types}
         self._content_types: dict[str, type[BaseModel]] = {}
         for family, artifact_type in self._by_family.items():
@@ -62,6 +79,7 @@ class ArtifactRepository:
             if not isinstance(content_type, type) or not issubclass(content_type, BaseModel):
                 raise TypeError(f"{artifact_type.__name__}.content must be a BaseModel")  # noqa: TRY003
             self._content_types[family] = content_type
+        self._sources = sources
 
     @property
     def families(self) -> frozenset[str]:
@@ -74,7 +92,7 @@ class ArtifactRepository:
         connection: AsyncConnection,
         scope_id: str,
         artifact_id: str,
-        draft: ArtifactDraft[Any],
+        draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
         /,
     ) -> Artifact[Any]:
         """Create revision one, rejecting an already existing lifecycle."""
@@ -83,6 +101,7 @@ class ArtifactRepository:
         artifact_type = self._artifact_type(draft.family)
         self._require_content(draft.family, draft.content)
         ref = ArtifactRef(family=draft.family, artifact_id=artifact_id, revision=1)
+        await self._validate_lineage_sources(connection, scope_id, ref, draft.sources)
         conflict = await self._head_conflict(connection, scope_id, ref, draft)
         if conflict is not None:
             raise conflict
@@ -101,7 +120,6 @@ class ArtifactRepository:
                     family=ref.family,
                     artifact_id=ref.artifact_id,
                     revision=ref.revision,
-                    deleted_at=None,
                 )
             )
         except IntegrityError:
@@ -119,7 +137,7 @@ class ArtifactRepository:
         connection: AsyncConnection,
         scope_id: str,
         artifact: Artifact[Any],
-        draft: ArtifactDraft[Any],
+        draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
         /,
     ) -> Artifact[Any]:
         """Commit a next revision only when ``artifact`` remains the head."""
@@ -129,6 +147,12 @@ class ArtifactRepository:
         if type(artifact) is not artifact_type or draft.family != artifact.family:
             raise ArtifactFamilyMismatchError(artifact, draft)
         self._require_content(draft.family, draft.content)
+        target = ArtifactRef(
+            family=artifact.family,
+            artifact_id=artifact.artifact_id,
+            revision=artifact.revision + 1,
+        )
+        await self._validate_lineage_sources(connection, scope_id, target, draft.sources)
 
         locked = await connection.execute(
             update(ARTIFACT_HEADS_TABLE)
@@ -137,7 +161,6 @@ class ArtifactRepository:
                 ARTIFACT_HEADS_TABLE.c.family == artifact.family,
                 ARTIFACT_HEADS_TABLE.c.artifact_id == artifact.artifact_id,
                 ARTIFACT_HEADS_TABLE.c.revision == artifact.revision,
-                ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
             )
             .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
         )
@@ -165,7 +188,6 @@ class ArtifactRepository:
                 ARTIFACT_HEADS_TABLE.c.family == artifact.family,
                 ARTIFACT_HEADS_TABLE.c.artifact_id == artifact.artifact_id,
                 ARTIFACT_HEADS_TABLE.c.revision == artifact.revision,
-                ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
             )
             .values(revision=ref.revision)
         )
@@ -269,7 +291,6 @@ class ArtifactRepository:
                 artifact_id=ref.artifact_id,
                 revision=ref.revision,
                 content=payload,
-                created_at=datetime.now(UTC),
             )
         )
         if lineage.sources:
@@ -398,13 +419,11 @@ class ArtifactRepository:
         connection: AsyncConnection,
         scope_id: str,
         ref: ArtifactRef,
-        draft: ArtifactDraft[Any],
+        draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
     ) -> RevisionConflictError | None:
         """Return the conflict raised by an already committed lifecycle."""
 
         head = await self._find_head(connection, scope_id, ref.family, ref.artifact_id)
-        if head is None:
-            head = await self._find_deleted_head(connection, scope_id, ref.family, ref.artifact_id)
         if head is None:
             return None
         current = await self.get(
@@ -425,26 +444,8 @@ class ArtifactRepository:
             ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
             ARTIFACT_HEADS_TABLE.c.family == family,
             ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
-            ARTIFACT_HEADS_TABLE.c.deleted_at.is_(None),
         )
         value = await connection.scalar(statement)
-        return None if value is None else int(value)
-
-    async def _find_deleted_head(
-        self,
-        connection: AsyncConnection,
-        scope_id: str,
-        family: str,
-        artifact_id: str,
-    ) -> int | None:
-        value = await connection.scalar(
-            select(ARTIFACT_HEADS_TABLE.c.revision).where(
-                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                ARTIFACT_HEADS_TABLE.c.family == family,
-                ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
-                ARTIFACT_HEADS_TABLE.c.deleted_at.is_not(None),
-            )
-        )
         return None if value is None else int(value)
 
     def _artifact_type(self, family: str) -> type[Artifact[Any]]:
@@ -457,6 +458,55 @@ class ArtifactRepository:
         expected = self._content_types.get(family)
         if expected is None or type(content) is not expected:
             raise ArtifactFamilyMismatchError(family, content)
+
+    def draft(
+        self,
+        family: str,
+        content: dict[str, JsonValue],
+        /,
+        *,
+        sources: tuple[SourceRef, ...] = (),
+        artifacts: tuple[ArtifactRef, ...] = (),
+    ) -> RepositoryArtifactDraft:
+        """Validate untrusted JSON with the registered family model."""
+
+        content_type = self._content_types.get(family)
+        if content_type is None:
+            raise RepositoryNotFoundError("artifact-family", family)
+        try:
+            # The REST body is already JSON typed; allow Pydantic to normalize
+            # JSON arrays into the tuple-backed immutable domain models.
+            validated = content_type.model_validate(content)
+        except ValidationError as error:
+            raise InvalidRepositoryArgumentError("content", "does not match the Artifact family") from error
+        return RepositoryArtifactDraft(
+            family=family,
+            content=validated,
+            sources=sources,
+            artifacts=artifacts,
+        )
+
+    async def _validate_lineage_sources(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        target: ArtifactRef,
+        sources: tuple[SourceRef, ...],
+    ) -> None:
+        if self._sources is None:
+            return
+        for source_ref in sources:
+            stored = await self._sources.get(connection, scope_id, source_ref)
+            require_source_eligible(
+                source_ref,
+                stored.value,
+                target=ArtifactLineageTarget(
+                    scope_id=scope_id,
+                    family=target.family,
+                    artifact_id=target.artifact_id,
+                    revision=target.revision,
+                ),
+            )
 
 
 def _require_scope(scope_id: object) -> None:

@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.sources import SourceRepository
+from powercontext.builtin.source_eligibility import require_source_eligible
 from powercontext.errors import ArtifactNotFoundError
 
 
@@ -133,6 +134,7 @@ class RelationalHandoffEvidenceResolver:
             if isinstance(citation, HandoffSourceCitation):
                 async with self._database.transaction() as connection:
                     source = await self._sources.get(connection, self._scope_id, citation.source_ref)
+                require_source_eligible(citation.source_ref, source.value)
                 return HandoffSourceEvidence(citation=citation, source=source.value)
             if isinstance(citation, HandoffArtifactCitation):
                 async with self._database.transaction() as connection:
