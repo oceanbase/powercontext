@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from integration_manifest import (  # ty: ignore[unresolved-import] - executable sibling module
+from integration_manifest import (
     DOCUMENTATION_PATHS,
     evidence_path_errors,
     load_integration_manifest,
