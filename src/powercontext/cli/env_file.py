@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Collection, Generator, Mapping, MutableMapping
+from collections.abc import Collection, Generator, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -44,7 +44,8 @@ def parse_environment(content: str, *, source: str = "environment") -> dict[str,
     """
 
     environment: dict[str, str] = {}
-    for line_number, line in enumerate(content.splitlines(), start=1):
+    lines = iter(enumerate(content.splitlines(), start=1))
+    for line_number, line in lines:
         stripped = line.lstrip(" \t")
         if not stripped or stripped.startswith("#"):
             continue
@@ -53,12 +54,7 @@ def parse_environment(content: str, *, source: str = "environment") -> dict[str,
             stripped = stripped[export.end() :]
         if "\x00" in stripped:
             raise EnvironmentFileError(f"invalid NUL character at {source}:{line_number}")  # noqa: TRY003
-        try:
-            tokens = _split_shell_words(stripped)
-        except ValueError as error:
-            raise EnvironmentFileError(  # noqa: TRY003
-                f"invalid assignment at {source}:{line_number}: {error}"
-            ) from error
+        tokens = _split_assignment(stripped, lines, source=source, line_number=line_number)
         if not tokens:
             continue
         if len(tokens) != 1 or "=" not in tokens[0]:
@@ -74,6 +70,37 @@ def parse_environment(content: str, *, source: str = "environment") -> dict[str,
             )
         environment[name] = value
     return environment
+
+
+def _split_assignment(
+    first_line: str,
+    following_lines: Iterator[tuple[int, str]],
+    *,
+    source: str,
+    line_number: int,
+) -> list[str]:
+    """Split one assignment, consuming physical lines until its quotes close."""
+
+    assignment = first_line
+    while True:
+        try:
+            return _split_shell_words(assignment)
+        except ValueError as error:
+            if str(error) != _NO_CLOSING_QUOTATION:
+                raise EnvironmentFileError(  # noqa: TRY003
+                    f"invalid assignment at {source}:{line_number}: {error}"
+                ) from error
+            try:
+                continuation_line_number, continuation = next(following_lines)
+            except StopIteration:
+                raise EnvironmentFileError(  # noqa: TRY003
+                    f"invalid assignment at {source}:{line_number}: {error}"
+                ) from error
+            if "\x00" in continuation:
+                raise EnvironmentFileError(  # noqa: TRY003
+                    f"invalid NUL character at {source}:{continuation_line_number}"
+                ) from None
+            assignment = f"{assignment}\n{continuation}"
 
 
 def _split_shell_words(line: str) -> list[str]:  # noqa: C901

@@ -39,6 +39,33 @@ def test_quoted_values_keep_hashes_and_spaces() -> None:
     assert parse_environment(content) == {"TOKEN": "#not a comment", "OTHER": "plain#tag"}
 
 
+def test_multiline_quoted_json_value_is_preserved() -> None:
+    content = """POWERCONTEXT_SERVER_DASHBOARD_SCOPES='[
+  {
+    "scope_id": "git:github.com/oceanbase/powercontext",
+    "display_name": "powercontext"
+  }
+]'
+OTHER=value
+"""
+
+    assert parse_environment(content) == {
+        "POWERCONTEXT_SERVER_DASHBOARD_SCOPES": """[
+  {
+    "scope_id": "git:github.com/oceanbase/powercontext",
+    "display_name": "powercontext"
+  }
+]""",
+        "OTHER": "value",
+    }
+
+
+def test_multiline_double_quoted_value_unescapes_json_quotes() -> None:
+    content = 'JSON="[\n  {\\"name\\": \\"value\\"}\n]"\n'
+
+    assert parse_environment(content) == {"JSON": '[\n  {"name": "value"}\n]'}
+
+
 def test_url_fragment_assignment_survives() -> None:
     assert parse_environment("URL=https://example.com/page#section\n") == {"URL": "https://example.com/page#section"}
 
