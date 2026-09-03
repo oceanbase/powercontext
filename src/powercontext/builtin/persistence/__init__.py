@@ -15,6 +15,15 @@
 """SQLAlchemy-backed relational persistence building blocks."""
 
 from powercontext.builtin.persistence.candidates import CandidateRepository
+from powercontext.builtin.persistence.coordination import (
+    CoordinationRepository,
+    CoordinatorLease,
+    RuntimeMember,
+    RuntimeMemberSpec,
+    SchedulerScan,
+    StaleCoordinatorLeaseError,
+    StaleScanStateError,
+)
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
     DatabaseClosedError,
@@ -29,17 +38,33 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.rate_limit import RateLimitDecision, RateLimitRepository
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
     StoredInventoryCounts,
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
+from powercontext.builtin.persistence.work import (
+    EnqueueResult,
+    StaleWorkClaimError,
+    StoredWork,
+    WorkClaim,
+    WorkFailure,
+    WorkRepository,
+    WorkResult,
+    WorkSpec,
+    WorkStateConflictError,
+    WorkStatus,
+)
 
 __all__ = (
     "AsyncDatabase",
     "CandidateRepository",
+    "CoordinationRepository",
+    "CoordinatorLease",
     "DatabaseClosedError",
+    "EnqueueResult",
     "ExternalSkillRepository",
     "GenerationConflictError",
     "IdentityMismatchError",
@@ -47,11 +72,27 @@ __all__ = (
     "InvalidStoredColumnError",
     "InvalidStoredPayloadError",
     "PersistenceError",
+    "RateLimitDecision",
+    "RateLimitRepository",
     "RepositoryError",
     "RepositoryNotFoundError",
+    "RuntimeMember",
+    "RuntimeMemberSpec",
+    "SchedulerScan",
+    "StaleCoordinatorLeaseError",
+    "StaleScanStateError",
+    "StaleWorkClaimError",
     "StatisticsRepository",
     "StoredInventoryCounts",
     "StoredModelUsage",
     "StoredPayloadConflictError",
     "StoredRecallTokenUsage",
+    "StoredWork",
+    "WorkClaim",
+    "WorkFailure",
+    "WorkRepository",
+    "WorkResult",
+    "WorkSpec",
+    "WorkStateConflictError",
+    "WorkStatus",
 )

@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from functools import wraps
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypeVar, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -97,6 +97,8 @@ from powercontext.builtin.handoff_report.repository import (
     InvalidActivityRepositoryArgumentError,
 )
 from powercontext.builtin.inference.errors import InferenceTimeoutError, InferenceUnavailableError
+from powercontext.builtin.persistence.errors import RepositoryError, RepositoryNotFoundError
+from powercontext.builtin.persistence.work import WorkStateConflictError, WorkStatus
 from powercontext.builtin.review import (
     ArtifactTargetConflictError,
     CandidateConflictError,
@@ -193,6 +195,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     StatisticsPeriod as RuntimeStatisticsPeriod,
 )
+from powercontext.builtin.runtime.operations import (
+    OperationManager,
+)
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
 )
@@ -270,8 +275,15 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
+    ListOperationsRequest,
     MemoryEntry,
     MemoryMutationResponse,
+    OperationAccepted,
+    OperationKind,
+    OperationMutationRequest,
+    OperationPage,
+    OperationRecord,
+    OperationStatus,
     PrepareContextRequest,
     PreparedContext,
     PreparedWorkHandoff,
@@ -326,6 +338,7 @@ from powercontext.http._generated.operations import (
     API_VERSION,
     APPROVE_ARTIFACT_CANDIDATE,
     ATTACH_HANDOFF_REPORT_WORKSPACE,
+    CANCEL_OPERATION,
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
@@ -344,6 +357,7 @@ from powercontext.http._generated.operations import (
     GET_HANDOFF_REPORT_WORKSPACE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
+    GET_OPERATION,
     GET_READINESS,
     GET_SKILL,
     GET_STATS,
@@ -357,6 +371,7 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_OPERATIONS,
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
@@ -370,6 +385,7 @@ from powercontext.http._generated.operations import (
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
+    RETRY_OPERATION,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
@@ -566,6 +582,7 @@ def create_app(
     metrics: ServerMetrics | None = None,
     tracing: ServerTracing | None = None,
     handoff_report_enabled: bool = False,
+    public_routes: bool = True,
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
 
@@ -580,6 +597,7 @@ def create_app(
     )
     app.openapi_version = OPENAPI_VERSION
     app.state.application = application
+    app.state.operation_manager = None
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
     app.state.metrics = metrics
@@ -620,6 +638,7 @@ def create_app(
 
     @app.exception_handler(_RuntimeNotReadyError)
     @app.exception_handler(PowerContextError)
+    @app.exception_handler(RepositoryError)
     async def application_error(request: Request, error: Exception) -> JSONResponse:
         response_status, code, message, details = _map_error(error)
         return _error_response(response_status, code=code, message=message, details=details)
@@ -658,6 +677,10 @@ def create_app(
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, FLUSH_MEMORY, flush_memory)
+    _add_route(app, GET_OPERATION, get_operation)
+    _add_route(app, LIST_OPERATIONS, list_operations)
+    _add_route(app, CANCEL_OPERATION, cancel_operation)
+    _add_route(app, RETRY_OPERATION, retry_operation)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_CONTEXT, prepare_context)
@@ -696,19 +719,43 @@ def create_app(
         include_in_schema=False,
         methods=["GET"],
     )
+    _restrict_to_management_routes(app, public_routes=public_routes)
 
     def canonical_openapi() -> dict[str, Any]:
-        if app.openapi_schema is None:
-            app.openapi_schema = deepcopy(OPENAPI_SCHEMA)
-            if not handoff_report_enabled:
-                paths = cast(dict[str, Any], app.openapi_schema["paths"])
-                app.openapi_schema["paths"] = {
-                    path: value for path, value in paths.items() if not path.startswith("/v1/handoff-reports/")
-                }
-        return app.openapi_schema
+        return _canonical_openapi_schema(
+            app,
+            public_routes=public_routes,
+            handoff_report_enabled=handoff_report_enabled,
+        )
 
     app.openapi = canonical_openapi  # ty: ignore[invalid-assignment]
     return app
+
+
+def _restrict_to_management_routes(app: FastAPI, *, public_routes: bool) -> None:
+    if public_routes:
+        return
+    management_paths = {GET_LIVENESS.path, GET_READINESS.path}
+    app.router.routes[:] = [route for route in app.router.routes if getattr(route, "path", None) in management_paths]
+
+
+def _canonical_openapi_schema(
+    app: FastAPI,
+    *,
+    public_routes: bool,
+    handoff_report_enabled: bool,
+) -> dict[str, Any]:
+    if app.openapi_schema is not None:
+        return app.openapi_schema
+    app.openapi_schema = deepcopy(OPENAPI_SCHEMA)
+    paths = cast(dict[str, Any], app.openapi_schema["paths"])
+    if not public_routes:
+        management_paths = {GET_LIVENESS.path, GET_READINESS.path}
+        paths = {path: value for path, value in paths.items() if path in management_paths}
+    if not handoff_report_enabled:
+        paths = {path: value for path, value in paths.items() if not path.startswith("/v1/handoff-reports/")}
+    app.openapi_schema["paths"] = paths
+    return app.openapi_schema
 
 
 async def scalar_api_reference(request: Request) -> Response:
@@ -1021,11 +1068,121 @@ async def capture_content_source(
 
 
 async def flush_memory(
-    request: FlushMemoryRequest,
+    payload: FlushMemoryRequest,
+    request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
-) -> FlushMemoryResponse:
-    result = await application.memory.for_scope(request.scope_id).flush()
-    return mapping.flush_response(result)
+) -> FlushMemoryResponse | JSONResponse:
+    manager: OperationManager | None = request.app.state.operation_manager
+    if manager is None:
+        result = await application.memory.for_scope(payload.scope_id).flush()
+        return mapping.flush_response(result)
+    submission = await manager.submit_memory(
+        payload.scope_id,
+        limit=manager.memory_window_limit,
+    )
+    if submission.idle is not None:
+        return mapping.flush_response(submission.idle)
+    if submission.operation is None:
+        raise _RuntimeNotReadyError
+    operation = submission.operation.work
+    if operation.status is WorkStatus.FAILED:
+        return _error_response(
+            status.HTTP_409_CONFLICT,
+            code="operation_blocked",
+            message="The logical window is blocked by a failed operation.",
+            details={"operation_id": operation.work_id},
+        )
+    completed = await manager.wait(
+        operation.work_id,
+        timeout_seconds=_preferred_wait(request, manager),
+    )
+    if completed is not None and completed.status is WorkStatus.SUCCEEDED:
+        return mapping.flush_response(manager.memory_result(completed))
+    if completed is not None and completed.status is WorkStatus.FAILED:
+        return _error_response(
+            status.HTTP_409_CONFLICT,
+            code="operation_failed",
+            message="The Memory operation failed and requires operator action.",
+            details={"operation_id": completed.work_id},
+        )
+    if completed is not None and completed.status is WorkStatus.CANCELLED:
+        return _error_response(
+            status.HTTP_409_CONFLICT,
+            code="operation_cancelled",
+            message="The Memory operation was cancelled.",
+            details={"operation_id": completed.work_id},
+        )
+    current = operation if completed is None else completed
+    accepted = OperationAccepted(
+        operation_id=UUID(current.work_id),
+        status=OperationStatus(current.status.value),
+        status_url=f"/v1/operations/{current.work_id}",
+    )
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=accepted.model_dump(mode="json"),
+        headers={"Location": accepted.status_url, "Retry-After": "2"},
+    )
+
+
+async def get_operation(
+    operation_id: UUID,
+    manager: Annotated[OperationManager, Depends(_require_operation_manager)],
+) -> OperationRecord:
+    return mapping.operation_response(await manager.get(str(operation_id)))
+
+
+def _list_operations_query(
+    scope_id: Annotated[str | None, Query(min_length=1, max_length=256)] = None,
+    kind: Annotated[OperationKind | None, Query()] = None,
+    operation_status: Annotated[OperationStatus | None, Query(alias="status")] = None,
+    cursor: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> ListOperationsRequest:
+    """Coerce HTTP query strings before applying the strict generated contract model."""
+
+    return ListOperationsRequest(
+        scope_id=scope_id,
+        kind=kind,
+        status=operation_status,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+async def list_operations(
+    request: Annotated[ListOperationsRequest, Depends(_list_operations_query)],
+    manager: Annotated[OperationManager, Depends(_require_operation_manager)],
+) -> OperationPage:
+    page = await manager.list(
+        scope_id=request.scope_id,
+        kind=None if request.kind is None else mapping.operation_kind_value(request.kind),
+        status=None if request.status is None else WorkStatus(request.status.value),
+        cursor=request.cursor,
+        limit=request.limit,
+    )
+    return OperationPage(
+        items=[mapping.operation_response(item) for item in page.items],
+        next_cursor=page.next_cursor,
+    )
+
+
+async def cancel_operation(
+    operation_id: UUID,
+    request: OperationMutationRequest,
+    manager: Annotated[OperationManager, Depends(_require_operation_manager)],
+) -> OperationRecord:
+    return mapping.operation_response(
+        await manager.cancel(str(operation_id), expected_version=request.expected_version)
+    )
+
+
+async def retry_operation(
+    operation_id: UUID,
+    request: OperationMutationRequest,
+    manager: Annotated[OperationManager, Depends(_require_operation_manager)],
+) -> OperationRecord:
+    return mapping.operation_response(await manager.retry(str(operation_id), expected_version=request.expected_version))
 
 
 async def remember_memory(
@@ -1352,6 +1509,30 @@ def _require_application(request: Request) -> ServerApplication:
     return application
 
 
+def _require_operation_manager(request: Request) -> OperationManager:
+    manager: OperationManager | None = request.app.state.operation_manager
+    if manager is None:
+        raise _RuntimeNotReadyError
+    return manager
+
+
+def _preferred_wait(request: Request, manager: OperationManager) -> float:
+    preference = request.headers.get("Prefer", "")
+    values = {value.strip().lower() for value in preference.split(",") if value.strip()}
+    if "respond-async" in values:
+        return 0
+    for value in values:
+        name, separator, raw_seconds = value.partition("=")
+        if name != "wait" or not separator:
+            continue
+        try:
+            seconds = max(0, int(raw_seconds))
+        except ValueError:
+            continue
+        return min(seconds, manager.maximum_wait_seconds)
+    return manager.default_wait_seconds
+
+
 def _require_handoff_report_application(request: Request) -> HandoffReportApplication:
     application = _require_application(request)
     if application.handoff_report is None:
@@ -1519,6 +1700,9 @@ def _validation_error_details(error: RequestValidationError) -> list[Any]:
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
+    operation_error = _map_operation_error(error)
+    if operation_error is not None:
+        return operation_error
     if isinstance(error, ExternalSkillRegistryUnavailableError):
         return (
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1552,6 +1736,23 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if report_error is not None:
         return report_error
     return _map_domain_error(error)
+
+
+def _map_operation_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, RepositoryNotFoundError) and error.kind in {"operation", "work"}:
+        return status.HTTP_404_NOT_FOUND, "operation_not_found", "The operation was not found.", None
+    if isinstance(error, WorkStateConflictError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "operation_conflict",
+            "The operation changed or does not allow this transition.",
+            {
+                "operation_id": error.work_id,
+                "status": error.status.value,
+                "actual_version": error.actual_version,
+            },
+        )
+    return None
 
 
 def _map_candidate_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:

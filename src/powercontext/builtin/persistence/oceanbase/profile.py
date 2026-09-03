@@ -120,6 +120,7 @@ class OceanBaseProfile:
         config: OceanBaseConfig,
         *,
         tables: tuple[Table, ...],
+        create_schema: bool = True,
     ) -> AsyncIterator[OceanBaseProfile]:
         """Create, initialize and exclusively own an official OceanBase engine."""
 
@@ -131,7 +132,7 @@ class OceanBaseProfile:
             pool_pre_ping=config.pool_pre_ping,
         )
         database = AsyncDatabase.own(engine)
-        async with _initialized_profile(cls(database=database, tables=tables)) as profile:
+        async with _initialized_profile(cls(database=database, tables=tables), create_schema=create_schema) as profile:
             yield profile
 
     @classmethod
@@ -141,22 +142,28 @@ class OceanBaseProfile:
         engine: AsyncEngine,
         *,
         tables: tuple[Table, ...],
+        create_schema: bool = True,
     ) -> AsyncIterator[OceanBaseProfile]:
         """Initialize a caller-owned official OceanBase engine without disposing it."""
 
         _validate_oceanbase_url(engine.url)
         database = AsyncDatabase.attach(engine)
-        async with _initialized_profile(cls(database=database, tables=tables)) as profile:
+        async with _initialized_profile(cls(database=database, tables=tables), create_schema=create_schema) as profile:
             yield profile
 
 
 @asynccontextmanager
-async def _initialized_profile(profile: OceanBaseProfile) -> AsyncIterator[OceanBaseProfile]:
+async def _initialized_profile(
+    profile: OceanBaseProfile,
+    *,
+    create_schema: bool,
+) -> AsyncIterator[OceanBaseProfile]:
     try:
         async with profile.database.transaction() as connection:
             await _require_mysql_tenant(connection)
             await _require_compatible_identity_collations(connection, profile.tables)
-            await create_tables(connection, profile.tables)
+            if create_schema:
+                await create_tables(connection, profile.tables)
         yield profile
     finally:
         await profile.database.close()

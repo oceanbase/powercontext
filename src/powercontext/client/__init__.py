@@ -15,11 +15,20 @@
 """Python Client SDK package for the public PowerContext HTTP API."""
 
 from powercontext.client.client import PowerContextClient
-from powercontext.client.errors import ClientError, InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.errors import (
+    ClientError,
+    InvalidResponseError,
+    OperationFailedError,
+    OperationPendingError,
+    ServerResponseError,
+    TransportError,
+)
 
 __all__ = [
     "ClientError",
     "InvalidResponseError",
+    "OperationFailedError",
+    "OperationPendingError",
     "PowerContextClient",
     "ServerResponseError",
     "TransportError",

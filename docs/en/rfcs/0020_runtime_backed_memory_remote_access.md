@@ -6,6 +6,10 @@
 > **Note:** PowerContext now uses bundled sqlite-vec for SQLite vector search. Statements about Vec1 in this RFC no
 > longer apply and remain only as a record of the original design.
 
+> **Execution update:** [RFC 1430](1430_distributed_server_workers.md) supersedes this RFC's single-process scheduler,
+> synchronous-only flush, and non-durable Operation assumptions. This RFC continues to define the HTTP mapping and
+> generated-contract boundary.
+
 # Summary
 
 This RFC defines the first concrete remote API built from the architecture in RFC 0011 and the local Runtime in

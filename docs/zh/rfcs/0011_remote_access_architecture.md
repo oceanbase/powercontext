@@ -2,6 +2,9 @@
 - Start Date: 2026-07-16
 - RFC PR: [oceanbase/powercontext#11](https://github.com/oceanbase/powercontext/pull/11)
 
+> **部署边界：** [RFC 1430](1430_distributed_server_workers.md) 定义已接受的持久 Operation、无状态多副本 API、
+> 角色拆分和分布式协调契约。本 RFC 未定义执行与部署语义之处，以 RFC 1430 为准。
+
 # Summary
 
 本 RFC 提议为 PowerContext 建立远程访问边界。Server 通过 OpenAPI 定义的 HTTP contract 暴露 application

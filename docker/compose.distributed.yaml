@@ -1,0 +1,112 @@
+name: powercontext-distributed
+
+x-runtime: &runtime
+  image: ${POWERCONTEXT_IMAGE:-powercontext-server:local}
+  restart: unless-stopped
+  environment: &shared-environment
+    POWERCONTEXT_SERVER_DATABASE_KIND: oceanbase
+    POWERCONTEXT_SERVER_DATABASE_URL: ${POWERCONTEXT_SERVER_DATABASE_URL:?set an OceanBase URL}
+    POWERCONTEXT_SERVER_DEPLOYMENT_MODE: distributed
+    POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION: ${POWERCONTEXT_BEHAVIOR_REVISION:-distributed-v1}
+    POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS: ${POWERCONTEXT_MEMORY_SCHEDULE_SECONDS:-60}
+    POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS: ${POWERCONTEXT_EXPERIENCE_SCHEDULE_SECONDS:-60}
+
+services:
+  migrate:
+    <<: *runtime
+    restart: "no"
+    command: ["server", "migrate"]
+    environment:
+      <<: *shared-environment
+      # The migration command does not start a Runtime or register this role;
+      # a valid distributed role is still required while parsing ServerSettings.
+      POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: api
+      POWERCONTEXT_SERVER_DEPLOYMENT_ID: migrator
+
+  api-a:
+    <<: *runtime
+    command: ["server", "run"]
+    environment:
+      <<: *shared-environment
+      POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: api
+      POWERCONTEXT_SERVER_DEPLOYMENT_ID: api-a
+      POWERCONTEXT_SERVER_AUTH_ENABLED: "true"
+      POWERCONTEXT_SERVER_AUTH_TOKEN: ${POWERCONTEXT_SERVER_AUTH_TOKEN:?set an API bearer token}
+      POWERCONTEXT_SERVER_RATE_LIMIT_ENABLED: "true"
+    ports: ["127.0.0.1:8001:8000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api-b:
+    <<: *runtime
+    command: ["server", "run"]
+    environment:
+      <<: *shared-environment
+      POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: api
+      POWERCONTEXT_SERVER_DEPLOYMENT_ID: api-b
+      POWERCONTEXT_SERVER_AUTH_ENABLED: "true"
+      POWERCONTEXT_SERVER_AUTH_TOKEN: ${POWERCONTEXT_SERVER_AUTH_TOKEN:?set an API bearer token}
+      POWERCONTEXT_SERVER_RATE_LIMIT_ENABLED: "true"
+    ports: ["127.0.0.1:8002:8000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  scheduler-a:
+    <<: *runtime
+    command: ["server", "run"]
+    environment:
+      <<: *shared-environment
+      POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: scheduler
+      POWERCONTEXT_SERVER_DEPLOYMENT_ID: scheduler-a
+      POWERCONTEXT_SERVER_DASHBOARD_ENABLED: "false"
+      POWERCONTEXT_SERVER_MCP_ENABLED: "false"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  scheduler-b:
+    <<: *runtime
+    command: ["server", "run"]
+    environment:
+      <<: *shared-environment
+      POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: scheduler
+      POWERCONTEXT_SERVER_DEPLOYMENT_ID: scheduler-b
+      POWERCONTEXT_SERVER_DASHBOARD_ENABLED: "false"
+      POWERCONTEXT_SERVER_MCP_ENABLED: "false"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-a:
+    <<: *runtime
+    command: ["server", "run"]
+    environment:
+      <<: *shared-environment
+      POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: worker
+      POWERCONTEXT_SERVER_DEPLOYMENT_ID: worker-a
+      POWERCONTEXT_SERVER_DASHBOARD_ENABLED: "false"
+      POWERCONTEXT_SERVER_MCP_ENABLED: "false"
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL: ${POWERCONTEXT_GENERATION_MODEL:?set a generation model}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-b:
+    <<: *runtime
+    command: ["server", "run"]
+    environment:
+      <<: *shared-environment
+      POWERCONTEXT_SERVER_DEPLOYMENT_ROLE: worker
+      POWERCONTEXT_SERVER_DEPLOYMENT_ID: worker-b
+      POWERCONTEXT_SERVER_DASHBOARD_ENABLED: "false"
+      POWERCONTEXT_SERVER_MCP_ENABLED: "false"
+      POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL: ${POWERCONTEXT_GENERATION_MODEL:?set a generation model}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully

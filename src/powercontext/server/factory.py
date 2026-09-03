@@ -32,18 +32,19 @@ from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
+from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema, ReadinessResponse, ReadinessStatus
-from powercontext.paths import default_scheduler_path
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import create_app
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
-from powercontext.server.middleware import StaticBearerMiddleware
+from powercontext.server.middleware import LocalPrincipalMiddleware, StaticBearerMiddleware
+from powercontext.server.rate_limit import SharedRateLimiter, SharedRateLimitMiddleware
 from powercontext.server.settings import ServerSettings
 from powercontext.server.tracing import HttpTracingMiddleware, ServerTracing
 from powercontext.server.web import mount_web_ui
@@ -65,7 +66,13 @@ def create_server_app(
     middleware: Sequence[Middleware] = (),
     tracing: ServerTracing | None = None,
 ) -> FastAPI:
-    """Build the Server process and mount MCP when configured."""
+    """Build the Server process and mount MCP when configured.
+
+    ``scheduler_path`` remains an accepted bridge-release argument, but the
+    durable Scheduler stores all state in the primary database.
+    """
+
+    del scheduler_path
 
     resolved = ServerSettings() if settings is None else settings
     config = BuiltinConfig(
@@ -74,12 +81,19 @@ def create_server_app(
         handoff_report=resolved.handoff_report,
         inference=resolved.inference,
         external_skills=resolved.external_skills,
+        deployment=resolved.deployment,
+        coordination=resolved.coordination,
+        worker=resolved.worker,
+        operations=resolved.operations,
+        rate_limit=resolved.rate_limit,
     )
     metrics = ServerMetrics() if resolved.metrics.enabled else None
+    public_routes = config.deployment.role in {"all", "api"}
     resolved_tracing = ServerTracing.context_only() if tracing is None else tracing
     if metrics is not None:
         metrics.set_ready(False)
     readiness_probe = _ServerReadinessProbe(metrics, tracing=resolved_tracing)
+    rate_limiter = _shared_rate_limiter(resolved)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -88,7 +102,6 @@ def create_server_app(
             _log_in_memory_database_warning()
         async with open_builtin_runtime(
             config,
-            scheduler_path=default_scheduler_path() if scheduler_path is None else scheduler_path,
             candidate_pipeline=candidate_pipeline,
             experience_pipeline=experience_pipeline,
             experience_generator=experience_generator,
@@ -99,9 +112,12 @@ def create_server_app(
             instrumentation=resolved_tracing.instrumentation,
             scope_cache_observer=None if metrics is None else metrics.set_runtime_scopes,
             tracing=resolved_tracing,
+            work_observer=metrics,
         ) as runtime:
             readiness_probe.bind(runtime)
             app.state.application = runtime
+            app.state.operation_manager = runtime.operations
+            _bind_rate_limiter(rate_limiter, _operation_database(runtime))
             app.state.capabilities = await _server_capabilities(runtime)
             await readiness_probe()
             try:
@@ -109,7 +125,9 @@ def create_server_app(
             finally:
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
+                _unbind_rate_limiter(rate_limiter)
                 app.state.application = None
+                app.state.operation_manager = None
                 app.state.capabilities = Capabilities(
                     source_types=[],
                     artifact_families=[],
@@ -123,13 +141,7 @@ def create_server_app(
                 )
         _log_lifecycle("server.stopped", "PowerContext Server stopped")
 
-    configured_middleware = list(middleware)
-    auth_token = resolved.auth.token
-    if resolved.auth.enabled and auth_token is not None:
-        configured_middleware.insert(
-            0,
-            Middleware(StaticBearerMiddleware, token=auth_token.get_secret_value()),
-        )
+    configured_middleware = _process_middleware(middleware, resolved, rate_limiter)
 
     app = create_app(
         lifespan=lifespan,
@@ -138,8 +150,9 @@ def create_server_app(
         metrics=metrics,
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
+        public_routes=public_routes,
     )
-    _mount_optional_web_ui(app, resolved)
+    _configure_web_ui(app, resolved, public_routes=public_routes)
     if metrics is not None:
         app.add_api_route(
             "/metrics",
@@ -164,15 +177,66 @@ def create_server_app(
         operations=_http_operations(app),
         skip_paths=("/health/live", "/health/ready", "/metrics", resolved.mcp.path),
     )
-    if resolved.mcp.enabled:
+    if public_routes and resolved.mcp.enabled:
         mount_mcp(
             app,
             path=resolved.mcp.path,
             access_log=resolved.logging.access,
             metrics=metrics,
             tracing=resolved_tracing,
+            stateless_http=config.deployment.mode == "distributed",
         )
     return app
+
+
+def _shared_rate_limiter(settings: ServerSettings) -> SharedRateLimiter | None:
+    if not settings.rate_limit.enabled:
+        return None
+    return SharedRateLimiter(
+        requests=settings.rate_limit.requests,
+        window_seconds=settings.rate_limit.window_seconds,
+    )
+
+
+def _bind_rate_limiter(limiter: SharedRateLimiter | None, database: AsyncDatabase) -> None:
+    if limiter is not None:
+        limiter.bind(database)
+
+
+def _operation_database(runtime: BuiltinRuntime) -> AsyncDatabase:
+    operations = runtime.operations
+    if operations is None:
+        raise RuntimeError("the built-in runtime did not expose operation coordination")  # noqa: TRY003
+    return operations.database
+
+
+def _unbind_rate_limiter(limiter: SharedRateLimiter | None) -> None:
+    if limiter is not None:
+        limiter.unbind()
+
+
+def _process_middleware(
+    middleware: Sequence[Middleware],
+    settings: ServerSettings,
+    rate_limiter: SharedRateLimiter | None,
+) -> list[Middleware]:
+    configured = list(middleware)
+    token = settings.auth.token
+    if settings.auth.enabled and token is not None:
+        configured.insert(0, Middleware(StaticBearerMiddleware, token=token.get_secret_value()))
+    else:
+        configured.insert(0, Middleware(LocalPrincipalMiddleware))
+    if rate_limiter is not None:
+        configured.insert(1, Middleware(SharedRateLimitMiddleware, limiter=rate_limiter))
+    return configured
+
+
+def _configure_web_ui(app: FastAPI, settings: ServerSettings, *, public_routes: bool) -> None:
+    if public_routes:
+        _mount_optional_web_ui(app, settings)
+        return
+    app.state.dashboard_started = False
+    app.state.dashboard_startup_error = "the configured process role does not expose public routes"
 
 
 def _mount_optional_web_ui(app: FastAPI, settings: ServerSettings) -> None:

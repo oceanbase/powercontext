@@ -17,13 +17,21 @@
 from __future__ import annotations
 
 import asyncio
+from time import monotonic
 from types import TracebackType
 from typing import Self, TypeVar
+from uuid import UUID
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.errors import (
+    InvalidResponseError,
+    OperationFailedError,
+    OperationPendingError,
+    ServerResponseError,
+    TransportError,
+)
 from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
     AcknowledgeHandoffRequest,
@@ -47,6 +55,7 @@ from powercontext.http import (
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    FlushStatus,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
@@ -56,6 +65,7 @@ from powercontext.http import (
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
+    GetOperationRequest,
     GetSkillRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
@@ -80,8 +90,15 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
+    ListOperationsRequest,
     MemoryEntry,
     MemoryMutationResponse,
+    MemoryOperationResult,
+    OperationAccepted,
+    OperationMutationRequest,
+    OperationPage,
+    OperationRecord,
+    OperationStatus,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -121,6 +138,7 @@ from powercontext.http._generated.operations import (
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     ATTACH_HANDOFF_REPORT_WORKSPACE,
+    CANCEL_OPERATION,
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
@@ -139,6 +157,7 @@ from powercontext.http._generated.operations import (
     GET_HANDOFF_REPORT_WORKSPACE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
+    GET_OPERATION,
     GET_READINESS,
     GET_SKILL,
     GET_STATS,
@@ -152,6 +171,7 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_OPERATIONS,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -164,6 +184,7 @@ from powercontext.http._generated.operations import (
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
+    RETRY_OPERATION,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
@@ -190,6 +211,8 @@ class PowerContextClient:
         timeout: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
         trust_transport_security: bool = False,
+        operation_timeout: float = 30.0,
+        operation_poll_seconds: float = 0.2,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         # Plaintext HTTP is only trusted on loopback -- for *any* request, not just an authenticated
@@ -207,6 +230,12 @@ class PowerContextClient:
         if not transport_trusted and is_plaintext_non_loopback(self._base_url):
             raise ValueError("refusing to send requests over unencrypted non-loopback HTTP")  # noqa: TRY003
         self._headers = {"Authorization": f"Bearer {token}"} if token else None
+        if operation_timeout <= 0:
+            raise ValueError("operation_timeout must be positive")  # noqa: TRY003
+        if operation_poll_seconds <= 0:
+            raise ValueError("operation_poll_seconds must be positive")  # noqa: TRY003
+        self._operation_timeout = operation_timeout
+        self._operation_poll_seconds = operation_poll_seconds
         self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
             self._owned_http_client = httpx.AsyncClient(timeout=timeout)
@@ -446,7 +475,105 @@ class PowerContextClient:
     async def flush_memory(self, request: FlushMemoryRequest) -> FlushMemoryResponse:
         """Run one bounded Source-to-Memory activation."""
 
-        return await self._request(FLUSH_MEMORY, request)
+        deadline = monotonic() + self._operation_timeout
+        submitted = await self.submit_memory_flush(request)
+        if isinstance(submitted, FlushMemoryResponse):
+            return submitted
+        operation_id = submitted.operation_id
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise OperationPendingError(str(operation_id))
+            await asyncio.sleep(min(self._operation_poll_seconds, remaining))
+            operation = await self.get_operation(operation_id)
+            if operation.status is OperationStatus.SUCCEEDED:
+                return _flush_response_from_operation(operation)
+            if operation.status in {OperationStatus.FAILED, OperationStatus.CANCELLED}:
+                raise OperationFailedError(
+                    str(operation_id),
+                    code=None if operation.error is None else operation.error.code,
+                )
+
+    async def submit_memory_flush(
+        self,
+        request: FlushMemoryRequest,
+    ) -> FlushMemoryResponse | OperationAccepted:
+        """Submit one Memory window and return immediately when it remains pending."""
+
+        payload = TypeAdapter(FLUSH_MEMORY.request_type).dump_python(request, mode="json", by_alias=True)
+        span = ClientSpan.start(FLUSH_MEMORY.operation_id)
+        try:
+            headers = {} if self._headers is None else dict(self._headers)
+            headers["Prefer"] = "respond-async"
+            span.inject(headers)
+            response = await self._http_client.request(
+                FLUSH_MEMORY.method,
+                f"{self._base_url}{FLUSH_MEMORY.path}",
+                json=payload,
+                headers=headers,
+            )
+        except asyncio.CancelledError as error:
+            span.finish("cancelled", error=error)
+            raise
+        except httpx.HTTPError as error:
+            span.finish("failure", error=error)
+            raise TransportError(FLUSH_MEMORY.path) from error
+        except BaseException as error:
+            span.finish("failure", error=error)
+            raise
+        success = response.status_code in {200, 202}
+        span.finish("success" if success else "failure", status_code=response.status_code)
+        request_id = response.headers.get(REQUEST_ID_HEADER)
+        if not success:
+            error = _decode_error(response.content)
+            raise ServerResponseError(
+                status_code=response.status_code,
+                request_id=request_id,
+                code=None if error is None else error.error.code,
+                message=None if error is None else error.error.message,
+                details=None if error is None else error.error.details,
+            )
+        response_type = FlushMemoryResponse if response.status_code == 200 else OperationAccepted
+        try:
+            return TypeAdapter(response_type).validate_json(response.content)
+        except ValidationError as error:
+            raise InvalidResponseError(FLUSH_MEMORY.path, request_id=request_id) from error
+
+    async def get_operation(self, operation_id: str | UUID) -> OperationRecord:
+        """Read one durable operation."""
+
+        operation_uuid = UUID(str(operation_id))
+        operation = GET_OPERATION.model_copy(update={"path": GET_OPERATION.path.format(operation_id=operation_uuid)})
+        return await self._request(operation, GetOperationRequest(operation_id=operation_uuid))
+
+    async def list_operations(self, request: ListOperationsRequest) -> OperationPage:
+        """List a bounded page of durable operations."""
+
+        return await self._request(LIST_OPERATIONS, request)
+
+    async def cancel_operation(
+        self,
+        operation_id: str | UUID,
+        request: OperationMutationRequest,
+    ) -> OperationRecord:
+        """Cancel a queued or active operation using its state version."""
+
+        operation = CANCEL_OPERATION.model_copy(
+            update={"path": CANCEL_OPERATION.path.format(operation_id=UUID(str(operation_id)))}
+        )
+        return await self._request(operation, request)
+
+    async def retry_operation(
+        self,
+        operation_id: str | UUID,
+        request: OperationMutationRequest,
+    ) -> OperationRecord:
+        """Recover one blocked failed operation using its state version."""
+
+        operation = RETRY_OPERATION.model_copy(
+            update={"path": RETRY_OPERATION.path.format(operation_id=UUID(str(operation_id)))}
+        )
+        return await self._request(operation, request)
 
     async def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
         """Save one explicit Memory entry without creating a Source."""
@@ -659,3 +786,18 @@ def _decode_error(content: bytes) -> ErrorResponse | None:
         return ErrorResponse.model_validate_json(content)
     except ValidationError:
         return None
+
+
+def _flush_response_from_operation(operation: OperationRecord) -> FlushMemoryResponse:
+    result = operation.result
+    if not isinstance(result, MemoryOperationResult):
+        raise InvalidResponseError(GET_OPERATION.path, request_id=None)
+    flush_status = FlushStatus.PROCESSED if result.current_cursor > result.previous_cursor else FlushStatus.IDLE
+    return FlushMemoryResponse(
+        status=flush_status,
+        previous_cursor=result.previous_cursor,
+        current_cursor=result.current_cursor,
+        high_watermark=result.high_watermark,
+        processed_source_count=result.processed_source_count,
+        memory=result.memory,
+    )

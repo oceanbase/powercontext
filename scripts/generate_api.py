@@ -320,9 +320,9 @@ def _success_response(
     successes = [
         (int(code), response) for code, response in responses.items() if code.isdecimal() and 200 <= int(code) < 300
     ]
-    if len(successes) != 1:
+    if not successes:
         raise ContractGenerationError("success response", path)  # noqa: TRY003
-    success_status, response = successes[0]
+    success_status, response = min(successes, key=lambda item: item[0])
     if not isinstance(response, Response):
         raise ContractGenerationError("success response reference", path)  # noqa: TRY003
     return success_status, response

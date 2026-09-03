@@ -31,8 +31,8 @@ Without an override, the default is:
 - Linux: `$XDG_DATA_HOME/powercontext`, or `~/.local/share/powercontext`;
 - macOS: `~/Library/Application Support/powercontext`.
 
-The default SQLite database is `powercontext.db` in this directory. Scheduled processing uses `scheduler.db` in the
-same directory.
+The default SQLite database is `powercontext.db` in this directory. Scheduled processing, leases, and operation state
+use the same database; the former `scheduler.db` sidecar is no longer part of execution.
 
 ## Server
 
@@ -58,6 +58,33 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekDB |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekDB path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_MODE` | `single_node` | `single_node` or `distributed` process topology |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ROLE` | `all` | `all`, `api`, `scheduler`, or `worker`; distributed mode forbids `all` |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ID` | `local` | Non-secret operator instance label; boot ownership remains unique |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION` | `default` | Non-secret rollout compatibility revision shared by all replicas |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_LEASE_SECONDS` | `30` | Scheduler leader lease duration using database time |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_RENEW_SECONDS` | `10` | Scheduler renewal interval; at most one third of the lease |
+| `POWERCONTEXT_SERVER_COORDINATION_SCAN_PAGE_SIZE` | `100` | Maximum scopes inspected in one discoverer page |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_TTL_SECONDS` | `30` | Runtime member advertisement lifetime |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_HEARTBEAT_SECONDS` | `10` | Runtime member heartbeat interval |
+| `POWERCONTEXT_SERVER_COORDINATION_EMIT_PAYLOAD_VERSION` | `1` | Work payload version emitted during a rolling deployment |
+| `POWERCONTEXT_SERVER_WORKER_CONCURRENCY` | `4` | Maximum attempts executed concurrently by one Worker |
+| `POWERCONTEXT_SERVER_WORKER_LEASE_SECONDS` | `120` | Worker claim lease duration |
+| `POWERCONTEXT_SERVER_WORKER_HEARTBEAT_SECONDS` | `30` | Claim heartbeat interval; less than one third of the lease |
+| `POWERCONTEXT_SERVER_WORKER_SHUTDOWN_GRACE_SECONDS` | `90` | Maximum graceful drain time; less than the lease |
+| `POWERCONTEXT_SERVER_WORKER_MAX_ATTEMPTS` | `5` | Automatic attempt budget before operator recovery is required |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_BASE_SECONDS` | `2` | Full-jitter exponential retry base |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_MAX_SECONDS` | `300` | Full-jitter retry ceiling |
+| `POWERCONTEXT_SERVER_WORKER_POLL_SECONDS` | `1` | Idle claim polling interval |
+| `POWERCONTEXT_SERVER_OPERATIONS_DEFAULT_WAIT_SECONDS` | `10` | Default HTTP Memory flush wait |
+| `POWERCONTEXT_SERVER_OPERATIONS_MAXIMUM_WAIT_SECONDS` | `30` | Maximum accepted `Prefer: wait=N` value |
+| `POWERCONTEXT_SERVER_OPERATIONS_POLL_SECONDS` | `0.2` | Local operation completion polling interval |
+| `POWERCONTEXT_SERVER_OPERATIONS_RETENTION_DAYS` | `30` | Successful and cancelled operation history retention |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_BATCH_SIZE` | `500` | Maximum records removed by one maintenance attempt |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_INTERVAL_SECONDS` | `3600` | Durable maintenance discovery interval |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_ENABLED` | `false` | Enable shared database fixed-window limiting |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_REQUESTS` | `120` | Requests allowed for one principal and policy window |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_WINDOW_SECONDS` | `60` | Shared rate-limit window duration |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory selection policy: `coding` or `conversation` |
@@ -154,13 +181,25 @@ The same configured generation model gates explicit Experience generation, manag
 and external Skill import or fork. Without it, these operations return a capability error before persisting a
 Candidate. Candidate Review, exact reads, and external Skill scan/list/resolve continue to work.
 
-Experience incubation is a separate APScheduler job with its own persisted Source cursor. Each activation inspects a
+Experience incubation is a separate durable Work handler with its own persisted Source cursor. Each activation inspects a
 fixed window of at most 32 Sources and exposes only Content Sources whose metadata contains
 `"kind": "task-outcome"` to the model. It creates pending Experience Candidates in the Review Inbox; it does not
 approve them, place them in PreparedContext, create a managed Skill, export it to an Agent target, or execute anything.
-The Memory and Experience jobs share the APScheduler sidecar under `POWERCONTEXT_HOME`, but keep independent job
-identities and business cursors. Unsetting one interval removes only that job.
+Memory and Experience share the database Work Ledger but keep independent lanes, logical keys, and business cursors.
+Unsetting one interval disables only its discoverer; already queued operations remain inspectable.
 See [Create and review an Experience](../how-to/create-and-review-experience.md) for setup and verification steps.
+
+### Distributed roles and migrations
+
+Distributed mode requires OceanBase. Run `powercontext server migrate --env-file ...` with a DDL-capable account before
+starting any role. Role processes never create or alter schema. Start or roll forward in this order: migrate, Workers,
+Schedulers, then APIs. Use a new `POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION` when a rollout changes non-secret
+behavior that must not mix across replicas.
+
+An API replica can remain ready enough to accept durable work while Scheduler or Worker members are absent; readiness
+is `degraded` and names the missing role. Scheduler and Worker roles expose health and metrics only. Distributed MCP is
+stateless and needs no load-balancer affinity. Host-local External Skill targets are rejected because replicas could
+otherwise return different results.
 
 ### Agent Skill targets
 

@@ -185,7 +185,7 @@ Coding Agent 启动后，在项目中发送一条普通 prompt。集成会先从
 ## 数据存在哪里
 
 生成的配置不指定数据库位置，因此 Server 把数据保存在用户数据目录，而不是项目内文件。在未设置
-`POWERCONTEXT_HOME` 时，SQLite 的 `powercontext.db` 与调度状态的 `scheduler.db` 位于：
+`POWERCONTEXT_HOME` 时，SQLite 的 `powercontext.db`（包含持久调度与 operation 状态）位于：
 
 - macOS：`~/Library/Application Support/powercontext/`
 - Linux：`~/.local/share/powercontext/`

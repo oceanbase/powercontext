@@ -92,6 +92,27 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
+## Flush through a durable operation
+
+A Memory flush can finish during the request or continue on any Worker. Ask for an immediate handle when the caller
+does not want to wait:
+
+```bash
+curl --fail-with-body --include \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: respond-async' \
+  --header "$POWERCONTEXT_AUTH_HEADER" \
+  --data '{"scope_id":"project:example"}' \
+  "$POWERCONTEXT_URL/v1/memory/flush"
+```
+
+HTTP `200` contains the completed `FlushMemoryResponse`. HTTP `202` contains an operation ID and includes relative
+`Location` and `Retry-After` headers. `Prefer: wait=N` waits up to 30 seconds. Poll
+`GET /v1/operations/{operation_id}`; use the returned `state_version` as `expected_version` when cancelling a queued or
+running operation, or retrying a blocked failed operation. A failed logical window returns `409 operation_blocked` on
+another flush until an operator retries or cancels it.
+
 ## Find an operation
 
 | Area | Main paths | Purpose |
@@ -106,6 +127,7 @@ curl --fail \
 | External Skills | `/v1/external-skills/*` | Scan configured targets and resolve or import packages |
 | Handoff Reports | `/v1/handoff-reports/*` | Manage Projects, Workstreams, activities, reports, and workspace bindings |
 | Statistics | `/v1/stats` | Read scoped usage statistics |
+| Durable operations | `/v1/operations/*` | Inspect, list, cancel, or recover Memory and Experience background work |
 
 The OpenAPI contract defines the complete path list, schemas, limits, and status codes. The higher-level workflow and
 Python examples are in [Interfaces](interfaces.md).
@@ -129,6 +151,7 @@ Common statuses are:
 | Status | Meaning |
 | --- | --- |
 | `401` | The Server requires a valid bearer token |
+| `429` | The shared request window is exhausted; wait for `Retry-After` |
 | `404` | The requested immutable value does not exist |
 | `409` | The request conflicts with current immutable state or an expected version |
 | `413` | A selected Handoff Report exceeds its output limit |

@@ -19,12 +19,119 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
+from powercontext.client import (
+    InvalidResponseError,
+    OperationPendingError,
+    PowerContextClient,
+    ServerResponseError,
+    TransportError,
+)
 from powercontext.client.settings import ClientSettings
 from powercontext.http import (
     CaptureContentSourceRequest,
+    FlushMemoryRequest,
     GetHandoffReportRequest,
 )
+
+
+def test_flush_memory_follows_a_durable_operation_without_sticky_transport() -> None:
+    async def scenario() -> None:
+        operation_id = "4dfaf8c1-30e4-40c8-a37c-2b845dd8150e"
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == "/v1/memory/flush":
+                return httpx.Response(
+                    202,
+                    json={
+                        "operation_id": operation_id,
+                        "status": "queued",
+                        "status_url": f"/v1/operations/{operation_id}",
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "operation_id": operation_id,
+                    "kind": "memory_flush",
+                    "scope_id": "project",
+                    "status": "succeeded",
+                    "attempt_count": 1,
+                    "state_version": 3,
+                    "created_at": "2026-09-03T00:00:00Z",
+                    "updated_at": "2026-09-03T00:00:01Z",
+                    "completed_at": "2026-09-03T00:00:01Z",
+                    "result": {
+                        "type": "memory_flush",
+                        "previous_cursor": 0,
+                        "high_watermark": 2,
+                        "current_cursor": 2,
+                        "processed_source_count": 2,
+                        "memory": None,
+                    },
+                    "error": None,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient(
+                "https://memory.example",
+                http_client=http_client,
+                operation_poll_seconds=0.001,
+            )
+            result = await client.flush_memory(FlushMemoryRequest(scope_id="project"))
+
+        assert result.current_cursor == 2
+        assert requests[0].headers["Prefer"] == "respond-async"
+        assert requests[1].url.path == f"/v1/operations/{operation_id}"
+
+    asyncio.run(scenario())
+
+
+def test_flush_memory_reports_the_pending_operation_at_the_client_deadline() -> None:
+    async def scenario() -> None:
+        operation_id = "4dfaf8c1-30e4-40c8-a37c-2b845dd8150e"
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/memory/flush":
+                return httpx.Response(
+                    202,
+                    json={
+                        "operation_id": operation_id,
+                        "status": "running",
+                        "status_url": f"/v1/operations/{operation_id}",
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "operation_id": operation_id,
+                    "kind": "memory_flush",
+                    "scope_id": "project",
+                    "status": "running",
+                    "attempt_count": 1,
+                    "state_version": 2,
+                    "created_at": "2026-09-03T00:00:00Z",
+                    "updated_at": "2026-09-03T00:00:00Z",
+                    "completed_at": None,
+                    "result": None,
+                    "error": None,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient(
+                "https://memory.example",
+                http_client=http_client,
+                operation_timeout=0.001,
+                operation_poll_seconds=0.001,
+            )
+            with pytest.raises(OperationPendingError) as caught:
+                await client.flush_memory(FlushMemoryRequest(scope_id="project"))
+        assert caught.value.operation_id == operation_id
+
+    asyncio.run(scenario())
 
 
 def test_client_rejects_an_undeclared_success_status() -> None:

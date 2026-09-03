@@ -22,13 +22,19 @@ from typing import Literal
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
+    CoordinationConfig,
     DatabaseConfig,
+    DeploymentConfig,
     ExternalSkillsConfig,
     HandoffReportConfig,
     InferenceConfig,
+    OperationsConfig,
+    RateLimitConfig,
     RuntimeConfig,
+    WorkerConfig,
 )
 from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
 from powercontext.transport import is_loopback_host
@@ -188,6 +194,11 @@ class ServerSettings(BaseSettings):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+    deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
+    coordination: CoordinationConfig = Field(default_factory=CoordinationConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
 
     @field_validator("database", mode="before")
     @classmethod
@@ -216,6 +227,17 @@ class ServerSettings(BaseSettings):
             allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
         ):
             raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
+        if self.deployment.mode == "single_node" and self.deployment.role != "all":
+            raise ValueError("single_node deployment role must be 'all'")  # noqa: TRY003
+        if self.deployment.mode == "distributed":
+            if not isinstance(self.database, OceanBaseConfig):
+                raise ValueError("distributed deployment requires OceanBase")  # noqa: TRY003
+            if self.deployment.role == "all":
+                raise ValueError("distributed deployment role must be api, scheduler, or worker")  # noqa: TRY003
+            if self.external_skills.agent_targets:
+                raise ValueError(  # noqa: TRY003
+                    "distributed deployment does not support host-local external Skill targets"
+                )
         return self
 
 

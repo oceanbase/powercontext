@@ -29,12 +29,14 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from powercontext.cli.app import create_cli
 from powercontext.server.cli import app as server_app
 
 _DOCKERFILE = Path(__file__).resolve().parent.parent / "docker" / "Dockerfile"
+_DISTRIBUTED_COMPOSE = _DOCKERFILE.with_name("compose.distributed.yaml")
 _SERVER_ENV_PATTERN = re.compile(r"(POWERCONTEXT_SERVER_[A-Z0-9_]+)=([^\s\\]+)")
 
 
@@ -69,3 +71,29 @@ def test_documented_container_invocation_starts_out_of_the_box(monkeypatch: pyte
     assert result.exit_code == 0, result.output
     run_server.assert_called_once()
     assert run_server.call_args.kwargs["host"] == "0.0.0.0"  # noqa: S104 - the image's documented bind.
+
+
+def test_distributed_compose_separates_roles_and_model_credentials() -> None:
+    document = yaml.safe_load(_DISTRIBUTED_COMPOSE.read_text(encoding="utf-8"))
+    services = document["services"]
+    assert set(services) == {"migrate", "api-a", "api-b", "scheduler-a", "scheduler-b", "worker-a", "worker-b"}
+
+    assert services["migrate"]["command"] == ["server", "migrate"]
+    assert services["migrate"]["environment"]["POWERCONTEXT_SERVER_DEPLOYMENT_ROLE"] == "api"
+    assert services["migrate"]["environment"]["POWERCONTEXT_SERVER_DEPLOYMENT_ID"] == "migrator"
+    for name, service in services.items():
+        environment = service["environment"]
+        assert environment["POWERCONTEXT_SERVER_DATABASE_KIND"] == "oceanbase"
+        assert environment["POWERCONTEXT_SERVER_DEPLOYMENT_MODE"] == "distributed"
+        if name == "migrate":
+            continue
+        role = name.split("-", 1)[0]
+        assert environment["POWERCONTEXT_SERVER_DEPLOYMENT_ROLE"] == role
+        assert environment["POWERCONTEXT_SERVER_DEPLOYMENT_ID"] == name
+        if role in {"scheduler", "worker"}:
+            assert "ports" not in service
+            assert environment["POWERCONTEXT_SERVER_DASHBOARD_ENABLED"] == "false"
+            assert environment["POWERCONTEXT_SERVER_MCP_ENABLED"] == "false"
+        assert ("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL" in environment) is (role == "worker")
+        assert ("OPENAI_API_KEY" in environment) is (role == "worker")
+        assert ("ANTHROPIC_API_KEY" in environment) is (role == "worker")

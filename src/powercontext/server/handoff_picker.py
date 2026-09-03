@@ -82,13 +82,19 @@ class HandoffWorkstreamSelection(BaseModel):
     truncated: bool = False
 
 
-def register_handoff_workstream_picker(server: FastMCP, http_client: httpx.AsyncClient) -> None:
+def register_handoff_workstream_picker(
+    server: FastMCP,
+    http_client: httpx.AsyncClient,
+    *,
+    elicitation_enabled: bool = True,
+) -> None:
     """Register the Report-backed Workstream picker on an existing MCP server."""
 
     # ``http_client`` is the Server's own in-process ASGI transport; ``http://fastapi`` is only a
     # routing label, so vouch for it explicitly rather than have the loopback guard reject it.
     picker = _HandoffWorkstreamPicker(
-        PowerContextClient("http://fastapi", http_client=http_client, trust_transport_security=True)
+        PowerContextClient("http://fastapi", http_client=http_client, trust_transport_security=True),
+        elicitation_enabled=elicitation_enabled,
     )
     server.tool(
         picker.select,
@@ -108,8 +114,9 @@ def register_handoff_workstream_picker(server: FastMCP, http_client: httpx.Async
 
 
 class _HandoffWorkstreamPicker:
-    def __init__(self, client: PowerContextClient) -> None:
+    def __init__(self, client: PowerContextClient, *, elicitation_enabled: bool) -> None:
         self._client = client
+        self._elicitation_enabled = elicitation_enabled
 
     async def select(
         self,
@@ -170,6 +177,7 @@ class _HandoffWorkstreamPicker:
             project_id=project_id,
             locale=locale,
             truncated=projects_truncated,
+            elicitation_enabled=self._elicitation_enabled,
         )
         if isinstance(project_result, HandoffWorkstreamSelection):
             return project_result
@@ -198,6 +206,7 @@ class _HandoffWorkstreamPicker:
             work_id=work_id,
             locale=locale,
             truncated=truncated,
+            elicitation_enabled=self._elicitation_enabled,
         )
 
 
@@ -236,6 +245,7 @@ async def _choose_project(
     project_id: str | None,
     locale: PickerLocale,
     truncated: bool,
+    elicitation_enabled: bool,
 ) -> ProjectDescriptor | HandoffWorkstreamSelection:
     project = _project_by_id(projects, project_id)
     if project_id is not None and project is None:
@@ -251,7 +261,7 @@ async def _choose_project(
         return project
     if len(projects) == 1:
         return projects[0]
-    if not _supports_form_elicitation(ctx):
+    if not _supports_form_elicitation(ctx, elicitation_enabled=elicitation_enabled):
         return _selection(
             status="needs_selection",
             locale=locale,
@@ -284,6 +294,7 @@ async def _choose_workstream(
     work_id: str | None,
     locale: PickerLocale,
     truncated: bool,
+    elicitation_enabled: bool,
 ) -> HandoffWorkstreamSelection:
     selected = _workstream_by_id(choices, work_id)
     if work_id is not None and selected is None:
@@ -297,7 +308,7 @@ async def _choose_workstream(
         )
     if selected is None and len(choices) == 1:
         selected = choices[0]
-    if selected is None and not _supports_form_elicitation(ctx):
+    if selected is None and not _supports_form_elicitation(ctx, elicitation_enabled=elicitation_enabled):
         return _selection(
             status="needs_selection",
             locale=locale,
@@ -361,8 +372,8 @@ async def _list_workstreams(
     return page.items, page.next_cursor is not None
 
 
-def _supports_form_elicitation(ctx: Context) -> bool:
-    return ctx.session.check_client_capability(_FORM_ELICITATION_CAPABILITY)
+def _supports_form_elicitation(ctx: Context, *, elicitation_enabled: bool) -> bool:
+    return elicitation_enabled and ctx.session.check_client_capability(_FORM_ELICITATION_CAPABILITY)
 
 
 def _project_by_id(projects: Sequence[ProjectDescriptor], project_id: str | None) -> ProjectDescriptor | None:

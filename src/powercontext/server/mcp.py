@@ -168,6 +168,7 @@ def create_mcp_server(
     access_log: bool = False,
     metrics: ServerMetrics | None = None,
     tracing: ServerTracing | None = None,
+    elicitation_enabled: bool = True,
 ) -> FastMCP:
     """Project the Agent-facing subset of a Server app into MCP components."""
 
@@ -190,7 +191,7 @@ def create_mcp_server(
         LIST_HANDOFF_REPORT_PROJECTS.path,
         LIST_HANDOFF_REPORT_WORKSTREAMS.path,
     }.issubset(server_app.openapi()["paths"]):
-        register_handoff_workstream_picker(server, client)
+        register_handoff_workstream_picker(server, client, elicitation_enabled=elicitation_enabled)
     server.add_middleware(McpTracingMiddleware(resolved_tracing))
     if access_log:
         server.add_middleware(McpAccessLogMiddleware())
@@ -219,6 +220,7 @@ def mount_mcp(
     access_log: bool = False,
     metrics: ServerMetrics | None = None,
     tracing: ServerTracing | None = None,
+    stateless_http: bool = False,
 ) -> FastAPI:
     """Mount the MCP transport while preserving the Server HTTP contract."""
 
@@ -227,8 +229,9 @@ def mount_mcp(
         access_log=access_log,
         metrics=metrics,
         tracing=tracing,
+        elicitation_enabled=not stateless_http,
     )
-    mcp_app = mcp_server.http_app(path="/")
+    mcp_app = mcp_server.http_app(path="/", stateless_http=stateless_http)
 
     server_app.router.lifespan_context = combine_lifespans(
         server_app.router.lifespan_context,

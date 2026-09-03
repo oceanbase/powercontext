@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import ValidationError
 
@@ -34,6 +36,7 @@ from powercontext.builtin.artifacts.skill import (
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
 )
+from powercontext.builtin.persistence.work import StoredWork
 from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
 from powercontext.builtin.review import ArtifactCandidatePage as RuntimeArtifactCandidatePage
 from powercontext.builtin.review import CandidateStatus as RuntimeCandidateStatus
@@ -44,6 +47,7 @@ from powercontext.builtin.review.generation import SkillGenerationOrigin as Runt
 from powercontext.builtin.runtime import (
     ActivateHandoff,
     CaptureSource,
+    ExperienceIncubationResult,
     Handoff,
     HandoffActivation,
     HandoffArtifactCitation,
@@ -127,6 +131,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     Statistics as RuntimeStatistics,
 )
+from powercontext.builtin.runtime.work_handlers import EXPERIENCE_WORK_KIND, MEMORY_WORK_KIND
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
@@ -168,6 +173,7 @@ from powercontext.http import (
     EntryChange,
     EntryChangeOperation,
     ExperienceArtifact,
+    ExperienceOperationResult,
     ExperienceProposal,
     ExternalSkillRegistration,
     ExternalSkillResolution,
@@ -201,8 +207,13 @@ from powercontext.http import (
     MemoryEntryState,
     MemoryMatchedBy,
     MemoryMutationResponse,
+    MemoryOperationResult,
     MemoryRevisionChanges,
     MemoryUsedSearchMode,
+    OperationError,
+    OperationKind,
+    OperationRecord,
+    OperationStatus,
     PreparedContextSchema,
     PreparedContextStatus,
     PreparedHandoffSchema,
@@ -434,6 +445,72 @@ def flush_response(value: MemoryFlushResult) -> FlushMemoryResponse:
         processed_source_count=value.source_count,
         memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
     )
+
+
+def operation_response(value: StoredWork) -> OperationRecord:
+    """Project only bounded operation metadata and discriminated safe results."""
+
+    kind = _operation_kind(value.kind)
+    result = None
+    if value.result_payload is not None:
+        if kind is OperationKind.MEMORY_FLUSH:
+            memory = MemoryFlushResult.model_validate(value.result_payload)
+            result = MemoryOperationResult(
+                type="memory_flush",
+                previous_cursor=memory.previous_cursor,
+                high_watermark=memory.high_watermark,
+                current_cursor=memory.current_cursor,
+                processed_source_count=memory.source_count,
+                memory=None if memory.memory_ref is None else artifact_reference(memory.memory_ref),
+            )
+        else:
+            experience = ExperienceIncubationResult.model_validate(value.result_payload)
+            result = ExperienceOperationResult(
+                type="experience_incubation",
+                previous_cursor=experience.previous_cursor,
+                high_watermark=experience.high_watermark,
+                current_cursor=experience.current_cursor,
+                processed_source_count=experience.source_count,
+                candidate_count=experience.candidate_count,
+            )
+    error = (
+        None
+        if value.error_category is None or value.error_code is None
+        else OperationError(category=value.error_category, code=value.error_code)
+    )
+    return OperationRecord(
+        operation_id=UUID(value.work_id),
+        kind=kind,
+        scope_id=value.scope_id,
+        status=OperationStatus(value.status.value),
+        attempt_count=value.attempt_count,
+        state_version=value.state_version,
+        created_at=_aware_utc(value.created_at),
+        updated_at=_aware_utc(value.updated_at),
+        completed_at=None if value.completed_at is None else _aware_utc(value.completed_at),
+        result=result,
+        error=error,
+    )
+
+
+def _operation_kind(value: str) -> OperationKind:
+    if value == MEMORY_WORK_KIND:
+        return OperationKind.MEMORY_FLUSH
+    if value == EXPERIENCE_WORK_KIND:
+        return OperationKind.EXPERIENCE_INCUBATION
+    raise ValueError("unknown public operation kind")  # noqa: TRY003
+
+
+def operation_kind_value(value: OperationKind) -> str:
+    """Map the public operation discriminator to its internal handler kind."""
+
+    if value is OperationKind.MEMORY_FLUSH:
+        return MEMORY_WORK_KIND
+    return EXPERIENCE_WORK_KIND
+
+
+def _aware_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def remember_request(value: TransportRememberMemoryRequest) -> RememberMemoryRequest:

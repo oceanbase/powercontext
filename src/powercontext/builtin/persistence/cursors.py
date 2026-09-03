@@ -20,11 +20,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import insert, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
+from powercontext.builtin.persistence.database import insert_if_absent
 from powercontext.builtin.persistence.errors import (
     GenerationConflictError,
     InvalidRepositoryArgumentError,
@@ -86,17 +86,17 @@ class SourceCursorRepository:
             if existing is not None:
                 raise GenerationConflictError(binding_name, None, existing.generation)
             generation = 1
-            try:
-                async with connection.begin_nested():
-                    await connection.execute(
-                        insert(SOURCE_CURSORS_TABLE).values(
-                            scope_id=scope_id,
-                            binding_name=binding_name,
-                            cursor=payload,
-                            generation=generation,
-                        )
-                    )
-            except IntegrityError:
+            created = await insert_if_absent(
+                connection,
+                SOURCE_CURSORS_TABLE,
+                {
+                    "scope_id": scope_id,
+                    "binding_name": binding_name,
+                    "cursor": payload,
+                    "generation": generation,
+                },
+            )
+            if not created:
                 # Another runtime may have inserted the same cursor after our
                 # initial read. Normalize that database race to the same CAS
                 # conflict used for concurrent updates.
@@ -107,7 +107,7 @@ class SourceCursorRepository:
                     for_update=True,
                 )
                 if existing is None:
-                    raise
+                    raise GenerationConflictError(binding_name, None, None)
                 raise GenerationConflictError(binding_name, None, existing.generation) from None
         else:
             generation = expected_generation + 1

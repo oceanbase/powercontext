@@ -191,8 +191,8 @@ about 60 seconds, so the flush from Part 2 is only needed once to prove the loop
 ## Where data lives
 
 The generated configuration leaves the database unset, so the Server stores data in the user data directory instead of
-a project-local file. With `POWERCONTEXT_HOME` unset, SQLite keeps `powercontext.db` and the scheduler state in
-`scheduler.db` under:
+a project-local file. With `POWERCONTEXT_HOME` unset, SQLite keeps `powercontext.db`, including durable scheduling and
+operation state, under:
 
 - macOS: `~/Library/Application Support/powercontext/`
 - Linux: `~/.local/share/powercontext/`

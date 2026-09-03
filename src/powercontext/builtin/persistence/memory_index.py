@@ -168,6 +168,16 @@ class CompositeMemoryIndex:
         for index in self.indexes:
             await index.initialize(connection)
 
+    async def verify(self, connection: AsyncConnection, /) -> None:
+        """Probe an already provisioned distributed schema without issuing DDL."""
+
+        for index in self.indexes:
+            verifier = getattr(index, "verify", None)
+            if verifier is None:
+                await index.initialize(connection)
+            else:
+                await verifier(connection)
+
     async def replace(
         self,
         connection: AsyncConnection,

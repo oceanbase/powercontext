@@ -254,6 +254,33 @@ def test_mcp_handoff_picker_uses_native_form_elicitation() -> None:
     ]
 
 
+def test_stateless_mcp_forces_structured_picker_fallback_even_when_the_client_supports_elicitation() -> None:
+    project = report_project("prj-powercontext", "powercontext", "PowerContext")
+    workstreams = (
+        report_workstream(project.project_id, "scope-claude", "claude-compat", "Claude compatibility"),
+        report_workstream(project.project_id, "scope-ui", "handoff-ui", "Handoff workbench"),
+    )
+    app = handoff_report_app((project,), {project.project_id: workstreams})
+    requests: list[ElicitRequestFormParams] = []
+
+    async def should_not_elicit(_message, _response_type, params, _context) -> str:
+        requests.append(params)
+        return "option-1"
+
+    async def select() -> dict[str, Any]:
+        server = create_mcp_server(app, elicitation_enabled=False)
+        async with Client(server, elicitation_handler=should_not_elicit) as client:
+            result = await client.call_tool("select_handoff_workstream", {})
+        return result.structured_content or {}
+
+    result = run_async(select)
+
+    assert result["status"] == "needs_selection"
+    assert result["stage"] == "workstream"
+    assert [item["work_id"] for item in result["workstream_choices"]] == ["claude-compat", "handoff-ui"]
+    assert requests == []
+
+
 def test_mcp_handoff_picker_preserves_cancelled_selection() -> None:
     project = report_project("prj-powercontext", "powercontext", "PowerContext")
     workstreams = (
