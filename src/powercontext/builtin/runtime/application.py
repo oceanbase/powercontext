@@ -172,6 +172,7 @@ from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
+    from powercontext.builtin.runtime.operations import OperationManager
 
 logger = logging.getLogger(__name__)
 
@@ -1098,7 +1099,7 @@ class BuiltinRuntime:
         statistics_service: StatisticsServiceFactory | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         memory_flusher: MemoryFlusher | None = None,
-        operations: Any | None = None,
+        operations: OperationManager | None = None,
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
         tracing: RuntimeTracing | None = None,

@@ -37,7 +37,7 @@ from prometheus_client import (
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from typing_extensions import override
 
-from powercontext.builtin.runtime.work_observability import WorkQueueSample
+from powercontext.builtin.persistence.work import WorkQueueStatistic
 from powercontext.server.context import is_internal_bridge
 
 
@@ -186,12 +186,10 @@ class ServerMetrics:
                 self.runtime_scopes.labels(state=state).set(value)
 
     def observe_work_enqueue(self, kind: str, *, created: bool) -> None:
-        with suppress(Exception):
-            self.work_enqueues.labels(kind=kind, outcome="created" if created else "joined").inc()
+        self.work_enqueues.labels(kind=kind, outcome="created" if created else "joined").inc()
 
     def observe_work_claim(self, kind: str, *, latency_seconds: float) -> None:
-        with suppress(Exception):
-            self.work_claim_latency.labels(kind=kind).observe(max(0.0, latency_seconds))
+        self.work_claim_latency.labels(kind=kind).observe(max(0.0, latency_seconds))
 
     def observe_work_attempt(
         self,
@@ -201,40 +199,33 @@ class ServerMetrics:
         error_category: str,
         duration_seconds: float,
     ) -> None:
-        with suppress(Exception):
-            self.work_attempts.labels(
-                kind=kind,
-                outcome=outcome,
-                error_category=error_category,
-            ).inc()
-        with suppress(Exception):
-            self.work_attempt_duration.labels(kind=kind, outcome=outcome).observe(max(0.0, duration_seconds))
+        self.work_attempts.labels(
+            kind=kind,
+            outcome=outcome,
+            error_category=error_category,
+        ).inc()
+        self.work_attempt_duration.labels(kind=kind, outcome=outcome).observe(max(0.0, duration_seconds))
 
     def observe_work_lease_expiry(self, kind: str, *, outcome: str) -> None:
-        with suppress(Exception):
-            self.work_lease_expirations.labels(kind=kind, outcome=outcome).inc()
+        self.work_lease_expirations.labels(kind=kind, outcome=outcome).inc()
 
     def observe_scheduler_leadership(self, *, outcome: str) -> None:
-        with suppress(Exception):
-            self.scheduler_leadership_changes.labels(outcome=outcome).inc()
+        self.scheduler_leadership_changes.labels(outcome=outcome).inc()
 
-    def set_work_queue(self, samples: Sequence[WorkQueueSample]) -> None:
+    def set_work_queue(self, samples: Sequence[WorkQueueStatistic]) -> None:
         current = {(sample.kind, str(sample.status)) for sample in samples}
         for kind, status in self._work_queue_labels - current:
-            with suppress(Exception):
-                self.work_queue_depth.labels(kind=kind, status=status).set(0)
-                self.work_queue_oldest_age.labels(kind=kind, status=status).set(0)
+            self.work_queue_depth.labels(kind=kind, status=status).set(0)
+            self.work_queue_oldest_age.labels(kind=kind, status=status).set(0)
         for sample in samples:
             status = str(sample.status)
-            with suppress(Exception):
-                self.work_queue_depth.labels(kind=sample.kind, status=status).set(sample.depth)
-                self.work_queue_oldest_age.labels(kind=sample.kind, status=status).set(sample.oldest_age_seconds)
+            self.work_queue_depth.labels(kind=sample.kind, status=status).set(sample.depth)
+            self.work_queue_oldest_age.labels(kind=sample.kind, status=status).set(sample.oldest_age_seconds)
         self._work_queue_labels = current
 
     def set_runtime_members(self, counts: Mapping[str, int]) -> None:
         for role in ("all", "api", "scheduler", "worker"):
-            with suppress(Exception):
-                self.runtime_role_members.labels(role=role).set(counts.get(role, 0))
+            self.runtime_role_members.labels(role=role).set(counts.get(role, 0))
 
     def render(self) -> bytes:
         return generate_latest(self.registry)

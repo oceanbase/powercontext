@@ -64,8 +64,8 @@ class RuntimeMembership:
         self._build_version = build_version
         self._repository = CoordinationRepository() if repository is None else repository
         self._observer = observer
-        self._lease_owner = hashlib.sha256(f"{deployment.id}:{uuid4()}".encode()).hexdigest()
-        self._member_id = self._lease_owner
+        boot_id = uuid4().hex
+        self._member_id = hashlib.sha256(f"{deployment.id}\0{boot_id}".encode()).hexdigest()
         self._single_node_lease: CoordinatorLease | None = None
         self._stop_requested = asyncio.Event()
         self._failed = False
@@ -74,7 +74,7 @@ class RuntimeMembership:
     def instance_id(self) -> str:
         """Return the boot-unique, non-sensitive owner used for fencing."""
 
-        return self._lease_owner
+        return self._member_id
 
     async def start(self) -> None:
         """Acquire required ownership and publish the first heartbeat."""
@@ -84,7 +84,7 @@ class RuntimeMembership:
                 self._single_node_lease = await self._repository.acquire_lease(
                     connection,
                     lease_name=_SINGLE_NODE_LEASE,
-                    owner_id=self._lease_owner,
+                    owner_id=self._member_id,
                     lease_seconds=self._config.member_ttl_seconds,
                 )
                 if self._single_node_lease is None:
@@ -108,7 +108,7 @@ class RuntimeMembership:
                         renewed = await self._repository.acquire_lease(
                             connection,
                             lease_name=_SINGLE_NODE_LEASE,
-                            owner_id=self._lease_owner,
+                            owner_id=self._member_id,
                             lease_seconds=self._config.member_ttl_seconds,
                         )
                         self._single_node_lease = _validated_renewal(self._single_node_lease, renewed)

@@ -1080,11 +1080,9 @@ async def flush_memory(
         payload.scope_id,
         limit=manager.memory_window_limit,
     )
-    if submission.idle is not None:
-        return mapping.flush_response(submission.idle)
-    if submission.operation is None:
-        raise _RuntimeNotReadyError
-    operation = submission.operation.work
+    if isinstance(submission, MemoryFlushResult):
+        return mapping.flush_response(submission)
+    operation = submission.work
     if operation.status is WorkStatus.FAILED:
         return _error_response(
             status.HTTP_409_CONFLICT,

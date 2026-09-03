@@ -301,7 +301,6 @@ class BuiltinConfig(BaseModel):
     coordination: CoordinationConfig = Field(default_factory=CoordinationConfig)
     worker: WorkerConfig = Field(default_factory=WorkerConfig)
     operations: OperationsConfig = Field(default_factory=OperationsConfig)
-    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
 
     @model_validator(mode="before")
     @classmethod

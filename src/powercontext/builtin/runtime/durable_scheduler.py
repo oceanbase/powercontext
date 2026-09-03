@@ -27,9 +27,8 @@ from powercontext.builtin.persistence.coordination import (
     CoordinationRepository,
     CoordinatorLease,
     StaleCoordinatorLeaseError,
-    database_now,
 )
-from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.database import AsyncDatabase, database_now
 from powercontext.builtin.persistence.work import WorkRepository, WorkSpec
 from powercontext.builtin.runtime.config import CoordinationConfig
 from powercontext.builtin.runtime.protocols import RuntimeSpan, RuntimeTracing
@@ -37,6 +36,9 @@ from powercontext.builtin.runtime.readiness import ReadinessCheckStatus
 from powercontext.builtin.runtime.work_observability import WorkObserver, refresh_work_queue
 
 _SCHEDULER_LEASE_NAME = "work-discovery"
+_EMPTY_DISCOVERERS = "at least one work discoverer is required"
+_INVALID_DISCOVERER_INTERVAL = "discoverer interval must be positive"
+_INVALID_DISCOVERER_NAME = "discoverer name must be a non-empty trimmed string"
 
 
 @dataclass(frozen=True)
@@ -54,20 +56,6 @@ class WorkDiscoverer(Protocol):
     interval_seconds: float
 
     async def page(self, continuation: str | None, limit: int, /) -> DiscoveryPage: ...
-
-
-class SchedulerConfigurationError(ValueError):
-    """Raised when discoverer registrations are not deterministic."""
-
-    def __init__(self, code: str, name: str | None = None) -> None:
-        messages = {
-            "empty": "at least one work discoverer is required",
-            "name": "discoverer name must be a non-empty trimmed string",
-            "interval": "discoverer interval must be positive",
-            "duplicate": f"duplicate discoverer name: {name}",
-            "page": f"discoverer {name} exceeded the configured scan page",
-        }
-        super().__init__(messages[code])
 
 
 class DurableScheduler:
@@ -100,10 +88,6 @@ class DurableScheduler:
         self._lease: CoordinatorLease | None = None
         self._stop_requested = asyncio.Event()
         self._failed = False
-
-    @property
-    def is_leader(self) -> bool:
-        return self._lease is not None
 
     async def tick(self) -> bool:
         """Renew or acquire leadership and process at most one page per discoverer."""
@@ -184,7 +168,8 @@ class DurableScheduler:
         continuation = None if scan is None else scan.continuation
         page = await discoverer.page(continuation, self._config.scan_page_size)
         if len(page.specs) > self._config.scan_page_size:
-            raise SchedulerConfigurationError("page", discoverer.name)
+            message = f"discoverer {discoverer.name} exceeded the configured scan page"
+            raise ValueError(message)
         for spec in page.specs:
             with self._stage(
                 "work.enqueue",
@@ -256,20 +241,20 @@ def _discoverer_map(discoverers: Iterable[WorkDiscoverer]) -> dict[str, WorkDisc
     registered: dict[str, WorkDiscoverer] = {}
     for discoverer in discoverers:
         if not discoverer.name.strip() or discoverer.name != discoverer.name.strip():
-            raise SchedulerConfigurationError("name")
+            raise ValueError(_INVALID_DISCOVERER_NAME)
         if discoverer.interval_seconds <= 0:
-            raise SchedulerConfigurationError("interval")
+            raise ValueError(_INVALID_DISCOVERER_INTERVAL)
         if discoverer.name in registered:
-            raise SchedulerConfigurationError("duplicate", discoverer.name)
+            message = f"duplicate discoverer name: {discoverer.name}"
+            raise ValueError(message)
         registered[discoverer.name] = discoverer
     if not registered:
-        raise SchedulerConfigurationError("empty")
+        raise ValueError(_EMPTY_DISCOVERERS)
     return registered
 
 
 __all__ = [
     "DiscoveryPage",
     "DurableScheduler",
-    "SchedulerConfigurationError",
     "WorkDiscoverer",
 ]

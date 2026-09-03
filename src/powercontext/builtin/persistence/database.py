@@ -19,13 +19,28 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Table, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from powercontext.builtin.persistence.errors import DatabaseClosedError
+from powercontext.builtin.persistence.errors import DatabaseClosedError, InvalidStoredColumnError
+
+
+async def database_now(connection: AsyncConnection, /) -> datetime:
+    """Return normalized UTC-naive database time for coordination decisions."""
+
+    statement = "SELECT CURRENT_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
+    value = (await connection.exec_driver_sql(statement)).scalar_one()
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if not isinstance(value, datetime):
+        raise InvalidStoredColumnError("CURRENT_TIMESTAMP", "a datetime")
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
 async def insert_if_absent(

@@ -20,7 +20,6 @@ import hashlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -29,8 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
-from powercontext.builtin.persistence.coordination import database_now
 from powercontext.builtin.persistence.cursors import StoredSourceCursor
+from powercontext.builtin.persistence.database import database_now
 from powercontext.builtin.persistence.rate_limit import RateLimitRepository
 from powercontext.builtin.persistence.work import (
     EnqueueResult,
@@ -66,14 +65,6 @@ class SourceWindowPayload(BaseModel):
     after: int = Field(ge=0)
     through: int = Field(ge=1)
     high_watermark: int = Field(ge=1)
-
-
-@dataclass(frozen=True)
-class MemoryEnqueue:
-    """Either an idle synchronous result or a durable operation."""
-
-    idle: MemoryFlushResult | None
-    operation: EnqueueResult | None
 
 
 class MemoryWorkDiscoverer:
@@ -163,8 +154,7 @@ class OperationMaintenanceDiscoverer:
         self.interval_seconds = interval_seconds
         self._max_attempts = max_attempts
 
-    async def page(self, continuation: str | None, limit: int, /) -> DiscoveryPage:
-        del limit
+    async def page(self, continuation: str | None, _limit: int, /) -> DiscoveryPage:
         if continuation is not None:
             return DiscoveryPage(specs=(), continuation=None)
         return DiscoveryPage(
@@ -413,7 +403,7 @@ async def enqueue_memory_work(
     max_attempts: int,
     payload_version: int = CURRENT_WORK_PAYLOAD_VERSION,
     repository: WorkRepository | None = None,
-) -> MemoryEnqueue:
+) -> MemoryFlushResult | EnqueueResult:
     """Determine and enqueue one manual Memory window in a short transaction."""
 
     scope = validate_scope_id(scope_id)
@@ -427,15 +417,12 @@ async def enqueue_memory_work(
         payload = _window_payload(state_row, high_watermark, SOURCE_WINDOW_TRIGGER_NAME, limit)
         if payload is None:
             position, _ = _cursor_position(state_row)
-            return MemoryEnqueue(
-                idle=MemoryFlushResult(
-                    previous_cursor=position,
-                    high_watermark=high_watermark,
-                    current_cursor=position,
-                    source_count=0,
-                    memory_ref=None,
-                ),
-                operation=None,
+            return MemoryFlushResult(
+                previous_cursor=position,
+                high_watermark=high_watermark,
+                current_cursor=position,
+                source_count=0,
+                memory_ref=None,
             )
         spec = _work_spec(
             kind=MEMORY_WORK_KIND,
@@ -444,8 +431,7 @@ async def enqueue_memory_work(
             max_attempts=max_attempts,
             payload_version=payload_version,
         )
-        operation = await (WorkRepository() if repository is None else repository).enqueue(connection, spec)
-    return MemoryEnqueue(idle=None, operation=operation)
+        return await (WorkRepository() if repository is None else repository).enqueue(connection, spec)
 
 
 async def memory_work_spec(
@@ -641,7 +627,6 @@ __all__ = [
     "MEMORY_WORK_KIND",
     "ExperienceWorkDiscoverer",
     "ExperienceWorkHandler",
-    "MemoryEnqueue",
     "MemoryWorkDiscoverer",
     "MemoryWorkHandler",
     "SourceWindowPayload",

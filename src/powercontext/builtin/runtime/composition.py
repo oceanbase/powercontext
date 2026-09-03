@@ -18,13 +18,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast
 
 from pydantic import AnyHttpUrl, JsonValue, SecretStr
+from sqlalchemy import Table
+from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
 from powercontext.builtin.artifacts.experience import (
@@ -39,6 +42,7 @@ from powercontext.builtin.artifacts.handoff import (
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     DefaultMemoryEvidenceProjector,
+    EmbeddingProfile,
     MemoryCapabilities,
     MemoryHit,
     MemoryRerankDecision,
@@ -53,6 +57,8 @@ from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
 )
+from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
 from powercontext.builtin.persistence.migration import migrate_database, require_current_schema
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
@@ -103,6 +109,18 @@ if TYPE_CHECKING:
     from pydantic_ai.providers import Provider
 
 ValueT = TypeVar("ValueT")
+
+
+@dataclass(frozen=True, slots=True)
+class _RuntimeStorage:
+    database: AsyncDatabase
+    index: CompositeMemoryIndex
+    experience_index: ExperienceIndex
+    report_tables: tuple[Table, ...]
+
+
+class _SchemaVerifier(Protocol):
+    async def verify(self, connection: AsyncConnection, /) -> None: ...
 
 
 class BuiltinConfigurationError(RuntimeError):
@@ -571,56 +589,14 @@ async def open_builtin_contexts(
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
-    database = config.database
-    report_tables = HANDOFF_REPORT_TABLES if config.handoff_report.enabled else ()
     configured_token_estimator = character_token_estimator() if token_estimator is None else token_estimator
-    if isinstance(database, SQLiteConfig):
-        experience_index = SQLiteExperienceFTSIndex()
-        indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
-        if embedding_model is not None:
-            indexes.append(SQLiteMemoryVectorIndex(embedding_model.profile))
-        index = CompositeMemoryIndex(*indexes)
-        async with SQLiteProfile.open(
-            database,
-            tables=BUILTIN_TABLES + report_tables + index.tables,
-            load_vector_extension=embedding_model is not None,
-            create_schema=False,
-        ) as profile:
-            await _prepare_runtime_schema(config, profile.database, index, experience_index, report_tables)
-            yield RelationalContexts(
-                database=profile.database,
-                index=index,
-                experience_index=experience_index,
-                candidate_pipeline=candidate_pipeline,
-                experience_pipeline=experience_pipeline,
-                experience_generator=experience_generator,
-                skill_generator=skill_generator,
-                external_skill_provider=external_skill_provider,
-                handoff_pipeline=handoff_pipeline,
-                embedding_model=embedding_model,
-                token_estimator=configured_token_estimator,
-                memory_reranker=memory_reranker,
-                memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
-            )
-        return
-    experience_index = OceanBaseExperienceFTSIndex()
-    indexes = [OceanBaseMemoryFTSIndex()]
-    if embedding_model is not None:
-        indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
-    index = CompositeMemoryIndex(*indexes)
-    tables = BUILTIN_TABLES + report_tables + index.tables
-    if isinstance(database, OceanBaseConfig):
-        profile_context = OceanBaseProfile.open(database, tables=tables, create_schema=False)
-    elif isinstance(database, SeekDBConfig):
-        profile_context = SeekDBProfile.open(database, tables=tables, create_schema=False)
-    else:
-        raise BuiltinConfigurationError("database")
-    async with profile_context as profile:
-        await _prepare_runtime_schema(config, profile.database, index, experience_index, report_tables)
+    embedding_profile = None if embedding_model is None else embedding_model.profile
+    async with _open_runtime_storage(config, embedding_profile=embedding_profile) as storage:
+        await _prepare_runtime_schema(config, storage)
         yield RelationalContexts(
-            database=profile.database,
-            index=index,
-            experience_index=experience_index,
+            database=storage.database,
+            index=storage.index,
+            experience_index=storage.experience_index,
             candidate_pipeline=candidate_pipeline,
             experience_pipeline=experience_pipeline,
             experience_generator=experience_generator,
@@ -634,32 +610,77 @@ async def open_builtin_contexts(
         )
 
 
-async def _prepare_runtime_schema(
+async def migrate_builtin_database(
     config: BuiltinConfig,
-    database: Any,
-    index: CompositeMemoryIndex,
-    experience_index: Any,
-    report_tables: tuple[Any, ...],
-) -> None:
-    if config.deployment.mode == "distributed":
-        await require_current_schema(database)
-        async with database.transaction() as connection:
-            await index.verify(connection)
-            verifier = getattr(experience_index, "verify", None)
-            if verifier is None:
-                raise BuiltinConfigurationError("database")
-            await verifier(connection)
+    /,
+    *,
+    embedding_profile: EmbeddingProfile | None = None,
+) -> str:
+    """Migrate the configured store using the same physical layout as the runtime."""
+
+    async with _open_runtime_storage(config, embedding_profile=embedding_profile) as storage:
+        return await migrate_database(storage.database, provision=_schema_provisioner(storage))
+
+
+@asynccontextmanager
+async def _open_runtime_storage(
+    config: BuiltinConfig,
+    *,
+    embedding_profile: EmbeddingProfile | None,
+) -> AsyncIterator[_RuntimeStorage]:
+    database = config.database
+    report_tables = HANDOFF_REPORT_TABLES if config.handoff_report.enabled else ()
+    if isinstance(database, SQLiteConfig):
+        experience_index: ExperienceIndex = SQLiteExperienceFTSIndex()
+        indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
+        if embedding_profile is not None:
+            indexes.append(SQLiteMemoryVectorIndex(embedding_profile))
+        index = CompositeMemoryIndex(*indexes)
+        async with SQLiteProfile.open(
+            database,
+            tables=BUILTIN_TABLES + report_tables + index.tables,
+            load_vector_extension=embedding_profile is not None,
+            create_schema=False,
+        ) as profile:
+            yield _RuntimeStorage(profile.database, index, experience_index, report_tables)
         return
 
-    async def provision(connection: Any) -> None:
-        if report_tables:
-            await create_tables(connection, report_tables)
-        if index.tables:
-            await create_tables(connection, index.tables)
-        await index.initialize(connection)
-        await experience_index.initialize(connection)
+    experience_index = OceanBaseExperienceFTSIndex()
+    indexes = [OceanBaseMemoryFTSIndex()]
+    if embedding_profile is not None:
+        indexes.append(OceanBaseMemoryVectorIndex(embedding_profile))
+    index = CompositeMemoryIndex(*indexes)
+    tables = BUILTIN_TABLES + report_tables + index.tables
+    if isinstance(database, OceanBaseConfig):
+        profile_context = OceanBaseProfile.open(database, tables=tables, create_schema=False)
+    elif isinstance(database, SeekDBConfig):
+        profile_context = SeekDBProfile.open(database, tables=tables, create_schema=False)
+    else:
+        raise BuiltinConfigurationError("database")
+    async with profile_context as profile:
+        yield _RuntimeStorage(profile.database, index, experience_index, report_tables)
 
-    await migrate_database(database, provision=provision)
+
+async def _prepare_runtime_schema(config: BuiltinConfig, storage: _RuntimeStorage) -> None:
+    if config.deployment.mode == "distributed":
+        await require_current_schema(storage.database)
+        async with storage.database.transaction() as connection:
+            await storage.index.verify(connection)
+            await cast(_SchemaVerifier, storage.experience_index).verify(connection)
+        return
+    await migrate_database(storage.database, provision=_schema_provisioner(storage))
+
+
+def _schema_provisioner(storage: _RuntimeStorage) -> Callable[[AsyncConnection], Awaitable[None]]:
+    async def provision(connection: AsyncConnection) -> None:
+        if storage.report_tables:
+            await create_tables(connection, storage.report_tables)
+        if storage.index.tables:
+            await create_tables(connection, storage.index.tables)
+        await storage.index.initialize(connection)
+        await storage.experience_index.initialize(connection)
+
+    return provision
 
 
 async def _generation_pipelines(
@@ -1078,4 +1099,4 @@ def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, .
     return tuple(modes)
 
 
-__all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_runtime"]
+__all__ = ["BuiltinConfigurationError", "migrate_builtin_database", "open_builtin_contexts", "open_builtin_runtime"]

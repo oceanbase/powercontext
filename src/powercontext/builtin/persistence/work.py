@@ -29,7 +29,7 @@ from sqlalchemy import and_, delete, false, func, insert, not_, or_, select, upd
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.codec import stored_bytes
-from powercontext.builtin.persistence.database import insert_if_absent
+from powercontext.builtin.persistence.database import database_now, insert_if_absent
 from powercontext.builtin.persistence.errors import (
     InvalidRepositoryArgumentError,
     InvalidStoredColumnError,
@@ -241,7 +241,7 @@ class WorkRepository:
 
     async def enqueue(self, connection: AsyncConnection, spec: WorkSpec, /) -> EnqueueResult:
         payload = _dump_payload(spec.payload, kind="work", name=spec.logical_key)
-        now = await _database_now(connection)
+        now = await database_now(connection)
         lane = await _lock_or_create_lane(connection, spec.lane_key)
         existing = await _work_for_logical_key(connection, spec.logical_key, for_update=True)
         if existing is not None:
@@ -329,7 +329,7 @@ class WorkRepository:
             return ()
         _validate_supported(supported)
 
-        now = await _database_now(connection)
+        now = await database_now(connection)
         supported_pairs = [
             and_(WORK_ITEMS_TABLE.c.kind == kind, WORK_ITEMS_TABLE.c.payload_version.in_(versions))
             for kind, versions in supported.items()
@@ -385,9 +385,9 @@ class WorkRepository:
     ) -> StoredWork:
         _require_positive("lease_seconds", lease_seconds)
         await _lock_lane(connection, claim.lane_key)
-        await _lock_logical_key(connection, claim.logical_key)
+        await _lock_logical_key(connection, claim.logical_key, claim.work_id)
         work = await _lock_work(connection, claim.work_id)
-        now = await _database_now(connection)
+        now = await database_now(connection)
         _verify_claim(work, claim, now)
         if work.cancel_requested or work.status is WorkStatus.CANCELLING:
             raise StaleWorkClaimError(claim.work_id)
@@ -423,9 +423,9 @@ class WorkRepository:
         _require_hex("trace_id", trace_id, 32)
         _require_hex("span_id", span_id, 16)
         await _lock_lane(connection, claim.lane_key)
-        await _lock_logical_key(connection, claim.logical_key)
+        await _lock_logical_key(connection, claim.logical_key, claim.work_id)
         work = await _lock_work(connection, claim.work_id)
-        _verify_claim(work, claim, await _database_now(connection))
+        _verify_claim(work, claim, await database_now(connection))
         result = await connection.execute(
             update(WORK_ATTEMPTS_TABLE)
             .where(
@@ -452,9 +452,9 @@ class WorkRepository:
         if result is None and commit is None:
             raise InvalidRepositoryArgumentError("result", "result or commit is required")
         await _lock_lane(connection, claim.lane_key)
-        await _lock_logical_key(connection, claim.logical_key)
+        await _lock_logical_key(connection, claim.logical_key, claim.work_id)
         work = await _lock_work(connection, claim.work_id)
-        now = await _database_now(connection)
+        now = await database_now(connection)
         _verify_claim(work, claim, now)
         if work.cancel_requested or work.status is WorkStatus.CANCELLING:
             raise StaleWorkClaimError(claim.work_id)
@@ -498,9 +498,9 @@ class WorkRepository:
     ) -> StoredWork:
         _require_nonnegative("retry_delay_seconds", retry_delay_seconds)
         await _lock_lane(connection, claim.lane_key)
-        await _lock_logical_key(connection, claim.logical_key)
+        await _lock_logical_key(connection, claim.logical_key, claim.work_id)
         work = await _lock_work(connection, claim.work_id)
-        now = await _database_now(connection)
+        now = await database_now(connection)
         _verify_claim(work, claim, now)
         if work.cancel_requested or work.status is WorkStatus.CANCELLING:
             return await self._cancel_running(connection, work, claim=claim, now=now)
@@ -540,12 +540,12 @@ class WorkRepository:
         _require_positive("expected_version", expected_version)
         unlocked = await self.get(connection, work_id)
         await _lock_lane(connection, unlocked.lane_key)
-        await _lock_logical_key(connection, unlocked.logical_key)
+        await _lock_logical_key(connection, unlocked.logical_key, work_id)
         work = await _lock_work(connection, work_id)
         _verify_version(work, expected_version)
         if work.status is not WorkStatus.FAILED:
             raise WorkStateConflictError(work_id, expected_version, work.status, work.state_version)
-        now = await _database_now(connection)
+        now = await database_now(connection)
         await connection.execute(
             update(WORK_ITEMS_TABLE)
             .where(WORK_ITEMS_TABLE.c.work_id == work_id)
@@ -571,12 +571,12 @@ class WorkRepository:
         logical_key_locked = await _lock_logical_key_if_present(connection, unlocked.logical_key)
         work = await _lock_work(connection, work_id)
         _verify_version(work, expected_version)
-        if work.status in {WorkStatus.SUCCEEDED, WorkStatus.CANCELLED}:
+        if work.status in {WorkStatus.CANCELLING, WorkStatus.SUCCEEDED, WorkStatus.CANCELLED}:
             raise WorkStateConflictError(work_id, expected_version, work.status, work.state_version)
         if not logical_key_locked:
             raise StaleWorkClaimError(work_id)
-        now = await _database_now(connection)
-        if work.status in {WorkStatus.RUNNING, WorkStatus.CANCELLING}:
+        now = await database_now(connection)
+        if work.status is WorkStatus.RUNNING:
             await connection.execute(
                 update(WORK_ITEMS_TABLE)
                 .where(WORK_ITEMS_TABLE.c.work_id == work_id)
@@ -725,7 +725,7 @@ class WorkRepository:
     async def queue_statistics(self, connection: AsyncConnection, /) -> tuple[WorkQueueStatistic, ...]:
         """Aggregate non-terminal queue state without high-cardinality labels."""
 
-        now = await _database_now(connection)
+        now = await database_now(connection)
         rows = (
             await connection.execute(
                 select(
@@ -835,11 +835,11 @@ class WorkRepository:
     ) -> WorkClaim | None:
         unlocked = await self.get(connection, work_id)
         await _lock_lane(connection, unlocked.lane_key)
-        await _lock_logical_key(connection, unlocked.logical_key)
+        await _lock_logical_key(connection, unlocked.logical_key, work_id)
         work = await _lock_work(connection, work_id)
         if not await _is_lane_head(connection, work):
             return None
-        now = await _database_now(connection)
+        now = await database_now(connection)
         if work.status in {WorkStatus.RUNNING, WorkStatus.CANCELLING}:
             if work.lease_expires_at is None or work.lease_expires_at > now:
                 return None
@@ -1037,9 +1037,7 @@ async def _previous_attempt_trace(connection: AsyncConnection, work_id: str) -> 
 
 
 async def _lock_lane(connection: AsyncConnection, lane_key: str) -> None:
-    row = await _lock_or_create_lane(connection, lane_key)
-    if str(row["lane_key"]) != lane_key:
-        raise InvalidStoredColumnError("lane_key", "the requested work lane")
+    await _lock_or_create_lane(connection, lane_key)
 
 
 async def _lane_row(connection: AsyncConnection, lane_key: str) -> Mapping[Any, Any] | None:
@@ -1054,9 +1052,9 @@ async def _lane_row(connection: AsyncConnection, lane_key: str) -> Mapping[Any, 
     )
 
 
-async def _lock_logical_key(connection: AsyncConnection, logical_key: str) -> None:
+async def _lock_logical_key(connection: AsyncConnection, logical_key: str, work_id: str) -> None:
     if not await _lock_logical_key_if_present(connection, logical_key):
-        raise StaleWorkClaimError(logical_key)
+        raise StaleWorkClaimError(work_id)
 
 
 async def _lock_logical_key_if_present(connection: AsyncConnection, logical_key: str) -> bool:
@@ -1137,16 +1135,6 @@ async def _advance_lane(connection: AsyncConnection, work: StoredWork) -> None:
         )
         .values(head_sequence=next_sequence)
     )
-
-
-async def _database_now(connection: AsyncConnection) -> datetime:
-    statement = "SELECT CURRENT_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
-    value = (await connection.exec_driver_sql(statement)).scalar_one()
-    if isinstance(value, str):
-        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if not isinstance(value, datetime):
-        raise InvalidStoredColumnError("CURRENT_TIMESTAMP", "a datetime")
-    return _normalized_datetime(value)
 
 
 def _work_list_statement(

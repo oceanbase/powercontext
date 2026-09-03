@@ -80,7 +80,9 @@ class SharedRateLimitMiddleware:
         if self._skip(scope):
             await self.app(scope, receive, send)
             return
-        principal = current_principal() or PrincipalRef(kind="local", subject="default")
+        principal = current_principal()
+        if principal is None:
+            raise RuntimeError("principal middleware must run before rate limiting")  # noqa: TRY003
         allowed, retry_after = await self._limiter.consume(principal)
         if allowed:
             await self.app(scope, receive, send)

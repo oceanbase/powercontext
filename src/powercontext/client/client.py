@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 from time import monotonic
 from types import TracebackType
-from typing import Self, TypeVar
+from typing import Any, Self, TypeVar
 from uuid import UUID
 
 import httpx
@@ -501,38 +501,14 @@ class PowerContextClient:
         """Submit one Memory window and return immediately when it remains pending."""
 
         payload = TypeAdapter(FLUSH_MEMORY.request_type).dump_python(request, mode="json", by_alias=True)
-        span = ClientSpan.start(FLUSH_MEMORY.operation_id)
-        try:
-            headers = {} if self._headers is None else dict(self._headers)
-            headers["Prefer"] = "respond-async"
-            span.inject(headers)
-            response = await self._http_client.request(
-                FLUSH_MEMORY.method,
-                f"{self._base_url}{FLUSH_MEMORY.path}",
-                json=payload,
-                headers=headers,
-            )
-        except asyncio.CancelledError as error:
-            span.finish("cancelled", error=error)
-            raise
-        except httpx.HTTPError as error:
-            span.finish("failure", error=error)
-            raise TransportError(FLUSH_MEMORY.path) from error
-        except BaseException as error:
-            span.finish("failure", error=error)
-            raise
-        success = response.status_code in {200, 202}
-        span.finish("success" if success else "failure", status_code=response.status_code)
-        request_id = response.headers.get(REQUEST_ID_HEADER)
-        if not success:
-            error = _decode_error(response.content)
-            raise ServerResponseError(
-                status_code=response.status_code,
-                request_id=request_id,
-                code=None if error is None else error.error.code,
-                message=None if error is None else error.error.message,
-                details=None if error is None else error.error.details,
-            )
+        response, request_id = await self._send(
+            method=FLUSH_MEMORY.method,
+            path=FLUSH_MEMORY.path,
+            operation_id=FLUSH_MEMORY.operation_id,
+            json_payload=payload,
+            extra_headers={"Prefer": "respond-async"},
+            success_statuses=(200, 202),
+        )
         response_type = FlushMemoryResponse if response.status_code == 200 else OperationAccepted
         try:
             return TypeAdapter(response_type).validate_json(response.content)
@@ -736,41 +712,14 @@ class PowerContextClient:
             else:
                 json_payload = payload
 
-        span = ClientSpan.start(operation.operation_id)
-        try:
-            headers = {} if self._headers is None else dict(self._headers)
-            span.inject(headers)
-            response = await self._http_client.request(
-                operation.method,
-                f"{self._base_url}{operation.path}",
-                json=json_payload,
-                headers=headers,
-                params=query_parameters,
-            )
-        except asyncio.CancelledError as error:
-            span.finish("cancelled", error=error)
-            raise
-        except httpx.HTTPError as exc:
-            span.finish("failure", error=exc)
-            raise TransportError(operation.path) from exc
-        except BaseException as error:
-            span.finish("failure", error=error)
-            raise
-        span.finish(
-            "success" if response.status_code == operation.success_status else "failure",
-            status_code=response.status_code,
+        response, request_id = await self._send(
+            method=operation.method,
+            path=operation.path,
+            operation_id=operation.operation_id,
+            json_payload=json_payload,
+            query_parameters=query_parameters,
+            success_statuses=(operation.success_status,),
         )
-
-        request_id = response.headers.get(REQUEST_ID_HEADER)
-        if response.status_code != operation.success_status:
-            error = _decode_error(response.content)
-            raise ServerResponseError(
-                status_code=response.status_code,
-                request_id=request_id,
-                code=None if error is None else error.error.code,
-                message=None if error is None else error.error.message,
-                details=None if error is None else error.error.details,
-            )
 
         try:
             return TypeAdapter(operation.response_type).validate_json(response.content)
@@ -779,6 +728,53 @@ class PowerContextClient:
                 operation.path,
                 request_id=request_id,
             ) from exc
+
+    async def _send(
+        self,
+        *,
+        method: str,
+        path: str,
+        operation_id: str,
+        success_statuses: tuple[int, ...],
+        json_payload: Any = None,
+        query_parameters: Any = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[httpx.Response, str | None]:
+        headers = {} if self._headers is None else dict(self._headers)
+        if extra_headers is not None:
+            headers.update(extra_headers)
+        span = ClientSpan.start(operation_id)
+        try:
+            span.inject(headers)
+            response = await self._http_client.request(
+                method,
+                f"{self._base_url}{path}",
+                json=json_payload,
+                headers=headers,
+                params=query_parameters,
+            )
+        except asyncio.CancelledError as error:
+            span.finish("cancelled", error=error)
+            raise
+        except httpx.HTTPError as error:
+            span.finish("failure", error=error)
+            raise TransportError(path) from error
+        except BaseException as error:
+            span.finish("failure", error=error)
+            raise
+        success = response.status_code in success_statuses
+        span.finish("success" if success else "failure", status_code=response.status_code)
+        request_id = response.headers.get(REQUEST_ID_HEADER)
+        if not success:
+            error = _decode_error(response.content)
+            raise ServerResponseError(
+                status_code=response.status_code,
+                request_id=request_id,
+                code=None if error is None else error.error.code,
+                message=None if error is None else error.error.message,
+                details=None if error is None else error.error.details,
+            )
+        return response, request_id
 
 
 def _decode_error(content: bytes) -> ErrorResponse | None:

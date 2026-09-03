@@ -7,7 +7,7 @@ from collections import defaultdict
 from alembic import op
 from sqlalchemy import MetaData, Table
 
-from powercontext.builtin.persistence.migration import baseline_tables_for_dialect
+from powercontext.builtin.persistence.migration import baseline_tables
 
 revision = "0001_baseline"
 down_revision = None
@@ -18,7 +18,7 @@ depends_on = None
 def upgrade() -> None:
     bind = op.get_bind()
     grouped: dict[MetaData, list[Table]] = defaultdict(list)
-    for table in baseline_tables_for_dialect(bind.dialect.name):
+    for table in baseline_tables():
         grouped[table.metadata].append(table)
     for metadata, tables in grouped.items():
         metadata.create_all(bind, tables=tables, checkfirst=True)

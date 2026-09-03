@@ -17,32 +17,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from contextlib import suppress
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from powercontext.builtin.persistence.database import AsyncDatabase
-    from powercontext.builtin.persistence.work import WorkRepository
-
-
-class WorkQueueSample(Protocol):
-    """One aggregate queue sample without scope or operation identifiers."""
-
-    @property
-    def kind(self) -> str: ...
-
-    @property
-    def status(self) -> str: ...
-
-    @property
-    def depth(self) -> int: ...
-
-    @property
-    def oldest_age_seconds(self) -> float: ...
+    from powercontext.builtin.persistence.work import WorkQueueStatistic, WorkRepository
 
 
 class WorkObserver(Protocol):
-    """Receive failure-isolated events containing only bounded dimensions."""
+    """Receive work events containing only bounded dimensions."""
 
     def observe_work_enqueue(self, kind: str, *, created: bool) -> None: ...
 
@@ -61,7 +44,7 @@ class WorkObserver(Protocol):
 
     def observe_scheduler_leadership(self, *, outcome: str) -> None: ...
 
-    def set_work_queue(self, samples: Sequence[WorkQueueSample]) -> None: ...
+    def set_work_queue(self, samples: Sequence[WorkQueueStatistic]) -> None: ...
 
     def set_runtime_members(self, counts: Mapping[str, int]) -> None: ...
 
@@ -78,10 +61,9 @@ async def refresh_work_queue(
     try:
         async with database.transaction() as connection:
             samples = await repository.queue_statistics(connection)
+        observer.set_work_queue(samples)
     except Exception:
         return
-    with suppress(Exception):
-        observer.set_work_queue(samples)
 
 
-__all__ = ["WorkObserver", "WorkQueueSample", "refresh_work_queue"]
+__all__ = ["WorkObserver", "refresh_work_queue"]

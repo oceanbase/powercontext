@@ -32,11 +32,9 @@ from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
-from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
-from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema, ReadinessResponse, ReadinessStatus
 from powercontext.server.access import HttpAccessLogMiddleware
@@ -75,18 +73,7 @@ def create_server_app(
     del scheduler_path
 
     resolved = ServerSettings() if settings is None else settings
-    config = BuiltinConfig(
-        runtime=resolved.runtime,
-        database=resolved.database,
-        handoff_report=resolved.handoff_report,
-        inference=resolved.inference,
-        external_skills=resolved.external_skills,
-        deployment=resolved.deployment,
-        coordination=resolved.coordination,
-        worker=resolved.worker,
-        operations=resolved.operations,
-        rate_limit=resolved.rate_limit,
-    )
+    config = resolved.to_builtin_config()
     metrics = ServerMetrics() if resolved.metrics.enabled else None
     public_routes = config.deployment.role in {"all", "api"}
     resolved_tracing = ServerTracing.context_only() if tracing is None else tracing
@@ -116,8 +103,12 @@ def create_server_app(
         ) as runtime:
             readiness_probe.bind(runtime)
             app.state.application = runtime
-            app.state.operation_manager = runtime.operations
-            _bind_rate_limiter(rate_limiter, _operation_database(runtime))
+            operations = runtime.operations
+            if operations is None:
+                raise RuntimeError("the built-in runtime did not expose operation coordination")  # noqa: TRY003
+            app.state.operation_manager = operations
+            if rate_limiter is not None:
+                rate_limiter.bind(operations.database)
             app.state.capabilities = await _server_capabilities(runtime)
             await readiness_probe()
             try:
@@ -125,7 +116,8 @@ def create_server_app(
             finally:
                 _log_lifecycle("server.stopping", "PowerContext Server is stopping")
                 readiness_probe.unbind()
-                _unbind_rate_limiter(rate_limiter)
+                if rate_limiter is not None:
+                    rate_limiter.unbind()
                 app.state.application = None
                 app.state.operation_manager = None
                 app.state.capabilities = Capabilities(
@@ -196,23 +188,6 @@ def _shared_rate_limiter(settings: ServerSettings) -> SharedRateLimiter | None:
         requests=settings.rate_limit.requests,
         window_seconds=settings.rate_limit.window_seconds,
     )
-
-
-def _bind_rate_limiter(limiter: SharedRateLimiter | None, database: AsyncDatabase) -> None:
-    if limiter is not None:
-        limiter.bind(database)
-
-
-def _operation_database(runtime: BuiltinRuntime) -> AsyncDatabase:
-    operations = runtime.operations
-    if operations is None:
-        raise RuntimeError("the built-in runtime did not expose operation coordination")  # noqa: TRY003
-    return operations.database
-
-
-def _unbind_rate_limiter(limiter: SharedRateLimiter | None) -> None:
-    if limiter is not None:
-        limiter.unbind()
 
 
 def _process_middleware(

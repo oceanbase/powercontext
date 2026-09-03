@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.persistence.database import insert_if_absent
+from powercontext.builtin.persistence.database import database_now, insert_if_absent
 from powercontext.builtin.persistence.errors import (
     InvalidRepositoryArgumentError,
     InvalidStoredColumnError,
@@ -150,12 +150,13 @@ class CoordinationRepository:
     async def assert_lease(self, connection: AsyncConnection, lease: CoordinatorLease, /) -> None:
         row = await _lock_lease(connection, lease.lease_name)
         now = await database_now(connection)
+        expires_at = None if row is None else _optional_datetime(row["lease_expires_at"], "lease_expires_at")
         if (
             row is None
             or row["owner_id"] != lease.owner_id
             or row["fence"] != lease.fence
-            or _optional_datetime(row["lease_expires_at"], "lease_expires_at") is None
-            or _stored_datetime(row["lease_expires_at"], "lease_expires_at") <= now
+            or expires_at is None
+            or expires_at <= now
         ):
             raise StaleCoordinatorLeaseError(lease.lease_name)
 
@@ -281,18 +282,6 @@ class CoordinationRepository:
             statement = statement.where(RUNTIME_MEMBERS_TABLE.c.role == role)
         rows = (await connection.execute(statement.order_by(RUNTIME_MEMBERS_TABLE.c.member_id))).mappings().all()
         return tuple(_decode_member(row) for row in rows)
-
-
-async def database_now(connection: AsyncConnection) -> datetime:
-    """Return normalized UTC-naive database time for all lease comparisons."""
-
-    statement = "SELECT CURRENT_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
-    value = (await connection.exec_driver_sql(statement)).scalar_one()
-    if isinstance(value, str):
-        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if not isinstance(value, datetime):
-        raise InvalidStoredColumnError("CURRENT_TIMESTAMP", "a datetime")
-    return _normalized_datetime(value)
 
 
 async def _lock_or_create_lease(
@@ -424,5 +413,4 @@ __all__ = [
     "SchedulerScan",
     "StaleCoordinatorLeaseError",
     "StaleScanStateError",
-    "database_now",
 ]

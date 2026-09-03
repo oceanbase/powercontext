@@ -18,9 +18,10 @@ import asyncio
 
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.work import WorkRepository, WorkStatus
+from powercontext.builtin.persistence.work import EnqueueResult, WorkRepository, WorkStatus
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.runtime.config import WorkerConfig
+from powercontext.builtin.runtime.models import MemoryFlushResult
 from powercontext.builtin.runtime.work_handlers import MemoryWorkHandler, enqueue_memory_work
 from powercontext.builtin.runtime.worker import DurableWorker
 from powercontext.builtin.sources import ContentCapture, ContentSource
@@ -47,11 +48,11 @@ def test_manual_and_scheduled_discovery_join_one_memory_window_and_commit_once(t
 
             manual = await enqueue_memory_work(contexts, "project", limit=100, max_attempts=5)
             scheduled = await enqueue_memory_work(contexts, "project", limit=100, max_attempts=5)
-            assert manual.operation is not None
-            assert scheduled.operation is not None
-            assert manual.operation.created is True
-            assert scheduled.operation.created is False
-            assert manual.operation.work.work_id == scheduled.operation.work.work_id
+            assert isinstance(manual, EnqueueResult)
+            assert isinstance(scheduled, EnqueueResult)
+            assert manual.created is True
+            assert scheduled.created is False
+            assert manual.work.work_id == scheduled.work.work_id
 
             worker = DurableWorker(
                 database=contexts.database,
@@ -62,7 +63,7 @@ def test_manual_and_scheduled_discovery_join_one_memory_window_and_commit_once(t
             assert await worker.run_once() == 1
 
             async with contexts.database.transaction() as connection:
-                stored = await WorkRepository().get(connection, manual.operation.work.work_id)
+                stored = await WorkRepository().get(connection, manual.work.work_id)
             assert stored.status is WorkStatus.SUCCEEDED
             assert stored.result_payload is not None
             assert stored.result_payload["current_cursor"] == 2
@@ -74,7 +75,7 @@ def test_manual_and_scheduled_discovery_join_one_memory_window_and_commit_once(t
                 "Second durable fact.",
             }
             idle = await enqueue_memory_work(contexts, "project", limit=100, max_attempts=5)
-            assert idle.operation is None
-            assert idle.idle is not None and idle.idle.current_cursor == 2
+            assert isinstance(idle, MemoryFlushResult)
+            assert idle.current_cursor == 2
 
     asyncio.run(scenario())

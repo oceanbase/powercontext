@@ -25,8 +25,7 @@ from typing import Any
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.persistence.coordination import database_now
-from powercontext.builtin.persistence.database import insert_if_absent
+from powercontext.builtin.persistence.database import database_now, insert_if_absent
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError, InvalidStoredColumnError
 from powercontext.builtin.persistence.tables import RATE_LIMIT_WINDOWS_TABLE
 
@@ -209,8 +208,8 @@ def _require_positive(field: str, value: int) -> None:
 
 
 def _positive_integer(value: object, column: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        raise InvalidStoredColumnError(column, "a non-negative integer")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise InvalidStoredColumnError(column, "a positive integer")
     return value
 
 

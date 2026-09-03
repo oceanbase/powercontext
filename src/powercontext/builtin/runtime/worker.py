@@ -43,6 +43,9 @@ from powercontext.builtin.runtime.readiness import ReadinessCheckStatus
 from powercontext.builtin.runtime.work_observability import WorkObserver, refresh_work_queue
 
 ClaimReadiness = Callable[[], Awaitable[str]]
+_EMPTY_HANDLERS = "at least one handler is required"
+_INVALID_HANDLER_KIND = "handler kind must be a non-empty trimmed string"
+_INVALID_HANDLER_VERSIONS = "handler versions must be positive"
 
 
 class WorkHandler(Protocol):
@@ -68,19 +71,6 @@ class WorkExecutionError(RuntimeError):
     def __init__(self, *, category: str, code: str, retryable: bool) -> None:
         self.failure = WorkFailure(category=category, code=code, retryable=retryable)
         super().__init__(f"work handler failed with {category}/{code}")
-
-
-class WorkerConfigurationError(ValueError):
-    """Raised when handler registrations are ambiguous or invalid."""
-
-    def __init__(self, code: str, kind: str | None = None) -> None:
-        messages = {
-            "empty": "at least one handler is required",
-            "kind": "handler kind must be a non-empty trimmed string",
-            "versions": "handler versions must be positive",
-            "duplicate": f"duplicate handler kind: {kind}",
-        }
-        super().__init__(messages[code])
 
 
 class DurableWorker:
@@ -139,11 +129,10 @@ class DurableWorker:
                     span.set_attributes({"powercontext.work.claim.count": len(claims)})
             tasks = {asyncio.create_task(self._execute(claim)) for claim in claims}
             self._running.update(tasks)
-        try:
-            if tasks:
-                await asyncio.gather(*tasks)
-        finally:
-            self._running.difference_update(tasks)
+            for task in tasks:
+                task.add_done_callback(self._running.discard)
+        if tasks:
+            await asyncio.gather(*tasks)
         await refresh_work_queue(self._database, self._repository, self._observer)
         return len(claims)
 
@@ -151,24 +140,19 @@ class DurableWorker:
         """Claim at most one lane per short transaction."""
 
         claims: list[WorkClaim] = []
-        scans_remaining = max(capacity * 4, 4)
-        empty_scans = 0
-        while len(claims) < capacity and scans_remaining > 0:
-            scans_remaining -= 1
+        supported = self.supported
+        for _ in range(capacity):
             async with self._database.transaction() as connection:
                 claimed = await self._repository.claim(
                     connection,
                     worker_id=self._worker_id,
-                    supported=self.supported,
+                    supported=supported,
                     lease_seconds=self._config.lease_seconds,
                     limit=1,
                 )
             if claimed:
                 claims.extend(claimed)
-                empty_scans = 0
-                continue
-            empty_scans += 1
-            if empty_scans >= 2:
+            else:
                 break
         return tuple(claims)
 
@@ -215,12 +199,11 @@ class DurableWorker:
         self._wake_requested.set()
         if not self._running:
             return
-        done, pending = await asyncio.wait(self._running, timeout=self._config.shutdown_grace_seconds)
+        _, pending = await asyncio.wait(self._running, timeout=self._config.shutdown_grace_seconds)
         for task in pending:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
-        self._running.difference_update(done | pending)
 
     async def _execute(self, claim: WorkClaim) -> None:
         links = (
@@ -325,8 +308,6 @@ class DurableWorker:
                 )
         except StaleWorkClaimError:
             return False
-        except Exception:
-            return True
         return True
 
     async def _record_failure(self, claim: WorkClaim, failure: WorkFailure) -> str:
@@ -384,14 +365,15 @@ def _handler_map(handlers: Iterable[WorkHandler]) -> dict[str, WorkHandler]:
     registered: dict[str, WorkHandler] = {}
     for handler in handlers:
         if not handler.kind.strip() or handler.kind != handler.kind.strip():
-            raise WorkerConfigurationError("kind")
+            raise ValueError(_INVALID_HANDLER_KIND)
         if not handler.supported_versions or any(version < 1 for version in handler.supported_versions):
-            raise WorkerConfigurationError("versions")
+            raise ValueError(_INVALID_HANDLER_VERSIONS)
         if handler.kind in registered:
-            raise WorkerConfigurationError("duplicate", handler.kind)
+            message = f"duplicate handler kind: {handler.kind}"
+            raise ValueError(message)
         registered[handler.kind] = handler
     if not registered:
-        raise WorkerConfigurationError("empty")
+        raise ValueError(_EMPTY_HANDLERS)
     return registered
 
 
@@ -400,5 +382,4 @@ __all__ = [
     "PreparedWork",
     "WorkExecutionError",
     "WorkHandler",
-    "WorkerConfigurationError",
 ]

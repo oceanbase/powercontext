@@ -22,9 +22,9 @@ from typing import Literal
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
+    BuiltinConfig,
     CoordinationConfig,
     DatabaseConfig,
     DeploymentConfig,
@@ -200,6 +200,21 @@ class ServerSettings(BaseSettings):
     operations: OperationsConfig = Field(default_factory=OperationsConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
 
+    def to_builtin_config(self) -> BuiltinConfig:
+        """Return the runtime-owned subset of the Server configuration."""
+
+        return BuiltinConfig(
+            runtime=self.runtime,
+            database=self.database,
+            handoff_report=self.handoff_report,
+            inference=self.inference,
+            external_skills=self.external_skills,
+            deployment=self.deployment,
+            coordination=self.coordination,
+            worker=self.worker,
+            operations=self.operations,
+        )
+
     @field_validator("database", mode="before")
     @classmethod
     def default_seekdb_database_path(cls, value: object) -> object:
@@ -227,17 +242,7 @@ class ServerSettings(BaseSettings):
             allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
         ):
             raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
-        if self.deployment.mode == "single_node" and self.deployment.role != "all":
-            raise ValueError("single_node deployment role must be 'all'")  # noqa: TRY003
-        if self.deployment.mode == "distributed":
-            if not isinstance(self.database, OceanBaseConfig):
-                raise ValueError("distributed deployment requires OceanBase")  # noqa: TRY003
-            if self.deployment.role == "all":
-                raise ValueError("distributed deployment role must be api, scheduler, or worker")  # noqa: TRY003
-            if self.external_skills.agent_targets:
-                raise ValueError(  # noqa: TRY003
-                    "distributed deployment does not support host-local external Skill targets"
-                )
+        self.to_builtin_config()
         return self
 
 

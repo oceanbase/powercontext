@@ -257,6 +257,13 @@ def test_running_cancel_linearizes_before_commit_and_recovers_after_expiry() -> 
                     expected_version=running.state_version,
                 )
             assert cancelling.status is WorkStatus.CANCELLING
+            with pytest.raises(WorkStateConflictError):
+                async with profile.database.transaction() as connection:
+                    await repository.cancel(
+                        connection,
+                        claim.work_id,
+                        expected_version=cancelling.state_version,
+                    )
 
             committed = False
 

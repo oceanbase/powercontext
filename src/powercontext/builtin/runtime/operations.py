@@ -29,7 +29,7 @@ from pydantic import ValidationError
 
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError, RepositoryNotFoundError
-from powercontext.builtin.persistence.work import StoredWork, WorkRepository, WorkStatus
+from powercontext.builtin.persistence.work import EnqueueResult, StoredWork, WorkRepository, WorkStatus
 from powercontext.builtin.runtime.config import OperationsConfig, WorkerConfig
 from powercontext.builtin.runtime.models import MemoryFlushResult
 from powercontext.builtin.runtime.protocols import RuntimeSpan, RuntimeTracing
@@ -37,7 +37,6 @@ from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.runtime.work_handlers import (
     EXPERIENCE_WORK_KIND,
     MEMORY_WORK_KIND,
-    MemoryEnqueue,
     enqueue_memory_work,
 )
 from powercontext.builtin.runtime.work_observability import WorkObserver, refresh_work_queue
@@ -120,7 +119,7 @@ class OperationManager:
 
         return self._database
 
-    async def submit_memory(self, scope_id: str, /, *, limit: int) -> MemoryEnqueue:
+    async def submit_memory(self, scope_id: str, /, *, limit: int) -> MemoryFlushResult | EnqueueResult:
         with self._stage(
             "work.enqueue",
             attributes={
@@ -139,28 +138,26 @@ class OperationManager:
             if span is not None:
                 span.set_outcome(
                     "idle"
-                    if submission.idle is not None
+                    if isinstance(submission, MemoryFlushResult)
                     else "created"
-                    if submission.operation is not None and submission.operation.created
+                    if submission.created
                     else "joined"
                 )
-        if submission.operation is not None and self._local_worker is not None:
+        if isinstance(submission, EnqueueResult) and self._local_worker is not None:
             self._local_worker.notify()
         await refresh_work_queue(self._database, self._repository, self._observer)
         return submission
 
     async def flush_memory(self, scope_id: str, /, *, limit: int) -> MemoryFlushResult:
         submission = await self.submit_memory(scope_id, limit=limit)
-        if submission.idle is not None:
-            return submission.idle
-        if submission.operation is None:
-            raise RuntimeError("memory submission produced neither idle result nor operation")  # noqa: TRY003
+        if isinstance(submission, MemoryFlushResult):
+            return submission
         operation = await self.wait(
-            submission.operation.work.work_id,
+            submission.work.work_id,
             timeout_seconds=self._operations.maximum_wait_seconds,
         )
         if operation is None:
-            raise RuntimeOperationPendingError(submission.operation.work.work_id)
+            raise RuntimeOperationPendingError(submission.work.work_id)
         return self.memory_result(operation)
 
     def memory_result(self, operation: StoredWork, /) -> MemoryFlushResult:

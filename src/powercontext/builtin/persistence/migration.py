@@ -27,6 +27,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import Table, inspect
 from sqlalchemy.engine import Connection
 from sqlalchemy.engine.reflection import Inspector
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.coordination import CoordinationRepository, CoordinatorLease
@@ -141,7 +142,7 @@ async def _release_migration_lease(database: AsyncDatabase, lease: CoordinatorLe
     try:
         async with database.transaction() as connection:
             await CoordinationRepository().release_lease(connection, lease)
-    except Exception:
+    except SQLAlchemyError:
         # The lease expires by database time. Never mask the migration result
         # with a best-effort release failure during connection loss.
         return
@@ -227,32 +228,26 @@ def _current_revision(connection: Connection) -> str | None:
     return context.get_current_revision()
 
 
-def _alembic_config(connection: Connection) -> Config:
+def _alembic_config(connection: Connection | None = None) -> Config:
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).with_name("migrations")))
-    config.attributes["connection"] = connection
+    if connection is not None:
+        config.attributes["connection"] = connection
     return config
 
 
 def migration_head() -> str:
     """Return the packaged Alembic head for contract tests and diagnostics."""
 
-    return str(ScriptDirectory.from_config(_alembic_config_without_connection()).get_current_head())
+    return str(ScriptDirectory.from_config(_alembic_config()).get_current_head())
 
 
-def _alembic_config_without_connection() -> Config:
-    config = Config()
-    config.set_main_option("script_location", str(Path(__file__).with_name("migrations")))
-    return config
-
-
-def baseline_tables_for_dialect(dialect_name: str) -> tuple[Table, ...]:
-    """Return the explicitly managed baseline for one migration dialect."""
+def baseline_tables() -> tuple[Table, ...]:
+    """Return the explicitly managed migration baseline."""
 
     # Search projections and optional feature tables are provisioned by the
     # configured migrator callback. Keeping the baseline limited to the
     # invariant domain schema lets disabled features stay physically absent.
-    del dialect_name
     return _BASE_TABLES
 
 
@@ -264,7 +259,7 @@ __all__ = [
     "SchemaCompatibilityError",
     "SchemaMigrationError",
     "SchemaNotCurrentError",
-    "baseline_tables_for_dialect",
+    "baseline_tables",
     "migrate_database",
     "migration_head",
     "require_current_schema",
