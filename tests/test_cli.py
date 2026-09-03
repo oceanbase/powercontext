@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import os
+import subprocess
+import sys
 from importlib.metadata import version
 from pathlib import Path
 from types import TracebackType
@@ -160,9 +162,40 @@ def test_cli_exposes_installed_role_commands() -> None:
     result = CliRunner().invoke(create_cli(), ["--help"])
 
     assert result.exit_code == 0
-    assert all(command in result.output for command in ("capabilities", "candidate", "stats", "server"))
+    assert all(command in result.output for command in ("capabilities", "candidate", "stats", "service", "server"))
     assert "builtin" not in result.output
     assert "client" not in result.output
+
+
+def test_service_command_provider_requires_the_complete_server_role() -> None:
+    script = """
+import builtins
+
+real_import = builtins.__import__
+
+def guarded_import(name, *args, **kwargs):
+    if name == "fastapi" or name.startswith("fastapi."):
+        raise ModuleNotFoundError("blocked server dependency", name="fastapi")
+    return real_import(name, *args, **kwargs)
+
+builtins.__import__ = guarded_import
+try:
+    import powercontext.service.cli  # noqa: F401
+except ModuleNotFoundError as error:
+    if error.name != "fastapi":
+        raise
+else:
+    raise AssertionError("service command loaded without the complete Server role")
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_client_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -305,6 +338,45 @@ def test_server_command_reports_a_missing_env_file_without_starting(
     assert result.exit_code == 2
     assert "Invalid value for --env-file" in (result.output + result.stderr)
     run_server.assert_not_called()
+
+
+def test_server_command_does_not_relabel_runtime_oserror_as_env_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "powercontext.server.cli._run_configured_server",
+        Mock(side_effect=OSError("simulated runtime startup failure")),
+    )
+
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, OSError)
+    assert "Invalid value for --env-file" not in (result.output + result.stderr)
+
+
+def test_server_command_restores_environment_after_runtime_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8123\nOPENAI_API_KEY=file-secret\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    def fail_after_configuration(_settings) -> None:
+        assert os.environ["POWERCONTEXT_SERVER_HTTP_PORT"] == "8123"
+        assert os.environ["OPENAI_API_KEY"] == "file-secret"
+        raise OSError("simulated runtime startup failure")  # noqa: TRY003
+
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", fail_after_configuration)
+
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "run", "--env-file", str(environment)],
+    )
+
+    assert result.exit_code == 1
+    assert os.environ["POWERCONTEXT_SERVER_HTTP_PORT"] == "9000"
+    assert "OPENAI_API_KEY" not in os.environ
 
 
 @pytest.fixture

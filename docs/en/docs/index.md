@@ -4,7 +4,7 @@ title: Choose an Agent or API
 description: Add the HTTP Memory API to an existing AI application, or configure an Agent and verify Memory and Handoff.
 page_type: docs-overview
 overview:
-  intro: If you are new to PowerContext, choose the entry that matches your application. Use HTTP directly from an existing AI application, or start with the Agent quickstart for Codex, Claude Code, OpenCode, and other hosts.
+  intro: Choose a tutorial to learn one complete path, a how-to guide to finish a specific task, an explanation to understand system behavior, or a reference page to look up current contracts and settings.
   sections:
     - title: Start here
       description: Complete an API or Agent quickstart first. The remaining guides help you continue in the Agent you use.
@@ -65,6 +65,15 @@ overview:
         - title: Configuration
           description: Set storage, providers, interfaces, and runtime behavior.
           href: en/docs/reference/configuration/
+        - title: Configure a Server environment
+          description: Generate one explicit environment file, validate it, and start the Server with the same settings.
+          href: en/docs/how-to/configure-server-environment/
+        - title: Configure vector search
+          description: Set an embedding profile and confirm that vector and hybrid search are available.
+          href: en/docs/how-to/configure-vector-search/
+        - title: Configure Agent Skill targets
+          description: Register local Codex or Claude Code Skill directories for discovery and managed publication.
+          href: en/docs/how-to/configure-agent-skill-targets/
         - title: Deploy the Server
           description: Run a persistent Server with health checks, authentication, and a safe network boundary.
           href: en/docs/how-to/deploy-server/

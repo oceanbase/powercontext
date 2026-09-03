@@ -5,8 +5,38 @@ description: Run PowerContext with persistent data, health checks, authenticatio
 
 # Deploy the Server
 
-`powercontext server run` is a foreground process. For a personal workstation, run it in a terminal. For a
-long-running installation, let a container platform or service manager start it, restart it, and collect its logs.
+`powercontext server run` is a foreground process. On a personal macOS or Linux workstation, PowerContext can register
+that same Server runner with the native current-user service manager. Managed deployments should continue to use a
+container platform or an administrator-owned service manager.
+
+## Run a persistent personal Server
+
+Install and start the optional current-user service:
+
+```bash
+powercontext service install
+powercontext service status
+```
+
+Linux uses `systemd --user` and writes logs to the user journal. macOS uses a per-user LaunchAgent and writes stdout
+and stderr below the PowerContext user data directory. `service status` reports the exact log selector or path. The
+installer never requests administrator privileges and accepts only a loopback Server bind.
+
+For an explicit Server configuration, protect the environment file before installing:
+
+```bash
+chmod 600 /path/to/powercontext.env
+powercontext config validate --env-file /path/to/powercontext.env
+powercontext service install --env-file /path/to/powercontext.env
+```
+
+The native definition stores only the absolute file path and non-content file identity metadata; it does not copy
+credentials or the caller's shell environment. Re-run `service install` after upgrading PowerContext or changing the
+environment file. Remove the registration without deleting Server data or logs with:
+
+```bash
+powercontext service uninstall
+```
 
 ## Choose the network boundary
 
@@ -96,7 +126,8 @@ docker run --rm \
 ```
 
 Clients then send `Authorization: Bearer <token>`. The liveness and readiness endpoints remain public so an
-orchestrator can probe them. API, MCP, metrics, OpenAPI, and interactive API documentation require authentication.
+orchestrator can probe them. API, MCP, metrics, and `/openapi.json` require authentication. The `/docs` shell remains
+public, but requests made from the interactive reference require authentication.
 The Server's web-page shells and static assets remain public so they can show a sign-in form; they do not return
 protected data without the token. Open the Dashboard, Skills, Review, or Handoff Report page and enter the same token
 there. It remains in the current browser tab's session storage rather than being added to the URL.

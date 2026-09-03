@@ -24,7 +24,7 @@ description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 | Python Client SDK | 对运行中的 Server 发起类型化异步调用 | [安装 Client role](../how-to/install-and-run.md) |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | [Python API 参考](/zh/modules/) |
 | HTTP | 从任意语言集成服务 | [HTTP API](http-api.md) |
-| MCP | 面向 Agent 的 Memory 与工作连续性工具 | Server 在 `/mcp` 启用 |
+| MCP | 面向 Agent 的 Source 采集、Memory、工作连续性、报告和 Candidate Review 精选工具 | Server 在 `/mcp` 启用 |
 
 ## Codex 插件
 
@@ -33,46 +33,14 @@ project-context skill 指导 Codex 何时检索、记忆、修订、停用、委
 
 ## 工作连续性
 
-Server 通过 HTTP、Python Client 和 MCP 暴露同一个高层闭环：
+HTTP、Python Client 和 MCP 都提供 Work Contract 创建、Handoff 准备和继续、acknowledgement 与 Task Outcome 记录。
+Prepared Handoff 是临时内容，`commit_handoff` 才会创建持久 Revision。acknowledgement 可选择 prepared 或 exact Handoff，
+但 `handoff_receipt_ref` 只能引用 committed Revision 对应的 accepted exact Receipt。claim 和 check 可以是 `declared`，
+也可以是带有 exact same-scope citation 的 `verified`。这些 record 不会授予身份、工具或执行权限。
 
-```text
-create_work_contract
-  -> 推进工作
-  -> handoff_current_work
-  -> continue_handoff + acknowledge_handoff
-  -> record_task_outcome
-```
-
-`create_work_contract` 为新委托记录目标、范围、完成标准、授权说明和关键待决问题。`handoff_current_work` 采集调用方已
-检查的当前状态并返回临时 Prepared Handoff；它不会发布里程碑。只有用户需要持久化里程碑时，才另行调用
-`commit_handoff`。
-
-接收方先用 prepared、exact 或 latest selection 调用 `continue_handoff`；如果从 latest 开始，必须把返回的 exact Revision
-展示并检查后再记录回执。`acknowledge_handoff` 只接受 prepared 或 exact，不接受 latest。任一 Handoff evidence 不可用，
-或 live-state、capability、authorization 没有全部确认为 `confirmed` 时，都会拒绝 accepted。接收方也可以记录
-`needs_clarification` 或 `declined`。回执及三项确认只记录不可信观察，不能授予身份、工具或执行权限。
-
-`record_task_outcome` 原样保留 `succeeded`、`partial`、`blocked`、`failed`、`cancelled` 或 `unknown`，以及精确检查
-状态。需要关闭 committed Handoff 结果时，`handoff_receipt_ref` 必须引用当前 accepted exact Receipt；同 scope 中无关联的
-Outcome 不会覆盖它。该 operation 保存现有 Experience 孵化可读取的 `task-outcome` Source，但不会自行生成或批准
-Experience。Integration 只应在真实完成或中断边界调用它，不能仅因 Prompt、Stop 或 Session 结束而调用。
-
-Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 scope 精确 citation 的 `verified`。Citation 可读只证明
-身份和可用性，不证明事实仍然新鲜。当前指令、实时 workspace、能力和授权始终优先于 Work 与 Handoff 记录。
-
-完整 Codex 转交和接收确认流程见[在 Codex 中交接工作](../how-to/handoff-with-codex.md)。
-
-Handoff Report 会列出包含 committed Handoff 的 scope，`get_handoff_report` 要求提供 `scope_id`。`project_id` 仅作为
-deprecated wire-compatibility input 保留，生成报告时会被忽略。每个返回的 Workstream projection 包含
-`handoff_revision_count`、`handoff_history_truncated` 和 `handoff_history`，最多返回 frozen selection 之前最近 20 个
-Revision 摘要。Web 操作见[使用 Handoff Report](../how-to/use-handoff-report.md)。
-
-当前 scope report 不返回 Activity event，`activity_coverage=not_configured`，并且没有 period comparison。Period
-输入只会被规范化，不会筛选 Activity。Server 未启用鉴权时，HTTP 和 Python Client 的 Markdown operation 仍可不带
-token 使用；当前浏览器下载和后台刷新控件要求已保存的 Bearer token。
-
-Codex scope resolver 支持把当前 Git 工作区一次绑定到固定 Workstream scope，绑定优先于 Git remote 和路径推导，但低于
-显式 scope 配置。
+Handoff Report API 列出含 committed Handoff 的 scope，并要求 `scope_id`；已废弃的 `project_id` input 在生成 scope report
+时会被忽略。scope report 当前不返回 Activity event，也不提供 period comparison。workflow 见
+[在 Codex 中交接工作](../how-to/handoff-with-codex.md)，报告 UI 见[使用 Handoff Report](../how-to/use-handoff-report.md)。
 
 ## DeepSeek Harness 插件
 
@@ -168,41 +136,9 @@ Generation 和 revision 命令通过可重复的 `--source-ref TYPE/ID` 与
 
 ## Python Client SDK
 
-由 Server 管理持久化时，使用 Client SDK：
-
-```python
-import asyncio
-
-from powercontext.http import PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
-from powercontext.client import PowerContextClient
-
-
-async def main() -> None:
-    async with PowerContextClient("http://127.0.0.1:8000") as client:
-        await client.remember_memory(
-            RememberMemoryRequest(
-                scope_id="project:example",
-                kind="decision",
-                text="保持公开 API 异步化。",
-            )
-        )
-        result = await client.search_memory(
-            SearchMemoryRequest(
-                scope_id="project:example",
-                query="公开 API",
-            )
-        )
-        print([hit.text for hit in result.hits])
-        prepared = await client.prepare_context(
-            PrepareContextRequest(scope_id="project:example", query="公开 API")
-        )
-        print(prepared.content)
-
-
-asyncio.run(main())
-```
-
-变更操作的响应包含精确 citation。修订、停用或读取不可变条目版本时，应把该 citation 传回 Server。
+`PowerContextClient` 是面向 Server-owned deployment 的 typed asynchronous HTTP client。其 request 和 response model
+从 `powercontext.http` 导出。Mutation response 包含 exact citation，后续修订、停用或读取某个不可变 entry version 时需传回
+该 citation。可运行的 Client 流程见[HTTP API 生命周期教程](../tutorials/api-quickstart.md)。
 
 Client 还提供 `generate_experience`、`propose_experience`、`get_experience`、`generate_skill`、
 `propose_skill`、`get_skill`、`scan_external_skills`、`list_external_skills`、
@@ -291,8 +227,8 @@ Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精�
 Scalar API reference，在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在
 `/v1/capabilities` 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。启用 Bearer authentication 后，
 Scalar reference 仍可公开访问，但其中描述的 operation 继续遵守各自的认证要求。HTTP 是完整应用契约，MCP 是
-面向 Agent 的 Memory 与 Candidate Review operation 子集。五个 Candidate Review operation 通过 HTTP 和 MCP
-使用相同的 validation、`expected_version` 并发校验和 approval transaction。Experience/Skill generation、
+面向 Agent 的 Source 采集、Memory 维护、工作连续性、scope Handoff Report 查询和 Candidate Review 精选子集。五个
+Candidate Review operation 通过 HTTP 和 MCP 使用相同的 validation、`expected_version` 并发校验和 approval transaction。Experience/Skill generation、
 exact read、external Registry operation 和低阶 proposal operation 仍只通过 HTTP 提供。
 所有检查通过时 readiness 为 HTTP 200 的 `ready`；只有已配置的推理检查失败时为 HTTP 200 的 `degraded`；
 Runtime 或数据库失败时为 HTTP 503 的 `not_ready`。依赖检查使用 `ready`、`unavailable`、`timeout` 或

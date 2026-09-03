@@ -84,6 +84,7 @@ powercontext = "powercontext.cli.app:main"
 [project.entry-points."powercontext.cli"]
 config = "powercontext.cli.config:app"
 doctor = "powercontext.cli.system:doctor_app"
+service = "powercontext.service.cli:app"
 server = "powercontext.server.cli:app"
 setup = "powercontext.cli.system:setup_app"
 
@@ -125,7 +126,7 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/powercontext"]
+packages = ["src/powercontext", "src/powercontext_service_bootstrap"]
 
 [tool.ty.environment]
 python = "./.venv"
@@ -168,6 +169,7 @@ missing-override-decorator = "ignore"
 testpaths = ["tests"]
 pythonpath = ["integrations/pydantic-ai/src"]
 markers = [
+    "native_service: mutates a disposable matching-platform current-user service manager",
     "real_e2e: uses real Codex, external model providers, and the configured database",
 ]
 

@@ -1,0 +1,96 @@
+name: Native personal service
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  linux-systemd-user:
+    runs-on: ubuntu-latest
+    env:
+      POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS: "1"
+      POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER: powercontext-native-${{ github.run_id }}-${{ github.run_attempt }}.service
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Start the disposable runner's user manager
+        shell: bash
+        run: |
+          sudo systemctl start "user@$(id -u).service"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+
+      - name: Install the built distribution in a fresh virtual environment
+        shell: bash
+        run: |
+          uv build --wheel
+          wheel=$(find dist -name '*.whl' -print -quit)
+          uv venv .native-venv
+          uv pip install --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
+
+      - name: Exercise the real systemd user lifecycle
+        run: >-
+          .native-venv/bin/python -m pytest -q
+          --basetemp "$RUNNER_TEMP/powercontext-native-tests"
+          tests/native/test_personal_service_lifecycle.py
+
+      - name: Capture systemd diagnostics after failure
+        if: failure()
+        shell: bash
+        run: |
+          systemctl --user status "$POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER" || true
+          journalctl --user --unit "$POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER" --no-pager || true
+
+      - name: Upload Linux native-service logs after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-native-service-logs
+          path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
+          if-no-files-found: ignore
+
+  macos-launchagent:
+    runs-on: macos-latest
+    env:
+      POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS: "1"
+      POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER: com.oceanbase.powercontext.native.${{ github.run_id }}.${{ github.run_attempt }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install the built distribution in a fresh virtual environment
+        shell: bash
+        run: |
+          uv build --wheel
+          wheel=$(find dist -name '*.whl' -print -quit)
+          uv venv .native-venv
+          uv pip install --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
+
+      - name: Exercise the real LaunchAgent lifecycle
+        run: >-
+          .native-venv/bin/python -m pytest -q
+          --basetemp "$RUNNER_TEMP/powercontext-native-tests"
+          tests/native/test_personal_service_lifecycle.py
+
+      - name: Capture launchd diagnostics after failure
+        if: failure()
+        shell: bash
+        run: launchctl print "gui/$(id -u)/$POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER" || true
+
+      - name: Upload macOS native-service logs after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-native-service-logs
+          path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
+          if-no-files-found: ignore

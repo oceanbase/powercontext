@@ -12,17 +12,14 @@ HTTP API 是访问 PowerContext Server 的语言无关接口。默认 base URL �
 
 ## 查看契约
 
-本地未启用鉴权的 Server 运行后，可以打开：
-
-- `/docs`：交互式 Swagger UI；
-- `/redoc`：ReDoc；
-- `/openapi.json`：该进程实际提供的契约。
+本地未启用鉴权的 Server 运行后，可以打开 `/docs` 查看交互式 Scalar API 参考，或打开 `/openapi.json` 获取该进程实际提供的
+契约。
 
 仓库中的契约源文件是
 [`openapi/powercontext.yaml`](https://github.com/oceanbase/powercontext/blob/master/openapi/powercontext.yaml)。
-生成客户端或检查全部请求、响应字段时以它为准。启用 Server 鉴权后，这三个发现路由与其他受保护路由一样需要 Bearer
-token。浏览器地址栏无法添加该 header；应使用可信的代理或浏览器配置注入 header，或者设置下方变量后，通过带鉴权的
-命令下载 `/openapi.json`。不要把 token 放进 URL。
+生成客户端或检查全部请求、响应字段时以它为准。启用 Server 鉴权后，`/docs` 仍保持公开以渲染参考页，但在其中发起的
+请求仍需鉴权。`/openapi.json` 需要 Bearer token。浏览器地址栏无法添加该 header；应使用可信的代理或浏览器配置注入
+header，或者通过带鉴权的命令下载 `/openapi.json`。不要把 token 放进 URL。
 
 ## 请求鉴权
 

@@ -212,18 +212,21 @@ Status 是只读操作，同时提供人类可读和 JSON 输出。其稳定状�
 support: supported | unsupported
 registration: installed | not_installed | invalid | unknown
 definition: current | stale | missing_executable | unknown
+manager_ownership: owned | not_loaded | foreign | unknown
 manager: active | inactive | failed | unknown
 server_liveness: live | unreachable | unknown
 log_location: <native journal selector or per-user path> | unavailable
 ```
 
 Registration 表示精确的 PowerContext-owned 原生产物状态；Definition 比较记录的 executable、package version 和
-definition version 与当前 distribution；Manager state 来自原生 manager；Liveness 探测注册中记录的 loopback
-endpoint。这些值有意保持独立：没有注册时前台 Server 也可能 live，存在注册时 Server 也可能 unreachable。
+definition version 与当前 distribution；Manager ownership 独立校验原生 identifier 下已加载对象的 artifact path、
+launcher 参数和 PowerContext metadata。只有 ownership 校验成功后才读取原生 manager state；Liveness 探测 artifact
+中记录的 loopback endpoint。这些值有意保持独立：没有注册时前台 Server 也可能 live，存在注册时 Server 也可能
+unreachable。
 
 人类可读和 JSON 输出携带相同的事实与恢复动作。只有 support 可用、registration 已安装、definition 为 current、
-manager active 且 Server live 时，退出状态才为零；其他组合均以非零状态退出，但不得隐藏各项独立事实。输出不得包含
-凭据、完整 process environment 或无关的原生服务 metadata。
+manager 中已加载对象确认由 PowerContext 拥有、manager active 且 Server live 时，退出状态才为零；其他组合均以
+非零状态退出，但不得隐藏各项独立事实。输出不得包含凭据、完整 process environment 或无关的原生服务 metadata。
 
 ## Native personal-service adapters
 
@@ -316,8 +319,9 @@ registration 或 manager，也不得为远程或 operator-managed Server 推荐 
 
 ## Upgrade and executable drift
 
-注册指向解析后的绝对内部 launcher，而不是 shell alias，并记录 package version 和 definition version。Status 验证
-executable 是否仍然存在；已安装 distribution 不再匹配时，报告 `stale` 或 `missing_executable`。
+注册保留虚拟环境 Python 入口的绝对路径但不解引用其符号链接，而不是指向 shell alias 或 base interpreter，并记录
+package version 和 definition version。Status 验证 executable 是否仍然存在；已安装 distribution 不再匹配时，报告
+`stale` 或 `missing_executable`。
 
 更新 Python distribution 不会静默改写操作系统状态。再次运行 `powercontext service install` 会让注册与当前安装的
 distribution 保持一致，并且只在 active manager-owned process 必须采用新 definition 时执行受控重启。在 distribution

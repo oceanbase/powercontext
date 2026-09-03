@@ -12,23 +12,30 @@ nav = [
     { "English" = [
         { "Home" = "en/index.md" },
         { "Docs" = [
-            { "Get started" = [
+            { "Tutorials" = [
                 { "Overview" = "en/docs/index.md" },
                 { "HTTP API lifecycle tutorial" = "en/docs/tutorials/api-quickstart.md" },
                 { "Agent step-by-step quickstart" = "en/docs/tutorials/agent-quickstart.md" },
                 { "Complete Codex tutorial" = "en/docs/tutorials/codex-quickstart.md" },
+            ] },
+            { "How-to guides" = [
                 { "Install and run" = "en/docs/how-to/install-and-run.md" },
                 { "Full-capability Quick Start" = "en/docs/how-to/full-capability-runtime.md" },
+                { "Configure a Server environment" = "en/docs/how-to/configure-server-environment.md" },
                 { "Deploy the Server" = "en/docs/how-to/deploy-server.md" },
-                { "Core concepts" = "en/docs/explanation/core-concepts.md" },
-                { "Memory and Handoff" = "en/docs/explanation/memory-and-handoff.md" },
-                { "Experience and Skill lifecycle" = "en/docs/explanation/experience-and-skill-lifecycle.md" },
+                { "Configure vector search" = "en/docs/how-to/configure-vector-search.md" },
+                { "Configure Agent Skill targets" = "en/docs/how-to/configure-agent-skill-targets.md" },
                 { "Hand off work in Codex" = "en/docs/how-to/handoff-with-codex.md" },
                 { "Use Handoff Report" = "en/docs/how-to/use-handoff-report.md" },
                 { "Review Candidates" = "en/docs/how-to/review-candidates.md" },
                 { "Create and review an Experience" = "en/docs/how-to/create-and-review-experience.md" },
                 { "Create and export a managed Skill" = "en/docs/how-to/create-and-export-skill.md" },
                 { "Troubleshoot" = "en/docs/how-to/troubleshoot.md" },
+            ] },
+            { "Explanation" = [
+                { "Core concepts" = "en/docs/explanation/core-concepts.md" },
+                { "Memory and Handoff" = "en/docs/explanation/memory-and-handoff.md" },
+                { "Experience and Skill lifecycle" = "en/docs/explanation/experience-and-skill-lifecycle.md" },
             ] },
             { "Integrations" = [
                 { "Configure Codex" = "en/docs/how-to/configure-codex.md" },
@@ -47,6 +54,7 @@ nav = [
             ] },
             { "Reference" = [
                 { "Interfaces" = "en/docs/reference/interfaces.md" },
+                { "Integration capability matrix" = "en/docs/reference/integration-capabilities.md" },
                 { "HTTP API" = "en/docs/reference/http-api.md" },
                 { "Configuration" = "en/docs/reference/configuration.md" },
                 { "HTTP API Reference" = "api/index.html" },
@@ -100,23 +108,30 @@ nav = [
     { "中文" = [
         { "首页" = "zh/index.md" },
         { "文档" = [
-            { "开始使用" = [
+            { "教程" = [
                 { "概览" = "zh/docs/index.md" },
                 { "通过 HTTP API 开始使用" = "zh/docs/tutorials/api-quickstart.md" },
                 { "智能体分步入门" = "zh/docs/tutorials/agent-quickstart.md" },
                 { "Codex 完整教程" = "zh/docs/tutorials/codex-quickstart.md" },
+            ] },
+            { "操作指南" = [
                 { "安装和运行" = "zh/docs/how-to/install-and-run.md" },
-                { "完整功能入门" = "zh/docs/how-to/full-capability-runtime.md" },
-                { "部署服务" = "zh/docs/how-to/deploy-server.md" },
-                { "核心概念" = "zh/docs/explanation/core-concepts.md" },
-                { "记忆与交接" = "zh/docs/explanation/memory-and-handoff.md" },
-                { "经验与技能生命周期" = "zh/docs/explanation/experience-and-skill-lifecycle.md" },
+                { "完整功能 Quick Start" = "zh/docs/how-to/full-capability-runtime.md" },
+                { "配置 Server 环境" = "zh/docs/how-to/configure-server-environment.md" },
+                { "部署 Server" = "zh/docs/how-to/deploy-server.md" },
+                { "配置向量检索" = "zh/docs/how-to/configure-vector-search.md" },
+                { "配置 Agent Skill target" = "zh/docs/how-to/configure-agent-skill-targets.md" },
                 { "在 Codex 中交接工作" = "zh/docs/how-to/handoff-with-codex.md" },
                 { "使用 Handoff Report" = "zh/docs/how-to/use-handoff-report.md" },
                 { "处理待审核内容" = "zh/docs/how-to/review-candidates.md" },
                 { "创建并审核经验" = "zh/docs/how-to/create-and-review-experience.md" },
                 { "创建并导出技能" = "zh/docs/how-to/create-and-export-skill.md" },
                 { "排查问题" = "zh/docs/how-to/troubleshoot.md" },
+            ] },
+            { "原理说明" = [
+                { "核心概念" = "zh/docs/explanation/core-concepts.md" },
+                { "理解 Memory 和 Handoff" = "zh/docs/explanation/memory-and-handoff.md" },
+                { "Experience 与 Skill 生命周期" = "zh/docs/explanation/experience-and-skill-lifecycle.md" },
             ] },
             { "集成方式" = [
                 { "配置 Codex" = "zh/docs/how-to/configure-codex.md" },
@@ -135,6 +150,7 @@ nav = [
             ] },
             { "参考" = [
                 { "接口" = "zh/docs/reference/interfaces.md" },
+                { "集成能力矩阵" = "zh/docs/reference/integration-capabilities.md" },
                 { "HTTP API" = "zh/docs/reference/http-api.md" },
                 { "配置" = "zh/docs/reference/configuration.md" },
                 { "HTTP API 参考" = "api/index.html" },
