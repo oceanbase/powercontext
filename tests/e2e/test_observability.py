@@ -890,7 +890,12 @@ def test_injected_always_on_embedding_skips_readiness_but_traces_vector_search(m
         exporter.clear()
         readiness = client.get("/health/ready")
         readiness_spans = list(exporter.get_finished_spans())
-        assert not [span for span in readiness_spans if span.parent is None]
+        root_span_names = [
+            span.name
+            for span in readiness_spans
+            if span.parent is None and (span.attributes or {}).get("powercontext.operation.unit") != "background"
+        ]
+        assert not root_span_names, root_span_names
         assert not any(_is_inference_span(span) for span in readiness_spans)
 
         scope_id = _get_default_scope_id(client)

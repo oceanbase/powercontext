@@ -82,7 +82,10 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
             assert adapter.manager_state() is ManagerState.INACTIVE
 
         adapter.start(reload_definition=False)
-        restarted = _wait_for_status(controller)
+        # Task Scheduler cannot retry a failed task sooner than one minute. A hard
+        # task stop can leave the single-node database lease to expire first.
+        restart_timeout = 90 if isinstance(adapter, WindowsTaskSchedulerAdapter) else 15
+        restarted = _wait_for_status(controller, timeout=restart_timeout)
         assert restarted.ok
 
         removed = controller.uninstall()
