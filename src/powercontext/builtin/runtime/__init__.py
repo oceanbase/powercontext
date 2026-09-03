@@ -68,6 +68,7 @@ from powercontext.builtin.runtime.composition import (
     BuiltinConfigurationError,
     open_builtin_contexts,
     open_builtin_runtime,
+    preflight_builtin_runtime,
 )
 from powercontext.builtin.runtime.config import (
     BuiltinConfig,
@@ -297,4 +298,5 @@ __all__ = [
     "dependency_readiness_probe",
     "open_builtin_contexts",
     "open_builtin_runtime",
+    "preflight_builtin_runtime",
 ]

@@ -23,8 +23,8 @@ powercontext config show --env-file .env
 powercontext config validate --env-file .env
 ```
 
-`config show` redacts recognized credentials. Validation checks the document and the selected model settings without
-printing secrets.
+`config show` redacts recognized credentials. Validation accepts minimal Server-only files; when inference models or
+inference-dependent runtime features are configured, it also checks the Runtime composition without printing secrets.
 
 ## 3. Run the same configuration
 
