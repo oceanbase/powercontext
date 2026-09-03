@@ -24,7 +24,15 @@
     .arrowhead { fill: #9aa5b4; }
     .context-path { fill: none; stroke: #006dff; }
     .context-halo { fill: none; stroke: #dcecff; }
-    .context-dot { fill: #fbfcfe; stroke: #006dff; }
+    .context-dot {
+      fill: #fbfcfe;
+      stroke: #006dff;
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: context-step 9s ease-in-out infinite;
+    }
+    .context-dot-middle { animation-delay: 3s; }
+    .context-dot-end { animation-delay: 6s; }
     .person-icon { fill: none; stroke: #040d2b; }
     .agent-icon { fill: none; stroke: #006dff; }
     .mark-primary { fill: #006dff; }
@@ -53,6 +61,13 @@
       .mark-primary { fill: #58a6ff; }
       .mark-secondary { fill: #f0f6fc; }
       .mark-outline { fill: #f0f6fc; stroke: #f0f6fc; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .context-dot { animation: none; }
+    }
+    @keyframes context-step {
+      0%, 18%, 100% { transform: scale(1); }
+      7% { transform: scale(1.35); }
     }
   </style>
 
@@ -135,8 +150,8 @@
     <line class="context-path" x1="540" y1="253" x2="540" y2="298" stroke-width="1.5" stroke-dasharray="3 5" />
     <line class="context-path" x1="900" y1="253" x2="900" y2="292" stroke-width="1.5" stroke-dasharray="3 5" />
     <circle class="context-dot" cx="180" cy="302" r="6" stroke-width="2.5" />
-    <circle class="context-dot" cx="540" cy="298" r="6" stroke-width="2.5" />
-    <circle class="context-dot" cx="900" cy="292" r="6" stroke-width="2.5" />
+    <circle class="context-dot context-dot-middle" cx="540" cy="298" r="6" stroke-width="2.5" />
+    <circle class="context-dot context-dot-end" cx="900" cy="292" r="6" stroke-width="2.5" />
 
     <g transform="translate(36 310.5) scale(0.252) translate(-85 -64)">
       <path class="mark-primary" d="M144.581 137.057H95.3388L100.456 126.479H140.529C141.059 126.479 141.565 126.711 141.91 127.114C143.884 129.419 145.372 131.958 146.299 134.646C146.707 135.827 145.83 137.057 144.581 137.057Z" />
