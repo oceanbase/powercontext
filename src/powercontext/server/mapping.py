@@ -76,6 +76,12 @@ from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
+    CommitConnectorCheckpoint as RuntimeCommitConnectorCheckpoint,
+)
+from powercontext.builtin.runtime import (
+    ConnectorCheckpointState as RuntimeConnectorCheckpointState,
+)
+from powercontext.builtin.runtime import (
     GenerateExperienceRequest as RuntimeGenerateExperienceRequest,
 )
 from powercontext.builtin.runtime import (
@@ -127,6 +133,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     Statistics as RuntimeStatistics,
 )
+from powercontext.builtin.runtime import (
+    SubmitSourceObservation as RuntimeSubmitSourceObservation,
+)
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
@@ -163,7 +172,9 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureStatus,
+    CommitConnectorCheckpointRequest,
     CommittedHandoff,
+    ConnectorCheckpointState,
     CreateWorkContractRequest,
     EntryChange,
     EntryChangeOperation,
@@ -179,6 +190,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
@@ -224,12 +236,16 @@ from powercontext.http import (
     SkillArtifact,
     SkillProposal,
     SkillValidationItem,
+    SourceDefinitionManifest,
+    SourceObservationReceipt,
     SourceReference,
+    SubmitSourceObservationRequest,
     TaskCheck,
     WorkClaim,
     WorkSourceKind,
     WorkSourceReceipt,
 )
+from powercontext.http import ConnectorBinding as HttpConnectorBinding
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
 )
@@ -277,6 +293,15 @@ from powercontext.http import (
 )
 from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
+)
+from powercontext.sources import (
+    ConnectorBinding as RuntimeConnectorBinding,
+)
+from powercontext.sources import (
+    SourceDefinitionManifest as RuntimeSourceDefinitionManifest,
+)
+from powercontext.sources import (
+    SourceObservation as RuntimeSourceObservation,
 )
 from powercontext.sources import SourceRef
 
@@ -417,6 +442,62 @@ def capture_response(value: SourceReceipt) -> CaptureContentSourceResponse:
     return CaptureContentSourceResponse(
         status=CaptureStatus.ACCEPTED,
         source=SourceReference(name=value.source_ref.source_type, source_id=value.source_ref.source_id),
+        position=value.sequence,
+    )
+
+
+def runtime_source_definition_manifest(value: SourceDefinitionManifest) -> RuntimeSourceDefinitionManifest:
+    try:
+        return RuntimeSourceDefinitionManifest.model_validate(value.model_dump(mode="json", by_alias=True))
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("source-definition-manifest") from error
+
+
+def source_definition_manifest_response(value: RuntimeSourceDefinitionManifest) -> SourceDefinitionManifest:
+    return SourceDefinitionManifest.model_validate(value.model_dump(mode="json", by_alias=True))
+
+
+def runtime_connector_binding(value: HttpConnectorBinding) -> RuntimeConnectorBinding:
+    try:
+        return RuntimeConnectorBinding.model_validate(value.model_dump(mode="json"))
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("connector-binding") from error
+
+
+def connector_checkpoint_request(value: GetConnectorCheckpointRequest) -> RuntimeConnectorBinding:
+    return runtime_connector_binding(value.binding)
+
+
+def submit_source_observation_request(value: SubmitSourceObservationRequest) -> RuntimeSubmitSourceObservation:
+    try:
+        return RuntimeSubmitSourceObservation(
+            scope_id=value.scope_id,
+            observation=RuntimeSourceObservation.model_validate(value.observation.model_dump(mode="json")),
+        )
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("source-observation") from error
+
+
+def commit_connector_checkpoint_request(
+    value: CommitConnectorCheckpointRequest,
+) -> RuntimeCommitConnectorCheckpoint:
+    try:
+        return RuntimeCommitConnectorCheckpoint(
+            binding=runtime_connector_binding(value.binding),
+            expected=value.expected,
+            checkpoint=value.checkpoint,
+        )
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("connector-checkpoint") from error
+
+
+def connector_checkpoint_response(value: RuntimeConnectorCheckpointState) -> ConnectorCheckpointState:
+    return ConnectorCheckpointState.model_validate(value.model_dump(mode="json"))
+
+
+def source_observation_receipt_response(value: SourceReceipt) -> SourceObservationReceipt:
+    return SourceObservationReceipt(
+        source=source_reference(value.source_ref),
         position=value.sequence,
     )
 

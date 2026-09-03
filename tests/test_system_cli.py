@@ -29,6 +29,15 @@ from powercontext.cli.app import create_cli
 from powercontext.cli.system import Diagnostic, DiagnosticStatus, doctor_app, setup_app
 from powercontext.paths import default_scheduler_path
 from powercontext.server.settings import ServerSettings
+from powercontext.service.model import (
+    DefinitionState,
+    LivenessState,
+    ManagerOwnershipState,
+    ManagerState,
+    RegistrationState,
+    ServiceStatus,
+    SupportState,
+)
 
 
 def test_server_defaults_to_persistent_user_storage(
@@ -549,6 +558,80 @@ def test_doctor_reports_each_check_and_exits_nonzero_on_failure(monkeypatch) -> 
     }
 
 
+def _service_status(
+    *,
+    endpoint: str = "http://127.0.0.1:8000",
+    manager: ManagerState = ManagerState.UNKNOWN,
+    ownership: ManagerOwnershipState = ManagerOwnershipState.UNKNOWN,
+) -> ServiceStatus:
+    return ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=manager,
+        server_liveness=LivenessState.UNKNOWN,
+        endpoint=endpoint,
+        log_location="fake logs",
+        manager_ownership=ownership,
+    )
+
+
+def test_doctor_mismatched_local_endpoint_skips_service_query_and_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Controller:
+        def registration_status(self) -> ServiceStatus:
+            return _service_status()
+
+        def status(self) -> ServiceStatus:
+            raise AssertionError(  # noqa: TRY003
+                "mismatched endpoint must not query the manager or registered endpoint"
+            )
+
+    monkeypatch.setattr("powercontext.service.controller.ServiceController", Controller)
+
+    assert system_cli._local_service_diagnostics("http://127.0.0.1:9000") == {}
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["http://localhost:8000", "http://127.0.0.2:8000/", "http://[::1]:8000"],
+)
+def test_doctor_matching_loopback_endpoint_includes_service_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+) -> None:
+    calls: list[str] = []
+
+    class Controller:
+        def registration_status(self) -> ServiceStatus:
+            calls.append("registration")
+            return _service_status()
+
+        def status(self) -> ServiceStatus:
+            calls.append("manager")
+            return _service_status(
+                manager=ManagerState.ACTIVE,
+                ownership=ManagerOwnershipState.OWNED,
+            )
+
+    monkeypatch.setattr("powercontext.service.controller.ServiceController", Controller)
+
+    diagnostics = system_cli._local_service_diagnostics(target)
+
+    assert calls == ["registration", "manager"]
+    assert diagnostics["service_registration"].status is DiagnosticStatus.OK
+    assert diagnostics["service_manager"].status is DiagnosticStatus.OK
+
+
+@pytest.mark.parametrize("target", ["https://memory.example", "http://192.0.2.10:8000"])
+def test_doctor_remote_endpoint_skips_local_registration(monkeypatch: pytest.MonkeyPatch, target: str) -> None:
+    monkeypatch.setattr(
+        "powercontext.service.controller.ServiceController",
+        Mock(side_effect=AssertionError("remote endpoint must not inspect the local service")),
+    )
+
+    assert system_cli._local_service_diagnostics(target) == {}
+
+
 class _Response(BytesIO):
     def __init__(self, status: int, payload: object) -> None:
         super().__init__(json.dumps(payload).encode())
@@ -559,6 +642,7 @@ class _Response(BytesIO):
 
 
 def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> None:
+    _mock_optional_personal_service(monkeypatch)
     monkeypatch.setattr(
         system_cli,
         "run_codex_diagnostics",
@@ -581,7 +665,13 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
     payload = json.loads(result.output)
     assert payload["ok"] is True
     assert payload["status"] == "ok"
-    assert list(payload["checks"]) == ["package", "server_liveness", "server_readiness"]
+    assert list(payload["checks"]) == [
+        "package",
+        "service_support",
+        "service_registration",
+        "server_liveness",
+        "server_readiness",
+    ]
 
 
 def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> None:
@@ -628,6 +718,11 @@ def test_default_doctor_rejects_non_loopback_plaintext_environment_url_without_r
     monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://memory.example")
     urlopen = Mock()
     monkeypatch.setattr(system_cli, "urlopen", urlopen)
+    monkeypatch.setattr(
+        system_cli,
+        "_local_service_diagnostics",
+        Mock(side_effect=AssertionError("invalid URL must not inspect the local service")),
+    )
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
 
@@ -637,6 +732,7 @@ def test_default_doctor_rejects_non_loopback_plaintext_environment_url_without_r
 
 
 def test_default_doctor_skips_readiness_when_liveness_is_unreachable(monkeypatch) -> None:
+    _mock_optional_personal_service(monkeypatch)
     urlopen = Mock(side_effect=OSError("connection refused"))
     monkeypatch.setattr(system_cli, "urlopen", urlopen)
 
@@ -649,6 +745,8 @@ def test_default_doctor_skips_readiness_when_liveness_is_unreachable(monkeypatch
 
 
 def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monkeypatch) -> None:
+    _mock_optional_personal_service(monkeypatch)
+
     def responses() -> list[object]:
         readiness = HTTPError(
             "http://127.0.0.1:8000/health/ready",
@@ -690,6 +788,7 @@ def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monk
 
 
 def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monkeypatch) -> None:
+    _mock_optional_personal_service(monkeypatch)
     monkeypatch.setattr(system_cli, "version", lambda _package: "0.0.2")
 
     def responses() -> list[_Response]:
@@ -726,6 +825,16 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
                 "status": "ok",
                 "detail": "powercontext 0.0.2",
             },
+            "service_support": {
+                "ok": True,
+                "status": "ok",
+                "detail": "native personal service adapter is supported",
+            },
+            "service_registration": {
+                "ok": True,
+                "status": "ok",
+                "detail": "not_installed (optional)",
+            },
             "server_liveness": {
                 "ok": True,
                 "status": "ok",
@@ -743,6 +852,23 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
             },
         },
     }
+
+
+def _mock_optional_personal_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        system_cli,
+        "_local_service_diagnostics",
+        lambda _server_url: {
+            "service_support": Diagnostic(
+                status=DiagnosticStatus.OK,
+                detail="native personal service adapter is supported",
+            ),
+            "service_registration": Diagnostic(
+                status=DiagnosticStatus.OK,
+                detail="not_installed (optional)",
+            ),
+        },
+    )
 
 
 def test_doctor_codex_reports_missing_cli_and_skipped_plugin(monkeypatch) -> None:

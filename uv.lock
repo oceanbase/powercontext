@@ -2089,6 +2089,7 @@ dependencies = [
 builtin = [
     { name = "aiosqlite" },
     { name = "apscheduler" },
+    { name = "jsonschema" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
     { name = "pydantic-settings" },
     { name = "pyobvector" },
@@ -2111,6 +2112,7 @@ client = [
 seekdb = [
     { name = "aiosqlite" },
     { name = "apscheduler" },
+    { name = "jsonschema" },
     { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
     { name = "pydantic-settings" },
     { name = "pylibseekdb", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -2124,6 +2126,7 @@ server = [
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "jinja2" },
+    { name = "jsonschema" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
     { name = "platformdirs" },
@@ -2175,6 +2178,9 @@ requires-dist = [
     { name = "httpx", extras = ["socks"], marker = "extra == 'client'", specifier = ">=0.28,<1" },
     { name = "inquirerpy", marker = "extra == 'cli'", specifier = ">=0.3,<1" },
     { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1,<4" },
+    { name = "jsonschema", marker = "extra == 'builtin'", specifier = ">=4.23,<5" },
+    { name = "jsonschema", marker = "extra == 'seekdb'", specifier = ">=4.23,<5" },
+    { name = "jsonschema", marker = "extra == 'server'", specifier = ">=4.23,<5" },
     { name = "opentelemetry-api", marker = "extra == 'cli'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-api", marker = "extra == 'client'", specifier = ">=1.30,<2" },
     { name = "opentelemetry-api", marker = "extra == 'server'", specifier = ">=1.30,<2" },

@@ -118,6 +118,12 @@ from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
 )
 from powercontext.builtin.runtime import (
+    CommitConnectorCheckpoint as RuntimeCommitConnectorCheckpoint,
+)
+from powercontext.builtin.runtime import (
+    ConnectorCheckpointState as RuntimeConnectorCheckpointState,
+)
+from powercontext.builtin.runtime import (
     GenerateExperienceRequest as RuntimeGenerateExperienceRequest,
 )
 from powercontext.builtin.runtime import (
@@ -175,6 +181,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     StatisticsPeriod as RuntimeStatisticsPeriod,
 )
+from powercontext.builtin.runtime import (
+    SubmitSourceObservation as RuntimeSubmitSourceObservation,
+)
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingNotFoundError,
@@ -214,9 +223,13 @@ from powercontext.builtin.work import RecordTaskOutcome as RuntimeRecordTaskOutc
 from powercontext.builtin.work import WorkSourceReceipt as RuntimeWorkSourceReceipt
 from powercontext.errors import (
     ArtifactNotFoundError,
+    InvalidConnectorRunError,
+    InvalidSourceDefinitionError,
+    InvalidSourceObservationError,
     PowerContextError,
     RevisionConflictError,
     SourceConflictError,
+    SourceDefinitionNotFoundError,
 )
 from powercontext.http import (
     AcknowledgeHandoffRequest,
@@ -229,8 +242,10 @@ from powercontext.http import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateScopeRequest,
     CreateWorkContractRequest,
@@ -245,6 +260,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
     GetMemoryEntryRequest,
@@ -275,6 +291,7 @@ from powercontext.http import (
     ReadinessResponse,
     ReadinessStatus,
     RecordTaskOutcomeRequest,
+    RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -296,6 +313,9 @@ from powercontext.http import (
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
     SkillArtifact,
+    SourceDefinitionManifest,
+    SourceObservationReceipt,
+    SubmitSourceObservationRequest,
     UpdateScopeRequest,
     WorkSourceReceipt,
 )
@@ -323,6 +343,7 @@ from powercontext.http._generated.operations import (
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     CLEAR_SCOPE_BINDING,
+    COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_SCOPE,
@@ -333,6 +354,7 @@ from powercontext.http._generated.operations import (
     GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
+    GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
@@ -356,6 +378,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL,
     PUBLISH_ARTIFACT,
     RECORD_TASK_OUTCOME,
+    REGISTER_SOURCE_DEFINITION,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
@@ -368,6 +391,7 @@ from powercontext.http._generated.operations import (
     SEARCH_MEMORY,
     SET_DEFAULT_SCOPE,
     SET_SCOPE_BINDING,
+    SUBMIT_SOURCE_OBSERVATION,
     UPDATE_SCOPE,
     Operation,
 )
@@ -379,6 +403,8 @@ from powercontext.server.context import (
     reset_request_id,
 )
 from powercontext.server.tracing import request_id_from_span
+from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
+from powercontext.sources import SourceDefinitionManifest as RuntimeSourceDefinitionManifest
 
 if TYPE_CHECKING:
     from powercontext.server.metrics import ServerMetrics
@@ -404,6 +430,16 @@ class _ScopedSourceApplication(Protocol):
 
 class _SourceApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedSourceApplication: ...
+
+
+class _RemoteIngestionApplication(Protocol):
+    async def register(self, manifest: RuntimeSourceDefinitionManifest, /) -> RuntimeSourceDefinitionManifest: ...
+
+    async def checkpoint(self, binding: RuntimeConnectorBinding, /) -> RuntimeConnectorCheckpointState: ...
+
+    async def submit(self, request: RuntimeSubmitSourceObservation, /) -> SourceReceipt: ...
+
+    async def commit(self, request: RuntimeCommitConnectorCheckpoint, /) -> RuntimeConnectorCheckpointState: ...
 
 
 class _ScopedContextApplication(Protocol):
@@ -543,6 +579,7 @@ class ServerApplication(Protocol):
     scopes: ScopeApplication | None
     publications: ArtifactPublicationApplication | None
     sources: _SourceApplication
+    ingestion: _RemoteIngestionApplication
     context: _ContextApplication
     experience: _ExperienceApplication
     external_skills: _ExternalSkillApplication
@@ -661,6 +698,10 @@ def create_app(
     if handoff_report_enabled:
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
+    _add_route(app, REGISTER_SOURCE_DEFINITION, register_source_definition)
+    _add_route(app, GET_CONNECTOR_CHECKPOINT, get_connector_checkpoint)
+    _add_route(app, SUBMIT_SOURCE_OBSERVATION, submit_source_observation)
+    _add_route(app, COMMIT_CONNECTOR_CHECKPOINT, commit_connector_checkpoint)
     _add_route(app, FLUSH_MEMORY, flush_memory)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
@@ -954,6 +995,38 @@ async def capture_content_source(
 ) -> CaptureContentSourceResponse:
     result = await application.sources.for_scope(request.scope_id).capture(mapping.capture_request(request))
     return mapping.capture_response(result)
+
+
+async def register_source_definition(
+    request: RegisterSourceDefinitionRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SourceDefinitionManifest:
+    result = await application.ingestion.register(mapping.runtime_source_definition_manifest(request.manifest))
+    return mapping.source_definition_manifest_response(result)
+
+
+async def get_connector_checkpoint(
+    request: GetConnectorCheckpointRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ConnectorCheckpointState:
+    result = await application.ingestion.checkpoint(mapping.connector_checkpoint_request(request))
+    return mapping.connector_checkpoint_response(result)
+
+
+async def submit_source_observation(
+    request: SubmitSourceObservationRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SourceObservationReceipt:
+    result = await application.ingestion.submit(mapping.submit_source_observation_request(request))
+    return mapping.source_observation_receipt_response(result)
+
+
+async def commit_connector_checkpoint(
+    request: CommitConnectorCheckpointRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ConnectorCheckpointState:
+    result = await application.ingestion.commit(mapping.commit_connector_checkpoint_request(request))
+    return mapping.connector_checkpoint_response(result)
 
 
 async def flush_memory(
@@ -1638,12 +1711,13 @@ def _map_report_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
 
 
 def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    source_ingestion = _map_source_ingestion_error(error)
+    if source_ingestion is not None:
+        return source_ingestion
     if isinstance(error, ArtifactNotFoundError):
         return status.HTTP_404_NOT_FOUND, "artifact_not_found", "The requested Artifact was not found.", None
     if isinstance(error, MemoryEntryNotFoundError):
         return status.HTTP_404_NOT_FOUND, "memory_not_found", "The requested Memory value was not found.", None
-    if isinstance(error, SourceConflictError):
-        return status.HTTP_409_CONFLICT, "source_conflict", "The Source identity has different content.", None
     if isinstance(error, RevisionConflictError):
         return status.HTTP_409_CONFLICT, "revision_conflict", "The Memory Revision is stale.", None
     if isinstance(error, MemoryEntryInactiveError):
@@ -1672,6 +1746,23 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _map_source_ingestion_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, SourceConflictError):
+        return status.HTTP_409_CONFLICT, "source_conflict", "The Source identity has different content.", None
+    if isinstance(error, InvalidConnectorRunError):
+        return status.HTTP_409_CONFLICT, "connector_checkpoint_conflict", "The Connector checkpoint is stale.", None
+    if isinstance(error, SourceDefinitionNotFoundError):
+        return (
+            status.HTTP_404_NOT_FOUND,
+            "source_definition_not_found",
+            "The Source Definition is not registered.",
+            None,
+        )
+    if isinstance(error, (InvalidSourceDefinitionError, InvalidSourceObservationError)):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_source_ingestion", "Source ingestion is invalid.", None
+    return None
 
 
 def _map_availability_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:

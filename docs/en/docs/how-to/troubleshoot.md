@@ -188,7 +188,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_external_skill_registrations,pc_model_usage_daily,pc_recall_token_daily' \
+     --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_model_usage_daily,pc_recall_token_daily' \
      -f <export-directory>
    ```
 

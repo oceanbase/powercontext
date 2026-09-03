@@ -102,6 +102,7 @@ from powercontext.http._generated.operations import (
     REVISE_MEMORY_ENTRY,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SUBMIT_SOURCE_OBSERVATION,
 )
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
@@ -161,6 +162,20 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.request_type is CaptureContentSourceRequest
     assert CAPTURE_CONTENT_SOURCE.response_type is CaptureContentSourceResponse
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
+
+
+def test_source_observation_contract_uses_explicit_connector_scope_and_captured_values() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+
+    request = schemas["SubmitSourceObservationRequest"]
+    observation = schemas["SourceObservation"]
+
+    assert set(request["properties"]) == {"scope_id", "observation"}
+    assert request["properties"]["observation"] == {"$ref": "#/components/schemas/SourceObservation"}
+    assert observation["properties"]["materialization"]["enum"] == ["captured"]
+    assert "ProjectedSource" not in schemas
+    assert SUBMIT_SOURCE_OBSERVATION.scope_mode == "none"
 
 
 def test_stats_operation_exposes_dashboard_ready_selection_values() -> None:

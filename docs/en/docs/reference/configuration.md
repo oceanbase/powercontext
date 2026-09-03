@@ -14,6 +14,10 @@ For the configuration-file workflow, including generation, redacted inspection, 
 [Configure a Server environment](../how-to/configure-server-environment.md). Treat every environment file as a
 secret-bearing deployment artifact.
 
+`service install` additionally requires the file to be a regular, non-symlink file owned by the current user with no
+group or other permissions. The service records its identity and refuses to launch if the file is replaced or its
+ownership, permissions, or contents change; run `service install` again after an intentional update.
+
 ## User data
 
 `POWERCONTEXT_HOME` overrides the directory used by the installed Server:

@@ -15,6 +15,7 @@
 """SQLAlchemy-backed relational persistence building blocks."""
 
 from powercontext.builtin.persistence.candidates import CandidateRepository
+from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
     DatabaseClosedError,
@@ -29,6 +30,7 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
     StoredInventoryCounts,
@@ -39,6 +41,7 @@ from powercontext.builtin.persistence.statistics import (
 __all__ = (
     "AsyncDatabase",
     "CandidateRepository",
+    "ConnectorCheckpointRepository",
     "DatabaseClosedError",
     "ExternalSkillRepository",
     "GenerationConflictError",
@@ -49,6 +52,7 @@ __all__ = (
     "PersistenceError",
     "RepositoryError",
     "RepositoryNotFoundError",
+    "SourceDefinitionManifestRepository",
     "StatisticsRepository",
     "StoredInventoryCounts",
     "StoredModelUsage",

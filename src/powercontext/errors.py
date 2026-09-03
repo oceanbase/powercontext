@@ -99,6 +99,90 @@ class InvalidSourceResultError(SourceError, TypeError):
         )
 
 
+class InvalidSourceDefinitionError(SourceError, TypeError):
+    """Raised when a Source Definition violates its registration contract."""
+
+    def __init__(self, definition_type: type[object], field: str, detail: str) -> None:
+        self.definition_type = definition_type
+        self.field = field
+        self.detail = detail
+        super().__init__(f"invalid Source Definition {_type_name(definition_type)} {field}: {detail}")
+
+
+class SourceDefinitionNotFoundError(SourceError, LookupError):
+    """Raised when the active registry does not contain a Source Definition."""
+
+    def __init__(self, name: str, version: str | None = None) -> None:
+        self.name = name
+        self.version = version
+        suffix = "" if version is None else f" version {version!r}"
+        super().__init__(f"Source Definition {name!r}{suffix} is not registered")
+
+
+class SourceProjectionNotFoundError(SourceError, LookupError):
+    """Raised when a Source Definition does not provide a requested projection."""
+
+    def __init__(self, source_type: str, projection_name: str, projection_version: str) -> None:
+        self.source_type = source_type
+        self.projection_name = projection_name
+        self.projection_version = projection_version
+        super().__init__(
+            f"Source Definition {source_type!r} does not provide projection "
+            f"{projection_name!r} version {projection_version!r}"
+        )
+
+
+class InvalidSourceProjectionError(SourceError, TypeError):
+    """Raised when a named Source projection violates its declared contract."""
+
+    def __init__(self, projection_name: str, field: str, detail: str) -> None:
+        self.projection_name = projection_name
+        self.field = field
+        self.detail = detail
+        super().__init__(f"invalid Source projection {projection_name!r} {field}: {detail}")
+
+
+class InvalidSourceObservationError(SourceError, ValueError):
+    """Raised when a worker-projected observation violates its registered manifest."""
+
+    def __init__(self, issue: str, detail: str) -> None:
+        self.issue = issue
+        self.detail = detail
+        super().__init__(f"invalid Source observation {issue}: {detail}")
+
+
+class ConnectorError(PowerContextError):
+    """Base exception for Connector contracts and run lifecycle failures."""
+
+
+class InvalidConnectorError(ConnectorError, TypeError):
+    """Raised when a Connector or binding violates its declared contract."""
+
+    def __init__(self, field: str, detail: str) -> None:
+        self.field = field
+        self.detail = detail
+        super().__init__(f"invalid Connector {field}: {detail}")
+
+
+class InvalidConnectorRunError(ConnectorError, RuntimeError):
+    """Raised when a Connector run would violate replay or checkpoint safety."""
+
+    def __init__(self, issue: str, detail: str) -> None:
+        self.issue = issue
+        self.detail = detail
+        super().__init__(f"invalid Connector run {issue}: {detail}")
+
+
+class ConnectorSubmissionRejectedError(ConnectorError, ValueError):
+    """Raised when one materialized item cannot satisfy the submission contract."""
+
+    def __init__(self, detail: str) -> None:
+        if not detail or detail.strip() != detail:
+            raise ValueError("Connector submission rejection detail must be non-empty and trimmed")  # noqa: TRY003
+        self.detail = detail
+        super().__init__(f"Connector submission rejected: {detail}")
+
+
 class ArtifactError(PowerContextError):
     """Base exception for Artifact lookup and lifecycle failures."""
 

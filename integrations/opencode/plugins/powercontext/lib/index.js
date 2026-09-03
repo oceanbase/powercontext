@@ -172,6 +172,34 @@ const OPERATIONS = {
 		scopeMode: "current",
 		pathParameters: []
 	},
+	register_source_definition: {
+		method: "POST",
+		path: "/v1/source-definitions/register",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	get_connector_checkpoint: {
+		method: "POST",
+		path: "/v1/connector-checkpoints/get",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	submit_source_observation: {
+		method: "POST",
+		path: "/v1/source-observations",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	commit_connector_checkpoint: {
+		method: "POST",
+		path: "/v1/connector-checkpoints/commit",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: []
+	},
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",

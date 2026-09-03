@@ -11,6 +11,9 @@ Server 与 provider 设置），并覆盖进程中的同名值。Agent 宿主可
 生成、脱敏查看、校验和启动配置文件的完整流程见[配置 Server 环境](../how-to/configure-server-environment.md)。所有环境
 文件都应视为包含机密的部署产物。
 
+`service install` 还要求该文件是当前用户拥有的普通非符号链接文件，且 group 和 other 均无访问权限。服务会记录文件
+身份；文件被替换或其 owner、权限、内容发生变化后会拒绝启动。确认修改是预期行为后，请重新执行 `service install`。
+
 ## 用户数据
 
 `POWERCONTEXT_HOME` 可覆盖已安装 Server 使用的数据目录：

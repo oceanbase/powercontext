@@ -231,20 +231,23 @@ Status is read-only and has human-readable and JSON output. Its stable state mod
 support: supported | unsupported
 registration: installed | not_installed | invalid | unknown
 definition: current | stale | missing_executable | unknown
+manager_ownership: owned | not_loaded | foreign | unknown
 manager: active | inactive | failed | unknown
 server_liveness: live | unreachable | unknown
 log_location: <native journal selector or per-user path> | unavailable
 ```
 
 Registration is the state of the exact PowerContext-owned native artifact. Definition compares its recorded executable,
-package version, and definition version with the current distribution. Manager state comes from the native manager.
-Liveness probes the loopback endpoint recorded for that registration. These values remain independent: a foreground
-Server can be live while registration is absent, and a registration can exist while the Server is unreachable.
+package version, and definition version with the current distribution. Manager ownership independently verifies that
+the object currently loaded under the native identifier has the expected artifact path, launcher arguments, and
+PowerContext metadata. Manager state comes from the native manager only after that ownership check succeeds. Liveness
+probes the loopback endpoint recorded for the artifact. These values remain independent: a foreground Server can be
+live while registration is absent, and a registration can exist while the Server is unreachable.
 
 Human and JSON output carry the same facts and recovery action. Exit status is zero only when support is available, the
-registration is installed, its definition is current, the manager is active, and the Server is live; every other
-combination exits nonzero without hiding the individual facts. Output must not include credentials, complete process
-environments, or unrelated native-service metadata.
+registration is installed, its definition is current, the loaded manager object is verified as owned, the manager is
+active, and the Server is live; every other combination exits nonzero without hiding the individual facts. Output must
+not include credentials, complete process environments, or unrelated native-service metadata.
 
 ## Native personal-service adapters
 
@@ -349,8 +352,9 @@ and readiness diagnostics without local registration or manager correlation. It 
 
 ## Upgrade and executable drift
 
-The registration points to the resolved absolute internal launcher rather than a shell alias and records the package
-and definition versions. Status validates that the executable still exists and reports `stale` or
+The registration preserves the absolute virtual-environment Python entry point without dereferencing its symlink,
+rather than using a shell alias or the base interpreter, and records the package and definition versions. Status
+validates that the executable still exists and reports `stale` or
 `missing_executable` when the installed distribution no longer matches.
 
 Updating the Python distribution does not silently rewrite operating-system state. Running

@@ -25,14 +25,17 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     CaptureSource,
+    CommitConnectorCheckpoint,
     PrepareContextRequest,
     RememberMemoryRequest,
     SearchMemoryRequest,
+    SubmitSourceObservation,
     open_builtin_contexts,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft, ScopeMutation, ScopeNotFoundError
-from powercontext.builtin.sources import ContentSource
+from powercontext.builtin.sources import CONTENT_SOURCE_DEFINITION, ContentCapture, ContentSource
+from powercontext.sources import ConnectorBinding, SourceDefinitionRegistry, project_source_for_transport
 
 
 class _ContentCandidatePipeline:
@@ -53,6 +56,17 @@ def test_builtin_runtime_rejects_unregistered_scope_without_persisting_data(tmp_
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
         config = BuiltinConfig(database=database)
         orphan_scope_id = "project:orphan"
+        binding = ConnectorBinding(
+            scope_id=orphan_scope_id,
+            binding_id="orphan-connector",
+            connector_name="content",
+            connector_version="1",
+        )
+        source_registry = SourceDefinitionRegistry((CONTENT_SOURCE_DEFINITION,))
+        observation = project_source_for_transport(
+            source_registry,
+            await source_registry.resolve(ContentCapture(source_id="remote-turn", content="orphan remote content")),
+        )
 
         async with open_builtin_runtime(config) as runtime:
             assert runtime.scopes is not None
@@ -75,10 +89,21 @@ def test_builtin_runtime_rejects_unregistered_scope_without_persisting_data(tmp_
                 )
             with pytest.raises(ScopeNotFoundError):
                 await runtime.context.for_scope(orphan_scope_id).prepare(PrepareContextRequest(query="orphan"))
+            with pytest.raises(ScopeNotFoundError):
+                await runtime.ingestion.checkpoint(binding)
+            with pytest.raises(ScopeNotFoundError):
+                await runtime.ingestion.submit(
+                    SubmitSourceObservation(scope_id=orphan_scope_id, observation=observation)
+                )
+            with pytest.raises(ScopeNotFoundError):
+                await runtime.ingestion.commit(
+                    CommitConnectorCheckpoint(binding=binding, expected=None, checkpoint={"cursor": "1"})
+                )
 
         async with open_builtin_contexts(config) as contexts:
             orphan = await contexts.get(orphan_scope_id)
             assert await orphan.sources.journal.entries() == ()
+            assert (await contexts.connector_checkpoint(binding)).checkpoint is None
 
     asyncio.run(scenario())
 

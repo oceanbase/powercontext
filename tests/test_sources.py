@@ -20,12 +20,17 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 import pytest
+from pydantic import BaseModel
 
 from powercontext import (
+    AdapterSourceDefinition,
+    InvalidSourceDefinitionError,
     InvalidSourceEntryError,
+    InvalidSourceProjectionError,
     InvalidSourceResultError,
     SourceAdapterNotFoundError,
     SourceNotFoundError,
+    SourceProjectionNotFoundError,
 )
 from powercontext.context import Sources
 from powercontext.sources import (
@@ -33,7 +38,9 @@ from powercontext.sources import (
     SourceAdapter,
     SourceCatalog,
     SourceCatalogBackend,
+    SourceDefinitionRegistry,
     SourceMaterialization,
+    SourceProjectionKey,
     SourceStore,
 )
 
@@ -103,6 +110,24 @@ class TranscriptExportAdapter(SourceAdapter[TranscriptExportInput, TranscriptExp
 
     async def read(self, source: TranscriptExportSource) -> object:
         return source
+
+
+class ConversationSummary(BaseModel):
+    session_id: str
+    message_count: int
+
+
+class ConversationSummaryProjection:
+    name = "test.conversation-summary"
+    version = "1"
+    source_class = ConversationSource
+    output_class: type[BaseModel] = ConversationSummary
+
+    def project(self, source: ConversationSource, /) -> ConversationSummary:
+        return ConversationSummary(
+            session_id=source.session_id,
+            message_count=0 if source.captured_value is None else len(source.captured_value.messages),
+        )
 
 
 StoredSourceT = TypeVar("StoredSourceT", bound=Source)
@@ -282,3 +307,54 @@ def test_source_composition_rejects_unregistered_values_before_storage() -> None
         assert backend.sources == []
 
     asyncio.run(scenario())
+
+
+def test_definition_registry_routes_named_projections_without_source_type_checks() -> None:
+    async def scenario() -> None:
+        adapter = ConversationAdapter({"session-42": Conversation(("one", "two"))})
+        registry = SourceDefinitionRegistry((
+            AdapterSourceDefinition(
+                adapter,
+                version="1",
+                projections=(ConversationSummaryProjection(),),
+            ),
+        ))
+        catalog = SourceCatalog(backend=InMemorySourceStore(), registry=registry)
+        source = await catalog.resolve(ConversationCapture("snapshot", "session-42", capture=True))
+        key = SourceProjectionKey(name="test.conversation-summary", version="1")
+
+        assert catalog.projection_keys(source) == (key,)
+        assert catalog.project(source, key) == {"session_id": "session-42", "message_count": 2}
+        with pytest.raises(SourceProjectionNotFoundError):
+            catalog.project(source, SourceProjectionKey(name=key.name, version="2"))
+
+    asyncio.run(scenario())
+
+
+def test_definition_registry_rejects_version_and_projection_contract_violations() -> None:
+    class InvalidProjection:
+        name = "test.invalid-json"
+        version = "1"
+        source_class = ConversationSource
+        output_class: type[BaseModel] = ConversationSummary
+
+        def project(self, source: ConversationSource, /) -> object:
+            return object()
+
+    adapter = ConversationAdapter({"session-42": Conversation(("one",))})
+    registry = SourceDefinitionRegistry((
+        AdapterSourceDefinition(adapter, version="2", projections=(InvalidProjection(),)),
+    ))
+    source = ConversationSource(
+        name="snapshot",
+        materialization=SourceMaterialization.CAPTURED,
+        session_id="session-42",
+        captured_value=Conversation(("one",)),
+    )
+
+    with pytest.raises(InvalidSourceDefinitionError):
+        registry.definition_for_source(source)
+
+    compatible = source.model_copy(update={"definition_version": "2"})
+    with pytest.raises(InvalidSourceProjectionError):
+        registry.project(compatible, SourceProjectionKey(name="test.invalid-json", version="1"))

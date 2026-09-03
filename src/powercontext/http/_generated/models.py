@@ -467,6 +467,108 @@ class CaptureContentSourceRequest(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class SourceProjectionKey(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    version: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+
+
+class SourceProjectionManifest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: SourceProjectionKey
+    schema_: Annotated[dict[str, Any], Field(alias="schema")]
+
+
+class SourceDefinitionManifest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    version: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    fingerprint: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    source_schema: dict[str, Any]
+    projections: Annotated[list[SourceProjectionManifest], Field(max_length=16)]
+
+
+class RegisterSourceDefinitionRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    manifest: SourceDefinitionManifest
+
+
+class ConnectorBinding(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    binding_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    connector_name: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    connector_version: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+
+
+class GetConnectorCheckpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: ConnectorBinding
+
+
+class ConnectorCheckpointState(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: ConnectorBinding
+    checkpoint: Annotated[Any | None, Field(...)]
+
+
+class SourceProjectionValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: SourceProjectionKey
+    value: Any
+
+
+class Materialization(StrEnum):
+    CAPTURED = "captured"
+
+
+class SourceObservation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    definition_version: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    materialization: Materialization
+    description: StrictStr | None = None
+    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    definition_fingerprint: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    payload: dict[str, Any]
+    projections: Annotated[list[SourceProjectionValue], Field(max_length=16)]
+
+
+class SubmitSourceObservationRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    observation: SourceObservation
+
+
+class CommitConnectorCheckpointRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    binding: ConnectorBinding
+    expected: Annotated[Any | None, Field(...)]
+    checkpoint: Annotated[Any | None, Field(...)]
+
+
 class Kind(StrEnum):
     ARTIFACT = "artifact"
 
@@ -973,6 +1075,14 @@ class CaptureContentSourceResponse(BaseModel):
         extra="forbid",
     )
     status: CaptureStatus
+    source: SourceReference
+    position: Annotated[StrictInt, Field(ge=1)]
+
+
+class SourceObservationReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     source: SourceReference
     position: Annotated[StrictInt, Field(ge=1)]
 

@@ -14,15 +14,61 @@
 
 from powercontext.sources.adapters import SourceAdapter
 from powercontext.sources.catalog import SourceCatalog
-from powercontext.sources.models import Source, SourceMaterialization, SourceRef
+from powercontext.sources.connectors import (
+    Connector,
+    ConnectorBinding,
+    ConnectorItemOutcome,
+    ConnectorRunCompletion,
+    ConnectorRunResult,
+    ConnectorRunSession,
+    ConnectorRunStatus,
+    ConnectorSubmissionStatus,
+)
+from powercontext.sources.definitions import (
+    AdapterSourceDefinition,
+    SourceDefinition,
+    SourceDefinitionRegistry,
+    SourceProjection,
+)
+from powercontext.sources.models import Source, SourceMaterialization, SourceProjectionKey, SourceRef
+from powercontext.sources.observations import (
+    SourceDefinitionManifest,
+    SourceObservation,
+    SourceProjectionManifest,
+    SourceProjectionValue,
+    manifest_for_definition,
+    project_source_for_transport,
+)
+from powercontext.sources.projections import TEXT_EVIDENCE_PROJECTION_KEY, TextEvidence
 from powercontext.sources.protocols import SourceCatalogBackend, SourceStore
 
 __all__ = [
+    "TEXT_EVIDENCE_PROJECTION_KEY",
+    "AdapterSourceDefinition",
+    "Connector",
+    "ConnectorBinding",
+    "ConnectorItemOutcome",
+    "ConnectorRunCompletion",
+    "ConnectorRunResult",
+    "ConnectorRunSession",
+    "ConnectorRunStatus",
+    "ConnectorSubmissionStatus",
     "Source",
     "SourceAdapter",
     "SourceCatalog",
     "SourceCatalogBackend",
+    "SourceDefinition",
+    "SourceDefinitionManifest",
+    "SourceDefinitionRegistry",
     "SourceMaterialization",
+    "SourceObservation",
+    "SourceProjection",
+    "SourceProjectionKey",
+    "SourceProjectionManifest",
+    "SourceProjectionValue",
     "SourceRef",
     "SourceStore",
+    "TextEvidence",
+    "manifest_for_definition",
+    "project_source_for_transport",
 ]

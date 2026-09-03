@@ -39,8 +39,10 @@ from powercontext.http import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateScopeRequest,
     CreateWorkContractRequest,
@@ -54,6 +56,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
     GetMemoryEntryRequest,
@@ -86,6 +89,7 @@ from powercontext.http import (
     PublishArtifactRequest,
     ReadinessResponse,
     RecordTaskOutcomeRequest,
+    RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -105,6 +109,9 @@ from powercontext.http import (
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
     SkillArtifact,
+    SourceDefinitionManifest,
+    SourceObservationReceipt,
+    SubmitSourceObservationRequest,
     UpdateScopeRequest,
     WorkSourceReceipt,
 )
@@ -114,6 +121,7 @@ from powercontext.http._generated.operations import (
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     CLEAR_SCOPE_BINDING,
+    COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_SCOPE,
@@ -124,6 +132,7 @@ from powercontext.http._generated.operations import (
     GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
+    GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
@@ -146,6 +155,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL,
     PUBLISH_ARTIFACT,
     RECORD_TASK_OUTCOME,
+    REGISTER_SOURCE_DEFINITION,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_EXTERNAL_SKILL,
@@ -158,6 +168,7 @@ from powercontext.http._generated.operations import (
     SEARCH_MEMORY,
     SET_DEFAULT_SCOPE,
     SET_SCOPE_BINDING,
+    SUBMIT_SOURCE_OBSERVATION,
     UPDATE_SCOPE,
     Operation,
 )
@@ -354,6 +365,29 @@ class PowerContextClient:
         """Capture raw content as durable Source evidence."""
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
+
+    async def register_source_definition(self, request: RegisterSourceDefinitionRequest) -> SourceDefinitionManifest:
+        """Register one immutable worker-owned Source Definition manifest."""
+
+        return await self._request(REGISTER_SOURCE_DEFINITION, request)
+
+    async def get_connector_checkpoint(self, request: GetConnectorCheckpointRequest) -> ConnectorCheckpointState:
+        """Read the current opaque checkpoint for one Connector binding."""
+
+        return await self._request(GET_CONNECTOR_CHECKPOINT, request)
+
+    async def submit_source_observation(self, request: SubmitSourceObservationRequest) -> SourceObservationReceipt:
+        """Submit one worker-materialized Source observation."""
+
+        return await self._request(SUBMIT_SOURCE_OBSERVATION, request)
+
+    async def commit_connector_checkpoint(
+        self,
+        request: CommitConnectorCheckpointRequest,
+    ) -> ConnectorCheckpointState:
+        """Commit a binding checkpoint using optimistic comparison."""
+
+        return await self._request(COMMIT_CONNECTOR_CHECKPOINT, request)
 
     async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
         """Create one grounded delegation baseline as durable Source evidence."""
