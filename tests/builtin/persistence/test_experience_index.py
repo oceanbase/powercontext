@@ -27,6 +27,7 @@ from sqlalchemy.schema import CreateTable
 
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.skill import Skill, SkillContent
+from powercontext.builtin.persistence.artifact_governance import ArtifactLifecycleState
 from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, BUILTIN_TABLES
@@ -97,9 +98,12 @@ def test_oceanbase_startup_upgrades_legacy_artifact_heads_with_mediumtext() -> N
 
     asyncio.run(ensure_artifact_head_searchable_text(cast(AsyncConnection, connection)))
 
-    connection.exec_driver_sql.assert_awaited_once_with(
-        "ALTER TABLE pc_artifact_heads ADD COLUMN searchable_text MEDIUMTEXT NULL"
-    )
+    assert [call.args[0] for call in connection.exec_driver_sql.await_args_list] == [
+        "ALTER TABLE pc_artifact_heads ADD COLUMN searchable_text MEDIUMTEXT NULL",
+        "ALTER TABLE pc_artifact_heads ADD COLUMN lifecycle_state VARCHAR(16) NOT NULL DEFAULT 'active'",
+        "ALTER TABLE pc_artifact_heads ADD COLUMN replacement_artifact_id VARCHAR(128) NULL",
+        "ALTER TABLE pc_artifact_heads ADD COLUMN governance_generation BIGINT NOT NULL DEFAULT 0",
+    ]
 
 
 def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds() -> None:
@@ -112,12 +116,13 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
                         await connection.execute(
                             text(
                                 "SELECT name FROM sqlite_master "
-                                "WHERE name IN ('pc_experience_heads', 'pc_experience_fts_index', 'pc_experience_fts')"
+                                "WHERE name IN ('pc_experience_heads', 'pc_experience_fts_index', "
+                                "'pc_experience_fts', 'pc_artifact_fts')"
                             )
                         )
                     ).scalars()
                 )
-            assert experience_tables == {"pc_experience_fts"}
+            assert experience_tables == {"pc_artifact_fts"}
 
             first_source, _ = await context.sources.capture(
                 ContentCapture(source_id="task-1", content="The first client repair passed.")
@@ -167,6 +172,30 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
             )
             skill_approval = await review.approve(skill_candidate.candidate_id, skill_candidate.version)
             assert skill_approval.result_artifact is not None
+            skill_hits = await contexts.search_skills("project", "regenerate client", 8)
+            assert tuple(hit.artifact_ref for hit in skill_hits) == (skill_approval.result_artifact,)
+            governance = await contexts.update_skill_lifecycle(
+                "project",
+                skill_approval.result_artifact.artifact_id,
+                0,
+                ArtifactLifecycleState.DEPRECATED,
+                None,
+            )
+            assert governance.governance_generation == 1
+            assert await contexts.search_skills("project", "regenerate client", 8) == ()
+            deprecated = await contexts.list_skills("project", True, 8)
+            assert deprecated[0][1].lifecycle_state is ArtifactLifecycleState.DEPRECATED
+            reactivated = await contexts.update_skill_lifecycle(
+                "project",
+                skill_approval.result_artifact.artifact_id,
+                1,
+                ArtifactLifecycleState.ACTIVE,
+                None,
+            )
+            assert reactivated.governance_generation == 2
+            assert tuple(hit.artifact_ref for hit in await contexts.search_skills("project", "regenerate", 8)) == (
+                skill_approval.result_artifact,
+            )
 
             async with contexts.database.transaction() as connection:
                 experience_searchable_text = await connection.scalar(
@@ -183,7 +212,8 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
                 )
                 assert experience_searchable_text is not None
                 assert "falconcurrent" in experience_searchable_text
-                assert skill_searchable_text is None
+                assert skill_searchable_text is not None
+                assert "regenerate" in skill_searchable_text
 
                 await connection.execute(
                     ARTIFACT_HEADS_TABLE
@@ -191,7 +221,7 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
                     .where(ARTIFACT_HEADS_TABLE.c.family == Experience.family)
                     .values(searchable_text=None)
                 )
-                await connection.exec_driver_sql("DELETE FROM pc_experience_fts")
+                await connection.exec_driver_sql("DELETE FROM pc_artifact_fts")
             assert await contexts.search_experience("project", "falconcurrent", 8) == ()
 
             async with contexts.database.transaction() as connection:

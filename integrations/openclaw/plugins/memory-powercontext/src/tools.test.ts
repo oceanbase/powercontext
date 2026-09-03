@@ -18,7 +18,7 @@
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { describe, expect, it } from "vitest";
 import { resolvePowerContextConfig } from "./config.js";
-import type { PowerContextClient } from "./http.js";
+import { PowerContextRequestError, type PowerContextClient } from "./http.js";
 import {
   createMemoryGetTool,
   createMemoryRetireTool,
@@ -31,6 +31,7 @@ import {
   POWERCONTEXT_MEMORY_SEARCH_TOOL,
   POWERCONTEXT_MEMORY_STORE_TOOL,
 } from "./tools.js";
+import { encodeCitation } from "./types.js";
 
 describe("PowerContext tools", () => {
   it("uses PowerContext-prefixed names for search and read tools", () => {
@@ -137,5 +138,45 @@ describe("PowerContext tools", () => {
     const result = await tool!.execute("call-1", {});
 
     expect(result.details).toMatchObject({ path: "", unavailable: true });
+  });
+
+  it("preserves direct 404, 409, and 422 domain results", async () => {
+    const context = {
+      agentId: "main",
+      sessionKey: "agent:main:telegram:direct:user-1",
+    } as OpenClawPluginToolContext;
+    const citation = encodeCitation({
+      memory_ref: { family: "memory", artifact_id: "artifact-1", revision: 1 },
+      entry_id: "entry-1",
+      entry_version_id: "version-1",
+    });
+    const config = () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" });
+    const domainClient = (status: number) => ({
+      async post() {
+        throw new PowerContextRequestError("/v1/memory/entries/get", "domain error", status);
+      },
+    }) as unknown as PowerContextClient;
+
+    const notFound = await createMemoryGetTool(context, {
+      client: domainClient(404),
+      getConfig: config,
+      isPrivateSession: () => true,
+    })!.execute("call-1", { path: citation });
+    expect(notFound.details).toMatchObject({ path: citation, text: "", status: "not_found", code: "not_found" });
+    expect(notFound.details).not.toHaveProperty("unavailable");
+
+    const conflict = await createMemoryReviseTool(context, {
+      client: domainClient(409),
+      getConfig: config,
+      isPrivateSession: () => true,
+    })!.execute("call-2", { citation, text: "new text", kind: "fact" });
+    expect(conflict.details).toMatchObject({ status: "conflict", code: "conflict" });
+
+    const invalidRequest = await createMemoryStoreTool(context, {
+      client: domainClient(422),
+      getConfig: config,
+      isPrivateSession: () => true,
+    })!.execute("call-3", { text: "fact", kind: "fact" });
+    expect(invalidRequest.details).toMatchObject({ status: "invalid_request", code: "invalid_request" });
   });
 });

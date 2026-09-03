@@ -1,20 +1,34 @@
 ---
 template: docs-overview.html
-title: Start with one project
-description: Install PowerContext, verify context across sessions, and choose the next task.
+title: Choose an Agent or API
+description: Add the HTTP Memory API to an existing AI application, or configure an Agent and verify Memory and Handoff.
 page_type: docs-overview
 overview:
-  intro: Complete one cross-session loop first. Use the documentation navigation for setup, reference, and development details.
+  intro: Choose a tutorial to learn one complete path, a how-to guide to finish a specific task, an explanation to understand system behavior, or a reference page to look up current contracts and settings.
   sections:
-    - title: Continue the project
-      description: Save one decision, recover it in another session, or hand off current work.
+    - title: Start here
+      description: Complete an API or Agent quickstart first. The remaining guides help you continue in the Agent you use.
       cards:
-        - title: Codex quickstart
-          description: Install the local Server, save one project decision, and recover it in a new session.
+        - title: HTTP API lifecycle tutorial
+          description: Use one small Python flow to connect context, Experience, Skill, and Review; use Scalar for endpoint reference.
+          href: en/docs/tutorials/api-quickstart/
+          featured: true
+        - title: Agent step-by-step quickstart
+          description: Choose a host, install and diagnose it, complete Memory, then use its one-line, pc_*, or /pc Handoff path.
+          href: en/docs/tutorials/agent-quickstart/
+          featured: true
+        - title: Complete Codex tutorial
+          description: Go deeper into the Codex Hook, MCP Skill, Memory lifecycle, and one-line durable Handoff.
           href: en/docs/tutorials/codex-quickstart/
+        - title: Hand off current work
+          description: Use Work Contract, Handoff, Acknowledgement, and Task Outcome for the complete task loop.
+          href: en/docs/how-to/handoff-with-codex/
         - title: Continue in Claude Code
           description: Open the same project Memory from Claude Code and Codex.
           href: en/docs/how-to/configure-claude-code/
+        - title: Use DeepSeek Harness
+          description: Prepare context before each model step and use pc_* Memory and Handoff tools.
+          href: en/docs/how-to/configure-dsh/
         - title: Continue in Pi
           description: Open project context in Pi with the native package.
           href: en/docs/how-to/configure-pi/
@@ -24,12 +38,15 @@ overview:
         - title: Continue in OpenCode
           description: Recall and maintain project context with the native OpenCode plugin.
           href: en/docs/how-to/configure-opencode/
+        - title: Continue in Hermes
+          description: Use the MemoryProvider, /pc companion, and Handoff lifecycle operations.
+          href: en/docs/how-to/configure-hermes/
+        - title: Continue in WorkBuddy
+          description: Use the Prompt Hook, MCP Memory, and one-line durable Handoff.
+          href: en/docs/how-to/configure-workbuddy/
         - title: Load an Agent Plugin
           description: Use reusable PowerContext skills and MCP configuration in compatible agents.
           href: en/docs/how-to/configure-agent-plugin/
-        - title: Hand off current work
-          description: Prepare a checked Handoff for another task, session, or model.
-          href: en/docs/how-to/handoff-with-codex/
     - title: Understand and operate
       description: Decide what persists, configure the Server, or resolve a broken setup.
       cards:
@@ -48,11 +65,20 @@ overview:
         - title: Configuration
           description: Set storage, providers, interfaces, and runtime behavior.
           href: en/docs/reference/configuration/
+        - title: Configure a Server environment
+          description: Generate one explicit environment file, validate it, and start the Server with the same settings.
+          href: en/docs/how-to/configure-server-environment/
+        - title: Configure vector search
+          description: Set an embedding profile and confirm that vector and hybrid search are available.
+          href: en/docs/how-to/configure-vector-search/
+        - title: Configure Agent Skill targets
+          description: Register local Codex or Claude Code Skill directories for discovery and managed publication.
+          href: en/docs/how-to/configure-agent-skill-targets/
         - title: Deploy the Server
           description: Run a persistent Server with health checks, authentication, and a safe network boundary.
           href: en/docs/how-to/deploy-server/
         - title: HTTP API
-          description: Call the Server from any language and find the complete OpenAPI contract.
+          description: Look up every Server path, error semantic, and the complete OpenAPI contract.
           href: en/docs/reference/http-api/
         - title: Review Candidates
           description: Inspect, revise, approve, or reject pending Experience and Skill proposals.

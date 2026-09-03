@@ -27,6 +27,7 @@ from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     Skill,
     SkillContent,
+    SkillPackageRef,
 )
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillRegistration as RuntimeExternalSkillRegistration,
@@ -34,6 +35,7 @@ from powercontext.builtin.artifacts.skill import (
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
 )
+from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance
 from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
 from powercontext.builtin.review import ArtifactCandidatePage as RuntimeArtifactCandidatePage
 from powercontext.builtin.review import CandidateStatus as RuntimeCandidateStatus
@@ -74,6 +76,12 @@ from powercontext.builtin.runtime import (
 )
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
+)
+from powercontext.builtin.runtime import (
+    CommitConnectorCheckpoint as RuntimeCommitConnectorCheckpoint,
+)
+from powercontext.builtin.runtime import (
+    ConnectorCheckpointState as RuntimeConnectorCheckpointState,
 )
 from powercontext.builtin.runtime import (
     GenerateExperienceRequest as RuntimeGenerateExperienceRequest,
@@ -127,6 +135,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     Statistics as RuntimeStatistics,
 )
+from powercontext.builtin.runtime import (
+    SubmitSourceObservation as RuntimeSubmitSourceObservation,
+)
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
@@ -163,7 +174,9 @@ from powercontext.http import (
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureStatus,
+    CommitConnectorCheckpointRequest,
     CommittedHandoff,
+    ConnectorCheckpointState,
     CreateWorkContractRequest,
     EntryChange,
     EntryChangeOperation,
@@ -179,6 +192,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
@@ -197,6 +211,7 @@ from powercontext.http import (
     ListExternalSkillsResponse,
     ListMemoryChangesResponse,
     ListMemoryEntriesResponse,
+    ManagedSkillLibraryEntry,
     MemoryEntry,
     MemoryEntryState,
     MemoryMatchedBy,
@@ -222,14 +237,21 @@ from powercontext.http import (
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
+    SkillGovernance,
+    SkillLifecycleState,
+    SkillPackageReference,
     SkillProposal,
     SkillValidationItem,
+    SourceDefinitionManifest,
+    SourceObservationReceipt,
     SourceReference,
+    SubmitSourceObservationRequest,
     TaskCheck,
     WorkClaim,
     WorkSourceKind,
     WorkSourceReceipt,
 )
+from powercontext.http import ConnectorBinding as HttpConnectorBinding
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
 )
@@ -277,6 +299,15 @@ from powercontext.http import (
 )
 from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
+)
+from powercontext.sources import (
+    ConnectorBinding as RuntimeConnectorBinding,
+)
+from powercontext.sources import (
+    SourceDefinitionManifest as RuntimeSourceDefinitionManifest,
+)
+from powercontext.sources import (
+    SourceObservation as RuntimeSourceObservation,
 )
 from powercontext.sources import SourceRef
 
@@ -417,6 +448,62 @@ def capture_response(value: SourceReceipt) -> CaptureContentSourceResponse:
     return CaptureContentSourceResponse(
         status=CaptureStatus.ACCEPTED,
         source=SourceReference(name=value.source_ref.source_type, source_id=value.source_ref.source_id),
+        position=value.sequence,
+    )
+
+
+def runtime_source_definition_manifest(value: SourceDefinitionManifest) -> RuntimeSourceDefinitionManifest:
+    try:
+        return RuntimeSourceDefinitionManifest.model_validate(value.model_dump(mode="json", by_alias=True))
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("source-definition-manifest") from error
+
+
+def source_definition_manifest_response(value: RuntimeSourceDefinitionManifest) -> SourceDefinitionManifest:
+    return SourceDefinitionManifest.model_validate(value.model_dump(mode="json", by_alias=True))
+
+
+def runtime_connector_binding(value: HttpConnectorBinding) -> RuntimeConnectorBinding:
+    try:
+        return RuntimeConnectorBinding.model_validate(value.model_dump(mode="json"))
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("connector-binding") from error
+
+
+def connector_checkpoint_request(value: GetConnectorCheckpointRequest) -> RuntimeConnectorBinding:
+    return runtime_connector_binding(value.binding)
+
+
+def submit_source_observation_request(value: SubmitSourceObservationRequest) -> RuntimeSubmitSourceObservation:
+    try:
+        return RuntimeSubmitSourceObservation(
+            scope_id=value.scope_id,
+            observation=RuntimeSourceObservation.model_validate(value.observation.model_dump(mode="json")),
+        )
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("source-observation") from error
+
+
+def commit_connector_checkpoint_request(
+    value: CommitConnectorCheckpointRequest,
+) -> RuntimeCommitConnectorCheckpoint:
+    try:
+        return RuntimeCommitConnectorCheckpoint(
+            binding=runtime_connector_binding(value.binding),
+            expected=value.expected,
+            checkpoint=value.checkpoint,
+        )
+    except ValidationError as error:
+        raise InvalidRuntimeRequestError("connector-checkpoint") from error
+
+
+def connector_checkpoint_response(value: RuntimeConnectorCheckpointState) -> ConnectorCheckpointState:
+    return ConnectorCheckpointState.model_validate(value.model_dump(mode="json"))
+
+
+def source_observation_receipt_response(value: SourceReceipt) -> SourceObservationReceipt:
+    return SourceObservationReceipt(
+        source=source_reference(value.source_ref),
         position=value.sequence,
     )
 
@@ -727,6 +814,26 @@ def skill_response(value: Skill) -> SkillArtifact:
     )
 
 
+def skill_governance(value: ArtifactGovernance) -> SkillGovernance:
+    return SkillGovernance(
+        artifact=artifact_reference(value.artifact),
+        lifecycle_state=SkillLifecycleState(value.lifecycle_state.value),
+        replacement_artifact_id=value.replacement_artifact_id,
+        governance_generation=value.governance_generation,
+    )
+
+
+def managed_skill_library_entry(value: Skill, governance: ArtifactGovernance) -> ManagedSkillLibraryEntry:
+    response = skill_response(value)
+    return ManagedSkillLibraryEntry(
+        artifact=response.artifact,
+        content=response.content,
+        source_refs=response.source_refs,
+        artifact_refs=response.artifact_refs,
+        governance=skill_governance(governance),
+    )
+
+
 def list_external_skills_request(value: ListExternalSkillsRequest) -> RuntimeListExternalSkillsRequest:
     return RuntimeListExternalSkillsRequest(include_unavailable=value.include_unavailable)
 
@@ -796,6 +903,11 @@ def skill_content(value: SkillProposal) -> SkillContent:
         description=value.description,
         instructions=value.instructions,
         validation=tuple(item.root for item in value.validation),
+        package=None if value.package is None else SkillPackageRef.model_validate(value.package.model_dump()),
+        license=value.license,
+        compatibility=value.compatibility,
+        metadata={} if value.metadata is None else value.metadata,
+        allowed_tools=value.allowed_tools,
     )
 
 
@@ -805,6 +917,11 @@ def skill_proposal(value: SkillContent) -> SkillProposal:
         description=value.description,
         instructions=value.instructions,
         validation=[SkillValidationItem(item) for item in value.validation],
+        package=(None if value.package is None else SkillPackageReference.model_validate(value.package.model_dump())),
+        license=value.license,
+        compatibility=value.compatibility,
+        metadata=value.metadata,
+        allowed_tools=value.allowed_tools,
     )
 
 

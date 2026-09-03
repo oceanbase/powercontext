@@ -48,7 +48,7 @@ export default definePluginEntry({
     const getRuntimeConfig = (): OpenClawConfig =>
       (api.runtime.config?.current?.() ?? api.config) as OpenClawConfig;
     const getConfig = () => resolvePowerContextConfig(getRuntimeConfig(), api.pluginConfig);
-    const client = createPowerContextClient(getConfig, (message) => api.logger.warn(message));
+    const client = createPowerContextClient(getConfig);
     const managers = new Map<string, PowerContextMemoryManager>();
     const isPrivateSession = (agentId: string, sessionKey: string | undefined): boolean => {
       let chatType: string | undefined;

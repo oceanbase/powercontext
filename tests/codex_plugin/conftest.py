@@ -43,6 +43,11 @@ def recall_module() -> ModuleType:
     return _load_module("powercontext_codex_recall", PLUGIN_ROOT / "hooks" / "recall.py")
 
 
+@pytest.fixture(autouse=True)
+def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(tmp_path / "codex-diagnostics.json"))
+
+
 @pytest.fixture
 def settings_module() -> ModuleType:
     return _load_module("powercontext_codex_settings", PLUGIN_ROOT / "settings.py")

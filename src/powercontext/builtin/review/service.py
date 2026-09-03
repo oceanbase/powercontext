@@ -23,12 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent, ExperienceDraft
-from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft
+from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
+from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.models import (
@@ -59,6 +60,7 @@ class ReviewService:
         candidates: CandidateRepository,
         artifacts: ArtifactRepository,
         experience_index: ExperienceIndex,
+        skill_packages: SkillPackageRepository,
         sources: SourceRepository,
         id_factory: IdFactory,
         connection: AsyncConnection | None = None,
@@ -68,6 +70,7 @@ class ReviewService:
         self._candidates = candidates
         self._artifacts = artifacts
         self._experience_index = experience_index
+        self._skill_packages = skill_packages
         self._sources = sources
         self._id_factory = id_factory
         self._bound_connection = connection
@@ -106,14 +109,20 @@ class ReviewService:
     ) -> ArtifactCandidate[SkillContent]:
         """Persist a human or integration supplied managed Skill proposal."""
 
-        candidate = await self._propose(
-            Skill.family,
-            proposal,
-            sources=sources,
-            artifacts=artifacts,
-            target=target,
-            reason=reason,
-        )
+        canonical_sources = _unique_sources(sources)
+        canonical_artifacts = _unique_artifacts(artifacts)
+        _validate_reason(reason)
+        async with self._database.connection(self._bound_connection) as connection:
+            proposal = await self._canonical_skill_proposal(connection, proposal)
+            candidate = await self._propose_with_connection(
+                connection,
+                Skill.family,
+                proposal,
+                sources=canonical_sources,
+                artifacts=canonical_artifacts,
+                target=target,
+                reason=reason,
+            )
         return _skill_candidate(candidate)
 
     async def _propose(
@@ -131,12 +140,8 @@ class ReviewService:
         canonical_artifacts = _unique_artifacts(artifacts)
         _validate_reason(reason)
         async with self._database.connection(self._bound_connection) as connection:
-            await self._validate_evidence(connection, canonical_sources, canonical_artifacts)
-            await self._validate_target(connection, family, target, canonical_artifacts)
-            candidate = await self._candidates.create(
+            candidate = await self._propose_with_connection(
                 connection,
-                self._scope_id,
-                self._id_factory("candidate"),
                 family,
                 proposal,
                 sources=canonical_sources,
@@ -144,6 +149,33 @@ class ReviewService:
                 target=target,
                 reason=reason,
             )
+        return _reviewed_candidate(candidate)
+
+    async def _propose_with_connection(
+        self,
+        connection: AsyncConnection,
+        family: str,
+        proposal: ReviewedProposal,
+        /,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        target: ArtifactRef | None,
+        reason: str | None,
+    ) -> ReviewedCandidate:
+        await self._validate_evidence(connection, sources, artifacts)
+        await self._validate_target(connection, family, target, artifacts)
+        candidate = await self._candidates.create(
+            connection,
+            self._scope_id,
+            self._id_factory("candidate"),
+            family,
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            target=target,
+            reason=reason,
+        )
         return _reviewed_candidate(candidate)
 
     async def get_candidate(self, candidate_id: str, /) -> ReviewedCandidate:
@@ -198,6 +230,8 @@ class ReviewService:
             )
             reviewed = _reviewed_candidate(current)
             _validate_proposal_family(reviewed.family, proposal)
+            if isinstance(proposal, SkillContent):
+                proposal = await self._canonical_skill_proposal(connection, proposal)
             if target != current.target:
                 raise InvalidCandidateError("target", "cannot change across Candidate versions")
             await self._validate_evidence(connection, canonical_sources, canonical_artifacts)
@@ -251,6 +285,8 @@ class ReviewService:
                 )
             )
             _validate_approval_lineage(candidate)
+            if isinstance(candidate.proposal, SkillContent) and candidate.proposal.package is not None:
+                await self._canonical_skill_proposal(connection, candidate.proposal)
             draft = _candidate_draft(candidate)
             if candidate.target is None:
                 artifact = await self._artifacts.create(
@@ -270,6 +306,9 @@ class ReviewService:
                     raise ArtifactTargetConflictError(candidate.target, current.as_ref()) from error
             if isinstance(artifact, Experience):
                 await self._experience_index.replace(connection, self._scope_id, artifact)
+            elif isinstance(artifact, Skill) and artifact.content.package is not None:
+                package = await self._skill_packages.get(connection, self._scope_id, artifact.content.package)
+                await self._experience_index.replace_skill(connection, self._scope_id, artifact, package)
             approved = await self._candidates.mark_approved(
                 connection,
                 self._scope_id,
@@ -344,6 +383,25 @@ class ReviewService:
             raise InvalidCandidateError("target", "Artifact is not available in this scope") from error
         if current.as_ref() != target:
             raise ArtifactTargetConflictError(target, current.as_ref())
+
+    async def _canonical_skill_proposal(
+        self,
+        connection: AsyncConnection,
+        proposal: SkillContent,
+        /,
+    ) -> SkillContent:
+        if proposal.package is None:
+            snapshot = build_instruction_skill_package(proposal)
+            await self._skill_packages.add(connection, self._scope_id, snapshot)
+        else:
+            try:
+                snapshot = await self._skill_packages.get(connection, self._scope_id, proposal.package)
+            except RepositoryNotFoundError as error:
+                raise InvalidCandidateError("package", "exact Skill package is not available in this scope") from error
+        canonical = snapshot.as_skill_content()
+        if proposal.package is not None and canonical != proposal:
+            raise InvalidCandidateError("package", "cached Skill fields do not match the exact package")
+        return canonical
 
 
 def _reviewed_candidate(candidate: ArtifactCandidate[Any]) -> ReviewedCandidate:

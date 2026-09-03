@@ -19,7 +19,7 @@
     <a
       class="brand"
       href="{{ url_for(home_route) }}"
-      aria-label="PowerContext Dashboard"
+      aria-label="PowerContext Overview"
       data-i18n-aria-label="brandHomeLabel"
     >
       <img
@@ -36,7 +36,7 @@
     </a>
     <nav class="primary-nav" aria-label="Primary navigation" data-i18n-aria-label="primaryNavigation">
       {% if dashboard_enabled %}
-      <a href="{{ url_for('dashboard_home') }}"{% if active_page == "dashboard" %} aria-current="page"{% endif %} data-i18n="dashboardTitle">Dashboard</a>
+      <a href="{{ url_for('dashboard_home') }}"{% if active_page == "dashboard" %} aria-current="page"{% endif %} data-i18n="dashboardTitle">Overview</a>
       {% endif %}
       {% if skills_enabled %}
       <a href="{{ url_for('skills_library') }}"{% if active_page == "skills" %} aria-current="page"{% endif %} data-i18n="skillsTitle">Skills</a>
@@ -49,7 +49,7 @@
       {% endif %}
     </nav>
     <div class="header-tools">
-      <button class="theme-toggle" id="theme-toggle" type="button"></button>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch theme" title="Switch theme"></button>
       <button class="language-toggle" id="language-toggle" type="button">&#20013;&#25991;</button>
       <button class="secondary-button" id="sign-out" type="button" data-i18n="signOut" hidden>Sign out</button>
     </div>

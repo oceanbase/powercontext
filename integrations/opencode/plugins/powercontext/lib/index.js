@@ -92,6 +92,30 @@ const OPERATIONS = {
 		location: "body",
 		scope: true
 	},
+	register_source_definition: {
+		method: "POST",
+		path: "/v1/source-definitions/register",
+		location: "body",
+		scope: false
+	},
+	get_connector_checkpoint: {
+		method: "POST",
+		path: "/v1/connector-checkpoints/get",
+		location: "body",
+		scope: false
+	},
+	submit_source_observation: {
+		method: "POST",
+		path: "/v1/source-observations",
+		location: "body",
+		scope: true
+	},
+	commit_connector_checkpoint: {
+		method: "POST",
+		path: "/v1/connector-checkpoints/commit",
+		location: "body",
+		scope: false
+	},
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",
@@ -236,6 +260,102 @@ const OPERATIONS = {
 		location: "body",
 		scope: true
 	},
+	list_managed_skills: {
+		method: "POST",
+		path: "/v1/skill/library",
+		location: "body",
+		scope: true
+	},
+	update_skill_lifecycle: {
+		method: "POST",
+		path: "/v1/skill/lifecycle",
+		location: "body",
+		scope: true
+	},
+	get_skill_package_manifest: {
+		method: "POST",
+		path: "/v1/skill/package/manifest",
+		location: "body",
+		scope: true
+	},
+	download_skill_package: {
+		method: "POST",
+		path: "/v1/skill/package/download",
+		location: "body",
+		scope: true
+	},
+	propose_skill_package: {
+		method: "POST",
+		path: "/v1/skill/package/propose",
+		location: "body",
+		scope: true
+	},
+	record_skill_usage: {
+		method: "POST",
+		path: "/v1/skill/usage",
+		location: "body",
+		scope: true
+	},
+	list_remote_skill_targets: {
+		method: "POST",
+		path: "/v1/skill/remote/targets",
+		location: "body",
+		scope: true
+	},
+	create_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/create",
+		location: "body",
+		scope: true
+	},
+	enroll_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/enroll",
+		location: "body",
+		scope: false
+	},
+	rename_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/rename",
+		location: "body",
+		scope: true
+	},
+	revoke_remote_skill_target: {
+		method: "POST",
+		path: "/v1/skill/remote/target/revoke",
+		location: "body",
+		scope: true
+	},
+	publish_remote_skill: {
+		method: "POST",
+		path: "/v1/skill/remote/publication/publish",
+		location: "body",
+		scope: true
+	},
+	unpublish_remote_skill: {
+		method: "POST",
+		path: "/v1/skill/remote/publication/unpublish",
+		location: "body",
+		scope: true
+	},
+	reconcile_remote_skills: {
+		method: "POST",
+		path: "/v1/skill/remote/reconcile",
+		location: "body",
+		scope: false
+	},
+	download_remote_skill_package: {
+		method: "POST",
+		path: "/v1/skill/remote/package/download",
+		location: "body",
+		scope: false
+	},
+	record_remote_skill_receipt: {
+		method: "POST",
+		path: "/v1/skill/remote/receipt",
+		location: "body",
+		scope: false
+	},
 	scan_external_skills: {
 		method: "POST",
 		path: "/v1/external-skills/scan",
@@ -308,6 +428,12 @@ const OPERATIONS = {
 		location: "body",
 		scope: false
 	},
+	list_handoff_report_known_scopes: {
+		method: "POST",
+		path: "/v1/handoff-reports/scopes/list-known",
+		location: "body",
+		scope: false
+	},
 	get_handoff_report_project: {
 		method: "POST",
 		path: "/v1/handoff-reports/projects/get",
@@ -342,7 +468,7 @@ const OPERATIONS = {
 		method: "POST",
 		path: "/v1/handoff-reports/get",
 		location: "body",
-		scope: false
+		scope: true
 	},
 	record_handoff_report_activity: {
 		method: "POST",

@@ -29,6 +29,7 @@ from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+import powercontext.builtin.runtime.composition as runtime_composition
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
@@ -38,6 +39,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
+from powercontext.builtin.runtime.readiness import READINESS_PROBE_TIMEOUT_SECONDS
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
@@ -92,6 +94,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_SCOPES", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", " https://powercontext.example.com/base/ ")
     monkeypatch.setenv(
         "POWERCONTEXT_SERVER_DATABASE_URL",
         "sqlite+aiosqlite:////var/lib/powercontext/test.db",
@@ -116,7 +119,10 @@ def test_settings_load_server_environment(monkeypatch) -> None:
         (
             '{"host_id":"workstation-1","targets":['
             '{"target_id":"codex-project","agent_kind":"codex","installation_scope":"project",'
-            '"path":"/srv/project/.agents/skills","allow_managed_publish":true},'
+            '"path":"/srv/project/.agents/skills","allow_managed_publish":true,"environment":{'
+            '"operating_system":"linux","architecture":"x86_64","commands":{"python":"3.13.2"},'
+            '"network_policy":"restricted","writable_roots":["workspace"],'
+            '"dependency_install_policy":"denied","environment_names":["CI"]}},'
             '{"target_id":"claude-user","agent_kind":"claude_code","installation_scope":"user",'
             '"path":"/home/example/.claude/skills"}]}'
         ),
@@ -126,6 +132,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
 
     assert settings.http.host == "127.0.0.2"
     assert settings.http.port == 9000
+    assert settings.public_url == "https://powercontext.example.com/base"
     assert isinstance(settings.database, SQLiteConfig)
     assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
     assert settings.runtime.scope_cache_size == 64
@@ -148,8 +155,100 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.external_skills.targets[0].target_id == "codex-project"
     assert settings.external_skills.targets[0].path.as_posix() == "/srv/project/.agents/skills"
     assert settings.external_skills.targets[0].allow_managed_publish is True
+    assert settings.external_skills.targets[0].environment is not None
+    assert settings.external_skills.targets[0].environment.commands == {"python": "3.13.2"}
+    assert settings.external_skills.targets[0].environment.environment_names == ("CI",)
     assert settings.external_skills.targets[1].agent_kind == "claude_code"
     assert settings.external_skills.targets[1].path.as_posix() == "/home/example/.claude/skills"
+
+
+def test_server_settings_configure_default_project_skill_targets(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_WORKSPACE", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_EXTERNAL_SKILLS", raising=False)
+
+    settings = ServerSettings()
+
+    assert settings.workspace == tmp_path
+    assert settings.external_skills.host_id == "local-workspace"
+    assert [target.target_id for target in settings.external_skills.targets] == ["codex-project", "claude-project"]
+    assert [target.path for target in settings.external_skills.targets] == [
+        tmp_path / ".agents" / "skills",
+        tmp_path / ".claude" / "skills",
+    ]
+    assert all(target.installation_scope == "project" for target in settings.external_skills.targets)
+    assert all(target.allow_managed_publish for target in settings.external_skills.targets)
+
+
+def test_server_settings_use_configured_workspace_for_default_skill_targets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("POWERCONTEXT_SERVER_EXTERNAL_SKILLS", raising=False)
+
+    settings = ServerSettings()
+
+    assert settings.workspace == tmp_path
+    assert [target.path for target in settings.external_skills.targets] == [
+        tmp_path / ".agents" / "skills",
+        tmp_path / ".claude" / "skills",
+    ]
+
+
+def test_explicit_external_skill_configuration_overrides_default_targets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("POWERCONTEXT_SERVER_EXTERNAL_SKILLS", '{"host_id":null,"targets":[]}')
+
+    settings = ServerSettings()
+
+    assert settings.external_skills.agent_targets == ()
+
+
+def test_server_settings_reject_missing_workspace(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_WORKSPACE", str(tmp_path / "missing"))
+
+    with pytest.raises(ValidationError, match="workspace"):
+        ServerSettings()
+
+
+@pytest.mark.parametrize(
+    "public_url",
+    [
+        "http://powercontext.example.com",
+        "ftp://powercontext.example.com",
+        "https://user:secret@powercontext.example.com",
+        "https://powercontext.example.com?scope=one",
+        "https://powercontext.example.com#fragment",
+    ],
+)
+def test_server_settings_reject_unsafe_public_url(monkeypatch, public_url: str) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", public_url)
+
+    with pytest.raises(ValidationError, match="public URL"):
+        ServerSettings()
+
+
+@pytest.mark.parametrize("public_url", ["http://localhost:8000", "http://127.0.0.1:8000", "http://[::1]:8000"])
+def test_server_settings_allow_loopback_http_public_url(monkeypatch, public_url: str) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", public_url)
+
+    assert ServerSettings().public_url == public_url
+
+
+def test_server_settings_allow_explicit_remote_http_public_url(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", "http://11.162.218.22:8765")
+
+    settings = ServerSettings()
+
+    assert settings.allow_insecure_http is True
+    assert settings.public_url == "http://11.162.218.22:8765"
+
+
+def test_server_settings_insecure_http_switch_does_not_allow_malformed_public_url(monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", "ftp://11.162.218.22:8765")
+
+    with pytest.raises(ValidationError, match="public URL"):
+        ServerSettings()
 
 
 def test_env_example_loads_server_settings(monkeypatch) -> None:
@@ -393,11 +492,28 @@ def test_server_factory_reports_database_failure_as_not_ready(monkeypatch, tmp_p
     assert "secret database URL" not in response.text
 
 
-def test_server_factory_reports_database_and_configured_generation_readiness(tmp_path) -> None:
+def test_server_factory_reports_database_and_configured_generation_readiness(monkeypatch, tmp_path) -> None:
+    probe_timeouts: list[float] = []
+    readiness_timeouts: list[float] = []
+    original_readiness_probe = runtime_composition.dependency_readiness_probe
+
+    async def probe_generation(_model, /, *, timeout_seconds: float, model_settings=None) -> None:
+        probe_timeouts.append(timeout_seconds)
+        assert model_settings is None
+
+    def capture_readiness_timeout(operation, *, timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS):
+        readiness_timeouts.append(timeout_seconds)
+        return original_readiness_probe(operation, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr(
+        "powercontext.builtin.inference.pydantic_ai.probe_pydantic_ai_model",
+        probe_generation,
+    )
+    monkeypatch.setattr(runtime_composition, "dependency_readiness_probe", capture_readiness_timeout)
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
-            inference=InferenceConfig(generation_model="test"),
+            inference=InferenceConfig(generation_model="test", generation_timeout_seconds=12.5),
             mcp=McpConfig(enabled=False),
         )
     )
@@ -414,6 +530,8 @@ def test_server_factory_reports_database_and_configured_generation_readiness(tmp
             "inference.generation": "ready",
         },
     }
+    assert probe_timeouts == [12.5]
+    assert 12.5 in readiness_timeouts
 
 
 def test_server_factory_applies_generation_model_settings_to_readiness(monkeypatch, tmp_path) -> None:
@@ -444,7 +562,7 @@ def test_server_factory_applies_generation_model_settings_to_readiness(monkeypat
     assert observed_settings == [
         {
             "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-            "max_tokens": 1,
+            "max_tokens": 16,
         }
     ]
 
@@ -832,6 +950,7 @@ def test_application_failure_log_uses_operation_context(caplog) -> None:
     assert record.request_id == response.headers["X-PowerContext-Request-ID"]
     assert record.unit == "application"
     assert record.error_code == "internal_error"
+    assert record.exc_info is not None
 
 
 def test_logging_failure_does_not_change_the_response(monkeypatch) -> None:

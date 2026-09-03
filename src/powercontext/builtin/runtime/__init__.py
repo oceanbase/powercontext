@@ -45,6 +45,8 @@ from powercontext.builtin.runtime.application import (
     ExternalSkillApplication,
     HandoffApplication,
     MemoryApplication,
+    RemoteIngestionApplication,
+    RemoteSkillApplication,
     ReviewApplication,
     ScheduledExperienceProcessor,
     ScheduledSourceProcessor,
@@ -79,6 +81,8 @@ from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
     CaptureSource,
+    CommitConnectorCheckpoint,
+    ConnectorCheckpointState,
     ExperienceCandidate,
     ExperienceCandidatePage,
     ExperienceIncubationResult,
@@ -120,8 +124,9 @@ from powercontext.builtin.runtime.models import (
     SearchMemoryRequest,
     SkillCandidate,
     SourceReceipt,
+    SubmitSourceObservation,
 )
-from powercontext.builtin.runtime.protocols import PowerContextProvider
+from powercontext.builtin.runtime.protocols import PowerContextProvider, RemoteIngestion
 from powercontext.builtin.runtime.readiness import (
     CachedReadinessProbe,
     ReadinessCheckStatus,
@@ -168,6 +173,8 @@ __all__ = [
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",
     "CaptureSource",
+    "CommitConnectorCheckpoint",
+    "ConnectorCheckpointState",
     "DatabaseConfig",
     "ExperienceApplication",
     "ExperienceCandidate",
@@ -245,6 +252,9 @@ __all__ = [
     "RecallTokenValue",
     "RejectArtifactCandidateRequest",
     "RememberMemoryRequest",
+    "RemoteIngestion",
+    "RemoteIngestionApplication",
+    "RemoteSkillApplication",
     "ResolveExternalSkillRequest",
     "ResolvedUsagePeriod",
     "RetireMemoryEntryRequest",
@@ -279,6 +289,7 @@ __all__ = [
     "Statistics",
     "StatisticsApplication",
     "StatisticsPeriod",
+    "SubmitSourceObservation",
     "UsageStatistics",
     "WorkApplication",
     "dependency_readiness_probe",

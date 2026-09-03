@@ -117,7 +117,7 @@ def test_contract_uses_the_namespaced_request_id_header() -> None:
     assert "X-Request-ID" not in contract
 
 
-def test_contract_declares_optional_bearer_authentication() -> None:
+def test_contract_declares_server_and_remote_target_bearer_boundaries() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
 
     assert contract["security"] == [{"BearerAuth": []}, {}]
@@ -126,12 +126,25 @@ def test_contract_declares_optional_bearer_authentication() -> None:
         "scheme": "bearer",
         "description": "Static bearer token used when local Server authentication is enabled.",
     }
+    assert contract["components"]["securitySchemes"]["TargetBearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Per-target credential issued once during remote Receiver enrollment.",
+    }
+    public_paths = {"/health/live", "/health/ready", "/v1/skill/remote/target/enroll"}
+    target_paths = {
+        "/v1/skill/remote/reconcile",
+        "/v1/skill/remote/package/download",
+        "/v1/skill/remote/receipt",
+    }
     for path, path_item in contract["paths"].items():
         operation = next(iter(path_item.values()))
-        if path.startswith("/health/"):
+        if path in public_paths:
             assert operation["security"] == []
         else:
             assert operation["responses"]["401"] == {"$ref": "#/components/responses/Unauthorized"}
+        if path in target_paths:
+            assert operation["security"] == [{"TargetBearerAuth": []}]
 
 
 def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
@@ -161,6 +174,19 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.request_type is CaptureContentSourceRequest
     assert CAPTURE_CONTENT_SOURCE.response_type is CaptureContentSourceResponse
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
+
+
+def test_source_observation_contract_is_scope_bound_and_captured() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+
+    request = schemas["SubmitSourceObservationRequest"]
+    observation = schemas["SourceObservation"]
+
+    assert set(request["properties"]) == {"scope_id", "observation"}
+    assert request["properties"]["observation"] == {"$ref": "#/components/schemas/SourceObservation"}
+    assert observation["properties"]["materialization"]["enum"] == ["captured"]
+    assert "ProjectedSource" not in schemas
 
 
 def test_stats_operation_exposes_dashboard_ready_scoped_values() -> None:
@@ -263,6 +289,11 @@ def test_experience_skill_and_review_operations_are_typed_and_family_routed() ->
         "description",
         "instructions",
         "validation",
+        "package",
+        "license",
+        "compatibility",
+        "metadata",
+        "allowed_tools",
     }
     assert schemas["ListArtifactCandidatesRequest"]["properties"]["limit"] == {
         "type": "integer",

@@ -17,12 +17,45 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from pydantic import BaseModel
 
-from powercontext import ArtifactNotFoundError, SourceConflictError
+from powercontext import (
+    AdapterSourceDefinition,
+    ArtifactNotFoundError,
+    Source,
+    SourceConflictError,
+    SourceDefinitionRegistry,
+    SourceMaterialization,
+)
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
-from powercontext.builtin.sources import ContentCapture, ContentSource, SourceCursor
+from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, ContentCapture, ContentSource, SourceCursor
+
+
+class CustomCapture(BaseModel):
+    source_id: str
+    value: str
+
+
+class CustomSource(Source):
+    value: str
+
+
+class CustomSourceAdapter:
+    input_class = CustomCapture
+    name = "test-custom"
+    source_class = CustomSource
+
+    async def resolve(self, value: CustomCapture, /) -> CustomSource:
+        return CustomSource(
+            name=value.source_id,
+            materialization=SourceMaterialization.CAPTURED,
+            value=value.value,
+        )
+
+    async def read(self, source: CustomSource, /) -> str:
+        return source.value
 
 
 class EchoCandidatePipeline:
@@ -52,6 +85,27 @@ class BlockingCandidatePipeline(EchoCandidatePipeline):
 
 class StateSaveFailure(RuntimeError):
     pass
+
+
+def test_provider_uses_one_injected_source_registry_for_routing_and_persistence() -> None:
+    async def scenario() -> None:
+        registry = SourceDefinitionRegistry((
+            *BUILTIN_SOURCE_REGISTRY.definitions,
+            AdapterSourceDefinition(CustomSourceAdapter()),
+        ))
+        async with open_builtin_contexts(
+            BuiltinConfig(database=SQLiteConfig()),
+            source_registry=registry,
+        ) as contexts:
+            context = await contexts.get("project")
+            source = await context.sources.resolve(CustomCapture(source_id="custom-1", value="typed value"))
+            stored = await context.sources.add(source)
+
+            assert isinstance(stored, CustomSource)
+            assert await context.sources.read(stored) == "typed value"
+            assert await context.sources.list() == (stored,)
+
+    asyncio.run(scenario())
 
 
 def test_provider_translates_repository_source_identity_conflicts() -> None:

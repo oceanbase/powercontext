@@ -35,12 +35,17 @@ from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
+    CreateRemoteSkillTargetRequest,
     CreateWorkContractRequest,
     DetachHandoffReportWorkspaceRequest,
+    DownloadRemoteSkillPackageRequest,
+    EnrollRemoteSkillTargetRequest,
     ErrorResponse,
     ExperienceArtifact,
     ExternalSkillResolution,
@@ -51,11 +56,13 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
     GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
+    GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
     HandoffAcknowledgement,
@@ -76,10 +83,14 @@ from powercontext.http import (
     ListHandoffReportKnownScopesRequest,
     ListHandoffReportProjectsRequest,
     ListHandoffReportWorkstreamsRequest,
+    ListManagedSkillsRequest,
+    ListManagedSkillsResponse,
     ListMemoryChangesRequest,
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
+    ListRemoteSkillTargetsRequest,
+    ListRemoteSkillTargetsResponse,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -90,28 +101,50 @@ from powercontext.http import (
     ProjectDescriptor,
     ProjectPage,
     ProposeExperienceRequest,
+    ProposeSkillPackageRequest,
     ProposeSkillRequest,
+    PublishRemoteSkillRequest,
     PurgeHandoffReportActivitiesRequest,
     PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
+    ReconcileRemoteSkillsRequest,
+    ReconcileRemoteSkillsResponse,
     RecordHandoffReportActivityRequest,
+    RecordRemoteSkillReceiptRequest,
+    RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
+    RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
+    RemoteSkillPublication,
+    RemoteSkillReceiptResponse,
+    RemoteSkillTarget,
+    RemoteSkillTargetCredential,
+    RemoteSkillTargetEnrollment,
+    RenameRemoteSkillTargetRequest,
     ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    RevokeRemoteSkillTargetRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SkillArtifact,
+    SkillGovernance,
+    SkillPackageDownload,
+    SkillPackageManifest,
+    SourceDefinitionManifest,
+    SourceObservationReceipt,
     StoredHandoffReportActivity,
+    SubmitSourceObservationRequest,
+    UnpublishRemoteSkillRequest,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
+    UpdateSkillLifecycleRequest,
     WorkSourceReceipt,
     WorkstreamDescriptor,
     WorkstreamPage,
@@ -122,17 +155,23 @@ from powercontext.http._generated.operations import (
     APPROVE_ARTIFACT_CANDIDATE,
     ATTACH_HANDOFF_REPORT_WORKSPACE,
     CAPTURE_CONTENT_SOURCE,
+    COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_HANDOFF_REPORT_PROJECT,
+    CREATE_REMOTE_SKILL_TARGET,
     CREATE_WORK_CONTRACT,
     DETACH_HANDOFF_REPORT_WORKSPACE,
+    DOWNLOAD_REMOTE_SKILL_PACKAGE,
+    DOWNLOAD_SKILL_PACKAGE,
+    ENROLL_REMOTE_SKILL_TARGET,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
+    GET_CONNECTOR_CHECKPOINT,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
     GET_HANDOFF_REPORT_PROJECT,
@@ -141,6 +180,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_SKILL_PACKAGE_MANIFEST,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
@@ -150,26 +190,39 @@ from powercontext.http._generated.operations import (
     LIST_HANDOFF_REPORT_KNOWN_SCOPES,
     LIST_HANDOFF_REPORT_PROJECTS,
     LIST_HANDOFF_REPORT_WORKSTREAMS,
+    LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_REMOTE_SKILL_TARGETS,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
+    PROPOSE_SKILL_PACKAGE,
+    PUBLISH_REMOTE_SKILL,
     PURGE_HANDOFF_REPORT_ACTIVITIES,
+    RECONCILE_REMOTE_SKILLS,
     RECORD_HANDOFF_REPORT_ACTIVITY,
+    RECORD_REMOTE_SKILL_RECEIPT,
+    RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
+    REGISTER_SOURCE_DEFINITION,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RENAME_REMOTE_SKILL_TARGET,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SUBMIT_SOURCE_OBSERVATION,
+    UNPUBLISH_REMOTE_SKILL,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
+    UPDATE_SKILL_LIFECYCLE,
     Operation,
 )
 from powercontext.transport import is_plaintext_non_loopback
@@ -190,6 +243,7 @@ class PowerContextClient:
         timeout: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
         trust_transport_security: bool = False,
+        allow_insecure_http: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         # Plaintext HTTP is only trusted on loopback -- for *any* request, not just an authenticated
@@ -202,9 +256,11 @@ class PowerContextClient:
         # exactly as exposed as one we would open ourselves. Supplying a transport is therefore not
         # evidence of safety: the guard stays on for caller-supplied transports too, and a caller that
         # knows its transport is secure must say so explicitly via ``trust_transport_security`` rather
-        # than have safety inferred from the argument being set.
+        # than have safety inferred from the argument being set. ``allow_insecure_http`` is the
+        # separate, explicit cleartext escape hatch used by a remote Skill Receiver after its own
+        # protected-network consent check; it does not claim that the transport is secure.
         transport_trusted = http_client is not None and trust_transport_security
-        if not transport_trusted and is_plaintext_non_loopback(self._base_url):
+        if not transport_trusted and not allow_insecure_http and is_plaintext_non_loopback(self._base_url):
             raise ValueError("refusing to send requests over unencrypted non-loopback HTTP")  # noqa: TRY003
         self._headers = {"Authorization": f"Bearer {token}"} if token else None
         self._owned_http_client: httpx.AsyncClient | None = None
@@ -423,6 +479,29 @@ class PowerContextClient:
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
 
+    async def register_source_definition(self, request: RegisterSourceDefinitionRequest) -> SourceDefinitionManifest:
+        """Register one immutable worker-owned Source Definition manifest."""
+
+        return await self._request(REGISTER_SOURCE_DEFINITION, request)
+
+    async def get_connector_checkpoint(self, request: GetConnectorCheckpointRequest) -> ConnectorCheckpointState:
+        """Read the current opaque checkpoint for one Connector binding."""
+
+        return await self._request(GET_CONNECTOR_CHECKPOINT, request)
+
+    async def submit_source_observation(self, request: SubmitSourceObservationRequest) -> SourceObservationReceipt:
+        """Submit one worker-materialized Source observation."""
+
+        return await self._request(SUBMIT_SOURCE_OBSERVATION, request)
+
+    async def commit_connector_checkpoint(
+        self,
+        request: CommitConnectorCheckpointRequest,
+    ) -> ConnectorCheckpointState:
+        """Commit a binding checkpoint using optimistic comparison."""
+
+        return await self._request(COMMIT_CONNECTOR_CHECKPOINT, request)
+
     async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
         """Create one grounded delegation baseline as durable Source evidence."""
 
@@ -542,6 +621,110 @@ class PowerContextClient:
         """Read one exact approved managed Skill Revision."""
 
         return await self._request(GET_SKILL, request)
+
+    async def list_managed_skills(self, request: ListManagedSkillsRequest) -> ListManagedSkillsResponse:
+        """List or search current governed managed Skill heads."""
+
+        return await self._request(LIST_MANAGED_SKILLS, request)
+
+    async def update_skill_lifecycle(self, request: UpdateSkillLifecycleRequest) -> SkillGovernance:
+        """Apply one governance generation CAS lifecycle transition."""
+
+        return await self._request(UPDATE_SKILL_LIFECYCLE, request)
+
+    async def get_skill_package_manifest(self, request: GetSkillPackageRequest) -> SkillPackageManifest:
+        """Read verified exact package metadata and file inventory."""
+
+        return await self._request(GET_SKILL_PACKAGE_MANIFEST, request)
+
+    async def download_skill_package(self, request: GetSkillPackageRequest) -> SkillPackageDownload:
+        """Read canonical exact package ZIP bytes as bounded base64."""
+
+        return await self._request(DOWNLOAD_SKILL_PACKAGE, request)
+
+    async def propose_skill_package(self, request: ProposeSkillPackageRequest) -> ArtifactCandidate:
+        """Create a pending exact package Candidate without LLM rewriting."""
+
+        return await self._request(PROPOSE_SKILL_PACKAGE, request)
+
+    async def record_skill_usage(self, request: RecordSkillUsageRequest) -> CaptureContentSourceResponse:
+        """Capture one bounded exact Skill usage observation as immutable Source evidence."""
+
+        return await self._request(RECORD_SKILL_USAGE, request)
+
+    async def create_remote_skill_target(
+        self,
+        request: CreateRemoteSkillTargetRequest,
+    ) -> RemoteSkillTargetEnrollment:
+        """Create a pending remote target and one-time enrollment code."""
+
+        return await self._request(CREATE_REMOTE_SKILL_TARGET, request)
+
+    async def list_remote_skill_targets(
+        self,
+        request: ListRemoteSkillTargetsRequest,
+    ) -> ListRemoteSkillTargetsResponse:
+        """List credential-free target and publication status for one scope."""
+
+        return await self._request(LIST_REMOTE_SKILL_TARGETS, request)
+
+    async def enroll_remote_skill_target(
+        self,
+        request: EnrollRemoteSkillTargetRequest,
+    ) -> RemoteSkillTargetCredential:
+        """Consume one enrollment code and receive a per-target credential."""
+
+        return await self._request(ENROLL_REMOTE_SKILL_TARGET, request)
+
+    async def revoke_remote_skill_target(
+        self,
+        request: RevokeRemoteSkillTargetRequest,
+    ) -> RemoteSkillTarget:
+        """Revoke one remote target credential using generation CAS."""
+
+        return await self._request(REVOKE_REMOTE_SKILL_TARGET, request)
+
+    async def rename_remote_skill_target(
+        self,
+        request: RenameRemoteSkillTargetRequest,
+    ) -> RemoteSkillTarget:
+        """Rename one remote target using generation CAS."""
+
+        return await self._request(RENAME_REMOTE_SKILL_TARGET, request)
+
+    async def publish_remote_skill(self, request: PublishRemoteSkillRequest) -> RemoteSkillPublication:
+        """Set an exact approved package as remote desired state."""
+
+        return await self._request(PUBLISH_REMOTE_SKILL, request)
+
+    async def unpublish_remote_skill(self, request: UnpublishRemoteSkillRequest) -> RemoteSkillPublication:
+        """Set desired absence for one remote publication."""
+
+        return await self._request(UNPUBLISH_REMOTE_SKILL, request)
+
+    async def reconcile_remote_skills(
+        self,
+        request: ReconcileRemoteSkillsRequest,
+    ) -> ReconcileRemoteSkillsResponse:
+        """Read latest-generation actions using this client's target credential."""
+
+        return await self._request(RECONCILE_REMOTE_SKILLS, request)
+
+    async def download_remote_skill_package(
+        self,
+        request: DownloadRemoteSkillPackageRequest,
+    ) -> SkillPackageDownload:
+        """Download an exact package authorized for this target generation."""
+
+        return await self._request(DOWNLOAD_REMOTE_SKILL_PACKAGE, request)
+
+    async def record_remote_skill_receipt(
+        self,
+        request: RecordRemoteSkillReceiptRequest,
+    ) -> RemoteSkillReceiptResponse:
+        """Record target-local delivery evidence for one exact generation."""
+
+        return await self._request(RECORD_REMOTE_SKILL_RECEIPT, request)
 
     async def scan_external_skills(self, request: ScanExternalSkillsRequest) -> ScanExternalSkillsResponse:
         """Refresh the configured host-local external Skill Registry."""

@@ -17,11 +17,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import suppress
+from ipaddress import ip_address
+from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from powercontext.builtin.artifacts.skill import AgentSkillTarget
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     DatabaseConfig,
@@ -60,6 +65,28 @@ class MissingBearerTokenError(ValueError):
 
 def _default_database() -> SQLiteConfig:
     return SQLiteConfig(url=sqlite_url(default_database_path()))
+
+
+def _default_local_external_skills(workspace: Path) -> ExternalSkillsConfig:
+    return ExternalSkillsConfig(
+        host_id="local-workspace",
+        targets=(
+            AgentSkillTarget(
+                target_id="codex-project",
+                agent_kind="codex",
+                installation_scope="project",
+                path=workspace / ".agents" / "skills",
+                allow_managed_publish=True,
+            ),
+            AgentSkillTarget(
+                target_id="claude-project",
+                agent_kind="claude_code",
+                installation_scope="project",
+                path=workspace / ".claude" / "skills",
+                allow_managed_publish=True,
+            ),
+        ),
+    )
 
 
 def is_unauthenticated_non_loopback_bind(
@@ -176,6 +203,9 @@ class ServerSettings(BaseSettings):
     )
 
     http: HttpConfig = Field(default_factory=HttpConfig)
+    workspace: Path = Field(default_factory=Path.cwd)
+    public_url: str | None = None
+    allow_insecure_http: bool = False
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
     allow_unauthenticated_non_loopback: bool = False
@@ -188,6 +218,59 @@ class ServerSettings(BaseSettings):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+
+    @field_validator("workspace")
+    @classmethod
+    def resolve_workspace(cls, value: Path) -> Path:
+        workspace = value.expanduser().resolve(strict=False)
+        if not workspace.is_dir():
+            raise ValueError("Server workspace must be an existing directory")  # noqa: TRY003
+        return workspace
+
+    @model_validator(mode="after")
+    def configure_default_local_skill_targets(self) -> ServerSettings:
+        if "external_skills" not in self.model_fields_set:
+            self.external_skills = _default_local_external_skills(self.workspace)
+        return self
+
+    @field_validator("public_url")
+    @classmethod
+    def validate_public_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            return None
+        try:
+            parsed = urlsplit(normalized)
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError as error:
+            raise ValueError("public URL must be a valid absolute HTTP URL") from error  # noqa: TRY003
+        if (
+            parsed.scheme not in {"http", "https"}
+            or hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("public URL must be an absolute HTTP URL without credentials, query, or fragment")  # noqa: TRY003
+        return normalized
+
+    @model_validator(mode="after")
+    def require_secure_public_url_by_default(self) -> ServerSettings:
+        if self.public_url is None or self.allow_insecure_http:
+            return self
+        parsed = urlsplit(self.public_url)
+        hostname = parsed.hostname
+        loopback = hostname is not None and hostname.lower() == "localhost"
+        if hostname is not None:
+            with suppress(ValueError):
+                loopback = loopback or ip_address(hostname).is_loopback
+        if parsed.scheme != "https" and not loopback:
+            raise ValueError("public URL must use HTTPS unless it points to loopback")  # noqa: TRY003
+        return self
 
     @field_validator("database", mode="before")
     @classmethod

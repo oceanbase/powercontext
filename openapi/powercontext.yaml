@@ -111,6 +111,107 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/source-definitions/register:
+    post:
+      tags: [source-ingestion]
+      summary: Register a worker-owned Source Definition manifest
+      description: Registers an immutable declarative manifest without loading worker plugin code.
+      operationId: register_source_definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterSourceDefinitionRequest"
+      responses:
+        "200":
+          description: The exact manifest is registered or was already registered identically.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceDefinitionManifest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/connector-checkpoints/get:
+    post:
+      tags: [source-ingestion]
+      summary: Read a Connector binding checkpoint
+      operationId: get_connector_checkpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetConnectorCheckpointRequest"
+      responses:
+        "200":
+          description: The current opaque checkpoint, including a normal null initial value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorCheckpointState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/source-observations:
+    post:
+      tags: [source-ingestion]
+      summary: Submit a worker-materialized Source observation
+      description: Validates the observation against its registered manifest and durably appends it before receipt.
+      operationId: submit_source_observation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitSourceObservationRequest"
+      responses:
+        "202":
+          description: The observation is durably accepted and can be referenced exactly.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceObservationReceipt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/connector-checkpoints/commit:
+    post:
+      tags: [source-ingestion]
+      summary: Commit a Connector binding checkpoint
+      description: Replaces the checkpoint only when its expected starting value still matches.
+      operationId: commit_connector_checkpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitConnectorCheckpointRequest"
+      responses:
+        "200":
+          description: The new opaque checkpoint is durable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorCheckpointState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
   /v1/context/prepare:
     post:
       tags: [context]
@@ -885,6 +986,477 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "503":
           $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/library:
+    post:
+      tags: [skill]
+      summary: List or search current managed Skills
+      description: Return current managed Skill heads with lifecycle governance; retired Skills remain exact-read only.
+      operationId: list_managed_skills
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListManagedSkillsRequest"
+      responses:
+        "200":
+          description: Current managed Skill Library rows.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListManagedSkillsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/lifecycle:
+    post:
+      tags: [skill]
+      summary: Update managed Skill lifecycle
+      description: Apply an explicit lifecycle transition using governance generation CAS without changing package bytes.
+      operationId: update_skill_lifecycle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSkillLifecycleRequest"
+      responses:
+        "200":
+          description: Updated managed Skill governance.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillGovernance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/package/manifest:
+    post:
+      tags: [skill]
+      summary: Get an exact managed Skill package manifest
+      description: Return verified metadata and file inventory without executing or returning file bodies.
+      operationId: get_skill_package_manifest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetSkillPackageRequest"
+      responses:
+        "200":
+          description: Verified exact package manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillPackageManifest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/package/download:
+    post:
+      tags: [skill]
+      summary: Download an exact managed Skill package
+      description: Return canonical ZIP bytes as bounded base64 with their content-addressed reference.
+      operationId: download_skill_package
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetSkillPackageRequest"
+      responses:
+        "200":
+          description: Canonical exact package archive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillPackageDownload"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/package/propose:
+    post:
+      tags: [skill]
+      summary: Propose an uploaded standard Skill package
+      description: Canonicalize exact ZIP bytes, store them once, and create a pending Candidate without LLM rewriting.
+      operationId: propose_skill_package
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProposeSkillPackageRequest"
+      responses:
+        "201":
+          description: Pending exact package Candidate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactCandidate"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/usage:
+    post:
+      tags: [skill]
+      summary: Record a bounded Skill usage observation
+      description: Validate an exact managed Skill Revision and capture immutable bounded usage Source evidence.
+      operationId: record_skill_usage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordSkillUsageRequest"
+      responses:
+        "201":
+          description: Accepted immutable usage Source evidence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptureContentSourceResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/targets:
+    post:
+      tags: [skill]
+      summary: List remote Agent Skill target status
+      description: Return credential-free target metadata and desired/observed publication state for one scope.
+      operationId: list_remote_skill_targets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListRemoteSkillTargetsRequest"
+      responses:
+        "200":
+          description: Remote target status rows visible to the administrative caller.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListRemoteSkillTargetsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/target/create:
+    post:
+      tags: [skill]
+      summary: Create a remote Agent Skill target enrollment
+      description: Create a pending project target and return one short-lived enrollment code exactly once.
+      operationId: create_remote_skill_target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRemoteSkillTargetRequest"
+      responses:
+        "201":
+          description: Pending remote target enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillTargetEnrollment"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/target/enroll:
+    post:
+      security: []
+      tags: [skill]
+      summary: Enroll a remote Agent Skill Receiver
+      description: Consume one short-lived enrollment code and return a per-target credential exactly once.
+      operationId: enroll_remote_skill_target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollRemoteSkillTargetRequest"
+      responses:
+        "200":
+          description: Activated remote target credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillTargetCredential"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/target/rename:
+    post:
+      tags: [skill]
+      summary: Rename a remote Agent Skill target
+      description: Change the human-readable target name with target generation CAS while retaining its durable identity.
+      operationId: rename_remote_skill_target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRemoteSkillTargetRequest"
+      responses:
+        "200":
+          description: Renamed remote target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillTarget"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/target/revoke:
+    post:
+      tags: [skill]
+      summary: Revoke a remote Agent Skill target
+      description: Revoke the per-target credential with target generation CAS while retaining durable identity.
+      operationId: revoke_remote_skill_target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeRemoteSkillTargetRequest"
+      responses:
+        "200":
+          description: Revoked remote target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillTarget"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/publication/publish:
+    post:
+      tags: [skill]
+      summary: Set a remote target Skill desired Revision
+      description: Advance only Server-owned desired state; delivery is confirmed later by an exact Receipt.
+      operationId: publish_remote_skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishRemoteSkillRequest"
+      responses:
+        "200":
+          description: Latest remote publication desired state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillPublication"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/publication/unpublish:
+    post:
+      tags: [skill]
+      summary: Set remote target Skill desired absence
+      description: Advance desired state without claiming that any remote directory has already been removed.
+      operationId: unpublish_remote_skill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnpublishRemoteSkillRequest"
+      responses:
+        "200":
+          description: Latest remote publication desired state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillPublication"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/reconcile:
+    post:
+      security:
+        - TargetBearerAuth: []
+      tags: [skill]
+      summary: Reconcile a remote Agent Skill target
+      description: Authenticate one target and return only latest-generation idempotent install or unpublish actions.
+      operationId: reconcile_remote_skills
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReconcileRemoteSkillsRequest"
+      responses:
+        "200":
+          description: Latest desired-state actions for this target only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconcileRemoteSkillsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/package/download:
+    post:
+      security:
+        - TargetBearerAuth: []
+      tags: [skill]
+      summary: Download the exact package desired by a remote target
+      description: Return canonical ZIP bytes only when target, generation, Artifact Revision, and package reference all match.
+      operationId: download_remote_skill_package
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadRemoteSkillPackageRequest"
+      responses:
+        "200":
+          description: Canonical exact package archive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillPackageDownload"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/skill/remote/receipt:
+    post:
+      security:
+        - TargetBearerAuth: []
+      tags: [skill]
+      summary: Record an exact remote Skill delivery Receipt
+      description: Update latest observed state only after credential, generation, Artifact, operation, and digest validation.
+      operationId: record_remote_skill_receipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordRemoteSkillReceiptRequest"
+      responses:
+        "200":
+          description: Receipt acceptance and latest publication observation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteSkillReceiptResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
         "500":
           $ref: "#/components/responses/InternalError"
   /v1/external-skills/scan:
@@ -1694,6 +2266,10 @@ components:
       type: http
       scheme: bearer
       description: Static bearer token used when local Server authentication is enabled.
+    TargetBearerAuth:
+      type: http
+      scheme: bearer
+      description: Per-target credential issued once during remote Receiver enrollment.
   headers:
     BearerChallenge:
       description: Authentication scheme required by the Server.
@@ -2663,6 +3239,181 @@ components:
         position:
           type: integer
           minimum: 1
+    SourceProjectionKey:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+    SourceProjectionManifest:
+      type: object
+      additionalProperties: false
+      required: [key, schema]
+      properties:
+        key:
+          $ref: "#/components/schemas/SourceProjectionKey"
+        schema:
+          type: object
+          additionalProperties: true
+    SourceDefinitionManifest:
+      type: object
+      additionalProperties: false
+      required: [name, version, fingerprint, source_schema, projections]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        fingerprint:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        source_schema:
+          type: object
+          additionalProperties: true
+        projections:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/SourceProjectionManifest"
+    RegisterSourceDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [manifest]
+      properties:
+        manifest:
+          $ref: "#/components/schemas/SourceDefinitionManifest"
+    ConnectorBinding:
+      type: object
+      additionalProperties: false
+      required: [scope_id, binding_id, connector_name, connector_version]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        binding_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        connector_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        connector_version:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+    GetConnectorCheckpointRequest:
+      type: object
+      additionalProperties: false
+      required: [binding]
+      properties:
+        binding:
+          $ref: "#/components/schemas/ConnectorBinding"
+    ConnectorCheckpointState:
+      type: object
+      additionalProperties: false
+      required: [binding, checkpoint]
+      properties:
+        binding:
+          $ref: "#/components/schemas/ConnectorBinding"
+        checkpoint:
+          nullable: true
+    SourceProjectionValue:
+      type: object
+      additionalProperties: false
+      required: [key, value]
+      properties:
+        key:
+          $ref: "#/components/schemas/SourceProjectionKey"
+        value: {}
+    SourceObservation:
+      type: object
+      additionalProperties: false
+      required:
+        [name, definition_version, materialization, source_type, definition_fingerprint, payload, projections]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        definition_version:
+          type: string
+          minLength: 1
+          maxLength: 128
+        materialization:
+          type: string
+          enum: [captured]
+        description:
+          type: string
+          nullable: true
+        source_type:
+          type: string
+          minLength: 1
+          maxLength: 128
+        definition_fingerprint:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        payload:
+          type: object
+          additionalProperties: true
+        projections:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/SourceProjectionValue"
+    SubmitSourceObservationRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, observation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        observation:
+          $ref: "#/components/schemas/SourceObservation"
+    SourceObservationReceipt:
+      type: object
+      additionalProperties: false
+      required: [source, position]
+      properties:
+        source:
+          $ref: "#/components/schemas/SourceReference"
+        position:
+          type: integer
+          minimum: 1
+    CommitConnectorCheckpointRequest:
+      type: object
+      additionalProperties: false
+      required: [binding, expected, checkpoint]
+      properties:
+        binding:
+          $ref: "#/components/schemas/ConnectorBinding"
+        expected:
+          nullable: true
+        checkpoint:
+          nullable: true
     CommitHandoffRequest:
       type: object
       additionalProperties: false
@@ -3053,6 +3804,104 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ArtifactReference"
+    SkillLifecycleState:
+      type: string
+      enum: [active, deprecated, retired]
+    SkillGovernance:
+      type: object
+      additionalProperties: false
+      required: [artifact, lifecycle_state, replacement_artifact_id, governance_generation]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        lifecycle_state:
+          $ref: "#/components/schemas/SkillLifecycleState"
+        replacement_artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+        governance_generation:
+          type: integer
+          minimum: 0
+    ManagedSkillLibraryEntry:
+      type: object
+      additionalProperties: false
+      required: [artifact, content, source_refs, artifact_refs, governance]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        content:
+          $ref: "#/components/schemas/SkillProposal"
+        source_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceReference"
+        artifact_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactReference"
+        governance:
+          $ref: "#/components/schemas/SkillGovernance"
+    ListManagedSkillsRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        query:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+        include_deprecated:
+          type: boolean
+          default: false
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 100
+    ListManagedSkillsResponse:
+      type: object
+      additionalProperties: false
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/ManagedSkillLibraryEntry"
+    UpdateSkillLifecycleRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact_id, expected_generation, lifecycle_state]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        expected_generation:
+          type: integer
+          minimum: 0
+        lifecycle_state:
+          $ref: "#/components/schemas/SkillLifecycleState"
+        replacement_artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+          nullable: true
     SkillProposal:
       type: object
       additionalProperties: false
@@ -3070,15 +3919,749 @@ components:
           pattern: '^\S(?:.*\S)?$'
         instructions:
           type: string
-          minLength: 1
-          maxLength: 32000
-          pattern: '.*\S.*'
+          maxLength: 131072
         validation:
           type: array
-          minItems: 1
           maxItems: 32
           items:
             $ref: "#/components/schemas/SkillValidationItem"
+        package:
+          $ref: "#/components/schemas/SkillPackageReference"
+          nullable: true
+        license:
+          type: string
+          minLength: 1
+          maxLength: 512
+          nullable: true
+        compatibility:
+          type: string
+          minLength: 1
+          maxLength: 500
+          nullable: true
+        metadata:
+          type: object
+          maxProperties: 64
+          additionalProperties:
+            type: string
+        allowed_tools:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+    SkillPackageReference:
+      type: object
+      additionalProperties: false
+      required: [tree_digest, archive_digest, file_count, uncompressed_size, archive_size]
+      properties:
+        tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        archive_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        file_count:
+          type: integer
+          minimum: 1
+          maximum: 256
+        uncompressed_size:
+          type: integer
+          minimum: 1
+          maximum: 4194304
+        archive_size:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+    SkillPackageFile:
+      type: object
+      additionalProperties: false
+      required: [path, digest, size, media_type, executable]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 512
+        digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        size:
+          type: integer
+          minimum: 0
+          maximum: 4194304
+        media_type:
+          type: string
+          minLength: 1
+          maxLength: 255
+        executable:
+          type: boolean
+    SkillPackageManifest:
+      type: object
+      additionalProperties: false
+      required: [package, name, description, metadata, files]
+      properties:
+        package:
+          $ref: "#/components/schemas/SkillPackageReference"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        description:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        license:
+          type: string
+          minLength: 1
+          maxLength: 512
+          nullable: true
+        compatibility:
+          type: string
+          minLength: 1
+          maxLength: 500
+          nullable: true
+        metadata:
+          type: object
+          maxProperties: 64
+          additionalProperties:
+            type: string
+        allowed_tools:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+        files:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/SkillPackageFile"
+    GetSkillPackageRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+    SkillPackageDownload:
+      type: object
+      additionalProperties: false
+      required: [package, archive_base64]
+      properties:
+        package:
+          $ref: "#/components/schemas/SkillPackageReference"
+        archive_base64:
+          type: string
+          minLength: 1
+          maxLength: 6990508
+          pattern: '^[A-Za-z0-9+/]*={0,2}$'
+    RemoteAgentKind:
+      type: string
+      enum: [codex, claude_code]
+    RemoteSkillTargetState:
+      type: string
+      enum: [pending, active, revoked]
+    RemoteSkillTarget:
+      type: object
+      additionalProperties: false
+      required:
+        - scope_id
+        - target_id
+        - display_name
+        - agent_kind
+        - installation_scope
+        - delivery_mode
+        - installation_id
+        - state
+        - receiver_version
+        - environment_fingerprint
+        - machine_hostname
+        - workspace_name
+        - last_seen_at
+        - generation
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        agent_kind:
+          $ref: "#/components/schemas/RemoteAgentKind"
+        installation_scope:
+          type: string
+          enum: [project]
+        delivery_mode:
+          type: string
+          enum: [agent_pull]
+        installation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+        state:
+          $ref: "#/components/schemas/RemoteSkillTargetState"
+        receiver_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+          nullable: true
+        environment_fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+        machine_hostname:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '.*\S.*'
+          nullable: true
+        workspace_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          nullable: true
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        generation:
+          type: integer
+          minimum: 0
+    ListRemoteSkillTargetsRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 100
+    RemoteSkillTargetStatus:
+      type: object
+      additionalProperties: false
+      required: [target, publications]
+      properties:
+        target:
+          $ref: "#/components/schemas/RemoteSkillTarget"
+        publications:
+          type: array
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/RemoteSkillPublication"
+    ListRemoteSkillTargetsResponse:
+      type: object
+      additionalProperties: false
+      required: [targets]
+      properties:
+        targets:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/RemoteSkillTargetStatus"
+    CreateRemoteSkillTargetRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, agent_kind, display_name]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        agent_kind:
+          $ref: "#/components/schemas/RemoteAgentKind"
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+    RemoteSkillTargetEnrollment:
+      type: object
+      additionalProperties: false
+      required: [target, enrollment_code, enrollment_expires_at]
+      properties:
+        target:
+          $ref: "#/components/schemas/RemoteSkillTarget"
+        enrollment_code:
+          type: string
+          minLength: 32
+          maxLength: 256
+        enrollment_expires_at:
+          type: string
+          format: date-time
+    EnrollRemoteSkillTargetRequest:
+      type: object
+      additionalProperties: false
+      required: [enrollment_code, installation_id, receiver_version]
+      properties:
+        enrollment_code:
+          type: string
+          minLength: 32
+          maxLength: 256
+        installation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        receiver_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[\x21-\x7E]+$'
+        environment_fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+        machine_hostname:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '.*\S.*'
+          nullable: true
+        workspace_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          nullable: true
+    RemoteSkillTargetCredential:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target_id, agent_kind, credential]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        agent_kind:
+          $ref: "#/components/schemas/RemoteAgentKind"
+        credential:
+          type: string
+          minLength: 32
+          maxLength: 256
+    RevokeRemoteSkillTargetRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target_id, expected_generation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        expected_generation:
+          type: integer
+          minimum: 0
+    RenameRemoteSkillTargetRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target_id, display_name, expected_generation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        expected_generation:
+          type: integer
+          minimum: 0
+    PublishRemoteSkillRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target_id, artifact, expected_generation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        expected_generation:
+          type: integer
+          minimum: 0
+          nullable: true
+        allow_deprecated:
+          type: boolean
+          default: false
+    UnpublishRemoteSkillRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target_id, artifact_id, expected_generation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        artifact_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+        expected_generation:
+          type: integer
+          minimum: 0
+    RemoteSkillDesiredState:
+      type: string
+      enum: [published, unpublished]
+    RemoteSkillPublicationState:
+      type: string
+      enum: [unpublished, pending, current, update_available, delivery_failed, conflict, drifted, incompatible]
+    RemoteSkillPublication:
+      type: object
+      additionalProperties: false
+      required:
+        - scope_id
+        - target_id
+        - artifact_id
+        - desired_state
+        - desired_revision
+        - desired_tree_digest
+        - observed_revision
+        - observed_tree_digest
+        - observed_generation
+        - state
+        - last_error_code
+        - observed_at
+        - generation
+      properties:
+        scope_id:
+          type: string
+        target_id:
+          type: string
+        artifact_id:
+          type: string
+        desired_state:
+          $ref: "#/components/schemas/RemoteSkillDesiredState"
+        desired_revision:
+          type: integer
+          minimum: 1
+        desired_tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        observed_revision:
+          type: integer
+          minimum: 1
+          nullable: true
+        observed_tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+        observed_generation:
+          type: integer
+          minimum: 0
+          nullable: true
+        state:
+          $ref: "#/components/schemas/RemoteSkillPublicationState"
+        last_error_code:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+        observed_at:
+          type: string
+          format: date-time
+          nullable: true
+        generation:
+          type: integer
+          minimum: 0
+    RemoteSkillObservation:
+      type: object
+      additionalProperties: false
+      required: [artifact, tree_digest, actual_tree_digest, skill_name, applied_generation]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        actual_tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+        skill_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        applied_generation:
+          type: integer
+          minimum: 0
+    ReconcileRemoteSkillsRequest:
+      type: object
+      additionalProperties: false
+      required: [observations, receiver_version]
+      properties:
+        observations:
+          type: array
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/RemoteSkillObservation"
+        receiver_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[\x21-\x7E]+$'
+        environment_fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+    RemoteSkillOperation:
+      type: string
+      enum: [install, unpublish]
+    RemoteSkillAction:
+      type: object
+      additionalProperties: false
+      required:
+        [operation, generation, artifact, tree_digest, skill_name, package, expected_local, blocked_error_code]
+      properties:
+        operation:
+          $ref: "#/components/schemas/RemoteSkillOperation"
+        generation:
+          type: integer
+          minimum: 0
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        skill_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        package:
+          $ref: "#/components/schemas/SkillPackageReference"
+          nullable: true
+        expected_local:
+          $ref: "#/components/schemas/RemoteSkillObservation"
+          nullable: true
+        blocked_error_code:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+    ReconcileRemoteSkillsResponse:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target_id, actions]
+      properties:
+        scope_id:
+          type: string
+        target_id:
+          type: string
+        actions:
+          type: array
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/RemoteSkillAction"
+    DownloadRemoteSkillPackageRequest:
+      type: object
+      additionalProperties: false
+      required: [generation, artifact, package]
+      properties:
+        generation:
+          type: integer
+          minimum: 0
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        package:
+          $ref: "#/components/schemas/SkillPackageReference"
+    RemoteSkillReceiptOutcome:
+      type: string
+      enum: [succeeded, failed]
+    RemoteSkillFailureState:
+      type: string
+      enum: [delivery_failed, conflict, drifted, incompatible]
+    RecordRemoteSkillReceiptRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - operation
+        - generation
+        - artifact
+        - expected_tree_digest
+        - observed_tree_digest
+        - outcome
+        - failure_state
+        - error_code
+        - receiver_version
+        - environment_fingerprint
+      properties:
+        operation:
+          $ref: "#/components/schemas/RemoteSkillOperation"
+        generation:
+          type: integer
+          minimum: 0
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        expected_tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        observed_tree_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+        outcome:
+          $ref: "#/components/schemas/RemoteSkillReceiptOutcome"
+        failure_state:
+          $ref: "#/components/schemas/RemoteSkillFailureState"
+          nullable: true
+        error_code:
+          type: string
+          minLength: 1
+          maxLength: 128
+          nullable: true
+        receiver_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[\x21-\x7E]+$'
+        environment_fingerprint:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          nullable: true
+    RemoteSkillReceiptResponse:
+      type: object
+      additionalProperties: false
+      required: [accepted, stale, publication]
+      properties:
+        accepted:
+          type: boolean
+        stale:
+          type: boolean
+        publication:
+          $ref: "#/components/schemas/RemoteSkillPublication"
+    ProposeSkillPackageRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, archive_base64]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        archive_base64:
+          type: string
+          minLength: 1
+          maxLength: 6990508
+          pattern: '^[A-Za-z0-9+/]*={0,2}$'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          nullable: true
+        target:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+          description: Exact managed Skill Revision replaced by this complete package Candidate.
+    RecordSkillUsageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - scope_id
+        - observation_id
+        - skill_ref
+        - package_digest
+        - target_id
+        - selected
+        - invoked
+        - validation
+        - outcome
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        observation_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        skill_ref:
+          $ref: "#/components/schemas/ArtifactReference"
+        package_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        target_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        selected:
+          type: boolean
+        invoked:
+          type: string
+          enum: ['true', 'false', unknown]
+        validation:
+          type: string
+          enum: [passed, failed, unknown]
+        outcome:
+          type: string
+          enum: [success, failure, unknown]
+        task_source:
+          $ref: "#/components/schemas/SourceReference"
+          nullable: true
+        environment_fingerprint:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          nullable: true
     SkillValidationItem:
       type: string
       minLength: 1

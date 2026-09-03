@@ -73,6 +73,11 @@ def hook_module(plugin_imports: None) -> ModuleType:
     )
 
 
+@pytest.fixture(autouse=True)
+def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(tmp_path / "claude-code-diagnostics.json"))
+
+
 @pytest.fixture
 def scope_module(plugin_imports: None) -> ModuleType:
     return _load_module(

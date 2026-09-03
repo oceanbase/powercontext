@@ -12,10 +12,10 @@ hide:
 <p class="pc-page-lead">Engineering notes and design explanations from the PowerContext maintainers.</p>
 
 <section class="pc-blog-empty pc-listing-list pc-listing-row">
-  <p class="pc-blog-empty__date pc-listing-meta">No posts yet</p>
+  <p class="pc-blog-empty__date pc-listing-meta">Benchmarks</p>
   <div class="pc-listing-content">
-    <h2>Engineering notes will start with implemented work.</h2>
-    <p>The project currently records product and API decisions as RFCs. A post belongs here only when there is a concrete implementation or operating lesson to examine.</p>
-    <p><a href="../rfcs/">Read the current RFCs <span aria-hidden="true">→</span></a></p>
+    <h2>Long-term memory and real repository work, measured.</h2>
+    <p>See what LoCoMo and SWE-bench Pro evaluate, how PowerContext was tested, and what the reported results do and do not prove.</p>
+    <p><a href="../benchmarks/">Explore the benchmarks <span aria-hidden="true">→</span></a></p>
   </div>
 </section>

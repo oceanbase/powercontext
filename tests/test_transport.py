@@ -29,7 +29,7 @@ from pydantic import SecretStr, ValidationError
 from powercontext.client import PowerContextClient
 from powercontext.client.settings import ClientSettings
 from powercontext.server.settings import BearerAuthConfig, HttpConfig, ServerSettings
-from powercontext.transport import is_loopback_host, is_plaintext_non_loopback
+from powercontext.transport import canonical_loopback_endpoint, is_loopback_host, is_plaintext_non_loopback
 
 _ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - a non-loopback bind used to exercise the policy.
 
@@ -100,6 +100,36 @@ def test_plaintext_non_loopback_detects_only_remote_http() -> None:
 
 
 @pytest.mark.parametrize(
+    "endpoint",
+    [
+        "HTTP://localhost:8000/",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.2:8000///",
+        "http://[::1]:8000/",
+    ],
+)
+def test_canonical_service_endpoint_normalizes_loopback_hosts(endpoint: str) -> None:
+    assert canonical_loopback_endpoint(endpoint) == "http://loopback:8000"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [
+        ("http://localhost", "http://loopback:80"),
+        ("https://[::1]/", "https://loopback:443"),
+        ("http://memory.example:8000", None),
+        ("ftp://127.0.0.1:8000", None),
+        ("http://127.0.0.1:not-a-port", None),
+    ],
+)
+def test_canonical_service_endpoint_applies_default_ports_and_rejects_invalid_targets(
+    endpoint: str,
+    expected: str | None,
+) -> None:
+    assert canonical_loopback_endpoint(endpoint) == expected
+
+
+@pytest.mark.parametrize(
     "server_url",
     ["http://memory.example", "http://192.168.1.10:8000"],
 )
@@ -130,6 +160,15 @@ def test_client_refuses_a_bearer_token_over_non_loopback_plaintext() -> None:
     with httpx.Client(transport=transport):  # noqa: SIM117 - guard runs before any request.
         with pytest.raises(ValueError, match="non-loopback"):
             PowerContextClient("http://memory.example", token="probe-token")  # noqa: S106 - test credential.
+
+
+def test_client_allows_an_explicit_remote_receiver_plaintext_exception() -> None:
+    client = PowerContextClient(
+        "http://memory.example",
+        token="probe-token",  # noqa: S106 - test credential.
+        allow_insecure_http=True,
+    )
+    assert client is not None
 
 
 def test_client_allows_a_bearer_token_over_loopback_plaintext() -> None:

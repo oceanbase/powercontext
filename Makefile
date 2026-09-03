@@ -11,7 +11,7 @@ skills-install: ## Install recommended agent skills from skills-lock.json
 	@echo "Restart Codex to pick up new skills."
 
 .PHONY: check
-check: ## Run code quality tools.
+check: integration-manifest-check ## Run code quality tools.
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"
 	@uv lock --locked
 	@echo "🚀 Linting code: Running prek"
@@ -44,6 +44,20 @@ real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE de
 .PHONY: harness-sync
 harness-sync: ## Install the Bub replay harness environment.
 	@uv sync --project e2e/bub --locked
+
+OPENDAL_TEST_RUN = uv run --isolated --no-project --python 3.12 \
+	--with-editable ".[server]" \
+	--with-editable ./integrations/opendal \
+	--with pytest --with ruff --with ty
+
+.PHONY: opendal-test
+opendal-test: ## Validate the standalone OpenDAL Connector against this checkout.
+	@$(OPENDAL_TEST_RUN) ruff check --no-fix integrations/opendal
+	@$(OPENDAL_TEST_RUN) ruff format --check integrations/opendal
+	@$(OPENDAL_TEST_RUN) ty check --python .venv --python-version 3.12 \
+		--extra-search-path integrations/opendal/src integrations/opendal/src
+	@$(OPENDAL_TEST_RUN) python -m pytest integrations/opendal/tests
+	@$(OPENDAL_TEST_RUN) powercontext-connector-opendal --help >/dev/null
 
 .PHONY: harness-check
 harness-check: ## Validate the Bub replay harness and committed scenarios.
@@ -150,7 +164,8 @@ build-and-publish: build publish ## Build and publish.
 
 .PHONY: docs-build
 docs-build: ## Build the documentation and publish the canonical OpenAPI contract.
-	@install -D -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
+	@mkdir -p docs/api
+	@install -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
 	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical build --clean -s
 
 .PHONY: docs-test
@@ -158,9 +173,22 @@ docs-test: docs-build ## Test if documentation can be built without warnings or 
 	@test -f site/api/index.html
 	@cmp --silent openapi/powercontext.yaml site/api/openapi.yaml
 
+.PHONY: integration-manifest-docs
+integration-manifest-docs: ## Generate the checked-in integration capability matrix pages.
+	@uv run python scripts/generate_integration_manifest_docs.py
+
+.PHONY: integration-manifest-docs-check
+integration-manifest-docs-check: ## Verify the integration capability matrix pages are current.
+	@uv run python scripts/generate_integration_manifest_docs.py --check
+
+.PHONY: integration-manifest-check
+integration-manifest-check: integration-manifest-docs-check ## Verify the complete integration capability contract.
+	@uv run python -m pytest tests/test_integration_manifest.py
+
 .PHONY: docs
 docs: ## Build and serve the documentation
-	@install -D -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
+	@mkdir -p docs/api
+	@install -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
 	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical serve $(ARGS)
 
 .PHONY: help

@@ -18,13 +18,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
+from powercontext.builtin.artifacts.skill.models import SkillPackageRef
+from powercontext.builtin.artifacts.skill.package import SkillPackageSnapshot, package_file
 from powercontext.errors import PowerContextError
 from powercontext.limits import (
     MAX_ARTIFACT_ID_LENGTH,
@@ -118,10 +122,28 @@ class ExternalSkillProviderScan(BaseModel):
 
 
 class ExternalSkillSnapshot(BaseModel):
-    """Exact primary content plus the fingerprint of its authoritative package."""
+    """Durable evidence that refers to one exact stored external package."""
 
     registration: ExternalSkillRegistration
+    package: SkillPackageRef
     manifest: str = Field(min_length=1, max_length=MAX_EXTERNAL_SKILL_MANIFEST_BYTES)
+
+
+@dataclass(frozen=True)
+class CapturedExternalSkillPackage:
+    """In-memory capture kept only until package and Source evidence are stored."""
+
+    registration: ExternalSkillRegistration
+    package: SkillPackageSnapshot
+
+    def as_source_snapshot(self) -> ExternalSkillSnapshot:
+        """Return bounded durable evidence without copying archive bytes into Source storage."""
+
+        return ExternalSkillSnapshot(
+            registration=self.registration,
+            package=self.package.reference,
+            manifest=package_file(self.package, "SKILL.md").decode("utf-8"),
+        )
 
 
 class ExternalSkillProvider(Protocol):
@@ -137,6 +159,51 @@ class ExternalSkillProvider(Protocol):
     def resolve(self, registration: ExternalSkillRegistration, /) -> ExternalSkillResolution: ...
 
 
+class AgentEnvironmentProfile(BaseModel):
+    """Secret-free facts a target adapter can actually observe about its host."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operating_system: Literal["linux", "macos", "windows", "other"]
+    architecture: str = Field(min_length=1, max_length=64)
+    commands: dict[str, str] = Field(default_factory=dict, max_length=64)
+    network_policy: Literal["disabled", "restricted", "enabled", "unknown"] = "unknown"
+    writable_roots: tuple[str, ...] = Field(default=(), max_length=32)
+    dependency_install_policy: Literal["denied", "allowed", "unknown"] = "unknown"
+    environment_names: tuple[str, ...] = Field(default=(), max_length=64)
+
+    @field_validator("architecture")
+    @classmethod
+    def validate_architecture(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("Agent environment architecture must be trimmed")  # noqa: TRY003
+        return value
+
+    @field_validator("commands")
+    @classmethod
+    def validate_commands(cls, value: dict[str, str]) -> dict[str, str]:
+        for command, version in value.items():
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._-]{0,63}", command) is None:
+                raise ValueError("Agent environment command names must be simple executable names")  # noqa: TRY003
+            if not version.strip() or version != version.strip() or len(version) > 128:
+                raise ValueError("Agent environment command versions must be bounded trimmed labels")  # noqa: TRY003
+        return value
+
+    @field_validator("writable_roots")
+    @classmethod
+    def validate_writable_roots(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item.strip() or item != item.strip() or len(item) > 512 for item in value):
+            raise ValueError("Agent environment writable roots must be bounded trimmed labels")  # noqa: TRY003
+        return value
+
+    @field_validator("environment_names")
+    @classmethod
+    def validate_environment_names(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", item) is None for item in value):
+            raise ValueError("Agent environment names must contain names only, not assignments")  # noqa: TRY003
+        return value
+
+
 class AgentSkillTarget(BaseModel):
     """One explicitly configured host-local Agent Skill target."""
 
@@ -147,6 +214,7 @@ class AgentSkillTarget(BaseModel):
     installation_scope: ExternalSkillInstallationScope
     path: Path
     allow_managed_publish: bool = False
+    environment: AgentEnvironmentProfile | None = None
 
 
 class CodexSkillRoot(BaseModel):
@@ -333,11 +401,13 @@ def _package_fingerprint(package: Path) -> str:
     for path in files:
         relative = path.relative_to(package).as_posix().encode("utf-8")
         content = path.read_bytes()
+        mode = 0o755 if path.stat().st_mode & 0o111 else 0o644
         total_bytes += len(content)
         if total_bytes > MAX_EXTERNAL_SKILL_PACKAGE_BYTES:
             raise ValueError("Agent Skill package exceeds the supported size")  # noqa: TRY003
         digest.update(len(relative).to_bytes(4, "big"))
         digest.update(relative)
+        digest.update(mode.to_bytes(2, "big"))
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
     return digest.hexdigest()
@@ -359,9 +429,11 @@ __all__ = [
     "MAX_EXTERNAL_SKILL_MANIFEST_BYTES",
     "MAX_EXTERNAL_SKILL_NAME_LENGTH",
     "MAX_EXTERNAL_SKILL_PACKAGE_BYTES",
+    "AgentEnvironmentProfile",
     "AgentKind",
     "AgentSkillProvider",
     "AgentSkillTarget",
+    "CapturedExternalSkillPackage",
     "CodexSkillProvider",
     "CodexSkillRoot",
     "ExternalSkillInstallationScope",

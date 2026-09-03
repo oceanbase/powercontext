@@ -5,9 +5,13 @@ description: Install PowerContext from Git and run the local Server.
 
 # Install and run
 
+If you are new to PowerContext, follow the [Agent step-by-step quickstart](../tutorials/agent-quickstart.md) to choose
+a host and complete Memory plus its supported Handoff path from zero. This guide focuses on installation roles,
+Server startup, seekDB, diagnostics, and updates for readers who already know which operation they need.
+
 ## Install the application
 
-You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS or Linux. Then install
+You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install
 PowerContext directly from a Git ref:
 
 ```bash

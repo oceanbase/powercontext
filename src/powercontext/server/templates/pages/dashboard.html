@@ -16,54 +16,53 @@
 
 {% extends "base.html" %}
 
-{% block title %}PowerContext Dashboard{% endblock %}
+{% block title %}PowerContext Overview{% endblock %}
 
 {% block content %}
 {% include "components/login.html" %}
 
 {% set status_title_key = "dashboardTitle" %}
-{% set status_title = "Dashboard" %}
+{% set status_title = "Overview" %}
 {% include "components/status.html" %}
 
 <section class="server-content" id="dashboard">
   <div class="hero">
     <div>
-      <p class="page-kind" data-i18n="dashboardTitle">Dashboard</p>
+      <p class="page-kind" data-i18n="dashboardTitle">Overview</p>
       <h1 id="dashboard-name"></h1>
     </div>
     <div>
       <div class="scope-picker">
-        <label for="scope-select" data-i18n="selectScope">Scope</label>
+        <label for="scope-select" data-i18n="selectScope">View</label>
         <select id="scope-select"></select>
       </div>
       <div class="hero-meta">
-        <span class="period-note" data-i18n="period30">Last 30 days</span>
-        <span aria-hidden="true"> · </span><span id="as-of"></span>
+        <span id="as-of"></span>
       </div>
     </div>
   </div>
 
-  <section class="overview" aria-label="Scope overview" data-i18n-aria-label="scopeOverview">
+  <section class="overview" aria-label="Overview for the selected work" data-i18n-aria-label="scopeOverview">
     <div class="key-metric">
-      <div class="metric-label" data-i18n="estimatedReduction">Estimated token reduction</div>
+      <div class="metric-label" data-i18n="estimatedReduction">Compared with using the original materials directly</div>
       <div class="metric-value" id="token-reduction">0</div>
       <div class="metric-note" id="recall-hits"></div>
     </div>
     <dl class="inventory">
       <div>
-        <dt data-i18n="sources">Sources</dt>
+        <dt data-i18n="sources">Work materials</dt>
         <dd id="sources">0</dd>
       </div>
       <div>
-        <dt data-i18n="memoryEntries">Memory entries</dt>
+        <dt data-i18n="memoryEntries">Memory</dt>
         <dd id="memory-entries">0</dd>
       </div>
       <div>
-        <dt data-i18n="artifacts">Artifacts</dt>
+        <dt data-i18n="artifacts">Saved content</dt>
         <dd id="artifacts">0</dd>
       </div>
       <div>
-        <dt data-i18n="pendingReview">Pending review</dt>
+        <dt data-i18n="pendingReview">Awaiting review</dt>
         <dd id="pending-reviews">0</dd>
       </div>
     </dl>
@@ -72,16 +71,15 @@
   <section class="data-section" aria-labelledby="families-title">
     <div class="section-heading">
       <div>
-        <h2 id="families-title" data-i18n="artifactFamilies">Artifact families</h2>
-        <p data-i18n="artifactSubtitle">Current Artifacts and pending Candidates</p>
+        <h2 id="families-title" data-i18n="artifactFamilies">By type</h2>
       </div>
     </div>
     <table class="family-table">
       <thead>
         <tr>
-          <th scope="col" data-i18n="family">Family</th>
-          <th scope="col" data-i18n="currentArtifacts">Current Artifacts</th>
-          <th scope="col" data-i18n="pendingCandidates">Pending Candidates</th>
+          <th scope="col" data-i18n="family">Type</th>
+          <th scope="col" data-i18n="currentArtifacts">Saved</th>
+          <th scope="col" data-i18n="pendingCandidates">Awaiting review</th>
         </tr>
       </thead>
       <tbody id="family-rows"></tbody>
@@ -94,5 +92,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=default-startup-locale-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/dashboard.js') }}?v=product-language-v4"></script>
 {% endblock %}

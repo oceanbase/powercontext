@@ -81,6 +81,7 @@ The browser authenticates against `/dashboard/scopes`, then requests `/v1/stats`
 | Memory entries | Entries in the current Memory Artifact |
 | Artifacts | Current Artifact heads grouped by family |
 | Pending review | Current Candidate heads grouped by family and status |
+| Skill origin | Immutable lineage for managed Skills; registration for external Skills |
 | Model usage | Persisted daily generation and embedding usage |
 | Recall hits, token reduction, and savings trend | Persisted daily recall measurements for the configured estimator |
 
@@ -89,6 +90,13 @@ daily buckets, and token reduction on the Server. The browser presents `ready_pr
 signed daily `token_reduction` as the savings trend. Each heatmap cell combines those two fields for its date. Its fixed
 bands are no hit, hit without a positive reduction, 1–255, 256–1023, and 1024 or more estimated tokens reduced. The
 fixed thresholds keep sparse activity and outliers from changing the meaning of every other cell.
+
+The Skills page makes the origin of every item visible with the same compact badge treatment as lifecycle state. An
+ordinary managed Skill is labeled Generated, an exact import is labeled Imported, a fork is labeled Forked, and an
+Agent-native package that has not entered Review is labeled Local. Import, fork, and Agent-native
+details also show the registration's source machine, Agent, external Skill ID, installation scope, and original location.
+Later managed Revisions trace through upstream Skill lineage to the first external snapshot, so a revision does not lose
+the takeover machine.
 
 ## Share only stable page structure
 

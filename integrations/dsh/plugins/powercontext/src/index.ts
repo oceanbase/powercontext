@@ -18,6 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { combineSignals, PowerContextClient } from './client.ts'
 import { registerCommands } from './commands.ts'
 import { resolveConfig, type PluginConfig } from './config.ts'
+import { createDiagnosticEmitter } from './diagnostics.ts'
 import { PLUGIN_NAME } from './errors.ts'
 import type { PluginRuntime } from './invoke.ts'
 import { loadPeer } from './peers.ts'
@@ -62,6 +63,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
     authorization: resolved.authorization,
     requestTimeoutMs: resolved.requestTimeoutMs,
   })
+  const emitDiagnostic = createDiagnosticEmitter((line) => ctx.logger.warn(line))
   return {
     client,
     config: resolved,
@@ -70,7 +72,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
       const line = JSON.stringify({ component: 'powercontext.dsh', ...event })
       const quiet = event.outcome === 'ready' || event.outcome === 'ok' || event.outcome === 'empty'
       if (quiet) ctx.logger.debug?.(line)
-      else ctx.logger.warn(line)
+      else emitDiagnostic({ component: 'powercontext.dsh', ...event })
     },
   }
 }

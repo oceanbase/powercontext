@@ -26,6 +26,7 @@ import {
   truncateUtf8,
 } from "./content.js";
 import type { PowerContextClient } from "./http.js";
+import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
 
 type LifecycleDependencies = {
@@ -37,6 +38,18 @@ type LifecycleDependencies = {
 const MAX_SESSION_SCOPES = 32;
 
 export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: LifecycleDependencies) {
+  const emitDiagnostic = createDiagnosticEmitter((line) => api.logger.warn(line));
+  const reportFailure = (event: string, error: unknown, extra: Record<string, unknown> = {}) => {
+    const failure = failureEvent(event, error);
+    if (!failure) {
+      return;
+    }
+    emitDiagnostic({
+      component: "powercontext.openclaw",
+      ...failure,
+      ...extra,
+    });
+  };
   const sessionScopes = new Map<string, Set<string>>();
   const readAgentId = (agentId: string | undefined): string | undefined => {
     const value = agentId?.trim();
@@ -174,7 +187,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         ].join("\n"),
       };
     } catch (error) {
-      api.logger.warn(`memory-powercontext: context preparation failed: ${String(error)}`);
+      reportFailure("context_prepare", error);
       return undefined;
     }
   });
@@ -194,7 +207,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         messages: event.messages,
       });
     } catch (error) {
-      api.logger.warn(`memory-powercontext: source capture failed: ${String(error)}`);
+      reportFailure("capture_source", error);
     }
   });
 
@@ -203,8 +216,8 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     if (!agentId || !deps.isPrivateSession(agentId, ctx.sessionKey)) {
       return;
     }
-    try {
-      if (event.messages?.length) {
+    if (event.messages?.length) {
+      try {
         await capture({
           agentId,
           sessionId: ctx.sessionId,
@@ -213,7 +226,11 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
           channel: ctx.channel ?? ctx.messageProvider,
           messages: event.messages,
         });
+      } catch (error) {
+        reportFailure("capture_source", error);
       }
+    }
+    try {
       if (await canExtractMemory()) {
         await flush(resolveScope({
           agentId,
@@ -222,7 +239,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         }));
       }
     } catch (error) {
-      api.logger.warn(`memory-powercontext: pre-compaction flush failed: ${String(error)}`);
+      reportFailure("pre_compaction_flush", error);
     }
   });
 
@@ -257,12 +274,13 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         }
       }
       if (failures.length) {
-        api.logger.warn(
-          `memory-powercontext: session-end flush failed for ${failures.length}/${scopes.length} scope(s): ${String(failures[0])}`,
-        );
+        reportFailure("session_end_flush", failures[0], {
+          failed_scopes: failures.length,
+          total_scopes: scopes.length,
+        });
       }
     } catch (error) {
-      api.logger.warn(`memory-powercontext: session-end flush failed: ${String(error)}`);
+      reportFailure("session_end_flush", error);
     }
   });
 }
