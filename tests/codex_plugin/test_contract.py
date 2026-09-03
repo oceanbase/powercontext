@@ -169,6 +169,32 @@ def test_customer_artifact_workflow_does_not_parse_plugin_root_as_an_actions_exp
     assert "${{PLUGIN_ROOT}}" not in workflow
 
 
+def test_project_context_skill_requires_explicit_memory_routing_and_failure_reporting() -> None:
+    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
+
+    for required in (
+        "## Explicit Memory Requests",
+        "The examples below are illustrative, not an exhaustive keyword allowlist.",
+        "remember I prefer uv for Python",
+        "记住我偏好使用 uv",
+        "search my memories",
+        "搜索我的记忆",
+        "call `remember_memory`",
+        "call `search_memory`",
+        'mode: "auto"',
+        "eight results",
+        "Report that Memory was saved only after the tool",
+        "Do not claim that Memory was saved or searched",
+        "the Memory was not saved or searched",
+        "A prompt Source captured by the Hook is not a Memory",
+        "Do not call `select_handoff_workstream` for this flow",
+        "Draft a preference entry, but do not save it",
+    ):
+        assert required in content
+
+    assert "From now on, use\npytest" in content
+
+
 def test_powercontext_plugin_advertises_the_one_turn_handoff() -> None:
     manifest = json.loads((PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text())
     prompts = manifest["interface"]["defaultPrompt"]
