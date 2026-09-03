@@ -183,12 +183,14 @@ so the previous database remains available for recovery:
    PowerContext configuration before importing. Remove a name only when the source export does not contain that table.
    Because `pc_scopes.parent_scope_id` is self-referential, keep ancestor Scope rows before their descendants in the
    exported `pc_scopes` data.
+   If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
+   `pc_skill_publications`), remove the absent tables from Layer 1.
 
    Layer 1 contains parents and tables without foreign keys:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_model_usage_daily,pc_recall_token_daily' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
      -f <export-directory>
    ```
 

@@ -52,6 +52,12 @@ class _FailingExperienceIndex:
     async def search(self, _connection, _scope_id, _query, _limit, /):
         return ()
 
+    async def replace_skill(self, _connection, _scope_id, _skill, _package, /) -> None:
+        pass
+
+    async def search_skills(self, _connection, _scope_id, _query, _limit, /):
+        return ()
+
 
 def test_publication_copies_one_exact_revision_with_original_provenance(tmp_path) -> None:
     async def scenario() -> None:

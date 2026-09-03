@@ -54,6 +54,7 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
@@ -64,7 +65,6 @@ from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsCon
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.readiness import (
-    READINESS_PROBE_TIMEOUT_SECONDS,
     CachedReadinessProbe,
     ReadinessProbe,
     ReadinessProbeDefinition,
@@ -291,9 +291,20 @@ async def open_builtin_runtime(
                 review_service=contexts.review,
                 generation_service=contexts.generation,
                 experience_recall=contexts.search_experience,
+                skill_recall=contexts.search_skills,
+                skill_lister=contexts.list_skills,
+                skill_origin_reader=contexts.get_skill_origins,
+                skill_governance_reader=contexts.get_skill_governance,
+                skill_governance_updater=contexts.update_skill_lifecycle,
+                skill_package_resolver=contexts.skill_package,
+                package_snapshot_resolver=contexts.package_snapshot,
+                skill_package_uploader=contexts.upload_skill_package,
+                skill_usage_recorder=contexts.record_skill_usage,
                 experience_incubator=contexts.incubate_experience if contexts.experience_incubation else None,
                 external_skill_registry=contexts.external_skills if contexts.external_skill_registry else None,
                 external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
+                skill_publication_service=contexts.skill_publications,
+                remote_skill_distribution=contexts.remote_skill_distribution(),
                 statistics_service=contexts.statistics,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 publication_application=contexts.publications,
@@ -354,6 +365,7 @@ async def open_builtin_contexts(
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
+                await ensure_skill_distribution_schema(connection)
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
             contexts = RelationalContexts(
@@ -389,6 +401,7 @@ async def open_builtin_contexts(
         raise BuiltinConfigurationError("database")
     async with profile_context as profile:
         async with profile.database.transaction() as connection:
+            await ensure_skill_distribution_schema(connection)
             await index.initialize(connection)
             await experience_index.initialize(connection)
         contexts = RelationalContexts(
@@ -489,7 +502,7 @@ async def _generation_pipelines(
             resources=resources,
             instrumentation=instrumentation,
         )
-        generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings))
+        generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
         generation_limits = InferenceLimits(
             timeout_seconds=settings.generation_timeout_seconds,
             max_requests=settings.generation_max_requests,
@@ -555,11 +568,13 @@ async def _generation_pipelines(
             # Readiness probing runs outside any operation span; keep it out of traces.
             await probe_pydantic_ai_model(
                 generation_provider_model,
-                timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS,
+                timeout_seconds=settings.generation_timeout_seconds,
                 model_settings=generation_request_settings,
             )
 
-        generation_readiness = CachedReadinessProbe(dependency_readiness_probe(probe_generation))
+        generation_readiness = CachedReadinessProbe(
+            dependency_readiness_probe(probe_generation, timeout_seconds=settings.generation_timeout_seconds)
+        )
 
     if runtime.memory_rerank_enabled:
         rerank_provider_model = generation_provider_model
@@ -612,13 +627,19 @@ async def _generation_pipelines(
             if separate_rerank_model or settings.rerank_model_settings:
 
                 async def probe_rerank() -> None:
+                    timeout_seconds = settings.rerank_timeout_seconds or settings.generation_timeout_seconds
                     await probe_pydantic_ai_model(
                         rerank_provider_model,
-                        timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS,
+                        timeout_seconds=timeout_seconds,
                         model_settings=rerank_request_settings,
                     )
 
-                rerank_readiness = CachedReadinessProbe(dependency_readiness_probe(probe_rerank))
+                rerank_readiness = CachedReadinessProbe(
+                    dependency_readiness_probe(
+                        probe_rerank,
+                        timeout_seconds=settings.rerank_timeout_seconds or settings.generation_timeout_seconds,
+                    )
+                )
 
     return (
         generated_memory,

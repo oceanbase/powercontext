@@ -20,8 +20,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import insert, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
@@ -86,17 +87,14 @@ class SourceCursorRepository:
             if existing is not None:
                 raise GenerationConflictError(binding_name, None, existing.generation)
             generation = 1
-            try:
-                async with connection.begin_nested():
-                    await connection.execute(
-                        insert(SOURCE_CURSORS_TABLE).values(
-                            scope_id=scope_id,
-                            binding_name=binding_name,
-                            cursor=payload,
-                            generation=generation,
-                        )
-                    )
-            except IntegrityError:
+            created = await _insert_if_absent(
+                connection,
+                scope_id=scope_id,
+                binding_name=binding_name,
+                cursor=payload,
+                generation=generation,
+            )
+            if not created:
                 # Another runtime may have inserted the same cursor after our
                 # initial read. Normalize that database race to the same CAS
                 # conflict used for concurrent updates.
@@ -107,7 +105,7 @@ class SourceCursorRepository:
                     for_update=True,
                 )
                 if existing is None:
-                    raise
+                    raise GenerationConflictError(binding_name, None, None)
                 raise GenerationConflictError(binding_name, None, existing.generation) from None
         else:
             generation = expected_generation + 1
@@ -133,6 +131,34 @@ class SourceCursorRepository:
             cursor=cursor,
             generation=generation,
         )
+
+
+async def _insert_if_absent(
+    connection: AsyncConnection,
+    *,
+    scope_id: str,
+    binding_name: str,
+    cursor: bytes,
+    generation: int,
+) -> bool:
+    values = {
+        "scope_id": scope_id,
+        "binding_name": binding_name,
+        "cursor": cursor,
+        "generation": generation,
+    }
+    if connection.dialect.name == "sqlite":
+        statement = sqlite_insert(SOURCE_CURSORS_TABLE).values(**values).on_conflict_do_nothing()
+    elif connection.dialect.name == "mysql":
+        # OceanBase MySQL mode accepts SAVEPOINT but does not retain it for
+        # RELEASE/ROLLBACK. INSERT IGNORE keeps first creation atomic without
+        # relying on a nested transaction; all values are validated first, so
+        # the only ignored error is the table's cursor identity conflict.
+        statement = mysql_insert(SOURCE_CURSORS_TABLE).values(**values).prefix_with("IGNORE")
+    else:
+        raise InvalidRepositoryArgumentError("dialect", f"{connection.dialect.name!r} does not support source cursors")
+    result = await connection.execute(statement)
+    return result.rowcount == 1
 
 
 def _decode_row(row: Mapping[Any, Any]) -> StoredSourceCursor:

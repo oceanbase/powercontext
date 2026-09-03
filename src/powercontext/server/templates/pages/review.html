@@ -121,6 +121,18 @@
           <dl id="review-proposal-fields"></dl>
         </section>
 
+        <section class="review-package" id="review-package" aria-labelledby="review-package-title" hidden>
+          <h3 id="review-package-title" data-i18n="packageContents">Package contents</h3>
+          <p id="review-package-status" role="status" aria-live="polite"></p>
+          <div class="review-package-browser">
+            <ul id="review-package-files" aria-label="Package files" data-i18n-aria-label="packageFiles"></ul>
+            <div>
+              <code id="review-package-path"></code>
+              <pre id="review-package-preview"></pre>
+            </div>
+          </div>
+        </section>
+
         <section class="review-evidence" aria-labelledby="review-evidence-title">
           <h3 id="review-evidence-title" data-i18n="evidence">Evidence</h3>
           <div class="review-evidence-groups">
@@ -243,5 +255,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/review.js') }}?v=agent-targets-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/review.js') }}?v=standard-packages-v1"></script>
 {% endblock %}

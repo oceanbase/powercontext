@@ -21,7 +21,7 @@ license = "Apache-2.0"
 requires-python = ">=3.12,<4.0"
 dependencies = [
     "opendalfs>=0.1,<0.2",
-    "powercontext[client]>=0.0.3,<1",
+    "powercontext[client]>=0.0.3.dev0,<1",
 ]
 
 [project.scripts]

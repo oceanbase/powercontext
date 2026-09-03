@@ -176,12 +176,14 @@ collation，但不会包含数据库 URL 或凭据。
    如果目标表缺失，请停止恢复，并先使用当前 PowerContext 配置创建该表。只有源导出不包含某张表时，才能从命令中
    删除它。由于 `pc_scopes.parent_scope_id` 自引用 `pc_scopes`，导出的 `pc_scopes` 数据必须让祖先 Scope 记录排在
    后代记录之前。
+   源数据库早于三张 Skill 生命周期表（`pc_skill_packages`、`pc_agent_skill_targets` 和
+   `pc_skill_publications`）时，应从第 1 层删除缺失的表。
 
    第 1 层包含父表和无外键的表：
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_model_usage_daily,pc_recall_token_daily' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
      -f <export-directory>
    ```
 

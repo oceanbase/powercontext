@@ -103,12 +103,14 @@ _SCOPE_TABLES = (
     "pc_memory_vector_entries",
     "pc_memory_entry_heads",
     "pc_memory_entry_versions",
+    "pc_skill_publications",
     "pc_artifact_candidate_heads",
     "pc_artifact_candidate_versions",
     "pc_artifact_heads",
     "pc_artifact_lineage_artifacts",
     "pc_artifact_lineage_sources",
     "pc_artifacts",
+    "pc_skill_packages",
     "pc_source_cursors",
     "pc_external_skill_registrations",
     "pc_sources",
@@ -394,6 +396,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
                     server_url=server.base_url,
                     timeout=arguments.codex_timeout,
                     generation_timeout=configured_settings.inference.generation_timeout_seconds,
+                    api_token=_server_api_token(configured_server_settings),
                 )
             )
             server.stop()
@@ -409,6 +412,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: C901 - one exceptio
                     state=journey,
                     server_url=server.base_url,
                     generation_timeout=configured_settings.inference.generation_timeout_seconds,
+                    api_token=_server_api_token(configured_server_settings),
                 )
             )
     finally:
@@ -624,21 +628,18 @@ async def _run_journey(
         with recorder.scenario(
             "exact managed Skill projects into an isolated Codex repository",
             "projection/SKILL.md",
-            "projection/powercontext.json",
+            "projection/files.json",
         ):
             projection = repositories["consumer"] / ".agents" / "skills" / skill_v1.content.name
             _project_via_cli(
                 server_url=server_url,
+                api_token=None,
                 scope_id=scope_id,
                 skill=skill_v1,
                 destination=projection,
                 recorder=recorder,
             )
-            recorder.write_text("projection/SKILL.md", (projection / "SKILL.md").read_text(encoding="utf-8"))
-            recorder.write_text(
-                "projection/powercontext.json",
-                (projection / "powercontext.json").read_text(encoding="utf-8"),
-            )
+            _record_standard_projection(recorder, projection)
 
         with recorder.scenario(
             "next real Codex task explicitly uses the projected managed Skill",
@@ -755,6 +756,7 @@ async def _run_configured_journey(
     server_url: str,
     timeout: int,  # noqa: ASYNC109 - external Codex process budget, not an asyncio timeout scope
     generation_timeout: float,
+    api_token: str | None,
 ) -> ConfiguredJourneyState:
     memory_scope = scopes.memory
     artifact_scope = scopes.artifacts
@@ -767,7 +769,7 @@ async def _run_configured_journey(
         generation_timeout + CONFIGURED_EXPERIENCE_SCHEDULE_SECONDS + 30.0,
     )
 
-    async with PowerContextClient(server_url, timeout=max(30.0, generation_wait)) as client:
+    async with PowerContextClient(server_url, token=api_token, timeout=max(30.0, generation_wait)) as client:
         with recorder.scenario(
             "configured embedding model and database support vector and hybrid Memory retrieval",
             "api/capabilities.json",
@@ -1083,21 +1085,18 @@ async def _run_configured_journey(
         with recorder.scenario(
             "exact managed Skill projects into an isolated Codex repository",
             "projection/SKILL.md",
-            "projection/powercontext.json",
+            "projection/files.json",
         ):
             projection = repositories["consumer"] / ".agents" / "skills" / skill_v1.content.name
             _project_via_cli(
                 server_url=server_url,
+                api_token=api_token,
                 scope_id=artifact_scope,
                 skill=skill_v1,
                 destination=projection,
                 recorder=recorder,
             )
-            recorder.write_text("projection/SKILL.md", (projection / "SKILL.md").read_text(encoding="utf-8"))
-            recorder.write_text(
-                "projection/powercontext.json",
-                (projection / "powercontext.json").read_text(encoding="utf-8"),
-            )
+            _record_standard_projection(recorder, projection)
 
         with recorder.scenario(
             "a second real Codex task explicitly reuses the projected managed Skill",
@@ -1551,13 +1550,14 @@ async def _verify_configured_restart(
     state: ConfiguredJourneyState,
     server_url: str,
     generation_timeout: float,
+    api_token: str | None,
 ) -> None:
     with recorder.scenario(
         "configured state remains exact and searchable after a clean Server restart",
         "api/restart-persistence.json",
     ):
         timeout = max(30.0, generation_timeout + 30.0)
-        async with PowerContextClient(server_url, timeout=timeout) as client:
+        async with PowerContextClient(server_url, token=api_token, timeout=timeout) as client:
             persisted_experience_values: list[ExperienceArtifact] = []
             for expected in state.experience_revisions:
                 persisted_experience_values.append(
@@ -1783,12 +1783,16 @@ async def _replace_skill(client, scope_id, current, source):
 def _project_via_cli(
     *,
     server_url: str,
+    api_token: str | None,
     scope_id: str,
     skill: SkillArtifact,
     destination: Path,
     recorder: Recorder,
 ) -> None:
     uv = _required_executable("uv")
+    environment = dict(os.environ)
+    if api_token is not None:
+        environment["POWERCONTEXT_CLIENT_API_TOKEN"] = api_token
     completed = _run(
         [
             uv,
@@ -1809,8 +1813,17 @@ def _project_via_cli(
             skill.artifact.artifact_id,
         ],
         cwd=PROJECT_ROOT,
+        env=environment,
     )
     recorder.write_text("projection/cli.stdout", completed.stdout)
+
+
+def _record_standard_projection(recorder: Recorder, projection: Path) -> None:
+    files = sorted(path.relative_to(projection).as_posix() for path in projection.rglob("*") if path.is_file())
+    _require("SKILL.md" in files, "projected managed Skill omitted the standard entrypoint")
+    _require("powercontext.json" not in files, "projected standard Skill package contains a private ownership sidecar")
+    recorder.write_text("projection/SKILL.md", (projection / "SKILL.md").read_text(encoding="utf-8"))
+    recorder.write_json("projection/files.json", {"files": files})
 
 
 def _run_codex(
@@ -2033,6 +2046,14 @@ def _without_scheduled_processing(settings: ServerSettings) -> ServerSettings:
         }
     )
     return settings.model_copy(update={"runtime": runtime})
+
+
+def _server_api_token(settings: ServerSettings) -> str | None:
+    if not settings.auth.enabled:
+        return None
+    if settings.auth.token is None:
+        _fail("configured authenticated Server has no bearer token")
+    return settings.auth.token.get_secret_value()
 
 
 def _remove_existing_harness_outputs(output_root: Path) -> int:

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import stat
 from pathlib import Path
 
 import pytest
@@ -131,7 +132,13 @@ class _SkillGenerator:
 def test_explicit_external_skill_import_captures_exact_snapshot_and_enters_review(tmp_path: Path) -> None:
     async def exercise() -> None:
         root = tmp_path / ".agents" / "skills"
-        _write_skill(root)
+        package = _write_skill(root)
+        (package / "scripts").mkdir()
+        script = package / "scripts" / "check.py"
+        script.write_text("print('exact external snapshot')\n", encoding="utf-8")
+        script.chmod(0o755)
+        (package / "references").mkdir()
+        (package / "references" / "guide.md").write_text("# Exact guide\n", encoding="utf-8")
         config = BuiltinConfig(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'powercontext.db'}"),
             external_skills=ExternalSkillsConfig(
@@ -158,14 +165,25 @@ def test_explicit_external_skill_import_captures_exact_snapshot_and_enters_revie
             assert result.candidate.family == "skill"
             assert result.candidate.sources[0].source_type == "external-skill-snapshot"
             assert result.candidate.artifacts == ()
-            assert registration.fingerprint in generator.inputs[0].evidence[0].content
-            assert "Keep boundaries explicit." in generator.inputs[0].evidence[0].content
+            assert isinstance(result.candidate.proposal, SkillContent)
+            assert result.candidate.proposal.name == "friendly-python"
+            assert result.candidate.proposal.instructions == "Keep boundaries explicit."
+            assert result.candidate.proposal.package is not None
+            snapshot = await runtime.skill.for_scope(scope_id).package_snapshot(result.candidate.proposal.package)
+            assert [entry.path for entry in snapshot.entries] == [
+                "SKILL.md",
+                "references/guide.md",
+                "scripts/check.py",
+            ]
+            assert snapshot.archive_bytes
+            assert next(entry for entry in snapshot.entries if entry.path == "scripts/check.py").mode == 0o755
+            assert stat.S_IXUSR & script.stat().st_mode
             assert (await scoped.list(ListExternalSkillsRequest()))[0].registration == registration
 
     asyncio.run(exercise())
 
 
-def test_external_skill_import_requires_generation_model_before_snapshot(tmp_path: Path) -> None:
+def test_external_skill_fork_requires_generation_model_before_snapshot(tmp_path: Path) -> None:
     async def exercise() -> None:
         root = tmp_path / ".agents" / "skills"
         _write_skill(root)

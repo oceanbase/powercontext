@@ -20,10 +20,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
-from powercontext.cli.system import setup_app
-from scripts.integration_manifest import (
+from integration_manifest import (
     DOCUMENTATION_PATHS,
     MANIFEST_PATH,
     IntegrationAvailability,
@@ -34,6 +31,9 @@ from scripts.integration_manifest import (
     render_integration_capability_reference,
     tool_surface_errors,
 )
+from pydantic import ValidationError
+
+from powercontext.cli.system import setup_app
 
 
 def test_manifest_matches_setup_catalog_evidence_and_actual_tool_surfaces() -> None:

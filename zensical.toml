@@ -99,6 +99,7 @@ nav = [
                 { "0002 Core SDK Product Model" = "en/rfcs/0002_core_sdk_product_model.md" },
                 { "0001 Product Definition and Vision" = "en/rfcs/0001_product_definition_and_vision.md" },
                 { "1304 Experience and Skill Review Page" = "en/rfcs/1304_experience_skill_review_page.md" },
+                { "1351 Standard Skill Package Lifecycle" = "en/rfcs/1351_standard_skill_package_lifecycle.md" },
                 { "RFC Template" = "en/rfcs/0000_example.md" },
             ] },
             { "Meetings" = [
@@ -197,6 +198,7 @@ nav = [
                 { "0002 Core SDK 产品模型" = "zh/rfcs/0002_core_sdk_product_model.md" },
                 { "0001 产品定义与构想" = "zh/rfcs/0001_product_definition_and_vision.md" },
                 { "1304 Experience 与 Skill Review 页面" = "zh/rfcs/1304_experience_skill_review_page.md" },
+                { "1351 标准 Skill 包生命周期" = "zh/rfcs/1351_standard_skill_package_lifecycle.md" },
                 { "RFC 模板" = "zh/rfcs/0000_example.md" },
             ] },
             { "会议纪要" = [
