@@ -94,7 +94,7 @@ docker run --rm \
 ```
 
 此后客户端需要发送 `Authorization: Bearer <token>`。liveness 和 readiness endpoint 保持公开，便于编排系统探测；
-API、MCP、metrics、OpenAPI 和交互式 API 文档都需要鉴权。
+API、MCP、metrics 和 `/openapi.json` 需要鉴权。`/docs` 页面外壳保持公开，但在交互式参考页中发起的请求仍需鉴权。
 Server 的网页外壳和静态资源仍保持公开，以便显示登录表单；未提供 token 时不会返回受保护数据。打开 Dashboard、
 Skills、Review 或 Handoff Report 页面后，在表单中输入同一个 token。浏览器会把它保存在当前标签页的 session storage
 中，而不是加入 URL。

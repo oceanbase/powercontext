@@ -24,7 +24,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | Python Client SDK | Typed asynchronous calls to a running Server | [Install the client role](../how-to/install-and-run.md#install-a-python-role) |
 | Core SDK | In-process Source, Artifact, Trigger, and composition contracts | [Python API reference](/en/modules/) |
 | HTTP | Service integration from any language | [HTTP API](http-api.md) |
-| MCP | Agent tools for Memory and work continuity | Enabled by the Server at `/mcp` |
+| MCP | Curated Agent tools for Source capture, Memory, work continuity, reports, and Candidate Review | Enabled by the Server at `/mcp` |
 
 ## Codex plugin
 
@@ -34,7 +34,11 @@ perform explicit operations. The plugin never starts or embeds the Server.
 
 ## Work continuity
 
-The Server exposes one high-level loop across HTTP, the Python Client, and MCP:
+HTTP, the Python Client, and MCP expose Work Contract creation, Handoff preparation and continuation, acknowledgement,
+and Task Outcome recording. A Prepared Handoff is temporary; `commit_handoff` creates a durable Revision. An
+acknowledgement can select a prepared or exact Handoff, but `handoff_receipt_ref` accepts only an accepted exact Receipt
+for a committed Revision. Claims and checks can be `declared` or `verified` with exact same-scope citations. These
+records never grant identity, tool, or execution authority.
 
 ```text
 create_work_contract
@@ -72,6 +76,7 @@ Handoff Report is a read-only projection over a Scope selection. `all` includes 
 listed Scope IDs, and `subtree` includes an organization root and all descendants. Each included Scope contributes its
 latest exact Handoff address or an explicit `no_handoff` result; Parent does not imply Context visibility. Codex fixes
 ordinary Agent report reads to the current Session Scope. Broader selections belong to host and Dashboard views.
+See [Use Handoff Report](../how-to/use-handoff-report.md) for the report UI.
 
 ## DeepSeek Harness plugin
 
@@ -176,42 +181,10 @@ automatically includes the target in Artifact evidence. Managed Skill revision a
 
 ## Python Client SDK
 
-Use the Client SDK when the Server owns persistence:
-
-```python
-import asyncio
-
-from powercontext.http import PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
-from powercontext.client import PowerContextClient
-
-
-async def main() -> None:
-    async with PowerContextClient("http://127.0.0.1:8000") as client:
-        await client.remember_memory(
-            RememberMemoryRequest(
-                scope_id="project:example",
-                kind="decision",
-                text="Keep the public API asynchronous.",
-            )
-        )
-        result = await client.search_memory(
-            SearchMemoryRequest(
-                scope_id="project:example",
-                query="public API",
-            )
-        )
-        print([hit.text for hit in result.hits])
-        prepared = await client.prepare_context(
-            PrepareContextRequest(scope_id="project:example", query="public API")
-        )
-        print(prepared.content)
-
-
-asyncio.run(main())
-```
-
-Mutation responses include an exact citation. Pass that citation back when revising, retiring, or reading an immutable
-entry version.
+`PowerContextClient` is the typed asynchronous HTTP client for a Server-owned deployment. Its request and response
+models are exported from `powercontext.http`. Mutation responses include exact citations, which callers pass when a
+later request revises, retires, or reads an immutable entry version. See the
+[HTTP API lifecycle tutorial](../tutorials/api-quickstart.md) for a runnable client flow.
 
 The Client also exposes `generate_experience`, `propose_experience`, `get_experience`, `generate_skill`,
 `propose_skill`, `get_skill`, `scan_external_skills`, `list_external_skills`, `resolve_external_skill`,
@@ -306,9 +279,9 @@ See [HTTP API](http-api.md) for authentication, curl examples, operation groups,
 contract. The Server publishes a Scalar API reference at `/docs`, its OpenAPI document at `/openapi.json`, readiness at
 `/health/ready`, capabilities at `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. The Scalar reference
 remains public when bearer authentication is enabled, but the operations it describes retain their normal authentication
-requirements. HTTP is the complete application contract. MCP is a curated agent-facing projection of Memory and
-Candidate Review operations. The five Candidate Review operations use the same validation, `expected_version`
-concurrency checks, and approval transaction over HTTP and MCP.
+requirements. HTTP is the complete application contract. MCP is a curated Agent-facing projection of Source capture,
+Memory maintenance, work continuity, scope Handoff Report lookup, and Candidate Review. The five Candidate Review
+operations use the same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
 Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
 fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependency checks use `ready`, `unavailable`,
 `timeout`, or `misconfigured`; an intentionally unbound Runtime reports `not_ready` for the `runtime` check.

@@ -4,7 +4,7 @@ title: 选择 Agent 或 API
 description: 为现有 AI 应用接入 HTTP Memory API，或为选定 Agent 配置集成并验证 Memory 与 Handoff。
 page_type: docs-overview
 overview:
-  intro: 第一次使用时，先选择自己的入口。已有 AI 应用可以直接使用 HTTP API；使用 Codex、Claude Code、OpenCode 等 Host 时，从 Agent 分步入门开始。
+  intro: 选择教程学习一条完整路径，选择操作指南完成具体任务，选择原理说明理解系统行为，或选择参考页查询当前契约和设置。
   sections:
     - title: 从这里开始
       description: 先通过 API 或 Agent 跑通一次。其余说明帮助你在所用 Agent 中继续工作。
@@ -65,6 +65,15 @@ overview:
         - title: 配置
           description: 设置存储、provider、接口和运行行为。
           href: zh/docs/reference/configuration/
+        - title: 配置 Server 环境
+          description: 生成一份显式环境文件，完成校验，并用相同设置启动 Server。
+          href: zh/docs/how-to/configure-server-environment/
+        - title: 配置向量检索
+          description: 设置 embedding profile，并确认 vector 和 hybrid search 是否可用。
+          href: zh/docs/how-to/configure-vector-search/
+        - title: 配置 Agent Skill target
+          description: 注册本地 Codex 或 Claude Code Skill 目录，用于发现和 managed publication。
+          href: zh/docs/how-to/configure-agent-skill-targets/
         - title: 部署 Server
           description: 使用持久化数据、健康检查、鉴权和安全网络边界运行 Server。
           href: zh/docs/how-to/deploy-server/
