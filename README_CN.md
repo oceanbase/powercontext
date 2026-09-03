@@ -10,19 +10,21 @@
 
 工作很少会由开始它的人或 Agent 独自完成。你把任务交给 Agent，Agent 推进一部分，之后可能由你或其他人接手。推理过程和当前状态却常常留在那段对话里。
 
-PowerContext 让上下文始终跟随你的工作。它保存发生了什么、为什么这样判断、现在进展到哪里，以及下一步是什么。工作交接时，你或下一个 Agent 可以理解现状并继续推进。
+PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，可以看到已经发生了什么，并从当前进展继续。新的 Agent 也能从同一处接手。
 
 ![你和 Agent 交接工作，并基于已存储的上下文继续推进](docs/assets/readme-workflow.svg)
 
 [官方网站](https://powercontext.oceanbase.io/zh/) · [阅读文档](https://powercontext.oceanbase.io/zh/docs/)
 
-## 随工作流转的上下文
+## 从当前进展继续
 
-上下文不会随某次对话或某个 Agent 消失。它始终限定在对应工作范围内，并与来源保持关联。条目可以随着工作变化而修订或停用，同时保留历史。PowerContext 通过 Memory、Experience、Skills 和 Handoffs 维护这些上下文。
+你接手时，会先看到当前工作需要的上下文：已经确认的决定、约束、进展、证据和下一步。你可以从这里继续，也可以把工作交给其他人或 Agent，不需要重新翻阅全部记录。
+
+你决定哪些信息以后仍然有用，哪些内容需要随任务交给下一位接手者。PowerContext 把长期信息保存为 Memory，把当前目标和状态组织成 Handoff。你可以把能够复用的做法记录为 Experience 或 Skill。PowerContext 将每项内容限定在对应的工作范围内，并保留它的来源和历史版本。
 
 ## 与你使用的 Agent 一起工作
 
-安装[正式发布的版本](https://pypi.org/project/powercontext/)：
+安装 [PowerContext](https://pypi.org/project/powercontext/)：
 
 ```bash
 uv tool install "powercontext[cli,server]==0.1.0"

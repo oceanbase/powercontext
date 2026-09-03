@@ -10,19 +10,21 @@ Context for work that humans and agents hand off and continue.
 
 Work rarely ends with whoever starts it. You hand a task to an agent, the agent gets part of the way, and later you or someone else takes over. The reasoning and current state often stay behind in that conversation.
 
-PowerContext keeps that context with your work. It stores what happened, why decisions were made, where things stand, and what comes next. When the work changes hands, you or the next agent can understand it and continue.
+PowerContext keeps context with the work across conversations. When you return, you can see what happened and continue from the current state. A new agent can do the same.
 
 ![You and agents hand work off and continue with stored context](docs/assets/readme-workflow.svg)
 
 [Website](https://powercontext.oceanbase.io/en/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
 
-## What moves with the work
+## Pick up where the work left off
 
-Context remains available beyond any one conversation or agent. It stays scoped to the work and connected to its sources. Entries can be revised or retired without erasing their history. PowerContext maintains this context as Memory, Experience, Skills, and Handoffs.
+You see the context the work needs now: confirmed decisions, constraints, progress, evidence, and next steps. You can continue from there or hand the work to another person or agent without rereading the full history.
+
+You decide what will matter later and what needs to move with the task. PowerContext stores durable information as Memory and organizes the current objective and state into a Handoff. You can record reusable approaches as Experience or Skill. PowerContext keeps every item within the scope of the work and preserves its sources and earlier revisions.
 
 ## Works with your agents
 
-Install the [released package](https://pypi.org/project/powercontext/):
+Install [PowerContext](https://pypi.org/project/powercontext/):
 
 ```bash
 uv tool install "powercontext[cli,server]==0.1.0"

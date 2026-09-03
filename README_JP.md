@@ -10,19 +10,21 @@
 
 作業を始めた人や Agent が、そのまま最後まで終えるとは限りません。あなたが Agent にタスクを渡し、Agent が途中まで進めた後、あなたや別の誰かが引き継ぐことがあります。そのとき、判断の理由や現在の状態は、その会話に置き去りになりがちです。
 
-PowerContext は、そのコンテキストをあなたの作業とともに保持します。何が起きたか、なぜその判断をしたか、現在どこまで進んでいるか、次に何をするかを保存します。作業が引き継がれるとき、あなたや次の Agent は状況を理解し、そのまま続きを進められます。
+PowerContext は、会話をまたいでもコンテキストを作業とともに保持します。あなたが戻ったときは、これまでの経緯を確認して現在の状態から続けられます。新しい Agent も同じところから引き継げます。
 
 ![あなたと Agent が作業を引き継ぎ、保存されたコンテキストから継続する流れ](docs/assets/readme-workflow.svg)
 
 [公式サイト](https://powercontext.oceanbase.io/en/) · [ドキュメントを読む](https://powercontext.oceanbase.io/en/docs/)
 
-## 作業とともに引き継がれるもの
+## 作業の続きをそのまま引き継ぐ
 
-コンテキストは、1 回の会話や 1 つの Agent を越えて残ります。対象となる作業の範囲と情報源とのつながりを保ち、作業の変化に合わせて内容を改訂または廃止しても履歴は失われません。PowerContext は、このコンテキストを Memory、Experience、Skills、Handoffs として管理します。
+作業を引き継ぐと、確認済みの判断、制約、進捗、根拠、次の手順など、その時点で必要なコンテキストを確認できます。履歴をすべて読み返さずに、そのまま続けることも、別の人や Agent に渡すこともできます。
+
+後から何を残すか、次の担当者に何を渡すかは、あなたが決めます。PowerContext は長く使う情報を Memory として保存し、現在の目標と状態を Handoff にまとめます。再利用できる手順は、Experience または Skill として残せます。PowerContext は各項目を対象となる作業の範囲内に保ち、元の情報源と過去の版を残します。
 
 ## 利用中の Agent と接続する
 
-[正式リリース版](https://pypi.org/project/powercontext/)をインストールします：
+[PowerContext](https://pypi.org/project/powercontext/) をインストールします：
 
 ```bash
 uv tool install "powercontext[cli,server]==0.1.0"
