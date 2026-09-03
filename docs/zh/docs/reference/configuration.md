@@ -5,24 +5,14 @@ description: PowerContext 路径、Server、Client、推理和 Agent 集成环�
 
 # 配置
 
-PowerContext 进程启动时从环境变量读取配置。CLI 不会自动搜索 `.env` 文件；请在 shell 中导出变量、由服务管理器
-或容器提供，或者向支持 `--env-file` 的命令显式传入文件。Agent 宿主可能会按照自身规则加载自己的环境文件。
+PowerContext 进程启动时从环境变量读取配置。CLI 不会自动搜索 `.env` 文件。接受 `--env-file` 的命令会从该文件加载环境变量（包括
+Server 与 provider 设置），并覆盖进程中的同名值。Agent 宿主可按自身规则加载环境文件。
 
-## 显式环境文件
+生成、脱敏查看、校验和启动配置文件的完整流程见[配置 Server 环境](../how-to/configure-server-environment.md)。所有环境
+文件都应视为包含机密的部署产物。
 
-通过引导生成配置，在不显示凭据的情况下检查内容，并在启动前完成校验：
-
-```bash
-powercontext config init --output .env
-powercontext config show --env-file .env
-powercontext config validate --env-file .env
-powercontext server run --env-file .env
-```
-
-`config init` 会以 `0600` 权限写入文件。`server run` 收到 `--env-file` 后，文件中的赋值会覆盖进程中的同名值；
-文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略，因此校验和启动使用同一份 Server 配置。
-`config show` 会隐藏已识别及生成器记录的凭据，但仍应把原文件当作可能含有秘密的部署文件保护。完整的引导与验证流程见
-[完整功能 Quick Start](../how-to/full-capability-runtime.md)。
+`service install` 还要求该文件是当前用户拥有的普通非符号链接文件，且 group 和 other 均无访问权限。服务会记录文件
+身份；文件被替换或其 owner、权限、内容发生变化后会拒绝启动。确认修改是预期行为后，请重新执行 `service install`。
 
 ## 用户数据
 
@@ -200,15 +190,7 @@ fork/evolution。External Skill 精确导入和完整 package 上传不使用模
 bytes，再创建 package digest 完全相同的 pending Candidate。未配置模型时，语义生成会在持久化 Candidate 前返回
 capability error；Review、package 检查与下载、精确导入、usage recording 和 external Skill scan/list/resolve 仍可使用。
 
-Experience 孵化使用独立的 APScheduler job 和持久化 Source cursor，可通过以下配置启用：
-
-```bash
-export POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=30
-export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
-powercontext server run
-```
-
-每次 activation 固定检查最多 32 条 Source，并且只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
+Experience 孵化使用独立的 APScheduler job 和持久化 Source cursor。每次 activation 固定检查最多 32 条 Source，并且只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
 暴露给模型。该 job 会在 Review Inbox 中创建 pending Experience Candidate；它不会自动批准、进入
 PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行任何内容。Memory 和 Experience job 共用
 `POWERCONTEXT_HOME` 下的 APScheduler sidecar，但拥有独立的 job identity 和业务 cursor；取消其中一个 interval
@@ -218,7 +200,8 @@ PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行�
 ### Agent Skill 目标
 
 零配置流程使用上述 workspace 中的 Codex 和 Claude Code 项目级目录。只有需要自定义路径、用户级 target、环境兼容性
-事实或显式关闭本机发现时，才需要通过一个 JSON 值覆盖默认的 host-local target：
+事实或显式关闭本机发现时，才需要通过一个 JSON 值覆盖默认的 host-local target。基础 JSON 结构和验证流程见
+[配置 Agent Skill target](../how-to/configure-agent-skill-targets.md)。包含兼容性信息的覆盖示例如下：
 
 ```bash
 export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
@@ -250,7 +233,6 @@ export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
   ]
 }'
 ```
-
 显式设置 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 会完整替换自动生成的两个项目级 target；设置为
 `{"host_id": null, "targets": []}` 可以关闭本机发现和发布。每个 target ID 必须唯一；`agent_kind` 支持 `codex` 和
 `claude_code`，installation scope 支持 `user`、`project` 和 `plugin`。PowerContext 只扫描默认或显式 target 的直接
@@ -287,46 +269,12 @@ export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
 URL 必须使用 `mysql+aoceanbase` driver，包含明确的端口和数据库，并设置 `charset=utf8mb4`。对应
 tenant 必须使用 MySQL 兼容模式。
 
-### Embedding
+### Embedding 与 SQLite 向量检索
 
-只有同时设置以下三个标识字段，才会启用 embedding 检索：
-
-```bash
-export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
-export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=embedding-model-v1
-export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
-```
-
-请把示例值替换为所选 provider model、稳定的 profile ID，以及该模型的 dimension。
-
-可选设置包括 `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_NORMALIZATION` 和
-`POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS`。
-
-Embedding normalization 默认为 `unit`。
-
-### SQLite 向量检索
-
-SQLite vector 和 hybrid search 使用 [sqlite-vec](https://alexgarcia.xyz/sqlite-vec/)，它已包含在
-`powercontext[builtin]` 依赖中。只需配置完整的 embedding profile，无需配置 extension 路径：
-
-```bash
-export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
-export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=embedding-model-v1
-export POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1024
-export POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:////srv/powercontext/powercontext.db
-powercontext server run
-```
-
-Server 打开数据库时，PowerContext 会加载并探测捆绑的 extension；如果当前 platform 或 SQLite build 与 package
-中的 library 不兼容，启动会失败。
-
-在另一个终端确认初始化后的 Runtime 已报告 vector 和 hybrid search：
-
-```bash
-powercontext capabilities
-```
-
-没有配置 embedding model 时，SQLite full-text search 仍然可用。
+Vector search 需要全部三个 embedding identity 变量：model、稳定 profile ID 和正数 dimension。normalization 默认
+为 `unit`；timeout 和 batch size 是可选控制项。SQLite vector 和 hybrid search 使用内置 sqlite-vec extension。Server
+打开数据库时会探测它，已安装的 library 与 platform 或 SQLite build 不兼容时启动会失败。没有 embedding profile 时，
+full-text search 仍可用。配置和 capability 验证步骤见[配置向量检索](../how-to/configure-vector-search.md)。
 
 ## CLI Server 连接
 

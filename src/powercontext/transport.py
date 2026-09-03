@@ -60,8 +60,24 @@ def is_plaintext_non_loopback(url: str) -> bool:
     return parsed.scheme == "http" and not is_loopback_host(parsed.hostname)
 
 
+def canonical_loopback_endpoint(url: str) -> str | None:
+    """Return a comparison key for a loopback HTTP(S) service endpoint."""
+
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or not is_loopback_host(parsed.hostname):
+        return None
+    try:
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except ValueError:
+        return None
+    path = parsed.path.rstrip("/")
+    return f"{scheme}://loopback:{port}{path}"
+
+
 __all__ = [
     "LOOPBACK_HOSTS",
+    "canonical_loopback_endpoint",
     "is_loopback_host",
     "is_plaintext_non_loopback",
 ]

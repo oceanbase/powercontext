@@ -14,18 +14,16 @@ error-semantics reference.
 
 ## Discover the contract
 
-With a local unauthenticated Server running, open:
-
-- `/docs` for interactive Swagger UI;
-- `/redoc` for ReDoc;
-- `/openapi.json` for the contract served by that process.
+With a local unauthenticated Server running, open `/docs` for the interactive Scalar API reference or
+`/openapi.json` for the contract served by that process.
 
 The checked-in source of truth is
 [`openapi/powercontext.yaml`](https://github.com/oceanbase/powercontext/blob/master/openapi/powercontext.yaml).
-Use it when generating a client or reviewing every request and response field. When Server authentication is enabled,
-the three discovery routes require the same bearer token as other protected routes. A browser address bar cannot add
-that header: use a trusted proxy or browser setup that injects it, or download `/openapi.json` with an authenticated
-command after setting the variables below. Never put the token in the URL.
+Use it when generating a client or reviewing every request and response field. `/docs` remains public when Server
+authentication is enabled so it can render the reference; requests made from it still require authentication.
+`/openapi.json` requires the bearer token. A browser address bar cannot add that header, so use a trusted proxy or
+browser setup that injects it, or download `/openapi.json` with an authenticated command. Never put the token in the
+URL.
 
 ## Authenticate requests
 
