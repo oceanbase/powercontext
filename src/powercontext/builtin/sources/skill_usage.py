@@ -21,7 +21,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.sources import Source, SourceMaterialization, SourceRef
+from powercontext.sources import AdapterSourceDefinition, Source, SourceMaterialization, SourceRef
 
 SKILL_USAGE_SOURCE_NAME = "skill-usage"
 
@@ -120,9 +120,11 @@ class SkillUsageSourceAdapter:
 
 
 SKILL_USAGE_SOURCE_ADAPTER = SkillUsageSourceAdapter()
+SKILL_USAGE_SOURCE_DEFINITION = AdapterSourceDefinition(SKILL_USAGE_SOURCE_ADAPTER)
 
 __all__ = [
     "SKILL_USAGE_SOURCE_ADAPTER",
+    "SKILL_USAGE_SOURCE_DEFINITION",
     "SKILL_USAGE_SOURCE_NAME",
     "ObservedInvocation",
     "ObservedOutcome",

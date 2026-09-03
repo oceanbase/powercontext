@@ -35,8 +35,10 @@ from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
+    ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateHandoffReportProjectRequest,
     CreateRemoteSkillTargetRequest,
@@ -54,6 +56,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
@@ -111,6 +114,7 @@ from powercontext.http import (
     RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterHandoffReportWorkstreamRequest,
+    RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     RemoteSkillPublication,
@@ -133,7 +137,10 @@ from powercontext.http import (
     SkillGovernance,
     SkillPackageDownload,
     SkillPackageManifest,
+    SourceDefinitionManifest,
+    SourceObservationReceipt,
     StoredHandoffReportActivity,
+    SubmitSourceObservationRequest,
     UnpublishRemoteSkillRequest,
     UpdateHandoffReportProjectRequest,
     UpdateHandoffReportWorkstreamRequest,
@@ -148,6 +155,7 @@ from powercontext.http._generated.operations import (
     APPROVE_ARTIFACT_CANDIDATE,
     ATTACH_HANDOFF_REPORT_WORKSPACE,
     CAPTURE_CONTENT_SOURCE,
+    COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_HANDOFF_REPORT_PROJECT,
@@ -163,6 +171,7 @@ from powercontext.http._generated.operations import (
     GENERATE_SKILL,
     GET_ARTIFACT_CANDIDATE,
     GET_CAPABILITIES,
+    GET_CONNECTOR_CHECKPOINT,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
     GET_HANDOFF_REPORT_PROJECT,
@@ -198,6 +207,7 @@ from powercontext.http._generated.operations import (
     RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REGISTER_HANDOFF_REPORT_WORKSTREAM,
+    REGISTER_SOURCE_DEFINITION,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
@@ -208,6 +218,7 @@ from powercontext.http._generated.operations import (
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SUBMIT_SOURCE_OBSERVATION,
     UNPUBLISH_REMOTE_SKILL,
     UPDATE_HANDOFF_REPORT_PROJECT,
     UPDATE_HANDOFF_REPORT_WORKSTREAM,
@@ -467,6 +478,29 @@ class PowerContextClient:
         """Capture raw content as durable Source evidence."""
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
+
+    async def register_source_definition(self, request: RegisterSourceDefinitionRequest) -> SourceDefinitionManifest:
+        """Register one immutable worker-owned Source Definition manifest."""
+
+        return await self._request(REGISTER_SOURCE_DEFINITION, request)
+
+    async def get_connector_checkpoint(self, request: GetConnectorCheckpointRequest) -> ConnectorCheckpointState:
+        """Read the current opaque checkpoint for one Connector binding."""
+
+        return await self._request(GET_CONNECTOR_CHECKPOINT, request)
+
+    async def submit_source_observation(self, request: SubmitSourceObservationRequest) -> SourceObservationReceipt:
+        """Submit one worker-materialized Source observation."""
+
+        return await self._request(SUBMIT_SOURCE_OBSERVATION, request)
+
+    async def commit_connector_checkpoint(
+        self,
+        request: CommitConnectorCheckpointRequest,
+    ) -> ConnectorCheckpointState:
+        """Commit a binding checkpoint using optimistic comparison."""
+
+        return await self._request(COMMIT_CONNECTOR_CHECKPOINT, request)
 
     async def create_work_contract(self, request: CreateWorkContractRequest) -> WorkSourceReceipt:
         """Create one grounded delegation baseline as durable Source evidence."""

@@ -20,6 +20,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
 
+from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, AdapterSourceDefinition, TextEvidence
 from powercontext.sources.models import Source, SourceMaterialization
 
 CONTENT_SOURCE_NAME = "content"
@@ -71,4 +72,25 @@ class ContentSourceAdapter:
         )
 
 
+class ContentTextEvidenceProjection:
+    """Expose captured text without coupling consumers to ``ContentSource``."""
+
+    name = TEXT_EVIDENCE_PROJECTION_KEY.name
+    version = TEXT_EVIDENCE_PROJECTION_KEY.version
+    source_class = ContentSource
+    output_class: type[BaseModel] = TextEvidence
+
+    def project(self, source: ContentSource, /) -> TextEvidence:
+        return TextEvidence(
+            source_type=CONTENT_SOURCE_NAME,
+            source_id=source.name,
+            content=source.content,
+            metadata=source.metadata,
+        )
+
+
 CONTENT_SOURCE_ADAPTER = ContentSourceAdapter()
+CONTENT_SOURCE_DEFINITION = AdapterSourceDefinition(
+    CONTENT_SOURCE_ADAPTER,
+    projections=(ContentTextEvidenceProjection(),),
+)

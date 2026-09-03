@@ -40,6 +40,7 @@ classifiers = [
 builtin = [
     "aiosqlite>=0.22,<1",
     "apscheduler>=3.11,<4",
+    "jsonschema>=4.23,<5",
     "packaging>=24,<27",
     "pydantic-ai-slim[anthropic,openai]>=2.27.1,<3",
     "pydantic-settings>=2.7,<3",
@@ -151,6 +152,7 @@ exclude = [
     "integrations/bub",
     "integrations/pydantic-ai",
     "integrations/langgraph",
+    "integrations/opendal",
     "tests/langgraph_adapter",
     "tests/e2e/test_langgraph_chain.py",
     "evaluation",

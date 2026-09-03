@@ -16,6 +16,7 @@
 
 from powercontext.client.client import PowerContextClient
 from powercontext.client.errors import ClientError, InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.ingestion import RemoteConnectorWorker
 from powercontext.client.skill_receiver import (
     RECEIVER_VERSION,
     ReceiverSyncResult,
@@ -33,6 +34,7 @@ __all__ = [
     "InvalidResponseError",
     "PowerContextClient",
     "ReceiverSyncResult",
+    "RemoteConnectorWorker",
     "RemoteSkillReceiver",
     "RemoteSkillReceiverConfig",
     "ServerResponseError",

@@ -16,13 +16,16 @@
 
 from powercontext.builtin.sources.content import (
     CONTENT_SOURCE_ADAPTER,
+    CONTENT_SOURCE_DEFINITION,
     CONTENT_SOURCE_NAME,
     ContentCapture,
     ContentSource,
     ContentSourceAdapter,
+    ContentTextEvidenceProjection,
 )
 from powercontext.builtin.sources.external_skill import (
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
+    EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME,
     ExternalSkillImportMode,
     ExternalSkillSnapshotCapture,
@@ -37,6 +40,7 @@ from powercontext.builtin.sources.journal import (
 )
 from powercontext.builtin.sources.skill_package import (
     SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER,
+    SKILL_PACKAGE_UPLOAD_SOURCE_DEFINITION,
     SKILL_PACKAGE_UPLOAD_SOURCE_NAME,
     SkillPackageUploadCapture,
     SkillPackageUploadSource,
@@ -44,6 +48,7 @@ from powercontext.builtin.sources.skill_package import (
 )
 from powercontext.builtin.sources.skill_usage import (
     SKILL_USAGE_SOURCE_ADAPTER,
+    SKILL_USAGE_SOURCE_DEFINITION,
     SKILL_USAGE_SOURCE_NAME,
     ObservedInvocation,
     ObservedOutcome,
@@ -52,19 +57,34 @@ from powercontext.builtin.sources.skill_usage import (
     SkillUsageSource,
     SkillUsageSourceAdapter,
 )
+from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, SourceDefinitionRegistry, TextEvidence
+
+BUILTIN_SOURCE_REGISTRY = SourceDefinitionRegistry((
+    CONTENT_SOURCE_DEFINITION,
+    EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION,
+    SKILL_PACKAGE_UPLOAD_SOURCE_DEFINITION,
+    SKILL_USAGE_SOURCE_DEFINITION,
+))
 
 __all__ = [
+    "BUILTIN_SOURCE_REGISTRY",
     "CONTENT_SOURCE_ADAPTER",
+    "CONTENT_SOURCE_DEFINITION",
     "CONTENT_SOURCE_NAME",
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER",
+    "EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION",
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME",
     "SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER",
+    "SKILL_PACKAGE_UPLOAD_SOURCE_DEFINITION",
     "SKILL_PACKAGE_UPLOAD_SOURCE_NAME",
     "SKILL_USAGE_SOURCE_ADAPTER",
+    "SKILL_USAGE_SOURCE_DEFINITION",
     "SKILL_USAGE_SOURCE_NAME",
+    "TEXT_EVIDENCE_PROJECTION_KEY",
     "ContentCapture",
     "ContentSource",
     "ContentSourceAdapter",
+    "ContentTextEvidenceProjection",
     "ExternalSkillImportMode",
     "ExternalSkillSnapshotCapture",
     "ExternalSkillSnapshotSource",
@@ -81,5 +101,6 @@ __all__ = [
     "SourceCursor",
     "SourceJournal",
     "SourceJournalEntry",
+    "TextEvidence",
     "validate_scope_id",
 ]

@@ -111,6 +111,107 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/source-definitions/register:
+    post:
+      tags: [source-ingestion]
+      summary: Register a worker-owned Source Definition manifest
+      description: Registers an immutable declarative manifest without loading worker plugin code.
+      operationId: register_source_definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterSourceDefinitionRequest"
+      responses:
+        "200":
+          description: The exact manifest is registered or was already registered identically.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceDefinitionManifest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/connector-checkpoints/get:
+    post:
+      tags: [source-ingestion]
+      summary: Read a Connector binding checkpoint
+      operationId: get_connector_checkpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetConnectorCheckpointRequest"
+      responses:
+        "200":
+          description: The current opaque checkpoint, including a normal null initial value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorCheckpointState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/source-observations:
+    post:
+      tags: [source-ingestion]
+      summary: Submit a worker-materialized Source observation
+      description: Validates the observation against its registered manifest and durably appends it before receipt.
+      operationId: submit_source_observation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitSourceObservationRequest"
+      responses:
+        "202":
+          description: The observation is durably accepted and can be referenced exactly.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceObservationReceipt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/connector-checkpoints/commit:
+    post:
+      tags: [source-ingestion]
+      summary: Commit a Connector binding checkpoint
+      description: Replaces the checkpoint only when its expected starting value still matches.
+      operationId: commit_connector_checkpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitConnectorCheckpointRequest"
+      responses:
+        "200":
+          description: The new opaque checkpoint is durable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorCheckpointState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
   /v1/context/prepare:
     post:
       tags: [context]
@@ -3138,6 +3239,181 @@ components:
         position:
           type: integer
           minimum: 1
+    SourceProjectionKey:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+    SourceProjectionManifest:
+      type: object
+      additionalProperties: false
+      required: [key, schema]
+      properties:
+        key:
+          $ref: "#/components/schemas/SourceProjectionKey"
+        schema:
+          type: object
+          additionalProperties: true
+    SourceDefinitionManifest:
+      type: object
+      additionalProperties: false
+      required: [name, version, fingerprint, source_schema, projections]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        version:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        fingerprint:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        source_schema:
+          type: object
+          additionalProperties: true
+        projections:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/SourceProjectionManifest"
+    RegisterSourceDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [manifest]
+      properties:
+        manifest:
+          $ref: "#/components/schemas/SourceDefinitionManifest"
+    ConnectorBinding:
+      type: object
+      additionalProperties: false
+      required: [scope_id, binding_id, connector_name, connector_version]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        binding_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        connector_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        connector_version:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+    GetConnectorCheckpointRequest:
+      type: object
+      additionalProperties: false
+      required: [binding]
+      properties:
+        binding:
+          $ref: "#/components/schemas/ConnectorBinding"
+    ConnectorCheckpointState:
+      type: object
+      additionalProperties: false
+      required: [binding, checkpoint]
+      properties:
+        binding:
+          $ref: "#/components/schemas/ConnectorBinding"
+        checkpoint:
+          nullable: true
+    SourceProjectionValue:
+      type: object
+      additionalProperties: false
+      required: [key, value]
+      properties:
+        key:
+          $ref: "#/components/schemas/SourceProjectionKey"
+        value: {}
+    SourceObservation:
+      type: object
+      additionalProperties: false
+      required:
+        [name, definition_version, materialization, source_type, definition_fingerprint, payload, projections]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        definition_version:
+          type: string
+          minLength: 1
+          maxLength: 128
+        materialization:
+          type: string
+          enum: [captured]
+        description:
+          type: string
+          nullable: true
+        source_type:
+          type: string
+          minLength: 1
+          maxLength: 128
+        definition_fingerprint:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+        payload:
+          type: object
+          additionalProperties: true
+        projections:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/SourceProjectionValue"
+    SubmitSourceObservationRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, observation]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        observation:
+          $ref: "#/components/schemas/SourceObservation"
+    SourceObservationReceipt:
+      type: object
+      additionalProperties: false
+      required: [source, position]
+      properties:
+        source:
+          $ref: "#/components/schemas/SourceReference"
+        position:
+          type: integer
+          minimum: 1
+    CommitConnectorCheckpointRequest:
+      type: object
+      additionalProperties: false
+      required: [binding, expected, checkpoint]
+      properties:
+        binding:
+          $ref: "#/components/schemas/ConnectorBinding"
+        expected:
+          nullable: true
+        checkpoint:
+          nullable: true
     CommitHandoffRequest:
       type: object
       additionalProperties: false

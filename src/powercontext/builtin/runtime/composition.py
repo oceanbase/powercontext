@@ -73,8 +73,9 @@ from powercontext.builtin.runtime.readiness import (
     dependency_readiness_probe,
 )
 from powercontext.builtin.runtime.relational import RelationalContexts
-from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentSource
-from powercontext.sources import Source
+from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, TEXT_EVIDENCE_PROJECTION_KEY
+from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
+from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -102,30 +103,30 @@ class BuiltinConfigurationError(RuntimeError):
         super().__init__(messages[issue])
 
 
-class _ContentEvidenceProjector(DefaultMemoryEvidenceProjector):
+class _DefinitionEvidenceProjector(DefaultMemoryEvidenceProjector):
+    def __init__(self, definitions: SourceDefinitionRegistry, projection: SourceProjectionKey) -> None:
+        self._definitions = definitions
+        self._projection = projection
+
     @override
     def project_source(self, source: Source, /) -> JsonValue:
-        if isinstance(source, ContentSource):
-            return {
-                "source_type": CONTENT_SOURCE_NAME,
-                "source_id": source.name,
-                "content": source.content,
-                "metadata": source.model_dump(mode="json")["metadata"],
-            }
-        return super().project_source(source)
+        try:
+            return self._definitions.project(source, self._projection)
+        except (InvalidSourceProjectionError, SourceProjectionNotFoundError):
+            return super().project_source(source)
 
 
-class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
+class _DefinitionHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
+    def __init__(self, definitions: SourceDefinitionRegistry, projection: SourceProjectionKey) -> None:
+        self._definitions = definitions
+        self._projection = projection
+
     @override
     def project_source(self, source: Source, /) -> JsonValue:
-        if isinstance(source, ContentSource):
-            return {
-                "source_type": CONTENT_SOURCE_NAME,
-                "source_id": source.name,
-                "content": source.content,
-                "metadata": source.model_dump(mode="json")["metadata"],
-            }
-        return super().project_source(source)
+        try:
+            return self._definitions.project(source, self._projection)
+        except (InvalidSourceProjectionError, SourceProjectionNotFoundError):
+            return super().project_source(source)
 
 
 class _TracingMemoryReranker:
@@ -176,10 +177,12 @@ async def open_builtin_runtime(
     instrumentation: InstrumentationSettings | None = None,
     scope_cache_observer: ScopeCacheObserver | None = None,
     tracing: RuntimeTracing | None = None,
+    source_registry: SourceDefinitionRegistry | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
     async with AsyncExitStack() as resources:
+        configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         (
             generated_memory,
             generated_incubation,
@@ -190,7 +193,13 @@ async def open_builtin_runtime(
             generation_readiness,
             rerank_readiness,
         ) = (
-            await _generation_pipelines(config.inference, config.runtime, resources, instrumentation)
+            await _generation_pipelines(
+                config.inference,
+                config.runtime,
+                resources,
+                instrumentation,
+                configured_source_registry,
+            )
             if (
                 candidate_pipeline is None
                 or experience_pipeline is None
@@ -244,6 +253,7 @@ async def open_builtin_runtime(
                 embedding_model=configured_embedding,
                 token_estimator=token_estimator,
                 memory_reranker=configured_reranker,
+                source_registry=configured_source_registry,
             )
         )
         readiness_probes: dict[str, ReadinessProbeDefinition] = {
@@ -300,6 +310,7 @@ async def open_builtin_runtime(
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 readiness=RuntimeReadinessChecks(readiness_probes),
                 tracing=tracing,
+                remote_ingestion=contexts,
             )
         )
         if config.handoff_report.enabled:
@@ -337,6 +348,7 @@ async def open_builtin_contexts(
     embedding_model: EmbeddingModel | None = None,
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
+    source_registry: SourceDefinitionRegistry | None = None,
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
@@ -372,6 +384,7 @@ async def open_builtin_contexts(
                 token_estimator=configured_token_estimator,
                 memory_reranker=memory_reranker,
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+                source_registry=source_registry,
             )
         return
     experience_index = OceanBaseExperienceFTSIndex()
@@ -405,6 +418,7 @@ async def open_builtin_contexts(
             token_estimator=configured_token_estimator,
             memory_reranker=memory_reranker,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+            source_registry=source_registry,
         )
 
 
@@ -413,6 +427,7 @@ async def _generation_pipelines(
     runtime: RuntimeConfig,
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
+    source_registry: SourceDefinitionRegistry,
 ) -> tuple[
     CandidatePipeline | None,
     ExperienceCandidatePipeline | None,
@@ -537,14 +552,14 @@ async def _generation_pipelines(
         )
         generated_memory = LLMMemoryCandidatePipeline(
             UsageReportingStructuredGenerator(memory_generator),
-            evidence_projector=_ContentEvidenceProjector(),
+            evidence_projector=_DefinitionEvidenceProjector(source_registry, TEXT_EVIDENCE_PROJECTION_KEY),
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))
         generated_skill = LLMSkillGenerator(UsageReportingStructuredGenerator(skill_generator))
         generated_handoff = LLMHandoffGenerationPipeline(
             UsageReportingStructuredGenerator(handoff_generator),
-            evidence_projector=_ContentHandoffEvidenceProjector(),
+            evidence_projector=_DefinitionHandoffEvidenceProjector(source_registry, TEXT_EVIDENCE_PROJECTION_KEY),
         )
 
         async def probe_generation() -> None:

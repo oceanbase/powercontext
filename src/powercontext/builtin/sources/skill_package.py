@@ -19,7 +19,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from powercontext.builtin.artifacts.skill.models import SkillPackageRef
-from powercontext.sources import Source, SourceMaterialization
+from powercontext.sources import AdapterSourceDefinition, Source, SourceMaterialization
 
 SKILL_PACKAGE_UPLOAD_SOURCE_NAME = "skill-package-upload"
 
@@ -66,9 +66,11 @@ class SkillPackageUploadSourceAdapter:
 
 
 SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER = SkillPackageUploadSourceAdapter()
+SKILL_PACKAGE_UPLOAD_SOURCE_DEFINITION = AdapterSourceDefinition(SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER)
 
 __all__ = [
     "SKILL_PACKAGE_UPLOAD_SOURCE_ADAPTER",
+    "SKILL_PACKAGE_UPLOAD_SOURCE_DEFINITION",
     "SKILL_PACKAGE_UPLOAD_SOURCE_NAME",
     "SkillPackageUploadCapture",
     "SkillPackageUploadSource",

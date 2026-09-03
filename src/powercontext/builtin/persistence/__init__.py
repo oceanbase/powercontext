@@ -20,6 +20,7 @@ from powercontext.builtin.persistence.agent_skill_targets import (
     RemoteAgentSkillTargetState,
 )
 from powercontext.builtin.persistence.candidates import CandidateRepository
+from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
     DatabaseClosedError,
@@ -40,6 +41,7 @@ from powercontext.builtin.persistence.skill_publications import (
     SkillPublicationDesiredState,
     SkillPublicationRepository,
 )
+from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
     StoredInventoryCounts,
@@ -50,6 +52,7 @@ from powercontext.builtin.persistence.statistics import (
 __all__ = (
     "AsyncDatabase",
     "CandidateRepository",
+    "ConnectorCheckpointRepository",
     "DatabaseClosedError",
     "ExternalSkillRepository",
     "GenerationConflictError",
@@ -67,6 +70,7 @@ __all__ = (
     "SkillPublication",
     "SkillPublicationDesiredState",
     "SkillPublicationRepository",
+    "SourceDefinitionManifestRepository",
     "StatisticsRepository",
     "StoredInventoryCounts",
     "StoredModelUsage",

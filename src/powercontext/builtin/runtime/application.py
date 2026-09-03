@@ -109,6 +109,8 @@ from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
     CaptureSource,
+    CommitConnectorCheckpoint,
+    ConnectorCheckpointState,
     ExperienceCandidate,
     ExperienceIncubationResult,
     ExternalSkillList,
@@ -144,11 +146,13 @@ from powercontext.builtin.runtime.models import (
     SearchMemoryRequest,
     SkillCandidate,
     SourceReceipt,
+    SubmitSourceObservation,
 )
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedContextBuilder
 from powercontext.builtin.runtime.protocols import (
     BuiltinTriggers,
     PowerContextProvider,
+    RemoteIngestion,
     RuntimeSpan,
     RuntimeTracing,
     TraceAttribute,
@@ -197,7 +201,7 @@ from powercontext.builtin.work import (
 )
 from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
-from powercontext.sources import SourceRef
+from powercontext.sources import ConnectorBinding, SourceDefinitionManifest, SourceRef
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -251,6 +255,7 @@ class _RuntimeStateError(RuntimeError):
             "empty-write": "explicit Memory write did not produce a Memory",
             "experience-incubation": "Experience incubation is not configured",
             "external-skill-registry": "External Skill Registry is not configured",
+            "remote-ingestion": "Remote Source ingestion is not configured",
             "review": "Candidate Review services are not configured",
             "remote-skill-distribution": "Remote Skill distribution services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
@@ -291,6 +296,35 @@ class SourceApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedSourceApplication:
         return ScopedSourceApplication(self._runtime, scope_id)
+
+
+class RemoteIngestionApplication:
+    """Expose worker-owned Definition and observation operations."""
+
+    def __init__(self, runtime: BuiltinRuntime, service: RemoteIngestion | None) -> None:
+        self._runtime = runtime
+        self._service = service
+
+    def _require_service(self) -> RemoteIngestion:
+        if self._service is None:
+            raise _RuntimeStateError("remote-ingestion")
+        return self._service
+
+    async def register(self, manifest: SourceDefinitionManifest, /) -> SourceDefinitionManifest:
+        async with self._runtime._operation():
+            return await self._require_service().register_source_definition(manifest)
+
+    async def checkpoint(self, binding: ConnectorBinding, /) -> ConnectorCheckpointState:
+        async with self._runtime._operation():
+            return await self._require_service().connector_checkpoint(binding)
+
+    async def submit(self, request: SubmitSourceObservation, /) -> SourceReceipt:
+        async with self._runtime._operation():
+            return await self._require_service().submit_source_observation(request)
+
+    async def commit(self, request: CommitConnectorCheckpoint, /) -> ConnectorCheckpointState:
+        async with self._runtime._operation():
+            return await self._require_service().commit_connector_checkpoint(request)
 
 
 class ScopedStatisticsApplication:
@@ -1550,6 +1584,7 @@ class BuiltinRuntime:
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
         tracing: RuntimeTracing | None = None,
+        remote_ingestion: RemoteIngestion | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
@@ -1595,6 +1630,7 @@ class BuiltinRuntime:
         self._scheduler: AsyncIOScheduler | None = None
         self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
+        self.ingestion = RemoteIngestionApplication(self, remote_ingestion)
         self.context = ContextApplication(self)
         self.experience = ExperienceApplication(self)
         self.external_skills = ExternalSkillApplication(self)
