@@ -42,6 +42,27 @@ def _memory_content() -> dict[str, object]:
     }
 
 
+def _handoff_content(objective: str = "Transfer the API test result.") -> dict[str, object]:
+    return {
+        "schema": "powercontext.handoff.v1",
+        "objective": objective,
+        "state": [
+            {
+                "text": "The Source and Artifact API passed live HTTP tests.",
+                "citations": [
+                    {
+                        "kind": "source",
+                        "source_ref": {"source_type": "content", "source_id": "source-evidence"},
+                    }
+                ],
+            }
+        ],
+        "disposition": "complete",
+        "next_action": None,
+        "omissions": [],
+    }
+
+
 def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
     app = create_server_app(
         settings=ServerSettings(
@@ -143,5 +164,42 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 )
             assert stale.value.status_code == 412
             assert stale.value.code == "revision_conflict"
+
+    asyncio.run(scenario())
+
+
+def test_handoff_artifact_round_trip_accepts_json_arrays(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'handoff-base-access.db'}"),
+            auth=BearerAuthConfig(enabled=False),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    async def scenario() -> None:
+        scope_id = "git:github.com/oceanbase/powercontext"
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            created = await client.create_artifact(
+                scope_id,
+                CreateArtifactRequest(family=BaseArtifactFamily.HANDOFF, content=_handoff_content()),
+            )
+            loaded = await client.get_artifact(scope_id, "handoff", created.artifact_id)
+            assert loaded is not None
+            assert loaded.content == _handoff_content()
+
+            replaced = await client.replace_artifact(
+                scope_id,
+                "handoff",
+                created.artifact_id,
+                ReplaceArtifactRequest(content=_handoff_content("Transfer the verified API test result.")),
+                expected_etag='"revision:1"',
+            )
+            assert replaced.revision == 2
+            assert replaced.content == _handoff_content("Transfer the verified API test result.")
 
     asyncio.run(scenario())

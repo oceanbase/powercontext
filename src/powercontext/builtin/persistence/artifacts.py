@@ -30,7 +30,7 @@ from powercontext.artifacts import (
     ArtifactLineage,
     ArtifactRef,
 )
-from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
+from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes, validate_json_model
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
     InvalidRepositoryArgumentError,
@@ -474,9 +474,7 @@ class ArtifactRepository:
         if content_type is None:
             raise RepositoryNotFoundError("artifact-family", family)
         try:
-            # The REST body is already JSON typed; allow Pydantic to normalize
-            # JSON arrays into the tuple-backed immutable domain models.
-            validated = content_type.model_validate(content)
+            validated = validate_json_model(content_type, content)
         except ValidationError as error:
             raise InvalidRepositoryArgumentError("content", "does not match the Artifact family") from error
         return RepositoryArtifactDraft(

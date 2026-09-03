@@ -55,6 +55,27 @@ def _memory_content() -> dict[str, JsonValue]:
     }
 
 
+def _handoff_content(objective: str = "Transfer the API test result.") -> dict[str, JsonValue]:
+    return {
+        "schema": "powercontext.handoff.v1",
+        "objective": objective,
+        "state": [
+            {
+                "text": "The Source and Artifact API passed live HTTP tests.",
+                "citations": [
+                    {
+                        "kind": "source",
+                        "source_ref": {"source_type": "content", "source_id": "source-evidence"},
+                    }
+                ],
+            }
+        ],
+        "disposition": "complete",
+        "next_action": None,
+        "omissions": [],
+    }
+
+
 def _services(
     profile: SQLiteProfile,
     ids: Iterator[str],
@@ -169,6 +190,33 @@ def test_artifact_get_list_replace_use_family_models_and_opaque_etags() -> None:
                 await records.create_artifact("scope-a", "document", ArtifactWrite(content={}))
             with pytest.raises(InvalidBaseAccessRequestError):
                 await records.create_artifact("scope-a", "memory", ArtifactWrite(content={"invalid": True}))
+
+    asyncio.run(scenario())
+
+
+def test_artifact_create_and_replace_validate_handoff_as_json() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
+            records, _, _ = _services(profile, iter(("handoff-1", "src-1")))
+            created = await records.create_artifact(
+                "scope-a",
+                "handoff",
+                ArtifactWrite(content=_handoff_content()),
+            )
+
+            loaded = await records.get_artifact("scope-a", "handoff", created.artifact_id)
+            assert loaded.content == _handoff_content()
+
+            replacement = _handoff_content("Transfer the verified API test result.")
+            replaced = await records.replace_artifact(
+                "scope-a",
+                "handoff",
+                created.artifact_id,
+                '"revision:1"',
+                ArtifactWrite(content=replacement),
+            )
+            assert replaced.revision == 2
+            assert replaced.content == replacement
 
     asyncio.run(scenario())
 
