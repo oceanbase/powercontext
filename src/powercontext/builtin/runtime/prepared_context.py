@@ -139,23 +139,25 @@ class PreparedContextBuilder:
         if sum(len(candidates.hits) for candidates in experience_candidates) > self.experience_candidate_limit:
             raise PreparedContextInvariantError("experience-candidate-limit")
 
-        memory_entries = tuple(
-            entry
-            for candidates in memory_candidates
-            for entry in self._memory_entries(
-                candidates.memory_ref,
-                candidates.hits,
-                scope_id=None if candidates.scope_id == current_scope_id else candidates.scope_id or None,
+        memory_entries = _interleave_groups(
+            tuple(
+                self._memory_entries(
+                    candidates.memory_ref,
+                    candidates.hits,
+                    scope_id=None if candidates.scope_id == current_scope_id else candidates.scope_id or None,
+                )
+                for candidates in memory_candidates
             )
         )
-        experience_entries = tuple(
-            entry
-            for candidates in experience_candidates
-            for entry in self._experience_entries(
-                candidates.hits,
-                scope_id=None if candidates.scope_id == current_scope_id else candidates.scope_id or None,
+        experience_entries = _interleave_groups(
+            tuple(
+                self._experience_entries(
+                    candidates.hits,
+                    scope_id=None if candidates.scope_id == current_scope_id else candidates.scope_id or None,
+                )
+                for candidates in experience_candidates
             )
-        )
+        )[: self.experience_entry_limit]
         entries = self._fit_entries(request, memory_entries, experience_entries)
 
         if not entries:
@@ -190,8 +192,6 @@ class PreparedContextBuilder:
             seen.add(citation_key)
             if not hit.entry_id.strip() or not hit.entry_version_id.strip() or not hit.text.strip():
                 continue
-            if len(memory_entries) >= self.entry_limit:
-                break
             citation = MemoryCitation(
                 memory_ref=hit.memory_ref,
                 entry_id=hit.entry_id,
@@ -237,8 +237,6 @@ class PreparedContextBuilder:
             if identity in seen_experiences:
                 continue
             seen_experiences.add(identity)
-            if len(experience_entries) >= self.experience_entry_limit:
-                break
             origin: PreparedContextOrigin = hit.artifact_ref
             rendered_citation: dict[str, object] = {"artifact_ref": hit.artifact_ref.model_dump(mode="json")}
             if scope_id is not None:
@@ -336,6 +334,13 @@ def _interleave(
             ordered.append(memory[index])
         if index < len(experiences):
             ordered.append(experiences[index])
+    return tuple(ordered)
+
+
+def _interleave_groups(groups: Sequence[Sequence[_PreparedContextEntry]]) -> tuple[_PreparedContextEntry, ...]:
+    ordered: list[_PreparedContextEntry] = []
+    for index in range(max((len(group) for group in groups), default=0)):
+        ordered.extend(group[index] for group in groups if index < len(group))
     return tuple(ordered)
 
 

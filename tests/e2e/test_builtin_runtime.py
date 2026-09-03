@@ -240,6 +240,47 @@ def test_prepare_context_reads_only_direct_context_references() -> None:
     asyncio.run(scenario())
 
 
+def test_prepare_context_keeps_referenced_scope_eligible_when_local_recall_is_full() -> None:
+    async def scenario() -> None:
+        async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
+            assert runtime.scopes is not None
+            shared = await runtime.scopes.create(
+                ScopeDraft(title="Shared", summary="Reusable evidence", idempotency_key="shared-full-recall")
+            )
+            reader = await runtime.scopes.create(
+                ScopeDraft(
+                    title="Reader",
+                    summary="Reads shared evidence",
+                    context_references=(shared.scope_id,),
+                    idempotency_key="reader-full-recall",
+                )
+            )
+            await runtime.memory.for_scope(reader.scope_id).remember(
+                RememberMemoryRequest(
+                    entries=tuple(
+                        MemoryEntryInput(kind="fact", text=f"Candidate saturation local evidence {index}.")
+                        for index in range(16)
+                    )
+                )
+            )
+            await runtime.memory.for_scope(shared.scope_id).remember(
+                RememberMemoryRequest(
+                    entries=(MemoryEntryInput(kind="fact", text="Candidate saturation shared evidence."),)
+                )
+            )
+
+            prepared = await runtime.context.for_scope(reader.scope_id).prepare(
+                PrepareContextRequest(query="candidate saturation evidence")
+            )
+
+            assert prepared.status == "ready"
+            assert prepared.content is not None
+            items = json.loads(prepared.content.splitlines()[-2])["items"]
+            assert any(item["citation"].get("memory", {}).get("scope_id") == shared.scope_id for item in items)
+
+    asyncio.run(scenario())
+
+
 class _ConcurrentReranker:
     policy_id = "test.concurrent-rerank.v1"
 

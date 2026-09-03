@@ -404,19 +404,20 @@ class ScopedContextApplication:
 
         memory_candidates: list[PreparedMemoryCandidates] = []
         experience_candidates: list[PreparedExperienceCandidates] = []
-        remaining_memory = builder.memory_candidate_limit
-        remaining_experience = builder.experience_candidate_limit
         for scope_id in scope_ids:
             memory, experiences = await self._recall_scope(
                 scope_id,
                 request,
-                memory_limit=remaining_memory,
-                experience_limit=remaining_experience,
+                memory_limit=builder.memory_candidate_limit,
+                experience_limit=builder.experience_candidate_limit,
             )
             memory_candidates.append(memory)
             experience_candidates.append(experiences)
-            remaining_memory -= len(memory.hits)
-            remaining_experience -= len(experiences.hits)
+        memory_candidates = _limit_memory_candidates(memory_candidates, builder.memory_candidate_limit)
+        experience_candidates = _limit_experience_candidates(
+            experience_candidates,
+            builder.experience_candidate_limit,
+        )
 
         with self._runtime._stage(
             "context.build",
@@ -530,6 +531,50 @@ class ScopedContextApplication:
             ),
             PreparedExperienceCandidates(scope_id=scope_id, hits=experience_hits),
         )
+
+
+def _limit_memory_candidates(
+    candidates: list[PreparedMemoryCandidates],
+    limit: int,
+) -> list[PreparedMemoryCandidates]:
+    counts = _round_robin_counts(tuple(len(group.hits) for group in candidates), limit)
+    return [
+        PreparedMemoryCandidates(
+            scope_id=group.scope_id,
+            memory_ref=group.memory_ref,
+            hits=group.hits[:count],
+        )
+        for group, count in zip(candidates, counts, strict=True)
+    ]
+
+
+def _limit_experience_candidates(
+    candidates: list[PreparedExperienceCandidates],
+    limit: int,
+) -> list[PreparedExperienceCandidates]:
+    counts = _round_robin_counts(tuple(len(group.hits) for group in candidates), limit)
+    return [
+        PreparedExperienceCandidates(scope_id=group.scope_id, hits=group.hits[:count])
+        for group, count in zip(candidates, counts, strict=True)
+    ]
+
+
+def _round_robin_counts(sizes: tuple[int, ...], limit: int) -> tuple[int, ...]:
+    counts = [0] * len(sizes)
+    remaining = limit
+    while remaining > 0:
+        advanced = False
+        for index, size in enumerate(sizes):
+            if counts[index] >= size:
+                continue
+            counts[index] += 1
+            remaining -= 1
+            advanced = True
+            if remaining == 0:
+                break
+        if not advanced:
+            break
+    return tuple(counts)
 
 
 class ContextApplication:
