@@ -1,7 +1,7 @@
 - Proposal Name: `retention_erasure_lifecycle`
 - Start Date: 2026-09-03
 - Status: Draft
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1447](https://github.com/oceanbase/powercontext/pull/1447)
 - Tracking Issue: [oceanbase/powercontext#1425](https://github.com/oceanbase/powercontext/issues/1425)
 - Related Issues: [oceanbase/powercontext#1219](https://github.com/oceanbase/powercontext/issues/1219)、
   [oceanbase/powercontext#1321](https://github.com/oceanbase/powercontext/issues/1321)、
