@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import secrets
 from collections.abc import Callable, Mapping
@@ -24,12 +23,15 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from sqlalchemy import insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
+from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.codec import dump_model
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.tables import ARTIFACT_PUBLICATIONS_TABLE
 from powercontext.builtin.scope import ScopeApplication
 from powercontext.errors import PowerContextError
@@ -95,52 +97,63 @@ class ArtifactPublicationApplication:
         artifacts: ArtifactRepository,
         scopes: ScopeApplication,
         *,
+        experience_index: ExperienceIndex,
         id_factory: PublicationIdFactory | None = None,
     ) -> None:
         self._database = database
         self._artifacts = artifacts
         self._scopes = scopes
+        self._experience_index = experience_index
         self._id_factory = generate_publication_artifact_id if id_factory is None else id_factory
-        self._write_lock = asyncio.Lock()
 
     async def publish(self, request: ArtifactPublicationRequest, /) -> ArtifactPublication:
-        async with self._write_lock:
-            return await self._publish(request)
-
-    async def _publish(self, request: ArtifactPublicationRequest) -> ArtifactPublication:
         await self._scopes.get(request.source.scope_id)
         await self._scopes.get(request.target_scope_id)
-        async with self._database.transaction() as connection:
-            source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
-            if source.family == "memory":
-                raise ArtifactPublicationUnsupportedError(source.family)
-            existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
-            if existing is not None:
-                if existing.source != request.source:
-                    raise ArtifactPublicationConflictError(request.idempotency_key)
-                return existing
+        try:
+            async with self._database.transaction() as connection:
+                return await self._publish(connection, request)
+        except IntegrityError:
+            async with self._database.transaction() as connection:
+                existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
+            if existing is None:
+                raise
+            return _resolve_request(existing, request)
 
-            content_digest = hashlib.sha256(dump_model(source.content, kind="artifact", name=source.family)).hexdigest()
-            target = await self._artifacts.copy_exact(
-                connection,
-                request.target_scope_id,
-                self._id_factory(),
-                request.source,
-                source,
-                content_digest,
+    async def _publish(
+        self,
+        connection: AsyncConnection,
+        request: ArtifactPublicationRequest,
+    ) -> ArtifactPublication:
+        source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
+        if source.family == "memory":
+            raise ArtifactPublicationUnsupportedError(source.family)
+        existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
+        if existing is not None:
+            return _resolve_request(existing, request)
+
+        content_digest = hashlib.sha256(dump_model(source.content, kind="artifact", name=source.family)).hexdigest()
+        target = await self._artifacts.copy_exact(
+            connection,
+            request.target_scope_id,
+            self._id_factory(),
+            request.source,
+            source,
+            content_digest,
+        )
+        if isinstance(target, Experience):
+            await self._experience_index.replace(connection, request.target_scope_id, target)
+        publication = ArtifactPublication(
+            source=request.source,
+            target=ArtifactAddress(scope_id=request.target_scope_id, artifact=target.as_ref()),
+            content_digest=content_digest,
+        )
+        await connection.execute(
+            insert(ARTIFACT_PUBLICATIONS_TABLE).values(
+                **_publication_row(publication),
+                idempotency_key=request.idempotency_key,
             )
-            publication = ArtifactPublication(
-                source=request.source,
-                target=ArtifactAddress(scope_id=request.target_scope_id, artifact=target.as_ref()),
-                content_digest=content_digest,
-            )
-            await connection.execute(
-                insert(ARTIFACT_PUBLICATIONS_TABLE).values(
-                    **_publication_row(publication),
-                    idempotency_key=request.idempotency_key,
-                )
-            )
-            return publication
+        )
+        return publication
 
     async def get(self, target: ArtifactAddress, /) -> ArtifactPublication | None:
         async with self._database.transaction() as connection:
@@ -185,6 +198,15 @@ def generate_publication_artifact_id() -> str:
     value = int.from_bytes(secrets.token_bytes(16), "big")
     encoded = "".join(_CROCKFORD[(value >> shift) & 31] for shift in range(125, -1, -5))
     return f"pub_{encoded}"
+
+
+def _resolve_request(
+    existing: ArtifactPublication,
+    request: ArtifactPublicationRequest,
+) -> ArtifactPublication:
+    if existing.source != request.source:
+        raise ArtifactPublicationConflictError(request.idempotency_key)
+    return existing
 
 
 def _publication_row(publication: ArtifactPublication) -> dict[str, object]:

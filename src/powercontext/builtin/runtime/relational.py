@@ -370,6 +370,7 @@ class RelationalContexts:
             database,
             self.repositories.artifacts,
             self.scopes,
+            experience_index=self.experience_index,
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None

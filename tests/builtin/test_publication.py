@@ -19,8 +19,11 @@ import asyncio
 import pytest
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
+from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.experience_index import NoExperienceIndex
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.publication import (
@@ -35,9 +38,25 @@ from powercontext.errors import ArtifactNotFoundError
 from tests.builtin.persistence.contract import Report, ReportContent, ReportDraft
 
 
-def test_publication_copies_one_exact_revision_with_original_provenance() -> None:
+class _IndexUnavailableError(RuntimeError):
+    pass
+
+
+class _FailingExperienceIndex:
+    async def initialize(self, _connection, /) -> None:
+        pass
+
+    async def replace(self, _connection, _scope_id, _experience, /) -> None:
+        raise _IndexUnavailableError
+
+    async def search(self, _connection, _scope_id, _query, _limit, /):
+        return ()
+
+
+def test_publication_copies_one_exact_revision_with_original_provenance(tmp_path) -> None:
     async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'publication.db'}")
+        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
             scopes = ScopeApplication(profile.database)
             source_scope = await scopes.create(
                 ScopeDraft(title="Source", summary="Private working state", idempotency_key="source")
@@ -49,7 +68,20 @@ def test_publication_copies_one_exact_revision_with_original_provenance() -> Non
                 ScopeDraft(title="Relay", summary="Relayed result", idempotency_key="relay")
             )
             artifacts = ArtifactRepository((Report,))
-            publications = ArtifactPublicationApplication(profile.database, artifacts, scopes)
+            publications = (
+                ArtifactPublicationApplication(
+                    profile.database,
+                    artifacts,
+                    scopes,
+                    experience_index=NoExperienceIndex(),
+                ),
+                ArtifactPublicationApplication(
+                    profile.database,
+                    artifacts,
+                    scopes,
+                    experience_index=NoExperienceIndex(),
+                ),
+            )
             async with profile.database.transaction() as connection:
                 first = await artifacts.create(
                     connection,
@@ -63,7 +95,7 @@ def test_publication_copies_one_exact_revision_with_original_provenance() -> Non
                 target_scope_id=target_scope.scope_id,
                 idempotency_key="accepted-report",
             )
-            results = await asyncio.gather(*(publications.publish(request) for _ in range(8)))
+            results = await asyncio.gather(*(publications[index % 2].publish(request) for index in range(8)))
             published = results[0]
             assert all(result == published for result in results)
 
@@ -81,7 +113,7 @@ def test_publication_copies_one_exact_revision_with_original_provenance() -> Non
             assert copied.lineage.publication_source == request.source
             assert copied.lineage.publication_digest == published.content_digest
 
-            relayed = await publications.publish(
+            relayed = await publications[0].publish(
                 ArtifactPublicationRequest(
                     source=published.target,
                     target_scope_id=relay_scope.scope_id,
@@ -97,6 +129,95 @@ def test_publication_copies_one_exact_revision_with_original_provenance() -> Non
     asyncio.run(scenario())
 
 
+def test_published_experience_is_searchable_in_target_scope_immediately() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            source_scope = await contexts.scopes.create(
+                ScopeDraft(title="Source", summary="Private working state", idempotency_key="experience-source")
+            )
+            target_scope = await contexts.scopes.create(
+                ScopeDraft(title="Target", summary="Accepted result", idempotency_key="experience-target")
+            )
+            async with contexts.database.transaction() as connection:
+                source = await contexts.repositories.artifacts.create(
+                    connection,
+                    source_scope.scope_id,
+                    "published-experience",
+                    ExperienceDraft(
+                        content=ExperienceContent(
+                            situation="A publication crosses a Scope boundary.",
+                            action="Copy the exact approved revision and its search projection.",
+                            outcome="The target can recall the Experience immediately.",
+                            lesson="Keep publication projection updates atomic.",
+                        )
+                    ),
+                )
+
+            published = await contexts.publications.publish(
+                ArtifactPublicationRequest(
+                    source=ArtifactAddress(scope_id=source_scope.scope_id, artifact=source.as_ref()),
+                    target_scope_id=target_scope.scope_id,
+                    idempotency_key="publish-experience",
+                )
+            )
+            hits = await contexts.search_experience(target_scope.scope_id, "projection updates atomic", 8)
+
+            assert tuple(hit.artifact_ref for hit in hits) == (published.target.artifact,)
+
+    asyncio.run(scenario())
+
+
+def test_experience_publication_rolls_back_when_projection_update_fails() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            source_scope = await contexts.scopes.create(
+                ScopeDraft(title="Source", summary="Private working state", idempotency_key="rollback-source")
+            )
+            target_scope = await contexts.scopes.create(
+                ScopeDraft(title="Target", summary="Accepted result", idempotency_key="rollback-target")
+            )
+            async with contexts.database.transaction() as connection:
+                source = await contexts.repositories.artifacts.create(
+                    connection,
+                    source_scope.scope_id,
+                    "source-experience",
+                    ExperienceDraft(
+                        content=ExperienceContent(
+                            situation="The search projection is unavailable.",
+                            action="Abort the publication transaction.",
+                            outcome="No partial target lifecycle remains.",
+                            lesson="Keep derived state in the publication transaction.",
+                        )
+                    ),
+                )
+            publications = ArtifactPublicationApplication(
+                contexts.database,
+                contexts.repositories.artifacts,
+                contexts.scopes,
+                experience_index=_FailingExperienceIndex(),
+                id_factory=lambda: "pub_rollback",
+            )
+            request = ArtifactPublicationRequest(
+                source=ArtifactAddress(scope_id=source_scope.scope_id, artifact=source.as_ref()),
+                target_scope_id=target_scope.scope_id,
+                idempotency_key="rollback-publication",
+            )
+
+            with pytest.raises(_IndexUnavailableError):
+                await publications.publish(request)
+
+            target = ArtifactAddress(
+                scope_id=target_scope.scope_id,
+                artifact=ArtifactRef(family="experience", artifact_id="pub_rollback", revision=1),
+            )
+            assert await publications.get(target) is None
+            async with contexts.database.transaction() as connection:
+                with pytest.raises(RepositoryNotFoundError):
+                    await contexts.repositories.artifacts.get(connection, target.scope_id, target.artifact)
+
+    asyncio.run(scenario())
+
+
 def test_publication_idempotency_key_cannot_select_another_revision() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
@@ -108,7 +229,12 @@ def test_publication_idempotency_key_cannot_select_another_revision() -> None:
                 ScopeDraft(title="Target", summary="Accepted result", idempotency_key="target")
             )
             artifacts = ArtifactRepository((Report,))
-            publications = ArtifactPublicationApplication(profile.database, artifacts, scopes)
+            publications = ArtifactPublicationApplication(
+                profile.database,
+                artifacts,
+                scopes,
+                experience_index=NoExperienceIndex(),
+            )
             async with profile.database.transaction() as connection:
                 first = await artifacts.create(
                     connection,
@@ -162,6 +288,7 @@ def test_memory_publication_is_rejected_without_target_state() -> None:
                 contexts.database,
                 contexts.repositories.artifacts,
                 contexts.scopes,
+                experience_index=contexts.experience_index,
                 id_factory=lambda: "pub_blocked",
             )
             request = ArtifactPublicationRequest(
