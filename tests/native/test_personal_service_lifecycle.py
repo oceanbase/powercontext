@@ -48,6 +48,8 @@ from powercontext.service.model import (
     SupportState,
 )
 
+_TEST_MEMBER_TTL_SECONDS = 3
+
 pytestmark = [
     pytest.mark.native_service,
     pytest.mark.skipif(
@@ -81,11 +83,11 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
             assert adapter.loaded_registration().state is ManagerOwnershipState.OWNED
             assert adapter.manager_state() is ManagerState.INACTIVE
 
+        if isinstance(adapter, WindowsTaskSchedulerAdapter):
+            # schtasks /End cannot run the Server shutdown hook that releases the lease.
+            time.sleep(_TEST_MEMBER_TTL_SECONDS + 1)
         adapter.start(reload_definition=False)
-        # Task Scheduler cannot retry a failed task sooner than one minute. A hard
-        # task stop can leave the single-node database lease to expire first.
-        restart_timeout = 90 if isinstance(adapter, WindowsTaskSchedulerAdapter) else 15
-        restarted = _wait_for_status(controller, timeout=restart_timeout)
+        restarted = _wait_for_status(controller)
         assert restarted.ok
 
         removed = controller.uninstall()
@@ -276,6 +278,8 @@ def _environment_file(tmp_path: Path) -> Path:
             f"POWERCONTEXT_HOME={data_dir}",
             f"POWERCONTEXT_SERVER_HTTP_PORT={_unused_loopback_port()}",
             "POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false",
+            f"POWERCONTEXT_SERVER_COORDINATION_MEMBER_TTL_SECONDS={_TEST_MEMBER_TTL_SECONDS}",
+            "POWERCONTEXT_SERVER_COORDINATION_MEMBER_HEARTBEAT_SECONDS=1",
             "",
         )),
         encoding="utf-8",
