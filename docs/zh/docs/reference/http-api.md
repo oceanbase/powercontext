@@ -50,7 +50,8 @@ curl --fail \
 
 ## 保存并搜索一条 Memory
 
-为项目或租户选择稳定的 `scope_id`，并在不同会话中复用。会话 ID 不是持久的项目身份。
+将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID，并在不同会话中复用。会话 ID 不是持久的
+项目身份。
 
 保存一条已经整理好的 Memory：
 
@@ -59,11 +60,11 @@ curl --fail \
   --request POST \
   --header 'Content-Type: application/json' \
   --header "$POWERCONTEXT_AUTH_HEADER" \
-  --data '{
-    "scope_id": "project:example",
-    "kind": "decision",
-    "text": "公开 API 保持异步。"
-  }' \
+  --data "{
+    \"scope_id\": \"${POWERCONTEXT_SCOPE_ID}\",
+    \"kind\": \"decision\",
+    \"text\": \"公开 API 保持异步。\"
+  }" \
   "$POWERCONTEXT_URL/v1/memory/remember"
 ```
 
@@ -76,11 +77,11 @@ curl --fail \
   --request POST \
   --header 'Content-Type: application/json' \
   --header "$POWERCONTEXT_AUTH_HEADER" \
-  --data '{
-    "scope_id": "project:example",
-    "query": "公开 API",
-    "limit": 5
-  }' \
+  --data "{
+    \"scope_id\": \"${POWERCONTEXT_SCOPE_ID}\",
+    \"query\": \"公开 API\",
+    \"limit\": 5
+  }" \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 

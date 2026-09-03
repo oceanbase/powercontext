@@ -53,7 +53,6 @@ agent = Agent("openai:gpt-5.2", toolsets=[PowerContextToolset()])
 ```bash
 export POWERCONTEXT_PYDANTIC_AI_BASE_URL=http://127.0.0.1:8000
 export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
-export POWERCONTEXT_PYDANTIC_AI_SCOPE_ID=project:example
 ```
 
 | Variable | Default | Validation and behavior |

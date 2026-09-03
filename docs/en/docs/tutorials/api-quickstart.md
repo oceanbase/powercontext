@@ -42,11 +42,17 @@ Experience and Skill proposals.
 
 ## 2. Choose the application boundary
 
-Set a stable scope for one project or tenant:
+Create a stable Scope for one project or tenant and keep the returned Server-owned ID:
 
 ```bash
 export POWERCONTEXT_URL=http://127.0.0.1:8000
-export POWERCONTEXT_SCOPE=project:billing-assistant
+export POWERCONTEXT_SCOPE="$(
+  curl --fail --silent --show-error \
+    --header 'Content-Type: application/json' \
+    --data '{"title":"Billing assistant","summary":"Billing application context","idempotency_key":"billing-assistant"}' \
+    "$POWERCONTEXT_URL/v1/scopes" \
+  | python -c 'import json, sys; print(json.load(sys.stdin)["scope_id"])'
+)"
 ```
 
 Your trusted application or Gateway must choose and authorize `scope_id`. It is a data partition key, not an access
@@ -76,7 +82,7 @@ from urllib.request import Request, urlopen
 
 
 BASE_URL = os.environ.get("POWERCONTEXT_URL", "http://127.0.0.1:8000").rstrip("/")
-SCOPE_ID = os.environ.get("POWERCONTEXT_SCOPE", "project:billing-assistant")
+SCOPE_ID = os.environ["POWERCONTEXT_SCOPE"]
 TOKEN = os.environ.get("POWERCONTEXT_TOKEN")
 
 

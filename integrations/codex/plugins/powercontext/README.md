@@ -23,14 +23,15 @@ Acknowledgements and historical authorization notes never grant Codex new
 execution authority, and the prompt hook does not infer completion from Stop or
 SessionEnd.
 
-Managed Skills use a separate, explicit handoff. A reviewer approves the exact
+Managed Skills use a separate, explicit handoff. Set `POWERCONTEXT_SCOPE_ID` to the existing Scope ID that owns the
+approved Revision. A reviewer approves the exact
 Candidate through HTTP or the Client CLI, then the user exports that immutable
 Skill Revision into a Codex Skill directory:
 
 ```bash
 powercontext skill export \
   --target codex \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --revision 1 \
   --destination .agents/skills/example-skill \
   SKILL_ID

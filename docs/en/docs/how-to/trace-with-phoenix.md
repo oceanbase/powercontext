@@ -49,18 +49,19 @@ authentication. Set the provider credentials your generation model needs; PowerC
 
 ## Trigger one inference request
 
-Capture a Source, then convert it into Memory:
+Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope`, capture a Source, then convert it into
+Memory:
 
 ```bash
 curl -X POST http://localhost:8000/v1/sources/content \
   -H 'content-type: application/json' \
-  -d '{"scope_id":"project:demo","source_id":"task-1","content":"I always book aisle seats."}'
+  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\",\"source_id\":\"task-1\",\"content\":\"I always book aisle seats.\"}"
 ```
 
 ```bash
 curl -X POST http://localhost:8000/v1/memory/flush \
   -H 'content-type: application/json' \
-  -d '{"scope_id":"project:demo"}'
+  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\"}"
 ```
 
 Memory extraction runs during the flush, not during capture.

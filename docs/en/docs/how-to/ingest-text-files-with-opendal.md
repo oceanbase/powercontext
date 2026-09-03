@@ -23,7 +23,7 @@ uv tool install --python 3.12 --with-editable ".[client]" ./integrations/opendal
 
 Choose a stable `source_namespace` that distinguishes storage authorities. Do not put credentials in the namespace,
 Source payload, or checkpoint. If Server authentication is enabled, provide its bearer token through the
-`POWERCONTEXT_TOKEN` environment variable.
+`POWERCONTEXT_TOKEN` environment variable. Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope`.
 
 ## Run a binding
 
@@ -33,7 +33,7 @@ the `scope_id` determines which Scope owns accepted Sources:
 ```bash
 powercontext-connector-opendal \
   --base-url http://127.0.0.1:8765 \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --binding-id project-docs \
   --service fs \
   --storage-option root=/absolute/path/to/project \
@@ -53,6 +53,8 @@ have durable receipts. Use cron, a Kubernetes Job, or another external scheduler
 Use the generic remote lifecycle when a deployment needs custom supervision or schedules multiple bindings:
 
 ```python
+import os
+
 from powercontext.client import PowerContextClient, RemoteConnectorWorker
 from powercontext.sources import ConnectorBinding, SourceDefinitionRegistry
 from powercontext_connector_opendal import (
@@ -67,7 +69,7 @@ connector = OpenDALTextFileConnector.from_service(
     storage_options={"root": "/absolute/path/to/project"},
 )
 binding = ConnectorBinding(
-    scope_id="project:example",
+    scope_id=os.environ["POWERCONTEXT_SCOPE_ID"],
     binding_id="project-docs",
     connector_name=connector.name,
     connector_version=connector.version,

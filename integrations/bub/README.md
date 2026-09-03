@@ -20,7 +20,6 @@ configuration file:
 ```yaml
 powercontext:
   base_url: http://127.0.0.1:8000
-  scope_id: project:example
   capture_events: true
   capture_checkpoint_every: 5
 ```

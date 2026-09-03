@@ -114,6 +114,8 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 
 ## CLI
 
+运行带 Scope 的内容命令前，将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。
+
 ```text
 powercontext setup <host> --source oceanbase/powercontext --ref master
 powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
@@ -127,16 +129,16 @@ powercontext server run
 powercontext server run --env-file .env
 powercontext ready
 powercontext capabilities
-powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
-powercontext skill generate --scope-id project:example --origin experience \
+powercontext experience generate --scope-id "$POWERCONTEXT_SCOPE_ID" --source-ref content/SOURCE_ID
+powercontext skill generate --scope-id "$POWERCONTEXT_SCOPE_ID" --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
-powercontext skill show --scope-id project:example --revision 1 SKILL_ID
-powercontext skill export --target codex --scope-id project:example --revision 1 \
+powercontext skill show --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 SKILL_ID
+powercontext skill export --target codex --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 \
   --destination .agents/skills/example-skill SKILL_ID
-powercontext external-skill scan --scope-id project:example
-powercontext external-skill list --scope-id project:example
-powercontext external-skill resolve --scope-id project:example --fingerprint SHA256 EXTERNAL_SKILL_ID
-powercontext external-skill import --scope-id project:example --fingerprint SHA256 \
+powercontext external-skill scan --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext external-skill list --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext external-skill resolve --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerprint SHA256 EXTERNAL_SKILL_ID
+powercontext external-skill import --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerprint SHA256 \
   --mode import EXTERNAL_SKILL_ID
 ```
 

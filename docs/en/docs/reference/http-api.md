@@ -56,8 +56,8 @@ curl --fail \
 
 ## Store and search one Memory
 
-Choose a stable `scope_id` for the project or tenant. Reuse it across sessions; a session ID is not a durable project
-identity.
+Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope`. Reuse that Scope across sessions; a Session
+ID is not a durable project identity.
 
 Store one already-curated Memory entry:
 
@@ -66,11 +66,11 @@ curl --fail \
   --request POST \
   --header 'Content-Type: application/json' \
   --header "$POWERCONTEXT_AUTH_HEADER" \
-  --data '{
-    "scope_id": "project:example",
-    "kind": "decision",
-    "text": "Keep the public API asynchronous."
-  }' \
+  --data "{
+    \"scope_id\": \"${POWERCONTEXT_SCOPE_ID}\",
+    \"kind\": \"decision\",
+    \"text\": \"Keep the public API asynchronous.\"
+  }" \
   "$POWERCONTEXT_URL/v1/memory/remember"
 ```
 
@@ -84,11 +84,11 @@ curl --fail \
   --request POST \
   --header 'Content-Type: application/json' \
   --header "$POWERCONTEXT_AUTH_HEADER" \
-  --data '{
-    "scope_id": "project:example",
-    "query": "public API",
-    "limit": 5
-  }' \
+  --data "{
+    \"scope_id\": \"${POWERCONTEXT_SCOPE_ID}\",
+    \"query\": \"public API\",
+    \"limit\": 5
+  }" \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
