@@ -186,7 +186,6 @@ def run_setup_select(
     source: str,
     ref: str,
     server_url: str | None,
-    scope_mode: str,
     capture_prompts: bool,
     json_output: bool,
 ) -> None:
@@ -204,7 +203,6 @@ def run_setup_select(
         source=source,
         ref=ref,
         server_url=server_url,
-        scope_mode=scope_mode,
         capture_prompts=capture_prompts,
     )
     write_setup_select_report(report, json_output=json_output)
@@ -231,7 +229,6 @@ def setup_selected_hosts(
     source: str,
     ref: str,
     server_url: str | None,
-    scope_mode: str,
     capture_prompts: bool,
 ) -> SetupSelectReport:
     """Install selected hosts and isolate failures from sibling hosts."""
@@ -250,7 +247,6 @@ def setup_selected_hosts(
                 source=source,
                 ref=ref,
                 server_url=server_url,
-                scope_mode=scope_mode,
                 capture_prompts=capture_prompts,
             )
             verify_host(host.name)
@@ -267,7 +263,6 @@ def install_host(
     source: str,
     ref: str,
     server_url: str | None,
-    scope_mode: str,
     capture_prompts: bool,
 ) -> object:
     """Call the existing installer for one first-class host."""
@@ -297,7 +292,6 @@ def install_host(
             source=source,
             ref=ref,
             server_url=server_url if server_url is not None else DEFAULT_OPENCLAW_SERVER_URL,
-            scope_mode=scope_mode,
         )
     if name == "opencode":
         from powercontext.cli.opencode import install_opencode_plugin

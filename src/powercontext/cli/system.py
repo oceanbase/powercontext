@@ -44,7 +44,6 @@ DEFAULT_MARKETPLACE_SOURCE = "oceanbase/powercontext"
 DEFAULT_MARKETPLACE_REF = "master"
 DEFAULT_CLAUDE_CODE_SERVER_URL = "http://127.0.0.1:8000"
 DEFAULT_OPENCLAW_SERVER_URL = "http://127.0.0.1:8000"
-DEFAULT_OPENCLAW_SCOPE_MODE = "agent"
 PLUGIN_NAME = "powercontext"
 CLAUDE_MARKETPLACE_NAME = "powercontext"
 _GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$")
@@ -105,10 +104,6 @@ class SetupError(RuntimeError):
     @classmethod
     def unsupported_openclaw_version(cls, version_text: str) -> SetupError:
         return cls(f"OpenClaw {version_text or 'version unknown'} is unsupported; upgrade to >= 2026.8.1-beta.2")
-
-    @classmethod
-    def invalid_openclaw_scope(cls) -> SetupError:
-        return cls("OpenClaw scope must be agent or project")
 
     @classmethod
     def openclaw_server_url_scheme(cls) -> SetupError:
@@ -348,7 +343,6 @@ class OpenClawSetupResult:
     plugin: str
     plugin_path: str
     server_url: str
-    scope_mode: str
     data_dir: str
 
 
@@ -523,10 +517,6 @@ def setup_openclaw(
         str,
         typer.Option(help="PowerContext Server base URL configured for the plugin."),
     ] = DEFAULT_OPENCLAW_SERVER_URL,
-    scope_mode: Annotated[
-        str,
-        typer.Option("--scope-mode", help="Memory scope mode: agent or project."),
-    ] = DEFAULT_OPENCLAW_SCOPE_MODE,
     json_output: Annotated[
         bool,
         typer.Option("--json", help="Write the result as JSON."),
@@ -541,7 +531,6 @@ def setup_openclaw(
             source=source,
             ref=ref,
             server_url=server_url,
-            scope_mode=scope_mode,
         )
     except SetupError as error:
         typer.echo(str(error), err=True)
@@ -554,7 +543,6 @@ def setup_openclaw(
     typer.echo(f"Plugin: {result.plugin}")
     typer.echo(f"Plugin path: {result.plugin_path}")
     typer.echo(f"Server: {result.server_url}")
-    typer.echo(f"Scope: {result.scope_mode}")
     typer.echo(f"Data directory: {result.data_dir}")
     typer.echo("Next: start a new OpenClaw session.")
 
@@ -697,10 +685,6 @@ def setup_select(
         str | None,
         typer.Option(help="PowerContext Server base URL override for Claude Code and OpenClaw."),
     ] = None,
-    scope_mode: Annotated[
-        str,
-        typer.Option("--scope-mode", help="OpenClaw memory scope mode: agent or project."),
-    ] = DEFAULT_OPENCLAW_SCOPE_MODE,
     capture_prompts: Annotated[
         bool,
         typer.Option(help="Capture Claude Code user prompts as ordinary Source evidence."),
@@ -719,7 +703,6 @@ def setup_select(
         source=source,
         ref=ref,
         server_url=server_url,
-        scope_mode=scope_mode,
         capture_prompts=capture_prompts,
         json_output=json_output,
     )

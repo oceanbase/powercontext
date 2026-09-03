@@ -16,10 +16,9 @@ Automatic recall and prompt capture run on `UserPromptSubmit`. The hook never
 reads the WorkBuddy transcript or captures WorkBuddy's final response. Prompt
 Sources are evidence and are never marked as `task-outcome` by the hook.
 
-Project scope is resolved from an explicit override, a Git-private Workstream
-binding, the normalized Git origin, or a hash of the resolved local project
-directory, in that order. The rules match the Codex and Claude Code plugins so
-all three agents can share the same project Memory.
+Scope is resolved by the Server from an explicit override, durable session and
+workspace bindings, or the Server default, in that order. The plugin hashes a
+workspace path only as an external binding key; it never derives a Scope ID.
 
 The plugin defaults to `http://127.0.0.1:8000`. Its Hook and MCP transport share
 `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` when optional bearer authentication is

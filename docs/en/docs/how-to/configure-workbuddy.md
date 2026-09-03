@@ -69,8 +69,8 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$WORKBUDDY_HOOKS_DIR"/
-cp "$PLUGIN/scripts/project_scope.py" \
-   "$WORKBUDDY_HOOKS_DIR/powercontext_project_scope.py"
+cp "$PLUGIN/scripts/workspace_scope.py" \
+   "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
 ```
 
 ### 2. Register the hook
@@ -131,9 +131,9 @@ EOF
 
 Then replace `${POWERCONTEXT_PYTHON}` in
 `~/.workbuddy/skills/project-context/SKILL.md` with a shell-safe Python
-executable argument. Replace `${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}` with a
+executable argument. Replace `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` with a
 shell-safe complete path to
-`<WORKBUDDY_HOOKS_DIR>/powercontext_project_scope.py`.
+`<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py`.
 
 ### 5. Start the Server, restart WorkBuddy, and verify
 
@@ -214,7 +214,7 @@ changing them.
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext server URL (default `http://127.0.0.1:8000`) |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
-| `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit scope or scope template override |
+| `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | Flush until the captured Source is processed (testing only, default `false`) |
 | `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `1.0`) |
@@ -227,19 +227,16 @@ query strings, or fragments; plain HTTP is accepted only for loopback hosts.
 
 ## Resolve the project scope
 
-WorkBuddy resolves scope in this order:
+The Server resolves Scope for WorkBuddy in this order:
 
 1. an explicit `POWERCONTEXT_WORKBUDDY_SCOPE_ID`;
-2. a Workstream scope persistently bound to the current Git workspace (stored
-   in `powercontext/codex-workspace.json` below the Git-private directory,
-   shared with the Codex and Claude Code plugins);
-3. the normalized Git remote;
-4. a hash of the resolved local project directory.
+2. a durable session binding;
+3. a durable workspace binding;
+4. the Server's default Scope.
 
-Later WorkBuddy sessions in the same workspace reuse that scope. The
-`project-context` Skill's `--bind-workstream` operation persists a Workstream
-binding for a selected Handoff; the binding never enters the worktree or
-commits.
+Later WorkBuddy sessions in the same workspace reuse that Scope. The `project-context` Skill's `--bind-scope`
+operation persists the workspace binding in PowerContext. The workspace path is hashed only as an external binding
+key; the plugin never derives a Scope ID from it.
 
 ## Connect to an authenticated local Server
 

@@ -22,7 +22,7 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 from powercontext.builtin.artifacts.skill import ExternalSkillSnapshot
-from powercontext.sources import Source, SourceMaterialization
+from powercontext.sources import AdapterSourceDefinition, Source, SourceMaterialization
 
 EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME = "external-skill-snapshot"
 
@@ -82,9 +82,11 @@ def _snapshot_id(value: ExternalSkillSnapshotCapture) -> str:
 
 
 EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER = ExternalSkillSnapshotSourceAdapter()
+EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION = AdapterSourceDefinition(EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER)
 
 __all__ = [
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER",
+    "EXTERNAL_SKILL_SNAPSHOT_SOURCE_DEFINITION",
     "EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME",
     "ExternalSkillImportMode",
     "ExternalSkillSnapshotCapture",

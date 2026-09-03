@@ -61,6 +61,242 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/scopes": {
+            "get": {
+                "tags": ["scopes"],
+                "summary": "List observable Scopes",
+                "operationId": "list_scopes",
+                "responses": {
+                    "200": {
+                        "description": "Durable Scope metadata in deterministic identity order.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopePage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            },
+            "post": {
+                "tags": ["scopes"],
+                "summary": "Create an independent Scope boundary",
+                "operationId": "create_scope",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateScopeRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "The durable Scope descriptor.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            },
+        },
+        "/v1/artifact-publications": {
+            "post": {
+                "tags": ["scopes"],
+                "summary": "Publish one exact Artifact revision into another Scope",
+                "description": "Memory publication is rejected "
+                "until its complete family-owned "
+                "state can be created atomically "
+                "in the target Scope.",
+                "operationId": "publish_artifact",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/PublishArtifactRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Independent target Artifact and its exact source provenance.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactPublication"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}": {
+            "get": {
+                "tags": ["scopes"],
+                "summary": "Get one Scope descriptor",
+                "operationId": "get_scope",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The exact Scope descriptor.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                },
+            },
+            "put": {
+                "tags": ["scopes"],
+                "summary": "Replace mutable Scope metadata and relationships",
+                "operationId": "update_scope",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateScopeRequest"}}},
+                },
+                "responses": {
+                    "200": {
+                        "description": "The updated Scope descriptor.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            },
+        },
+        "/v1/scopes/default": {
+            "get": {
+                "tags": ["scopes"],
+                "summary": "Get the default Scope binding target",
+                "operationId": "get_default_scope",
+                "responses": {
+                    "200": {
+                        "description": "The ordinary Scope selected by the host default pointer.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                },
+            },
+            "put": {
+                "tags": ["scopes"],
+                "summary": "Change the default Scope binding target",
+                "operationId": "set_default_scope",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SetDefaultScopeRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The selected ordinary Scope.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                },
+            },
+        },
+        "/v1/scopes/selection/resolve": {
+            "post": {
+                "tags": ["scopes"],
+                "summary": "Resolve an observation selection to a frozen Scope set",
+                "operationId": "resolve_scope_selection",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ResolveScopeSelectionRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The selected Scope descriptors in deterministic order.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopePage"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/scope-bindings/resolve": {
+            "post": {
+                "tags": ["scope-bindings"],
+                "summary": "Resolve an explicit durable or default Scope binding",
+                "operationId": "resolve_scope_binding",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ResolveScopeBindingRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The resolved Scope descriptor.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeDescriptor"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/scope-bindings": {
+            "put": {
+                "tags": ["scope-bindings"],
+                "summary": "Persist an external identity to Scope binding",
+                "operationId": "set_scope_binding",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SetScopeBindingRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The durable external binding.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopeBinding"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/scope-bindings/clear": {
+            "post": {
+                "tags": ["scope-bindings"],
+                "summary": "Remove one durable external Scope binding",
+                "operationId": "clear_scope_binding",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ClearScopeBindingRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Whether a durable binding was removed.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ClearScopeBindingResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
         "/v1/sources/content": {
             "post": {
                 "tags": ["sources"],
@@ -90,6 +326,111 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/source-definitions/register": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Register a worker-owned Source Definition manifest",
+                "description": "Registers an immutable declarative manifest without loading worker plugin code.",
+                "operationId": "register_source_definition",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RegisterSourceDefinitionRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact manifest is registered or was already registered identically.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceDefinitionManifest"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/connector-checkpoints/get": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Read a Connector binding checkpoint",
+                "operationId": "get_connector_checkpoint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetConnectorCheckpointRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The current opaque checkpoint, including a normal null initial value.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectorCheckpointState"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/source-observations": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Submit a worker-materialized Source observation",
+                "description": "Validates the observation against "
+                "its registered manifest and "
+                "durably appends it before receipt.",
+                "operationId": "submit_source_observation",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SubmitSourceObservationRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "202": {
+                        "description": "The observation is durably accepted and can be referenced exactly.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceObservationReceipt"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/connector-checkpoints/commit": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Commit a Connector binding checkpoint",
+                "description": "Replaces the checkpoint only when its expected starting value still matches.",
+                "operationId": "commit_connector_checkpoint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/CommitConnectorCheckpointRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The new opaque checkpoint is durable.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectorCheckpointState"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
             }
         },
         "/v1/context/prepare": {
@@ -116,6 +457,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/work/contracts/create": {
@@ -144,6 +486,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/work/handoffs/prepare-current": {
@@ -178,6 +521,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/work/handoffs/acknowledge": {
@@ -213,6 +557,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/work/outcomes/record": {
@@ -253,6 +598,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/handoff/activate": {
@@ -288,6 +634,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/handoff/prepare": {
@@ -312,6 +659,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/handoff/finalize": {
@@ -338,6 +686,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/handoff/commit": {
@@ -363,6 +712,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/handoff/continue": {
@@ -389,6 +739,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/flush": {
@@ -397,6 +748,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "summary": "Process the pending Source window into Memory",
                 "description": "Run one bounded Source-to-Memory activation for operational control and testing.",
                 "operationId": "flush_memory",
+                "x-powercontext-scope-mode": "current",
                 "parameters": [
                     {
                         "name": "Prefer",
@@ -472,6 +824,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/search": {
@@ -499,6 +852,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/entries/list": {
@@ -531,6 +885,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/entries/get": {
@@ -556,6 +911,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/entries/revise": {
@@ -586,6 +942,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/entries/retire": {
@@ -618,6 +975,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/changes": {
@@ -647,6 +1005,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/experience/propose": {
@@ -674,6 +1033,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/experience/generate": {
@@ -706,6 +1066,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/experience/get": {
@@ -733,6 +1094,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/skill/propose": {
@@ -758,6 +1120,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/skill/generate": {
@@ -787,6 +1150,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/skill/get": {
@@ -812,6 +1176,500 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/library": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "List or search current managed Skills",
+                "description": "Return current managed Skill heads with "
+                "lifecycle governance; retired Skills "
+                "remain exact-read only.",
+                "operationId": "list_managed_skills",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListManagedSkillsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current managed Skill Library rows.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ListManagedSkillsResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/lifecycle": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Update managed Skill lifecycle",
+                "description": "Apply an explicit lifecycle transition "
+                "using governance generation CAS "
+                "without changing package bytes.",
+                "operationId": "update_skill_lifecycle",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/UpdateSkillLifecycleRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated managed Skill governance.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillGovernance"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/package/manifest": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Get an exact managed Skill package manifest",
+                "description": "Return verified metadata and "
+                "file inventory without "
+                "executing or returning file "
+                "bodies.",
+                "operationId": "get_skill_package_manifest",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Verified exact package manifest.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageManifest"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/package/download": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Download an exact managed Skill package",
+                "description": "Return canonical ZIP bytes as bounded base64 with their content-addressed reference.",
+                "operationId": "download_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Canonical exact package archive.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageDownload"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/package/propose": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Propose an uploaded standard Skill package",
+                "description": "Canonicalize exact ZIP bytes, "
+                "store them once, and create a "
+                "pending Candidate without LLM "
+                "rewriting.",
+                "operationId": "propose_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ProposeSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Pending exact package Candidate.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/usage": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Record a bounded Skill usage observation",
+                "description": "Validate an exact managed Skill Revision "
+                "and capture immutable bounded usage Source "
+                "evidence.",
+                "operationId": "record_skill_usage",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RecordSkillUsageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Accepted immutable usage Source evidence.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/CaptureContentSourceResponse"}
+                            }
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/remote/targets": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "List remote Agent Skill target status",
+                "description": "Return credential-free target "
+                "metadata and desired/observed "
+                "publication state for one scope.",
+                "operationId": "list_remote_skill_targets",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListRemoteSkillTargetsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Remote target status rows visible to the administrative caller.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ListRemoteSkillTargetsResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/remote/target/create": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Create a remote Agent Skill target enrollment",
+                "description": "Create a pending project "
+                "target and return one "
+                "short-lived enrollment code "
+                "exactly once.",
+                "operationId": "create_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/CreateRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Pending remote target enrollment.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTargetEnrollment"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/remote/target/enroll": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Enroll a remote Agent Skill Receiver",
+                "description": "Consume one short-lived "
+                "enrollment code and return "
+                "a per-target credential "
+                "exactly once.",
+                "operationId": "enroll_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/EnrollRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Activated remote target credential.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTargetCredential"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [],
+            }
+        },
+        "/v1/skill/remote/target/rename": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Rename a remote Agent Skill target",
+                "description": "Change the human-readable "
+                "target name with target "
+                "generation CAS while "
+                "retaining its durable "
+                "identity.",
+                "operationId": "rename_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RenameRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Renamed remote target.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTarget"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/remote/target/revoke": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Revoke a remote Agent Skill target",
+                "description": "Revoke the per-target "
+                "credential with target "
+                "generation CAS while "
+                "retaining durable identity.",
+                "operationId": "revoke_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RevokeRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Revoked remote target.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTarget"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/remote/publication/publish": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Set a remote target Skill desired Revision",
+                "description": "Advance only "
+                "Server-owned desired "
+                "state; delivery is "
+                "confirmed later by an "
+                "exact Receipt.",
+                "operationId": "publish_remote_skill",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/PublishRemoteSkillRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Latest remote publication desired state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillPublication"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/remote/publication/unpublish": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Set remote target Skill desired absence",
+                "description": "Advance desired "
+                "state without "
+                "claiming that any "
+                "remote directory "
+                "has already been "
+                "removed.",
+                "operationId": "unpublish_remote_skill",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/UnpublishRemoteSkillRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Latest remote publication desired state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillPublication"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/skill/remote/reconcile": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Reconcile a remote Agent Skill target",
+                "description": "Authenticate one target and "
+                "return only latest-generation "
+                "idempotent install or unpublish "
+                "actions.",
+                "operationId": "reconcile_remote_skills",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReconcileRemoteSkillsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Latest desired-state actions for this target only.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ReconcileRemoteSkillsResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [{"TargetBearerAuth": []}],
+            }
+        },
+        "/v1/skill/remote/package/download": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Download the exact package desired by a remote target",
+                "description": "Return canonical ZIP "
+                "bytes only when target, "
+                "generation, Artifact "
+                "Revision, and package "
+                "reference all match.",
+                "operationId": "download_remote_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/DownloadRemoteSkillPackageRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Canonical exact package archive.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageDownload"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [{"TargetBearerAuth": []}],
+            }
+        },
+        "/v1/skill/remote/receipt": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Record an exact remote Skill delivery Receipt",
+                "description": "Update latest observed state only "
+                "after credential, generation, "
+                "Artifact, operation, and digest "
+                "validation.",
+                "operationId": "record_remote_skill_receipt",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RecordRemoteSkillReceiptRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Receipt acceptance and latest publication observation.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillReceiptResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [{"TargetBearerAuth": []}],
             }
         },
         "/v1/external-skills/scan": {
@@ -843,6 +1701,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/external-skills/list": {
@@ -882,6 +1741,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/external-skills/resolve": {
@@ -914,6 +1774,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/external-skills/import": {
@@ -947,6 +1808,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/artifact-candidates/list": {
@@ -975,6 +1837,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/artifact-candidates/get": {
@@ -1002,6 +1865,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/artifact-candidates/approve": {
@@ -1030,6 +1894,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/artifact-candidates/reject": {
@@ -1061,6 +1926,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/artifact-candidates/revise": {
@@ -1089,30 +1955,24 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/stats": {
-            "get": {
+            "post": {
                 "tags": ["stats"],
-                "summary": "Get scoped product statistics",
+                "summary": "Aggregate product statistics over a Scope selection",
                 "operationId": "get_stats",
-                "parameters": [
-                    {
-                        "name": "scope_id",
-                        "in": "query",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
-                    },
-                    {
-                        "name": "period",
-                        "in": "query",
-                        "required": False,
-                        "schema": {"$ref": "#/components/schemas/StatsPeriod"},
-                    },
-                ],
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GetStatsRequest"}}},
+                    "required": True,
+                },
                 "responses": {
                     "200": {
-                        "description": "Current inventory, model usage, and recall token estimates for the scope.",
+                        "description": "Current inventory, model "
+                        "usage, and recall token "
+                        "estimates for the frozen "
+                        "Scope set.",
                         "headers": {
                             "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
                             "Cache-Control": {
@@ -1128,6 +1988,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-scope-mode": "selection",
             }
         },
         "/v1/operations": {
@@ -1251,227 +2112,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
-        "/v1/handoff-reports/projects/create": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Create a Handoff Report Project",
-                "operationId": "create_handoff_report_project",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/CreateHandoffReportProjectRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "201": {
-                        "description": "The created Report Project.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProjectDescriptor"}}},
-                    },
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/projects/list": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "List Handoff Report Projects",
-                "operationId": "list_handoff_report_projects",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ListHandoffReportProjectsRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "A cursor-paginated page of Report Projects.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProjectPage"}}},
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/scopes/list-known": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "List scopes that contain a committed Handoff",
-                "operationId": "list_handoff_report_known_scopes",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ListHandoffReportKnownScopesRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "A cursor-paginated page of scopes that can be rendered as Handoff Reports.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/KnownHandoffScopePage"}}
-                        },
-                    },
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/projects/get": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Get a Handoff Report Project",
-                "operationId": "get_handoff_report_project",
-                "requestBody": {
-                    "content": {
-                        "application/json": {"schema": {"$ref": "#/components/schemas/GetHandoffReportProjectRequest"}}
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The exact current Report Project descriptor.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProjectDescriptor"}}},
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/projects/update": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Update a Handoff Report Project",
-                "operationId": "update_handoff_report_project",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/UpdateHandoffReportProjectRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The updated Report Project descriptor.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProjectDescriptor"}}},
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/workstreams/register": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Register a Handoff Report Workstream",
-                "operationId": "register_handoff_report_workstream",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/RegisterHandoffReportWorkstreamRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "201": {
-                        "description": "The registered Report Workstream.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/WorkstreamDescriptor"}}
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/workstreams/list": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "List Handoff Report Workstreams",
-                "operationId": "list_handoff_report_workstreams",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ListHandoffReportWorkstreamsRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "A cursor-paginated page of Report Workstreams.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WorkstreamPage"}}},
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/workstreams/update": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Update a Handoff Report Workstream",
-                "operationId": "update_handoff_report_workstream",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/UpdateHandoffReportWorkstreamRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The updated Report Workstream descriptor.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/WorkstreamDescriptor"}}
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
         "/v1/handoff-reports/get": {
             "post": {
                 "tags": ["handoff-reports"],
@@ -1518,191 +2158,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
-            }
-        },
-        "/v1/handoff-reports/activities/record": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Record a Handoff Report Activity",
-                "operationId": "record_handoff_report_activity",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/RecordHandoffReportActivityRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "201": {
-                        "description": "The idempotently recorded Report Activity.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/StoredHandoffReportActivity"}}
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/activities/list": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "List Handoff Report Activities",
-                "operationId": "list_handoff_report_activities",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/ListHandoffReportActivitiesRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "A frozen cursor page of Report Activities.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {"schema": {"$ref": "#/components/schemas/HandoffReportActivityPage"}}
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/activities/purge": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Purge Handoff Report Activities",
-                "operationId": "purge_handoff_report_activities",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/PurgeHandoffReportActivitiesRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The number of deleted Report-owned Activity rows.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/PurgeHandoffReportActivitiesResponse"}
-                            }
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/workspace-bindings/get": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Get a Handoff Report Workspace Binding",
-                "operationId": "get_handoff_report_workspace",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/GetHandoffReportWorkspaceRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The confirmed Workspace binding.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/HandoffReportWorkspaceBinding"}
-                            }
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/workspace-bindings/attach": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Attach a Handoff Report Workspace Binding",
-                "operationId": "attach_handoff_report_workspace",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/AttachHandoffReportWorkspaceRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The confirmed Workspace binding.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/HandoffReportWorkspaceBinding"}
-                            }
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
-            }
-        },
-        "/v1/handoff-reports/workspace-bindings/detach": {
-            "post": {
-                "tags": ["handoff-reports"],
-                "summary": "Detach a Handoff Report Workspace Binding",
-                "operationId": "detach_handoff_report_workspace",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": "#/components/schemas/DetachHandoffReportWorkspaceRequest"}
-                        }
-                    },
-                    "required": True,
-                },
-                "responses": {
-                    "200": {
-                        "description": "The detached Workspace binding record.",
-                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/HandoffReportWorkspaceBinding"}
-                            }
-                        },
-                    },
-                    "404": {"$ref": "#/components/responses/NotFound"},
-                    "409": {"$ref": "#/components/responses/Conflict"},
-                    "401": {"$ref": "#/components/responses/Unauthorized"},
-                    "429": {"$ref": "#/components/responses/RateLimited"},
-                    "422": {"$ref": "#/components/responses/InvalidRequest"},
-                    "500": {"$ref": "#/components/responses/InternalError"},
-                },
+                "x-powercontext-scope-mode": "selection",
             }
         },
     },
@@ -1734,6 +2190,235 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["family", "artifact_id", "revision"],
+            },
+            "ArtifactAddress": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
+            },
+            "PublishArtifactRequest": {
+                "properties": {
+                    "source": {"$ref": "#/components/schemas/ArtifactAddress"},
+                    "target_scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "idempotency_key": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source", "target_scope_id", "idempotency_key"],
+            },
+            "ArtifactPublication": {
+                "properties": {
+                    "source": {"$ref": "#/components/schemas/ArtifactAddress"},
+                    "target": {"$ref": "#/components/schemas/ArtifactAddress"},
+                    "content_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source", "target", "content_digest"],
+            },
+            "ScopeExternalReference": {
+                "properties": {
+                    "kind": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "value": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "value"],
+            },
+            "ScopeDescriptor": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "title": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "summary": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "parent_scope_id": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "context_references": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "uniqueItems": True,
+                    },
+                    "external_references": {
+                        "items": {"$ref": "#/components/schemas/ScopeExternalReference"},
+                        "type": "array",
+                        "uniqueItems": True,
+                    },
+                    "version": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "title", "summary", "context_references", "external_references", "version"],
+            },
+            "ScopePage": {
+                "properties": {"items": {"items": {"$ref": "#/components/schemas/ScopeDescriptor"}, "type": "array"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items"],
+            },
+            "CreateScopeRequest": {
+                "properties": {
+                    "title": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "summary": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "parent_scope_id": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "context_references": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "uniqueItems": True,
+                        "default": [],
+                    },
+                    "external_references": {
+                        "items": {"$ref": "#/components/schemas/ScopeExternalReference"},
+                        "type": "array",
+                        "uniqueItems": True,
+                        "default": [],
+                    },
+                    "idempotency_key": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["title", "summary", "idempotency_key"],
+            },
+            "UpdateScopeRequest": {
+                "properties": {
+                    "expected_version": {"type": "integer", "minimum": 1.0},
+                    "title": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "summary": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "parent_scope_id": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "context_references": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "uniqueItems": True,
+                        "default": [],
+                    },
+                    "external_references": {
+                        "items": {"$ref": "#/components/schemas/ScopeExternalReference"},
+                        "type": "array",
+                        "uniqueItems": True,
+                        "default": [],
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["expected_version", "title", "summary"],
+            },
+            "SetDefaultScopeRequest": {
+                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "AllScopeSelection": {
+                "properties": {"mode": {"type": "string", "enum": ["all"]}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["mode"],
+            },
+            "ExactScopeSelection": {
+                "properties": {
+                    "mode": {"type": "string", "enum": ["exact"]},
+                    "scope_ids": {
+                        "items": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["mode", "scope_ids"],
+            },
+            "SubtreeScopeSelection": {
+                "properties": {
+                    "mode": {"type": "string", "enum": ["subtree"]},
+                    "root_scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["mode", "root_scope_id"],
+            },
+            "ScopeSelection": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/AllScopeSelection"},
+                    {"$ref": "#/components/schemas/ExactScopeSelection"},
+                    {"$ref": "#/components/schemas/SubtreeScopeSelection"},
+                ],
+                "discriminator": {"propertyName": "mode"},
+            },
+            "ResolveScopeSelectionRequest": {
+                "properties": {"selection": {"$ref": "#/components/schemas/ScopeSelection"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["selection"],
+            },
+            "ScopeBindingKey": {
+                "properties": {
+                    "integration": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "kind": {"type": "string", "maxLength": 64, "minLength": 1, "pattern": ".*\\S.*"},
+                    "external_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["integration", "kind", "external_id"],
+            },
+            "ScopeBinding": {
+                "properties": {
+                    "key": {"$ref": "#/components/schemas/ScopeBindingKey"},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key", "scope_id"],
+            },
+            "SetScopeBindingRequest": {"$ref": "#/components/schemas/ScopeBinding"},
+            "ClearScopeBindingRequest": {
+                "properties": {"key": {"$ref": "#/components/schemas/ScopeBindingKey"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key"],
+            },
+            "ClearScopeBindingResponse": {
+                "properties": {"cleared": {"type": "boolean"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["cleared"],
+            },
+            "ResolveScopeBindingRequest": {
+                "properties": {
+                    "explicit_scope_id": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "binding_keys": {
+                        "items": {"$ref": "#/components/schemas/ScopeBindingKey"},
+                        "type": "array",
+                        "default": [],
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
             },
             "ArtifactCandidate": {
                 "properties": {
@@ -2103,26 +2788,39 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["period", "estimator", "totals", "daily"],
             },
-            "ScopedStats": {
+            "ScopeStats": {
                 "properties": {
                     "scope_id": {"type": "string"},
-                    "as_of": {"type": "string", "format": "date-time"},
                     "inventory": {"$ref": "#/components/schemas/InventoryStatistics"},
                     "usage": {"$ref": "#/components/schemas/UsageStatistics"},
                     "recall": {"$ref": "#/components/schemas/RecallTokenStatistics"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["scope_id", "as_of", "inventory", "usage", "recall"],
+                "required": ["scope_id", "inventory", "usage", "recall"],
+            },
+            "ScopedStats": {
+                "properties": {
+                    "selection": {"$ref": "#/components/schemas/ScopeSelection"},
+                    "scope_ids": {"items": {"type": "string"}, "type": "array", "uniqueItems": True},
+                    "as_of": {"type": "string", "format": "date-time"},
+                    "inventory": {"$ref": "#/components/schemas/InventoryStatistics"},
+                    "usage": {"$ref": "#/components/schemas/UsageStatistics"},
+                    "recall": {"$ref": "#/components/schemas/RecallTokenStatistics"},
+                    "by_scope": {"items": {"$ref": "#/components/schemas/ScopeStats"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["selection", "scope_ids", "as_of", "inventory", "usage", "recall", "by_scope"],
             },
             "GetStatsRequest": {
                 "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "selection": {"$ref": "#/components/schemas/ScopeSelection"},
                     "period": {"$ref": "#/components/schemas/StatsPeriod", "default": "30d"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["scope_id"],
+                "required": ["selection"],
             },
             "WorkClaimBasis": {"type": "string", "enum": ["declared", "verified"]},
             "WorkClaim": {
@@ -2409,6 +3107,133 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["status", "source", "position"],
+            },
+            "SourceProjectionKey": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version"],
+            },
+            "SourceProjectionManifest": {
+                "properties": {
+                    "key": {"$ref": "#/components/schemas/SourceProjectionKey"},
+                    "schema": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key", "schema"],
+            },
+            "SourceDefinitionManifest": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "source_schema": {"additionalProperties": True, "type": "object"},
+                    "projections": {
+                        "items": {"$ref": "#/components/schemas/SourceProjectionManifest"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version", "fingerprint", "source_schema", "projections"],
+            },
+            "RegisterSourceDefinitionRequest": {
+                "properties": {"manifest": {"$ref": "#/components/schemas/SourceDefinitionManifest"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["manifest"],
+            },
+            "ConnectorBinding": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "binding_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "connector_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "connector_version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "binding_id", "connector_name", "connector_version"],
+            },
+            "GetConnectorCheckpointRequest": {
+                "properties": {"binding": {"$ref": "#/components/schemas/ConnectorBinding"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding"],
+            },
+            "ConnectorCheckpointState": {
+                "properties": {
+                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
+                    "checkpoint": {"nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "checkpoint"],
+            },
+            "SourceProjectionValue": {
+                "properties": {"key": {"$ref": "#/components/schemas/SourceProjectionKey"}, "value": {}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key", "value"],
+            },
+            "SourceObservation": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "definition_version": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "materialization": {"type": "string", "enum": ["captured"]},
+                    "description": {"type": "string", "nullable": True},
+                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "definition_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "payload": {"additionalProperties": True, "type": "object"},
+                    "projections": {
+                        "items": {"$ref": "#/components/schemas/SourceProjectionValue"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "name",
+                    "definition_version",
+                    "materialization",
+                    "source_type",
+                    "definition_fingerprint",
+                    "payload",
+                    "projections",
+                ],
+            },
+            "SubmitSourceObservationRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "observation": {"$ref": "#/components/schemas/SourceObservation"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "observation"],
+            },
+            "SourceObservationReceipt": {
+                "properties": {
+                    "source": {"$ref": "#/components/schemas/SourceReference"},
+                    "position": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source", "position"],
+            },
+            "CommitConnectorCheckpointRequest": {
+                "properties": {
+                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
+                    "expected": {"nullable": True},
+                    "checkpoint": {"nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "expected", "checkpoint"],
             },
             "CommitHandoffRequest": {
                 "properties": {
@@ -2708,21 +3533,612 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["artifact", "content", "source_refs", "artifact_refs"],
             },
+            "SkillLifecycleState": {"type": "string", "enum": ["active", "deprecated", "retired"]},
+            "SkillGovernance": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "lifecycle_state": {"$ref": "#/components/schemas/SkillLifecycleState"},
+                    "replacement_artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "governance_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "lifecycle_state", "replacement_artifact_id", "governance_generation"],
+            },
+            "ManagedSkillLibraryEntry": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "content": {"$ref": "#/components/schemas/SkillProposal"},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "governance": {"$ref": "#/components/schemas/SkillGovernance"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "content", "source_refs", "artifact_refs", "governance"],
+            },
+            "ListManagedSkillsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "query": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "include_deprecated": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 100},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "ListManagedSkillsResponse": {
+                "properties": {
+                    "skills": {
+                        "items": {"$ref": "#/components/schemas/ManagedSkillLibraryEntry"},
+                        "type": "array",
+                        "maxItems": 200,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["skills"],
+            },
+            "UpdateSkillLifecycleRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                    "lifecycle_state": {"$ref": "#/components/schemas/SkillLifecycleState"},
+                    "replacement_artifact_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact_id", "expected_generation", "lifecycle_state"],
+            },
             "SkillProposal": {
                 "properties": {
                     "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
                     "description": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
-                    "instructions": {"type": "string", "maxLength": 32000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "instructions": {"type": "string", "maxLength": 131072},
                     "validation": {
                         "items": {"$ref": "#/components/schemas/SkillValidationItem"},
                         "type": "array",
                         "maxItems": 32,
+                    },
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference", "nullable": True},
+                    "license": {"type": "string", "maxLength": 512, "minLength": 1, "nullable": True},
+                    "compatibility": {"type": "string", "maxLength": 500, "minLength": 1, "nullable": True},
+                    "metadata": {"additionalProperties": {"type": "string"}, "type": "object", "maxProperties": 64},
+                    "allowed_tools": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "description", "instructions", "validation"],
+            },
+            "SkillPackageReference": {
+                "properties": {
+                    "tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "archive_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "file_count": {"type": "integer", "maximum": 256.0, "minimum": 1.0},
+                    "uncompressed_size": {"type": "integer", "maximum": 4194304.0, "minimum": 1.0},
+                    "archive_size": {"type": "integer", "maximum": 5242880.0, "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["tree_digest", "archive_digest", "file_count", "uncompressed_size", "archive_size"],
+            },
+            "SkillPackageFile": {
+                "properties": {
+                    "path": {"type": "string", "maxLength": 512, "minLength": 1},
+                    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "size": {"type": "integer", "maximum": 4194304.0, "minimum": 0.0},
+                    "media_type": {"type": "string", "maxLength": 255, "minLength": 1},
+                    "executable": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["path", "digest", "size", "media_type", "executable"],
+            },
+            "SkillPackageManifest": {
+                "properties": {
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                    "name": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "description": {"type": "string", "maxLength": 1024, "minLength": 1},
+                    "license": {"type": "string", "maxLength": 512, "minLength": 1, "nullable": True},
+                    "compatibility": {"type": "string", "maxLength": 500, "minLength": 1, "nullable": True},
+                    "metadata": {"additionalProperties": {"type": "string"}, "type": "object", "maxProperties": 64},
+                    "allowed_tools": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "files": {
+                        "items": {"$ref": "#/components/schemas/SkillPackageFile"},
+                        "type": "array",
+                        "maxItems": 256,
                         "minItems": 1,
                     },
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["name", "description", "instructions", "validation"],
+                "required": ["package", "name", "description", "metadata", "files"],
+            },
+            "GetSkillPackageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
+            },
+            "SkillPackageDownload": {
+                "properties": {
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                    "archive_base64": {
+                        "type": "string",
+                        "maxLength": 6990508,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["package", "archive_base64"],
+            },
+            "RemoteAgentKind": {"type": "string", "enum": ["codex", "claude_code"]},
+            "RemoteSkillTargetState": {"type": "string", "enum": ["pending", "active", "revoked"]},
+            "RemoteSkillTarget": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "display_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "agent_kind": {"$ref": "#/components/schemas/RemoteAgentKind"},
+                    "installation_scope": {"type": "string", "enum": ["project"]},
+                    "delivery_mode": {"type": "string", "enum": ["agent_pull"]},
+                    "installation_id": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "state": {"$ref": "#/components/schemas/RemoteSkillTargetState"},
+                    "receiver_version": {"type": "string", "maxLength": 64, "minLength": 1, "nullable": True},
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "machine_hostname": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "workspace_name": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "last_seen_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "target_id",
+                    "display_name",
+                    "agent_kind",
+                    "installation_scope",
+                    "delivery_mode",
+                    "installation_id",
+                    "state",
+                    "receiver_version",
+                    "environment_fingerprint",
+                    "machine_hostname",
+                    "workspace_name",
+                    "last_seen_at",
+                    "generation",
+                ],
+            },
+            "ListRemoteSkillTargetsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                        "nullable": True,
+                    },
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 100},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "RemoteSkillTargetStatus": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/RemoteSkillTarget"},
+                    "publications": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillPublication"},
+                        "type": "array",
+                        "maxItems": 256,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "publications"],
+            },
+            "ListRemoteSkillTargetsResponse": {
+                "properties": {
+                    "targets": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillTargetStatus"},
+                        "type": "array",
+                        "maxItems": 200,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["targets"],
+            },
+            "CreateRemoteSkillTargetRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "agent_kind": {"$ref": "#/components/schemas/RemoteAgentKind"},
+                    "display_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "agent_kind", "display_name"],
+            },
+            "RemoteSkillTargetEnrollment": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/RemoteSkillTarget"},
+                    "enrollment_code": {"type": "string", "maxLength": 256, "minLength": 32},
+                    "enrollment_expires_at": {"type": "string", "format": "date-time"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "enrollment_code", "enrollment_expires_at"],
+            },
+            "EnrollRemoteSkillTargetRequest": {
+                "properties": {
+                    "enrollment_code": {"type": "string", "maxLength": 256, "minLength": 32},
+                    "installation_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "receiver_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "machine_hostname": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "workspace_name": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["enrollment_code", "installation_id", "receiver_version"],
+            },
+            "RemoteSkillTargetCredential": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "target_id": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "agent_kind": {"$ref": "#/components/schemas/RemoteAgentKind"},
+                    "credential": {"type": "string", "maxLength": 256, "minLength": 32},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "agent_kind", "credential"],
+            },
+            "RevokeRemoteSkillTargetRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "expected_generation"],
+            },
+            "RenameRemoteSkillTargetRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "display_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "display_name", "expected_generation"],
+            },
+            "PublishRemoteSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "allow_deprecated": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "artifact", "expected_generation"],
+            },
+            "UnpublishRemoteSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "artifact_id", "expected_generation"],
+            },
+            "RemoteSkillDesiredState": {"type": "string", "enum": ["published", "unpublished"]},
+            "RemoteSkillPublicationState": {
+                "type": "string",
+                "enum": [
+                    "unpublished",
+                    "pending",
+                    "current",
+                    "update_available",
+                    "delivery_failed",
+                    "conflict",
+                    "drifted",
+                    "incompatible",
+                ],
+            },
+            "RemoteSkillPublication": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "artifact_id": {"type": "string"},
+                    "desired_state": {"$ref": "#/components/schemas/RemoteSkillDesiredState"},
+                    "desired_revision": {"type": "integer", "minimum": 1.0},
+                    "desired_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "observed_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "observed_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "observed_generation": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "state": {"$ref": "#/components/schemas/RemoteSkillPublicationState"},
+                    "last_error_code": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "observed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "target_id",
+                    "artifact_id",
+                    "desired_state",
+                    "desired_revision",
+                    "desired_tree_digest",
+                    "observed_revision",
+                    "observed_tree_digest",
+                    "observed_generation",
+                    "state",
+                    "last_error_code",
+                    "observed_at",
+                    "generation",
+                ],
+            },
+            "RemoteSkillObservation": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "actual_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "skill_name": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "applied_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "tree_digest", "actual_tree_digest", "skill_name", "applied_generation"],
+            },
+            "ReconcileRemoteSkillsRequest": {
+                "properties": {
+                    "observations": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillObservation"},
+                        "type": "array",
+                        "maxItems": 256,
+                    },
+                    "receiver_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["observations", "receiver_version"],
+            },
+            "RemoteSkillOperation": {"type": "string", "enum": ["install", "unpublish"]},
+            "RemoteSkillAction": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/RemoteSkillOperation"},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "skill_name": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference", "nullable": True},
+                    "expected_local": {"$ref": "#/components/schemas/RemoteSkillObservation", "nullable": True},
+                    "blocked_error_code": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "operation",
+                    "generation",
+                    "artifact",
+                    "tree_digest",
+                    "skill_name",
+                    "package",
+                    "expected_local",
+                    "blocked_error_code",
+                ],
+            },
+            "ReconcileRemoteSkillsResponse": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "actions": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillAction"},
+                        "type": "array",
+                        "maxItems": 256,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "actions"],
+            },
+            "DownloadRemoteSkillPackageRequest": {
+                "properties": {
+                    "generation": {"type": "integer", "minimum": 0.0},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["generation", "artifact", "package"],
+            },
+            "RemoteSkillReceiptOutcome": {"type": "string", "enum": ["succeeded", "failed"]},
+            "RemoteSkillFailureState": {
+                "type": "string",
+                "enum": ["delivery_failed", "conflict", "drifted", "incompatible"],
+            },
+            "RecordRemoteSkillReceiptRequest": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/RemoteSkillOperation"},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "expected_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "observed_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "outcome": {"$ref": "#/components/schemas/RemoteSkillReceiptOutcome"},
+                    "failure_state": {"$ref": "#/components/schemas/RemoteSkillFailureState", "nullable": True},
+                    "error_code": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "receiver_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "operation",
+                    "generation",
+                    "artifact",
+                    "expected_tree_digest",
+                    "observed_tree_digest",
+                    "outcome",
+                    "failure_state",
+                    "error_code",
+                    "receiver_version",
+                    "environment_fingerprint",
+                ],
+            },
+            "RemoteSkillReceiptResponse": {
+                "properties": {
+                    "accepted": {"type": "boolean"},
+                    "stale": {"type": "boolean"},
+                    "publication": {"$ref": "#/components/schemas/RemoteSkillPublication"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["accepted", "stale", "publication"],
+            },
+            "ProposeSkillPackageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "archive_base64": {
+                        "type": "string",
+                        "maxLength": 6990508,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    },
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "target": {
+                        "$ref": "#/components/schemas/ArtifactReference",
+                        "description": "Exact managed Skill Revision replaced by this complete package Candidate.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "archive_base64"],
+            },
+            "RecordSkillUsageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "observation_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "skill_ref": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "package_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "target_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "selected": {"type": "boolean"},
+                    "invoked": {"type": "string", "enum": ["true", "false", "unknown"]},
+                    "validation": {"type": "string", "enum": ["passed", "failed", "unknown"]},
+                    "outcome": {"type": "string", "enum": ["success", "failure", "unknown"]},
+                    "task_source": {"$ref": "#/components/schemas/SourceReference", "nullable": True},
+                    "environment_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "observation_id",
+                    "skill_ref",
+                    "package_digest",
+                    "target_id",
+                    "selected",
+                    "invoked",
+                    "validation",
+                    "outcome",
+                ],
             },
             "SkillValidationItem": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
             "ExternalSkillRegistration": {
@@ -2877,142 +4293,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "artifact"],
             },
-            "CreateHandoffReportProjectRequest": {
-                "properties": {
-                    "project_key": {"type": "string", "maxLength": 64, "minLength": 1},
-                    "title": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "description": {"type": "string", "maxLength": 2000, "nullable": True},
-                    "default_locale": {"$ref": "#/components/schemas/ReportLocale", "default": "zh-CN"},
-                    "timezone": {"type": "string", "maxLength": 256, "minLength": 1, "default": "UTC"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project_key", "title"],
-            },
-            "ListHandoffReportProjectsRequest": {
-                "properties": {
-                    "cursor": {"type": "string", "nullable": True},
-                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
-                    "include_archived": {"type": "boolean", "default": False},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "GetHandoffReportProjectRequest": {
-                "properties": {"project_id": {"type": "string", "maxLength": 256, "minLength": 1}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project_id"],
-            },
-            "UpdateHandoffReportProjectRequest": {
-                "properties": {
-                    "project": {"$ref": "#/components/schemas/ProjectDescriptor"},
-                    "expected_version": {"type": "integer", "minimum": 1.0},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project", "expected_version"],
-            },
-            "RegisterHandoffReportWorkstreamRequest": {
-                "properties": {
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "key": {"type": "string", "maxLength": 64, "minLength": 1, "nullable": True},
-                    "title": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "kind": {"$ref": "#/components/schemas/WorkstreamKind"},
-                    "catalog_state": {"$ref": "#/components/schemas/ReportCatalogState", "default": "included"},
-                    "external_refs": {
-                        "items": {"$ref": "#/components/schemas/HandoffReportExternalReference"},
-                        "type": "array",
-                        "maxItems": 32,
-                        "default": [],
-                    },
-                    "labels": {
-                        "items": {"type": "string", "maxLength": 128, "minLength": 1},
-                        "type": "array",
-                        "maxItems": 32,
-                        "default": [],
-                    },
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project_id", "scope_id", "title", "kind"],
-            },
-            "ListHandoffReportWorkstreamsRequest": {
-                "properties": {
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "cursor": {"type": "string", "nullable": True},
-                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
-                    "include_archived": {"type": "boolean", "default": False},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project_id"],
-            },
-            "UpdateHandoffReportWorkstreamRequest": {
-                "properties": {
-                    "workstream": {"$ref": "#/components/schemas/WorkstreamDescriptor"},
-                    "expected_version": {"type": "integer", "minimum": 1.0},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["workstream", "expected_version"],
-            },
             "GetHandoffReportRequest": {
                 "properties": {
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "project_id": {
-                        "type": "string",
-                        "maxLength": 256,
-                        "minLength": 1,
-                        "description": "Retained for wire compatibility and ignored when generating a scope report.",
-                        "deprecated": True,
-                        "nullable": True,
-                    },
-                    "locale": {"$ref": "#/components/schemas/ReportLocale", "nullable": True},
-                    "include_evidence_checks": {"type": "boolean", "default": True},
-                    "format": {"$ref": "#/components/schemas/ReportFormat", "default": "markdown"},
-                    "include_archived": {"type": "boolean", "default": False},
+                    "selection": {"$ref": "#/components/schemas/ScopeSelection"},
+                    "format": {"$ref": "#/components/schemas/ReportFormat", "default": "json"},
                     "download": {"type": "boolean", "default": False},
-                    "period": {"$ref": "#/components/schemas/HandoffReportPeriodRequest", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["scope_id"],
-            },
-            "ListHandoffReportKnownScopesRequest": {
-                "properties": {
-                    "cursor": {"type": "string", "nullable": True},
-                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "KnownHandoffScope": {
-                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["scope_id"],
-            },
-            "KnownHandoffScopePage": {
-                "properties": {
-                    "items": {"items": {"$ref": "#/components/schemas/KnownHandoffScope"}, "type": "array"},
-                    "next_cursor": {"type": "string", "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["items"],
-            },
-            "HandoffReportPeriodRequest": {
-                "properties": {
-                    "start": {"type": "string", "format": "date-time"},
-                    "end": {"type": "string", "format": "date-time"},
-                    "timezone": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "compare_to_previous_period": {"type": "boolean", "default": False},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["start", "end"],
+                "required": ["selection"],
             },
             "HandoffReportResponse": {
                 "properties": {
@@ -3026,326 +4315,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["format", "report", "markdown", "selection_digest", "report_digest"],
             },
-            "ReportActivitySource": {
-                "type": "string",
-                "enum": ["handoff_observation", "git_commit", "git_worktree", "coding_session", "other"],
-            },
-            "ReportTimeBasis": {
-                "type": "string",
-                "enum": ["source_reported", "host_observed", "first_seen", "current_only", "unknown"],
-            },
-            "HandoffReportActivityAgent": {
-                "properties": {
-                    "provider": {"type": "string", "maxLength": 64, "minLength": 1, "nullable": True},
-                    "label": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "HandoffReportActivityVcsContext": {
-                "properties": {
-                    "branch": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "head_revision": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-            },
-            "RecordHandoffReportActivityRequest": {
-                "properties": {
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "source": {"$ref": "#/components/schemas/ReportActivitySource"},
-                    "source_event_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "source_ref": {"$ref": "#/components/schemas/HandoffReportExternalReference", "nullable": True},
-                    "occurred_at": {"type": "string", "format": "date-time", "nullable": True},
-                    "time_basis": {"$ref": "#/components/schemas/ReportTimeBasis"},
-                    "title": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "summary": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
-                    "agent": {"$ref": "#/components/schemas/HandoffReportActivityAgent", "nullable": True},
-                    "session_id": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "vcs_context": {"$ref": "#/components/schemas/HandoffReportActivityVcsContext", "nullable": True},
-                    "evidence_refs": {
-                        "items": {"$ref": "#/components/schemas/HandoffReportExternalReference"},
-                        "type": "array",
-                        "maxItems": 32,
-                        "default": [],
-                    },
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project_id", "source", "source_event_id", "time_basis"],
-            },
-            "HandoffReportActivity": {
-                "properties": {
-                    "schema": {"type": "string", "enum": ["powercontext.handoff-report-activity.v1"]},
-                    "event_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "source": {"$ref": "#/components/schemas/ReportActivitySource"},
-                    "source_event_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "source_ref": {"$ref": "#/components/schemas/HandoffReportExternalReference", "nullable": True},
-                    "occurred_at": {"type": "string", "format": "date-time", "nullable": True},
-                    "observed_at": {"type": "string", "format": "date-time"},
-                    "time_basis": {"$ref": "#/components/schemas/ReportTimeBasis"},
-                    "title": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "summary": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
-                    "agent": {"$ref": "#/components/schemas/HandoffReportActivityAgent", "nullable": True},
-                    "session_id": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "vcs_context": {"$ref": "#/components/schemas/HandoffReportActivityVcsContext", "nullable": True},
-                    "evidence_refs": {
-                        "items": {"$ref": "#/components/schemas/HandoffReportExternalReference"},
-                        "type": "array",
-                        "maxItems": 32,
-                    },
-                    "trust": {"type": "string", "enum": ["untrusted_observation"]},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": [
-                    "schema",
-                    "event_id",
-                    "project_id",
-                    "scope_id",
-                    "source",
-                    "source_event_id",
-                    "source_ref",
-                    "occurred_at",
-                    "observed_at",
-                    "time_basis",
-                    "title",
-                    "summary",
-                    "agent",
-                    "session_id",
-                    "vcs_context",
-                    "evidence_refs",
-                    "trust",
-                ],
-            },
-            "StoredHandoffReportActivity": {
-                "properties": {
-                    "cursor": {"type": "integer", "minimum": 1.0},
-                    "event": {"$ref": "#/components/schemas/HandoffReportActivity"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["cursor", "event"],
-            },
-            "ListHandoffReportActivitiesRequest": {
-                "properties": {
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "period_start": {"type": "string", "format": "date-time", "nullable": True},
-                    "period_end": {"type": "string", "format": "date-time", "nullable": True},
-                    "sources": {
-                        "items": {"$ref": "#/components/schemas/ReportActivitySource"},
-                        "type": "array",
-                        "maxItems": 5,
-                        "nullable": True,
-                    },
-                    "after_cursor": {"type": "integer", "minimum": 0.0, "default": 0},
-                    "through_cursor": {"type": "integer", "minimum": 0.0, "nullable": True},
-                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project_id"],
-            },
-            "HandoffReportActivityPage": {
-                "properties": {
-                    "items": {
-                        "items": {"$ref": "#/components/schemas/HandoffReportActivity"},
-                        "type": "array",
-                        "maxItems": 100,
-                    },
-                    "next_cursor": {"type": "integer", "minimum": 1.0, "nullable": True},
-                    "high_watermark": {"type": "integer", "minimum": 0.0},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["items", "next_cursor", "high_watermark"],
-            },
-            "PurgeHandoffReportActivitiesRequest": {
-                "properties": {
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "observed_before": {"type": "string", "format": "date-time"},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["project_id", "observed_before"],
-            },
-            "PurgeHandoffReportActivitiesResponse": {
-                "properties": {"deleted_count": {"type": "integer", "minimum": 0.0}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["deleted_count"],
-            },
-            "HandoffReportRepositoryRef": {
-                "properties": {
-                    "provider": {"type": "string", "enum": ["github", "gitlab", "local", "other"]},
-                    "repository_id": {"type": "string", "maxLength": 256, "minLength": 1, "nullable": True},
-                    "normalized_remote": {"type": "string", "maxLength": 2048, "minLength": 1, "nullable": True},
-                    "subpath": {"type": "string", "maxLength": 1024, "minLength": 1, "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["provider", "repository_id", "normalized_remote", "subpath"],
-            },
-            "HandoffReportWorkspaceBinding": {
-                "properties": {
-                    "schema": {"type": "string", "enum": ["powercontext.workspace-binding.v1"]},
-                    "workspace_instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "repository_ref": {"$ref": "#/components/schemas/HandoffReportRepositoryRef"},
-                    "state": {"type": "string", "enum": ["confirmed", "detached"]},
-                    "confirmed_at": {"type": "string", "format": "date-time"},
-                    "version": {"type": "integer", "minimum": 1.0},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": [
-                    "schema",
-                    "workspace_instance_id",
-                    "project_id",
-                    "repository_ref",
-                    "state",
-                    "confirmed_at",
-                    "version",
-                ],
-            },
-            "GetHandoffReportWorkspaceRequest": {
-                "properties": {"workspace_instance_id": {"type": "string", "maxLength": 256, "minLength": 1}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["workspace_instance_id"],
-            },
-            "AttachHandoffReportWorkspaceRequest": {
-                "properties": {
-                    "workspace_instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "repository_ref": {"$ref": "#/components/schemas/HandoffReportRepositoryRef"},
-                    "expected_version": {"type": "integer", "minimum": 1.0, "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["workspace_instance_id", "project_id", "repository_ref", "expected_version"],
-            },
-            "DetachHandoffReportWorkspaceRequest": {
-                "properties": {
-                    "workspace_instance_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "expected_version": {"type": "integer", "minimum": 1.0},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["workspace_instance_id", "expected_version"],
-            },
-            "ProjectDescriptor": {
-                "properties": {
-                    "schema": {"type": "string", "enum": ["powercontext.project.v1"]},
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "project_key": {"type": "string", "maxLength": 64, "minLength": 1},
-                    "title": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "description": {"type": "string", "maxLength": 2000, "nullable": True},
-                    "default_locale": {"$ref": "#/components/schemas/ReportLocale"},
-                    "timezone": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "catalog_state": {"$ref": "#/components/schemas/ReportCatalogState"},
-                    "version": {"type": "integer", "minimum": 1.0},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": [
-                    "schema",
-                    "project_id",
-                    "project_key",
-                    "title",
-                    "description",
-                    "default_locale",
-                    "timezone",
-                    "catalog_state",
-                    "version",
-                ],
-            },
-            "ProjectPage": {
-                "properties": {
-                    "items": {
-                        "items": {"$ref": "#/components/schemas/ProjectDescriptor"},
-                        "type": "array",
-                        "maxItems": 100,
-                    },
-                    "next_cursor": {"type": "string", "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["items", "next_cursor"],
-            },
-            "WorkstreamDescriptor": {
-                "properties": {
-                    "schema": {"type": "string", "enum": ["powercontext.workstream.v1"]},
-                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "project_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "key": {"type": "string", "maxLength": 64, "nullable": True},
-                    "title": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "kind": {"$ref": "#/components/schemas/WorkstreamKind"},
-                    "catalog_state": {"$ref": "#/components/schemas/ReportCatalogState"},
-                    "external_refs": {
-                        "items": {"$ref": "#/components/schemas/HandoffReportExternalReference"},
-                        "type": "array",
-                        "maxItems": 32,
-                    },
-                    "labels": {
-                        "items": {"type": "string", "maxLength": 128, "minLength": 1},
-                        "type": "array",
-                        "maxItems": 32,
-                    },
-                    "version": {"type": "integer", "minimum": 1.0},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": [
-                    "schema",
-                    "scope_id",
-                    "project_id",
-                    "key",
-                    "title",
-                    "kind",
-                    "catalog_state",
-                    "external_refs",
-                    "labels",
-                    "version",
-                ],
-            },
-            "WorkstreamPage": {
-                "properties": {
-                    "items": {
-                        "items": {"$ref": "#/components/schemas/WorkstreamDescriptor"},
-                        "type": "array",
-                        "maxItems": 100,
-                    },
-                    "next_cursor": {"type": "string", "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["items", "next_cursor"],
-            },
-            "HandoffReportExternalReference": {
-                "properties": {
-                    "kind": {
-                        "type": "string",
-                        "enum": ["issue", "task", "pull_request", "branch", "feature", "release", "program", "other"],
-                    },
-                    "provider": {"type": "string", "maxLength": 64, "minLength": 1},
-                    "external_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "url": {"type": "string", "maxLength": 2048, "nullable": True},
-                },
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["kind", "provider", "external_id", "url"],
-            },
-            "ReportLocale": {"type": "string", "enum": ["zh-CN", "en"]},
             "ReportFormat": {"type": "string", "enum": ["json", "markdown"]},
-            "ReportCatalogState": {"type": "string", "enum": ["included", "archived"]},
-            "WorkstreamKind": {
-                "type": "string",
-                "enum": ["feature", "bug", "refactor", "operations", "research", "other"],
-            },
             "HealthResponse": {
                 "properties": {"status": {"type": "string"}},
                 "additionalProperties": False,
@@ -3994,12 +4964,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["items"],
             },
-            "GetOperationRequest": {
-                "properties": {"operation_id": {"type": "string", "format": "uuid"}},
-                "additionalProperties": False,
-                "type": "object",
-                "required": ["operation_id"],
-            },
             "ListOperationsRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
@@ -4115,7 +5079,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "http",
                 "description": "Static bearer token used when local Server authentication is enabled.",
                 "scheme": "bearer",
-            }
+            },
+            "TargetBearerAuth": {
+                "type": "http",
+                "description": "Per-target credential issued once during remote Receiver enrollment.",
+                "scheme": "bearer",
+            },
         },
     },
     "security": [{"BearerAuth": []}, {}],

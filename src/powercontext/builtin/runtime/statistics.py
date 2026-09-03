@@ -31,6 +31,7 @@ from powercontext.builtin.persistence.statistics import (
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
+from powercontext.builtin.scope import ScopeSelection
 from powercontext.builtin.statistics import (
     ArtifactInventoryStatistics,
     CandidateFamilyCount,
@@ -51,6 +52,7 @@ from powercontext.builtin.statistics import (
     RecallTokenStatistics,
     RecallTokenValue,
     ResolvedUsagePeriod,
+    ScopeStatistics,
     SourceInventoryStatistics,
     Statistics,
     StatisticsPeriod,
@@ -123,24 +125,36 @@ class RelationalScopedStatistics:
         processed = 0 if cursor is None else cursor.cursor.sequence
         artifacts = tuple(FamilyCount(family=family, total=total) for family, total in stored_inventory.artifacts)
         candidates = _candidate_inventory(stored_inventory.candidates)
-        return Statistics(
-            scope_id=self._scope_id,
-            as_of=captured_at,
-            inventory=InventoryStatistics(
-                sources=SourceInventoryStatistics(
-                    total=stored_inventory.sources,
-                    memory_processed=processed,
-                    memory_pending=max(stored_inventory.sources - processed, 0),
-                ),
-                artifacts=ArtifactInventoryStatistics(
-                    total=sum(item.total for item in artifacts),
-                    by_family=artifacts,
-                ),
-                candidates=candidates,
-                memory=MemoryInventoryStatistics(entries=_memory_inventory(memory_entries)),
+        inventory = InventoryStatistics(
+            sources=SourceInventoryStatistics(
+                total=stored_inventory.sources,
+                memory_processed=processed,
+                memory_pending=max(stored_inventory.sources - processed, 0),
             ),
-            usage=_usage_statistics(resolved_period, usage_rows),
-            recall=_recall_statistics(resolved_period, self._token_estimator, recall_rows),
+            artifacts=ArtifactInventoryStatistics(
+                total=sum(item.total for item in artifacts),
+                by_family=artifacts,
+            ),
+            candidates=candidates,
+            memory=MemoryInventoryStatistics(entries=_memory_inventory(memory_entries)),
+        )
+        usage = _usage_statistics(resolved_period, usage_rows)
+        recall = _recall_statistics(resolved_period, self._token_estimator, recall_rows)
+        return Statistics(
+            selection=ScopeSelection(mode="exact", scope_ids=(self._scope_id,)),
+            scope_ids=(self._scope_id,),
+            as_of=captured_at,
+            inventory=inventory,
+            usage=usage,
+            recall=recall,
+            by_scope=(
+                ScopeStatistics(
+                    scope_id=self._scope_id,
+                    inventory=inventory,
+                    usage=usage,
+                    recall=recall,
+                ),
+            ),
         )
 
     async def record(

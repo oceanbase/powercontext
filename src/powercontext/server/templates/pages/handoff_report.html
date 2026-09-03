@@ -25,485 +25,65 @@
 {% set status_title = "Handoff Report" %}
 {% include "components/status.html" %}
 
-<section
-  class="server-content report-preview"
-  id="handoff-report-preview"
-  aria-labelledby="preview-title"
-  aria-describedby="preview-notice"
-  hidden
->
-  <div class="hero report-hero report-preview-hero">
-    <div>
-      <p class="page-kind" data-i18n="handoffReportTitle">Handoff Report</p>
-      <div class="report-preview-title">
-        <h1 id="preview-title" data-i18n="previewReportTitle">Handoff Report template</h1>
-        <span class="report-preview-badge" data-i18n="preview">Preview</span>
-      </div>
-    </div>
-    <button class="primary-button" id="preview-retry" type="button" data-i18n="retry">Retry</button>
-  </div>
-
-  <section class="report-preview-notice" role="status" aria-live="polite">
-    <div>
-      <h2 data-i18n="noProjects">No scope contains a committed Handoff.</h2>
-      <p id="preview-notice" data-i18n="previewNotice">
-        This data-free preview shows the report's main Handoff sections. Values shown as “—” do not represent real Project status.
-      </p>
-      <p class="report-preview-hint" data-i18n="previewRetryHint">Configure a Project, then retry to load its report.</p>
-    </div>
-  </section>
-
-  <section class="data-section" aria-labelledby="preview-summary-title">
-    <div class="section-heading">
-      <div>
-        <h2 id="preview-summary-title" data-i18n="previewProjectSummary">Project summary and scope</h2>
-        <p data-i18n="previewProjectSummarySubtitle">Project identity, selected scope, and reporting period</p>
-      </div>
-    </div>
-    <dl class="report-preview-details">
-      <div>
-        <dt data-i18n="previewProject">Project</dt>
-        <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-      </div>
-      <div>
-        <dt data-i18n="previewScope">Scope</dt>
-        <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-      </div>
-      <div>
-        <dt data-i18n="reportPeriod">Report period</dt>
-        <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-      </div>
-    </dl>
-  </section>
-
-  <section class="report-overview" aria-label="Handoff summary" data-i18n-aria-label="handoffSummary">
-    <div class="report-metric status-continuable">
-      <span data-i18n="continuable">Continuable</span>
-      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
-    </div>
-    <div class="report-metric status-blocked">
-      <span data-i18n="blocked">Blocked</span>
-      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
-    </div>
-    <div class="report-metric status-complete">
-      <span data-i18n="complete">Complete</span>
-      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
-    </div>
-    <div class="report-metric status-no-handoff">
-      <span data-i18n="noHandoff">No Handoff</span>
-      <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
-    </div>
-  </section>
-
-  <section
-    class="data-section report-preview-workstream-browser workstream-browser"
-    aria-labelledby="preview-workstreams-title"
-  >
-    <div class="section-heading">
-      <div>
-        <h2 id="preview-workstreams-title" data-i18n="previewWorkstreamsTitle">Workstreams and Handoff</h2>
-        <p data-i18n="previewWorkstreamsSubtitle">Current Handoff state and continuation content for each scope</p>
-      </div>
-    </div>
-    <div class="workstream-browser-layout">
-      <nav
-        class="workstream-list-panel"
-        aria-label="Workstream navigation"
-        data-i18n-aria-label="workstreamNavigation"
-      >
-        <div class="workstream-list">
-          <div class="workstream-list-item report-preview-workstream-item" aria-current="true">
-            <span class="workstream-list-item-header">
-              <strong data-i18n="workstream">Workstream</strong>
-              <span
-                class="status-badge status-preview preview-placeholder"
-                data-preview-placeholder
-                data-i18n="previewPlaceholder"
-              >—</span>
-            </span>
-            <code class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</code>
-          </div>
-        </div>
-      </nav>
-      <article class="handoff-snapshot" aria-labelledby="preview-handoff-contents-title">
-        <div class="snapshot-heading">
-          <div>
-            <p class="snapshot-label" data-i18n="currentSnapshot">Current Handoff snapshot</p>
-            <h3 id="preview-handoff-contents-title" data-i18n="handoffContents">Handoff content</h3>
-            <p data-i18n="previewHandoffContentsSubtitle">
-              Objective, current state, disposition, next action, and known omissions
-            </p>
-          </div>
-        </div>
-        <div class="handoff-content-list">
-          <div class="handoff-content-card report-preview-card">
-            <header>
-              <div>
-                <h4 class="handoff-content-title" data-i18n="workstream">Workstream</h4>
-                <code class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</code>
-              </div>
-              <div class="handoff-snapshot-state">
-                <span
-                  class="status-badge status-preview preview-placeholder"
-                  data-preview-placeholder
-                  data-i18n="previewPlaceholder"
-                >—</span>
-                <code class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</code>
-              </div>
-            </header>
-            <section class="handoff-content-block">
-              <header><h4 data-i18n="objective">Objective</h4></header>
-              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
-            </section>
-            <section class="handoff-content-block">
-              <header><h4 data-i18n="currentState">Current state</h4></header>
-              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
-            </section>
-            <section class="handoff-content-block">
-              <header><h4 data-i18n="disposition">Disposition</h4></header>
-              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
-            </section>
-            <section class="handoff-content-block">
-              <header><h4 data-i18n="nextAction">Next action</h4></header>
-              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
-            </section>
-            <section class="handoff-content-block">
-              <header><h4 data-i18n="omissions">Known omissions</h4></header>
-              <p class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</p>
-            </section>
-          </div>
-        </div>
-        <details class="continuity-panel">
-          <summary class="continuity-panel-summary">
-            <div>
-              <h3 data-i18n="continuityTimeline">Continuity timeline</h3>
-              <p data-i18n="continuityOrderNote">Ordered by Source journal position, not wall-clock time.</p>
-            </div>
-            <div class="continuity-states">
-              <div class="result-coverage">
-                <span data-i18n="transferState">Transfer</span>
-                <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
-              </div>
-              <div class="result-coverage">
-                <span data-i18n="outcomeState">Outcome</span>
-                <strong class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</strong>
-              </div>
-            </div>
-          </summary>
-        </details>
-      </article>
-    </div>
-  </section>
-
-  <section
-    class="data-section report-preview-activity activity-section"
-    aria-labelledby="preview-activity-title"
-  >
-    <div class="section-heading">
-      <div>
-        <h2 id="preview-activity-title" data-i18n="activity">Activity</h2>
-        <p data-i18n="previewActivitySubtitle">
-          Coverage and period comparison become available with a real Project report.
-        </p>
-      </div>
-    </div>
-    <section class="coverage-strip report-preview-coverage" aria-labelledby="preview-coverage-title">
-      <div>
-        <h3 id="preview-coverage-title" data-i18n="coverage">Report coverage</h3>
-        <p data-i18n="previewCoverageDescription">Coverage values appear here after a Project report is available.</p>
-      </div>
-      <dl>
-        <div>
-          <dt data-i18n="workstreams">Workstreams</dt>
-          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-        </div>
-        <div>
-          <dt data-i18n="activities">Activities</dt>
-          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-        </div>
-        <div>
-          <dt data-i18n="evidenceUnavailable">Evidence unavailable</dt>
-          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-        </div>
-      </dl>
-    </section>
-    <section class="activity-breakdown" aria-labelledby="preview-activity-comparison-title">
-      <h3 id="preview-activity-comparison-title" data-i18n="previewActivityComparison">
-        Activity and period comparison
-      </h3>
-      <p data-i18n="previewActivityComparisonSubtitle">Observed Activity in the selected and previous periods</p>
-      <dl class="report-preview-comparison">
-        <div>
-          <dt data-i18n="previewCurrentPeriod">Current period</dt>
-          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-        </div>
-        <div>
-          <dt data-i18n="previewPreviousPeriod">Previous period</dt>
-          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-        </div>
-        <div>
-          <dt data-i18n="previewChange">Change</dt>
-          <dd class="preview-placeholder" data-preview-placeholder data-i18n="previewPlaceholder">—</dd>
-        </div>
-      </dl>
-    </section>
-  </section>
-</section>
-
 <section class="server-content" id="handoff-report" hidden>
   <div class="hero report-hero">
     <div>
       <p class="page-kind" data-i18n="handoffReportTitle">Handoff Report</p>
-      <h1 id="project-name"></h1>
+      <h1 data-i18n="scopeHandoffState">Scope Handoff state</h1>
+      <p data-i18n="reportDescription">An exact Handoff projection over the selected Scope view.</p>
     </div>
-    <div class="report-hero-controls">
-      <div class="scope-picker report-project-picker">
-        <label for="project-search" data-i18n="projects">Scopes</label>
-        <div class="project-combobox" id="project-combobox">
-          <input
-            id="project-search"
-            type="search"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls="project-options"
-            aria-expanded="false"
-            autocomplete="off"
-            spellcheck="false"
-            data-i18n-placeholder="searchProjectsPlaceholder"
-            placeholder="Search by scope ID"
-          >
-          <div class="project-options" id="project-options" role="listbox" hidden></div>
-        </div>
-        <span class="project-search-status" id="project-search-status" role="status" aria-live="polite"></span>
-      </div>
-      <div class="report-actions">
-        <button class="secondary-button page-button" id="refresh-report" type="button" data-i18n="refresh">Refresh</button>
-        <button class="primary-button" id="download-report" type="button" data-i18n="downloadMarkdown">Download Markdown</button>
-        <div class="hero-meta">
-          <span id="report-updated"></span>
-          <span id="auto-refresh-status" data-state="active" role="status" aria-live="polite"></span>
-        </div>
-      </div>
+    <div class="hero-actions">
+      <button class="secondary-button" id="download-report" type="button" data-i18n="downloadMarkdown">Download Markdown</button>
+      <button class="primary-button" id="refresh-report" type="button" data-i18n="refresh">Refresh</button>
     </div>
   </div>
 
-  <div class="report-error" id="report-error" role="alert" aria-live="polite"></div>
+  <section class="data-section" aria-labelledby="scope-view-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="scope-view-title" data-i18n="scopeView">Scope view</h2>
+        <p data-i18n="scopeViewDescription">All, subtree, and exact use the same selection semantics as Dashboard.</p>
+      </div>
+      <label>
+        <span data-i18n="selectScope">Scope</span>
+        <select id="scope-select"></select>
+      </label>
+    </div>
+  </section>
 
   <section class="report-overview" aria-label="Handoff summary" data-i18n-aria-label="handoffSummary">
-    <div class="report-metric status-continuable">
-      <span data-i18n="continuable">Continuable</span>
-      <strong id="continuable-count">0</strong>
-    </div>
-    <div class="report-metric status-blocked">
-      <span data-i18n="blocked">Blocked</span>
-      <strong id="blocked-count">0</strong>
-    </div>
-    <div class="report-metric status-complete">
-      <span data-i18n="complete">Complete</span>
-      <strong id="complete-count">0</strong>
-    </div>
-    <div class="report-metric status-no-handoff">
-      <span data-i18n="noHandoff">No Handoff</span>
-      <strong id="no-handoff-count">0</strong>
-    </div>
+    <div class="report-metric status-continuable"><span data-i18n="continuable">Continuable</span><strong id="continuable-count">0</strong></div>
+    <div class="report-metric status-blocked"><span data-i18n="blocked">Blocked</span><strong id="blocked-count">0</strong></div>
+    <div class="report-metric status-complete"><span data-i18n="complete">Complete</span><strong id="complete-count">0</strong></div>
+    <div class="report-metric status-no-handoff"><span data-i18n="noHandoff">No Handoff</span><strong id="no-handoff-count">0</strong></div>
   </section>
 
-  <section class="data-section" id="blockers-section" aria-labelledby="blockers-title" hidden>
+  <section class="data-section" aria-labelledby="scope-results-title">
     <div class="section-heading">
       <div>
-        <h2 id="blockers-title" data-i18n="blockers">Blockers</h2>
-        <p data-i18n="blockersSubtitle">Workstreams that cannot be continued without intervention</p>
+        <h2 id="scope-results-title" data-i18n="selectedScopes">Selected Scopes</h2>
+        <p data-i18n="selectedScopesDescription">Parent describes organization; each row reports only that Scope's exact latest Handoff.</p>
       </div>
     </div>
-    <div class="blocker-list" id="blocker-list"></div>
-  </section>
-
-  <section class="data-section workstream-browser" aria-labelledby="workstreams-title">
-    <div class="section-heading">
-      <div>
-        <h2 id="workstreams-title" data-i18n="workstreams">Workstreams</h2>
-        <p data-i18n="workstreamsSubtitle">Exact Handoff state and the next action for each scope</p>
-      </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th data-i18n="scope">Scope</th>
+          <th data-i18n="parent">Parent</th>
+          <th data-i18n="status">Status</th>
+          <th data-i18n="objective">Objective</th>
+          <th data-i18n="nextAction">Next action</th>
+          <th data-i18n="exactRevision">Exact Revision</th>
+        </tr></thead>
+        <tbody id="scope-report-rows"></tbody>
+      </table>
     </div>
-    <div class="workstream-browser-layout">
-      <div class="workstream-switcher-toolbar" id="workstream-switcher-toolbar" hidden>
-        <label class="workstream-search" id="workstream-search-field" for="workstream-search" hidden>
-          <span class="screen-reader-only" data-i18n="searchWorkstreams">Search Workstreams</span>
-          <input
-            id="workstream-search"
-            type="search"
-            autocomplete="off"
-            spellcheck="false"
-            data-i18n-placeholder="searchWorkstreamsPlaceholder"
-            placeholder="Search by name or scope"
-          >
-        </label>
-        <div
-          class="workstream-switcher-navigation"
-          id="workstream-switcher-navigation"
-          data-i18n-aria-label="workstreamPagination"
-          aria-label="Workstream pagination"
-          hidden
-        >
-          <button class="workstream-navigation-button" id="previous-workstream" type="button" data-i18n="previousWorkstream">
-            Previous
-          </button>
-          <span class="workstream-position" id="workstream-position" role="status" aria-live="polite"></span>
-          <button class="workstream-navigation-button" id="next-workstream" type="button" data-i18n="nextWorkstream">
-            Next
-          </button>
-        </div>
-      </div>
-      <nav class="workstream-list-panel" data-i18n-aria-label="workstreamNavigation" aria-label="Workstream navigation">
-        <div class="workstream-list" id="workstream-list"></div>
-        <div class="empty-state" id="workstream-empty" data-i18n="noWorkstreams" hidden>
-          No Workstreams are registered for this Project.
-        </div>
-        <div class="empty-state" id="workstream-filter-empty" data-i18n="noMatchingWorkstreams" hidden>
-          No Workstreams match this search.
-        </div>
-      </nav>
-      <article class="handoff-snapshot" id="handoff-snapshot" aria-labelledby="handoff-contents-title">
-        <div class="snapshot-heading">
-          <div>
-            <p class="snapshot-label" data-i18n="currentSnapshot">Current Handoff snapshot</p>
-            <h3 id="handoff-contents-title" data-i18n="handoffContents">Handoff content</h3>
-            <p data-i18n="handoffContentsSubtitle">
-              Edit the Handoff as one document. Every save creates a new Handoff Revision.
-            </p>
-          </div>
-          <div class="handoff-editor-actions" id="handoff-editor-actions" hidden>
-            <button
-              class="secondary-button page-button"
-              id="edit-handoff-content"
-              type="button"
-              data-i18n="editHandoffContent"
-              data-i18n-aria-label="editHandoffContentLabel"
-            >
-              Edit
-            </button>
-            <button
-              class="primary-button"
-              id="save-handoff-revision"
-              type="submit"
-              form="handoff-content-editor"
-              data-i18n="saveRevision"
-              hidden
-            >
-              Save Revision
-            </button>
-            <button
-              class="secondary-button page-button"
-              id="cancel-handoff-edit"
-              type="button"
-              data-i18n="cancelEdit"
-              hidden
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-        <div class="handoff-content-list" id="handoff-content-list"></div>
-        <div class="handoff-save-status" id="handoff-save-status" role="status" aria-live="polite"></div>
-
-        <details class="continuity-panel">
-          <summary class="continuity-panel-summary">
-            <div>
-              <h3 id="continuity-title" data-i18n="continuityTimeline">Continuity timeline</h3>
-              <p data-i18n="continuityOrderNote">Ordered by Source journal position, not wall-clock time.</p>
-            </div>
-            <div class="continuity-states">
-              <div class="result-coverage">
-                <span data-i18n="transferState">Transfer</span>
-                <strong id="transfer-state-status"></strong>
-              </div>
-              <div class="result-coverage">
-                <span data-i18n="outcomeState">Outcome</span>
-                <strong id="outcome-state-status"></strong>
-              </div>
-            </div>
-          </summary>
-          <div class="continuity-panel-body">
-            <section class="revision-history" aria-labelledby="revision-history-title">
-              <header>
-                <h4 id="revision-history-title" data-i18n="revisionHistory">Handoff Revision history</h4>
-                <p id="revision-history-summary"></p>
-              </header>
-              <ol class="revision-history-list" id="handoff-revision-history"></ol>
-            </section>
-            <ol class="continuity-timeline" id="continuity-timeline"></ol>
-            <div class="continuity-timeline-footer">
-              <button
-                class="continuity-timeline-toggle"
-                id="continuity-timeline-toggle"
-                type="button"
-                aria-controls="continuity-timeline"
-                aria-expanded="false"
-                hidden
-              ></button>
-            </div>
-            <div class="continuity-note" id="continuity-note" role="status" aria-live="polite"></div>
-          </div>
-        </details>
-      </article>
-    </div>
-  </section>
-
-  <section class="data-section activity-section" aria-labelledby="activity-title">
-    <div class="section-heading">
-      <div>
-        <h2 id="activity-title" data-i18n="activity">Activity</h2>
-        <p data-i18n="activitySubtitle">Period controls affect Activity counts only. Handoff status stays on the current exact selection.</p>
-      </div>
-    </div>
-    <section class="report-toolbar" aria-labelledby="period-filter-label">
-      <div class="period-toolbar-main">
-        <div class="field-label" id="period-filter-label" data-i18n="activityPeriod">Activity period</div>
-        <div class="period-filter-controls">
-          <div class="period-presets" role="group" aria-labelledby="period-filter-label">
-            <button class="period-preset" type="button" data-period-mode="day" data-i18n="day">Day</button>
-            <button class="period-preset" type="button" data-period-mode="week" data-i18n="week">Week</button>
-            <button class="period-preset" type="button" data-period-mode="month" data-i18n="month">Month</button>
-          </div>
-          <form class="custom-period-form" id="custom-period-form">
-            <label class="screen-reader-only" for="period-start" data-i18n="periodStart">Start date</label>
-            <input class="period-date-input" id="period-start" type="date">
-            <span class="period-separator" aria-hidden="true">-</span>
-            <label class="screen-reader-only" for="period-end" data-i18n="periodEnd">End date</label>
-            <input class="period-date-input" id="period-end" type="date">
-            <button class="secondary-button page-button" id="apply-custom-period" type="submit" data-i18n="apply">Apply</button>
-          </form>
-        </div>
-        <div class="period-error" id="period-error" role="alert" aria-live="polite"></div>
-      </div>
-      <div class="period-summary" aria-live="polite">
-        <strong id="period-summary-label"></strong>
-        <span id="period-comparison"></span>
-        <span class="period-boundary-note" id="period-boundary-note"></span>
-      </div>
-    </section>
-    <section class="coverage-strip" aria-labelledby="coverage-title">
-      <div>
-        <h3 id="coverage-title" data-i18n="coverage">Report coverage</h3>
-        <p id="coverage-description"></p>
-      </div>
-      <dl>
-        <div><dt data-i18n="workstreams">Workstreams</dt><dd id="selected-workstreams">0</dd></div>
-        <div><dt data-i18n="activities">Activities</dt><dd id="activity-count">0</dd></div>
-        <div><dt data-i18n="evidenceUnavailable">Evidence unavailable</dt><dd id="evidence-unavailable">0</dd></div>
-      </dl>
-    </section>
-    <section class="activity-breakdown" aria-labelledby="activity-breakdown-title">
-      <h3 id="activity-breakdown-title" data-i18n="activityByWorkstream">Activity by Workstream</h3>
-      <div class="activity-breakdown-list" id="activity-breakdown-list"></div>
-    </section>
   </section>
 
   <details class="report-metadata">
     <summary data-i18n="metadata">Report metadata</summary>
     <dl>
-      <div><dt data-i18n="selectionConsistency">Selection consistency</dt><dd id="selection-consistency"></dd></div>
-      <div><dt data-i18n="activityCoverage">Activity coverage</dt><dd id="activity-coverage"></dd></div>
+      <div><dt data-i18n="generatedAt">Generated at</dt><dd id="generated-at"></dd></div>
       <div><dt data-i18n="selectionDigest">Selection digest</dt><dd><code id="selection-digest"></code></dd></div>
       <div><dt data-i18n="reportDigest">Report digest</dt><dd><code id="report-digest"></code></dd></div>
     </dl>
@@ -512,5 +92,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=scope-report-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/handoff-report.js') }}?v=scope-selection-v2"></script>
 {% endblock %}

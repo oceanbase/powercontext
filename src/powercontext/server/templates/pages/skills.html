@@ -25,7 +25,12 @@
 {% set status_title = "Skills" %}
 {% include "components/status.html" %}
 
-<section class="server-content" id="skills-library">
+<section
+  class="server-content"
+  id="skills-library"
+  data-public-server-url="{{ public_server_url or '' }}"
+  data-allow-insecure-http="{{ 'true' if allow_insecure_http else 'false' }}"
+>
   <div class="hero skills-hero">
     <div>
       <p class="page-kind" data-i18n="skillsTitle">Skills</p>
@@ -139,6 +144,43 @@
           <ol id="skills-validation"></ol>
         </section>
 
+        <section class="skills-package" id="skills-package" aria-labelledby="skills-package-title" hidden>
+          <h3 id="skills-package-title" data-i18n="packageContents">Package contents</h3>
+          <p id="skills-package-status" role="status" aria-live="polite"></p>
+          <div class="skills-package-browser">
+            <ul id="skills-package-files" aria-label="Package files" data-i18n-aria-label="packageFiles"></ul>
+            <div>
+              <code id="skills-package-path"></code>
+              <pre id="skills-package-preview"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="skills-governance" id="skills-governance" aria-labelledby="skills-governance-title" hidden>
+          <div class="skills-delivery-heading">
+            <div>
+              <h3 id="skills-governance-title" data-i18n="governance">Governance</h3>
+              <p data-i18n="governanceIntro">Deprecate or retire the logical Skill without changing immutable package bytes.</p>
+            </div>
+          </div>
+          <div class="skills-governance-controls">
+            <label>
+              <span data-i18n="lifecycleState">Lifecycle state</span>
+              <select id="skills-lifecycle-state">
+                <option value="active" data-i18n="active">Active</option>
+                <option value="deprecated" data-i18n="deprecated">Deprecated</option>
+                <option value="retired" data-i18n="retired">Retired</option>
+              </select>
+            </label>
+            <label>
+              <span data-i18n="replacementSkill">Recommended replacement Skill (optional)</span>
+              <select id="skills-replacement-id"></select>
+            </label>
+            <button class="secondary-button" id="skills-apply-lifecycle" type="button" data-i18n="applyLifecycle">Apply lifecycle</button>
+          </div>
+          <p id="skills-governance-status" role="status" aria-live="polite"></p>
+        </section>
+
         <section class="skills-lineage" id="skills-lineage" aria-labelledby="skills-lineage-title" hidden>
           <h3 id="skills-lineage-title" data-i18n="lineage">Lineage</h3>
           <div class="skills-reference-groups">
@@ -157,38 +199,119 @@
           <div class="skills-delivery-heading">
             <div>
               <h3 id="skills-delivery-title" data-i18n="delivery">Delivery</h3>
-              <p data-i18n="deliveryIntro">Inspect or publish this approved Revision to an explicit Agent Skill root.</p>
+              <p data-i18n="deliveryIntro">Publish this approved Revision to this Server or a connected remote machine.</p>
             </div>
             <span class="status-badge" id="skills-projection-state" hidden></span>
           </div>
-          <p class="skills-delivery-status" id="skills-delivery-status" role="status" aria-live="polite"></p>
-          <div class="skills-delivery-empty" id="skills-delivery-empty" hidden>
-            <strong data-i18n="noPublishTargets">No writable Skill target is configured.</strong>
-            <p data-i18n="noPublishTargetsHint">Enable managed publication on an explicit local Skill root.</p>
-          </div>
-          <div id="skills-delivery-content" hidden>
-            <label class="skills-delivery-target">
-              <span data-i18n="publishTarget">Publish target</span>
-              <select id="skills-delivery-target"></select>
+          <div class="skills-delivery-mode-row">
+            <label>
+              <span data-i18n="deliveryLocation">Delivery location</span>
+              <select id="skills-delivery-mode">
+                <option value="local" data-i18n="deliveryLocal">This Server</option>
+                <option value="remote" data-i18n="deliveryRemote">Remote machine</option>
+              </select>
             </label>
-            <dl class="skills-delivery-facts">
-              <div>
-                <dt data-i18n="publishedRevision">Published revision</dt>
-                <dd id="skills-published-revision"></dd>
+            <button class="secondary-button" id="skills-remote-refresh" type="button" data-i18n="refreshRemoteStatus" hidden>Refresh status</button>
+          </div>
+          <p class="skills-delivery-status" id="skills-delivery-status" role="status" aria-live="polite"></p>
+          <div id="skills-local-delivery">
+            <div class="skills-delivery-empty" id="skills-delivery-empty" hidden>
+              <strong data-i18n="noPublishTargets">No writable Skill target is configured.</strong>
+              <p data-i18n="noPublishTargetsHint">Enable managed publication on an explicit local Skill root.</p>
+            </div>
+            <div id="skills-delivery-content" hidden>
+              <label class="skills-delivery-target">
+                <span data-i18n="publishTarget">Publish target</span>
+                <select id="skills-delivery-target"></select>
+              </label>
+              <dl class="skills-delivery-facts">
+                <div>
+                  <dt data-i18n="publishedRevision">Published revision</dt>
+                  <dd id="skills-published-revision"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="discovery">Discovery</dt>
+                  <dd id="skills-discovery"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="compatibility">Compatibility</dt>
+                  <dd id="skills-compatibility"></dd>
+                  <ul class="skills-compatibility-reasons" id="skills-compatibility-reasons"></ul>
+                </div>
+              </dl>
+              <div class="skills-delivery-path">
+                <span data-i18n="destination">Destination</span>
+                <code id="skills-destination"></code>
               </div>
-              <div>
-                <dt data-i18n="discovery">Discovery</dt>
-                <dd id="skills-discovery"></dd>
+            </div>
+            <div class="skills-detail-actions">
+              <button class="secondary-button" id="skills-unpublish" type="button" data-i18n="unpublishSkill" hidden>Unpublish</button>
+              <button class="primary-button" id="skills-publish" type="button" data-i18n="publishSkill" hidden>Publish Skill</button>
+            </div>
+          </div>
+          <div id="skills-remote-delivery" hidden>
+            <div class="skills-enrollment-connection" id="skills-insecure-http-warning" data-tone="warning" hidden>
+              <strong data-i18n="insecureHttpEnabledTitle">Cleartext HTTP enabled</strong>
+              <p data-i18n="insecureHttpEnabledWarning">Receiver credentials and Skill packages are not encrypted in transit. Use this only on a protected private test network.</p>
+            </div>
+            <div class="skills-delivery-empty" id="skills-remote-empty" hidden>
+              <strong data-i18n="noRemoteTargets">No remote machines are connected.</strong>
+              <p data-i18n="noRemoteTargetsHint">Add a Codex or Claude Code project, then complete the one-time enrollment on that machine.</p>
+              <button class="primary-button" id="skills-remote-add-empty" type="button" data-i18n="addRemoteMachine">Add remote machine</button>
+            </div>
+            <div id="skills-remote-content" hidden>
+              <div class="skills-remote-target-row">
+                <div class="skills-delivery-target">
+                  <span id="skills-remote-target-label" data-i18n="remoteTarget">Remote machine</span>
+                  <input id="skills-remote-target-search" type="search" autocomplete="off" data-i18n-placeholder="searchRemoteMachines" data-i18n-aria-label="searchRemoteMachines" placeholder="Search by name, host, workspace, or ID" aria-label="Search by name, host, workspace, or ID">
+                  <select id="skills-remote-target" aria-labelledby="skills-remote-target-label"></select>
+                </div>
+                <div class="skills-remote-target-actions">
+                  <button class="secondary-button" id="skills-remote-rename" type="button" data-i18n="renameRemoteMachine">Rename</button>
+                  <button class="secondary-button" id="skills-remote-add" type="button" data-i18n="addRemoteMachine">Add remote machine</button>
+                </div>
               </div>
-            </dl>
-            <div class="skills-delivery-path">
-              <span data-i18n="destination">Destination</span>
-              <code id="skills-destination"></code>
+              <dl class="skills-delivery-facts skills-remote-facts">
+                <div>
+                  <dt data-i18n="remoteEnrollment">Connection</dt>
+                  <dd id="skills-remote-enrollment"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="remoteDeliveryState">Delivery state</dt>
+                  <dd id="skills-remote-publication-state"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="remoteObservedRevision">Installed revision</dt>
+                  <dd id="skills-remote-observed-revision"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="remoteLastSeen">Last check-in</dt>
+                  <dd id="skills-remote-last-seen"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="remoteEnvironment">Reported environment</dt>
+                  <dd id="skills-remote-environment"></dd>
+                </div>
+                <div>
+                  <dt data-i18n="remoteTargetId">Target ID</dt>
+                  <dd><code id="skills-remote-target-id"></code></dd>
+                </div>
+              </dl>
+              <div class="skills-remote-next-step">
+                <strong data-i18n="remoteNextStep">Next step on the remote machine</strong>
+                <code id="skills-remote-service-command">powercontext skill remote-service-install</code>
+                <p id="skills-remote-guidance"></p>
+              </div>
+              <div class="skills-detail-actions">
+                <button class="danger-button" id="skills-remote-revoke" type="button" data-i18n="revokeRemoteMachine">Revoke machine</button>
+                <button class="secondary-button" id="skills-remote-unpublish" type="button" data-i18n="unpublishRemoteSkill" hidden>Request removal</button>
+                <button class="primary-button" id="skills-remote-publish" type="button" data-i18n="publishRemoteSkill" hidden>Distribute Skill</button>
+              </div>
             </div>
           </div>
           <div class="skills-detail-actions">
             <button class="secondary-button" id="skills-create-revision" type="button" data-i18n="createSkillRevision">Create revision</button>
-            <button class="primary-button" id="skills-publish" type="button" data-i18n="publishSkill" hidden>Publish Skill</button>
+            <input id="skills-revision-package" type="file" accept=".zip,application/zip" hidden>
           </div>
         </section>
       </div>
@@ -205,9 +328,111 @@
       </div>
     </form>
   </dialog>
+
+  <dialog class="review-dialog" id="skills-retire-dialog">
+    <form method="dialog">
+      <h2 data-i18n="retireSkillTitle">Retire this Skill?</h2>
+      <p data-i18n="retireSkillWarning">Retirement is irreversible. Existing publication must be removed separately.</p>
+      <div class="review-dialog-actions">
+        <button class="secondary-button" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
+        <button class="danger-button" id="skills-confirm-retire" value="default" type="submit" data-i18n="retireSkill">Retire Skill</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="review-dialog skills-remote-dialog" id="skills-remote-create-dialog">
+    <form method="dialog">
+      <h2 data-i18n="addRemoteMachine">Add remote machine</h2>
+      <p data-i18n="addRemoteMachineHint">Choose the Agent used by this project. PowerContext will create a one-time enrollment code.</p>
+      <label>
+        <span data-i18n="remoteMachineName">Machine name</span>
+        <input id="skills-remote-display-name" type="text" maxlength="128" required autocomplete="off" data-i18n-placeholder="remoteMachineNamePlaceholder" placeholder="For example: Build machine - Hangzhou">
+      </label>
+      <label>
+        <span data-i18n="remoteAgent">Agent</span>
+        <select id="skills-remote-agent-kind">
+          <option value="codex">Codex</option>
+          <option value="claude_code">Claude Code</option>
+        </select>
+      </label>
+      <p class="review-dialog-error" id="skills-remote-create-error" role="alert"></p>
+      <div class="review-dialog-actions">
+        <button class="secondary-button" value="cancel" type="submit" formnovalidate data-i18n="cancel">Cancel</button>
+        <button class="primary-button" id="skills-confirm-remote-create" value="default" type="submit" data-i18n="createRemoteMachine">Create connection</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="review-dialog skills-remote-dialog" id="skills-remote-rename-dialog">
+    <form method="dialog">
+      <h2 data-i18n="renameRemoteMachine">Rename remote machine</h2>
+      <label>
+        <span data-i18n="remoteMachineName">Machine name</span>
+        <input id="skills-remote-rename-name" type="text" maxlength="128" required autocomplete="off">
+      </label>
+      <p class="review-dialog-error" id="skills-remote-rename-error" role="alert"></p>
+      <div class="review-dialog-actions">
+        <button class="secondary-button" value="cancel" type="submit" formnovalidate data-i18n="cancel">Cancel</button>
+        <button class="primary-button" id="skills-confirm-remote-rename" value="default" type="submit" data-i18n="saveRemoteMachineName">Save name</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="review-dialog skills-remote-dialog" id="skills-remote-enrollment-dialog">
+    <form method="dialog">
+      <h2 data-i18n="connectRemoteMachine">Connect the remote machine</h2>
+      <p data-i18n="enrollmentCodeWarning">This enrollment code is shown once and expires soon. Complete these steps before closing.</p>
+      <div class="skills-enrollment-summary">
+        <span data-i18n="remoteTargetId">Target ID</span>
+        <code id="skills-enrollment-target-id"></code>
+        <span data-i18n="expiresAt">Expires</span>
+        <time id="skills-enrollment-expires"></time>
+      </div>
+      <div class="skills-enrollment-connection" id="skills-enrollment-connection">
+        <strong data-i18n="receiverConnection">Receiver connection</strong>
+        <p id="skills-enrollment-connection-message"></p>
+      </div>
+      <div class="skills-enrollment-step">
+        <strong data-i18n="installReceiver">Install the lightweight Receiver</strong>
+        <div class="skills-copy-row">
+          <code id="skills-receiver-install-command">python -m pip install "powercontext[cli]"</code>
+          <button class="secondary-button" id="skills-copy-install-command" type="button" data-i18n="copy">Copy</button>
+        </div>
+      </div>
+      <div class="skills-enrollment-step">
+        <strong data-i18n="runEnrollment">Run enrollment in the remote project</strong>
+        <div class="skills-copy-row">
+          <code id="skills-enrollment-command"></code>
+          <button class="secondary-button" id="skills-copy-enrollment-command" type="button" data-i18n="copy">Copy</button>
+        </div>
+      </div>
+      <div class="skills-enrollment-step">
+        <strong data-i18n="enterEnrollmentCode">Enter this one-time code when prompted</strong>
+        <div class="skills-copy-row">
+          <code id="skills-enrollment-code"></code>
+          <button class="secondary-button" id="skills-copy-enrollment-code" type="button" data-i18n="copyCode">Copy code</button>
+        </div>
+      </div>
+      <p class="skills-copy-status" id="skills-copy-status" role="status" aria-live="polite"></p>
+      <div class="review-dialog-actions">
+        <button class="primary-button" id="skills-finish-enrollment" value="default" type="submit" data-i18n="done">I finished or saved these steps</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="review-dialog" id="skills-remote-revoke-dialog">
+    <form method="dialog">
+      <h2 data-i18n="revokeRemoteMachineTitle">Revoke this remote machine?</h2>
+      <p data-i18n="revokeRemoteMachineWarning">Its credential will stop working. Remove distributed Skills and wait for automatic synchronization before revoking.</p>
+      <div class="review-dialog-actions">
+        <button class="secondary-button" value="cancel" type="submit" data-i18n="cancel">Cancel</button>
+        <button class="danger-button" id="skills-confirm-remote-revoke" value="default" type="submit" data-i18n="revokeRemoteMachine">Revoke machine</button>
+      </div>
+    </form>
+  </dialog>
 </section>
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/skills.js') }}?v=agent-targets-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/skills.js') }}?v=remote-target-names-v1"></script>
 {% endblock %}

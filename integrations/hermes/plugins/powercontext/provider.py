@@ -42,9 +42,6 @@ from .helpers import (
     DEFAULT_MAX_BYTES as _DEFAULT_MAX_BYTES,
 )
 from .helpers import (
-    DEFAULT_SCOPE_TEMPLATE as _DEFAULT_SCOPE_TEMPLATE,
-)
-from .helpers import (
     DEFAULT_TIMEOUT as _DEFAULT_TIMEOUT,
 )
 from .helpers import (
@@ -75,9 +72,6 @@ from .helpers import (
     entry_identity as _entry_identity,
 )
 from .helpers import (
-    format_scope as _format_scope,
-)
-from .helpers import (
     load_json_config as _load_json_config,
 )
 from .helpers import (
@@ -96,8 +90,6 @@ from .helpers import (
     redact_secrets as _redact_secrets,
 )
 from .operations import OPERATION_TOOL_MAP as _OPERATION_TOOL_MAP
-from .workstream import read_scope as _read_workstream_scope
-from .workstream import state_path as _workstream_state_path
 
 try:
     from agent.memory_provider import MemoryProvider, RecallStatus  # ty: ignore[unresolved-import]
@@ -145,6 +137,13 @@ def _diagnostic_classification(
     return "invalid_response", None, None
 
 
+class InvalidScopeBindingError(PowerContextError):
+    """Raised when the Scope service returns an invalid binding response."""
+
+    def __init__(self) -> None:
+        super().__init__("PowerContext returned an invalid Scope binding")
+
+
 class PowerContextMemoryProvider(MemoryProvider):
     """Hermes provider backed by a running PowerContext server."""
 
@@ -162,6 +161,7 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._client: PowerContextClient | Any | None = None
         self._scope_id = ""
         self._default_scope_id = ""
+        self._explicit_scope_id: str | None = None
         self._session_id = ""
         self._memory_write_queue: queue.Queue[Callable[[], None] | None] | None = None
         self._memory_write_thread: threading.Thread | None = None
@@ -185,9 +185,8 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._trace_enabled = False
         self._trace_turn = 0
         self._trace_lock = threading.Lock()
-        self._workstream_cwd = ""
-        self._workstream_path: Path | None = None
-        self._workstream_bound_scope = ""
+        self._scope_binding_cwd = ""
+        self._bound_scope_id = ""
         self._diagnostic_last_emitted: dict[str, float] = {}
 
     def _emit_failure_diagnostic(self, event: str, error: PowerContextError) -> None:
@@ -243,8 +242,8 @@ class PowerContextMemoryProvider(MemoryProvider):
             },
             {
                 "key": "scope_id",
-                "description": "Memory scope template",
-                "default": _DEFAULT_SCOPE_TEMPLATE,
+                "description": "Explicit Scope ID (optional)",
+                "default": "",
             },
             {
                 "key": "max_bytes",
@@ -290,12 +289,6 @@ class PowerContextMemoryProvider(MemoryProvider):
                 "description": "Directory for per-session evaluation traces",
                 "default": "",
             },
-            {
-                "key": "workstream_persistence",
-                "description": "Use the Git-private Workstream scope binding when present",
-                "default": "true",
-                "choices": ["true", "false"],
-            },
         ]
 
     def save_config(self, values: dict[str, Any], hermes_home: str) -> None:
@@ -328,37 +321,25 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._precompress_snapshot = []
         self._memory_map_path = Path(hermes_home) / "powercontext-memory-map.json"
         self._memory_map = self._load_memory_map()
-        self._workstream_cwd = str(
+        self._scope_binding_cwd = str(
             kwargs.get("cwd") or kwargs.get("working_directory") or kwargs.get("project_root") or os.getcwd()
         )
-        self._workstream_path = _workstream_state_path(self._workstream_cwd)
-        self._workstream_bound_scope = ""
+        self._bound_scope_id = ""
         agent_identity = str(kwargs.get("agent_identity") or "default")
         self._profile = agent_identity
-        user_id = str(kwargs.get("user_id") or "")
         configured_scope = _config_value(merged_config, "scope_id", "POWERCONTEXT_HERMES_SCOPE_ID")
-        explicit_scope = (
-            configured_scope is not None
-            and bool(str(configured_scope).strip())
-            and str(configured_scope).strip() != _DEFAULT_SCOPE_TEMPLATE
-        )
-        if not explicit_scope and _as_bool(
-            _config_value(merged_config, "workstream_persistence", "POWERCONTEXT_HERMES_WORKSTREAM", True),
-            True,
-        ):
-            self._workstream_bound_scope = _read_workstream_scope(self._workstream_cwd) or ""
-        scope_template = str(configured_scope or _DEFAULT_SCOPE_TEMPLATE)
-        self._default_scope_id = _format_scope(
-            scope_template,
-            hermes_home=hermes_home,
-            agent_identity=agent_identity,
-            user_id=user_id,
-        )
-        if self._workstream_bound_scope:
-            self._scope_id = self._workstream_bound_scope
-        else:
-            self._scope_id = self._default_scope_id
         self._client = self._client_factory(merged_config)
+        explicit_scope_id = None if configured_scope is None else str(configured_scope).strip() or None
+        self._explicit_scope_id = explicit_scope_id
+        resolved = self._client.resolve_scope_binding(
+            explicit_scope_id=explicit_scope_id,
+            binding_keys=self._scope_binding_keys(),
+        )
+        scope_id = resolved.get("scope_id")
+        if not isinstance(scope_id, str) or not scope_id.strip() or scope_id != scope_id.strip():
+            raise InvalidScopeBindingError
+        self._default_scope_id = scope_id
+        self._scope_id = scope_id
         trace_path = _config_value(
             merged_config,
             "evaluation_trace_path",
@@ -505,7 +486,7 @@ class PowerContextMemoryProvider(MemoryProvider):
                     memory_queue.put_nowait(None)
         return cancelled
 
-    def _switch_workstream_scope(self, scope_id: str) -> None:
+    def _switch_scope(self, scope_id: str) -> None:
         """Switch scopes without allowing old queued work to use the new scope."""
         old_scope_id = self._scope_id
         if not scope_id or scope_id == old_scope_id:
@@ -542,6 +523,38 @@ class PowerContextMemoryProvider(MemoryProvider):
         with self._memory_write_lock:
             if self._memory_write_queue is memory_queue:
                 self._accept_memory_writes = was_accepting
+
+    def _scope_binding_keys(self) -> list[dict[str, str]]:
+        keys = []
+        if self._session_id:
+            keys.append({"integration": "hermes", "kind": "session", "external_id": self._session_id})
+        workspace_id = hashlib.sha256(os.fsencode(Path(self._scope_binding_cwd).resolve(strict=False))).hexdigest()
+        keys.append({"integration": "hermes", "kind": "workspace", "external_id": workspace_id})
+        return keys
+
+    def _bind_workspace_scope(self, scope_id: str) -> None:
+        response = self._client.set_scope_binding(self._scope_binding_keys()[-1], scope_id)
+        if response.get("scope_id") != scope_id:
+            raise InvalidScopeBindingError
+        self._bound_scope_id = scope_id
+        self._switch_scope(scope_id)
+
+    def _clear_workspace_scope(self) -> bool:
+        response = self._client.clear_scope_binding(self._scope_binding_keys()[-1])
+        cleared = response.get("cleared")
+        if not isinstance(cleared, bool):
+            raise InvalidScopeBindingError
+        resolved = self._client.resolve_scope_binding(
+            explicit_scope_id=self._explicit_scope_id,
+            binding_keys=self._scope_binding_keys(),
+        )
+        scope_id = resolved.get("scope_id")
+        if not isinstance(scope_id, str) or not scope_id.strip() or scope_id != scope_id.strip():
+            raise InvalidScopeBindingError
+        self._bound_scope_id = ""
+        self._default_scope_id = scope_id
+        self._switch_scope(scope_id)
+        return cleared
 
     def _load_memory_map(self) -> dict[str, dict[str, Any]]:
         if self._memory_map_path is None:
@@ -1044,8 +1057,8 @@ class PowerContextMemoryProvider(MemoryProvider):
     def _parse_json_object(value: str, label: str) -> dict[str, Any]:
         return commands.parse_json_object(value, label)
 
-    def _workstream_command(self, args: list[str]) -> str:
-        return commands.workstream_command(self, args)
+    def _scope_command(self, args: list[str]) -> str:
+        return commands.scope_command(self, args)
 
     def _operation_command(self, operation: str, args: list[str]) -> str:
         return commands.operation_command(self, operation, args)

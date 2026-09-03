@@ -38,9 +38,38 @@ Prepared Handoff 是临时内容，`commit_handoff` 才会创建持久 Revision�
 但 `handoff_receipt_ref` 只能引用 committed Revision 对应的 accepted exact Receipt。claim 和 check 可以是 `declared`，
 也可以是带有 exact same-scope citation 的 `verified`。这些 record 不会授予身份、工具或执行权限。
 
-Handoff Report API 列出含 committed Handoff 的 scope，并要求 `scope_id`；已废弃的 `project_id` input 在生成 scope report
-时会被忽略。scope report 当前不返回 Activity event，也不提供 period comparison。workflow 见
-[在 Codex 中交接工作](../how-to/handoff-with-codex.md)，报告 UI 见[使用 Handoff Report](../how-to/use-handoff-report.md)。
+```text
+create_work_contract
+  -> 推进工作
+  -> handoff_current_work
+  -> continue_handoff + acknowledge_handoff
+  -> record_task_outcome
+```
+
+`create_work_contract` 为新委托记录目标、范围、完成标准、授权说明和关键待决问题。`handoff_current_work` 采集调用方已
+检查的当前状态并返回临时 Prepared Handoff；它不会发布里程碑。只有用户需要持久化里程碑时，才另行调用
+`commit_handoff`。
+
+接收方先用 prepared、exact 或 latest selection 调用 `continue_handoff`；如果从 latest 开始，必须把返回的 exact Revision
+展示并检查后再记录回执。`acknowledge_handoff` 只接受 prepared 或 exact，不接受 latest。任一 Handoff evidence 不可用，
+或 live-state、capability、authorization 没有全部确认为 `confirmed` 时，都会拒绝 accepted。接收方也可以记录
+`needs_clarification` 或 `declined`。回执及三项确认只记录不可信观察，不能授予身份、工具或执行权限。
+
+`record_task_outcome` 原样保留 `succeeded`、`partial`、`blocked`、`failed`、`cancelled` 或 `unknown`，以及精确检查
+状态。需要关闭 committed Handoff 结果时，`handoff_receipt_ref` 必须引用当前 accepted exact Receipt；同 scope 中无关联的
+Outcome 不会覆盖它。该 operation 保存现有 Experience 孵化可读取的 `task-outcome` Source，但不会自行生成或批准
+Experience。Integration 只应在真实完成或中断边界调用它，不能仅因 Prompt、Stop 或 Session 结束而调用。
+
+Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 scope 精确 citation 的 `verified`。Citation 可读只证明
+身份和可用性，不证明事实仍然新鲜。当前指令、实时 workspace、能力和授权始终优先于 Work 与 Handoff 记录。
+
+完整 Codex 转交和接收确认流程见[在 Codex 中交接工作](../how-to/handoff-with-codex.md)。
+
+Handoff Report 是 Scope selection 上的只读投影。`all` 包含全部 Scope，`exact` 只包含列出的 Scope ID，`subtree`
+包含一个组织根及其全部后代。每个选中 Scope 提供 latest exact Handoff address，或者明确的 `no_handoff`；Parent 不会
+隐式授予 Context 可见性。Codex 会把普通 Agent 的报告读取固定为当前 Session Scope；更宽的 selection 由 host 和
+Dashboard 使用。
+报告 UI 见[使用 Handoff Report](../how-to/use-handoff-report.md)。
 
 ## DeepSeek Harness 插件
 
@@ -62,8 +91,8 @@ Capture 或 Flush。参见 [Pydantic AI 适配器预览](../how-to/configure-pyd
 `PowerContextScope` 是用于图 `context_schema` 的 dataclass，承载 scope 和单次运行的连接覆盖项。召回节点和工具
 从 LangGraph runtime 读取当前 scope，否则回退到 `POWERCONTEXT_LANGGRAPH_*` 环境配置。
 
-Scope 解析优先取显式 `scope_id`，其次取由 Git remote 推导的 scope，都没有时报错。这与 Codex resolver 相反，
-因为已部署的图其工作目录通常无法标识项目。`TOKEN` 是裸 token，由 Client 组装为 `Authorization: Bearer`，不同于
+Scope 解析会把已配置的显式 `scope_id` 交给 Server 校验，否则使用 Server 默认 Scope。适配器不会根据 Git 或进程路径
+推导 Scope ID。`TOKEN` 是裸 token，由 Client 组装为 `Authorization: Bearer`，不同于
 Codex、Claude Code 和 DeepSeek Harness 插件使用的 `POWERCONTEXT_*_AUTHORIZATION` header。召回和工具都会失败开放：
 Server 不可用时图仍能到达终点，工具返回一段简短的不可用字符串。适配器只覆盖 Memory 读写和有界召回；自动采集、
 checkpointing 和 Handoff 不在范围内。适配器有意不实现 `BaseStore`——Memory 模型不提供其所需的按 key 读取、upsert
@@ -85,6 +114,8 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 
 ## CLI
 
+运行带 Scope 的内容命令前，将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。
+
 ```text
 powercontext setup <host> --source oceanbase/powercontext --ref master
 powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
@@ -98,16 +129,16 @@ powercontext server run
 powercontext server run --env-file .env
 powercontext ready
 powercontext capabilities
-powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
-powercontext skill generate --scope-id project:example --origin experience \
+powercontext experience generate --scope-id "$POWERCONTEXT_SCOPE_ID" --source-ref content/SOURCE_ID
+powercontext skill generate --scope-id "$POWERCONTEXT_SCOPE_ID" --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
-powercontext skill show --scope-id project:example --revision 1 SKILL_ID
-powercontext skill export --target codex --scope-id project:example --revision 1 \
+powercontext skill show --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 SKILL_ID
+powercontext skill export --target codex --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 \
   --destination .agents/skills/example-skill SKILL_ID
-powercontext external-skill scan --scope-id project:example
-powercontext external-skill list --scope-id project:example
-powercontext external-skill resolve --scope-id project:example --fingerprint SHA256 EXTERNAL_SKILL_ID
-powercontext external-skill import --scope-id project:example --fingerprint SHA256 \
+powercontext external-skill scan --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext external-skill list --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext external-skill resolve --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerprint SHA256 EXTERNAL_SKILL_ID
+powercontext external-skill import --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerprint SHA256 \
   --mode import EXTERNAL_SKILL_ID
 ```
 

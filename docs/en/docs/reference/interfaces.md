@@ -40,10 +40,43 @@ acknowledgement can select a prepared or exact Handoff, but `handoff_receipt_ref
 for a committed Revision. Claims and checks can be `declared` or `verified` with exact same-scope citations. These
 records never grant identity, tool, or execution authority.
 
-The Handoff Report API lists scopes containing committed Handoffs and requires `scope_id`; its deprecated `project_id`
-input is ignored while generating a scope report. Scope reports currently return no Activity events and no period
-comparison. See [Hand off work in Codex](../how-to/handoff-with-codex.md) for the workflow and
-[Use Handoff Report](../how-to/use-handoff-report.md) for the report UI.
+```text
+create_work_contract
+  -> work
+  -> handoff_current_work
+  -> continue_handoff + acknowledge_handoff
+  -> record_task_outcome
+```
+
+`create_work_contract` records the objective, scope, completion criteria, authority notes, and consequential open
+questions for newly delegated work. `handoff_current_work` captures caller-inspected state and returns a temporary
+Prepared Handoff; it does not publish a milestone. Call `commit_handoff` separately when the user wants a durable
+milestone.
+
+The receiver calls `continue_handoff` with a prepared, exact, or latest selection. When starting from latest, the
+returned exact Revision is shown and inspected before acknowledgement. `acknowledge_handoff` accepts prepared or exact,
+never latest. It refuses acceptance when any Handoff evidence is unavailable or when live-state, capability, and
+authorization are not all `confirmed`. A receiver can instead record `needs_clarification` or `declined`. The receipt
+and its three confirmations are untrusted observations; they grant no identity, tool, or execution authority.
+
+`record_task_outcome` preserves `succeeded`, `partial`, `blocked`, `failed`, `cancelled`, or `unknown` and exact check
+states. To cover a committed Handoff result, `handoff_receipt_ref` identifies the active accepted exact Receipt; an
+unlinked Outcome in the same scope does not cover it. The operation stores a `task-outcome` Source that existing
+Experience incubation can inspect, but does not generate or approve an Experience by itself. Integrations call it only
+at a real completion or interruption boundary, not solely because a prompt, Stop event, or Session ended.
+
+Claims and checks are either `declared` with no evidence or `verified` with exact same-scope citations. A readable
+citation proves identity and availability, not freshness. Current instructions, live workspace state, capabilities,
+and authorization still take precedence over all Work and Handoff records.
+
+For the complete Codex transfer and acknowledgement workflow, see
+[Hand off work in Codex](../how-to/handoff-with-codex.md).
+
+Handoff Report is a read-only projection over a Scope selection. `all` includes every Scope, `exact` includes only the
+listed Scope IDs, and `subtree` includes an organization root and all descendants. Each included Scope contributes its
+latest exact Handoff address or an explicit `no_handoff` result; Parent does not imply Context visibility. Codex fixes
+ordinary Agent report reads to the current Session Scope. Broader selections belong to host and Dashboard views.
+See [Use Handoff Report](../how-to/use-handoff-report.md) for the report UI.
 
 ## DeepSeek Harness plugin
 
@@ -68,12 +101,12 @@ labelled untrusted historical evidence; and `PowerContextScope` is a dataclass f
 carries the scope and per-run connection overrides. The recall node and tools read the active scope from the LangGraph
 runtime and otherwise fall back to `POWERCONTEXT_LANGGRAPH_*` environment settings.
 
-Scope resolution prefers an explicit `scope_id`, then a Git-remote-derived scope, and otherwise raises. This is the
-inverse of the Codex resolver because a deployed graph's working directory rarely identifies the project. `TOKEN` is
-a bare token that the Client composes into `Authorization: Bearer`, unlike the `POWERCONTEXT_*_AUTHORIZATION` header used by the
-Codex, Claude Code, and DeepSeek Harness plugins. Recall and the tools fail open: on Server unavailability the graph
-still reaches its end and the tools return a short unavailable string. The adapter covers Memory read and write and
-bounded recall only; automatic capture, checkpointing, and Handoff are out of scope. The adapter deliberately does not
+Scope resolution sends an explicit `scope_id`, when configured, to the Server for validation and otherwise uses the
+Server default Scope. The adapter does not derive Scope IDs from Git or process paths. `TOKEN` is a bare token that the
+Client composes into `Authorization: Bearer`, unlike the `POWERCONTEXT_*_AUTHORIZATION` header used by the Codex,
+Claude Code, and DeepSeek Harness plugins. Recall and the tools fail open: on Server unavailability the graph still
+reaches its end and the tools return a short unavailable string. The adapter covers Memory read and write and bounded
+recall only; automatic capture, checkpointing, and Handoff are out of scope. The adapter deliberately does not
 implement `BaseStore`, whose get, upsert-by-key, and delete operations the Memory model does not provide. It never
 starts or embeds the Server.
 
@@ -95,6 +128,8 @@ boundary flushing fail open; explicit durable writes require interactive confirm
 
 ## CLI
 
+Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope` before running scoped content commands.
+
 ```text
 powercontext setup <host> --source oceanbase/powercontext --ref master
 powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
@@ -108,16 +143,16 @@ powercontext server run
 powercontext server run --env-file .env
 powercontext ready
 powercontext capabilities
-powercontext experience generate --scope-id project:example --source-ref content/SOURCE_ID
-powercontext skill generate --scope-id project:example --origin experience \
+powercontext experience generate --scope-id "$POWERCONTEXT_SCOPE_ID" --source-ref content/SOURCE_ID
+powercontext skill generate --scope-id "$POWERCONTEXT_SCOPE_ID" --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION
-powercontext skill show --scope-id project:example --revision 1 SKILL_ID
-powercontext skill export --target codex --scope-id project:example --revision 1 \
+powercontext skill show --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 SKILL_ID
+powercontext skill export --target codex --scope-id "$POWERCONTEXT_SCOPE_ID" --revision 1 \
   --destination .agents/skills/example-skill SKILL_ID
-powercontext external-skill scan --scope-id project:example
-powercontext external-skill list --scope-id project:example
-powercontext external-skill resolve --scope-id project:example --fingerprint SHA256 EXTERNAL_SKILL_ID
-powercontext external-skill import --scope-id project:example --fingerprint SHA256 \
+powercontext external-skill scan --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext external-skill list --scope-id "$POWERCONTEXT_SCOPE_ID"
+powercontext external-skill resolve --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerprint SHA256 EXTERNAL_SKILL_ID
+powercontext external-skill import --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerprint SHA256 \
   --mode import EXTERNAL_SKILL_ID
 ```
 

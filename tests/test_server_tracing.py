@@ -55,7 +55,7 @@ def test_http_and_application_spans_preserve_incoming_context(tmp_path) -> None:
     tracing, exporter = _tracing()
     app = create_server_app(
         settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tracing.db'}"),
             mcp=McpConfig(enabled=False),
             metrics=MetricsConfig(enabled=False),
             logging=ServerLoggingConfig(access=False),

@@ -31,7 +31,7 @@ from powercontext_pydantic_ai import PowerContext
 
 agent = Agent(
     "openai:gpt-5.2",
-    capabilities=[PowerContext(scope_id="project:example")],
+    capabilities=[PowerContext()],
 )
 ```
 
@@ -53,14 +53,13 @@ agent = Agent("openai:gpt-5.2", toolsets=[PowerContextToolset()])
 ```bash
 export POWERCONTEXT_PYDANTIC_AI_BASE_URL=http://127.0.0.1:8000
 export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
-export POWERCONTEXT_PYDANTIC_AI_SCOPE_ID=project:example
 ```
 
 | Variable | Default | Validation and behavior |
 | --- | --- | --- |
 | `POWERCONTEXT_PYDANTIC_AI_BASE_URL` | `http://127.0.0.1:8000` | HTTP(S), without credentials, query, or fragment |
 | `POWERCONTEXT_PYDANTIC_AI_TOKEN` | unset | Bare printable token stored as `SecretStr` |
-| `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | derived | Non-empty scope, deterministically bounded to 256 characters |
+| `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | unset | Existing explicit Server Scope, up to 256 characters; unset selects the Server default |
 | `POWERCONTEXT_PYDANTIC_AI_TIMEOUT` | `10` | Positive seconds |
 | `POWERCONTEXT_PYDANTIC_AI_MAX_BYTES` | `8000` | `512`–`32768` prepared-context bytes |
 | `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS` | `false` | Opt in to visible event capture |
@@ -87,8 +86,11 @@ def tenant_scope(ctx: RunContext[dict[str, str]]) -> str:
 capability = PowerContext(settings=settings, scope_id=tenant_scope)
 ```
 
-The callback runs once per Agent run. Scope precedence is constructor string or callback, environment `SCOPE_ID`,
-normalized Git origin, then `local:<sha256-of-project-path>`. Explicit configuration avoids Git subprocesses.
+The callback runs once per Agent run. Scope precedence is constructor string or callback, then environment `SCOPE_ID`.
+The adapter sends that explicit ID, or `None`, to `resolve_scope_binding` once per run and reuses the returned Scope ID
+for every recall, capture, flush, and tool call in that run. Explicit IDs must identify existing Server Scopes; when
+no ID is configured, the Server default is selected. The adapter does not inspect cwd, Git metadata, or paths to
+create Scope IDs.
 
 ## Decide whether to capture events
 

@@ -54,7 +54,7 @@ claude
 
 对于每条用户 prompt，Hook 会：
 
-1. 推导与 Codex 集成一致的项目 scope；
+1. 按显式、session、workspace 和默认 binding 解析当前 Scope；
 2. 最多调用一次 `POST /v1/context/prepare`；
 3. 严格校验 `powercontext.prepared-context.v1`，再通过 `additionalContext` 原样注入；
 4. 独立地将 prompt 采集为普通 Content Source 证据。
@@ -68,20 +68,19 @@ v1 不安装 `Stop` Hook，不读取 transcript，也不自动采集 Claude 的�
 scope 按以下顺序解析：
 
 1. 显式设置的 `POWERCONTEXT_CLAUDE_SCOPE_ID`；
-2. 与 Codex 共用的 Git-private Workstream 绑定；
-3. Git 顶层目录中规范化后的 `remote.origin.url`；
-4. 从解析后的项目目录生成的 `local:sha256:<digest>` 标识。
+2. PowerContext 保存的持久 session binding；
+3. PowerContext 保存的持久 workspace binding；
+4. Server 的默认 Scope。
 
-因此，在已经绑定 Workstream 的 checkout 中，Claude Code 和 Codex 会话会优先得到完全相同的 scope。
-未绑定时，两者仍会共享规范化后的 remote scope。可以用随附 resolver 显式绑定：
+使用随附 resolver 将 checkout 绑定到一个已知 Scope：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/project_scope.py" \
-  --cwd "$PWD" --bind-workstream "WORKSTREAM_SCOPE_ID"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
 ```
 
-local fallback 在同一个解析后目录中保持稳定，但不用于连接无关的 checkout。只有确实需要主动隔离或共享时，
-才设置显式 scope。
+resolver 只把 workspace 路径哈希用作外部 binding key，不会根据 Git remote 或目录生成 Scope ID。只有确实需要
+主动隔离或共享时，才设置显式 Scope。
 
 ## 使用显式 Memory 和 Handoff 操作
 
@@ -114,8 +113,7 @@ export POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false
 claude
 ```
 
-只有 Memory scope 必须有意区别于 Git remote 和本地项目路径时，才设置
-`POWERCONTEXT_CLAUDE_SCOPE_ID`。
+只有当前工作必须有意覆盖持久 binding 和 Server 默认 Scope 时，才设置 `POWERCONTEXT_CLAUDE_SCOPE_ID`。
 
 `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE=true` 会让 Hook 等待 Source 处理，只适合测试，不适合日常交互。
 

@@ -16,7 +16,7 @@
 
 
 import { describe, expect, it } from "vitest";
-import { resolvePowerContextConfig, resolvePowerContextScope } from "./config.js";
+import { resolvePowerContextConfig } from "./config.js";
 import type { PowerContextClient } from "./http.js";
 import { PowerContextMemoryManager } from "./manager.js";
 import { encodeCitation, type MemoryCitation } from "./types.js";
@@ -30,7 +30,10 @@ const citation: MemoryCitation = {
 describe("PowerContext memory manager", () => {
   it("keeps memory_get excerpts within the OpenClaw default budget", async () => {
     const client = {
-      async post() {
+      async post(path: string) {
+        if (path === "/v1/scope-bindings/resolve") {
+          return { scope_id: "scp_default" };
+        }
         return {
           citation,
           version: 1,
@@ -56,11 +59,14 @@ describe("PowerContext memory manager", () => {
     expect(result.text).not.toContain("line-121");
   });
 
-  it("reads citations in the current project scope rather than a cached search scope", async () => {
-    const postBodies: Array<Record<string, unknown>> = [];
+  it("reads citations in the resolved request Scope rather than a cached search Scope", async () => {
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
     const client = {
       async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
-        postBodies.push(body);
+        requests.push({ path, body });
+        if (path === "/v1/scope-bindings/resolve") {
+          return { scope_id: "scp_search" } as T;
+        }
         if (path === "/v1/memory/search") {
           return {
             memory: citation.memory_ref,
@@ -71,25 +77,21 @@ describe("PowerContext memory manager", () => {
         return { citation, version: 1, kind: "fact", text: "remembered fact", state: "active" } as T;
       },
     } as unknown as PowerContextClient;
-    const config = resolvePowerContextConfig(undefined, {
-      endpoint: "http://powercontext.test",
-      scopeMode: "project",
-    });
+    const config = resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" });
     const manager = new PowerContextMemoryManager("main", () => config, client, () => true);
-    const projectA = ["/workspace/project-a"];
-    const projectB = ["/workspace/project-b"];
 
     const [result] = await manager.search("fact", {
       sessionKey: "agent:main:telegram:direct:user-1",
-      activeProjectKeys: projectA,
+      activeProjectKeys: ["/workspace/project-a"],
     });
     await manager.readFile({
       relPath: result.path,
-      scopeId: resolvePowerContextScope("main", config, projectB),
+      scopeId: "scp_current",
     });
 
-    expect(postBodies.at(-1)).toMatchObject({
-      scope_id: resolvePowerContextScope("main", config, projectB),
+    expect(requests.at(-1)).toMatchObject({
+      path: "/v1/memory/entries/get",
+      body: { scope_id: "scp_current" },
     });
   });
 });

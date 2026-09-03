@@ -25,7 +25,8 @@ export POWERCONTEXT_HOME=/srv/powercontext
 未覆盖时，默认目录为：
 
 - Linux：`$XDG_DATA_HOME/powercontext`，未设置时为 `~/.local/share/powercontext`；
-- macOS：`~/Library/Application Support/powercontext`。
+- macOS：`~/Library/Application Support/powercontext`；
+- Windows：`%LOCALAPPDATA%\\powercontext`。
 
 默认 SQLite 数据库是该目录下的 `powercontext.db`。定时处理、租约和 operation 状态使用同一个数据库；执行路径
 不再使用旧的 `scheduler.db` sidecar。
@@ -38,13 +39,15 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | --- | --- | --- |
 | `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | 监听地址 |
 | `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | 监听端口 |
+| `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP 路径 |
 | `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | HTTP 和 MCP 是否要求一个静态 Bearer token |
 | `POWERCONTEXT_SERVER_AUTH_TOKEN` | 未设置 | 静态 Bearer token；启用鉴权时必须设置 |
+| `POWERCONTEXT_SERVER_PUBLIC_URL` | 未设置 | 远端技能注册引导使用的可达基础地址；默认要求 HTTPS |
+| `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | 显式允许远端技能接收端接口和注册引导使用明文 HTTP |
 | `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK` | `false` | 在鉴权关闭时显式允许绑定非 loopback 地址 |
 | `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `true` | 在 Server 根路径 `/` 启用 Dashboard |
-| `POWERCONTEXT_SERVER_DASHBOARD_SCOPES` | `[]` | Dashboard 可选择的 scope JSON 数组 |
 | `POWERCONTEXT_SERVER_HANDOFF_REPORT_ENABLED` | `true` | 启用 Handoff Report 及其 API route |
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | operational log 级别 |
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` 或结构化 `json` 输出 |
@@ -109,7 +112,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_TIMEOUT_SECONDS` | generation 超时 | LLM reranker 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
-| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 未设置 | 包含 host identity 和显式 Agent Skill targets 的 JSON object |
+| `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
 
 静态 Bearer 鉴权默认关闭。启用后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`；liveness 和
 readiness endpoint 仍然公开。明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意
@@ -118,15 +121,48 @@ TLS 由上游终止或网络本身受控的场景下，
 显式设置 `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true` 主动选择接受。通过网络暴露启用鉴权的
 Server 前必须配置 TLS。
 
-Python Client 和 CLI 对出站请求应用相同规则：配置的明文 `http://` Server URL 仅接受 loopback 主机，并且 Client 拒绝
-通过明文的非 loopback HTTP 发送任何请求，无论是否携带 Bearer token。当代码的 `http://` base URL 只是路由标签、
-实际传输是安全的，例如进程内 ASGI 应用、Unix domain socket 或由代理终止 TLS 时，必须自行传入 `http_client` 并
-显式设置 `trust_transport_security=True`。
+Python Client 和 CLI 对一般出站请求应用相同规则：配置的明文 `http://` Server URL 仅接受 loopback 主机；远端 Skill
+Receiver 的内部 PoC 显式例外见下文。当代码的 `http://` base URL 只是路由标签、实际传输是安全的，例如进程内 ASGI
+应用、Unix domain socket 或由代理终止 TLS 时，必须自行传入 `http_client` 并显式设置
+`trust_transport_security=True`。
 
 安全的 Docker 和远程访问配置见[部署 Server](../how-to/deploy-server.md)。
 
-Dashboard 默认启用，并与 HTTP API、MCP 共用监听地址和端口。默认未配置 scope，页面会显示空状态；Dashboard
-初始化失败只记录包含直接原因的 warning，不影响 Server 的 HTTP API、MCP 和健康检查启动。
+Dashboard 默认启用，并与 HTTP API、MCP 共用监听地址和端口。它从 Server 发现默认 Scope 和所有已创建 Scope；
+Dashboard 初始化失败只记录包含直接原因的 warning，不影响 Server 的 HTTP API、MCP 和健康检查启动。
+
+Server 默认把启动目录作为 workspace，并自动提供两个可写的本机项目级目标：Codex 使用
+`<workspace>/.agents/skills`，Claude Code 使用 `<workspace>/.claude/skills`。目录不存在时不会报错；用户首次在
+Dashboard 中确认安装后才会创建目录。以 systemd、容器或其他不保证工作目录的方式启动时，应设置一次
+`POWERCONTEXT_SERVER_WORKSPACE`，之后页面不再要求用户填写 Skill 路径。
+
+远端技能接收端需要通过不同于当前 Dashboard 访问地址的外部入口连接时，只需在 Server 上配置一次
+`POWERCONTEXT_SERVER_PUBLIC_URL`。Skills Dashboard 会自动用它生成注册命令，不再要求每次添加目标时填写地址。
+未配置时，Dashboard 自动使用当前 HTTPS 来源；显式启用不安全开关后，也可以使用当前 HTTP 来源。两者都不可用时，
+注册命令使用远端命令行已经配置的服务地址。
+
+一期 PoC 如果运行在受保护的内部测试网络，可以让 Server 和 Receiver 双端显式同意直连 HTTP：Server 设置
+`POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`，并用 `POWERCONTEXT_SERVER_PUBLIC_URL` 公布 `http://` 地址；
+Receiver 注册时同时传入 `--allow-insecure-http`。Dashboard 会显示明文传输警告，并自动把该参数加入注册命令。
+Server 未打开开关时，远端接口仍拒绝非 loopback HTTP；Receiver 未传参数时，CLI 会在发送一次性注册口令之前拒绝
+该 URL。许可会写入权限为 owner-only 的 Receiver 配置，因此 `remote-watch` 和 systemd user service 会沿用同一策略，
+unit 文件不需要保存凭据或额外参数。该开关不提供 TLS、网络隔离或防窃听能力，不能用于公网或不可信网络；长期部署
+应使用 HTTPS。
+
+```bash
+export POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0
+export POWERCONTEXT_SERVER_PUBLIC_URL=http://powercontext.internal.example:8765
+export POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true
+export POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true
+powercontext server run
+
+# 在远端项目中：
+powercontext --server-url http://powercontext.internal.example:8765 \
+  skill remote-enroll --workspace "$PWD" --install-service --allow-insecure-http
+```
+
+示例中的非 loopback opt-in 与 Receiver 传输例外彼此独立：它表示操作者接受该监听器上的所有 Server route 在没有
+Server 级 Bearer token 时可达。部署条件允许时，应优先启用鉴权，或在仅绑定 loopback 的 Server 前终止 TLS。
 
 启用 Bearer 鉴权后，`/`、`/skills`、`/reviews`、`/handoff-reports` 的 HTML 外壳及其静态资源仍保持公开，以便
 浏览器渲染登录表单；数据请求仍受鉴权保护。在表单中输入 Server token 后，浏览器只把它保存在当前标签页的 session
@@ -176,9 +212,10 @@ search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索
 settings。设置 `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 后，该 LLM operation 可以使用独立的 model、base URL、
 headers、settings、timeout 和 request limit。
 
-同一个 generation model 也控制显式 Experience generation、managed Skill generation/evolution，以及
-external Skill import/fork。未配置模型时，这些 operation 会在持久化 Candidate 前返回 capability error；
-Candidate Review、exact read 和 external Skill scan/list/resolve 仍可使用。
+同一个 generation model 也控制显式 Experience generation、managed Skill generation，以及语义化的 Skill
+fork/evolution。External Skill 精确导入和完整 package 上传不使用模型：PowerContext 会校验并保存 canonical package
+bytes，再创建 package digest 完全相同的 pending Candidate。未配置模型时，语义生成会在持久化 Candidate 前返回
+capability error；Review、package 检查与下载、精确导入、usage recording 和 external Skill scan/list/resolve 仍可使用。
 
 Experience 孵化使用独立的持久 Work handler 和 Source cursor。每次 activation 固定检查最多 32 条 Source，并且只把
 metadata 包含 `"kind": "task-outcome"` 的 Content Source 暴露给模型。该 handler 会在 Review Inbox 中创建 pending
@@ -201,15 +238,56 @@ Scheduler 与 Worker 角色只暴露 health 和 metrics。分布式 MCP 为 stat
 
 ### Agent Skill 目标
 
-`POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 是包含一个本地 host identity 和显式 Codex 或 Claude Code Skill target 的 JSON
-对象。JSON 结构和验证步骤见[配置 Agent Skill target](../how-to/configure-agent-skill-targets.md)。
+零配置流程使用上述 workspace 中的 Codex 和 Claude Code 项目级目录。只有需要自定义路径、用户级 target、环境兼容性
+事实或显式关闭本机发现时，才需要通过一个 JSON 值覆盖默认的 host-local target。基础 JSON 结构和验证流程见
+[配置 Agent Skill target](../how-to/configure-agent-skill-targets.md)。包含兼容性信息的覆盖示例如下：
 
-每个 target ID 必须唯一；`agent_kind` 支持 `codex` 和 `claude_code`，installation scope 支持 `user`、`project`
-和 `plugin`。PowerContext 只扫描这些显式 target 的直接 Skill package 子目录，不会推断 home 目录、安装 package
-或授予执行权限。`allow_managed_publish` 默认是 `false`；设为 `true` 后，authenticated Skills Library 或 Review
+```bash
+export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
+  "host_id": "workstation-1",
+  "targets": [
+    {
+      "target_id": "codex-project",
+      "agent_kind": "codex",
+      "installation_scope": "project",
+      "path": "/srv/project/.agents/skills",
+      "allow_managed_publish": true,
+      "environment": {
+        "operating_system": "linux",
+        "architecture": "x86_64",
+        "commands": {"python": "3.13.2", "bash": "5.2"},
+        "network_policy": "restricted",
+        "writable_roots": ["workspace"],
+        "dependency_install_policy": "denied",
+        "environment_names": ["CI"]
+      }
+    },
+    {
+      "target_id": "claude-project",
+      "agent_kind": "claude_code",
+      "installation_scope": "project",
+      "path": "/srv/project/.claude/skills",
+      "allow_managed_publish": true
+    }
+  ]
+}'
+```
+显式设置 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 会完整替换自动生成的两个项目级 target；设置为
+`{"host_id": null, "targets": []}` 可以关闭本机发现和发布。每个 target ID 必须唯一；`agent_kind` 支持 `codex` 和
+`claude_code`，installation scope 支持 `user`、`project` 和 `plugin`。PowerContext 只扫描默认或显式 target 的直接
+Skill package 子目录，不会推断用户 home 目录、安装 package 或授予执行权限。自动生成的两个项目级 target 允许用户
+在 Dashboard 中显式安装；自定义 target 的 `allow_managed_publish` 默认是 `false`，设为 `true` 后，authenticated Skills Library 或 Review
 页面可以把 approved managed Skill 显式创建或安全更新到该 target。页面仍不能提交任意路径，也不会覆盖外部或
-已被修改的 package。`host_id`、locator 和 registration 都是本地环境状态，不是跨 host contract。已有的
+已被修改的 package。发布会物化 Review 通过的完整精确 package（包括 scripts 和 references），不会执行其中内容，
+也不会向 package 注入 sidecar。相同页面只能在 binding 与 tree digest 仍匹配时安全取消发布；本地漂移和外部内容
+会保持不动。`host_id`、locator 和 registration 都是本地环境状态，不是跨 host contract。已有的
 `codex_roots` 配置继续作为 Codex-only 兼容格式被接受；新配置应使用 `targets`。
+
+可选的 `environment` object 只包含已观测且不含密钥的兼容性事实。Command value 是版本标签；
+`environment_names` 只记录名称，绝不记录值。PowerContext 不会为了构造该 profile 而探测或执行 package script。
+未配置时，包含 script 的 package 会显示未知兼容性；配置后，Skills Library 会把已知 script interpreter 与已观测
+command name 对比，并显示带原因的 Assessment。Assessment 不会授予 network、filesystem、dependency install 或
+environment 访问权。
 
 Server 始终创建 non-recording OpenTelemetry request context，从 inbound span 派生 `X-PowerContext-Request-ID`。如需为
 CLI 管理的 Server 启用 recording 和 export，请安装 `powercontext[cli,server,tracing-otlp]`、启用 tracing，
@@ -252,7 +330,7 @@ full-text search 仍可用。配置和 capability 验证步骤见[配置向量�
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
-| `POWERCONTEXT_CODEX_SCOPE_ID` | 根据 Git remote 或项目路径生成 | 覆盖项目 scope |
+| `POWERCONTEXT_CODEX_SCOPE_ID` | 未设置 | 显式选择一个已存在 Scope，不再解析 binding 和 Server 默认 Scope |
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
@@ -260,15 +338,16 @@ full-text search 仍可用。配置和 capability 验证步骤见[配置向量�
 | `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Hook 共享 HTTP 时间预算 |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | 每个提示词最多执行的 flush 次数 |
 
-Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。
-该变量必须存在于启动 Codex 的进程环境中；修改后需要重启 Codex。
+Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。未显式指定
+Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。配置变量必须存在于启动 Codex 的
+进程环境中；修改后需要重启 Codex。
 
 ## Claude Code 插件
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Hook 使用的 Server base URL |
-| `POWERCONTEXT_CLAUDE_SCOPE_ID` | 根据 Git remote 或项目路径生成 | 覆盖项目 scope |
+| `POWERCONTEXT_CLAUDE_SCOPE_ID` | 未设置 | 覆盖持久 binding 和 Server 默认 Scope |
 | `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | 把用户 prompt 采集为普通 Source 证据 |
 | `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
@@ -288,7 +367,7 @@ Authorization 只能来自环境变量，不能加入 Server URL 或插件选项
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | 插件使用的 Server 地址 |
-| `POWERCONTEXT_DSH_SCOPE_ID` | 根据 Git remote 或项目路径生成 | 覆盖项目 scope |
+| `POWERCONTEXT_DSH_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | 未设置 | 插件 HTTP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
@@ -300,7 +379,7 @@ Authorization 只能来自环境变量，不能加入 Server URL 或插件选项
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL；非 loopback endpoint 必须使用 HTTPS |
-| `POWERCONTEXT_PI_SCOPE_ID` | 根据 Git remote 或项目路径生成 | 覆盖项目 scope |
+| `POWERCONTEXT_PI_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
 | `POWERCONTEXT_PI_AUTHORIZATION` | 未设置 | package HTTP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | 把符合条件的用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `1000` | 单请求超时，单位毫秒 |

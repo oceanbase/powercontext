@@ -81,9 +81,16 @@ class EnvironmentFileIdentity:
     modified_ns: int
     owner_uid: int
     mode: int
+    owner_sid: str | None = None
 
     @classmethod
-    def from_stat(cls, path: Path, status: os.stat_result) -> EnvironmentFileIdentity:
+    def from_stat(
+        cls,
+        path: Path,
+        status: os.stat_result,
+        *,
+        owner_sid: str | None = None,
+    ) -> EnvironmentFileIdentity:
         return cls(
             path=os.path.abspath(path),
             device=status.st_dev,
@@ -92,6 +99,7 @@ class EnvironmentFileIdentity:
             modified_ns=status.st_mtime_ns,
             owner_uid=status.st_uid,
             mode=stat.S_IMODE(status.st_mode),
+            owner_sid=owner_sid,
         )
 
     @classmethod
@@ -108,9 +116,18 @@ class ServiceDefinition:
     endpoint: str
     data_dir: str
     env_file: EnvironmentFileIdentity | None = None
+    start_on_login: bool = True
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        # Omit the default so definitions written before this option was added remain byte-for-byte valid.
+        if self.start_on_login:
+            payload.pop("start_on_login", None)
+        environment = payload.get("env_file")
+        if isinstance(environment, dict) and environment.get("owner_sid") is None:
+            # POSIX identities do not have a Windows owner SID. Keep their metadata compatible with older files.
+            environment.pop("owner_sid", None)
+        return payload
 
     @classmethod
     def from_dict(cls, value: object) -> ServiceDefinition:
@@ -126,7 +143,7 @@ class ServiceDefinition:
             "data_dir",
             "env_file",
         }
-        if set(payload) != expected:
+        if set(payload) not in (expected, expected | {"start_on_login"}):
             raise ValueError("service definition fields do not match the supported contract")  # noqa: TRY003
         environment = payload["env_file"]
         env_file = None
@@ -142,7 +159,11 @@ class ServiceDefinition:
                 modified_ns=_required_int(environment_payload, "modified_ns"),
                 owner_uid=_optional_int(environment_payload, "owner_uid", default=-1),
                 mode=_optional_int(environment_payload, "mode", default=-1),
+                owner_sid=_optional_string(environment_payload, "owner_sid", default=None),
             )
+        start_on_login = payload.get("start_on_login", True)
+        if not isinstance(start_on_login, bool):
+            raise TypeError("service definition field 'start_on_login' must be a boolean")  # noqa: TRY003
         return cls(
             ownership=_required_string(payload, "ownership"),
             definition_version=_required_int(payload, "definition_version"),
@@ -151,6 +172,7 @@ class ServiceDefinition:
             endpoint=_required_string(payload, "endpoint"),
             data_dir=_required_string(payload, "data_dir"),
             env_file=env_file,
+            start_on_login=start_on_login,
         )
 
     def launcher_arguments(
@@ -185,6 +207,8 @@ class ServiceDefinition:
                     "--env-file-mode",
                     str(self.env_file.mode),
                 ))
+                if self.env_file.owner_sid is not None:
+                    arguments.extend(("--env-file-owner-sid", self.env_file.owner_sid))
         return arguments
 
 
@@ -283,6 +307,17 @@ def _optional_int(value: dict[str, object], name: str, *, default: int) -> int:
     if name not in value:
         return default
     return _required_int(value, name)
+
+
+def _optional_string(value: dict[str, object], name: str, *, default: str | None) -> str | None:
+    if name not in value:
+        return default
+    field = value[name]
+    if field is None and default is None:
+        return None
+    if not isinstance(field, str) or not field:
+        raise TypeError(f"service definition field {name!r} must be a non-empty string")  # noqa: TRY003
+    return field
 
 
 __all__ = [

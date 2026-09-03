@@ -50,16 +50,24 @@ side-effecting 工具的执行。
 `/v1/context/prepare`。search 将查询限制为 8192 个字符，并把请求的结果上限约束在 1–50（默认 10）；
 每次 get 最多返回 120 行、12,000 个字符。
 
-## 选择 memory scope
+## 选择 memory Scope
 
-scope 默认是 `agent`，根据 OpenClaw agent 身份推导 memory scope。需要多个 agent 共享同一项目的 memory 时使用
-project scope：
+插件会在每次操作前请求 Server 解析一个已有 Scope。Server 按以下顺序检查：
+
+1. 插件显式配置的 `scopeId`；
+2. OpenClaw session、按 host 顺序排列的 active project，以及 agent identity 的持久 binding；
+3. Server 默认 Scope。
+
+agent、project、path 和 session identity 只作为 binding 查询输入。插件不会用它们推导 Scope ID，也不会创建 Scope。
+若要让所有 OpenClaw 操作显式使用一个已有 Scope：
 
 ```bash
-powercontext setup openclaw --scope-mode project
+openclaw config set plugins.entries.memory-powercontext.config.scopeId scp_0123456789abcdefghjkmnpqrs
+openclaw gateway restart
 ```
 
-project scope 仅在 OpenClaw 为一次 turn 提供唯一可信项目身份时启用。
+未配置 `scopeId` 时，仅在 OpenClaw host identity 必须保留选择的情况下，才在 Server 端配置持久 binding；否则使用
+Server 默认 Scope。OpenClaw 当前没有 Scope 选择契约，因此插件不会自行持久化 binding。
 
 ## 连接启用鉴权的 Server
 

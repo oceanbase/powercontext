@@ -45,10 +45,13 @@ Set variables before starting OpenCode:
 
 ```bash
 export POWERCONTEXT_OPENCODE_BASE_URL=http://127.0.0.1:8000
-export POWERCONTEXT_OPENCODE_SCOPE_ID=project:example
 export POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=true
 opencode
 ```
+
+Each OpenCode session resolves an explicit `POWERCONTEXT_OPENCODE_SCOPE_ID`, its durable Session binding, its
+workspace binding, then the Server default. The resolved Scope is fixed to the Session so resume keeps the same
+boundary. Set the explicit variable only to an existing Server-owned Scope.
 
 For a Server using optional bearer authentication, set the complete header in
 `POWERCONTEXT_OPENCODE_AUTHORIZATION`. Never put credentials in the URL. Plain HTTP is accepted only for loopback

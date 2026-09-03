@@ -48,6 +48,7 @@ from powercontext.http import (
     ListMemoryEntriesRequest,
     ProposeExperienceRequest,
     RememberMemoryRequest,
+    ResolveScopeBindingRequest,
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
@@ -139,6 +140,10 @@ def _system_texts(messages: list[BaseMessage]) -> list[str]:
     return [message.text for message in messages if message.type == "system"]
 
 
+async def _default_scope_id(client: PowerContextClient) -> str:
+    return (await client.resolve_scope_binding(ResolveScopeBindingRequest())).scope_id
+
+
 def test_middleware_injects_recall_without_persisting_it(tmp_path: Path) -> None:
     model = _RecordingModel()
     agent = create_agent(
@@ -150,11 +155,12 @@ def test_middleware_injects_recall_without_persisting_it(tmp_path: Path) -> None
     app = _server_app(tmp_path)
 
     async def scenario(client: PowerContextClient) -> None:
-        await client.remember_memory(RememberMemoryRequest(scope_id=SCOPE, kind="decision", text=MEMORY_TEXT))
+        scope_id = await _default_scope_id(client)
+        await client.remember_memory(RememberMemoryRequest(scope_id=scope_id, kind="decision", text=MEMORY_TEXT))
 
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content="How should we deploy the application and its migrations?")]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(scope_id=scope_id),
         )
 
         system_texts = _system_texts(model.inputs[-1])
@@ -178,16 +184,17 @@ def test_middleware_injects_only_approved_experience(tmp_path: Path) -> None:
     query = f"What deployment order does {EXPERIENCE_MARKER} require?"
 
     async def scenario(client: PowerContextClient) -> None:
+        scope_id = await _default_scope_id(client)
         source = await client.capture_content_source(
             CaptureContentSourceRequest(
-                scope_id=SCOPE,
+                scope_id=scope_id,
                 source_id="approved-experience-evidence",
                 content="The migration-first deployment completed without schema errors.",
             )
         )
         candidate = await client.propose_experience(
             ProposeExperienceRequest(
-                scope_id=SCOPE,
+                scope_id=scope_id,
                 proposal=ExperienceProposal(
                     situation=f"A {EXPERIENCE_MARKER} deployment includes schema changes.",
                     action="Apply database migrations before deploying the application.",
@@ -198,7 +205,7 @@ def test_middleware_injects_only_approved_experience(tmp_path: Path) -> None:
                 artifact_refs=[],
             )
         )
-        scope = PowerContextScope(scope_id=SCOPE)
+        scope = PowerContextScope(scope_id=scope_id)
 
         pending_result = await agent.ainvoke({"messages": [HumanMessage(content=query)]}, context=scope)
 
@@ -207,7 +214,7 @@ def test_middleware_injects_only_approved_experience(tmp_path: Path) -> None:
 
         await client.approve_artifact_candidate(
             ApproveArtifactCandidateRequest(
-                scope_id=SCOPE,
+                scope_id=scope_id,
                 candidate_id=candidate.candidate_id,
                 expected_version=candidate.version,
             )
@@ -237,13 +244,14 @@ def test_middleware_does_not_capture_completed_turn_by_default(tmp_path: Path) -
     app = _server_app(tmp_path)
 
     async def scenario(client: PowerContextClient) -> None:
+        scope_id = await _default_scope_id(client)
         await agent.ainvoke(
             {"messages": [HumanMessage(content="Use api_key=sk-probe-default-capture-disabled.")]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(),
         )
 
-        flushed = await client.flush_memory(FlushMemoryRequest(scope_id=SCOPE))
-        entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=SCOPE))
+        flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
+        entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
         assert flushed.memory is None
         assert entries.entries == []
@@ -263,13 +271,14 @@ def test_middleware_captures_completed_turn_when_enabled(tmp_path: Path) -> None
     user_text = "What is the safe deployment order?"
 
     async def scenario(client: PowerContextClient) -> None:
+        scope_id = await _default_scope_id(client)
         await agent.ainvoke(
             {"messages": [HumanMessage(content=user_text)]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(scope_id=scope_id),
         )
 
-        flushed = await client.flush_memory(FlushMemoryRequest(scope_id=SCOPE))
-        entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=SCOPE))
+        flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
+        entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
         assert flushed.memory is not None
         assert len(entries.entries) == 1
@@ -295,13 +304,14 @@ def test_middleware_captures_tool_strategy_structured_response(tmp_path: Path) -
     user_text = "Return the deployment plan."
 
     async def scenario(client: PowerContextClient) -> None:
+        scope_id = await _default_scope_id(client)
         result = await agent.ainvoke(
             {"messages": [HumanMessage(content=user_text)]},
-            context=PowerContextScope(scope_id=SCOPE),
+            context=PowerContextScope(scope_id=scope_id),
         )
 
-        flushed = await client.flush_memory(FlushMemoryRequest(scope_id=SCOPE))
-        entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=SCOPE))
+        flushed = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
+        entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
         assert result["structured_response"] == _DeploymentPlan(order=STRUCTURED_ORDER)
         assert flushed.memory is not None

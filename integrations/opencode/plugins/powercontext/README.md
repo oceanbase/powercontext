@@ -16,8 +16,8 @@ evidence. Recalled content is inserted transiently before model dispatch and is 
 not persisted into the OpenCode transcript. Curated `pc_*` tools expose Memory, Handoff, Experience, Skill, and
 read-only Candidate operations. OpenCode asks before a named durable mutation.
 
-The project scope comes from the normalized Git remote, falling back to a hash of the worktree path. Set
-`POWERCONTEXT_OPENCODE_SCOPE_ID` to override it. Other configuration uses the same prefix with `BASE_URL`,
+Each Session resolves an explicit Scope, its durable Session or workspace binding, or the Server default. Set
+`POWERCONTEXT_OPENCODE_SCOPE_ID` only to force an existing Scope. Other configuration uses the same prefix with `BASE_URL`,
 `AUTHORIZATION`, `CAPTURE_PROMPTS`, `FLUSH_ON_CAPTURE`, `REQUEST_TIMEOUT_MS`, `HTTP_BUDGET_MS`, `MAX_BYTES`, and
 `FLUSH_MAX_CALLS`.
 

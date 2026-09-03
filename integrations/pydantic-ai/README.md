@@ -45,7 +45,7 @@ Environment variables use the `POWERCONTEXT_PYDANTIC_AI_` prefix.
 | --- | --- | --- |
 | `BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server HTTP base URL |
 | `TOKEN` | unset | Bare Server token; the Client adds the `Bearer` scheme |
-| `SCOPE_ID` | derived | Durable project scope |
+| `SCOPE_ID` | unset | Existing explicit Server Scope; unset selects the Server default |
 | `TIMEOUT` | `10` | HTTP timeout in seconds |
 | `MAX_BYTES` | `8000` | Maximum prepared-context bytes |
 | `CAPTURE_EVENTS` | `false` | Capture visible agent trajectory events as Sources |
@@ -57,8 +57,11 @@ only the opaque token, not `Bearer TOKEN` or a complete `Authorization` header. 
 and passed to `PowerContextClient`, which constructs the header.
 
 Both components accept `settings=`, `id=` (default `powercontext`), and `scope_id=`. `scope_id` can be a fixed string
-or a callable receiving the current `RunContext`. Resolution order is constructor value or callback, environment
-`SCOPE_ID`, normalized Git origin, then `local:<sha256-of-project-path>`. A callback is evaluated once per run.
+or a callable receiving the current `RunContext`. Resolution order is constructor value or callback, then environment
+`SCOPE_ID`. The adapter sends that explicit ID, or `None`, to the Server's `resolve_scope_binding` operation once per
+run and reuses the returned Scope ID throughout the run. Unset configuration selects the Server default. Explicit
+IDs must already identify a Server Scope. The adapter never inspects the working directory, Git repository, or path
+to create an ID. A callback is evaluated once per run.
 
 ## Recall, capture, and trust
 

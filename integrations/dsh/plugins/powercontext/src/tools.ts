@@ -115,7 +115,7 @@ function memoryTools(runtime: PluginRuntime, defineTool: DefineTool): unknown[] 
     }),
     pcTool(defineTool, {
       name: 'pc_memory_list',
-      description: 'List memory entries in the current project scope.',
+      description: 'List memory entries in the current Scope.',
       kind: 'read',
       parameters: {
         include_inactive: { type: 'boolean', description: 'Include retired entries for audit only.' },

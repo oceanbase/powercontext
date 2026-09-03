@@ -22,8 +22,8 @@ import type {
   MemorySearchResult,
 } from "openclaw/plugin-sdk/memory-core-host-engine-storage";
 import type { PowerContextConfig } from "./config.js";
-import { resolvePowerContextScope } from "./config.js";
 import type { PowerContextClient } from "./http.js";
+import { resolvePowerContextScope } from "./scope.js";
 import {
   decodeCitation,
   encodeCitation,
@@ -43,7 +43,6 @@ export class PowerContextMemoryManager implements MemorySearchManager {
     private readonly getConfig: () => PowerContextConfig,
     private readonly client: PowerContextClient,
     private readonly isPrivateSession: (agentId: string, sessionKey: string | undefined) => boolean,
-    private readonly fallbackScopeId?: string,
   ) {}
 
   async search(
@@ -65,7 +64,16 @@ export class PowerContextMemoryManager implements MemorySearchManager {
       return [];
     }
     const config = this.getConfig();
-    const scopeId = resolvePowerContextScope(this.agentId, config, opts?.activeProjectKeys);
+    const scopeId = await resolvePowerContextScope(
+      this.client,
+      config,
+      {
+        agentId: this.agentId,
+        sessionKey: opts?.sessionKey,
+        activeProjectKeys: opts?.activeProjectKeys,
+      },
+      opts?.signal,
+    );
     const result = await this.client.post<SearchMemoryResponse>(
       "/v1/memory/search",
       {
@@ -117,19 +125,10 @@ export class PowerContextMemoryManager implements MemorySearchManager {
 
   async readFile(params: { relPath: string; from?: number; lines?: number; scopeId?: string }): Promise<MemoryReadResult> {
     const citation = decodeCitation(params.relPath);
-    const config = this.getConfig();
     const scopeId =
       params.scopeId ??
       this.citationScopes.get(params.relPath) ??
-      this.fallbackScopeId ??
-      (config.scopeMode === "agent"
-        ? resolvePowerContextScope(this.agentId, config)
-        : undefined);
-    if (!scopeId) {
-      throw new Error(
-        "PowerContext project citation is not bound to this manager; run memory_search again",
-      );
-    }
+      (await resolvePowerContextScope(this.client, this.getConfig(), { agentId: this.agentId }));
     const entry = await this.client.post<MemoryEntry>("/v1/memory/entries/get", {
       scope_id: scopeId,
       citation,
@@ -179,7 +178,7 @@ export class PowerContextMemoryManager implements MemorySearchManager {
       sources: ["memory"],
       custom: {
         configured: Boolean(config.endpoint),
-        scopeMode: config.scopeMode,
+        explicitScope: Boolean(config.scopeId),
       },
     };
   }

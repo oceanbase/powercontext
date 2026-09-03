@@ -39,11 +39,11 @@ def test_server_migrate_runs_the_packaged_forward_only_chain(tmp_path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert "0002_work_ledger" in result.output
+    assert "0003_scope_source_skill" in result.output
     with sqlite3.connect(database) as connection:
         revision = connection.execute("SELECT version_num FROM pc_schema_revisions").fetchone()
         work_table = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pc_work_items'"
         ).fetchone()
-    assert revision == ("0002_work_ledger",)
+    assert revision == ("0003_scope_source_skill",)
     assert work_table == ("pc_work_items",)

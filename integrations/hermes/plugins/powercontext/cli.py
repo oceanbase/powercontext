@@ -91,8 +91,8 @@ def _print_result(value: Any) -> None:
 
 def _add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scope-id", help="Override the PowerContext memory scope.")
-    parser.add_argument("--profile", help="Hermes profile used in the default scope template.")
-    parser.add_argument("--user-id", default="", help="User identifier used in the default scope template.")
+    parser.add_argument("--profile", help="Hermes profile exposed to the provider.")
+    parser.add_argument("--user-id", default="", help="Hermes user identifier exposed to the provider.")
 
 
 def _add_citation_options(parser: argparse.ArgumentParser) -> None:

@@ -15,19 +15,17 @@ corresponding tool call returns successfully.
 
 ## Resolve Scope
 
-Before the first PowerContext tool call, choose one `scope_id` for the current
-task and reuse it for all Memory and Handoff calls in that task.
+Before the first data-plane call, use `resolve_scope_binding` to obtain one
+Server-owned Scope. Supply an explicit Scope only when the host or user selected
+an existing one; otherwise let the Server use its durable binding or default.
+Reuse the returned `scope_id` for the task. Never derive or invent a Scope ID
+from a repository, directory, branch, Agent, or prompt.
 
-Prefer a project-scoped identifier that is stable across compatible agents. For
-a GitHub repository, use the normalized repository identity when it is known:
-
-```text
-git:github.com/owner/repository
-```
-
-If the user or host provides an explicit PowerContext scope, use that value.
-When scope is ambiguous, ask the user which project scope should hold the
-Memory or Handoff.
+When the user explicitly establishes an independent result boundary, inspect
+the current Scope, call `create_scope` with the established Parent and
+references, then bind the host identity when the integration supports durable
+binding. Creating or switching a Scope is a host action, not an implicit result
+of an ordinary Memory or Handoff call.
 
 ## Read Memory
 

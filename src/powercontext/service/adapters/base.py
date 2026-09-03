@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sys
 import tempfile
 from contextlib import suppress
 from pathlib import Path
@@ -167,7 +168,11 @@ def atomic_write(path: Path, content: bytes, *, mode: int = 0o644) -> None:
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, mode)
+        fchmod = getattr(os, "fchmod", None)
+        if fchmod is not None:
+            fchmod(descriptor, mode)
+        else:
+            os.chmod(temporary, mode)
         with os.fdopen(descriptor, "wb") as output:
             output.write(content)
             output.flush()
@@ -202,6 +207,21 @@ def definition_state(
     return DefinitionState.CURRENT
 
 
+def service_python_executable() -> str:
+    """Return the Python executable suitable for a native personal service."""
+
+    executable = os.path.abspath(sys.executable)
+    if sys.platform != "win32":
+        return executable
+    pythonw = Path(executable).with_name("pythonw.exe")
+    if not pythonw.is_file():
+        raise ServiceError(  # noqa: TRY003
+            f"Windows personal services require pythonw.exe beside the active Python executable: {pythonw}",
+            exit_code=2,
+        )
+    return str(pythonw)
+
+
 __all__ = [
     "NativeServiceAdapter",
     "UnsupportedAdapter",
@@ -210,4 +230,5 @@ __all__ = [
     "definition_state",
     "encode_metadata",
     "inspect_artifact",
+    "service_python_executable",
 ]

@@ -23,6 +23,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from powercontext.builtin.inference import TokenEstimatorProfile
+from powercontext.builtin.scope.models import ScopeSelection
 
 
 class StatisticsPeriod(StrEnum):
@@ -228,14 +229,31 @@ class RecallTokenStatistics(BaseModel):
     daily: tuple[RecallTokenDay, ...]
 
 
-class Statistics(BaseModel):
-    """Current inventory and bounded model usage for one scope."""
+class ScopeStatistics(BaseModel):
+    """Statistics retained for one Scope inside a resolved selection."""
 
     scope_id: str
+    inventory: InventoryStatistics
+    usage: UsageStatistics
+    recall: RecallTokenStatistics
+
+
+class Statistics(BaseModel):
+    """Current inventory and bounded model usage for one frozen Scope selection."""
+
+    selection: ScopeSelection
+    scope_ids: tuple[str, ...]
     as_of: datetime
     inventory: InventoryStatistics
     usage: UsageStatistics
     recall: RecallTokenStatistics
+    by_scope: tuple[ScopeStatistics, ...]
+
+    @model_validator(mode="after")
+    def validate_scope_details(self) -> Statistics:
+        if tuple(item.scope_id for item in self.by_scope) != self.scope_ids:
+            raise ValueError("by_scope must contain one ordered entry for every resolved Scope")  # noqa: TRY003
+        return self
 
 
 __all__ = [
@@ -258,6 +276,7 @@ __all__ = [
     "RecallTokenStatistics",
     "RecallTokenValue",
     "ResolvedUsagePeriod",
+    "ScopeStatistics",
     "SourceInventoryStatistics",
     "Statistics",
     "StatisticsPeriod",

@@ -21,16 +21,18 @@ import socket
 import subprocess
 import sys
 import threading
+import xml.etree.ElementTree as ET
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.metadata import version
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
 
+import powercontext.service.cli as service_cli
 import powercontext_service_bootstrap.__main__ as service_bootstrap
 from powercontext.paths import POWERCONTEXT_HOME_ENV, powercontext_data_dir
 from powercontext.service import launcher as service_launcher
@@ -38,13 +40,14 @@ from powercontext.service import probe as service_probe
 from powercontext.service.adapters.base import decode_metadata, definition_state, encode_metadata
 from powercontext.service.adapters.launchd import LaunchdUserAdapter
 from powercontext.service.adapters.systemd import SystemdUserAdapter
+from powercontext.service.adapters.windows import WindowsTaskSchedulerAdapter
 from powercontext.service.cli import app as service_app
 from powercontext.service.controller import ServiceController
+from powercontext.service.environment import load_protected_environment_file
 from powercontext.service.model import (
     DEFINITION_VERSION,
     OWNERSHIP_MARKER,
     DefinitionState,
-    EnvironmentFileIdentity,
     LivenessState,
     ManagerOwnershipState,
     ManagerRegistration,
@@ -72,7 +75,34 @@ def _definition(tmp_path: Path, **overrides: object) -> ServiceDefinition:
         "env_file": None,
         **overrides,
     }
-    return ServiceDefinition(**values)
+    return ServiceDefinition(**cast(dict[str, Any], values))
+
+
+def _secure_windows_file(path: Path) -> None:
+    if os.name != "nt":
+        return
+    account = subprocess.run(
+        ["whoami.exe"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(
+        [  # noqa: S607
+            "icacls.exe",
+            str(path),
+            "/inheritance:r",
+            "/grant:r",
+            f"{account}:(F)",
+            "SYSTEM:(F)",
+            "Administrators:(F)",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
 
 
 class FakeAdapter:
@@ -301,6 +331,19 @@ def test_service_controller_installs_and_starts_one_native_registration(tmp_path
     assert status.ok
     assert adapter.definition is not None
     assert adapter.definition.endpoint == "http://127.0.0.1:8000"
+    assert adapter.events == ["write", "reload", "enable", "start:True"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="login auto-start opt-out is Windows-specific")
+def test_service_controller_can_install_without_login_autostart(tmp_path: Path) -> None:
+    adapter = FakeAdapter(tmp_path)
+    controller = ServiceController(adapter, probe=_manager_probe(adapter), sleep=lambda _: None)
+
+    status = controller.install(start_on_login=False)
+
+    assert status.ok
+    assert adapter.definition is not None and not adapter.definition.start_on_login
+    assert adapter.manager is ManagerState.ACTIVE
     assert adapter.events == ["write", "reload", "enable", "start:True"]
 
 
@@ -548,6 +591,7 @@ def test_service_install_accepts_a_private_environment_file(
     environment = tmp_path / "powercontext.env"
     environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8123\n", encoding="utf-8")
     environment.chmod(0o600)
+    _secure_windows_file(environment)
     adapter = FakeAdapter(tmp_path)
     controller = ServiceController(adapter, probe=_manager_probe(adapter), sleep=lambda _: None)
 
@@ -567,6 +611,7 @@ def test_service_install_does_not_inherit_an_unrecorded_shell_data_directory(
     environment = tmp_path / "powercontext.env"
     environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8123\n", encoding="utf-8")
     environment.chmod(0o600)
+    _secure_windows_file(environment)
     ambient_data = tmp_path / "ambient-data"
     monkeypatch.setenv(POWERCONTEXT_HOME_ENV, str(ambient_data))
     adapter = FakeAdapter(tmp_path)
@@ -582,8 +627,18 @@ def test_service_install_rejects_a_group_readable_environment_file(tmp_path: Pat
     environment = tmp_path / "powercontext.env"
     environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8123\n", encoding="utf-8")
     environment.chmod(0o640)
+    if os.name == "nt":
+        _secure_windows_file(environment)
+        subprocess.run(
+            ["icacls.exe", str(environment), "/grant", "*S-1-5-32-545:(R)"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
 
-    with pytest.raises(ServiceError, match="chmod 600"):
+    expected = "unexpected account" if os.name == "nt" else "chmod 600"
+    with pytest.raises(ServiceError, match=expected):
         ServiceController(FakeAdapter(tmp_path)).install(env_file=environment)
 
 
@@ -598,7 +653,7 @@ def test_systemd_definition_round_trips_and_detects_tampering(tmp_path: Path) ->
 
     assert installed.state is RegistrationState.INSTALLED
     assert installed.definition == definition
-    assert f'"{executable}"'.encode() in rendered
+    assert f'"{executable.replace(chr(92), chr(92) * 2)}"'.encode() in rendered
 
     adapter.artifact_path.write_bytes(rendered + b"# changed\n")
     assert adapter.inspect().state is RegistrationState.INVALID
@@ -662,7 +717,7 @@ def test_launchd_definition_round_trips_with_argument_array_and_logs(
     assert installed.state is RegistrationState.INSTALLED
     assert installed.definition == definition
     assert payload["ProgramArguments"][0] == executable
-    assert payload["StandardOutPath"].endswith("logs/server.stdout.log")
+    assert payload["StandardOutPath"].replace("\\", "/").endswith("logs/server.stdout.log")
     retry_token = Path(definition.data_dir) / "logs" / "launchd-retry.enabled"
     assert payload["KeepAlive"] == {"PathState": {str(retry_token): True}}
     assert payload["ProgramArguments"][1:3] == ["-m", "powercontext_service_bootstrap"]
@@ -694,6 +749,164 @@ def test_launchd_definition_round_trips_with_argument_array_and_logs(
         (("print", "gui/501/com.oceanbase.powercontext"), {"check": False}),
         (("enable", "gui/501/com.oceanbase.powercontext"), {}),
     ]
+
+
+def test_windows_definition_round_trips_with_task_scheduler_logs(tmp_path: Path) -> None:
+    adapter = WindowsTaskSchedulerAdapter(
+        config_home=tmp_path,
+        identifier=r"\PowerContext Test",
+        user_account=r"CONTOSO\alice",
+        user_sid="S-1-5-21-100-200-300-1001",
+    )
+    definition = _definition(tmp_path)
+    rendered = adapter.render(definition)
+
+    adapter.write(rendered)
+    installed = adapter.inspect()
+    root = ET.fromstring(rendered)  # noqa: S314
+    namespace = "{http://schemas.microsoft.com/windows/2004/02/mit/task}"
+
+    assert installed.state is RegistrationState.INSTALLED
+    assert installed.definition == definition
+    assert rendered.startswith(b"\xff\xfe")
+    uri = root.find(f"{namespace}RegistrationInfo/{namespace}URI")
+    principal_user = root.find(f"{namespace}Principals/{namespace}Principal/{namespace}UserId")
+    hidden = root.find(f"{namespace}Settings/{namespace}Hidden")
+    restart_count = root.find(f"{namespace}Settings/{namespace}RestartOnFailure/{namespace}Count")
+    logon_user = root.find(f"{namespace}Triggers/{namespace}LogonTrigger/{namespace}UserId")
+    arguments = root.find(f"{namespace}Actions/{namespace}Exec/{namespace}Arguments")
+    assert uri is not None and uri.text == r"\PowerContext Test"
+    assert principal_user is not None and principal_user.text == "S-1-5-21-100-200-300-1001"
+    assert hidden is not None and hidden.text == "true"
+    assert restart_count is not None and restart_count.text == "3"
+    assert logon_user is not None and logon_user.text == r"CONTOSO\alice"
+    assert arguments is not None
+    assert arguments.text is not None and arguments.text.endswith(
+        r"--stderr " + str(Path(definition.data_dir) / "logs" / "server.stderr.log")
+    )
+    assert (Path(definition.data_dir) / "logs").is_dir()
+
+
+def test_windows_definition_can_disable_login_trigger(tmp_path: Path) -> None:
+    adapter = WindowsTaskSchedulerAdapter(
+        config_home=tmp_path,
+        identifier=r"\PowerContext Test",
+        user_account=r"CONTOSO\alice",
+        user_sid="S-1-5-21-100-200-300-1001",
+    )
+    definition = _definition(tmp_path, start_on_login=False)
+    rendered = adapter.render(definition)
+    root = ET.fromstring(rendered)  # noqa: S314
+    namespace = "{http://schemas.microsoft.com/windows/2004/02/mit/task}"
+
+    adapter.write(rendered)
+
+    assert root.find(f"{namespace}Triggers/{namespace}LogonTrigger") is None
+    assert adapter.inspect().definition == definition
+
+
+def test_windows_loaded_registration_requires_owned_task_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = WindowsTaskSchedulerAdapter(
+        config_home=tmp_path,
+        identifier=r"\PowerContext Test",
+        user_account=r"CONTOSO\alice",
+        user_sid="S-1-5-21-100-200-300-1001",
+    )
+    definition = _definition(tmp_path)
+    rendered = adapter.render(definition)
+    output = rendered.decode("utf-16")
+    run = Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], 0, output, ""))
+    monkeypatch.setattr(adapter, "_run", run)
+
+    assert adapter.loaded_registration().state is ManagerOwnershipState.OWNED
+
+    foreign = output.replace("<Hidden>true</Hidden>", "<Hidden>false</Hidden>", 1)
+    run.return_value = subprocess.CompletedProcess(["schtasks.exe"], 0, foreign, "")
+
+    registration = adapter.loaded_registration()
+
+    assert registration.state is ManagerOwnershipState.FOREIGN
+    assert registration.detail is not None
+    assert "hidden-window policy" in registration.detail
+
+
+@pytest.mark.parametrize("extra_parent", ["Actions", "Triggers", "Principals"])
+def test_windows_loaded_registration_rejects_extra_task_elements(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extra_parent: str,
+) -> None:
+    adapter = WindowsTaskSchedulerAdapter(
+        config_home=tmp_path,
+        identifier=r"\PowerContext Test",
+        user_account=r"CONTOSO\alice",
+        user_sid="S-1-5-21-100-200-300-1001",
+    )
+    definition = _definition(tmp_path)
+    root = ET.fromstring(adapter.render(definition))  # noqa: S314
+    parent = next(child for child in root if child.tag.endswith(extra_parent))
+    ET.SubElement(
+        parent,
+        parent.tag.rsplit("}", 1)[0]
+        + "}"
+        + {
+            "Actions": "Exec",
+            "Triggers": "TimeTrigger",
+            "Principals": "Principal",
+        }[extra_parent],
+    )
+    output = ET.tostring(root, encoding="utf-16", xml_declaration=True).decode("utf-16")
+    monkeypatch.setattr(
+        adapter,
+        "_run",
+        Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], 0, output, "")),
+    )
+
+    registration = adapter.loaded_registration()
+
+    assert registration.state is ManagerOwnershipState.FOREIGN
+    assert registration.detail is not None
+    assert "structure" in registration.detail
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"State": "Running", "LastTaskResult": 0}, ManagerState.ACTIVE),
+        ({"State": "Ready", "LastTaskResult": 0x41303}, ManagerState.INACTIVE),
+        ({"State": "Ready", "LastTaskResult": 1}, ManagerState.FAILED),
+        ({"State": "Disabled", "LastTaskResult": 0}, ManagerState.INACTIVE),
+        ({"State": "Running", "LastTaskResult": 0, "状态": "正在运行"}, ManagerState.ACTIVE),
+    ],
+)
+def test_windows_manager_state_uses_locale_independent_task_info(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, object],
+    expected: ManagerState,
+) -> None:
+    adapter = WindowsTaskSchedulerAdapter(config_home=tmp_path)
+    monkeypatch.setattr(
+        adapter,
+        "_run_task_info",
+        Mock(return_value=subprocess.CompletedProcess(["powershell.exe"], 0, json.dumps(payload), "")),
+    )
+
+    assert adapter.manager_state() is expected
+
+
+def test_windows_uninstall_recovery_uses_scoped_task_commands(tmp_path: Path) -> None:
+    adapter = WindowsTaskSchedulerAdapter(
+        config_home=tmp_path,
+        identifier=r"\PowerContext Test",
+    )
+
+    assert adapter.uninstall_recovery("stop") == 'schtasks.exe /End /TN "\\PowerContext Test" /HRESULT'
+    assert adapter.uninstall_recovery("disable") == 'schtasks.exe /Change /TN "\\PowerContext Test" /DISABLE /HRESULT'
+    assert adapter.uninstall_recovery("remove") == 'schtasks.exe /Delete /TN "\\PowerContext Test" /F /HRESULT'
 
 
 def test_launchd_inspect_accepts_only_an_intact_legacy_owned_definition(tmp_path: Path) -> None:
@@ -1134,7 +1347,7 @@ def test_service_install_cli_renders_post_commit_failure_status(monkeypatch: pyt
     controller.install.side_effect = ServiceError("start failed", status=status)
     monkeypatch.setattr("powercontext.service.cli._controller", lambda: controller)
 
-    result = CliRunner().invoke(service_app, ["install"])
+    result = CliRunner().invoke(service_app, ["install", "--start-on-login"])
 
     assert result.exit_code == 1
     assert "installation failed: start failed" in result.output
@@ -1142,6 +1355,32 @@ def test_service_install_cli_renders_post_commit_failure_status(monkeypatch: pyt
     assert "manager: failed" in result.output
     assert "server liveness: unreachable (http://127.0.0.1:8000)" in result.output
     assert "logs: fake logs" in result.output
+
+
+def test_service_install_cli_prompts_for_login_autostart(monkeypatch: pytest.MonkeyPatch) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.INACTIVE,
+        server_liveness=LivenessState.UNREACHABLE,
+        endpoint="http://127.0.0.1:8000",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    confirm = Mock(return_value=False)
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    monkeypatch.setattr(service_cli.sys, "platform", "win32")
+    monkeypatch.setattr(service_cli.typer, "confirm", confirm)
+
+    result = CliRunner().invoke(service_app, ["install"])
+
+    assert result.exit_code == 0
+    confirm.assert_called_once_with("Enable automatic Server startup when you log in?", default=False)
+    controller.install.assert_called_once_with(env_file=None, start_on_login=False)
+    assert "without login auto-start" in result.output
 
 
 def test_service_uninstall_cli_renders_partial_failure_status(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1197,6 +1436,7 @@ def test_service_launcher_pins_the_recorded_data_directory(
     environment = tmp_path / "powercontext.env"
     environment.write_text(f"{POWERCONTEXT_HOME_ENV}={tmp_path / 'other-data'}\n", encoding="utf-8")
     environment.chmod(0o600)
+    _secure_windows_file(environment)
     recorded_data = tmp_path / "recorded-data"
     observed_data: list[Path] = []
     monkeypatch.setattr(
@@ -1213,7 +1453,7 @@ def test_service_launcher_pins_the_recorded_data_directory(
     definition = _definition(
         tmp_path,
         data_dir=str(recorded_data),
-        env_file=EnvironmentFileIdentity.from_path(environment),
+        env_file=load_protected_environment_file(environment).identity,
     )
     exit_code = service_launcher.main(definition.launcher_arguments()[3:])
 
@@ -1239,6 +1479,41 @@ def test_service_launcher_does_not_start_over_an_existing_powercontext_server(
     run_server.assert_not_called()
 
 
+def test_service_launcher_can_redirect_server_output_to_owned_log_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stdout_path = tmp_path / "logs" / "server.stdout.log"
+    stderr_path = tmp_path / "logs" / "server.stderr.log"
+    monkeypatch.setattr(
+        service_launcher,
+        "probe_server",
+        lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
+    )
+
+    def run_server(_settings: object) -> None:
+        print("server output")
+        print("server error", file=sys.stderr)
+
+    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", run_server)
+
+    exit_code = service_launcher.main([
+        "--endpoint",
+        "http://127.0.0.1:8000",
+        "--data-dir",
+        str(tmp_path / "data"),
+        "--stdout",
+        str(stdout_path),
+        "--stderr",
+        str(stderr_path),
+    ])
+
+    assert exit_code == 0
+    assert stdout_path.read_text(encoding="utf-8") == "server output\n"
+    assert stderr_path.read_text(encoding="utf-8") == "server error\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="launchd bootstrap retry state is POSIX-specific")
 def test_launchd_launcher_stops_after_a_bounded_number_of_rapid_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -43,7 +43,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT))
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from scripts.project_scope import resolve_scope_id  # noqa: E402
+from scripts.workspace_scope import resolve_scope_id  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -162,8 +162,13 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
             _write_hook_output(diagnostic_events=diagnostic_events)
             return 0
 
-        scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
         http_deadline = monotonic() + settings.http_budget_seconds
+        scope_id = resolve_scope_id(
+            cwd,
+            session_id=_payload_identifier(payload, "session_id"),
+            settings=settings,
+            deadline=http_deadline,
+        )
         context = None
         with suppress(Exception):
             context = _recall_context(

@@ -19,17 +19,18 @@ from __future__ import annotations
 import os
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import replace
 from importlib.metadata import version
 from pathlib import Path
+from typing import cast
 
 from powercontext.cli.env_file import environment_context
 from powercontext.paths import POWERCONTEXT_HOME_ENV, powercontext_data_dir
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.adapters import NativeServiceAdapter, native_service_adapter
-from powercontext.service.adapters.base import definition_state
+from powercontext.service.adapters.base import definition_state, service_python_executable
 from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
 from powercontext.service.model import (
     DEFINITION_VERSION,
@@ -67,11 +68,16 @@ class ServiceController:
         self._probe = probe
         self._sleep = sleep
 
-    def install(self, *, env_file: Path | None = None) -> ServiceStatus:
+    def install(self, *, env_file: Path | None = None, start_on_login: bool = True) -> ServiceStatus:
+        if not start_on_login and sys.platform != "win32":
+            raise ServiceError(  # noqa: TRY003
+                "disabling login auto-start is currently supported only on Windows",
+                exit_code=2,
+            )
         support, detail = self._adapter.support()
         if support is SupportState.UNSUPPORTED:
             raise ServiceError(detail)
-        definition = self._build_definition(env_file)
+        definition = self._build_definition(env_file, start_on_login=start_on_login)
         initial_probe = self._probe(definition.endpoint)
         if initial_probe.state is ProbeState.CONFLICT:
             raise ServiceError(  # noqa: TRY003
@@ -155,7 +161,7 @@ class ServiceController:
         installed_definition = definition_state(
             definition,
             package_version=installed_version,
-            python_executable=sys.executable,
+            python_executable=service_python_executable(),
         )
         return ServiceStatus(
             support=support,
@@ -229,7 +235,7 @@ class ServiceController:
             self._run_uninstall_stage("reload", self._adapter.reload)
         return self.status()
 
-    def _build_definition(self, env_file: Path | None) -> ServiceDefinition:
+    def _build_definition(self, env_file: Path | None, *, start_on_login: bool) -> ServiceDefinition:
         try:
             loaded_env = load_protected_environment_file(env_file) if env_file is not None else None
         except ProtectedEnvironmentFileError as error:
@@ -272,10 +278,11 @@ class ServiceController:
             ownership=OWNERSHIP_MARKER,
             definition_version=DEFINITION_VERSION,
             package_version=version("powercontext"),
-            python_executable=os.path.abspath(sys.executable),
+            python_executable=service_python_executable(),
             endpoint=endpoint,
             data_dir=data_dir,
             env_file=loaded_env.identity if loaded_env is not None else None,
+            start_on_login=start_on_login,
         )
 
     def _run_uninstall_stage(self, stage: str, operation: Callable[[], None]) -> None:
@@ -353,7 +360,12 @@ class ServiceController:
 
 
 @contextmanager
-def _service_lock(path: Path, *, timeout: float = 5.0) -> Iterator[None]:
+def _service_lock(path: Path, *, timeout: float = 5.0) -> Generator[None, None, None]:
+    if os.name == "nt":
+        with _windows_service_lock(path, timeout=timeout):
+            yield
+        return
+
     import fcntl
 
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -374,6 +386,40 @@ def _service_lock(path: Path, *, timeout: float = 5.0) -> Iterator[None]:
     finally:
         with suppress(OSError):
             fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+@contextmanager
+def _windows_service_lock(path: Path, *, timeout: float) -> Generator[None, None, None]:
+    import msvcrt
+
+    # These Windows-only members are missing from the stdlib type stubs.
+    msvcrt_members = vars(msvcrt)
+    locking = cast(Callable[[int, int, int], None], msvcrt_members["locking"])
+    lock_nonblocking = cast(int, msvcrt_members["LK_NBLCK"])
+    lock_unlock = cast(int, msvcrt_members["LK_UNLCK"])
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        if os.fstat(descriptor).st_size == 0:
+            os.write(descriptor, b"\0")
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                locking(descriptor, lock_nonblocking, 1)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise ServiceError(  # noqa: TRY003
+                        "another PowerContext service operation is still running"
+                    ) from None
+                time.sleep(0.05)
+        yield
+    finally:
+        with suppress(OSError):
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            locking(descriptor, lock_unlock, 1)
         os.close(descriptor)
 
 

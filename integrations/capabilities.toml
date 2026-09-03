@@ -81,11 +81,26 @@ capabilities = ["handoff"]
 id = "get_handoff_report"
 capabilities = ["handoff"]
 [[toolsets.tools]]
-id = "list_handoff_report_known_scopes"
-capabilities = ["handoff"]
+id = "create_scope"
+capabilities = ["scope_organization"]
 [[toolsets.tools]]
-id = "get_handoff_report_workspace"
-capabilities = ["handoff"]
+id = "get_scope"
+capabilities = ["scope_organization"]
+[[toolsets.tools]]
+id = "list_scopes"
+capabilities = ["scope_organization"]
+[[toolsets.tools]]
+id = "publish_artifact"
+capabilities = ["artifact_publication"]
+[[toolsets.tools]]
+id = "resolve_scope_binding"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "set_scope_binding"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "clear_scope_binding"
+capabilities = ["persistent_scope_binding"]
 [[toolsets.tools]]
 id = "acknowledge_handoff"
 capabilities = ["acknowledge"]
@@ -111,6 +126,12 @@ non_profile_reason = "Candidate decision authority is outside this capability co
 [[toolsets]]
 id = "prompt-hooks"
 probe = "json_prompt_hook"
+[[toolsets.tools]]
+id = "codex:SessionStart"
+capabilities = ["persistent_scope_binding"]
+[[toolsets.tools]]
+id = "codex:PreToolUse"
+capabilities = ["persistent_scope_binding"]
 [[toolsets.tools]]
 id = "codex:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
@@ -291,7 +312,7 @@ id = "hermes-command"
 probe = "hermes_commands"
 [[toolsets.tools]]
 id = "pc"
-capabilities = ["slash_command", "persistent_workstream_binding"]
+capabilities = ["slash_command", "persistent_scope_binding"]
 [[toolsets.tools]]
 id = "powercontext"
 capabilities = ["slash_command"]
@@ -509,7 +530,7 @@ capabilities = ["flush_or_checkpoint"]
 id = "codex"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]
@@ -521,7 +542,7 @@ tests = ["tests/codex_plugin/test_contract.py", "tests/e2e/test_codex_service_ch
 id = "claude-code"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]
@@ -545,7 +566,7 @@ tests = ["integrations/dsh/plugins/powercontext/tests/plugin-surfaces.spec.ts"]
 id = "hermes"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "slash_command", "persistent_workstream_binding"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "slash_command", "persistent_scope_binding"]
 profiles = ["minimal", "recommended", "full"]
 toolsets = ["hermes-operations", "hermes-command"]
 [integrations.evidence]
@@ -593,7 +614,7 @@ tests = ["integrations/pi/plugins/powercontext/tests/extension.spec.ts"]
 id = "workbuddy"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review", "scope_organization", "artifact_publication", "persistent_scope_binding"]
 profiles = ["minimal", "recommended"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]

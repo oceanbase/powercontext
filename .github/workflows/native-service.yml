@@ -94,3 +94,47 @@ jobs:
           name: macos-native-service-logs
           path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
           if-no-files-found: ignore
+
+  windows-task-scheduler:
+    runs-on: windows-latest
+    env:
+      POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS: "1"
+      POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER: PowerContext-Native-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install the built distribution in a fresh virtual environment
+        shell: pwsh
+        run: |
+          uv build --wheel
+          $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
+          $wheelUri = "file:///" + $wheel.Replace('\', '/')
+          uv venv .native-venv
+          uv pip install --python .native-venv\Scripts\python.exe "powercontext[cli,server] @ $wheelUri" pytest
+
+      - name: Exercise the real Task Scheduler lifecycle
+        shell: pwsh
+        run: >-
+          .native-venv\Scripts\python.exe -m pytest -q
+          --basetemp "$env:RUNNER_TEMP\powercontext-native-tests"
+          tests/native/test_personal_service_lifecycle.py
+
+      - name: Capture Task Scheduler diagnostics after failure
+        if: failure()
+        shell: pwsh
+        run: |
+          schtasks.exe /Query /TN "$env:POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER" /XML /HRESULT
+          if ($LASTEXITCODE -ne 0) { exit 0 }
+          schtasks.exe /Query /TN "$env:POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER" /FO LIST /V /HRESULT
+
+      - name: Upload Windows native-service logs after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-native-service-logs
+          path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
+          if-no-files-found: ignore

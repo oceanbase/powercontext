@@ -111,7 +111,7 @@ describe('agent tool surface', () => {
       {
         client: {} as never,
         config: { maxBytes: 8000 },
-        resolveScope: async (cwd?: string) => cwd ? 'local:from-cwd' : undefined,
+        resolveScope: async (cwd?: string) => cwd ? 'scp_from_server' : undefined,
         log: vi.fn(),
       } as unknown as PluginRuntime,
       (definition) => definition,

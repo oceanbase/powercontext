@@ -58,7 +58,7 @@ PowerContext Server data.
 
 For each user prompt, the Hook:
 
-1. derives the same project scope as the Codex integration;
+1. resolves the current Scope from explicit, session, workspace, and default bindings;
 2. calls `POST /v1/context/prepare` at most once;
 3. strictly validates `powercontext.prepared-context.v1` and injects it unchanged through `additionalContext`;
 4. independently captures the prompt as ordinary Content Source evidence.
@@ -73,20 +73,19 @@ Skill.
 Scope resolution uses this order:
 
 1. `POWERCONTEXT_CLAUDE_SCOPE_ID`, when explicitly set;
-2. the Git-private Workstream binding shared with Codex;
-3. the normalized `remote.origin.url` of the Git top-level directory;
-4. a `local:sha256:<digest>` identifier derived from the resolved project directory.
+2. a durable session binding stored by PowerContext;
+3. a durable workspace binding stored by PowerContext;
+4. the Server's default Scope.
 
-Claude Code and Codex therefore resolve the exact same scope in a checkout that has a Workstream binding. Without a
-binding they still share the normalized remote scope. Bind a known Workstream with the bundled resolver:
+Bind a known Scope to the checkout with the bundled resolver:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/project_scope.py" \
-  --cwd "$PWD" --bind-workstream "WORKSTREAM_SCOPE_ID"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
 ```
 
-The local fallback is stable for one resolved directory, but it is not intended to join unrelated checkouts. Set an
-explicit scope only when that separation or sharing is deliberate.
+The resolver hashes the workspace path only as an external binding key. It never generates a Scope ID from a Git
+remote or directory. Set an explicit Scope only when that separation or sharing is deliberate.
 
 ## Use explicit Memory and Handoff operations
 
@@ -122,8 +121,8 @@ export POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS=false
 claude
 ```
 
-Use `POWERCONTEXT_CLAUDE_SCOPE_ID` only when the Memory scope must intentionally differ from both the Git remote and
-local project path.
+Use `POWERCONTEXT_CLAUDE_SCOPE_ID` only when the current work must intentionally override durable bindings and the
+Server default.
 
 `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE=true` makes the Hook wait for Source processing and is intended for tests, not
 normal interactive use.

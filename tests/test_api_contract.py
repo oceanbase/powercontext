@@ -72,7 +72,11 @@ from powercontext.http._generated.operations import (
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_REMOTE_SKILL_TARGET,
     CREATE_WORK_CONTRACT,
+    DOWNLOAD_REMOTE_SKILL_PACKAGE,
+    DOWNLOAD_SKILL_PACKAGE,
+    ENROLL_REMOTE_SKILL_TARGET,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
@@ -82,26 +86,39 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
+    GET_SKILL_PACKAGE_MANIFEST,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
+    LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_REMOTE_SKILL_TARGETS,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
+    PROPOSE_SKILL_PACKAGE,
+    PUBLISH_REMOTE_SKILL,
+    RECONCILE_REMOTE_SKILLS,
+    RECORD_REMOTE_SKILL_RECEIPT,
+    RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RENAME_REMOTE_SKILL_TARGET,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SUBMIT_SOURCE_OBSERVATION,
+    UNPUBLISH_REMOTE_SKILL,
+    UPDATE_SKILL_LIFECYCLE,
 )
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
@@ -117,7 +134,7 @@ def test_contract_uses_the_namespaced_request_id_header() -> None:
     assert "X-Request-ID" not in contract
 
 
-def test_contract_declares_optional_bearer_authentication() -> None:
+def test_contract_declares_server_and_remote_target_bearer_boundaries() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
 
     assert contract["security"] == [{"BearerAuth": []}, {}]
@@ -126,12 +143,25 @@ def test_contract_declares_optional_bearer_authentication() -> None:
         "scheme": "bearer",
         "description": "Static bearer token used when local Server authentication is enabled.",
     }
+    assert contract["components"]["securitySchemes"]["TargetBearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Per-target credential issued once during remote Receiver enrollment.",
+    }
+    public_paths = {"/health/live", "/health/ready", "/v1/skill/remote/target/enroll"}
+    target_paths = {
+        "/v1/skill/remote/reconcile",
+        "/v1/skill/remote/package/download",
+        "/v1/skill/remote/receipt",
+    }
     for path, path_item in contract["paths"].items():
         operation = next(iter(path_item.values()))
-        if path.startswith("/health/"):
+        if path in public_paths:
             assert operation["security"] == []
         else:
             assert operation["responses"]["401"] == {"$ref": "#/components/responses/Unauthorized"}
+        if path in target_paths:
+            assert operation["security"] == [{"TargetBearerAuth": []}]
 
 
 def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
@@ -163,14 +193,54 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
 
 
-def test_stats_operation_exposes_dashboard_ready_scoped_values() -> None:
-    assert GET_STATS.method == "GET"
+def test_source_observation_contract_uses_explicit_connector_scope_and_captured_values() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+
+    request = schemas["SubmitSourceObservationRequest"]
+    observation = schemas["SourceObservation"]
+
+    assert set(request["properties"]) == {"scope_id", "observation"}
+    assert request["properties"]["observation"] == {"$ref": "#/components/schemas/SourceObservation"}
+    assert observation["properties"]["materialization"]["enum"] == ["captured"]
+    assert "ProjectedSource" not in schemas
+    assert SUBMIT_SOURCE_OBSERVATION.scope_mode == "none"
+
+
+def test_standard_skill_operations_preserve_agent_and_receiver_scope_boundaries() -> None:
+    agent_scoped = (
+        LIST_MANAGED_SKILLS,
+        UPDATE_SKILL_LIFECYCLE,
+        GET_SKILL_PACKAGE_MANIFEST,
+        DOWNLOAD_SKILL_PACKAGE,
+        PROPOSE_SKILL_PACKAGE,
+        RECORD_SKILL_USAGE,
+        LIST_REMOTE_SKILL_TARGETS,
+        CREATE_REMOTE_SKILL_TARGET,
+        RENAME_REMOTE_SKILL_TARGET,
+        REVOKE_REMOTE_SKILL_TARGET,
+        PUBLISH_REMOTE_SKILL,
+        UNPUBLISH_REMOTE_SKILL,
+    )
+    receiver_scoped = (
+        ENROLL_REMOTE_SKILL_TARGET,
+        RECONCILE_REMOTE_SKILLS,
+        DOWNLOAD_REMOTE_SKILL_PACKAGE,
+        RECORD_REMOTE_SKILL_RECEIPT,
+    )
+
+    assert {operation.scope_mode for operation in agent_scoped} == {"current"}
+    assert {operation.scope_mode for operation in receiver_scoped} == {"none"}
+
+
+def test_stats_operation_exposes_dashboard_ready_selection_values() -> None:
+    assert GET_STATS.method == "POST"
     assert GET_STATS.path == "/v1/stats"
     assert GET_STATS.request_type is GetStatsRequest
-    assert GET_STATS.request_location == "query"
+    assert GET_STATS.request_location == "body"
     assert GET_STATS.response_type is ScopedStats
     assert GET_STATS.success_status == 200
-    assert GetStatsRequest(scope_id="project").period is StatsPeriod.FIELD_30D
+    assert GetStatsRequest.model_validate({"selection": {"mode": "all"}}).period is StatsPeriod.FIELD_30D
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
@@ -179,16 +249,37 @@ def test_stats_operation_exposes_dashboard_ready_scoped_values() -> None:
     usage_value = schemas["ModelUsageValue"]
     recall = schemas["RecallTokenStatistics"]
 
-    operation = contract["paths"]["/v1/stats"]["get"]
-    assert "requestBody" not in operation
-    assert [parameter["name"] for parameter in operation["parameters"]] == ["scope_id", "period"]
-    assert set(stats["properties"]) == {"scope_id", "as_of", "inventory", "usage", "recall"}
+    operation = contract["paths"]["/v1/stats"]["post"]
+    assert operation["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/GetStatsRequest"
+    }
+    assert set(stats["properties"]) == {
+        "selection",
+        "scope_ids",
+        "as_of",
+        "inventory",
+        "usage",
+        "recall",
+        "by_scope",
+    }
     assert usage["properties"]["by_purpose"]["maxItems"] == 16
     assert usage["properties"]["daily"]["maxItems"] == 30
     assert usage_value["properties"]["input_tokens"]["nullable"] is True
     assert usage_value["properties"]["output_tokens"]["nullable"] is True
     assert recall["properties"]["estimator"]["nullable"] is True
     assert recall["properties"]["daily"]["maxItems"] == 30
+
+
+def test_scope_resource_operations_separate_identity_from_mutable_metadata() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    path_item = contract["paths"]["/v1/scopes/{scope_id}"]
+    assert path_item["get"]["parameters"][0]["in"] == "path"
+    assert "requestBody" not in path_item["get"]
+    assert path_item["put"]["parameters"][0]["in"] == "path"
+    assert path_item["put"]["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/UpdateScopeRequest"
+    }
+    assert "scope_id" not in contract["components"]["schemas"]["UpdateScopeRequest"]["properties"]
 
 
 def test_memory_operations_use_family_prefixed_paths_and_typed_requests() -> None:
@@ -263,6 +354,11 @@ def test_experience_skill_and_review_operations_are_typed_and_family_routed() ->
         "description",
         "instructions",
         "validation",
+        "package",
+        "license",
+        "compatibility",
+        "metadata",
+        "allowed_tools",
     }
     assert schemas["ListArtifactCandidatesRequest"]["properties"]["limit"] == {
         "type": "integer",

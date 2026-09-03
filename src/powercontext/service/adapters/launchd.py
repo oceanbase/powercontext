@@ -61,7 +61,8 @@ class LaunchdUserAdapter:
         user_home = home or Path.home()
         self.artifact_path = user_home / "Library" / "LaunchAgents" / f"{self.identifier}.plist"
         self.lock_path = self.artifact_path.with_name(f".{self.identifier}.lock")
-        self._uid = os.getuid() if uid is None else uid
+        getuid = getattr(os, "getuid", None)
+        self._uid = (getuid() if getuid is not None else 0) if uid is None else uid
 
     @property
     def _domain(self) -> str:

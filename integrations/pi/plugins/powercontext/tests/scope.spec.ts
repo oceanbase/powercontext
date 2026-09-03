@@ -14,27 +14,27 @@
  * limitations under the License.
  */
 
-import { createHash } from 'node:crypto'
-import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { deriveScopeId, normalizeGitRemote } from '../src/scope.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { resolveScopeId } from '../src/scope.ts'
 
-describe('Pi project scope', () => {
-  it('uses the normalized Git remote and never retains credentials', async () => {
-    expect(normalizeGitRemote('https://token@github.com/acme/powercontext.git')).toBe('github.com/acme/powercontext')
-    const git = async (_cwd: string, args: string[]) => {
-      if (args[0] === 'rev-parse') return '/workspace/powercontext'
-      if (args[0] === 'config') return 'git@github.com:acme/powercontext.git'
-      return undefined
-    }
-    await expect(deriveScopeId('/workspace/powercontext', { git })).resolves.toBe('git:github.com/acme/powercontext')
+describe('Scope binding', () => {
+  it('resolves explicit, durable, and default precedence on the Server', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'scp_00000000000000000000000000' } })
+    const client = { request } as never
+
+    await expect(resolveScopeId(client, '/workspace/powercontext', 'explicit-scope')).resolves.toBe(
+      'scp_00000000000000000000000000',
+    )
+    const [operation, input] = request.mock.calls[0]
+    expect(operation).toBe('resolve_scope_binding')
+    expect(input.explicit_scope_id).toBe('explicit-scope')
+    expect(input.binding_keys).toHaveLength(1)
+    expect(input.binding_keys[0]).toMatchObject({ integration: 'pi', kind: 'workspace' })
+    expect(input.binding_keys[0].external_id).not.toContain('/workspace/powercontext')
   })
 
-  it('uses a bounded explicit scope and falls back to the project path', async () => {
-    await expect(deriveScopeId('/workspace/powercontext', { configuredScopeId: 'project:demo' })).resolves.toBe('project:demo')
-    const cwd = resolve('/tmp/no-git-project')
-    await expect(deriveScopeId(cwd, { git: async () => undefined })).resolves.toBe(
-      `local:${createHash('sha256').update(cwd).digest('hex')}`,
-    )
+  it('rejects an invalid resolver response', async () => {
+    const client = { request: vi.fn().mockResolvedValue({ value: {} }) } as never
+    await expect(resolveScopeId(client, '/workspace/powercontext')).rejects.toThrow('invalid Scope')
   })
 })

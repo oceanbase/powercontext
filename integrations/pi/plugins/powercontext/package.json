@@ -1,7 +1,7 @@
 {
   "name": "powercontext-pi",
   "version": "0.0.2",
-  "description": "Native Pi package that connects to a PowerContext Server for project-scoped recall and handoff.",
+  "description": "Native Pi package that connects to a PowerContext Server for Scope-bound recall and handoff.",
   "license": "Apache-2.0",
   "type": "module",
   "keywords": [

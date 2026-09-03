@@ -30,6 +30,10 @@ def native_service_adapter() -> NativeServiceAdapter:
         from powercontext.service.adapters.launchd import LaunchdUserAdapter
 
         return LaunchdUserAdapter()
+    if sys.platform == "win32":
+        from powercontext.service.adapters.windows import WindowsTaskSchedulerAdapter
+
+        return WindowsTaskSchedulerAdapter()
     return UnsupportedAdapter(f"personal service installation is not supported on {sys.platform}")
 
 

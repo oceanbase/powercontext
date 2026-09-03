@@ -45,7 +45,7 @@ def _write_plugin(root: Path) -> Path:
     scripts = plugin / "scripts"
     scripts.mkdir()
     (scripts / "__init__.py").write_text('"""PowerContext helper scripts."""\n', encoding="utf-8")
-    (scripts / "project_scope.py").write_text(
+    (scripts / "workspace_scope.py").write_text(
         "import json\n\n"
         "def resolve_scope_id(*_args, **_kwargs) -> str:\n"
         "    return 'scope'\n\n"
@@ -55,11 +55,11 @@ def _write_plugin(root: Path) -> Path:
     )
     cache = scripts / "__pycache__"
     cache.mkdir()
-    (cache / "project_scope.cpython-312.pyc").write_bytes(b"\x00")
+    (cache / "scope_binding.cpython-312.pyc").write_bytes(b"\x00")
     skill = plugin / "skills" / "project-context"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text(
-        '${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} --cwd "$PWD"\n',
+        '${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
         encoding="utf-8",
     )
     return plugin
@@ -109,14 +109,14 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
     hooks_dir = home / "hooks"
     for name in _HOOK_MODULES:
         assert (hooks_dir / name).is_file()
-    assert (hooks_dir / "powercontext_project_scope.py").is_file()
+    assert (hooks_dir / "powercontext_scope_binding.py").is_file()
 
     skill_markdown = home / "skills" / "project-context" / "SKILL.md"
     assert skill_markdown.is_file()
     skill_content = skill_markdown.read_text(encoding="utf-8")
-    assert "${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}" not in skill_content
+    assert "${POWERCONTEXT_SCOPE_BINDING_SCRIPT}" not in skill_content
     assert "${POWERCONTEXT_PYTHON}" not in skill_content
-    assert (hooks_dir / "powercontext_project_scope.py").as_posix() in skill_content
+    assert (hooks_dir / "powercontext_scope_binding.py").as_posix() in skill_content
     assert Path(sys.executable).as_posix() in skill_content
     assert json.loads((skill_markdown.parent / ".powercontext.json").read_text(encoding="utf-8")) == {
         "schema": 1,
@@ -322,7 +322,7 @@ def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch) -
     assert first.exit_code == 0
 
     (plugin / "skills" / "project-context" / "SKILL.md").write_text(
-        'updated\n${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} --cwd "$PWD"\n',
+        'updated\n${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
         encoding="utf-8",
     )
     refreshed = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])

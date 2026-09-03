@@ -42,10 +42,10 @@ powercontext server run
 openclaw
 ```
 
-To use a Server that actually listens on another port, or to change the memory scope during setup:
+To use a Server that actually listens on another port:
 
 ```bash
-powercontext setup openclaw --server-url http://127.0.0.1:9000 --scope-mode project
+powercontext setup openclaw --server-url http://127.0.0.1:9000
 ```
 
 Run `setup openclaw` again to refresh an existing installation.
@@ -71,9 +71,21 @@ The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memor
 
 ## Memory scope
 
-Scope mode defaults to `agent`, which derives the memory scope from the OpenClaw agent identity. Project scope is used
-only when OpenClaw supplies exactly one trusted project identity for a turn. Set an explicit `--scope-mode` when the
-memory must be shared across agents in the same project or isolated differently.
+The plugin asks the Server to resolve one existing Scope before every operation. Resolution uses an explicit
+`scopeId`, then durable bindings for the OpenClaw session, ordered active projects, and agent identity, followed by
+the Server's default Scope. These host identities are lookup inputs only; the plugin never turns an agent, project,
+path, or session into a Scope ID and never creates a Scope.
+
+To select an existing Scope explicitly for every OpenClaw operation, configure its opaque ID and restart the Gateway:
+
+```bash
+openclaw config set plugins.entries.memory-powercontext.config.scopeId scp_0123456789abcdefghjkmnpqrs
+openclaw gateway restart
+```
+
+Without `scopeId`, provision durable bindings on the Server when the host identity must retain a selection; otherwise
+the ordinary Server default is used. The plugin does not persist bindings because OpenClaw currently exposes no Scope
+selection contract.
 
 ## Connect to an authenticated Server
 

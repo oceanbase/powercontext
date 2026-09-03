@@ -29,7 +29,7 @@ from powercontext_pydantic_ai import PowerContext
 
 agent = Agent(
     "openai:gpt-5.2",
-    capabilities=[PowerContext(scope_id="project:example")],
+    capabilities=[PowerContext()],
 )
 ```
 
@@ -51,14 +51,13 @@ agent = Agent("openai:gpt-5.2", toolsets=[PowerContextToolset()])
 ```bash
 export POWERCONTEXT_PYDANTIC_AI_BASE_URL=http://127.0.0.1:8000
 export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
-export POWERCONTEXT_PYDANTIC_AI_SCOPE_ID=project:example
 ```
 
 | 变量 | 默认值 | 校验与行为 |
 | --- | --- | --- |
 | `POWERCONTEXT_PYDANTIC_AI_BASE_URL` | `http://127.0.0.1:8000` | HTTP(S)，不能含凭证、query 或 fragment |
 | `POWERCONTEXT_PYDANTIC_AI_TOKEN` | 未设置 | 以 `SecretStr` 保存的裸可打印 Token |
-| `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | 自动推导 | 非空，并确定性收敛到最多 256 个字符 |
+| `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | 未设置 | 最多 256 个字符的已有 Server Scope；未设置时选择 Server 默认 Scope |
 | `POWERCONTEXT_PYDANTIC_AI_TIMEOUT` | `10` | 正秒数 |
 | `POWERCONTEXT_PYDANTIC_AI_MAX_BYTES` | `8000` | `512`–`32768` Context 字节 |
 | `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS` | `false` | 显式同意采集可见事件 |
@@ -85,8 +84,10 @@ def tenant_scope(ctx: RunContext[dict[str, str]]) -> str:
 capability = PowerContext(settings=settings, scope_id=tenant_scope)
 ```
 
-回调在每个 Agent run 内只执行一次。Scope 优先级是：构造器字符串或回调、环境变量 `SCOPE_ID`、规范化 Git
-origin，最后是 `local:<project-path-sha256>`。显式配置时不会调用 Git。
+回调在每个 Agent run 内只执行一次。Scope 优先级是构造器字符串或回调，其次是环境变量 `SCOPE_ID`。适配器在每个
+run 内只把该显式 ID（未配置时为 `None`）发送给 `resolve_scope_binding` 一次，并在该 run 的 Recall、Capture、
+Flush 和工具调用中复用 Server 返回的 Scope ID。显式 ID 必须对应 Server 中已有的 Scope；未配置时选择 Server
+默认 Scope。适配器不会读取 cwd、Git 元数据或路径来创建 Scope ID。
 
 ## 决定是否采集事件
 

@@ -1,6 +1,30 @@
 {
   "description": "Recall relevant memory and capture the current Codex prompt as a Source.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --frozen --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/session_binding.py\"",
+            "timeout": 10,
+            "statusMessage": "Binding PowerContext"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__powercontext__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --frozen --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/bind_tools.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

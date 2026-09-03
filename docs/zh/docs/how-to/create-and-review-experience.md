@@ -23,8 +23,8 @@ powercontext server run
 powercontext capabilities
 ```
 
-输出应包含 `Experience generation: enabled`。目标 scope 中还需要至少一个精确 Source 或 Artifact 引用。Provider
-凭据由所选 inference provider 读取。
+输出应包含 `Experience generation: enabled`。目标 Scope 中还需要至少一个精确 Source 或 Artifact 引用。将
+`POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。Provider 凭据由所选 inference provider 读取。
 
 ## 1. 生成 Candidate
 
@@ -32,7 +32,7 @@ powercontext capabilities
 
 ```bash
 powercontext experience generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --source-ref content/SOURCE_ID \
   --reason "从已完成任务中提取可复用经验。"
 ```
@@ -49,14 +49,14 @@ Generation 不会批准 proposal，也不会让它进入召回。
 收到 pending 结果后，复制其中的 `candidate_id` 和 `version`，然后检查内容：
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 检查全部四个 Experience 字段及其精确证据。只批准你已经检查过的 version：
 
 ```bash
 powercontext candidate approve \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   CANDIDATE_ID
 ```
@@ -69,7 +69,7 @@ powercontext candidate approve \
 再次读取 Candidate，并记录 `result_artifact`：
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 Approved current head 现在可以参与同 scope 的 `PreparedContext` 召回。Runtime 仍会根据 query 和共享输出预算选择内容，
@@ -81,7 +81,7 @@ Approved current head 现在可以参与同 scope 的 `PreparedContext` 召回�
 
 ```bash
 powercontext experience generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --target experience/EXPERIENCE_ID@REVISION \
   --source-ref content/NEW_SOURCE_ID \
   --reason "根据已经验证的后续结果更新经验。"

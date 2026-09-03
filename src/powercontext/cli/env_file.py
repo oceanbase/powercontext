@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Collection, Iterator, Mapping, MutableMapping
+from collections.abc import Collection, Generator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -159,7 +159,7 @@ def apply_environment_file(
 
 
 @contextmanager
-def environment_file_context(path: Path, *, override: bool = False) -> Iterator[Mapping[str, str]]:
+def environment_file_context(path: Path, *, override: bool = False) -> Generator[Mapping[str, str], None, None]:
     """Apply a file for one process scope, then restore every affected value."""
 
     loaded = read_environment_file(path)
@@ -173,7 +173,7 @@ def environment_context(
     *,
     override: bool = False,
     clear: Collection[str] = (),
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Apply parsed values for one process scope, then restore every affected value."""
 
     loaded = dict(values)

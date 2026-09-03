@@ -53,7 +53,7 @@ fingerprint before import.
 Use /pc for operational actions and review decisions:
 
 - /pc trace ... inspects evaluation traces.
-- /pc workstream ... manages the Git-private cross-session scope binding.
+- /pc scope ... manages the durable workspace Scope binding in PowerContext.
 - /pc review ... lists, reads, approves, rejects, or revises candidates.
 - /pc call OPERATION PAYLOAD_JSON is available for an operation not covered
   by a short command.

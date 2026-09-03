@@ -25,10 +25,10 @@ import {
 import { Type } from "typebox";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import type { PowerContextConfig } from "./config.js";
-import { resolvePowerContextScope } from "./config.js";
 import type { PowerContextClient } from "./http.js";
 import { PowerContextRequestError } from "./http.js";
 import { PowerContextMemoryManager } from "./manager.js";
+import { resolvePowerContextScope } from "./scope.js";
 import {
   decodeCitation,
   encodeCitation,
@@ -113,11 +113,24 @@ function mutationFailure(error: unknown) {
   return unavailable(error);
 }
 
-function resolveToolScope(ctx: OpenClawPluginToolContext, deps: ToolDependencies): string {
+async function resolveToolScope(
+  ctx: OpenClawPluginToolContext,
+  deps: ToolDependencies,
+  signal?: AbortSignal,
+): Promise<string> {
   if (!ctx.agentId) {
     throw new Error("trusted agent identity is unavailable for this turn");
   }
-  return resolvePowerContextScope(ctx.agentId, deps.getConfig(), ctx.activeProjectKeys);
+  return resolvePowerContextScope(
+    deps.client,
+    deps.getConfig(),
+    {
+      agentId: ctx.agentId,
+      sessionKey: ctx.sessionKey,
+      activeProjectKeys: ctx.activeProjectKeys,
+    },
+    signal,
+  );
 }
 
 export function createMemorySearchTool(ctx: OpenClawPluginToolContext, deps: ToolDependencies) {
@@ -236,6 +249,7 @@ export function createMemoryGetTool(ctx: OpenClawPluginToolContext, deps: ToolDe
             error: "PowerContext does not provide the wiki corpus",
           });
         }
+        const scopeId = await resolveToolScope(ctx, deps);
         const manager =
           deps.managerFor?.(ctx) ??
           new PowerContextMemoryManager(
@@ -243,13 +257,12 @@ export function createMemoryGetTool(ctx: OpenClawPluginToolContext, deps: ToolDe
             deps.getConfig,
             deps.client,
             deps.isPrivateSession,
-            resolveToolScope(ctx, deps),
           );
         return jsonResult(await manager.readFile({
           relPath: path,
           from: readPositiveIntegerParam(raw, "from"),
           lines: readPositiveIntegerParam(raw, "lines"),
-          scopeId: resolveToolScope(ctx, deps),
+          scopeId,
         }));
       } catch (error) {
         return readUnavailable(path, error);
@@ -286,7 +299,7 @@ export function createMemoryStoreTool(ctx: OpenClawPluginToolContext, deps: Tool
       try {
         const result = await deps.client.post<MemoryMutationResponse>(
           "/v1/memory/remember",
-          { scope_id: resolveToolScope(ctx, deps), kind, text, ...(reason ? { reason } : {}) },
+          { scope_id: await resolveToolScope(ctx, deps, signal), kind, text, ...(reason ? { reason } : {}) },
           signal,
         );
         return jsonResult({
@@ -338,7 +351,7 @@ export function createMemoryReviseTool(ctx: OpenClawPluginToolContext, deps: Too
         const result = await deps.client.post<MemoryMutationResponse>(
           "/v1/memory/entries/revise",
           {
-            scope_id: resolveToolScope(ctx, deps),
+            scope_id: await resolveToolScope(ctx, deps, signal),
             citation,
             kind,
             text,
@@ -383,7 +396,7 @@ export function createMemoryRetireTool(ctx: OpenClawPluginToolContext, deps: Too
         const reason = readStringParam(raw, "reason");
         const result = await deps.client.post<MemoryMutationResponse>(
           "/v1/memory/entries/retire",
-          { scope_id: resolveToolScope(ctx, deps), citation, ...(reason ? { reason } : {}) },
+          { scope_id: await resolveToolScope(ctx, deps, signal), citation, ...(reason ? { reason } : {}) },
           signal,
         );
         return jsonResult({ status: "retired", revision: result.memory.revision });

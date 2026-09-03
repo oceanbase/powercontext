@@ -143,10 +143,8 @@ def _read_attempts(path: Path) -> list[float]:
         return []
     try:
         status = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(status.st_mode)
-            or status.st_uid != os.getuid()
-            or status.st_mode & (stat.S_IRWXG | stat.S_IRWXO)
+        if not stat.S_ISREG(status.st_mode) or (
+            os.name != "nt" and (status.st_uid != _posix_uid() or status.st_mode & (stat.S_IRWXG | stat.S_IRWXO))
         ):
             raise ValueError("unsafe retry-budget state")  # noqa: TRY003
         with os.fdopen(descriptor, encoding="utf-8") as source:
@@ -172,7 +170,11 @@ def _atomic_write(path: Path, content: bytes) -> None:
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
-        os.fchmod(descriptor, 0o600)
+        fchmod = getattr(os, "fchmod", None)
+        if fchmod is not None:
+            fchmod(descriptor, 0o600)
+        else:
+            os.chmod(temporary, 0o600)
         with os.fdopen(descriptor, "wb") as output:
             descriptor = -1
             output.write(content)
@@ -197,6 +199,13 @@ def _remove_declared_token(arguments: list[str] | None) -> None:
         token.unlink(missing_ok=True)
     except OSError:
         return
+
+
+def _posix_uid() -> int:
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        return -1
+    return int(getuid())
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ powercontext capabilities
 ```
 
 The output should report `Experience generation: enabled`. You also need at least one exact Source or Artifact
-reference in the target scope. Provider credentials come from the selected inference provider.
+reference in the target scope. Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope`. Provider
+credentials come from the selected inference provider.
 
 ## 1. Generate a Candidate
 
@@ -32,7 +33,7 @@ Pass the exact evidence that supports the proposed Experience:
 
 ```bash
 powercontext experience generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --source-ref content/SOURCE_ID \
   --reason "Extract a reusable lesson from the completed task."
 ```
@@ -49,14 +50,14 @@ Generation does not approve or recall the proposal.
 For a pending result, copy its `candidate_id` and `version`, then inspect it:
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 Check all four Experience fields and their exact evidence. Approve only the version you inspected:
 
 ```bash
 powercontext candidate approve \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   CANDIDATE_ID
 ```
@@ -69,7 +70,7 @@ follow [Review Candidates](review-candidates.md).
 Read the Candidate again and record `result_artifact`:
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 The approved current head is now eligible for same-scope `PreparedContext` recall. Eligibility does not guarantee
@@ -82,7 +83,7 @@ Generate a replacement against the exact current Revision and cite the evidence 
 
 ```bash
 powercontext experience generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --target experience/EXPERIENCE_ID@REVISION \
   --source-ref content/NEW_SOURCE_ID \
   --reason "Update the lesson with the verified follow-up result."

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -49,17 +50,38 @@ def install(
         Path | None,
         typer.Option(help="Load persistent Server and provider settings from this protected environment file."),
     ] = None,
+    start_on_login: Annotated[
+        bool | None,
+        typer.Option(
+            "--start-on-login/--no-start-on-login",
+            help="Start the Server automatically when the current user logs in (Windows).",
+        ),
+    ] = None,
 ) -> None:
-    """Install, enable, and start the personal Server service."""
+    """Install the personal Server service and optionally start it at user login."""
 
+    if start_on_login is None:
+        start_on_login = (
+            typer.confirm("Enable automatic Server startup when you log in?", default=False)
+            if sys.platform == "win32"
+            else True
+        )
+    if not start_on_login and sys.platform != "win32":
+        typer.echo("--no-start-on-login is currently supported only on Windows.", err=True)
+        raise typer.Exit(code=2)
     try:
-        status = _controller().install(env_file=env_file)
+        status = _controller().install(env_file=env_file, start_on_login=start_on_login)
     except (OSError, ServiceError) as error:
         typer.echo(f"PowerContext personal service installation failed: {error}", err=True)
         if isinstance(error, ServiceError) and error.status is not None:
             _write_status(error.status, json_output=False)
         raise typer.Exit(code=error.exit_code if isinstance(error, ServiceError) else 1) from error
-    typer.echo("PowerContext personal service installed.")
+    message = (
+        "PowerContext personal service installed with login auto-start."
+        if start_on_login
+        else "PowerContext personal service installed without login auto-start."
+    )
+    typer.echo(message)
     _write_status(status, json_output=False)
 
 

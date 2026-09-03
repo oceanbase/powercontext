@@ -127,6 +127,26 @@ function isRedirect(status: number): boolean {
   return status >= 300 && status < 400
 }
 
+function bindOperationPath(
+  spec: OperationSpec,
+  payload: JsonObject | undefined,
+): { path: string; payload: JsonObject | undefined } {
+  const pathParameters: readonly string[] = spec.pathParameters
+  if (pathParameters.length === 0) return { path: spec.path, payload }
+
+  const transportPayload = { ...payload }
+  let path: string = spec.path
+  for (const name of pathParameters) {
+    const value = transportPayload[name]
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new TypeError(`operation requires string path parameter ${name}`)
+    }
+    path = path.replace(`{${name}}`, encodeURIComponent(value))
+    delete transportPayload[name]
+  }
+  return { path, payload: transportPayload }
+}
+
 export class PowerContextClient {
   private readonly baseUrl: string
   private readonly authorization: string | undefined
@@ -147,20 +167,21 @@ export class PowerContextClient {
   ): Promise<ClientSuccess> {
     if (!(id in OPERATIONS)) throw new UnknownOperationError(id)
     const spec = OPERATIONS[id as OperationId]
-    const url = this.buildUrl(spec, payload)
+    const bound = bindOperationPath(spec, payload)
+    const url = this.buildUrl(spec, bound.path, bound.payload)
     try {
-      const response = await this.fetchImpl(url, this.buildInit(spec, payload, signal))
+      const response = await this.fetchImpl(url, this.buildInit(spec, bound.payload, signal))
       return await this.parseResponse(id, spec, payload, response)
     } catch (error) {
       if (error instanceof ServerResponseError || error instanceof InvalidResponseError) throw error
       if (error instanceof UnknownOperationError) throw error
-      throw this.wrapTransport(spec.path, error)
+      throw this.wrapTransport(bound.path, error)
     }
   }
 
-  private buildUrl(spec: OperationSpec, payload: JsonObject | undefined): string {
+  private buildUrl(spec: OperationSpec, path: string, payload: JsonObject | undefined): string {
     const suffix = spec.location === 'query' ? queryString(payload) : ''
-    return `${this.baseUrl}${spec.path}${suffix}`
+    return `${this.baseUrl}${path}${suffix}`
   }
 
   private buildInit(spec: OperationSpec, payload: JsonObject | undefined, signal?: AbortSignal): RequestInit {
@@ -175,7 +196,7 @@ export class PowerContextClient {
       redirect: 'manual',
       signal: combineSignals([timeoutSignal(this.requestTimeoutMs), ...signal ? [signal] : []]),
     }
-    if (spec.method === 'POST' && spec.location === 'body') {
+    if (spec.location === 'body') {
       headers['Content-Type'] = 'application/json'
       init.body = JSON.stringify(payload ?? {})
     }

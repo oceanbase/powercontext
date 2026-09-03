@@ -7,9 +7,9 @@ Automatic recall and prompt capture run on `UserPromptSubmit`. The plugin never
 reads the Claude Code transcript or captures Claude's final response in v1.
 Prompt Sources are evidence and are never marked as `task-outcome` by the hook.
 
-Project scope is resolved from an explicit override, the normalized Git origin,
-or a hash of the resolved local project directory, in that order. The Git rule
-matches the Codex plugin so both agents can use the same project Memory.
+Scope is resolved by the Server from an explicit override, the current session
+or workspace binding, and finally the Server default. Bindings let multiple
+agents share the same Scope without deriving identities locally.
 
 The plugin defaults to `http://127.0.0.1:8000`. Its Hook and MCP transport share
 `POWERCONTEXT_CLAUDE_AUTHORIZATION` when optional bearer authentication is

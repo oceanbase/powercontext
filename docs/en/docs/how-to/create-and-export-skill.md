@@ -23,7 +23,8 @@ In another terminal:
 powercontext capabilities
 ```
 
-The output should report `Managed Skill generation: enabled`. Choose one provenance origin before generating:
+The output should report `Managed Skill generation: enabled`. Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned
+by `create_scope`, then choose one provenance origin before generating:
 
 | Origin | Use it when |
 | --- | --- |
@@ -37,7 +38,7 @@ From an approved Experience:
 
 ```bash
 powercontext skill generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION \
   --reason "Turn the reviewed lesson into reusable instructions."
@@ -47,7 +48,7 @@ From exact Sources instead:
 
 ```bash
 powercontext skill generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --origin source \
   --source-ref content/SOURCE_ID \
   --reason "Create a Skill from the approved operating procedure."
@@ -61,7 +62,7 @@ approve, install, export, or execute the proposal.
 Inspect the returned Candidate:
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 Check its name, discovery description, complete instructions, validation checks, and exact lineage. Then approve the
@@ -69,7 +70,7 @@ version you inspected:
 
 ```bash
 powercontext candidate approve \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   CANDIDATE_ID
 ```
@@ -83,7 +84,7 @@ Use the Artifact ID and Revision from `result_artifact`:
 
 ```bash
 powercontext skill show \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --revision 1 \
   SKILL_ID
 ```
@@ -100,7 +101,7 @@ must contain at most 1,024 characters and no angle brackets. The destination dir
 ```bash
 powercontext skill export \
   --target codex \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --revision 1 \
   --destination .agents/skills/backend-validation \
   SKILL_ID
@@ -125,7 +126,7 @@ Use the `usage` origin with the exact current Skill Revision and Sources that re
 
 ```bash
 powercontext skill generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --origin usage \
   --target skill/SKILL_ID@REVISION \
   --source-ref content/USAGE_SOURCE_ID \

@@ -14,19 +14,17 @@
  * limitations under the License.
  */
 
-import { createHash } from 'node:crypto'
-import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { PowerContextClient, type FetchFn, type JsonObject } from '../../src/client.ts'
 import { registerCommands } from '../../src/commands.ts'
 import { resolveConfig } from '../../src/config.ts'
 import type { PluginRuntime } from '../../src/invoke.ts'
 import { runRecallPreStep } from '../../src/recall.ts'
-import { deriveScopeId, UNSCOPED_MESSAGE } from '../../src/scope.ts'
+import { resolveScopeId } from '../../src/scope.ts'
 import { registerTools } from '../../src/tools.ts'
 import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
-const SCOPE_ID = 'project:dsh-e2e-unscoped'
+let scopeId = ''
 const TEXT = 'Optional session cwd must not invent a harness working directory.'
 
 type RecordedCall = { path: string; body: JsonObject | undefined }
@@ -83,15 +81,16 @@ function createPluginRuntime(
     timeoutMs: 8000,
     capturePrompts: true,
   }, {})
-  return {
-    runtime: {
-      client: new PowerContextClient({
+  const client = new PowerContextClient({
         baseUrl: config.baseUrl,
         requestTimeoutMs: config.requestTimeoutMs,
         fetch: fetchImpl,
-      }),
+      })
+  return {
+    runtime: {
+      client,
       config,
-      resolveScope: (cwd) => deriveScopeId(cwd, { configuredScopeId: config.scopeId }),
+      resolveScope: (cwd) => resolveScopeId(client, cwd, config.scopeId),
       log: (event) => {
         events.push(event)
       },
@@ -142,22 +141,28 @@ async function recallWithoutCwd(runtime: PluginRuntime, query: string) {
   })
 }
 
-function processDirectoryScope(): string {
-  return `local:${createHash('sha256').update(resolve(process.cwd())).digest('hex')}`
-}
-
 describe('plugin runtime with header.cwd === undefined', () => {
   let server: Awaited<ReturnType<typeof startPowerContextServer>>
 
   beforeAll(async () => {
     server = await startPowerContextServer()
+    const response = await fetch(`${server.baseUrl}/v1/scopes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'DSH E2E Scope',
+        summary: 'Scope used by the DSH binding integration test.',
+        idempotency_key: 'dsh-e2e-scope-binding',
+      }),
+    })
+    scopeId = String((await response.json() as { scope_id: string }).scope_id)
   }, 60_000)
 
   afterAll(async () => {
     await server?.stop()
   })
 
-  it('skips recall, /pc, and tools without treating the process directory as a project', async () => {
+  it('uses the Server default without treating the process directory as a Scope', async () => {
     const { fetchImpl, calls } = trackingFetch()
     const { runtime, events } = createPluginRuntime(server.baseUrl, undefined, fetchImpl)
     const command = pcHandler(runtime)
@@ -175,20 +180,17 @@ describe('plugin runtime with header.cwd === undefined', () => {
     })
 
     expect(recalled).toEqual({ kind: 'enter', messages: [] })
-    expect(events).toContainEqual({
-      event: 'context_prepare',
-      outcome: 'skipped',
-      reason: 'missing_session_cwd',
-    })
-    expect(pc).toEqual({ kind: 'error', text: UNSCOPED_MESSAGE })
-    expect(tool).toMatchObject({ ok: false, code: 'unscoped', message: UNSCOPED_MESSAGE })
-    expect(await runtime.resolveScope(undefined)).toBeUndefined()
-    expect(calls).toEqual([])
+    expect(events.some((event) => event.event === 'context_prepare')).toBe(true)
+    expect(pc.kind).toBe('success')
+    expect(tool).toMatchObject({ ok: true })
+    expect(await runtime.resolveScope(undefined)).toMatch(/^scp_/)
+    expect(calls.some((call) => call.path === '/v1/scope-bindings/resolve')).toBe(true)
+    expect(calls.every((call) => !String(call.body?.scope_id ?? '').startsWith('local:'))).toBe(true)
   })
 
   it('uses configured scopeId against a live Server and omits a fabricated cwd', async () => {
     const { fetchImpl, calls } = trackingFetch()
-    const { runtime } = createPluginRuntime(server.baseUrl, SCOPE_ID, fetchImpl)
+    const { runtime } = createPluginRuntime(server.baseUrl, scopeId, fetchImpl)
     const command = pcHandler(runtime)
     const search = toolNamed(runtime, 'pc_search')
 
@@ -211,10 +213,10 @@ describe('plugin runtime with header.cwd === undefined', () => {
 
     const capture = calls.find((call) => call.path === '/v1/sources/content')
     expect(capture?.body).toMatchObject({
-      scope_id: SCOPE_ID,
+      scope_id: scopeId,
       metadata: { origin: 'dsh', event: 'user_prompt_submit', session_id: 'session-unscoped' },
     })
     expect((capture?.body?.metadata as { cwd?: string } | undefined)?.cwd).toBeUndefined()
-    expect(calls.every((call) => call.body?.scope_id !== processDirectoryScope())).toBe(true)
+    expect(calls.every((call) => !String(call.body?.scope_id ?? '').startsWith('local:'))).toBe(true)
   })
 })

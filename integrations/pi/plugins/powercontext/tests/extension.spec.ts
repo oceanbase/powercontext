@@ -29,15 +29,27 @@ function installExtension(): Map<string, Handler> {
   return handlers
 }
 
+function scopeAwareFetch(
+  handler: (url: string, init?: RequestInit) => Promise<Response>,
+  scopeId = 'project:demo',
+) {
+  return vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/v1/scope-bindings/resolve')) {
+      return new Response(JSON.stringify({ scope_id: scopeId }))
+    }
+    return handler(url, init)
+  })
+}
+
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
 
 describe('PowerContext Pi extension', () => {
-  it('injects prepared context and captures the submitted prompt in the current project scope', async () => {
+  it('injects prepared context and captures the submitted prompt in the current Scope', async () => {
     vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
-    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+    const fetch = scopeAwareFetch(async (url: string, _init?: RequestInit) => {
       if (url.endsWith('/v1/context/prepare')) {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -111,7 +123,7 @@ describe('PowerContext Pi extension', () => {
   it('reports a prepare domain failure from the actual endpoint', async () => {
     vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
     vi.stubEnv('POWERCONTEXT_PI_CAPTURE_PROMPTS', 'false')
-    const fetch = vi.fn(async (url: string) => {
+    const fetch = scopeAwareFetch(async (url: string) => {
       expect(url).toBe('http://127.0.0.1:8000/v1/context/prepare')
       return new Response(JSON.stringify({ error: { code: 'invalid_request' } }), { status: 422 })
     })
@@ -137,7 +149,7 @@ describe('PowerContext Pi extension', () => {
 
   it('reports a capture domain failure from the actual endpoint', async () => {
     vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
-    const fetch = vi.fn(async (url: string) => {
+    const fetch = scopeAwareFetch(async (url: string) => {
       if (url === 'http://127.0.0.1:8000/v1/context/prepare') {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -173,7 +185,7 @@ describe('PowerContext Pi extension', () => {
     vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '1')
-    const fetch = vi.fn(async (url: string) => {
+    const fetch = scopeAwareFetch(async (url: string) => {
       if (url === 'http://127.0.0.1:8000/v1/context/prepare') {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -210,7 +222,7 @@ describe('PowerContext Pi extension', () => {
 
   it('keeps recalled context when independent prompt capture fails', async () => {
     vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
-    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+    const fetch = scopeAwareFetch(async (url: string, _init?: RequestInit) => {
       if (url.endsWith('/v1/context/prepare')) {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -240,7 +252,7 @@ describe('PowerContext Pi extension', () => {
 
   it('flushes a captured Source at the compaction boundary', async () => {
     vi.stubEnv('POWERCONTEXT_PI_SCOPE_ID', 'project:demo')
-    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+    const fetch = scopeAwareFetch(async (url: string, _init?: RequestInit) => {
       if (url.endsWith('/v1/context/prepare')) {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -277,7 +289,7 @@ describe('PowerContext Pi extension', () => {
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '4')
     let flushAttempts = 0
-    const fetch = vi.fn(async (url: string) => {
+    const fetch = scopeAwareFetch(async (url: string) => {
       if (url.endsWith('/v1/context/prepare')) {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -316,7 +328,7 @@ describe('PowerContext Pi extension', () => {
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '1')
     let flushAttempts = 0
-    const fetch = vi.fn(async (url: string) => {
+    const fetch = scopeAwareFetch(async (url: string) => {
       if (url.endsWith('/v1/context/prepare')) {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -357,7 +369,7 @@ describe('PowerContext Pi extension', () => {
 
   it('does not persist a prompt when capture is disabled', async () => {
     vi.stubEnv('POWERCONTEXT_PI_CAPTURE_PROMPTS', 'false')
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetch = scopeAwareFetch(async () => new Response(JSON.stringify({
       schema: 'powercontext.prepared-context.v1',
       status: 'empty',
       content: null,
@@ -381,7 +393,7 @@ describe('PowerContext Pi extension', () => {
   })
 
   it('does not persist a secret-looking prompt', async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetch = scopeAwareFetch(async () => new Response(JSON.stringify({
       schema: 'powercontext.prepared-context.v1',
       status: 'empty',
       content: null,
@@ -405,7 +417,7 @@ describe('PowerContext Pi extension', () => {
   })
 
   it('does not persist a prompt containing a conventional password assignment', async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetch = scopeAwareFetch(async () => new Response(JSON.stringify({
       schema: 'powercontext.prepared-context.v1',
       status: 'empty',
       content: null,
@@ -429,7 +441,7 @@ describe('PowerContext Pi extension', () => {
   })
 
   it('captures ordinary text containing marker-like substrings', async () => {
-    const fetch = vi.fn(async (url: string) => {
+    const fetch = scopeAwareFetch(async (url: string) => {
       if (url.endsWith('/v1/context/prepare')) {
         return new Response(JSON.stringify({
           schema: 'powercontext.prepared-context.v1',
@@ -459,7 +471,7 @@ describe('PowerContext Pi extension', () => {
   })
 
   it('does not persist a prompt above the source size limit', async () => {
-    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetch = scopeAwareFetch(async () => new Response(JSON.stringify({
       schema: 'powercontext.prepared-context.v1',
       status: 'empty',
       content: null,

@@ -25,7 +25,7 @@ from pydantic import ValidationError
 from powercontext.client import ClientError, ServerResponseError
 from powercontext.http import PrepareContextRequest, PreparedContextStatus
 
-from .client import ResolvedConfig, open_client, resolve_config
+from .client import ResolvedConfig, open_client, resolve_config, resolve_server_scope
 from .runtime import current_scope
 
 _LOGGER = logging.getLogger("powercontext.langgraph")
@@ -91,18 +91,11 @@ class PowerContextRecall:
         try:
             config = resolve_config(current_scope())
         except Exception as exc:
-            # Config/scope resolution is part of the fail-open boundary: a malformed setting (ValidationError) or an
-            # unresolvable scope (MissingScopeError) must skip recall, not interrupt the graph. Logged once so a
-            # misconfigured deployment is diagnosable rather than silently context-free.
+            # Settings resolution is part of the fail-open boundary: malformed configuration must skip recall, not
+            # interrupt the graph. Logged once so a misconfigured deployment is diagnosable.
             self._log_config_failure(exc)
             return None
-        key = _turn_key(config.scope_id, messages, query)
-        if key is not None and key in self._turn_cache:
-            return self._turn_cache[key]
-        content = await self._prepare(config, query)
-        if key is not None:
-            self._remember_turn(key, content)
-        return content
+        return await self._prepare(config, messages, query)
 
     def _remember_turn(self, key: str, content: str | None) -> None:
         cache = self._turn_cache
@@ -110,12 +103,16 @@ class PowerContextRecall:
         while len(cache) > _TURN_CACHE_LIMIT:
             del cache[next(iter(cache))]
 
-    async def _prepare(self, config: ResolvedConfig, query: str) -> str | None:
+    async def _prepare(self, config: ResolvedConfig, messages: list[BaseMessage], query: str) -> str | None:
         try:
-            request = PrepareContextRequest(
-                scope_id=config.scope_id, query=query[:_MAX_QUERY_CHARS], max_bytes=config.max_bytes
-            )
             async with open_client(config) as client:
+                scope_id = await resolve_server_scope(client, config)
+                key = _turn_key(scope_id, messages, query)
+                if key is not None and key in self._turn_cache:
+                    return self._turn_cache[key]
+                request = PrepareContextRequest(
+                    scope_id=scope_id, query=query[:_MAX_QUERY_CHARS], max_bytes=config.max_bytes
+                )
                 prepared = await client.prepare_context(request)
         except ValidationError:
             # Request construction is inside the fail-open boundary: an out-of-range field must skip recall, not
@@ -130,9 +127,10 @@ class PowerContextRecall:
             # unexpected client fault must fail open rather than interrupt graph execution.
             _LOGGER.debug("PowerContext recall skipped after an unexpected error.", exc_info=True)
             return None
-        if prepared.status == PreparedContextStatus.EMPTY:
-            return None
-        return prepared.content
+        content = None if prepared.status == PreparedContextStatus.EMPTY else prepared.content
+        if key is not None:
+            self._remember_turn(key, content)
+        return content
 
     def _log_failure(self, exc: ClientError) -> None:
         if (
@@ -152,8 +150,7 @@ class PowerContextRecall:
         if not self._config_failure_logged:
             self._config_failure_logged = True
             _LOGGER.error(
-                "PowerContext recall skipped: configuration could not be resolved (%s). Set "
-                "POWERCONTEXT_LANGGRAPH_SCOPE_ID, pass PowerContextScope(scope_id=...), or correct the "
+                "PowerContext recall skipped: configuration could not be resolved (%s). Correct the "
                 "POWERCONTEXT_LANGGRAPH_* settings.",
                 type(exc).__name__,
             )

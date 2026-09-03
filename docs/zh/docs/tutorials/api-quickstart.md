@@ -39,11 +39,17 @@ curl --fail --silent --show-error http://127.0.0.1:8000/health/live
 
 ## 2. 确定应用边界
 
-为一个项目或租户设置稳定的 scope：
+为一个项目或租户创建稳定 Scope，并保留 Server 返回的 ID：
 
 ```bash
 export POWERCONTEXT_URL=http://127.0.0.1:8000
-export POWERCONTEXT_SCOPE=project:billing-assistant
+export POWERCONTEXT_SCOPE="$(
+  curl --fail --silent --show-error \
+    --header 'Content-Type: application/json' \
+    --data '{"title":"Billing assistant","summary":"Billing application context","idempotency_key":"billing-assistant"}' \
+    "$POWERCONTEXT_URL/v1/scopes" \
+  | python -c 'import json, sys; print(json.load(sys.stdin)["scope_id"])'
+)"
 ```
 
 必须由可信应用或 Gateway 选择并授权 `scope_id`。它是数据分区键，不是访问控制检查。不要允许模型输出选择其他
@@ -72,7 +78,7 @@ from urllib.request import Request, urlopen
 
 
 BASE_URL = os.environ.get("POWERCONTEXT_URL", "http://127.0.0.1:8000").rstrip("/")
-SCOPE_ID = os.environ.get("POWERCONTEXT_SCOPE", "project:billing-assistant")
+SCOPE_ID = os.environ["POWERCONTEXT_SCOPE"]
 TOKEN = os.environ.get("POWERCONTEXT_TOKEN")
 
 

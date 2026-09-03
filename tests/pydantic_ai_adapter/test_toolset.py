@@ -83,6 +83,7 @@ def test_toolset_exposes_exact_schemas_instructions_request_mapping_and_full_res
     assert "untrusted historical evidence" in (model_calls[0][-1].instructions or "")
 
     client = RecordingClient.instances[0]
+    assert [request.explicit_scope_id for request in client.resolve_scope_requests] == ["project:tools"]
     assert client.search_requests[0].model_dump(mode="json") == {
         "scope_id": "project:tools",
         "query": "public response",

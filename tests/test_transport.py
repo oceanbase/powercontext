@@ -162,6 +162,15 @@ def test_client_refuses_a_bearer_token_over_non_loopback_plaintext() -> None:
             PowerContextClient("http://memory.example", token="probe-token")  # noqa: S106 - test credential.
 
 
+def test_client_allows_an_explicit_remote_receiver_plaintext_exception() -> None:
+    client = PowerContextClient(
+        "http://memory.example",
+        token="probe-token",  # noqa: S106 - test credential.
+        allow_insecure_http=True,
+    )
+    assert client is not None
+
+
 def test_client_allows_a_bearer_token_over_loopback_plaintext() -> None:
     client = PowerContextClient("http://127.0.0.1:8000", token="probe-token")  # noqa: S106 - test credential.
     assert client is not None

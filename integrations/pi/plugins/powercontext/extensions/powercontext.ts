@@ -21,7 +21,7 @@ import { resolveConfig } from '../src/config.ts'
 import { createPendingSourceFlusher } from '../src/flush.ts'
 import { createDiagnosticEmitter, failureEvent } from '../src/diagnostics.ts'
 import { recallBeforeAgentStart, type PluginRuntime } from '../src/recall.ts'
-import { deriveScopeId } from '../src/scope.ts'
+import { resolveScopeId } from '../src/scope.ts'
 import { registerTools } from '../src/tools.ts'
 
 function createRuntime(): PluginRuntime {
@@ -37,19 +37,11 @@ function createRuntime(): PluginRuntime {
     if (failure) emitDiagnostic({ component: 'powercontext.pi', ...failure })
   }
   const flusher = createPendingSourceFlusher(client, config, diagnostic)
-  const scopes = new Map<string, Promise<string>>()
   return {
     client,
     config,
     resolveScope(cwd) {
-      const existing = scopes.get(cwd)
-      if (existing) return existing
-      const derived = deriveScopeId(cwd, { configuredScopeId: config.scopeId })
-      scopes.set(cwd, derived)
-      void derived.catch(() => {
-        if (scopes.get(cwd) === derived) scopes.delete(cwd)
-      })
-      return derived
+      return resolveScopeId(client, cwd, config.scopeId)
     },
     recordCapture: (scopeId, position) => flusher.record(scopeId, position),
     flushPending: (signal) => flusher.flush(signal),

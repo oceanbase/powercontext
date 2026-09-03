@@ -19,11 +19,12 @@ from sqlalchemy import BigInteger, Date, DateTime, Integer, String, Table
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
-from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
 from powercontext.builtin.persistence.tables import (
+    AGENT_SKILL_TARGETS_TABLE,
     ARTIFACTS_TABLE,
     BUILTIN_TABLES,
     SHARED_METADATA,
+    SKILL_PACKAGES_TABLE,
     SOURCE_CURSORS_TABLE,
     SOURCES_TABLE,
 )
@@ -63,14 +64,26 @@ def test_mysql_ddl_uses_utf8mb4_bin_for_identity_keys() -> None:
 def test_mysql_ddl_uses_mediumblob_for_every_canonical_payload() -> None:
     dialect = mysql.dialect()
     expected = {
-        SOURCES_TABLE: "payload",
-        ARTIFACTS_TABLE: "content",
-        SOURCE_CURSORS_TABLE: "`cursor`",
+        SOURCES_TABLE: ("payload",),
+        ARTIFACTS_TABLE: ("content",),
+        SOURCE_CURSORS_TABLE: ("`cursor`",),
+        SKILL_PACKAGES_TABLE: ("archive_bytes", "manifest"),
     }
 
-    for table, column_name in expected.items():
+    for table, column_names in expected.items():
         ddl = str(CreateTable(table).compile(dialect=dialect))
-        assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
+        for column_name in column_names:
+            assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
+
+
+def test_mysql_remote_target_credentials_use_binary_identity_columns() -> None:
+    ddl = str(CreateTable(AGENT_SKILL_TARGETS_TABLE).compile(dialect=mysql.dialect()))
+
+    assert "credential_verifier VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin" in ddl
+    assert "UNIQUE (credential_verifier)" in ddl
+    assert "ck_pc_agent_skill_targets_state_payload" in ddl
+    assert "state = 'active'" in ddl
+    assert "credential_verifier IS NOT NULL" in ddl
 
 
 def _assert_restore_layers_are_parent_first(
@@ -95,6 +108,8 @@ def _assert_restore_layers_are_parent_first(
     }
     for table, foreign_key in foreign_keys:
         parent_table_name = foreign_key.referred_table.name
+        if parent_table_name == table.name:
+            continue
         assert layer_by_table[parent_table_name] < layer_by_table[table.name]
 
 
@@ -114,15 +129,7 @@ def test_documented_obloader_restore_layers_are_parent_first() -> None:
     assert len(set(restore_plans)) == 1
 
     restore_layers = restore_plans[0]
-    _assert_restore_layers_are_parent_first(restore_layers, BUILTIN_TABLES + HANDOFF_REPORT_TABLES)
-
-    handoff_report_table_names = {table.name for table in HANDOFF_REPORT_TABLES}
-    assert handoff_report_table_names <= set(restore_layers[0])
-    core_only_layers = tuple(
-        tuple(table_name for table_name in layer if table_name not in handoff_report_table_names)
-        for layer in restore_layers
-    )
-    _assert_restore_layers_are_parent_first(core_only_layers, BUILTIN_TABLES)
+    _assert_restore_layers_are_parent_first(restore_layers, BUILTIN_TABLES)
 
 
 def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:

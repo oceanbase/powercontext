@@ -47,18 +47,18 @@ OpenTelemetry SDK 会在 `OTEL_EXPORTER_OTLP_ENDPOINT` 后追加 `/v1/traces`，
 
 ## 触发一次推理请求
 
-先捕获一个 Source，再把它转成 Memory：
+将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID，先捕获一个 Source，再把它转成 Memory：
 
 ```bash
 curl -X POST http://localhost:8000/v1/sources/content \
   -H 'content-type: application/json' \
-  -d '{"scope_id":"project:demo","source_id":"task-1","content":"I always book aisle seats."}'
+  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\",\"source_id\":\"task-1\",\"content\":\"I always book aisle seats.\"}"
 ```
 
 ```bash
 curl -X POST http://localhost:8000/v1/memory/flush \
   -H 'content-type: application/json' \
-  -d '{"scope_id":"project:demo"}'
+  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\"}"
 ```
 
 Memory extraction 发生在 flush 阶段，而不是捕获阶段。

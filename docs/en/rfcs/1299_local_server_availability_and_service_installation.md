@@ -173,7 +173,7 @@ lifecycle commands.
 The initial distribution contract is:
 
 ```text
-powercontext service install
+powercontext service install [--start-on-login | --no-start-on-login]
 powercontext service uninstall
 powercontext service status
 ```
@@ -193,7 +193,9 @@ Install performs these steps:
    endpoint with an invalid response is a conflict and fails before native state changes.
 5. Render and validate an artifact containing the fixed ownership marker, package version, definition version, intended
    endpoint, and launcher command.
-6. Create or update only PowerContext's personal Server registration and enable it for future user logins.
+6. Create or update only PowerContext's personal Server registration. On Windows, when neither login option is
+   supplied, ask whether to add the current-user login trigger; the prompt defaults to no. The explicit
+   `--start-on-login` and `--no-start-on-login` options select the behavior without prompting.
 7. Start it immediately by default unless step 4 found an already-live PowerContext Server.
 8. Report registration, definition, native manager, liveness, and log-location facts after the operation.
 
@@ -275,8 +277,9 @@ current-user domain, configures explicit PowerContext-owned per-user stdout and 
 
 ### Windows
 
-The Windows adapter is a `Task Scheduler` task triggered when the current user logs on. It runs as that user and never
-as `SYSTEM`. A hidden process window is acceptable. The launcher redirects Server output to explicit
+The Windows adapter is a `Task Scheduler` task triggered when login auto-start is selected. It runs as that user and
+never as `SYSTEM`; when login auto-start is disabled, it has no login trigger. A hidden process window is acceptable.
+The launcher redirects Server output to explicit
 PowerContext-owned per-user log files because Task Scheduler history is not Server stdout or stderr. The adapter does
 not install a Windows Service.
 
@@ -287,7 +290,9 @@ rendering and ownership tests.
 
 ## Configuration and credentials
 
-The service installer records the executable, required arguments, and non-secret service metadata. It does not copy
+The service installer records the executable, required arguments, and non-secret service metadata. For a Windows
+environment file, that metadata includes the current user's owner SID and the launcher revalidates it on every start.
+It does not copy
 the caller's complete environment, shell profile, API keys, bearer tokens, or provider credentials into a native
 registration artifact.
 

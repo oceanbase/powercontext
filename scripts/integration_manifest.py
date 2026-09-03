@@ -65,7 +65,9 @@ class IntegrationCapability(StrEnum):
     EXTERNAL_SKILL = "external_skill"
     PRE_COMPACTION_CAPTURE = "pre_compaction_capture"
     SLASH_COMMAND = "slash_command"
-    PERSISTENT_WORKSTREAM_BINDING = "persistent_workstream_binding"
+    SCOPE_ORGANIZATION = "scope_organization"
+    ARTIFACT_PUBLICATION = "artifact_publication"
+    PERSISTENT_SCOPE_BINDING = "persistent_scope_binding"
 
 
 class SupportProfile(StrEnum):
@@ -532,7 +534,7 @@ def _python_string_dict_keys(path: Path, dictionary: str) -> set[str]:
 
 def _hermes_command_ids(root: Path) -> set[str]:
     source = _read(root, "integrations/hermes/plugins/powercontext/commands.py")
-    if "POWERCONTEXT_SUBCOMMANDS" not in source or '"workstream"' not in source:
+    if "POWERCONTEXT_SUBCOMMANDS" not in source or '"scope"' not in source:
         raise ValueError("Hermes command surface is incomplete")
     return {"pc", "powercontext"}
 
@@ -567,11 +569,23 @@ def _prompt_hook_ids(root: Path) -> set[str]:
                 config_path,
                 placeholder_roots,
             )
-            if event == "UserPromptSubmit" and any(_is_complete_prompt_hook(script) for script in scripts):
+            if _is_complete_hook(integration_id, event, scripts):
                 result.add(f"{integration_id}:{event}")
             else:
                 result.add(f"{integration_id}:{event}:incomplete")
     return result
+
+
+def _is_complete_hook(integration_id: str, event: str, scripts: set[Path]) -> bool:
+    if event == "UserPromptSubmit":
+        return any(_is_complete_prompt_hook(script) for script in scripts)
+    expected_script = {
+        ("codex", "SessionStart"): "session_binding.py",
+        ("codex", "PreToolUse"): "bind_tools.py",
+    }.get((integration_id, event))
+    return expected_script is not None and any(
+        script.is_file() and script.name == expected_script for script in scripts
+    )
 
 
 def _registered_hook_scripts(

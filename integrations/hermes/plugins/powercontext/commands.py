@@ -30,7 +30,6 @@ from .helpers import (
     config_value,
 )
 from .operations import OPERATION_REQUIRED_FIELDS, OPERATION_TOOL_MAP
-from .workstream import clear_scope, write_scope
 
 try:
     from tools.registry import tool_error  # ty: ignore[unresolved-import]
@@ -58,7 +57,7 @@ POWERCONTEXT_SUBCOMMANDS = (
     "skill",
     "external-skills",
     "review",
-    "workstream",
+    "scope",
     "trace",
     "call",
 )
@@ -200,14 +199,13 @@ def _split_json_argument(raw_args: str, command: str, label: str) -> tuple[str, 
     return json_text, tail[end:].lstrip()
 
 
-def workstream_command(provider: Any, args: list[str]) -> str:
+def scope_command(provider: Any, args: list[str]) -> str:
     action = args[0].lower() if args else "status"
     if action == "status":
         return json.dumps(
             {
-                "cwd": provider._workstream_cwd,
-                "path": str(provider._workstream_path) if provider._workstream_path else None,
-                "bound_scope_id": provider._workstream_bound_scope or None,
+                "cwd": provider._scope_binding_cwd,
+                "bound_scope_id": provider._bound_scope_id or None,
                 "active_scope_id": provider._scope_id,
             },
             ensure_ascii=False,
@@ -215,28 +213,25 @@ def workstream_command(provider: Any, args: list[str]) -> str:
         )
     if action == "bind":
         if len(args) < 2 or not args[1].strip():
-            return tool_error("Usage: /pc workstream bind SCOPE_ID")
+            return tool_error("Usage: /pc scope bind SCOPE_ID")
         try:
-            path = write_scope(provider._workstream_cwd, args[1])
-        except (OSError, ValueError) as error:
+            provider._bind_workspace_scope(args[1].strip())
+        except (PowerContextError, ValueError) as error:
             return tool_error(str(error))
-        from .helpers import safe_scope
-
-        provider._workstream_bound_scope = safe_scope(args[1])
-        provider._switch_workstream_scope(provider._workstream_bound_scope)
-        provider._record_trace_event("workstream_bound", scope_id=provider._scope_id, path=str(path))
+        provider._record_trace_event("scope_bound", scope_id=provider._scope_id)
         return json.dumps(
-            {"status": "bound", "scope_id": provider._scope_id, "path": str(path)},
+            {"status": "bound", "scope_id": provider._scope_id},
             ensure_ascii=False,
             indent=2,
         )
     if action == "clear":
-        cleared = clear_scope(provider._workstream_cwd)
-        provider._workstream_bound_scope = ""
-        provider._switch_workstream_scope(provider._default_scope_id)
-        provider._record_trace_event("workstream_cleared", cleared=cleared)
+        try:
+            cleared = provider._clear_workspace_scope()
+        except PowerContextError as error:
+            return tool_error(str(error))
+        provider._record_trace_event("scope_binding_cleared", cleared=cleared)
         return json.dumps({"status": "cleared" if cleared else "not_found"}, ensure_ascii=False, indent=2)
-    return "Usage: /pc workstream {status|bind SCOPE_ID|clear}"
+    return "Usage: /pc scope {status|bind SCOPE_ID|clear}"
 
 
 def operation_command(provider: Any, operation: str, args: list[str]) -> str:
@@ -379,7 +374,7 @@ def status_command(provider: Any) -> str:
     result: dict[str, Any] = {
         "scope_id": provider._scope_id,
         "session_id": provider._session_id,
-        "workstream_scope_id": provider._workstream_bound_scope or None,
+        "bound_scope_id": provider._bound_scope_id or None,
     }
     if provider._client:
         for name, method_name in (("liveness", "get_liveness"), ("readiness", "get_readiness")):
@@ -432,9 +427,9 @@ def handle_slash_command(provider: Any, raw_args: str) -> str:  # noqa: C901
     if not args or args[0].lower() in {"help", "-h", "--help"}:
         return (
             "Usage: /pc {status|search|list|changes|get|remember|revise|retire|flush|stats|"
-            "handoff|experience|skill|external-skills|review|workstream|trace|call} ...\n"
+            "handoff|experience|skill|external-skills|review|scope|trace|call} ...\n"
             "Advanced operations accept a JSON payload: /pc call OPERATION PAYLOAD_JSON\n"
-            "Workstream binding: /pc workstream {status|bind SCOPE_ID|clear}"
+            "Scope binding: /pc scope {status|bind SCOPE_ID|clear}"
         )
     command = args[0].lower()
     try:
@@ -444,8 +439,8 @@ def handle_slash_command(provider: Any, raw_args: str) -> str:  # noqa: C901
             return status_command(provider)
         if command in {"search", "list", "changes", "get", "remember", "revise", "retire", "flush", "stats"}:
             return memory_command(provider, args)
-        if command == "workstream":
-            return workstream_command(provider, args[1:])
+        if command == "scope":
+            return scope_command(provider, args[1:])
         if command in {"handoff", "experience", "skill", "external-skills", "review"}:
             return group_command(provider, command, args[1:])
         if command == "call":

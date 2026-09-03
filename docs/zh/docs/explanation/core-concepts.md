@@ -11,7 +11,8 @@ PowerContext 使用一组领域值组织项目证据和可复用上下文。Sour
 ## Scope 是隔离边界
 
 每个内容操作都使用 `scope_id`。Scope 选择相互隔离的 Source journal、Memory 生命周期、Candidate inbox、Handoff
-history 和相关 runtime state。Integration 可以根据代码库或路径推导 scope，公共接口也允许调用方显式提供。
+history 和相关 runtime state。Scope ID 是 Server 生成的不透明标识。Integration 解析显式 Scope、持久 binding 或
+Server 默认 Scope；代码库、路径、session 和 Agent identity 只是 binding 输入，不是 Scope ID。
 
 Scope ID 只选择数据，不证明用户身份，不授予工具访问权，也不提供执行授权。
 
@@ -80,8 +81,8 @@ Work Contract 将目标和完成边界保存为 Source 证据。`handoff_current
 Handoff。只有用户需要保留里程碑时，commit Handoff 才创建长期 Revision。接收方解析 Handoff 并记录
 Acknowledgement；Task Outcome 将最终状态和检查结果保存为 Source 证据。
 
-[Handoff Report](../how-to/use-handoff-report.md) 将当前 Handoff Revision 投影为可检查、可导出的视图。当前 scope
-report 尚不包含 Activity event 或 period comparison，也不会改写 Memory 或底层 Handoff history。
+[Handoff Report](../how-to/use-handoff-report.md) 将每个选中 Scope 的最新 Handoff Revision 投影为可检查、可导出的
+视图。它是只读操作，不会改写 Memory 或底层 Handoff history。
 
 ## 各接口暴露同一个 Server 的不同部分
 

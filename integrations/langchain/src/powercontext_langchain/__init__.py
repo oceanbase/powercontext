@@ -15,13 +15,11 @@
 """LangChain middleware integration for PowerContext durable memory."""
 
 from .middleware import PowerContextMiddleware
-from .scope import MissingScopeError, PowerContextScope, resolve_scope_id
+from .scope import PowerContextScope
 from .settings import PowerContextLangChainSettings
 
 __all__ = [
-    "MissingScopeError",
     "PowerContextLangChainSettings",
     "PowerContextMiddleware",
     "PowerContextScope",
-    "resolve_scope_id",
 ]

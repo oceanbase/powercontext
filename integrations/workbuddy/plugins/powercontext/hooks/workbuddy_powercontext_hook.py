@@ -48,10 +48,10 @@ sys.path.insert(0, str(_HOOKS_ROOT))
 import prepared_context as _prepared_context  # noqa: E402
 from workbuddy_settings import WorkBuddyPluginSettings  # noqa: E402
 
-if (_HOOKS_ROOT / "powercontext_project_scope.py").is_file():
-    from powercontext_project_scope import resolve_scope_id
+if (_HOOKS_ROOT / "powercontext_scope_binding.py").is_file():
+    from powercontext_scope_binding import resolve_scope_id
 else:
-    from scripts.project_scope import resolve_scope_id
+    from scripts.workspace_scope import resolve_scope_id
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -118,12 +118,17 @@ def main(settings: WorkBuddyPluginSettings | None = None) -> int:
         cwd = payload.get("cwd")
         context = None
         if prompt is not None and prompt.strip() and isinstance(cwd, str):
+            http_deadline = monotonic() + settings.http_budget_seconds
             try:
-                scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
+                scope_id = resolve_scope_id(
+                    cwd,
+                    session_id=_payload_identifier(payload, "session_id"),
+                    settings=settings,
+                    deadline=http_deadline,
+                )
             except Exception:
                 scope_id = None
             if scope_id:
-                http_deadline = monotonic() + settings.http_budget_seconds
                 with suppress(Exception):
                     context = _recall_context(
                         prompt,

@@ -41,7 +41,6 @@ from _local_server import local_powercontext_server
 from powercontext_langgraph import PowerContextRecall, PowerContextScope, powercontext_tools
 from pydantic import SecretStr
 
-SCOPE_ID = "project:langgraph-agent-roundtrip"
 AUTH_TOKEN = "example-token"  # noqa: S105 - local throwaway Server credential, not a real secret.
 MEMORY_FACT = "hexagonal architecture for the payment gateway"
 
@@ -87,7 +86,7 @@ async def main(base_url: str) -> int:
         pre_model_hook=PowerContextRecall(),
         context_schema=PowerContextScope,
     )
-    scope = PowerContextScope(scope_id=SCOPE_ID, base_url=base_url, token=AUTH_TOKEN)
+    scope = PowerContextScope(base_url=base_url, token=AUTH_TOKEN)
 
     turn1 = await agent.ainvoke(
         {"messages": [("user", f"Persist this decision to long-term memory verbatim: adopt {MEMORY_FACT}.")]},

@@ -30,7 +30,6 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_MAX_BYTES = 8000
 DEFAULT_RETRIEVAL_LIMIT = 8
 DEFAULT_TIMEOUT = 5.0
-DEFAULT_SCOPE_TEMPLATE = "hermes:{profile}:{user_id}"
 MAX_TURN_CHARS = 50_000
 MAX_PRECOMPRESS_CHARS = 30_000
 PRECOMPRESS_ROLES = {"user", "assistant"}
@@ -187,16 +186,6 @@ def config_value(config: dict[str, Any], key: str, env_name: str, default: Any =
     if env_value is not None and env_value.strip() != "":
         return env_value.strip()
     return config.get(key, default)
-
-
-def format_scope(template: str, *, hermes_home: str, agent_identity: str, user_id: str) -> str:
-    profile = agent_identity or "default"
-    user = user_id or hashlib.sha256(str(Path(hermes_home).resolve()).encode()).hexdigest()[:16]
-    try:
-        value = template.format(profile=profile, user_id=user, agent_identity=agent_identity, hermes_home=hermes_home)
-    except (KeyError, ValueError):
-        value = template
-    return safe_scope(value)
 
 
 def citation_from_args(args: dict[str, Any]) -> dict[str, Any]:

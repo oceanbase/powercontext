@@ -30,7 +30,7 @@ _PLUGIN_MODULE_NAMES = (
     "hooks",
     "hooks.prepared_context",
     "scripts",
-    "scripts.project_scope",
+    "scripts.workspace_scope",
 )
 
 
@@ -82,7 +82,7 @@ def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
 def scope_module(plugin_imports: None) -> ModuleType:
     return _load_module(
         "powercontext_claude_code_scope",
-        PLUGIN_ROOT / "scripts" / "project_scope.py",
+        PLUGIN_ROOT / "scripts" / "workspace_scope.py",
     )
 
 

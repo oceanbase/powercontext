@@ -34,9 +34,6 @@ if (existsSync(built) && !force) {
   process.exit(0)
 }
 
-const gen = run('gen-operations.mjs')
-if (gen.status !== 0) process.exit(gen.status ?? 1)
-
 const tsdown = spawnSync('tsdown', { cwd: root, stdio: 'inherit', shell: true })
 if (tsdown.status === 0) {
   const normalize = run('normalize-build-output.mjs')

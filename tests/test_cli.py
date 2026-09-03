@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import subprocess
 import sys
@@ -29,8 +30,12 @@ from typer.testing import CliRunner
 import powercontext.client.cli as client_cli
 from powercontext.cli.app import create_cli
 from powercontext.client import ServerResponseError
+from powercontext.client.receiver_service import ReceiverServiceInstallation
 from powercontext.client.settings import ClientSettings
+from powercontext.client.skill_receiver import ReceiverSyncResult, RemoteSkillReceiverConfig
 from powercontext.http import (
+    ArtifactReference,
+    EnrollRemoteSkillTargetRequest,
     ExperienceProposal,
     ExternalSkillImportMode,
     GeneratedCandidateResponse,
@@ -41,13 +46,22 @@ from powercontext.http import (
     GetStatsRequest,
     HealthResponse,
     ImportExternalSkillRequest,
+    ListRemoteSkillTargetsRequest,
+    ListRemoteSkillTargetsResponse,
+    PublishRemoteSkillRequest,
     ReadinessResponse,
+    RemoteAgentKind,
+    RemoteSkillPublication,
+    RemoteSkillTarget,
+    RemoteSkillTargetCredential,
     ReviseArtifactCandidateRequest,
+    RevokeRemoteSkillTargetRequest,
     ScopedStats,
     SkillArtifact,
     SkillGenerationOrigin,
     SkillProposal,
     SkillValidationItem,
+    UnpublishRemoteSkillRequest,
 )
 from powercontext.server.cli import app as server_app
 
@@ -62,59 +76,64 @@ def _empty_inventory() -> dict[str, object]:
 
 
 def _stats_response() -> ScopedStats:
-    return ScopedStats.model_validate({
-        "scope_id": "project",
-        "as_of": "2026-08-04T12:00:00Z",
-        "inventory": _empty_inventory(),
-        "usage": {
-            "period": {
-                "preset": "today",
-                "start_date": "2026-08-04",
-                "end_date": "2026-08-04",
-                "timezone": "UTC",
-            },
-            "totals": {
+    inventory = _empty_inventory()
+    usage = {
+        "period": {
+            "preset": "today",
+            "start_date": "2026-08-04",
+            "end_date": "2026-08-04",
+            "timezone": "UTC",
+        },
+        "totals": {
+            "generation": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
+            "embedding": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
+        },
+        "by_purpose": [],
+        "daily": [
+            {
+                "date": "2026-08-04",
                 "generation": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
                 "embedding": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
-            },
-            "by_purpose": [],
-            "daily": [
-                {
-                    "date": "2026-08-04",
-                    "generation": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
-                    "embedding": {"requests": 0, "input_tokens": 0, "output_tokens": 0},
-                    "by_purpose": [],
-                }
-            ],
+                "by_purpose": [],
+            }
+        ],
+    }
+    recall = {
+        "period": {
+            "preset": "today",
+            "start_date": "2026-08-04",
+            "end_date": "2026-08-04",
+            "timezone": "UTC",
         },
-        "recall": {
-            "period": {
-                "preset": "today",
-                "start_date": "2026-08-04",
-                "end_date": "2026-08-04",
-                "timezone": "UTC",
-            },
-            "estimator": {"estimator_id": "character:weighted", "version": "1"},
-            "totals": {
+        "estimator": {"estimator_id": "character:weighted", "version": "1"},
+        "totals": {
+            "preparations": 3,
+            "ready_preparations": 2,
+            "comparable_preparations": 1,
+            "baseline_tokens": 100,
+            "recalled_tokens": 40,
+            "token_reduction": 60,
+        },
+        "daily": [
+            {
+                "date": "2026-08-04",
                 "preparations": 3,
                 "ready_preparations": 2,
                 "comparable_preparations": 1,
                 "baseline_tokens": 100,
                 "recalled_tokens": 40,
                 "token_reduction": 60,
-            },
-            "daily": [
-                {
-                    "date": "2026-08-04",
-                    "preparations": 3,
-                    "ready_preparations": 2,
-                    "comparable_preparations": 1,
-                    "baseline_tokens": 100,
-                    "recalled_tokens": 40,
-                    "token_reduction": 60,
-                }
-            ],
-        },
+            }
+        ],
+    }
+    return ScopedStats.model_validate({
+        "selection": {"mode": "exact", "scope_ids": ["project"]},
+        "scope_ids": ["project"],
+        "as_of": "2026-08-04T12:00:00Z",
+        "inventory": inventory,
+        "usage": usage,
+        "recall": recall,
+        "by_scope": [{"scope_id": "project", "inventory": inventory, "usage": usage, "recall": recall}],
     })
 
 
@@ -149,6 +168,426 @@ def test_skill_cli_exposes_the_target_based_export_command() -> None:
     export_help_text = unstyle(export_help.output)
     assert "--target" in export_help_text
     assert "codex" in export_help_text
+
+
+def test_skill_cli_exposes_complete_remote_distribution_commands() -> None:
+    runner = CliRunner()
+    result = runner.invoke(create_cli([]), ["skill", "--help"])
+    enrollment_help = runner.invoke(create_cli([]), ["skill", "remote-enroll", "--help"])
+
+    assert result.exit_code == 0
+    assert enrollment_help.exit_code == 0
+    help_text = unstyle(result.output)
+    assert all(
+        command in help_text
+        for command in (
+            "remote-status",
+            "remote-target-create",
+            "remote-target-rename",
+            "remote-target-revoke",
+            "remote-enroll",
+            "remote-publish",
+            "remote-service-install",
+            "remote-service-uninstall",
+            "remote-unpublish",
+            "remote-sync",
+            "remote-watch",
+        )
+    )
+    assert "--install-service" in unstyle(enrollment_help.output)
+    assert "--allow-insecure-http" in unstyle(enrollment_help.output)
+
+
+def test_remote_service_install_uses_enrolled_receiver_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_file = tmp_path / "remote-skill-target.json"
+    config = Mock(target_id="codex-a")
+    unit = ReceiverServiceInstallation(
+        unit_name="powercontext-skill-receiver-codex-a.service",
+        unit_path=tmp_path / "powercontext-skill-receiver-codex-a.service",
+    )
+    received: list[tuple[Path, object, float]] = []
+    monkeypatch.setattr(client_cli, "_read_receiver_config", lambda path: config if path == config_file else None)
+    monkeypatch.setattr(
+        client_cli,
+        "install_systemd_user_service",
+        lambda path, value, *, interval_seconds: received.append((path, value, interval_seconds)) or unit,
+    )
+
+    result = CliRunner().invoke(
+        create_cli([]),
+        ["skill", "remote-service-install", "--config-file", str(config_file), "--interval", "3"],
+    )
+
+    assert result.exit_code == 0
+    assert received == [(config_file, config, 3)]
+    assert unit.unit_name in result.output
+
+
+def test_remote_enroll_can_install_automatic_service_in_one_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enrolled = RemoteSkillTargetCredential(
+        scope_id="project",
+        target_id="codex-a",
+        agent_kind=RemoteAgentKind.CODEX,
+        credential="pct_target.super-secret-target-value",
+    )
+    unit = ReceiverServiceInstallation(
+        unit_name="powercontext-skill-receiver-codex-a.service",
+        unit_path=tmp_path / "powercontext-skill-receiver-codex-a.service",
+    )
+    installed: list[tuple[Path, RemoteSkillReceiverConfig, float]] = []
+    enrollment_requests: list[EnrollRemoteSkillTargetRequest] = []
+
+    class EnrollmentClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def enroll_remote_skill_target(
+            self,
+            request: EnrollRemoteSkillTargetRequest,
+        ) -> RemoteSkillTargetCredential:
+            enrollment_requests.append(request)
+            return enrolled
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: EnrollmentClient())
+    monkeypatch.setattr(client_cli.socket, "gethostname", lambda: "build-host-01")
+    monkeypatch.setattr(
+        client_cli,
+        "install_systemd_user_service",
+        lambda path, config, *, interval_seconds: installed.append((path, config, interval_seconds)) or unit,
+    )
+    workspace = tmp_path / "project"
+
+    result = CliRunner().invoke(
+        create_cli([]),
+        [
+            "--server-url",
+            "http://127.0.0.1:8765",
+            "skill",
+            "remote-enroll",
+            "--workspace",
+            str(workspace),
+            "--enrollment-code",
+            "e" * 32,
+            "--install-service",
+            "--watch-interval",
+            "3",
+        ],
+    )
+
+    config_file = workspace / ".powercontext/remote-skill-target.json"
+    assert result.exit_code == 0
+    assert config_file.stat().st_mode & 0o777 == 0o600
+    assert len(installed) == 1
+    assert installed[0][0] == config_file
+    assert installed[0][1].target_id == enrolled.target_id
+    assert installed[0][2] == 3
+    assert len(enrollment_requests) == 1
+    assert enrollment_requests[0].machine_hostname == "build-host-01"
+    assert enrollment_requests[0].workspace_name == "project"
+    assert unit.unit_name in result.output
+
+
+def test_remote_enroll_requires_and_persists_explicit_cleartext_http_permission(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enrolled = RemoteSkillTargetCredential(
+        scope_id="project",
+        target_id="codex-a",
+        agent_kind=RemoteAgentKind.CODEX,
+        credential="pct_target.super-secret-target-value",
+    )
+    enrollment_calls = 0
+    client_options: list[dict[str, object]] = []
+
+    class EnrollmentClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def enroll_remote_skill_target(self, _request: object) -> RemoteSkillTargetCredential:
+            nonlocal enrollment_calls
+            enrollment_calls += 1
+            return enrolled
+
+    def enrollment_client(*_args: object, **kwargs: object) -> EnrollmentClient:
+        client_options.append(kwargs)
+        return EnrollmentClient()
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", enrollment_client)
+    runner = CliRunner()
+    workspace = tmp_path / "project"
+    arguments = [
+        "--server-url",
+        "http://11.162.218.22:8765",
+        "skill",
+        "remote-enroll",
+        "--workspace",
+        str(workspace),
+        "--enrollment-code",
+        "e" * 32,
+    ]
+
+    rejected = runner.invoke(create_cli([]), arguments)
+
+    assert rejected.exit_code == 2
+    assert "requires HTTPS" in rejected.output
+    assert enrollment_calls == 0
+
+    accepted = runner.invoke(create_cli([]), [*arguments, "--allow-insecure-http"])
+
+    config = json.loads((workspace / ".powercontext/remote-skill-target.json").read_text(encoding="utf-8"))
+    assert accepted.exit_code == 0
+    assert enrollment_calls == 1
+    assert client_options == [{"timeout": 10.0, "allow_insecure_http": True}]
+    assert config["allow_insecure_http"] is True
+    assert "WARNING" in accepted.output
+
+
+def test_remote_enroll_does_not_consume_code_when_credential_destination_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enrollment_calls = 0
+
+    class EnrollmentClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def enroll_remote_skill_target(self, _request: object) -> None:
+            nonlocal enrollment_calls
+            enrollment_calls += 1
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: EnrollmentClient())
+    workspace = tmp_path / "project"
+    destination = workspace / ".powercontext/remote-skill-target.json"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("existing credential\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        create_cli([]),
+        [
+            "--server-url",
+            "http://127.0.0.1:8765",
+            "skill",
+            "remote-enroll",
+            "--workspace",
+            str(workspace),
+            "--enrollment-code",
+            "e" * 32,
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert enrollment_calls == 0
+    assert destination.read_text(encoding="utf-8") == "existing credential\n"
+
+
+@pytest.mark.parametrize(
+    ("arguments", "sync_result", "expected_output"),
+    (
+        (
+            ["skill", "remote-sync"],
+            ReceiverSyncResult(requested=1, succeeded=0, failed=1, receipt_pending=0),
+            "0 succeeded, 1 failed",
+        ),
+        (
+            ["--json", "skill", "remote-sync"],
+            ReceiverSyncResult(requested=1, succeeded=1, failed=0, receipt_pending=1),
+            '"receipt_pending": 1',
+        ),
+        (
+            ["skill", "remote-sync"],
+            ReceiverSyncResult(requested=0, succeeded=0, failed=0, receipt_pending=1),
+            "1 Receipts pending (0 actions)",
+        ),
+    ),
+)
+def test_remote_sync_exits_nonzero_when_convergence_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    sync_result: ReceiverSyncResult,
+    expected_output: str,
+) -> None:
+    class IncompleteReceiver:
+        def __init__(self, _config: object) -> None:
+            pass
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def sync(self) -> ReceiverSyncResult:
+            return sync_result
+
+    monkeypatch.setattr(client_cli, "_read_receiver_config", lambda _path: Mock())
+    monkeypatch.setattr(client_cli, "RemoteSkillReceiver", IncompleteReceiver)
+
+    result = CliRunner().invoke(create_cli([]), arguments)
+
+    assert result.exit_code == 1
+    assert expected_output in result.output
+
+
+def test_remote_distribution_cli_resolves_cas_generations_and_prints_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = RemoteSkillTarget.model_validate({
+        "scope_id": "project",
+        "target_id": "codex-a",
+        "display_name": "Hangzhou build machine",
+        "agent_kind": "codex",
+        "installation_scope": "project",
+        "delivery_mode": "agent_pull",
+        "installation_id": "workspace-a",
+        "state": "active",
+        "receiver_version": "0.1.0",
+        "environment_fingerprint": None,
+        "machine_hostname": "build-host-01",
+        "workspace_name": "powercontext",
+        "last_seen_at": "2026-08-24T12:00:00Z",
+        "generation": 3,
+    })
+    publication = RemoteSkillPublication.model_validate({
+        "scope_id": "project",
+        "target_id": "codex-a",
+        "artifact_id": "release-check",
+        "desired_state": "published",
+        "desired_revision": 1,
+        "desired_tree_digest": "a" * 64,
+        "observed_revision": 1,
+        "observed_tree_digest": "a" * 64,
+        "observed_generation": 7,
+        "state": "current",
+        "last_error_code": None,
+        "observed_at": "2026-08-24T12:00:00Z",
+        "generation": 7,
+    })
+    status = ListRemoteSkillTargetsResponse.model_validate({
+        "targets": [
+            {
+                "target": target,
+                "publications": [
+                    publication,
+                    {
+                        **publication.model_dump(mode="json"),
+                        "artifact_id": "pending-check",
+                        "observed_revision": None,
+                        "observed_tree_digest": None,
+                        "observed_generation": None,
+                        "state": "pending",
+                        "observed_at": None,
+                    },
+                ],
+            }
+        ]
+    })
+    received: list[object] = []
+
+    class RemoteAdminClient:
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def list_remote_skill_targets(
+            self,
+            request: ListRemoteSkillTargetsRequest,
+        ) -> ListRemoteSkillTargetsResponse:
+            received.append(request)
+            return status
+
+        async def publish_remote_skill(self, request: PublishRemoteSkillRequest) -> RemoteSkillPublication:
+            received.append(request)
+            return RemoteSkillPublication.model_validate({
+                **publication.model_dump(mode="json"),
+                "desired_revision": 2,
+                "state": "pending",
+                "generation": 8,
+            })
+
+        async def unpublish_remote_skill(self, request: UnpublishRemoteSkillRequest) -> RemoteSkillPublication:
+            received.append(request)
+            return RemoteSkillPublication.model_validate({
+                **publication.model_dump(mode="json"),
+                "desired_state": "unpublished",
+                "state": "pending",
+                "generation": 8,
+            })
+
+        async def revoke_remote_skill_target(self, request: RevokeRemoteSkillTargetRequest) -> RemoteSkillTarget:
+            received.append(request)
+            return RemoteSkillTarget.model_validate({
+                **target.model_dump(mode="json"),
+                "state": "revoked",
+                "generation": 4,
+            })
+
+    monkeypatch.setattr(client_cli, "PowerContextClient", lambda *_args, **_kwargs: RemoteAdminClient())
+    cli = create_cli([])
+    runner = CliRunner()
+
+    shown = runner.invoke(cli, ["skill", "remote-status", "--scope-id", "project"])
+    published = runner.invoke(
+        cli,
+        [
+            "skill",
+            "remote-publish",
+            "--scope-id",
+            "project",
+            "--target-id",
+            "codex-a",
+            "--revision",
+            "2",
+            "release-check",
+        ],
+    )
+    unpublished = runner.invoke(
+        cli,
+        [
+            "skill",
+            "remote-unpublish",
+            "--scope-id",
+            "project",
+            "--target-id",
+            "codex-a",
+            "release-check",
+        ],
+    )
+    revoked = runner.invoke(
+        cli,
+        ["skill", "remote-target-revoke", "--scope-id", "project", "codex-a"],
+    )
+
+    assert all(result.exit_code == 0 for result in (shown, published, unpublished, revoked))
+    assert "release-check: desired=published revision 1, observed=revision 1, state=current" in shown.output
+    assert "pending-check: desired=published revision 1, observed=not reported, state=pending" in shown.output
+    publish_request = next(item for item in received if isinstance(item, PublishRemoteSkillRequest))
+    assert publish_request.artifact == ArtifactReference(family="skill", artifact_id="release-check", revision=2)
+    assert publish_request.expected_generation == 7
+    unpublish_request = next(item for item in received if isinstance(item, UnpublishRemoteSkillRequest))
+    assert unpublish_request.expected_generation == 7
+    revoke_request = next(item for item in received if isinstance(item, RevokeRemoteSkillTargetRequest))
+    assert revoke_request.expected_generation == 3
+    assert "next remote-sync" in published.output
+    assert "state=revoked" in revoked.output
 
 
 def test_cli_version_reports_the_installed_distribution() -> None:
@@ -551,7 +990,10 @@ def test_stats_command_builds_request_and_prints_summary(
     )
 
     assert result.exit_code == 0
-    assert received[0].model_dump(mode="json") == {"scope_id": "project", "period": "today"}
+    assert received[0].model_dump(mode="json") == {
+        "selection": {"mode": "exact", "scope_ids": ["project"]},
+        "period": "today",
+    }
     assert "Sources: 0 total, 0 memory processed, 0 memory pending" in result.output
     assert "Generation: 0 requests, 0 input tokens, 0 output tokens" in result.output
     assert "Recall token estimator: character:weighted@1" in result.output

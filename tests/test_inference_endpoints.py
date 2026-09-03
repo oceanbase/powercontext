@@ -18,7 +18,7 @@ import asyncio
 import json
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -37,6 +37,7 @@ from powercontext.builtin.runtime import (
     SearchMemoryRequest,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.settings import ServerSettings
 
 
@@ -111,7 +112,7 @@ class _ModelHandler(BaseHTTPRequestHandler):
 
 
 @contextmanager
-def _model_server() -> Iterator[tuple[_RecordingModelServer, str]]:
+def _model_server() -> Generator[tuple[_RecordingModelServer, str], None, None]:
     server = _RecordingModelServer()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -259,8 +260,16 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
             )
 
             async with open_builtin_runtime(config) as runtime:
+                assert runtime.scopes is not None
+                scope = await runtime.scopes.create(
+                    ScopeDraft(
+                        title="Custom inference",
+                        summary="Workload-specific inference settings",
+                        idempotency_key="custom-inference",
+                    )
+                )
                 readiness = await runtime.readiness()
-                memory = runtime.memory.for_scope("custom-inference")
+                memory = runtime.memory.for_scope(scope.scope_id)
                 await memory.remember(
                     RememberMemoryRequest(
                         entries=(

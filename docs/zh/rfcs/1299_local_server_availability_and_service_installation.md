@@ -158,7 +158,7 @@ Server role。
 初始 distribution 契约为：
 
 ```text
-powercontext service install
+powercontext service install [--start-on-login | --no-start-on-login]
 powercontext service uninstall
 powercontext service status
 ```
@@ -166,6 +166,10 @@ powercontext service status
 这些命令只操作当前用户唯一的个人服务，不提供具名 profile，也不存在 `--system`、`--machine`、`--root` 或
 管理员安装模式。它们从本地 `ServerSettings` 推导 endpoint；根命令的 Client `--server-url` 选项和
 `ClientSettings.server_url` 都不会选择 service target。
+
+在 Windows 上，如果没有显式提供 `--start-on-login` 或 `--no-start-on-login`，Install 会询问是否启用当前用户
+登录触发器，直接按 Enter 的默认选择是不启用。提供任一显式选项后不会再次询问；Linux 和 macOS 不提供关闭
+其原生用户服务正常启动行为的选项。
 
 ### Install
 
@@ -176,10 +180,10 @@ Install 执行以下步骤：
 3. 解析 distribution 所有的内部 launcher 对应的绝对、非 shell 命令。
 4. 探测目标 endpoint：有效的 PowerContext liveness 响应会跳过立即启动；端口被占用但响应无效时，作为冲突在改变
    原生状态前失败。
-5. 渲染并验证包含固定 ownership marker、package version、definition version、目标 endpoint 和 launcher command
-   的注册产物。
-6. 只创建或更新 PowerContext 的个人 Server 注册，并为后续用户登录启用。
-7. 除非第 4 步发现 PowerContext Server 已 live，否则默认立即启动。
+5. 渲染并验证包含固定 ownership marker、package version、definition version、目标 endpoint、launcher command
+   和登录启动选择的注册产物。
+6. 只创建或更新 PowerContext 的个人 Server 注册；Windows 根据交互式回答或显式选项决定是否写入当前用户登录触发器。
+7. 除非第 4 步发现 PowerContext Server 已 live，否则立即启动本次安装的服务；登录启动选择只影响后续用户登录。
 8. 操作完成后报告 registration、definition、原生 manager、liveness 和 log location 事实。
 
 使用相同目标定义重复安装应成功，且不产生语义变化。如果 PowerContext 拥有的定义已过期，则在原生 manager 支持时
@@ -252,9 +256,10 @@ privileged helper。
 
 ### Windows
 
-Windows adapter 使用在当前用户登录时触发的 `Task Scheduler` task。它以该用户身份运行，绝不使用 `SYSTEM`。
-允许隐藏 process window。由于 Task Scheduler history 不是 Server stdout 或 stderr，launcher 会把 Server 输出重定向
-到明确的 PowerContext-owned 当前用户日志文件。该 adapter 不安装 Windows Service。
+Windows adapter 使用当前用户的 `Task Scheduler` task；选择登录自启时，在当前用户登录时触发，选择不自启时不写入登录
+触发器。它以该用户身份运行，绝不使用 `SYSTEM`。允许隐藏 process window。由于 Task Scheduler history 不是 Server
+stdout 或 stderr，launcher 会把 Server 输出重定向到明确的 PowerContext-owned 当前用户日志文件。该 adapter 不安装
+Windows Service。
 
 原生 identifier 和 path 是一个服务对应一组固定的项目常量。每个产物都包含稳定的 ownership marker 和 definition
 version，使 status 和 uninstall 在兼容的 package rename 后仍能区分 PowerContext-owned definition 与外部资源。
@@ -262,7 +267,8 @@ version，使 status 和 uninstall 在兼容的 package rename 后仍能区分 P
 
 ## Configuration and credentials
 
-服务安装器记录 executable、必需参数和不敏感的 service metadata。它不会把调用者的完整 environment、shell profile、
+服务安装器记录 executable、必需参数和不敏感的 service metadata。Windows 环境文件的 metadata 还包含当前用户的
+owner SID，launcher 每次启动都会重新校验该 SID。它不会把调用者的完整 environment、shell profile、
 API key、bearer token 或 provider credential 复制进原生注册产物。
 
 因此，初始个人服务模式依赖原生当前用户服务环境中可获得的配置。`powercontext service status` 和

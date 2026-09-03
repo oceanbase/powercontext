@@ -85,8 +85,7 @@ def create_server_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _log_lifecycle("server.starting", "PowerContext Server is starting")
-        if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
-            _log_in_memory_database_warning()
+        _log_startup_warnings(resolved)
         async with open_builtin_runtime(
             config,
             candidate_pipeline=candidate_pipeline,
@@ -143,6 +142,7 @@ def create_server_app(
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
         public_routes=public_routes,
+        allow_insecure_remote_http=resolved.allow_insecure_http,
     )
     _configure_web_ui(app, resolved, public_routes=public_routes)
     if metrics is not None:
@@ -179,6 +179,13 @@ def create_server_app(
             stateless_http=config.deployment.mode == "distributed",
         )
     return app
+
+
+def _log_startup_warnings(settings: ServerSettings) -> None:
+    if settings.allow_insecure_http:
+        _log_insecure_remote_http_warning()
+    if isinstance(settings.database, SQLiteConfig) and settings.database.is_in_memory:
+        _log_in_memory_database_warning()
 
 
 def _shared_rate_limiter(settings: ServerSettings) -> SharedRateLimiter | None:
@@ -222,11 +229,12 @@ def _mount_optional_web_ui(app: FastAPI, settings: ServerSettings) -> None:
     try:
         mount_web_ui(
             app,
-            scopes={scope.scope_id: scope.display_name for scope in settings.dashboard.scopes},
             dashboard_enabled=settings.dashboard.enabled,
             handoff_report_enabled=settings.handoff_report.enabled,
             authentication_required=settings.auth.enabled,
             agent_skill_targets=settings.external_skills.agent_targets,
+            public_server_url=settings.public_url,
+            allow_insecure_http=settings.allow_insecure_http,
         )
         if settings.dashboard.enabled:
             app.state.dashboard_started = True
@@ -316,6 +324,16 @@ def _log_in_memory_database_warning() -> None:
         "PowerContext Server is using an in-memory SQLite database; "
         "all main database data will be lost when the process stops",
         extra={"event": "server.database.in_memory", "unit": "server"},
+    )
+
+
+def _log_insecure_remote_http_warning() -> None:
+    log_safely(
+        logger,
+        logging.WARNING,
+        "PowerContext remote Skill Receiver cleartext HTTP opt-in is enabled; "
+        "use it only on a protected private test network",
+        extra={"event": "server.remote_skills.insecure_http_enabled", "unit": "server"},
     )
 
 

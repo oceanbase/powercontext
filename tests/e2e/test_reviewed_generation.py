@@ -70,16 +70,17 @@ def test_http_sdk_generates_reviewed_experience_and_managed_skill_candidates() -
                 base_url="http://testserver",
             ) as transport:
                 client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+                scope_id = (await client.get_default_scope()).scope_id
                 captured = await client.capture_content_source(
                     CaptureContentSourceRequest(
-                        scope_id="project",
+                        scope_id=scope_id,
                         source_id="task-1",
                         content="The contract checks passed.",
                     )
                 )
                 generated_experience = await client.generate_experience(
                     GenerateExperienceRequest(
-                        scope_id="project",
+                        scope_id=scope_id,
                         source_refs=[captured.source],
                         artifact_refs=[],
                     )
@@ -88,7 +89,7 @@ def test_http_sdk_generates_reviewed_experience_and_managed_skill_candidates() -
                 assert generated_experience.candidate is not None
                 approved_experience = await client.approve_artifact_candidate(
                     ApproveArtifactCandidateRequest(
-                        scope_id="project",
+                        scope_id=scope_id,
                         candidate_id=generated_experience.candidate.candidate_id,
                         expected_version=1,
                     )
@@ -97,7 +98,7 @@ def test_http_sdk_generates_reviewed_experience_and_managed_skill_candidates() -
 
                 generated_skill = await client.generate_skill(
                     GenerateSkillRequest(
-                        scope_id="project",
+                        scope_id=scope_id,
                         origin=SkillGenerationOrigin.EXPERIENCE,
                         source_refs=[],
                         artifact_refs=[approved_experience.result_artifact],
@@ -121,9 +122,10 @@ def test_http_generation_reports_missing_model_without_creating_a_candidate() ->
                 base_url="http://testserver",
             ) as transport:
                 client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+                scope_id = (await client.get_default_scope()).scope_id
                 captured = await client.capture_content_source(
                     CaptureContentSourceRequest(
-                        scope_id="project",
+                        scope_id=scope_id,
                         source_id="task-1",
                         content="Bounded evidence.",
                     )
@@ -131,7 +133,7 @@ def test_http_generation_reports_missing_model_without_creating_a_candidate() ->
                 with pytest.raises(ServerResponseError) as unavailable:
                     await client.generate_experience(
                         GenerateExperienceRequest(
-                            scope_id="project",
+                            scope_id=scope_id,
                             source_refs=[captured.source],
                             artifact_refs=[],
                         )

@@ -48,16 +48,12 @@ def install_openclaw_plugin(
     source: str,
     ref: str,
     server_url: str,
-    scope_mode: str,
 ) -> OpenClawSetupResult:
     """Build, install, and configure the OpenClaw plugin from one source/ref."""
 
     executable = openclaw_executable()
     require_supported_openclaw(executable)
     normalized_url = normalize_server_url(server_url)
-    if scope_mode not in {"agent", "project"}:
-        raise SetupError.invalid_openclaw_scope()
-
     data_dir = powercontext_data_dir()
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -70,13 +66,11 @@ def install_openclaw_plugin(
     configure_openclaw(
         executable=executable,
         server_url=normalized_url,
-        scope_mode=scope_mode,
     )
     return OpenClawSetupResult(
         plugin=OPENCLAW_PLUGIN_NAME,
         plugin_path=str(plugin_dir),
         server_url=normalized_url,
-        scope_mode=scope_mode,
         data_dir=str(data_dir),
     )
 
@@ -213,8 +207,14 @@ def build_openclaw_plugin(plugin_dir: Path) -> None:
     """Install plugin dependencies and produce the runtime bundle."""
 
     executable = pnpm_executable()
-    run_process([executable, "--dir", str(plugin_dir), "install", "--frozen-lockfile"], timeout=600)
-    run_process([executable, "--dir", str(plugin_dir), "run", "build"], timeout=600)
+    environment = os.environ.copy()
+    environment["CI"] = "true"
+    run_process(
+        [executable, "--dir", str(plugin_dir), "install", "--frozen-lockfile"],
+        timeout=600,
+        env=environment,
+    )
+    run_process([executable, "--dir", str(plugin_dir), "run", "build"], timeout=600, env=environment)
     if not (plugin_dir / "dist" / "index.js").is_file():
         raise SetupError.unbuilt_openclaw_plugin(plugin_dir)
 
@@ -233,7 +233,7 @@ def normalize_server_url(value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
 
-def configure_openclaw(*, executable: str, server_url: str, scope_mode: str) -> None:
+def configure_openclaw(*, executable: str, server_url: str) -> None:
     """Write plugin, memory-slot, and coding-tool allowlist configuration."""
 
     settings = [
@@ -241,7 +241,6 @@ def configure_openclaw(*, executable: str, server_url: str, scope_mode: str) -> 
         {"path": "plugins.entries.memory-powercontext.config.endpoint", "value": server_url},
         {"path": "plugins.entries.memory-powercontext.config.autoRecall", "value": True},
         {"path": "plugins.entries.memory-powercontext.config.autoCapture", "value": True},
-        {"path": "plugins.entries.memory-powercontext.config.scopeMode", "value": scope_mode},
         {"path": "plugins.entries.memory-powercontext.hooks.allowConversationAccess", "value": True},
         {"path": "plugins.slots.memory", "value": OPENCLAW_PLUGIN_NAME},
     ]
@@ -299,7 +298,13 @@ def run_openclaw(executable: str, *arguments: str) -> subprocess.CompletedProces
     return run_process([executable, *arguments], timeout=180)
 
 
-def run_process(command: list[str], *, timeout: int, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_process(
+    command: list[str],
+    *,
+    timeout: int,
+    check: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     """Run a setup subprocess with captured, bounded output."""
 
     try:
@@ -311,6 +316,7 @@ def run_process(command: list[str], *, timeout: int, check: bool = True) -> subp
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise SetupError.command_unavailable(command, error) from error
@@ -338,7 +344,8 @@ def run_openclaw_diagnostics() -> dict[str, Diagnostic]:
         }
     try:
         output = run_openclaw(executable, "plugins", "list", "--enabled", "--json").stdout or ""
-        installed = openclaw_plugin_installed(output)
+        active_memory_plugin = read_config_value(executable, "plugins.slots.memory")
+        installed = openclaw_plugin_installed(output, active_memory_plugin=active_memory_plugin)
     except SetupError as error:
         return {
             "openclaw": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
@@ -360,7 +367,7 @@ def run_openclaw_diagnostics() -> dict[str, Diagnostic]:
     }
 
 
-def openclaw_plugin_installed(output: str) -> bool:
+def openclaw_plugin_installed(output: str, *, active_memory_plugin: object | None = None) -> bool:
     """Return whether OpenClaw reports the PowerContext plugin as the active memory plugin."""
 
     command = ["openclaw", "plugins", "list", "--enabled", "--json"]
@@ -376,11 +383,10 @@ def openclaw_plugin_installed(output: str) -> bool:
             raise SetupError.invalid_command_output(command, "an invalid plugin entry")
         if plugin.get("id") != OPENCLAW_PLUGIN_NAME:
             continue
-        return (
-            plugin.get("enabled") is True
-            and plugin.get("status") == "loaded"
-            and plugin.get("memorySlotSelected") is True
-        )
+        memory_slot_selected = plugin.get("memorySlotSelected")
+        if memory_slot_selected is None:
+            memory_slot_selected = active_memory_plugin == OPENCLAW_PLUGIN_NAME
+        return plugin.get("enabled") is True and plugin.get("status") == "loaded" and memory_slot_selected is True
     return False
 
 

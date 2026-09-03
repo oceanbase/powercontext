@@ -15,12 +15,7 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import os
-from pathlib import Path
-from typing import Any, cast
 
-import powercontext_pydantic_ai.scope as scope_module
 import powercontext_pydantic_ai.toolset as toolset_module
 import pytest
 from powercontext_pydantic_ai import PowerContext, PowerContextSettings
@@ -80,54 +75,36 @@ def test_settings_require_a_bare_token_without_leaking_invalid_input() -> None:
     assert token not in str(exc_info.value)
 
 
-@pytest.mark.parametrize(
-    ("remote", "expected"),
-    [
-        ("https://github.com/OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-        ("ssh://git@github.com/OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-        ("git@github.com:OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-    ],
-)
-def test_scope_reuses_codex_remote_normalization(remote: str, expected: str) -> None:
-    assert scope_module.normalize_git_remote(remote) == expected
+def test_settings_reject_scope_id_over_contract_limit_instead_of_rewriting_it() -> None:
+    with pytest.raises(ValidationError):
+        PowerContextSettings(scope_id="scope:" + "x" * 300)
 
 
-def test_scope_uses_normalized_git_origin_then_local_path(
+def test_server_default_scope_is_used_for_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    RecordingClient.reset()
+    RecordingClient.default_scope_id = "server:chosen-default"
+    monkeypatch.delenv("POWERCONTEXT_PYDANTIC_AI_SCOPE_ID", raising=False)
+    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
+
+    async def respond(_messages, _info):
+        return ModelResponse(parts=[TextPart("complete")])
+
+    async def scenario() -> None:
+        agent = Agent(FunctionModel(respond), capabilities=[PowerContext()])
+        result = await agent.run("use the Server default Scope")
+        assert result.output == "complete"
+
+    asyncio.run(scenario())
+
+    client = RecordingClient.instances[0]
+    assert client.resolve_scope_requests
+    assert {request.explicit_scope_id for request in client.resolve_scope_requests} == {None}
+    assert {request.scope_id for request in client.prepare_requests} == {"server:chosen-default"}
+
+
+def test_constructor_scope_callback_selects_the_scope_for_the_run(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
-    def git_remote(_cwd: str, *arguments: str) -> str | None:
-        if arguments == ("rev-parse", "--show-toplevel"):
-            return str(tmp_path)
-        if arguments == ("config", "--get", "remote.origin.url"):
-            return "https://token@GitHub.com/OceanBase/powercontext.git"
-        return None
-
-    monkeypatch.setattr(scope_module, "_git_value", git_remote)
-    assert scope_module.derive_scope_id(tmp_path) == "git:github.com/OceanBase/powercontext"
-
-    monkeypatch.setattr(scope_module, "_git_value", lambda *_args: None)
-    digest = hashlib.sha256(os.fsencode(tmp_path.resolve())).hexdigest()
-    assert scope_module.derive_scope_id(tmp_path) == f"local:{digest}"
-
-
-def test_explicit_scope_skips_git_and_is_deterministically_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        scope_module,
-        "_git_value",
-        lambda *_args: pytest.fail("explicit scope must not invoke Git"),
-    )
-    configured = "scope:" + "x" * 300
-    settings = PowerContextSettings(scope_id=configured)
-    ctx = cast(RunContext[Any], object())
-
-    resolved = scope_module.resolve_scope_id(ctx, None, settings.scope_id)
-
-    assert resolved == f"sha256:{hashlib.sha256(configured.encode()).hexdigest()}"
-    assert len(resolved) <= 256
-
-
-def test_constructor_scope_callback_wins_and_runs_once_per_agent_run(monkeypatch: pytest.MonkeyPatch) -> None:
     RecordingClient.reset()
     RecordingClient.prepare_result = prepared_response(None)
     monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
@@ -160,6 +137,7 @@ def test_constructor_scope_callback_wins_and_runs_once_per_agent_run(monkeypatch
 
     asyncio.run(scenario())
 
-    assert len(calls) == 1
-    assert RecordingClient.instances[0].prepare_requests
-    assert {request.scope_id for request in RecordingClient.instances[0].prepare_requests} == {"constructor:scope"}
+    assert calls
+    client = RecordingClient.instances[0]
+    assert {request.explicit_scope_id for request in client.resolve_scope_requests} == {"constructor:scope"}
+    assert {request.scope_id for request in client.prepare_requests} == {"constructor:scope"}

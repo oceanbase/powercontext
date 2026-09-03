@@ -22,21 +22,27 @@ import subprocess
 import sys
 import time
 import uuid
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from contextlib import suppress
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from powercontext.service.adapters.base import NativeServiceAdapter
+from powercontext.service.adapters.base import NativeServiceAdapter, service_python_executable
 from powercontext.service.adapters.launchd import LaunchdUserAdapter
 from powercontext.service.adapters.systemd import SystemdUserAdapter
+from powercontext.service.adapters.windows import WindowsTaskSchedulerAdapter
 from powercontext.service.controller import ServiceController
 from powercontext.service.model import (
+    DEFINITION_VERSION,
+    OWNERSHIP_MARKER,
     ManagerOwnershipState,
     ManagerState,
     RegistrationState,
+    ServiceDefinition,
     ServiceError,
     ServiceStatus,
     SupportState,
@@ -66,7 +72,7 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
         loaded = adapter.loaded_registration()
         assert loaded.state is ManagerOwnershipState.OWNED
         assert loaded.definition is not None
-        assert loaded.definition.python_executable == os.path.abspath(sys.executable)
+        assert loaded.definition.python_executable == service_python_executable()
 
         adapter.stop()
         if isinstance(adapter, LaunchdUserAdapter):
@@ -101,7 +107,7 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
         assert registration.definition is not None
         assert loaded.state is ManagerOwnershipState.OWNED
         assert loaded.definition == registration.definition
-        assert registration.definition.python_executable == os.path.abspath(sys.executable)
+        assert registration.definition.python_executable == service_python_executable()
         content = adapter.artifact_path.read_bytes()
         if isinstance(adapter, LaunchdUserAdapter):
             payload = plistlib.loads(content)
@@ -111,6 +117,23 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
             assert "PathState" in payload["KeepAlive"]
             assert payload["StandardOutPath"].endswith("logs/server.stdout.log")
             assert payload["StandardErrorPath"].endswith("logs/server.stderr.log")
+        elif isinstance(adapter, WindowsTaskSchedulerAdapter):
+            namespace = "{http://schemas.microsoft.com/windows/2004/02/mit/task}"
+            payload = ET.fromstring(content)  # noqa: S314
+            logon_trigger = payload.find(f"{namespace}Triggers/{namespace}LogonTrigger")
+            logon_type = payload.find(f"{namespace}Principals/{namespace}Principal/{namespace}LogonType")
+            run_level = payload.find(f"{namespace}Principals/{namespace}Principal/{namespace}RunLevel")
+            hidden = payload.find(f"{namespace}Settings/{namespace}Hidden")
+            restart_count = payload.find(f"{namespace}Settings/{namespace}RestartOnFailure/{namespace}Count")
+            command = payload.find(f"{namespace}Actions/{namespace}Exec/{namespace}Command")
+            assert logon_trigger is not None
+            assert logon_type is not None and logon_type.text == "InteractiveToken"
+            assert run_level is not None and run_level.text == "LeastPrivilege"
+            assert hidden is not None and hidden.text == "true"
+            assert restart_count is not None and restart_count.text == "3"
+            assert command is not None and Path(command.text or "").name.casefold() == "pythonw.exe"
+            log_location = adapter.log_location(registration.definition)
+            assert log_location is not None and log_location.endswith("logs")
         else:
             unit = content.decode()
             assert f'ExecStart="{os.path.abspath(sys.executable)}"' in unit
@@ -118,6 +141,29 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
             assert "StartLimitIntervalSec=60" in unit
             assert "StartLimitBurst=3" in unit
             assert f"journalctl --user --unit {adapter.identifier}" == adapter.log_location(registration.definition)
+    finally:
+        with suppress(Exception):
+            controller.uninstall()
+        _cleanup(adapter)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Task Scheduler login-trigger behavior is Windows-specific")
+def test_native_windows_service_can_disable_login_trigger(tmp_path: Path) -> None:
+    adapter = _native_adapter(suffix="manual")
+    controller = ServiceController(adapter)
+
+    try:
+        installed = controller.install(env_file=_environment_file(tmp_path), start_on_login=False)
+
+        assert installed.ok
+        assert installed.manager is ManagerState.ACTIVE
+        loaded = adapter.loaded_registration()
+        assert loaded.state is ManagerOwnershipState.OWNED
+        content = adapter.artifact_path.read_bytes()
+        namespace = "{http://schemas.microsoft.com/windows/2004/02/mit/task}"
+        payload = ET.fromstring(content)  # noqa: S314
+        assert payload.find(f"{namespace}Triggers/{namespace}LogonTrigger") is None
+        assert adapter.manager_state() is ManagerState.ACTIVE
     finally:
         with suppress(Exception):
             controller.uninstall()
@@ -180,13 +226,13 @@ def test_native_service_retry_and_exit_classification(tmp_path: Path) -> None:
     adapter.artifact_path.write_bytes(plistlib.dumps(payload))
 
     try:
-        _run("launchctl", "enable", f"gui/{os.getuid()}/{adapter.identifier}")
-        _run("launchctl", "bootstrap", f"gui/{os.getuid()}", str(adapter.artifact_path))
+        _run("launchctl", "enable", f"gui/{_current_uid()}/{adapter.identifier}")
+        _run("launchctl", "bootstrap", f"gui/{_current_uid()}", str(adapter.artifact_path))
         _wait_for(lambda: not token.exists() and _attempt_count(state) == 3, timeout=20)
         _wait_for(lambda: adapter.manager_state() is ManagerState.INACTIVE)
 
         assert adapter.manager_state() is ManagerState.INACTIVE
-        result = _run("launchctl", "print", f"gui/{os.getuid()}/{adapter.identifier}")
+        result = _run("launchctl", "print", f"gui/{_current_uid()}/{adapter.identifier}")
         assert "last exit code = 0" in result.stdout
     finally:
         _remove_foreign_registration(adapter)
@@ -209,14 +255,22 @@ def _native_adapter(*, suffix: str | None = None) -> NativeServiceAdapter:
             identifier = f"powercontext-native-{suffix}-{unique}.service"
         assert identifier.startswith("powercontext-native-")
         return SystemdUserAdapter(identifier=identifier)
+    if sys.platform == "win32":
+        base_identifier = configured or f"PowerContext-Native-{unique}"
+        identifier = base_identifier if suffix is None else f"{base_identifier}-{suffix}"
+        assert identifier.startswith("PowerContext-Native-")
+        return WindowsTaskSchedulerAdapter(identifier=identifier)
     pytest.skip(f"no native personal-service adapter for {sys.platform}")
 
 
 def _environment_file(tmp_path: Path) -> Path:
     environment = tmp_path / "powercontext.env"
+    data_dir = str(tmp_path / "data")
+    if os.name == "nt":
+        data_dir = f'"{data_dir}"'
     environment.write_text(
         "\n".join((
-            f"POWERCONTEXT_HOME={tmp_path / 'data'}",
+            f"POWERCONTEXT_HOME={data_dir}",
             f"POWERCONTEXT_SERVER_HTTP_PORT={_unused_loopback_port()}",
             "POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false",
             "",
@@ -224,6 +278,26 @@ def _environment_file(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     environment.chmod(0o600)
+    if os.name == "nt":
+        account = subprocess.run(
+            ["whoami.exe"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout.strip()
+        # Hosted Windows runners can create pytest's temporary files with an
+        # inherited owner that differs from the account running the test.
+        _run("icacls.exe", str(environment), "/setowner", account)
+        _run(
+            "icacls.exe",
+            str(environment),
+            "/inheritance:r",
+            "/grant:r",
+            f"{account}:(F)",
+            "SYSTEM:(F)",
+            "Administrators:(F)",
+        )
     return environment
 
 
@@ -282,8 +356,35 @@ def _load_foreign_registration(adapter: NativeServiceAdapter, tmp_path: Path) ->
                 "RunAtLoad": True,
             })
         )
-        _run("launchctl", "enable", f"gui/{os.getuid()}/{adapter.identifier}")
-        _run("launchctl", "bootstrap", f"gui/{os.getuid()}", str(foreign))
+        _run("launchctl", "enable", f"gui/{_current_uid()}/{adapter.identifier}")
+        _run("launchctl", "bootstrap", f"gui/{_current_uid()}", str(foreign))
+    elif isinstance(adapter, WindowsTaskSchedulerAdapter):
+        foreign = tmp_path / "foreign.xml"
+        definition = ServiceDefinition(
+            ownership=OWNERSHIP_MARKER,
+            definition_version=DEFINITION_VERSION,
+            package_version=version("powercontext"),
+            python_executable=os.path.abspath(sys.executable),
+            endpoint="http://127.0.0.1:1",
+            data_dir=str(tmp_path / "foreign-data"),
+            env_file=None,
+        )
+        payload = ET.fromstring(adapter.render(definition))  # noqa: S314
+        namespace = "{http://schemas.microsoft.com/windows/2004/02/mit/task}"
+        description = payload.find(f"{namespace}RegistrationInfo/{namespace}Description")
+        assert description is not None
+        description.text = "Foreign Task"
+        foreign.write_bytes(ET.tostring(payload, encoding="utf-16", xml_declaration=True))
+        _run(
+            "schtasks.exe",
+            "/Create",
+            "/TN",
+            adapter.identifier,
+            "/XML",
+            str(foreign),
+            "/F",
+            "/HRESULT",
+        )
     else:
         _run(
             "systemd-run",
@@ -298,9 +399,12 @@ def _load_foreign_registration(adapter: NativeServiceAdapter, tmp_path: Path) ->
 
 def _remove_foreign_registration(adapter: NativeServiceAdapter) -> None:
     if isinstance(adapter, LaunchdUserAdapter):
-        target = f"gui/{os.getuid()}/{adapter.identifier}"
+        target = f"gui/{_current_uid()}/{adapter.identifier}"
         _run_ignoring_failure("launchctl", "bootout", target)
         _run_ignoring_failure("launchctl", "disable", target)
+    elif isinstance(adapter, WindowsTaskSchedulerAdapter):
+        _run_ignoring_failure("schtasks.exe", "/End", "/TN", adapter.identifier, "/HRESULT")
+        _run_ignoring_failure("schtasks.exe", "/Delete", "/TN", adapter.identifier, "/F", "/HRESULT")
     else:
         _run_ignoring_failure("systemctl", "--user", "stop", adapter.identifier)
         _run_ignoring_failure("systemctl", "--user", "reset-failed", adapter.identifier)
@@ -326,3 +430,8 @@ def _run_ignoring_failure(*arguments: str) -> None:
         timeout=30,
         check=False,
     )
+
+
+def _current_uid() -> int:
+    getuid = getattr(os, "getuid", None)
+    return int(getuid()) if getuid is not None else 0

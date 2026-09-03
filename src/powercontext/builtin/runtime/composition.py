@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast
 
 from pydantic import AnyHttpUrl, JsonValue, SecretStr
-from sqlalchemy import Table
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
@@ -49,9 +48,8 @@ from powercontext.builtin.artifacts.memory import (
     MemoryReranker,
 )
 from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
-from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
+from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
-from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
 from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
@@ -69,6 +67,7 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.schema import create_tables
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
@@ -82,7 +81,6 @@ from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabil
 from powercontext.builtin.runtime.operations import OperationManager
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.readiness import (
-    READINESS_PROBE_TIMEOUT_SECONDS,
     CachedReadinessProbe,
     ReadinessProbe,
     ReadinessProbeDefinition,
@@ -100,8 +98,9 @@ from powercontext.builtin.runtime.work_handlers import (
 )
 from powercontext.builtin.runtime.work_observability import WorkObserver
 from powercontext.builtin.runtime.worker import DurableWorker, WorkHandler
-from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentSource
-from powercontext.sources import Source
+from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, TEXT_EVIDENCE_PROJECTION_KEY
+from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
+from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -116,7 +115,6 @@ class _RuntimeStorage:
     database: AsyncDatabase
     index: CompositeMemoryIndex
     experience_index: ExperienceIndex
-    report_tables: tuple[Table, ...]
 
 
 class _SchemaVerifier(Protocol):
@@ -142,30 +140,30 @@ class BuiltinConfigurationError(RuntimeError):
         super().__init__(messages[issue])
 
 
-class _ContentEvidenceProjector(DefaultMemoryEvidenceProjector):
+class _DefinitionEvidenceProjector(DefaultMemoryEvidenceProjector):
+    def __init__(self, definitions: SourceDefinitionRegistry, projection: SourceProjectionKey) -> None:
+        self._definitions = definitions
+        self._projection = projection
+
     @override
     def project_source(self, source: Source, /) -> JsonValue:
-        if isinstance(source, ContentSource):
-            return {
-                "source_type": CONTENT_SOURCE_NAME,
-                "source_id": source.name,
-                "content": source.content,
-                "metadata": source.model_dump(mode="json")["metadata"],
-            }
-        return super().project_source(source)
+        try:
+            return self._definitions.project(source, self._projection)
+        except (InvalidSourceProjectionError, SourceProjectionNotFoundError):
+            return super().project_source(source)
 
 
-class _ContentHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
+class _DefinitionHandoffEvidenceProjector(DefaultHandoffEvidenceProjector):
+    def __init__(self, definitions: SourceDefinitionRegistry, projection: SourceProjectionKey) -> None:
+        self._definitions = definitions
+        self._projection = projection
+
     @override
     def project_source(self, source: Source, /) -> JsonValue:
-        if isinstance(source, ContentSource):
-            return {
-                "source_type": CONTENT_SOURCE_NAME,
-                "source_id": source.name,
-                "content": source.content,
-                "metadata": source.model_dump(mode="json")["metadata"],
-            }
-        return super().project_source(source)
+        try:
+            return self._definitions.project(source, self._projection)
+        except (InvalidSourceProjectionError, SourceProjectionNotFoundError):
+            return super().project_source(source)
 
 
 class _TracingMemoryReranker:
@@ -217,6 +215,7 @@ async def open_builtin_runtime(
     scope_cache_observer: ScopeCacheObserver | None = None,
     tracing: RuntimeTracing | None = None,
     work_observer: WorkObserver | None = None,
+    source_registry: SourceDefinitionRegistry | None = None,
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime.
 
@@ -228,6 +227,7 @@ async def open_builtin_runtime(
 
     async with AsyncExitStack() as resources:
         scheduler_only = config.deployment.role == "scheduler"
+        configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         (
             generated_memory,
             generated_incubation,
@@ -238,7 +238,13 @@ async def open_builtin_runtime(
             generation_readiness,
             rerank_readiness,
         ) = (
-            await _generation_pipelines(config.inference, config.runtime, resources, instrumentation)
+            await _generation_pipelines(
+                config.inference,
+                config.runtime,
+                resources,
+                instrumentation,
+                configured_source_registry,
+            )
             if not scheduler_only
             and (
                 candidate_pipeline is None
@@ -308,6 +314,7 @@ async def open_builtin_runtime(
                 embedding_model=configured_embedding,
                 token_estimator=token_estimator,
                 memory_reranker=configured_reranker,
+                source_registry=configured_source_registry,
             )
         )
         _validate_work_configuration(config, configured_pipeline, configured_incubation, configured_reranker)
@@ -364,25 +371,37 @@ async def open_builtin_runtime(
                 review_service=contexts.review,
                 generation_service=contexts.generation,
                 experience_recall=contexts.search_experience,
+                skill_recall=contexts.search_skills,
+                skill_lister=contexts.list_skills,
+                skill_origin_reader=contexts.get_skill_origins,
+                skill_governance_reader=contexts.get_skill_governance,
+                skill_governance_updater=contexts.update_skill_lifecycle,
+                skill_package_resolver=contexts.skill_package,
+                package_snapshot_resolver=contexts.package_snapshot,
+                skill_package_uploader=contexts.upload_skill_package,
+                skill_usage_recorder=contexts.record_skill_usage,
                 experience_incubator=contexts.incubate_experience if contexts.experience_incubation else None,
                 external_skill_registry=contexts.external_skills if contexts.external_skill_registry else None,
                 external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
+                skill_publication_service=contexts.skill_publications,
+                remote_skill_distribution=contexts.remote_skill_distribution(),
                 statistics_service=contexts.statistics,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 memory_flusher=(lambda scope_id, limit: operation_manager.flush_memory(scope_id, limit=limit))
                 if config.deployment.role == "all"
                 else None,
                 operations=operation_manager,
+                publication_application=contexts.publications,
+                scope_application=contexts.scopes,
                 readiness=RuntimeReadinessChecks(readiness_probes),
                 tracing=tracing,
+                remote_ingestion=contexts,
             )
         )
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
-                contexts.database,
+                contexts.scopes,
                 RuntimeHandoffReadAdapter(runtime.handoff),
-                continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
-                scope_ids=contexts.handoff_scope_ids,
             )
         _start_work_background(local_worker, local_scheduler, resources)
         yield runtime
@@ -586,6 +605,7 @@ async def open_builtin_contexts(
     embedding_model: EmbeddingModel | None = None,
     token_estimator: TokenEstimator | None = None,
     memory_reranker: MemoryReranker | None = None,
+    source_registry: SourceDefinitionRegistry | None = None,
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
@@ -593,7 +613,7 @@ async def open_builtin_contexts(
     embedding_profile = None if embedding_model is None else embedding_model.profile
     async with _open_runtime_storage(config, embedding_profile=embedding_profile) as storage:
         await _prepare_runtime_schema(config, storage)
-        yield RelationalContexts(
+        contexts = RelationalContexts(
             database=storage.database,
             index=storage.index,
             experience_index=storage.experience_index,
@@ -607,7 +627,10 @@ async def open_builtin_contexts(
             token_estimator=configured_token_estimator,
             memory_reranker=memory_reranker,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+            source_registry=source_registry,
         )
+        await contexts.scopes.bootstrap_default()
+        yield contexts
 
 
 async def migrate_builtin_database(
@@ -629,7 +652,6 @@ async def _open_runtime_storage(
     embedding_profile: EmbeddingProfile | None,
 ) -> AsyncIterator[_RuntimeStorage]:
     database = config.database
-    report_tables = HANDOFF_REPORT_TABLES if config.handoff_report.enabled else ()
     if isinstance(database, SQLiteConfig):
         experience_index: ExperienceIndex = SQLiteExperienceFTSIndex()
         indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
@@ -638,11 +660,11 @@ async def _open_runtime_storage(
         index = CompositeMemoryIndex(*indexes)
         async with SQLiteProfile.open(
             database,
-            tables=BUILTIN_TABLES + report_tables + index.tables,
+            tables=BUILTIN_TABLES + index.tables,
             load_vector_extension=embedding_profile is not None,
             create_schema=False,
         ) as profile:
-            yield _RuntimeStorage(profile.database, index, experience_index, report_tables)
+            yield _RuntimeStorage(profile.database, index, experience_index)
         return
 
     experience_index = OceanBaseExperienceFTSIndex()
@@ -650,7 +672,7 @@ async def _open_runtime_storage(
     if embedding_profile is not None:
         indexes.append(OceanBaseMemoryVectorIndex(embedding_profile))
     index = CompositeMemoryIndex(*indexes)
-    tables = BUILTIN_TABLES + report_tables + index.tables
+    tables = BUILTIN_TABLES + index.tables
     if isinstance(database, OceanBaseConfig):
         profile_context = OceanBaseProfile.open(database, tables=tables, create_schema=False)
     elif isinstance(database, SeekDBConfig):
@@ -658,7 +680,7 @@ async def _open_runtime_storage(
     else:
         raise BuiltinConfigurationError("database")
     async with profile_context as profile:
-        yield _RuntimeStorage(profile.database, index, experience_index, report_tables)
+        yield _RuntimeStorage(profile.database, index, experience_index)
 
 
 async def _prepare_runtime_schema(config: BuiltinConfig, storage: _RuntimeStorage) -> None:
@@ -673,8 +695,7 @@ async def _prepare_runtime_schema(config: BuiltinConfig, storage: _RuntimeStorag
 
 def _schema_provisioner(storage: _RuntimeStorage) -> Callable[[AsyncConnection], Awaitable[None]]:
     async def provision(connection: AsyncConnection) -> None:
-        if storage.report_tables:
-            await create_tables(connection, storage.report_tables)
+        await ensure_skill_distribution_schema(connection)
         if storage.index.tables:
             await create_tables(connection, storage.index.tables)
         await storage.index.initialize(connection)
@@ -688,6 +709,7 @@ async def _generation_pipelines(
     runtime: RuntimeConfig,
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
+    source_registry: SourceDefinitionRegistry,
 ) -> tuple[
     CandidatePipeline | None,
     ExperienceCandidatePipeline | None,
@@ -760,7 +782,7 @@ async def _generation_pipelines(
             resources=resources,
             instrumentation=instrumentation,
         )
-        generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings))
+        generation_request_settings = cast(ModelSettings, dict(settings.generation_model_settings)) or None
         generation_limits = InferenceLimits(
             timeout_seconds=settings.generation_timeout_seconds,
             max_requests=settings.generation_max_requests,
@@ -812,25 +834,27 @@ async def _generation_pipelines(
         )
         generated_memory = LLMMemoryCandidatePipeline(
             UsageReportingStructuredGenerator(memory_generator),
-            evidence_projector=_ContentEvidenceProjector(),
+            evidence_projector=_DefinitionEvidenceProjector(source_registry, TEXT_EVIDENCE_PROJECTION_KEY),
         )
         generated_incubation = LLMExperienceCandidatePipeline(UsageReportingStructuredGenerator(experience_generator))
         generated_experience = LLMExperienceGenerator(UsageReportingStructuredGenerator(explicit_experience_generator))
         generated_skill = LLMSkillGenerator(UsageReportingStructuredGenerator(skill_generator))
         generated_handoff = LLMHandoffGenerationPipeline(
             UsageReportingStructuredGenerator(handoff_generator),
-            evidence_projector=_ContentHandoffEvidenceProjector(),
+            evidence_projector=_DefinitionHandoffEvidenceProjector(source_registry, TEXT_EVIDENCE_PROJECTION_KEY),
         )
 
         async def probe_generation() -> None:
             # Readiness probing runs outside any operation span; keep it out of traces.
             await probe_pydantic_ai_model(
                 generation_provider_model,
-                timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS,
+                timeout_seconds=settings.generation_timeout_seconds,
                 model_settings=generation_request_settings,
             )
 
-        generation_readiness = CachedReadinessProbe(dependency_readiness_probe(probe_generation))
+        generation_readiness = CachedReadinessProbe(
+            dependency_readiness_probe(probe_generation, timeout_seconds=settings.generation_timeout_seconds)
+        )
 
     if runtime.memory_rerank_enabled:
         rerank_provider_model = generation_provider_model
@@ -883,13 +907,19 @@ async def _generation_pipelines(
             if separate_rerank_model or settings.rerank_model_settings:
 
                 async def probe_rerank() -> None:
+                    timeout_seconds = settings.rerank_timeout_seconds or settings.generation_timeout_seconds
                     await probe_pydantic_ai_model(
                         rerank_provider_model,
-                        timeout_seconds=READINESS_PROBE_TIMEOUT_SECONDS,
+                        timeout_seconds=timeout_seconds,
                         model_settings=rerank_request_settings,
                     )
 
-                rerank_readiness = CachedReadinessProbe(dependency_readiness_probe(probe_rerank))
+                rerank_readiness = CachedReadinessProbe(
+                    dependency_readiness_probe(
+                        probe_rerank,
+                        timeout_seconds=settings.rerank_timeout_seconds or settings.generation_timeout_seconds,
+                    )
+                )
 
     return (
         generated_memory,

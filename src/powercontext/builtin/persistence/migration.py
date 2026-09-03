@@ -39,18 +39,20 @@ from powercontext.builtin.persistence.tables import (
     COORDINATION_TABLES,
     MEMORY_TABLES,
     SCHEDULER_LEASES_TABLE,
+    SCOPE_TABLES,
     SHARED_TABLES,
     STATISTICS_TABLES,
     WORK_TABLES,
 )
 
 BASELINE_REVISION = "0001_baseline"
-CURRENT_SCHEMA_REVISION = "0002_work_ledger"
+CURRENT_SCHEMA_REVISION = "0003_scope_source_skill"
 SCHEMA_VERSION_TABLE = "pc_schema_revisions"
 _MIGRATION_LEASE = "schema-migration"
 _MIGRATION_LEASE_SECONDS = 600
 _BASE_TABLES = SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES
 _NEW_TABLES = WORK_TABLES + COORDINATION_TABLES
+_CURRENT_TABLES = SCOPE_TABLES + _BASE_TABLES + _NEW_TABLES
 SchemaProvisioner = Callable[[AsyncConnection], Awaitable[None]]
 
 
@@ -189,10 +191,16 @@ def _upgrade_known_legacy_columns(connection: Connection, inspector: Inspector) 
     if table_name not in set(inspector.get_table_names()):
         return
     columns = {str(column["name"]) for column in inspector.get_columns(table_name)}
-    if "searchable_text" in columns:
-        return
-    column_type = "MEDIUMTEXT" if connection.dialect.name in {"mysql", "oceanbase"} else "TEXT"
-    connection.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN searchable_text {column_type} NULL")
+    mysql = connection.dialect.name in {"mysql", "oceanbase"}
+    additions = {
+        "searchable_text": "MEDIUMTEXT NULL" if mysql else "TEXT NULL",
+        "lifecycle_state": "VARCHAR(16) NOT NULL DEFAULT 'active'",
+        "replacement_artifact_id": "VARCHAR(128) NULL",
+        "governance_generation": "BIGINT NOT NULL DEFAULT 0",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            connection.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {name} {definition}")
 
 
 def _require_expected_columns(inspector: Inspector, tables: Iterable[Table]) -> None:
@@ -209,7 +217,7 @@ def _require_expected_columns(inspector: Inspector, tables: Iterable[Table]) -> 
 def _validate_current_schema(connection: Connection) -> None:
     inspector = inspect(connection)
     existing = set(inspector.get_table_names())
-    expected = _BASE_TABLES + _NEW_TABLES
+    expected = _CURRENT_TABLES
     missing_tables = sorted(table.name for table in expected if table.name not in existing)
     if missing_tables:
         raise SchemaCompatibilityError(f"current revision is missing tables: {', '.join(missing_tables)}")  # noqa: TRY003
