@@ -90,6 +90,110 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/source-definitions/register": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Register a worker-owned Source Definition manifest",
+                "description": "Registers an immutable declarative manifest without loading worker plugin code.",
+                "operationId": "register_source_definition",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RegisterSourceDefinitionRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact manifest is registered or was already registered identically.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceDefinitionManifest"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/connector-checkpoints/get": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Read a Connector binding checkpoint",
+                "operationId": "get_connector_checkpoint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetConnectorCheckpointRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The current opaque checkpoint, including a normal null initial value.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectorCheckpointState"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/source-observations": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Submit a worker-materialized Source observation",
+                "description": "Validates the observation against "
+                "its registered manifest and "
+                "durably appends it before receipt.",
+                "operationId": "submit_source_observation",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SubmitSourceObservationRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "202": {
+                        "description": "The observation is durably accepted and can be referenced exactly.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SourceObservationReceipt"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/connector-checkpoints/commit": {
+            "post": {
+                "tags": ["source-ingestion"],
+                "summary": "Commit a Connector binding checkpoint",
+                "description": "Replaces the checkpoint only when its expected starting value still matches.",
+                "operationId": "commit_connector_checkpoint",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/CommitConnectorCheckpointRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The new opaque checkpoint is durable.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ConnectorCheckpointState"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
         "/v1/context/prepare": {
             "post": {
                 "tags": ["context"],
@@ -758,6 +862,487 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+            }
+        },
+        "/v1/skill/library": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "List or search current managed Skills",
+                "description": "Return current managed Skill heads with "
+                "lifecycle governance; retired Skills "
+                "remain exact-read only.",
+                "operationId": "list_managed_skills",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListManagedSkillsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current managed Skill Library rows.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ListManagedSkillsResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/lifecycle": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Update managed Skill lifecycle",
+                "description": "Apply an explicit lifecycle transition "
+                "using governance generation CAS "
+                "without changing package bytes.",
+                "operationId": "update_skill_lifecycle",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/UpdateSkillLifecycleRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Updated managed Skill governance.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillGovernance"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/package/manifest": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Get an exact managed Skill package manifest",
+                "description": "Return verified metadata and "
+                "file inventory without "
+                "executing or returning file "
+                "bodies.",
+                "operationId": "get_skill_package_manifest",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Verified exact package manifest.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageManifest"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/package/download": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Download an exact managed Skill package",
+                "description": "Return canonical ZIP bytes as bounded base64 with their content-addressed reference.",
+                "operationId": "download_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Canonical exact package archive.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageDownload"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/package/propose": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Propose an uploaded standard Skill package",
+                "description": "Canonicalize exact ZIP bytes, "
+                "store them once, and create a "
+                "pending Candidate without LLM "
+                "rewriting.",
+                "operationId": "propose_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ProposeSkillPackageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Pending exact package Candidate.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCandidate"}}},
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/usage": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Record a bounded Skill usage observation",
+                "description": "Validate an exact managed Skill Revision "
+                "and capture immutable bounded usage Source "
+                "evidence.",
+                "operationId": "record_skill_usage",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RecordSkillUsageRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Accepted immutable usage Source evidence.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/CaptureContentSourceResponse"}
+                            }
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/remote/targets": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "List remote Agent Skill target status",
+                "description": "Return credential-free target "
+                "metadata and desired/observed "
+                "publication state for one scope.",
+                "operationId": "list_remote_skill_targets",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListRemoteSkillTargetsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Remote target status rows visible to the administrative caller.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ListRemoteSkillTargetsResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/remote/target/create": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Create a remote Agent Skill target enrollment",
+                "description": "Create a pending project "
+                "target and return one "
+                "short-lived enrollment code "
+                "exactly once.",
+                "operationId": "create_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/CreateRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "201": {
+                        "description": "Pending remote target enrollment.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTargetEnrollment"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/remote/target/enroll": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Enroll a remote Agent Skill Receiver",
+                "description": "Consume one short-lived "
+                "enrollment code and return "
+                "a per-target credential "
+                "exactly once.",
+                "operationId": "enroll_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/EnrollRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Activated remote target credential.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTargetCredential"}}
+                        },
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [],
+            }
+        },
+        "/v1/skill/remote/target/rename": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Rename a remote Agent Skill target",
+                "description": "Change the human-readable "
+                "target name with target "
+                "generation CAS while "
+                "retaining its durable "
+                "identity.",
+                "operationId": "rename_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RenameRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Renamed remote target.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTarget"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/remote/target/revoke": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Revoke a remote Agent Skill target",
+                "description": "Revoke the per-target "
+                "credential with target "
+                "generation CAS while "
+                "retaining durable identity.",
+                "operationId": "revoke_remote_skill_target",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RevokeRemoteSkillTargetRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Revoked remote target.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillTarget"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/remote/publication/publish": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Set a remote target Skill desired Revision",
+                "description": "Advance only "
+                "Server-owned desired "
+                "state; delivery is "
+                "confirmed later by an "
+                "exact Receipt.",
+                "operationId": "publish_remote_skill",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/PublishRemoteSkillRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Latest remote publication desired state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillPublication"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/remote/publication/unpublish": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Set remote target Skill desired absence",
+                "description": "Advance desired "
+                "state without "
+                "claiming that any "
+                "remote directory "
+                "has already been "
+                "removed.",
+                "operationId": "unpublish_remote_skill",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/UnpublishRemoteSkillRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Latest remote publication desired state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillPublication"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/skill/remote/reconcile": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Reconcile a remote Agent Skill target",
+                "description": "Authenticate one target and "
+                "return only latest-generation "
+                "idempotent install or unpublish "
+                "actions.",
+                "operationId": "reconcile_remote_skills",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReconcileRemoteSkillsRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Latest desired-state actions for this target only.",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ReconcileRemoteSkillsResponse"}
+                            }
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [{"TargetBearerAuth": []}],
+            }
+        },
+        "/v1/skill/remote/package/download": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Download the exact package desired by a remote target",
+                "description": "Return canonical ZIP "
+                "bytes only when target, "
+                "generation, Artifact "
+                "Revision, and package "
+                "reference all match.",
+                "operationId": "download_remote_skill_package",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/DownloadRemoteSkillPackageRequest"}
+                        }
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Canonical exact package archive.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SkillPackageDownload"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [{"TargetBearerAuth": []}],
+            }
+        },
+        "/v1/skill/remote/receipt": {
+            "post": {
+                "tags": ["skill"],
+                "summary": "Record an exact remote Skill delivery Receipt",
+                "description": "Update latest observed state only "
+                "after credential, generation, "
+                "Artifact, operation, and digest "
+                "validation.",
+                "operationId": "record_remote_skill_receipt",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RecordRemoteSkillReceiptRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Receipt acceptance and latest publication observation.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/RemoteSkillReceiptResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "security": [{"TargetBearerAuth": []}],
             }
         },
         "/v1/external-skills/scan": {
@@ -2210,6 +2795,133 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["status", "source", "position"],
             },
+            "SourceProjectionKey": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version"],
+            },
+            "SourceProjectionManifest": {
+                "properties": {
+                    "key": {"$ref": "#/components/schemas/SourceProjectionKey"},
+                    "schema": {"additionalProperties": True, "type": "object"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key", "schema"],
+            },
+            "SourceDefinitionManifest": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "source_schema": {"additionalProperties": True, "type": "object"},
+                    "projections": {
+                        "items": {"$ref": "#/components/schemas/SourceProjectionManifest"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "version", "fingerprint", "source_schema", "projections"],
+            },
+            "RegisterSourceDefinitionRequest": {
+                "properties": {"manifest": {"$ref": "#/components/schemas/SourceDefinitionManifest"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["manifest"],
+            },
+            "ConnectorBinding": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "binding_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "connector_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "connector_version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "binding_id", "connector_name", "connector_version"],
+            },
+            "GetConnectorCheckpointRequest": {
+                "properties": {"binding": {"$ref": "#/components/schemas/ConnectorBinding"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding"],
+            },
+            "ConnectorCheckpointState": {
+                "properties": {
+                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
+                    "checkpoint": {"nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "checkpoint"],
+            },
+            "SourceProjectionValue": {
+                "properties": {"key": {"$ref": "#/components/schemas/SourceProjectionKey"}, "value": {}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["key", "value"],
+            },
+            "SourceObservation": {
+                "properties": {
+                    "name": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "definition_version": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "materialization": {"type": "string", "enum": ["captured"]},
+                    "description": {"type": "string", "nullable": True},
+                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "definition_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "payload": {"additionalProperties": True, "type": "object"},
+                    "projections": {
+                        "items": {"$ref": "#/components/schemas/SourceProjectionValue"},
+                        "type": "array",
+                        "maxItems": 16,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "name",
+                    "definition_version",
+                    "materialization",
+                    "source_type",
+                    "definition_fingerprint",
+                    "payload",
+                    "projections",
+                ],
+            },
+            "SubmitSourceObservationRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "observation": {"$ref": "#/components/schemas/SourceObservation"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "observation"],
+            },
+            "SourceObservationReceipt": {
+                "properties": {
+                    "source": {"$ref": "#/components/schemas/SourceReference"},
+                    "position": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source", "position"],
+            },
+            "CommitConnectorCheckpointRequest": {
+                "properties": {
+                    "binding": {"$ref": "#/components/schemas/ConnectorBinding"},
+                    "expected": {"nullable": True},
+                    "checkpoint": {"nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["binding", "expected", "checkpoint"],
+            },
             "CommitHandoffRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -2508,21 +3220,612 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["artifact", "content", "source_refs", "artifact_refs"],
             },
+            "SkillLifecycleState": {"type": "string", "enum": ["active", "deprecated", "retired"]},
+            "SkillGovernance": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "lifecycle_state": {"$ref": "#/components/schemas/SkillLifecycleState"},
+                    "replacement_artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "governance_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "lifecycle_state", "replacement_artifact_id", "governance_generation"],
+            },
+            "ManagedSkillLibraryEntry": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "content": {"$ref": "#/components/schemas/SkillProposal"},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                    "artifact_refs": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "governance": {"$ref": "#/components/schemas/SkillGovernance"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "content", "source_refs", "artifact_refs", "governance"],
+            },
+            "ListManagedSkillsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "query": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "include_deprecated": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 100},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "ListManagedSkillsResponse": {
+                "properties": {
+                    "skills": {
+                        "items": {"$ref": "#/components/schemas/ManagedSkillLibraryEntry"},
+                        "type": "array",
+                        "maxItems": 200,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["skills"],
+            },
+            "UpdateSkillLifecycleRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                    "lifecycle_state": {"$ref": "#/components/schemas/SkillLifecycleState"},
+                    "replacement_artifact_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact_id", "expected_generation", "lifecycle_state"],
+            },
             "SkillProposal": {
                 "properties": {
                     "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
                     "description": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
-                    "instructions": {"type": "string", "maxLength": 32000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "instructions": {"type": "string", "maxLength": 131072},
                     "validation": {
                         "items": {"$ref": "#/components/schemas/SkillValidationItem"},
                         "type": "array",
                         "maxItems": 32,
+                    },
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference", "nullable": True},
+                    "license": {"type": "string", "maxLength": 512, "minLength": 1, "nullable": True},
+                    "compatibility": {"type": "string", "maxLength": 500, "minLength": 1, "nullable": True},
+                    "metadata": {"additionalProperties": {"type": "string"}, "type": "object", "maxProperties": 64},
+                    "allowed_tools": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["name", "description", "instructions", "validation"],
+            },
+            "SkillPackageReference": {
+                "properties": {
+                    "tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "archive_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "file_count": {"type": "integer", "maximum": 256.0, "minimum": 1.0},
+                    "uncompressed_size": {"type": "integer", "maximum": 4194304.0, "minimum": 1.0},
+                    "archive_size": {"type": "integer", "maximum": 5242880.0, "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["tree_digest", "archive_digest", "file_count", "uncompressed_size", "archive_size"],
+            },
+            "SkillPackageFile": {
+                "properties": {
+                    "path": {"type": "string", "maxLength": 512, "minLength": 1},
+                    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "size": {"type": "integer", "maximum": 4194304.0, "minimum": 0.0},
+                    "media_type": {"type": "string", "maxLength": 255, "minLength": 1},
+                    "executable": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["path", "digest", "size", "media_type", "executable"],
+            },
+            "SkillPackageManifest": {
+                "properties": {
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                    "name": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "description": {"type": "string", "maxLength": 1024, "minLength": 1},
+                    "license": {"type": "string", "maxLength": 512, "minLength": 1, "nullable": True},
+                    "compatibility": {"type": "string", "maxLength": 500, "minLength": 1, "nullable": True},
+                    "metadata": {"additionalProperties": {"type": "string"}, "type": "object", "maxProperties": 64},
+                    "allowed_tools": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "files": {
+                        "items": {"$ref": "#/components/schemas/SkillPackageFile"},
+                        "type": "array",
+                        "maxItems": 256,
                         "minItems": 1,
                     },
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["name", "description", "instructions", "validation"],
+                "required": ["package", "name", "description", "metadata", "files"],
+            },
+            "GetSkillPackageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
+            },
+            "SkillPackageDownload": {
+                "properties": {
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                    "archive_base64": {
+                        "type": "string",
+                        "maxLength": 6990508,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["package", "archive_base64"],
+            },
+            "RemoteAgentKind": {"type": "string", "enum": ["codex", "claude_code"]},
+            "RemoteSkillTargetState": {"type": "string", "enum": ["pending", "active", "revoked"]},
+            "RemoteSkillTarget": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "display_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "agent_kind": {"$ref": "#/components/schemas/RemoteAgentKind"},
+                    "installation_scope": {"type": "string", "enum": ["project"]},
+                    "delivery_mode": {"type": "string", "enum": ["agent_pull"]},
+                    "installation_id": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "state": {"$ref": "#/components/schemas/RemoteSkillTargetState"},
+                    "receiver_version": {"type": "string", "maxLength": 64, "minLength": 1, "nullable": True},
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "machine_hostname": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "workspace_name": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "last_seen_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "target_id",
+                    "display_name",
+                    "agent_kind",
+                    "installation_scope",
+                    "delivery_mode",
+                    "installation_id",
+                    "state",
+                    "receiver_version",
+                    "environment_fingerprint",
+                    "machine_hostname",
+                    "workspace_name",
+                    "last_seen_at",
+                    "generation",
+                ],
+            },
+            "ListRemoteSkillTargetsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                        "nullable": True,
+                    },
+                    "limit": {"type": "integer", "maximum": 200.0, "minimum": 1.0, "default": 100},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "RemoteSkillTargetStatus": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/RemoteSkillTarget"},
+                    "publications": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillPublication"},
+                        "type": "array",
+                        "maxItems": 256,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "publications"],
+            },
+            "ListRemoteSkillTargetsResponse": {
+                "properties": {
+                    "targets": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillTargetStatus"},
+                        "type": "array",
+                        "maxItems": 200,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["targets"],
+            },
+            "CreateRemoteSkillTargetRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "agent_kind": {"$ref": "#/components/schemas/RemoteAgentKind"},
+                    "display_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "agent_kind", "display_name"],
+            },
+            "RemoteSkillTargetEnrollment": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/RemoteSkillTarget"},
+                    "enrollment_code": {"type": "string", "maxLength": 256, "minLength": 32},
+                    "enrollment_expires_at": {"type": "string", "format": "date-time"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "enrollment_code", "enrollment_expires_at"],
+            },
+            "EnrollRemoteSkillTargetRequest": {
+                "properties": {
+                    "enrollment_code": {"type": "string", "maxLength": 256, "minLength": 32},
+                    "installation_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "receiver_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "machine_hostname": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "workspace_name": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["enrollment_code", "installation_id", "receiver_version"],
+            },
+            "RemoteSkillTargetCredential": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "target_id": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "agent_kind": {"$ref": "#/components/schemas/RemoteAgentKind"},
+                    "credential": {"type": "string", "maxLength": 256, "minLength": 32},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "agent_kind", "credential"],
+            },
+            "RevokeRemoteSkillTargetRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "expected_generation"],
+            },
+            "RenameRemoteSkillTargetRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "display_name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "display_name", "expected_generation"],
+            },
+            "PublishRemoteSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "allow_deprecated": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "artifact", "expected_generation"],
+            },
+            "UnpublishRemoteSkillRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "target_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                    "expected_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "artifact_id", "expected_generation"],
+            },
+            "RemoteSkillDesiredState": {"type": "string", "enum": ["published", "unpublished"]},
+            "RemoteSkillPublicationState": {
+                "type": "string",
+                "enum": [
+                    "unpublished",
+                    "pending",
+                    "current",
+                    "update_available",
+                    "delivery_failed",
+                    "conflict",
+                    "drifted",
+                    "incompatible",
+                ],
+            },
+            "RemoteSkillPublication": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "artifact_id": {"type": "string"},
+                    "desired_state": {"$ref": "#/components/schemas/RemoteSkillDesiredState"},
+                    "desired_revision": {"type": "integer", "minimum": 1.0},
+                    "desired_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "observed_revision": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "observed_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "observed_generation": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "state": {"$ref": "#/components/schemas/RemoteSkillPublicationState"},
+                    "last_error_code": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "observed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "target_id",
+                    "artifact_id",
+                    "desired_state",
+                    "desired_revision",
+                    "desired_tree_digest",
+                    "observed_revision",
+                    "observed_tree_digest",
+                    "observed_generation",
+                    "state",
+                    "last_error_code",
+                    "observed_at",
+                    "generation",
+                ],
+            },
+            "RemoteSkillObservation": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "actual_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "skill_name": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    },
+                    "applied_generation": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "tree_digest", "actual_tree_digest", "skill_name", "applied_generation"],
+            },
+            "ReconcileRemoteSkillsRequest": {
+                "properties": {
+                    "observations": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillObservation"},
+                        "type": "array",
+                        "maxItems": 256,
+                    },
+                    "receiver_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["observations", "receiver_version"],
+            },
+            "RemoteSkillOperation": {"type": "string", "enum": ["install", "unpublish"]},
+            "RemoteSkillAction": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/RemoteSkillOperation"},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "skill_name": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference", "nullable": True},
+                    "expected_local": {"$ref": "#/components/schemas/RemoteSkillObservation", "nullable": True},
+                    "blocked_error_code": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "operation",
+                    "generation",
+                    "artifact",
+                    "tree_digest",
+                    "skill_name",
+                    "package",
+                    "expected_local",
+                    "blocked_error_code",
+                ],
+            },
+            "ReconcileRemoteSkillsResponse": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "actions": {
+                        "items": {"$ref": "#/components/schemas/RemoteSkillAction"},
+                        "type": "array",
+                        "maxItems": 256,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target_id", "actions"],
+            },
+            "DownloadRemoteSkillPackageRequest": {
+                "properties": {
+                    "generation": {"type": "integer", "minimum": 0.0},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "package": {"$ref": "#/components/schemas/SkillPackageReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["generation", "artifact", "package"],
+            },
+            "RemoteSkillReceiptOutcome": {"type": "string", "enum": ["succeeded", "failed"]},
+            "RemoteSkillFailureState": {
+                "type": "string",
+                "enum": ["delivery_failed", "conflict", "drifted", "incompatible"],
+            },
+            "RecordRemoteSkillReceiptRequest": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/RemoteSkillOperation"},
+                    "generation": {"type": "integer", "minimum": 0.0},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "expected_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "observed_tree_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "outcome": {"$ref": "#/components/schemas/RemoteSkillReceiptOutcome"},
+                    "failure_state": {"$ref": "#/components/schemas/RemoteSkillFailureState", "nullable": True},
+                    "error_code": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "receiver_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                    },
+                    "environment_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "operation",
+                    "generation",
+                    "artifact",
+                    "expected_tree_digest",
+                    "observed_tree_digest",
+                    "outcome",
+                    "failure_state",
+                    "error_code",
+                    "receiver_version",
+                    "environment_fingerprint",
+                ],
+            },
+            "RemoteSkillReceiptResponse": {
+                "properties": {
+                    "accepted": {"type": "boolean"},
+                    "stale": {"type": "boolean"},
+                    "publication": {"$ref": "#/components/schemas/RemoteSkillPublication"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["accepted", "stale", "publication"],
+            },
+            "ProposeSkillPackageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "archive_base64": {
+                        "type": "string",
+                        "maxLength": 6990508,
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+                    },
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1, "nullable": True},
+                    "target": {
+                        "$ref": "#/components/schemas/ArtifactReference",
+                        "description": "Exact managed Skill Revision replaced by this complete package Candidate.",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "archive_base64"],
+            },
+            "RecordSkillUsageRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "observation_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "skill_ref": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "package_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "target_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "selected": {"type": "boolean"},
+                    "invoked": {"type": "string", "enum": ["true", "false", "unknown"]},
+                    "validation": {"type": "string", "enum": ["passed", "failed", "unknown"]},
+                    "outcome": {"type": "string", "enum": ["success", "failure", "unknown"]},
+                    "task_source": {"$ref": "#/components/schemas/SourceReference", "nullable": True},
+                    "environment_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "observation_id",
+                    "skill_ref",
+                    "package_digest",
+                    "target_id",
+                    "selected",
+                    "invoked",
+                    "validation",
+                    "outcome",
+                ],
             },
             "SkillValidationItem": {"type": "string", "maxLength": 2000, "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
             "ExternalSkillRegistration": {
@@ -3777,7 +5080,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "http",
                 "description": "Static bearer token used when local Server authentication is enabled.",
                 "scheme": "bearer",
-            }
+            },
+            "TargetBearerAuth": {
+                "type": "http",
+                "description": "Per-target credential issued once during remote Receiver enrollment.",
+                "scheme": "bearer",
+            },
         },
     },
     "security": [{"BearerAuth": []}, {}],

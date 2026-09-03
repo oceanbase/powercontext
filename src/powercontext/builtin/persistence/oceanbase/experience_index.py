@@ -23,11 +23,15 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchHit
 from powercontext.builtin.artifacts.memory import CapabilityNotSupportedError
 from powercontext.builtin.artifacts.search import analyze_text
+from powercontext.builtin.artifacts.skill import Skill, SkillPackageSnapshot, SkillSearchHit
 from powercontext.builtin.persistence.experience_index import (
     ensure_artifact_head_searchable_text,
     experience_search_hits,
     rebuild_experience_projections,
+    rebuild_skill_projections,
     replace_experience_projection,
+    replace_skill_projection,
+    skill_search_hits,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACTS_TABLE
 
@@ -55,6 +59,7 @@ class OceanBaseExperienceFTSIndex:
             raise CapabilityNotSupportedError("oceanbase-experience-fts")
         await ensure_artifact_head_searchable_text(connection)
         await rebuild_experience_projections(connection)
+        await rebuild_skill_projections(connection)
         count = await connection.scalar(
             _OCEANBASE_FTS_INDEX_EXISTS_SQL,
             {"index_name": _OCEANBASE_FTS_INDEX_NAME},
@@ -102,6 +107,7 @@ class OceanBaseExperienceFTSIndex:
                 .where(
                     ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
                     ARTIFACT_HEADS_TABLE.c.family == Experience.family,
+                    ARTIFACT_HEADS_TABLE.c.lifecycle_state == "active",
                     score,
                 )
                 .order_by(score.desc(), ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
@@ -109,6 +115,55 @@ class OceanBaseExperienceFTSIndex:
             )
         ).mappings()
         return experience_search_hits(rows, query, limit)
+
+    async def replace_skill(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        skill: Skill,
+        package: SkillPackageSnapshot,
+        /,
+    ) -> None:
+        await replace_skill_projection(connection, scope_id, skill, package)
+
+    async def search_skills(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        query: str,
+        limit: int,
+        /,
+    ) -> tuple[SkillSearchHit, ...]:
+        analyzed = analyze_text(query)
+        if not analyzed:
+            return ()
+        score = match(ARTIFACT_HEADS_TABLE.c.searchable_text, against=analyzed)
+        rows = (
+            await connection.execute(
+                select(
+                    ARTIFACT_HEADS_TABLE.c.artifact_id,
+                    ARTIFACT_HEADS_TABLE.c.revision,
+                    ARTIFACT_HEADS_TABLE.c.searchable_text,
+                    ARTIFACTS_TABLE.c.content,
+                )
+                .join(
+                    ARTIFACTS_TABLE,
+                    (ARTIFACTS_TABLE.c.scope_id == ARTIFACT_HEADS_TABLE.c.scope_id)
+                    & (ARTIFACTS_TABLE.c.family == ARTIFACT_HEADS_TABLE.c.family)
+                    & (ARTIFACTS_TABLE.c.artifact_id == ARTIFACT_HEADS_TABLE.c.artifact_id)
+                    & (ARTIFACTS_TABLE.c.revision == ARTIFACT_HEADS_TABLE.c.revision),
+                )
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == Skill.family,
+                    ARTIFACT_HEADS_TABLE.c.lifecycle_state == "active",
+                    score,
+                )
+                .order_by(score.desc(), ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
+                .limit(limit * 4)
+            )
+        ).mappings()
+        return skill_search_hits(rows, query, limit)
 
 
 __all__ = ["OceanBaseExperienceFTSIndex"]

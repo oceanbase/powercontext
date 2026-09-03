@@ -1,0 +1,646 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema_version = 1
+
+[availability_definitions.released]
+en = "Available from a tagged PowerContext release."
+zh = "可从带有 PowerContext tag 的发布版本获得。"
+
+[availability_definitions.master_only]
+en = "Implemented on the current master branch but not yet released."
+zh = "已在当前 master 分支实现，但尚未发布。"
+
+[availability_definitions.experimental]
+en = "Implemented for evaluation; behavior and support can change without stability guarantees."
+zh = "已为评估实现；行为与支持不承诺稳定，可能变更。"
+
+[availability_definitions.proposed]
+en = "Planned in an issue, pull request, or RFC; it is not currently supported."
+zh = "在 issue、PR 或 RFC 中规划，当前不受支持。"
+
+[availability_definitions.unsupported]
+en = "Not supported; the manifest must record a maintained rationale."
+zh = "当前不支持；manifest 必须记录维护中的理由。"
+
+[[toolsets]]
+id = "server-mcp"
+probe = "server_mcp"
+
+[[toolsets.tools]]
+id = "search_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "list_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "get_memory_entry"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "remember_memory"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "revise_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "retire_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "create_work_contract"
+capabilities = ["work_contract"]
+[[toolsets.tools]]
+id = "handoff_current_work"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "activate_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "finalize_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "commit_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "continue_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "get_handoff_report"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "list_handoff_report_known_scopes"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "get_handoff_report_workspace"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "acknowledge_handoff"
+capabilities = ["acknowledge"]
+[[toolsets.tools]]
+id = "record_task_outcome"
+capabilities = ["task_outcome"]
+[[toolsets.tools]]
+id = "list_artifact_candidates"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "get_artifact_candidate"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "approve_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "reject_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "revise_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+
+[[toolsets]]
+id = "prompt-hooks"
+probe = "json_prompt_hook"
+[[toolsets.tools]]
+id = "codex:UserPromptSubmit"
+capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
+[[toolsets.tools]]
+id = "claude-code:UserPromptSubmit"
+capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
+[[toolsets.tools]]
+id = "workbuddy:UserPromptSubmit"
+capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
+
+[[toolsets]]
+id = "dsh-tools"
+probe = "dsh_tools"
+[[toolsets.tools]]
+id = "pc_search:search_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_list:list_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_get:get_memory_entry"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_remember:remember_memory"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_revise:revise_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_retire:retire_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_prepare_context:prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "pc_capture_source:capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_handoff_activate:activate_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_prepare:prepare_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_finalize:finalize_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_commit:commit_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_continue:continue_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_experience_generate:generate_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_experience_get:get_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_generate:generate_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_get:get_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_review_list:list_artifact_candidates"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_review_get:get_artifact_candidate"
+capabilities = ["candidate_review"]
+
+[[toolsets]]
+id = "dsh-command"
+probe = "dsh_commands"
+[[toolsets.tools]]
+id = "pc"
+capabilities = ["flush_or_checkpoint", "external_skill", "slash_command"]
+
+[[toolsets]]
+id = "hermes-operations"
+probe = "hermes_operations"
+[[toolsets.tools]]
+id = "powercontext_prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "powercontext_capture_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "powercontext_list_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "powercontext_revise_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "powercontext_flush_memory"
+capabilities = ["flush_or_checkpoint"]
+[[toolsets.tools]]
+id = "powercontext_create_work_contract"
+capabilities = ["work_contract"]
+[[toolsets.tools]]
+id = "powercontext_handoff_current_work"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "powercontext_activate_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "powercontext_prepare_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "powercontext_finalize_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "powercontext_commit_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "powercontext_continue_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "powercontext_acknowledge_handoff"
+capabilities = ["acknowledge"]
+[[toolsets.tools]]
+id = "powercontext_record_task_outcome"
+capabilities = ["task_outcome"]
+[[toolsets.tools]]
+id = "powercontext_propose_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "powercontext_generate_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "powercontext_get_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "powercontext_propose_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "powercontext_generate_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "powercontext_get_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "powercontext_scan_external_skills"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "powercontext_list_external_skills"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "powercontext_resolve_external_skill"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "powercontext_import_external_skill"
+capabilities = ["external_skill"]
+[[toolsets.tools]]
+id = "powercontext_list_artifact_candidates"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "powercontext_get_artifact_candidate"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "powercontext_list_memory_changes"
+non_profile_reason = "Memory change history is not a profile capability."
+[[toolsets.tools]]
+id = "powercontext_get_stats"
+non_profile_reason = "Diagnostics are not a profile capability."
+[[toolsets.tools]]
+id = "powercontext_approve_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "powercontext_reject_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "powercontext_revise_artifact_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+
+[[toolsets]]
+id = "hermes-command"
+probe = "hermes_commands"
+[[toolsets.tools]]
+id = "pc"
+capabilities = ["slash_command", "persistent_workstream_binding"]
+[[toolsets.tools]]
+id = "powercontext"
+capabilities = ["slash_command"]
+
+[[toolsets]]
+id = "openclaw-tools"
+probe = "openclaw_tools"
+[[toolsets.tools]]
+id = "powercontext_memory_search"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "powercontext_memory_get"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "powercontext_memory_store"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "powercontext_memory_revise"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "powercontext_memory_retire"
+capabilities = ["memory_write"]
+
+[[toolsets]]
+id = "openclaw-lifecycle"
+probe = "openclaw_lifecycle"
+[[toolsets.tools]]
+id = "before_prompt_build:prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "before_compaction:flush_memory"
+capabilities = ["source_capture", "flush_or_checkpoint", "pre_compaction_capture"]
+
+[[toolsets]]
+id = "opencode-tools"
+probe = "opencode_tools"
+[[toolsets.tools]]
+id = "pc_search:search_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_list:list_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_get:get_memory_entry"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_remember:remember_memory"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_revise:revise_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_retire:retire_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_prepare_context:prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "pc_capture_source:capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_handoff_activate:activate_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_prepare:prepare_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_finalize:finalize_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_commit:commit_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_continue:continue_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_experience_generate:generate_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_experience_get:get_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_generate:generate_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_get:get_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_review_list:list_artifact_candidates"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_review_get:get_artifact_candidate"
+capabilities = ["candidate_review"]
+
+[[toolsets]]
+id = "pi-tools"
+probe = "pi_tools"
+[[toolsets.tools]]
+id = "pc_search:search_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_list:list_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_memory_get:get_memory_entry"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "pc_remember:remember_memory"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_revise:revise_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_memory_retire:retire_memory_entry"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "pc_prepare_context:prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "pc_capture_source:capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "pc_handoff_activate:activate_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_prepare:prepare_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_finalize:finalize_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_commit:commit_handoff"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_continue:continue_handoff"
+capabilities = ["handoff"]
+
+[[toolsets]]
+id = "pi-command"
+probe = "pi_commands"
+[[toolsets.tools]]
+id = "pc"
+capabilities = ["flush_or_checkpoint", "slash_command"]
+
+[[toolsets]]
+id = "pi-lifecycle"
+probe = "pi_lifecycle"
+[[toolsets.tools]]
+id = "session_before_compact:flush_memory"
+capabilities = ["pre_compaction_capture"]
+
+[[toolsets]]
+id = "pydantic-ai-tools"
+probe = "pydantic_ai_tools"
+[[toolsets.tools]]
+id = "powercontext_search"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "powercontext_remember"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "powercontext_context"
+capabilities = ["context_injection"]
+
+[[toolsets]]
+id = "langchain-middleware"
+probe = "langchain_middleware"
+[[toolsets.tools]]
+id = "wrap_model_call:prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "after_agent:capture_content_source"
+capabilities = ["source_capture"]
+
+[[toolsets]]
+id = "langgraph-tools"
+probe = "langgraph_tools"
+[[toolsets.tools]]
+id = "powercontext_search"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "powercontext_remember"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "powercontext_context"
+capabilities = ["context_injection"]
+
+[[toolsets]]
+id = "bub-tools"
+probe = "bub_tools"
+[[toolsets.tools]]
+id = "powercontext.search"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "powercontext.remember"
+capabilities = ["memory_write"]
+[[toolsets.tools]]
+id = "powercontext.context"
+capabilities = ["context_injection"]
+
+[[toolsets]]
+id = "bub-lifecycle"
+probe = "bub_lifecycle"
+[[toolsets.tools]]
+id = "before_llm_call:prepare_context"
+capabilities = ["context_injection"]
+[[toolsets.tools]]
+id = "before_llm_call:capture_content_source"
+capabilities = ["source_capture"]
+[[toolsets.tools]]
+id = "save_state:flush_memory"
+capabilities = ["flush_or_checkpoint"]
+
+[[integrations]]
+id = "codex"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review"]
+profiles = ["minimal", "recommended"]
+toolsets = ["server-mcp", "prompt-hooks"]
+[integrations.evidence]
+implementation = ["integrations/codex/plugins/powercontext/.mcp.json", "integrations/codex/plugins/powercontext/hooks/recall.py"]
+documentation = ["docs/en/docs/how-to/configure-codex.md", "docs/zh/docs/how-to/configure-codex.md"]
+tests = ["tests/codex_plugin/test_contract.py", "tests/e2e/test_codex_service_chain.py"]
+
+[[integrations]]
+id = "claude-code"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review"]
+profiles = ["minimal", "recommended"]
+toolsets = ["server-mcp", "prompt-hooks"]
+[integrations.evidence]
+implementation = ["integrations/claude-code/plugins/powercontext/.mcp.json", "integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py"]
+documentation = ["docs/en/docs/how-to/configure-claude-code.md", "docs/zh/docs/how-to/configure-claude-code.md"]
+tests = ["tests/claude_code_plugin/test_contract.py", "tests/e2e/test_claude_code_service_chain.py"]
+
+[[integrations]]
+id = "dsh"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "slash_command"]
+profiles = ["minimal"]
+toolsets = ["dsh-tools", "dsh-command"]
+[integrations.evidence]
+implementation = ["integrations/dsh/plugins/powercontext/src/tools.ts", "integrations/dsh/plugins/powercontext/src/commands.ts"]
+documentation = ["docs/en/docs/how-to/configure-dsh.md", "docs/zh/docs/how-to/configure-dsh.md"]
+tests = ["integrations/dsh/plugins/powercontext/tests/plugin-surfaces.spec.ts"]
+
+[[integrations]]
+id = "hermes"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill", "slash_command", "persistent_workstream_binding"]
+profiles = ["minimal", "recommended", "full"]
+toolsets = ["hermes-operations", "hermes-command"]
+[integrations.evidence]
+implementation = ["integrations/hermes/plugins/powercontext/operations.py", "integrations/hermes/plugins/powercontext/commands.py"]
+documentation = ["docs/en/docs/how-to/configure-hermes.md", "docs/zh/docs/how-to/configure-hermes.md"]
+tests = ["tests/integrations/test_hermes_provider.py"]
+
+[[integrations]]
+id = "openclaw"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "pre_compaction_capture"]
+profiles = ["minimal"]
+toolsets = ["openclaw-tools", "openclaw-lifecycle"]
+[integrations.evidence]
+implementation = ["integrations/openclaw/plugins/memory-powercontext/src/tools.ts", "integrations/openclaw/plugins/memory-powercontext/src/lifecycle.ts"]
+documentation = ["docs/en/docs/how-to/configure-openclaw.md", "docs/zh/docs/how-to/configure-openclaw.md"]
+tests = ["integrations/openclaw/plugins/memory-powercontext/src/lifecycle.test.ts"]
+
+[[integrations]]
+id = "opencode"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review"]
+profiles = ["minimal"]
+toolsets = ["opencode-tools"]
+[integrations.evidence]
+implementation = ["integrations/opencode/plugins/powercontext/src/index.ts"]
+documentation = ["docs/en/docs/how-to/configure-opencode.md", "docs/zh/docs/how-to/configure-opencode.md"]
+tests = ["integrations/opencode/plugins/powercontext/tests/plugin.spec.ts"]
+
+[[integrations]]
+id = "pi"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "pre_compaction_capture", "slash_command"]
+profiles = ["minimal"]
+toolsets = ["pi-tools", "pi-command", "pi-lifecycle"]
+[integrations.evidence]
+implementation = ["integrations/pi/plugins/powercontext/src/tools.ts", "integrations/pi/plugins/powercontext/extensions/powercontext.ts"]
+documentation = ["docs/en/docs/how-to/configure-pi.md", "docs/zh/docs/how-to/configure-pi.md"]
+tests = ["integrations/pi/plugins/powercontext/tests/extension.spec.ts"]
+
+[[integrations]]
+id = "workbuddy"
+kind = "agent_host"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "candidate_review"]
+profiles = ["minimal", "recommended"]
+toolsets = ["server-mcp", "prompt-hooks"]
+[integrations.evidence]
+implementation = ["integrations/workbuddy/plugins/powercontext/.mcp.json", "integrations/workbuddy/plugins/powercontext/hooks/workbuddy_powercontext_hook.py"]
+documentation = ["docs/en/docs/how-to/configure-workbuddy.md", "docs/zh/docs/how-to/configure-workbuddy.md"]
+tests = ["tests/test_cli_workbuddy.py"]
+
+[[integrations]]
+id = "pydantic-ai"
+kind = "framework_adapter"
+availability = "experimental"
+capabilities = ["memory_read", "memory_write", "context_injection"]
+toolsets = ["pydantic-ai-tools"]
+[integrations.evidence]
+implementation = ["integrations/pydantic-ai/src/powercontext_pydantic_ai/toolset.py"]
+documentation = ["docs/en/docs/how-to/configure-pydantic-ai.md", "docs/zh/docs/how-to/configure-pydantic-ai.md"]
+tests = ["tests/pydantic_ai_adapter/test_toolset.py"]
+
+[[integrations]]
+id = "langchain"
+kind = "framework_adapter"
+availability = "master_only"
+capabilities = ["source_capture", "context_injection"]
+toolsets = ["langchain-middleware"]
+[integrations.evidence]
+implementation = ["integrations/langchain/src/powercontext_langchain/middleware.py"]
+documentation = ["docs/en/docs/how-to/configure-langchain.md", "docs/zh/docs/how-to/configure-langchain.md"]
+tests = ["tests/langchain_middleware/test_middleware.py"]
+
+[[integrations]]
+id = "langgraph"
+kind = "framework_adapter"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "context_injection"]
+toolsets = ["langgraph-tools"]
+[integrations.evidence]
+implementation = ["integrations/langgraph/src/powercontext_langgraph/tools.py"]
+documentation = ["docs/en/docs/how-to/configure-langgraph.md", "docs/zh/docs/how-to/configure-langgraph.md"]
+tests = ["tests/langgraph_adapter/test_tools.py"]
+
+[[integrations]]
+id = "bub"
+kind = "evaluation_harness"
+availability = "master_only"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint"]
+toolsets = ["bub-tools", "bub-lifecycle"]
+[integrations.evidence]
+implementation = ["integrations/bub/src/powercontext_bub/tools.py", "integrations/bub/src/powercontext_bub/plugin.py"]
+documentation = ["integrations/bub/README.md"]
+tests = ["e2e/bub/tests/test_workload_catalog.py"]

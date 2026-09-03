@@ -84,6 +84,8 @@ def create_server_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _log_lifecycle("server.starting", "PowerContext Server is starting")
+        if resolved.allow_insecure_http:
+            _log_insecure_remote_http_warning()
         if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
             _log_in_memory_database_warning()
         async with open_builtin_runtime(
@@ -138,6 +140,7 @@ def create_server_app(
         metrics=metrics,
         tracing=resolved_tracing,
         handoff_report_enabled=resolved.handoff_report.enabled,
+        allow_insecure_remote_http=resolved.allow_insecure_http,
     )
     _mount_optional_web_ui(app, resolved)
     if metrics is not None:
@@ -188,6 +191,8 @@ def _mount_optional_web_ui(app: FastAPI, settings: ServerSettings) -> None:
             handoff_report_enabled=settings.handoff_report.enabled,
             authentication_required=settings.auth.enabled,
             agent_skill_targets=settings.external_skills.agent_targets,
+            public_server_url=settings.public_url,
+            allow_insecure_http=settings.allow_insecure_http,
         )
         if settings.dashboard.enabled:
             app.state.dashboard_started = True
@@ -277,6 +282,16 @@ def _log_in_memory_database_warning() -> None:
         "PowerContext Server is using an in-memory SQLite database; "
         "all main database data will be lost when the process stops",
         extra={"event": "server.database.in_memory", "unit": "server"},
+    )
+
+
+def _log_insecure_remote_http_warning() -> None:
+    log_safely(
+        logger,
+        logging.WARNING,
+        "PowerContext remote Skill Receiver cleartext HTTP opt-in is enabled; "
+        "use it only on a protected private test network",
+        extra={"event": "server.remote_skills.insecure_http_enabled", "unit": "server"},
     )
 
 

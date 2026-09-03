@@ -25,7 +25,19 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.server.context import is_internal_bridge
 
-_PUBLIC_PATHS = frozenset({"/", "/docs", "/handoff-reports", "/reviews", "/skills", "/health/live", "/health/ready"})
+_PUBLIC_PATHS = frozenset({
+    "/",
+    "/docs",
+    "/handoff-reports",
+    "/reviews",
+    "/skills",
+    "/health/live",
+    "/health/ready",
+    "/v1/skill/remote/target/enroll",
+    "/v1/skill/remote/reconcile",
+    "/v1/skill/remote/package/download",
+    "/v1/skill/remote/receipt",
+})
 _PUBLIC_PATH_PREFIXES = ("/static/",)
 
 

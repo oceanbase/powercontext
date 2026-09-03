@@ -19,6 +19,7 @@ import { PowerContextClient } from '../src/client.ts'
 import { registerCommands } from '../src/commands.ts'
 import { resolveConfig } from '../src/config.ts'
 import { createPendingSourceFlusher } from '../src/flush.ts'
+import { createDiagnosticEmitter, failureEvent } from '../src/diagnostics.ts'
 import { recallBeforeAgentStart, type PluginRuntime } from '../src/recall.ts'
 import { deriveScopeId } from '../src/scope.ts'
 import { registerTools } from '../src/tools.ts'
@@ -30,7 +31,12 @@ function createRuntime(): PluginRuntime {
     authorization: config.authorization,
     requestTimeoutMs: config.requestTimeoutMs,
   })
-  const flusher = createPendingSourceFlusher(client, config)
+  const emitDiagnostic = createDiagnosticEmitter((line) => console.warn(line))
+  const diagnostic = (event: string, error: unknown) => {
+    const failure = failureEvent(event, error)
+    if (failure) emitDiagnostic({ component: 'powercontext.pi', ...failure })
+  }
+  const flusher = createPendingSourceFlusher(client, config, diagnostic)
   const scopes = new Map<string, Promise<string>>()
   return {
     client,
@@ -47,6 +53,7 @@ function createRuntime(): PluginRuntime {
     },
     recordCapture: (scopeId, position) => flusher.record(scopeId, position),
     flushPending: (signal) => flusher.flush(signal),
+    diagnostic,
   }
 }
 

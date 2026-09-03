@@ -36,6 +36,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
+from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
 from scripts.project_scope import resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
@@ -50,17 +51,19 @@ _REQUEST_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "powercontext-codex-plugin/0.2.0",
 }
+_FAILURE_OUTCOMES = frozenset({"authentication_failed", "version_mismatch", "server_unavailable", "invalid_response"})
 
 
-class _Response(Protocol):
-    fp: object
+class _ReadableResponse(Protocol):
+    def read(self, n: int = -1) -> bytes: ...
+
+
+class _Response(_ReadableResponse, Protocol):
     status: int
 
     def __enter__(self) -> _Response: ...
 
     def __exit__(self, *args: object) -> object: ...
-
-    def read(self, amount: int = -1) -> bytes: ...
 
 
 class _RejectRedirects(HTTPRedirectHandler):
@@ -83,13 +86,54 @@ _URL_OPENER = build_opener(_RejectRedirects)
 
 
 class _HttpStatusError(RuntimeError):
-    def __init__(self, status: int) -> None:
+    def __init__(self, status: int, path: str = "/v1/context/prepare", code: str | None = None) -> None:
         self.status = status
+        self.path = path
+        self.code = code
         super().__init__(f"PowerContext returned HTTP {status}")
 
 
 class _ServerUnavailableError(RuntimeError):
     pass
+
+
+_COMPATIBILITY_OR_AVAILABILITY_PATHS = frozenset({
+    "/health/live",
+    "/health/ready",
+    "/v1/capabilities",
+    "/v1/context/prepare",
+})
+_AUTOMATIC_OPERATION_PATHS = {
+    "context_prepare": "/v1/context/prepare",
+    "capture_source": "/v1/sources/content",
+    "flush_memory": "/v1/memory/flush",
+}
+
+
+def _http_failure_outcome(error: _HttpStatusError, *, operation: str) -> str | None:
+    if error.status == 401:
+        return "authentication_failed"
+    if error.status == 404 and error.path in _COMPATIBILITY_OR_AVAILABILITY_PATHS and error.code is None:
+        return "version_mismatch"
+    if error.status == 503:
+        return "server_unavailable"
+    if error.status in {404, 409, 422}:
+        return "invalid_response" if _AUTOMATIC_OPERATION_PATHS.get(operation) == error.path else None
+    return "invalid_response"
+
+
+def _decode_error_code(raw: bytes) -> str | None:
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    error = decoded.get("error")
+    if not isinstance(error, dict):
+        return None
+    code = error.get("code")
+    return code if isinstance(code, str) else None
 
 
 def main(settings: CodexPluginSettings | None = None) -> int:
@@ -105,30 +149,33 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             payload = cast(dict[str, Any], json.load(stdin))
         if not _is_user_prompt_submit(payload.get("hook_event_name")):
             return 0
+        emitted_diagnostics: set[str] = set()
+        diagnostic_events: list[dict[str, object]] = []
         prompt = payload.get("prompt")
         cwd = payload.get("cwd")
         if not isinstance(prompt, str) or not prompt.strip() or not isinstance(cwd, str):
-            _emit_context_event("skipped")
+            _emit_context_event("skipped", diagnostic_events=diagnostic_events)
+            _write_hook_output(diagnostic_events=diagnostic_events)
             return 0
         scope_id = resolve_scope_id(cwd, configured_scope_id=settings.scope_id)
-        context = _recall_context(prompt, scope_id, settings=settings, deadline=http_deadline)
-        if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
-            with suppress(Exception):
-                captured = _capture_prompt(
-                    payload,
-                    prompt=prompt,
-                    cwd=cwd,
-                    scope_id=scope_id,
-                    settings=settings,
-                    deadline=http_deadline,
-                )
-                if settings.flush_on_capture:
-                    _flush_through(
-                        scope_id,
-                        _source_position(captured),
-                        settings=settings,
-                        deadline=http_deadline,
-                    )
+        context = _recall_context(
+            prompt,
+            scope_id,
+            settings=settings,
+            deadline=http_deadline,
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
+        _capture_and_flush(
+            payload,
+            prompt=prompt,
+            cwd=cwd,
+            scope_id=scope_id,
+            settings=settings,
+            deadline=http_deadline,
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
         if context:
             with suppress(Exception):
                 _record_evaluation_trace(
@@ -137,20 +184,54 @@ def main(settings: CodexPluginSettings | None = None) -> int:
                     injected_text=context,
                     scope_id=scope_id,
                 )
-            json.dump(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "UserPromptSubmit",
-                        "additionalContext": context,
-                    }
-                },
-                sys.stdout,
-                separators=(",", ":"),
-            )
-            sys.stdout.write("\n")
+        _write_hook_output(context=context, diagnostic_events=diagnostic_events)
     except Exception:
         return 0
     return 0
+
+
+def _capture_and_flush(
+    payload: Mapping[str, object],
+    *,
+    prompt: str,
+    cwd: str,
+    scope_id: str,
+    settings: CodexPluginSettings,
+    deadline: float,
+    emitted_diagnostics: set[str],
+    diagnostic_events: list[dict[str, object]],
+) -> None:
+    if not settings.capture_prompts or len(prompt) > _MAX_SOURCE_LENGTH:
+        return
+    try:
+        captured = _capture_prompt(
+            payload,
+            prompt=prompt,
+            cwd=cwd,
+            scope_id=scope_id,
+            settings=settings,
+            deadline=deadline,
+        )
+        position = _source_position(captured)
+    except Exception as error:
+        _emit_failure_event(
+            "capture_source",
+            error,
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
+        return
+    if not settings.flush_on_capture:
+        return
+    try:
+        _flush_through(scope_id, position, settings=settings, deadline=deadline)
+    except Exception as error:
+        _emit_failure_event(
+            "flush_memory",
+            error,
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
 
 
 def _prepare_context(
@@ -261,15 +342,25 @@ def _post_json(
         headers=_request_headers(settings),
         method="POST",
     )
-    request_timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
-    request_deadline = min(deadline, monotonic() + request_timeout)
+    request_deadline = deadline
     try:
+        request_timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
+        request_deadline = min(deadline, monotonic() + request_timeout)
         with _URL_OPENER.open(request, timeout=request_timeout) as response:
             if expected_status is not None and response.status != expected_status:
-                raise _HttpStatusError(response.status)
+                code = _decode_error_code(_read_response(response, deadline=request_deadline))
+                raise _HttpStatusError(response.status, path, code)
             result = json.loads(_read_response(response, deadline=request_deadline))
     except HTTPError as error:
-        raise _HttpStatusError(error.code) from error
+        try:
+            error_body = _read_response(error, deadline=request_deadline, chunk_bytes=1)
+        except TimeoutError as timeout:
+            raise _ServerUnavailableError from timeout
+        except OSError:
+            error_body = b""
+        raise _HttpStatusError(error.code, path, _decode_error_code(error_body)) from error
+    except TimeoutError as error:
+        raise _ServerUnavailableError from error
     except OSError as error:
         raise _ServerUnavailableError from error
     except ValueError as error:
@@ -286,14 +377,19 @@ def _request_headers(settings: CodexPluginSettings) -> dict[str, str]:
     return headers
 
 
-def _read_response(response: _Response, *, deadline: float) -> bytes:
+def _read_response(
+    response: _ReadableResponse,
+    *,
+    deadline: float,
+    chunk_bytes: int = _READ_CHUNK_BYTES,
+) -> bytes:
     """Read one response under a wall-clock deadline and a hard size bound."""
 
     content = bytearray()
     while True:
         _set_response_timeout(response, _remaining_time(deadline))
         remaining_bytes = _MAX_RESPONSE_BYTES + 1 - len(content)
-        chunk = response.read(min(_READ_CHUNK_BYTES, remaining_bytes))
+        chunk = response.read(min(chunk_bytes, remaining_bytes))
         if not chunk:
             return bytes(content)
         content.extend(chunk)
@@ -308,10 +404,10 @@ def _remaining_time(deadline: float) -> float:
     return remaining
 
 
-def _set_response_timeout(response: _Response, timeout: float) -> None:
+def _set_response_timeout(response: object, timeout: float) -> None:
     """Tighten urllib's socket timeout before each bounded read."""
 
-    raw = getattr(response.fp, "raw", None)
+    raw = getattr(getattr(response, "fp", None), "raw", None)
     sock = getattr(raw, "_sock", None)
     settimeout = getattr(sock, "settimeout", None)
     if settimeout is not None:
@@ -324,31 +420,49 @@ def _recall_context(
     *,
     settings: CodexPluginSettings,
     deadline: float,
+    emitted_diagnostics: set[str] | None = None,
+    diagnostic_events: list[dict[str, object]] | None = None,
 ) -> str | None:
     try:
         prepared = _validate_prepared_context(_prepare_context(query, scope_id, settings=settings, deadline=deadline))
     except _HttpStatusError as error:
-        if error.status == 401:
-            outcome = "authentication_failed"
-        elif error.status == 404:
-            outcome = "version_mismatch"
-        elif error.status == 503:
-            outcome = "server_unavailable"
-        else:
-            outcome = "invalid_response"
-        _emit_context_event(outcome, http_status=error.status)
+        outcome = _http_failure_outcome(error, operation="context_prepare")
+        if outcome is not None:
+            _emit_context_event(
+                outcome,
+                http_status=error.status,
+                error_code=error.code,
+                recovery="powercontext doctor" if outcome == "server_unavailable" else None,
+                emitted_diagnostics=emitted_diagnostics,
+                diagnostic_events=diagnostic_events,
+            )
         return None
-    except _ServerUnavailableError:
-        _emit_context_event("server_unavailable")
+    except (_ServerUnavailableError, TimeoutError):
+        _emit_context_event(
+            "server_unavailable",
+            recovery="powercontext doctor",
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
         return None
     except _InvalidResponseError:
-        _emit_context_event("invalid_response")
+        _emit_context_event(
+            "invalid_response",
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
         return None
 
     status = cast(str, prepared["status"])
     content_bytes = cast(int, prepared["content_bytes"])
     if status == "empty":
-        _emit_context_event("empty", http_status=200, context_status=status, content_bytes=content_bytes)
+        _emit_context_event(
+            "empty",
+            http_status=200,
+            context_status=status,
+            content_bytes=content_bytes,
+            diagnostic_events=diagnostic_events,
+        )
         return None
     return cast(str, prepared["content"])
 
@@ -406,22 +520,95 @@ def _record_evaluation_trace(
 def _emit_context_event(
     outcome: str,
     *,
+    event_name: str = "context_prepare",
     http_status: int | None = None,
+    error_code: str | None = None,
     context_status: str | None = None,
     content_bytes: int | None = None,
+    recovery: str | None = None,
+    emitted_diagnostics: set[str] | None = None,
+    diagnostic_events: list[dict[str, object]] | None = None,
 ) -> None:
+    if emitted_diagnostics is not None and outcome in _FAILURE_OUTCOMES:
+        key = outcome
+        if key in emitted_diagnostics:
+            return
+        emitted_diagnostics.add(key)
+        if not _should_emit_diagnostic(outcome):
+            return
     event: dict[str, object] = {
         "component": "powercontext.codex.recall",
-        "event": "context_prepare",
+        "event": event_name,
         "outcome": outcome,
     }
     if http_status is not None:
         event["http_status"] = http_status
+    if error_code is not None:
+        event["error_code"] = error_code
     if context_status is not None:
         event["context_status"] = context_status
     if content_bytes is not None:
         event["content_bytes"] = content_bytes
-    sys.stderr.write(json.dumps(event, separators=(",", ":")) + "\n")
+    if recovery is not None:
+        event["recovery"] = recovery
+    if diagnostic_events is None or outcome not in _FAILURE_OUTCOMES:
+        sys.stderr.write(json.dumps(event, separators=(",", ":")) + "\n")
+    else:
+        diagnostic_events.append(event)
+
+
+def _emit_failure_event(
+    event_name: str,
+    error: BaseException,
+    *,
+    emitted_diagnostics: set[str],
+    diagnostic_events: list[dict[str, object]] | None = None,
+) -> None:
+    if isinstance(error, _HttpStatusError):
+        outcome = _http_failure_outcome(error, operation=event_name)
+        if outcome is not None:
+            _emit_context_event(
+                outcome,
+                event_name=event_name,
+                http_status=error.status,
+                error_code=error.code,
+                recovery="powercontext doctor" if outcome == "server_unavailable" else None,
+                emitted_diagnostics=emitted_diagnostics,
+                diagnostic_events=diagnostic_events,
+            )
+    elif isinstance(error, (_ServerUnavailableError, TimeoutError)):
+        _emit_context_event(
+            "server_unavailable",
+            event_name=event_name,
+            recovery="powercontext doctor",
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
+    else:
+        _emit_context_event(
+            "invalid_response",
+            event_name=event_name,
+            emitted_diagnostics=emitted_diagnostics,
+            diagnostic_events=diagnostic_events,
+        )
+
+
+def _write_hook_output(
+    *,
+    context: str | None = None,
+    diagnostic_events: list[dict[str, object]],
+) -> None:
+    output: dict[str, object] = {}
+    if diagnostic_events:
+        output["systemMessage"] = "\n".join(json.dumps(event, separators=(",", ":")) for event in diagnostic_events)
+    if context:
+        output["hookSpecificOutput"] = {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context,
+        }
+    if output:
+        json.dump(output, sys.stdout, separators=(",", ":"))
+        sys.stdout.write("\n")
 
 
 if __name__ == "__main__":

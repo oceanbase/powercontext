@@ -29,7 +29,12 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from . import commands, trace
-from .client import PowerContextClient, PowerContextError
+from .client import (
+    PowerContextClient,
+    PowerContextError,
+    PowerContextHTTPError,
+    PowerContextTransportError,
+)
 from .helpers import (
     DEFAULT_BASE_URL as _DEFAULT_BASE_URL,
 )
@@ -104,6 +109,40 @@ logger = logging.getLogger(__name__)
 
 _MAX_MEMORY_WRITE_QUEUE = 128
 _MEMORY_WRITE_DRAIN_TIMEOUT = 5.0
+_DIAGNOSTIC_COOLDOWN_SECONDS = 60.0
+_COMPATIBILITY_OR_AVAILABILITY_PATHS = frozenset({
+    "/health/live",
+    "/health/ready",
+    "/v1/capabilities",
+    "/v1/context/prepare",
+})
+_AUTOMATIC_OPERATION_PATHS = {
+    "context_prepare": frozenset({"/v1/context/prepare"}),
+    "capture_source": frozenset({"/v1/sources/content"}),
+    "pre_compression_capture": frozenset({"/v1/sources/content", "/v1/memory/flush"}),
+    "pre_compaction_flush": frozenset({"/v1/memory/flush"}),
+    "session_end_flush": frozenset({"/v1/memory/flush"}),
+}
+
+
+def _diagnostic_classification(
+    event: str,
+    error: PowerContextError,
+) -> tuple[str, int | None, str | None] | None:
+    if isinstance(error, PowerContextHTTPError):
+        status = error.status
+        if status == 401:
+            return "authentication_failed", status, error.code
+        if status == 404 and error.path in _COMPATIBILITY_OR_AVAILABILITY_PATHS and error.code is None:
+            return "version_mismatch", status, error.code
+        if status == 503:
+            return "server_unavailable", status, error.code
+        if status in {404, 409, 422} and error.path not in _AUTOMATIC_OPERATION_PATHS.get(event, frozenset()):
+            return None
+        return "invalid_response", status, error.code
+    if isinstance(error, PowerContextTransportError):
+        return "server_unavailable", None, None
+    return "invalid_response", None, None
 
 
 class PowerContextMemoryProvider(MemoryProvider):
@@ -149,6 +188,32 @@ class PowerContextMemoryProvider(MemoryProvider):
         self._workstream_cwd = ""
         self._workstream_path: Path | None = None
         self._workstream_bound_scope = ""
+        self._diagnostic_last_emitted: dict[str, float] = {}
+
+    def _emit_failure_diagnostic(self, event: str, error: PowerContextError) -> None:
+        classification = _diagnostic_classification(event, error)
+        if classification is None:
+            return
+        outcome, status, error_code = classification
+
+        key = outcome
+        now = time.monotonic()
+        previous = self._diagnostic_last_emitted.get(key)
+        if previous is not None and now - previous < _DIAGNOSTIC_COOLDOWN_SECONDS:
+            return
+        self._diagnostic_last_emitted[key] = now
+        payload: dict[str, Any] = {
+            "component": "powercontext.hermes",
+            "event": event,
+            "outcome": outcome,
+        }
+        if status is not None:
+            payload["http_status"] = status
+        if error_code is not None:
+            payload["error_code"] = error_code
+        if outcome == "server_unavailable":
+            payload["recovery"] = "powercontext doctor"
+        logger.warning("%s", json.dumps(payload, separators=(",", ":")))
 
     @property
     def name(self) -> str:
@@ -584,8 +649,8 @@ class PowerContextMemoryProvider(MemoryProvider):
                 if not isinstance(content, str):
                     content = ""
                 trace_status = str(response.get("status", "empty"))
-            except PowerContextError:
-                logger.debug("PowerContext prefetch failed", exc_info=True)
+            except PowerContextError as error:
+                self._emit_failure_diagnostic("context_prepare", error)
                 content = ""
                 trace_status = "error"
         if scope_id != self._scope_id:
@@ -634,8 +699,8 @@ class PowerContextMemoryProvider(MemoryProvider):
                 if isinstance(content, str) and content.strip():
                     with self._prefetch_lock:
                         self._prefetch_cache[cache_key] = content
-            except PowerContextError:
-                logger.debug("PowerContext queued prefetch failed", exc_info=True)
+            except PowerContextError as error:
+                self._emit_failure_diagnostic("context_prepare", error)
 
         self._enqueue_memory_write(prepare)
 
@@ -681,8 +746,8 @@ class PowerContextMemoryProvider(MemoryProvider):
     def _capture_text(self, scope_id: str, source_id: str, content: str, metadata: dict[str, Any]) -> None:
         try:
             self._client.capture_content(scope_id, source_id=source_id, content=content, metadata=metadata)
-        except PowerContextError:
-            logger.debug("PowerContext source capture failed", exc_info=True)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("capture_source", error)
 
     def on_session_end(self, messages: list[dict[str, Any]]) -> None:
         if not self._client or not self._scope_id:
@@ -701,11 +766,11 @@ class PowerContextMemoryProvider(MemoryProvider):
         if self._memory_extraction_supported is None:
             try:
                 capabilities = self._client.get_capabilities()
-            except PowerContextError:
+            except PowerContextError as error:
                 # Keep compatibility with older servers that predate the
                 # capabilities endpoint; the flush call remains the source
                 # of truth in that case.
-                logger.debug("PowerContext capabilities lookup failed", exc_info=True)
+                self._emit_failure_diagnostic("capabilities", error)
                 self._memory_extraction_supported = True
             else:
                 self._memory_extraction_supported = bool(capabilities.get("memory_extraction", True))
@@ -716,8 +781,8 @@ class PowerContextMemoryProvider(MemoryProvider):
             return
         try:
             self._client.flush_memory(effective_scope_id)
-        except PowerContextError:
-            logger.debug("PowerContext session-end flush failed", exc_info=True)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("session_end_flush", error)
 
     def on_session_switch(
         self,
@@ -798,8 +863,8 @@ class PowerContextMemoryProvider(MemoryProvider):
                 },
             )
             self._flush_memory_if_supported(scope_id=scope_id)
-        except PowerContextError:
-            logger.debug("PowerContext pre-compression persistence failed", exc_info=True)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("pre_compression_capture", error)
             return ""
         self._precompress_snapshot = [fingerprint for fingerprint, _message in entries]
         return ""
@@ -849,8 +914,8 @@ class PowerContextMemoryProvider(MemoryProvider):
                 text=text,
                 reason=f"mirrored Hermes built-in memory (add, {target})",
             )
-        except PowerContextError:
-            logger.debug("PowerContext memory mirror failed", exc_info=True)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("memory_mirror", error)
             return
 
         citation = _citation_from_response(response)
@@ -871,8 +936,8 @@ class PowerContextMemoryProvider(MemoryProvider):
                 limit=50,
                 mode="fts",
             )
-        except PowerContextError:
-            logger.debug("PowerContext memory citation lookup failed", exc_info=True)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("memory_citation_lookup", error)
             return []
         hits = response.get("hits", []) if isinstance(response, dict) else []
         citations: list[dict[str, Any]] = []
@@ -963,8 +1028,8 @@ class PowerContextMemoryProvider(MemoryProvider):
                 citation,
                 reason=f"mirrored Hermes built-in memory ({action}, {target})",
             )
-        except PowerContextError:
-            logger.debug("PowerContext memory retirement failed", exc_info=True)
+        except PowerContextError as error:
+            self._emit_failure_diagnostic("memory_retirement", error)
             return
 
         self._memory_map.pop(old_key, None)

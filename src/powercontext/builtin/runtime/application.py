@@ -63,14 +63,40 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryNotFoundError,
 )
 from powercontext.builtin.artifacts.skill import (
+    AgentKind,
+    AgentSkillTarget,
     ExternalSkillRegistryUnavailableError,
     ExternalSkillResolution,
     Skill,
+    SkillOrigin,
+    SkillPackageRef,
+    SkillPackageSnapshot,
+    SkillSearchHit,
+)
+from powercontext.builtin.artifacts.skill.distribution import (
+    RemoteSkillDistributionService,
+    RemoteSkillObservation,
+    RemoteSkillReceipt,
+    RemoteSkillReceiptResult,
+    RemoteSkillReconcileResult,
+    RemoteSkillTargetStatus,
+    RemoteTargetCredential,
+    RemoteTargetEnrollment,
+)
+from powercontext.builtin.artifacts.skill.publication import (
+    ManagedSkillPublicationService,
+    ManagedSkillPublicationStatus,
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
+from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTarget
+from powercontext.builtin.persistence.artifact_governance import (
+    ArtifactGovernance,
+    ArtifactLifecycleState,
+)
+from powercontext.builtin.persistence.skill_publications import SkillPublication
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime._scope_cache import (
@@ -83,6 +109,8 @@ from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
     CaptureSource,
+    CommitConnectorCheckpoint,
+    ConnectorCheckpointState,
     ExperienceCandidate,
     ExperienceIncubationResult,
     ExternalSkillList,
@@ -118,11 +146,13 @@ from powercontext.builtin.runtime.models import (
     SearchMemoryRequest,
     SkillCandidate,
     SourceReceipt,
+    SubmitSourceObservation,
 )
 from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedContextBuilder
 from powercontext.builtin.runtime.protocols import (
     BuiltinTriggers,
     PowerContextProvider,
+    RemoteIngestion,
     RuntimeSpan,
     RuntimeTracing,
     TraceAttribute,
@@ -137,6 +167,7 @@ from powercontext.builtin.sources import (
     ContentCapture,
     ContentSource,
     ExternalSkillImportMode,
+    SkillUsageCapture,
     SourceCursor,
     validate_scope_id,
 )
@@ -170,7 +201,7 @@ from powercontext.builtin.work import (
 )
 from powercontext.context import PowerContext
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
-from powercontext.sources import SourceRef
+from powercontext.sources import ConnectorBinding, SourceDefinitionManifest, SourceRef
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -190,12 +221,22 @@ ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
 ReviewServiceFactory = Callable[[str], ReviewService]
 GenerationServiceFactory = Callable[[str], ReviewedGenerationService]
 ExternalSkillRegistryFactory = Callable[[str], ExternalSkillRegistryService]
+SkillPublicationServiceFactory = Callable[[str, str, str], ManagedSkillPublicationService]
 ExternalSkillImporter = Callable[
     [str, str, str, ExternalSkillImportMode, str | None],
     Awaitable[GeneratedCandidateResult],
 ]
 ExperienceIncubator = Callable[[str, int], Awaitable[ExperienceIncubationResult]]
 ExperienceRecall = Callable[[str, str, int], Awaitable[tuple[ExperienceSearchHit, ...]]]
+SkillRecall = Callable[[str, str, int], Awaitable[tuple[SkillSearchHit, ...]]]
+SkillLister = Callable[[str, bool, int], Awaitable[tuple[tuple[Skill, ArtifactGovernance], ...]]]
+SkillOriginReader = Callable[[str, tuple[Skill, ...]], Awaitable[tuple[SkillOrigin, ...]]]
+SkillGovernanceReader = Callable[[str, str], Awaitable[ArtifactGovernance]]
+SkillGovernanceUpdater = Callable[[str, str, int, ArtifactLifecycleState, str | None], Awaitable[ArtifactGovernance]]
+SkillPackageResolver = Callable[[str, ArtifactRef], Awaitable[SkillPackageSnapshot]]
+PackageSnapshotResolver = Callable[[str, SkillPackageRef], Awaitable[SkillPackageSnapshot]]
+SkillPackageUploader = Callable[[str, bytes, str | None, ArtifactRef | None], Awaitable[SkillCandidate]]
+SkillUsageRecorder = Callable[[str, SkillUsageCapture], Awaitable[SourceReceipt]]
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
 RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
 Clock = Callable[[], datetime]
@@ -214,8 +255,15 @@ class _RuntimeStateError(RuntimeError):
             "empty-write": "explicit Memory write did not produce a Memory",
             "experience-incubation": "Experience incubation is not configured",
             "external-skill-registry": "External Skill Registry is not configured",
+            "remote-ingestion": "Remote Source ingestion is not configured",
             "review": "Candidate Review services are not configured",
+            "remote-skill-distribution": "Remote Skill distribution services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
+            "skill-publication": "Managed Skill publication services are not configured",
+            "skill-provenance": "Managed Skill provenance services are not configured",
+            "skill-governance": "Managed Skill governance services are not configured",
+            "skill-package": "Managed Skill package services are not configured",
+            "skill-usage": "Managed Skill usage recording is not configured",
             "statistics": "Statistics services are not configured",
         }
         super().__init__(messages[code])
@@ -248,6 +296,35 @@ class SourceApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedSourceApplication:
         return ScopedSourceApplication(self._runtime, scope_id)
+
+
+class RemoteIngestionApplication:
+    """Expose worker-owned Definition and observation operations."""
+
+    def __init__(self, runtime: BuiltinRuntime, service: RemoteIngestion | None) -> None:
+        self._runtime = runtime
+        self._service = service
+
+    def _require_service(self) -> RemoteIngestion:
+        if self._service is None:
+            raise _RuntimeStateError("remote-ingestion")
+        return self._service
+
+    async def register(self, manifest: SourceDefinitionManifest, /) -> SourceDefinitionManifest:
+        async with self._runtime._operation():
+            return await self._require_service().register_source_definition(manifest)
+
+    async def checkpoint(self, binding: ConnectorBinding, /) -> ConnectorCheckpointState:
+        async with self._runtime._operation():
+            return await self._require_service().connector_checkpoint(binding)
+
+    async def submit(self, request: SubmitSourceObservation, /) -> SourceReceipt:
+        async with self._runtime._operation():
+            return await self._require_service().submit_source_observation(request)
+
+    async def commit(self, request: CommitConnectorCheckpoint, /) -> ConnectorCheckpointState:
+        async with self._runtime._operation():
+            return await self._require_service().commit_connector_checkpoint(request)
 
 
 class ScopedStatisticsApplication:
@@ -551,6 +628,127 @@ class ScopedSkillApplication:
         async with self._runtime._scoped_operation(self.scope_id):
             return await self._runtime._review(self.scope_id).get_skill(request.artifact)
 
+    async def search(self, query: str, limit: int, /) -> tuple[SkillSearchHit, ...]:
+        recall = self._runtime._skill_recall
+        if recall is None:
+            return ()
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await recall(self.scope_id, query, limit)
+
+    async def list(
+        self,
+        *,
+        include_deprecated: bool = False,
+        limit: int = 100,
+    ) -> tuple[tuple[Skill, ArtifactGovernance], ...]:
+        lister = self._runtime._skill_lister
+        if lister is None:
+            return ()
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await lister(self.scope_id, include_deprecated, limit)
+
+    async def origins(self, skills: tuple[Skill, ...], /) -> tuple[SkillOrigin, ...]:
+        """Resolve display provenance for current Skill revisions in one bounded read."""
+
+        reader = self._runtime._skill_origin_reader
+        if reader is None:
+            raise _RuntimeStateError("skill-provenance")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await reader(self.scope_id, skills)
+
+    async def package(self, artifact: ArtifactRef, /) -> SkillPackageSnapshot:
+        resolver = self._runtime._skill_package_resolver
+        if resolver is None:
+            raise _RuntimeStateError("skill-package")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await resolver(self.scope_id, artifact)
+
+    async def package_snapshot(self, package: SkillPackageRef, /) -> SkillPackageSnapshot:
+        resolver = self._runtime._package_snapshot_resolver
+        if resolver is None:
+            raise _RuntimeStateError("skill-package")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await resolver(self.scope_id, package)
+
+    async def upload_package(
+        self,
+        archive_bytes: bytes,
+        reason: str | None,
+        target: ArtifactRef | None,
+        /,
+    ) -> SkillCandidate:
+        uploader = self._runtime._skill_package_uploader
+        if uploader is None:
+            raise _RuntimeStateError("skill-package")
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await uploader(self.scope_id, archive_bytes, reason, target)
+
+    async def record_usage(self, observation: SkillUsageCapture, /) -> SourceReceipt:
+        recorder = self._runtime._skill_usage_recorder
+        if recorder is None:
+            raise _RuntimeStateError("skill-usage")
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await recorder(self.scope_id, observation)
+
+    async def governance(self, artifact_id: str, /) -> ArtifactGovernance:
+        reader = self._runtime._skill_governance_reader
+        if reader is None:
+            raise _RuntimeStateError("skill-governance")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await reader(self.scope_id, artifact_id)
+
+    async def update_lifecycle(
+        self,
+        artifact_id: str,
+        expected_generation: int,
+        lifecycle_state: ArtifactLifecycleState,
+        replacement_artifact_id: str | None,
+        /,
+    ) -> ArtifactGovernance:
+        updater = self._runtime._skill_governance_updater
+        if updater is None:
+            raise _RuntimeStateError("skill-governance")
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await updater(
+                self.scope_id,
+                artifact_id,
+                expected_generation,
+                lifecycle_state,
+                replacement_artifact_id,
+            )
+
+    async def inspect_publication(
+        self,
+        artifact: ArtifactRef,
+        target: AgentSkillTarget,
+        /,
+    ) -> ManagedSkillPublicationStatus:
+        async with self._runtime._scoped_operation(self.scope_id):
+            service = self._runtime._skill_publications(self.scope_id, target, artifact)
+            return await service.inspect(artifact, target)
+
+    async def publish(
+        self,
+        artifact: ArtifactRef,
+        target: AgentSkillTarget,
+        /,
+        *,
+        allow_deprecated: bool = False,
+    ) -> ManagedSkillPublicationStatus:
+        async with self._runtime._scoped_operation(self.scope_id):
+            service = self._runtime._skill_publications(self.scope_id, target, artifact)
+            return await service.publish(artifact, target, allow_deprecated=allow_deprecated)
+
+    async def unpublish(
+        self,
+        artifact: ArtifactRef,
+        target: AgentSkillTarget,
+        /,
+    ) -> ManagedSkillPublicationStatus:
+        async with self._runtime._scoped_operation(self.scope_id):
+            service = self._runtime._skill_publications(self.scope_id, target, artifact)
+            return await service.unpublish(artifact, target)
+
 
 class SkillApplication:
     """Select a scoped managed Skill application service."""
@@ -560,6 +758,151 @@ class SkillApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedSkillApplication:
         return ScopedSkillApplication(self._runtime, scope_id)
+
+
+class RemoteSkillApplication:
+    """Expose remote target lifecycle and Receiver reconciliation through the Runtime boundary."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def _service(self) -> RemoteSkillDistributionService:
+        service = self._runtime._remote_skill_distribution
+        if service is None:
+            raise _RuntimeStateError("remote-skill-distribution")
+        return service
+
+    async def list_targets(
+        self,
+        scope_id: str,
+        /,
+        *,
+        target_id: str | None = None,
+        limit: int = 100,
+    ) -> tuple[RemoteSkillTargetStatus, ...]:
+        async with self._runtime._scoped_operation(scope_id):
+            return await self._service().list_targets(
+                scope_id,
+                target_id=target_id,
+                limit=limit,
+            )
+
+    async def create_target(
+        self,
+        scope_id: str,
+        agent_kind: AgentKind,
+        display_name: str,
+        /,
+    ) -> RemoteTargetEnrollment:
+        async with self._runtime._scoped_operation(scope_id):
+            return await self._service().create_target(scope_id, agent_kind, display_name)
+
+    async def enroll(
+        self,
+        enrollment_code: str,
+        installation_id: str,
+        receiver_version: str,
+        environment_fingerprint: str | None,
+        machine_hostname: str | None = None,
+        workspace_name: str | None = None,
+        /,
+    ) -> RemoteTargetCredential:
+        async with self._runtime._operation():
+            return await self._service().enroll(
+                enrollment_code,
+                installation_id,
+                receiver_version,
+                environment_fingerprint,
+                machine_hostname,
+                workspace_name,
+            )
+
+    async def rename_target(
+        self,
+        scope_id: str,
+        target_id: str,
+        expected_generation: int,
+        display_name: str,
+        /,
+    ) -> RemoteAgentSkillTarget:
+        async with self._runtime._scoped_operation(scope_id):
+            return await self._service().rename_target(scope_id, target_id, expected_generation, display_name)
+
+    async def revoke_target(
+        self,
+        scope_id: str,
+        target_id: str,
+        expected_generation: int,
+        /,
+    ) -> RemoteAgentSkillTarget:
+        async with self._runtime._scoped_operation(scope_id):
+            return await self._service().revoke_target(scope_id, target_id, expected_generation)
+
+    async def publish(
+        self,
+        scope_id: str,
+        target_id: str,
+        artifact: ArtifactRef,
+        expected_generation: int | None,
+        /,
+        *,
+        allow_deprecated: bool = False,
+    ) -> SkillPublication:
+        async with self._runtime._scoped_operation(scope_id):
+            return await self._service().publish(
+                scope_id,
+                target_id,
+                artifact,
+                expected_generation,
+                allow_deprecated=allow_deprecated,
+            )
+
+    async def unpublish(
+        self,
+        scope_id: str,
+        target_id: str,
+        artifact_id: str,
+        expected_generation: int,
+        /,
+    ) -> SkillPublication:
+        async with self._runtime._scoped_operation(scope_id):
+            return await self._service().unpublish(scope_id, target_id, artifact_id, expected_generation)
+
+    async def reconcile(
+        self,
+        credential: str,
+        observations: tuple[RemoteSkillObservation, ...],
+        receiver_version: str,
+        environment_fingerprint: str | None,
+        /,
+    ) -> RemoteSkillReconcileResult:
+        async with self._runtime._operation():
+            return await self._service().reconcile(
+                credential,
+                observations,
+                receiver_version,
+                environment_fingerprint,
+            )
+
+    async def download(
+        self,
+        credential: str,
+        generation: int,
+        artifact: ArtifactRef,
+        package: SkillPackageRef,
+        /,
+    ) -> SkillPackageSnapshot:
+        async with self._runtime._operation():
+            return await self._service().download(credential, generation, artifact, package)
+
+    async def receipt(
+        self,
+        credential: str,
+        receipt: RemoteSkillReceipt,
+        /,
+    ) -> RemoteSkillReceiptResult:
+        async with self._runtime._operation():
+            return await self._service().receipt(credential, receipt)
 
 
 class ScopedHandoffApplication:
@@ -1222,14 +1565,26 @@ class BuiltinRuntime:
         review_service: ReviewServiceFactory | None = None,
         generation_service: GenerationServiceFactory | None = None,
         experience_recall: ExperienceRecall | None = None,
+        skill_recall: SkillRecall | None = None,
+        skill_lister: SkillLister | None = None,
+        skill_origin_reader: SkillOriginReader | None = None,
+        skill_governance_reader: SkillGovernanceReader | None = None,
+        skill_governance_updater: SkillGovernanceUpdater | None = None,
+        skill_package_resolver: SkillPackageResolver | None = None,
+        package_snapshot_resolver: PackageSnapshotResolver | None = None,
+        skill_package_uploader: SkillPackageUploader | None = None,
+        skill_usage_recorder: SkillUsageRecorder | None = None,
         experience_incubator: ExperienceIncubator | None = None,
         external_skill_registry: ExternalSkillRegistryFactory | None = None,
         external_skill_importer: ExternalSkillImporter | None = None,
+        skill_publication_service: SkillPublicationServiceFactory | None = None,
+        remote_skill_distribution: RemoteSkillDistributionService | None = None,
         statistics_service: StatisticsServiceFactory | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
         tracing: RuntimeTracing | None = None,
+        remote_ingestion: RemoteIngestion | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
@@ -1240,9 +1595,20 @@ class BuiltinRuntime:
         self._review_service = review_service
         self._generation_service = generation_service
         self._experience_recall = experience_recall
+        self._skill_recall = skill_recall
+        self._skill_lister = skill_lister
+        self._skill_origin_reader = skill_origin_reader
+        self._skill_governance_reader = skill_governance_reader
+        self._skill_governance_updater = skill_governance_updater
+        self._skill_package_resolver = skill_package_resolver
+        self._package_snapshot_resolver = package_snapshot_resolver
+        self._skill_package_uploader = skill_package_uploader
+        self._skill_usage_recorder = skill_usage_recorder
         self._experience_incubator = experience_incubator
         self._external_skill_registry = external_skill_registry
         self._external_skill_importer = external_skill_importer
+        self._skill_publication_service = skill_publication_service
+        self._remote_skill_distribution = remote_skill_distribution
         self._statistics_service = statistics_service
         self._recall_token_estimator = recall_token_estimator
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
@@ -1264,6 +1630,7 @@ class BuiltinRuntime:
         self._scheduler: AsyncIOScheduler | None = None
         self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
+        self.ingestion = RemoteIngestionApplication(self, remote_ingestion)
         self.context = ContextApplication(self)
         self.experience = ExperienceApplication(self)
         self.external_skills = ExternalSkillApplication(self)
@@ -1272,6 +1639,7 @@ class BuiltinRuntime:
         self.memory = MemoryApplication(self)
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
+        self.remote_skills = RemoteSkillApplication(self)
         self.statistics = StatisticsApplication(self)
         self.handoff_report: HandoffReportApplication | None = None
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
@@ -1511,6 +1879,16 @@ class BuiltinRuntime:
         if self._external_skill_registry is None:
             raise ExternalSkillRegistryUnavailableError
         return self._external_skill_registry(validate_scope_id(scope_id))
+
+    def _skill_publications(
+        self,
+        scope_id: str,
+        target: AgentSkillTarget,
+        artifact: ArtifactRef,
+    ) -> ManagedSkillPublicationService:
+        if self._skill_publication_service is None:
+            raise _RuntimeStateError("skill-publication")
+        return self._skill_publication_service(validate_scope_id(scope_id), target.target_id, artifact.artifact_id)
 
     def _statistics(self, scope_id: str) -> RelationalScopedStatistics:
         if self._statistics_service is None:

@@ -17,14 +17,11 @@
 <section class="data-section" aria-labelledby="trend-title">
   <div class="section-heading">
     <div>
-      <h2 id="trend-title" data-i18n="recallTrend">Recall savings trend</h2>
-      <p data-i18n="trendSubtitle">Estimated token reduction over the last 30 days</p>
-    </div>
-    <div class="series-legend" aria-hidden="true">
-      <span data-i18n="estimatedReductionSeries">Estimated reduction</span>
+      <h2 id="trend-title" data-i18n="recallTrend">Tokens saved or used each day</h2>
     </div>
   </div>
-  <div class="trend-wrap">
+  <p id="trend-empty" hidden></p>
+  <div class="trend-wrap" id="trend-wrap">
     <svg
       class="trend-chart"
       id="trend-chart"

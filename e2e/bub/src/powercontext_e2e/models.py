@@ -87,6 +87,7 @@ class RecallProbeObservation(EvidenceModel):
     id: str
     query: str
     prepared_context: PreparedContextSnapshot
+    forbidden_context_matched: bool | None = None
 
 
 class HarborTrialObservation(EvidenceModel):

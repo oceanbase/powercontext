@@ -1,50 +1,44 @@
 ---
 template: home.html
 title: PowerContext
-description: Keep project decisions, constraints, and next steps available across Codex and Claude Code sessions.
+description: Continue work in a new session without restating decisions, constraints, and progress. Use a supported Agent or connect your own AI over HTTP.
 hide:
   - navigation
   - toc
   - footer
 home:
   hero:
-    label: Open source · Project scoped · Local by default
+    label: Open source. Local storage by default.
     title:
-      - Start a new session.
-      - Keep moving.
-    lead: PowerContext keeps project decisions, constraints, and next steps outside the chat. When Codex or Claude Code opens the project again, the relevant context is ready.
-    note: Codex, Claude Code, Python, HTTP, and MCP share the same project Memory.
+      - Pick up where you left off.
+    lead: Save the decisions, constraints, and progress you will need later in PowerContext. Find them again in another session.
     actions:
-      - label: Start with Codex
-        href: en/docs/tutorials/codex-quickstart/
+      - label: Start with an Agent
+        href: en/docs/tutorials/agent-quickstart/
         kind: primary
-      - label: How context carries over
-        href: en/docs/explanation/memory-and-handoff/
+      - label: Connect your AI over HTTP
+        href: en/docs/tutorials/api-quickstart/
         kind: secondary
   continuity:
-    label: One project, two sessions
-    title: Do not start from scratch.
-    lead: Record a decision once. The next session can recover it with its source and exact revision.
+    title: No need to repeat yourself.
+    lead: Save information that needs to last. Later sessions can use it and see how it changed.
     steps:
       - title: Save
-        description: In Codex, record that a Handoff stays temporary until the user asks to commit it.
+        description: Record the decisions, constraints, and next steps you will need later.
+      - title: Find
+        description: Find the relevant information in another Agent or application without pasting content you already saved.
       - title: Continue
-        description: Open the same project in Claude Code without replaying the earlier chat.
-      - title: Check
-        description: Recover the rule together with its source and exact revision.
+        description: Check that the information still fits the current situation, then continue the work.
   ownership:
-    label: Memory and Handoff
     title:
-      - Keep what lasts.
+      - Save what matters.
       - Hand off the work.
-    lead: Memory keeps decisions, constraints, conventions, and next steps in a searchable history. Revise or retire an entry without losing the record.
-    handoff: A Handoff captures the current objective, verified progress, blockers, and next action. Commit it when the work becomes a project milestone.
-    result: "LOCOMO: 90.78% correct · 1.38 s p95 search latency"
-    command: powercontext server run
+    lead: Memory keeps information that stands on its own and will matter later. You can revise or retire an entry while preserving its history.
+    handoff: A Handoff saves the current objective and progress. It also records blockers and the next action so another person, Agent, or later session can continue. A proven approach can become an Experience. Recurring work can become a Skill.
     primary_action:
-      label: Read the quickstart
-      href: en/docs/tutorials/codex-quickstart/
+      label: Read the Agent quickstart
+      href: en/docs/tutorials/agent-quickstart/
     secondary_action:
-      label: Explore documentation
-      href: en/docs/
+      label: Connect your AI over HTTP
+      href: en/docs/tutorials/api-quickstart/
 ---

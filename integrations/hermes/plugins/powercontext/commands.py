@@ -21,7 +21,7 @@ import logging
 import shlex
 from typing import Any
 
-from .client import PowerContextError
+from .client import PowerContextError, PowerContextHTTPError
 from .helpers import (
     DEFAULT_MAX_BYTES,
     DEFAULT_RETRIEVAL_LIMIT,
@@ -62,6 +62,32 @@ POWERCONTEXT_SUBCOMMANDS = (
     "trace",
     "call",
 )
+
+
+def _emit_failure_diagnostic(provider: Any, event: str, error: PowerContextError) -> None:
+    emit = getattr(provider, "_emit_failure_diagnostic", None)
+    if callable(emit):
+        emit(event, error)
+
+
+def _domain_error_result(error: BaseException) -> str | None:
+    if not isinstance(error, PowerContextHTTPError):
+        return None
+    outcome = {
+        404: "not_found",
+        409: "conflict",
+        422: "invalid_request",
+    }.get(error.status)
+    if outcome is None:
+        return None
+    return json.dumps(
+        {
+            "error": error.server_message or str(error),
+            "code": outcome,
+            "status": error.status,
+        },
+        ensure_ascii=False,
+    )
 
 
 def register_subcommands() -> None:
@@ -362,6 +388,7 @@ def status_command(provider: Any) -> str:
                 try:
                     result[name] = method()
                 except PowerContextError as error:
+                    _emit_failure_diagnostic(provider, "status", error)
                     result[name] = {"error": str(error)}
     return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -379,14 +406,20 @@ def handle_slash_command(provider: Any, raw_args: str) -> str:  # noqa: C901
         try:
             return group_command(provider, raw_parts[0].lower(), [raw_parts[1], raw_parts[2]])
         except (PowerContextError, ValueError, TypeError) as error:
+            domain_result = _domain_error_result(error)
+            if isinstance(error, PowerContextError) and domain_result is None:
+                _emit_failure_diagnostic(provider, "slash_command", error)
             logger.debug("PowerContext /pc command failed: %s", error)
-            return tool_error(f"PowerContext operation failed: {error}")
+            return domain_result or tool_error(f"PowerContext operation failed: {error}")
     if len(raw_parts) == 3 and raw_parts[0].lower() == "call":
         try:
             return operation_command(provider, raw_parts[1], [raw_parts[2]])
         except (PowerContextError, ValueError, TypeError) as error:
+            domain_result = _domain_error_result(error)
+            if isinstance(error, PowerContextError) and domain_result is None:
+                _emit_failure_diagnostic(provider, "slash_command", error)
             logger.debug("PowerContext /pc command failed: %s", error)
-            return tool_error(f"PowerContext operation failed: {error}")
+            return domain_result or tool_error(f"PowerContext operation failed: {error}")
     try:
         command = raw_parts[0].lower() if raw_parts else ""
         if command in {"get", "revise", "retire"}:
@@ -420,8 +453,11 @@ def handle_slash_command(provider: Any, raw_args: str) -> str:  # noqa: C901
                 return tool_error("Usage: /pc call OPERATION [PAYLOAD_JSON]")
             return operation_command(provider, args[1], args[2:])
     except (PowerContextError, ValueError, TypeError) as error:
+        domain_result = _domain_error_result(error)
+        if isinstance(error, PowerContextError) and domain_result is None:
+            _emit_failure_diagnostic(provider, "slash_command", error)
         logger.debug("PowerContext /pc command failed: %s", error)
-        return tool_error(f"PowerContext operation failed: {error}")
+        return domain_result or tool_error(f"PowerContext operation failed: {error}")
     return tool_error(f"Unknown /pc command: {args[0]}")
 
 
@@ -810,5 +846,8 @@ def handle_tool_call(provider: Any, tool_name: str, args: dict[str, Any], **kwar
     try:
         return _dispatch_tool_call(provider, tool_name, args)
     except (PowerContextError, ValueError, TypeError) as error:
+        domain_result = _domain_error_result(error)
+        if isinstance(error, PowerContextError) and domain_result is None:
+            _emit_failure_diagnostic(provider, "tool_call", error)
         logger.debug("PowerContext tool %s failed: %s", tool_name, error)
-        return tool_error(f"PowerContext operation failed: {error}")
+        return domain_result or tool_error(f"PowerContext operation failed: {error}")

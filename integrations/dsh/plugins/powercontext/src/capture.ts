@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto'
 import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
+import { failureEvent } from './diagnostics.ts'
 import { MAX_SOURCE_LENGTH } from './errors.ts'
 import { containsSecret } from './secrets.ts'
 
@@ -66,6 +67,8 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
     input.log({ event: 'capture_content_source', outcome: 'skipped' })
     return
   }
+  let position: number | undefined
+  let captureStatus = 202
   try {
     const result = await input.client.request('capture_content_source', {
       scope_id: input.scopeId,
@@ -79,12 +82,21 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
         turn_id: input.turnId,
       },
     }, input.signal)
-    const position = result.kind === 'json' ? sourcePosition(result.value) : undefined
-    if (input.config.flushOnCapture && position !== undefined) {
-      await flushThrough(input.client, input.config, input.scopeId, position, input.signal)
-    }
-    input.log({ event: 'capture_content_source', outcome: 'ok', status: result.status })
-  } catch {
-    input.log({ event: 'capture_content_source', outcome: 'failed' })
+    position = result.kind === 'json' ? sourcePosition(result.value) : undefined
+    captureStatus = result.status
+  } catch (error) {
+    const diagnostic = failureEvent('capture_content_source', error)
+    if (diagnostic) input.log(diagnostic)
+    return
   }
+
+  if (input.config.flushOnCapture && position !== undefined) {
+    try {
+      await flushThrough(input.client, input.config, input.scopeId, position, input.signal)
+    } catch (error) {
+      const diagnostic = failureEvent('flush_memory', error)
+      if (diagnostic) input.log(diagnostic)
+    }
+  }
+  input.log({ event: 'capture_content_source', outcome: 'ok', status: captureStatus })
 }

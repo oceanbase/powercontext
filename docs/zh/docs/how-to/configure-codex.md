@@ -108,6 +108,7 @@ Codex 会话。
 
 Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
 
-正常空结果或召回失败时，Hook 会向 stderr 写一行不含正文的 JSON 诊断。outcome 包括 `empty`、
-`authentication_failed`、`version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含 query、
-scope、prepared content、citation、response body 或 authorization value。
+正常空结果或召回失败时，Hook 会输出不含正文的 JSON 诊断。故障 outcome 通过成功 stdout Hook 响应顶层的
+`systemMessage` 返回；`empty` 仍只作为本地诊断。outcome 包括 `empty`、`authentication_failed`、
+`version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含 query、scope、prepared content、
+`citation`、response body 或 authorization value。

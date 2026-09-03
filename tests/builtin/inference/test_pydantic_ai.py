@@ -277,7 +277,7 @@ def test_generation_readiness_probe_uses_one_bounded_text_request() -> None:
 
     assert observed_settings == [
         {
-            "max_tokens": 1,
+            "max_tokens": 16,
             "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
         }
     ]

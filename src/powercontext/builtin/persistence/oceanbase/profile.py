@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -30,11 +31,35 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
+from powercontext.builtin.persistence.tables import MYSQL_IDENTITY_COLLATION
 
 _DIALECT_DRIVER = "mysql+aoceanbase"
 _DIALECT_REGISTRY_NAME = "mysql.aoceanbase"
 _DIALECT_MODULE = "pyobvector"
 _DIALECT_CLASS = "AsyncOceanBaseDialect"
+_SCHEMA_COLUMNS_QUERY = """
+SELECT TABLE_NAME, COLUMN_NAME, COLLATION_NAME
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND DATA_TYPE = 'varchar'
+"""
+_SCHEMA_RECREATION_GUIDE = (
+    "https://oceanbase.github.io/powercontext/en/docs/how-to/troubleshoot/"
+    "#oceanbase-startup-rejects-an-incompatible-schema"
+)
+
+
+@dataclass(frozen=True)
+class _IdentityCollationMismatch:
+    table_name: str
+    column_name: str
+    actual: str | None
+
+    @property
+    def qualified_name(self) -> str:
+        """Return the operator-facing table and column name."""
+
+        return f"{self.table_name}.{self.column_name}"
 
 
 class UnsupportedOceanBaseTenantError(PersistenceError):
@@ -44,6 +69,22 @@ class UnsupportedOceanBaseTenantError(PersistenceError):
         self.compatibility_mode = compatibility_mode
         description = "missing ob_compatibility_mode" if compatibility_mode is None else repr(compatibility_mode)
         super().__init__(f"OceanBase profile requires a MySQL-compatible tenant; found {description}")
+
+
+class IncompatibleOceanBaseSchemaError(PersistenceError):
+    """Raised when an existing identity column has unsafe comparison semantics."""
+
+    def __init__(self, mismatches: tuple[_IdentityCollationMismatch, ...]) -> None:
+        self.columns = tuple(mismatch.qualified_name for mismatch in mismatches)
+        details = "; ".join(
+            f"{mismatch.qualified_name} uses {mismatch.actual or 'NULL'} (expected {MYSQL_IDENTITY_COLLATION})"
+            for mismatch in mismatches
+        )
+        super().__init__(
+            "OceanBase schema has incompatible identity column collations: "
+            f"{details}. Back up the database, recreate the PowerContext schema, and restore the data before "
+            f"restarting. See {_SCHEMA_RECREATION_GUIDE}"
+        )
 
 
 class OceanBaseConfig(BaseModel):
@@ -114,6 +155,7 @@ async def _initialized_profile(profile: OceanBaseProfile) -> AsyncIterator[Ocean
     try:
         async with profile.database.transaction() as connection:
             await _require_mysql_tenant(connection)
+            await _require_compatible_identity_collations(connection, profile.tables)
             await create_tables(connection, profile.tables)
         yield profile
     finally:
@@ -128,6 +170,36 @@ async def _require_mysql_tenant(connection: AsyncConnection) -> None:
     mode = None if row is None or len(row) < 2 else str(row[1]).upper()
     if mode != "MYSQL":
         raise UnsupportedOceanBaseTenantError(mode)
+
+
+async def _require_compatible_identity_collations(
+    connection: AsyncConnection,
+    tables: tuple[Table, ...],
+) -> None:
+    """Reject legacy PowerContext VARCHAR columns with non-binary identity semantics."""
+
+    identity_columns = {
+        (table.name, column.name)
+        for table in tables
+        for column in table.columns
+        if getattr(column.type.dialect_impl(connection.dialect), "collation", None) == MYSQL_IDENTITY_COLLATION
+    }
+    if not identity_columns:
+        return
+
+    result = await connection.exec_driver_sql(_SCHEMA_COLUMNS_QUERY)
+    incompatible: list[_IdentityCollationMismatch] = []
+    for table_name_value, column_name_value, actual_value in result.all():
+        table_name = str(table_name_value)
+        column_name = str(column_name_value)
+        if (table_name, column_name) not in identity_columns:
+            continue
+        actual_collation = None if actual_value is None else str(actual_value)
+        if actual_collation is None or actual_collation.casefold() != MYSQL_IDENTITY_COLLATION.casefold():
+            incompatible.append(_IdentityCollationMismatch(table_name, column_name, actual_collation))
+
+    if incompatible:
+        raise IncompatibleOceanBaseSchemaError(tuple(sorted(incompatible, key=lambda item: item.qualified_name)))
 
 
 def _register_official_dialect() -> None:

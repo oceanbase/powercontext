@@ -1,0 +1,19 @@
+{
+  "schema": "powercontext.host-diagnostic-contract.v1",
+  "cases": {
+    "codex": {
+      "event": "UserPromptSubmit",
+      "status": "completed",
+      "systemMessage": "{\"component\":\"powercontext.codex.recall\",\"event\":\"context_prepare\",\"outcome\":\"server_unavailable\",\"recovery\":\"powercontext doctor\"}",
+      "host_observation": "UserPromptSubmit (completed) says: {\"component\":\"powercontext.codex.recall\",\"event\":\"context_prepare\",\"outcome\":\"server_unavailable\",\"recovery\":\"powercontext doctor\"}",
+      "recorded_with": "codex-cli 0.150.1"
+    },
+    "claude_code": {
+      "event": "UserPromptSubmit",
+      "status": "completed",
+      "systemMessage": "{\"component\":\"powercontext.claude_code.recall\",\"event\":\"context_prepare\",\"outcome\":\"server_unavailable\",\"recovery\":\"powercontext doctor\"}",
+      "host_observation": "successful UserPromptSubmit hook response exposes top-level systemMessage",
+      "recorded_with": "Claude Code UserPromptSubmit hook contract (host binary unavailable locally)"
+    }
+  }
+}

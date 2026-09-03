@@ -25,10 +25,16 @@ from powercontext.builtin.artifacts.skill.models import SkillContent
 from powercontext.builtin.inference import GenerationResult, InvalidInferenceOutputError, StructuredGenerator
 
 
+class _GeneratedSkillContent(SkillContent):
+    """Model-authored instruction content cannot claim an existing package snapshot."""
+
+    package: None = None
+
+
 class SkillGenerationOutput(BaseModel):
     """A typed managed Skill proposal or an explicit no-op."""
 
-    proposal: SkillContent | None = None
+    proposal: _GeneratedSkillContent | None = None
 
 
 class SkillGenerator(Protocol):

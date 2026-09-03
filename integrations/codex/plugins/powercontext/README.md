@@ -101,6 +101,8 @@ at ten seconds.
 Context returned by the hook is labelled as untrusted history. Recall, capture,
 and flush fail independently; an unavailable Server never blocks normal Codex
 work. For an empty result, authentication failure, version mismatch, unavailable
-Server, or invalid response, the hook writes one diagnostic JSON line to stderr.
+Server, or invalid response, the hook returns one content-free diagnostic JSON event through the top-level
+`systemMessage` in its successful stdout response. If context is available, `hookSpecificOutput` is returned beside
+the diagnostic. Repeated failures are deduplicated per invocation and throttled for 60 seconds across hook processes.
 Diagnostics contain status and byte counts only—never the query, scope, content,
 citation, response body, or authorization value.
