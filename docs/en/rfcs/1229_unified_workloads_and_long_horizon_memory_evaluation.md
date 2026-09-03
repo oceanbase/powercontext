@@ -82,10 +82,18 @@ evaluation:
       query: Which project decision selected multi-node persistent storage?
       expected_context:
         - OceanBase
+      forbidden_context:
+        - SQLite
 ```
 
 `dataset` may identify a repository-maintained Harbor task or a versioned registry task. Repository tasks and
 registry tasks use the same execution and evidence path.
+
+Recall probe matching is case-insensitive and Unicode-normalized. Probes with `expected_context` contribute to
+`probe_coverage` and require every expected fragment. Probes with only `forbidden_context` express abstention and do
+not contribute to that coverage. If there are no positive probes, `probe_coverage` is `1`. Every probe rejects
+prepared context containing a forbidden fragment, and any forbidden match fails acceptance independently of the
+`probe_coverage` threshold.
 
 `execution.type` selects the adapter. The current contract implements `bub`. `execution.model` only declares whether
 the workload needs a model:
@@ -178,7 +186,7 @@ Memory acceptance uses observable evidence:
 - eligible events were captured when capture is required;
 - the run created Memory and completed required checkpoints or flushes;
 - new Memory cites Sources captured during execution; and
-- declared recall probes receive usable prepared context.
+- declared recall probes receive prepared context that satisfies their required and forbidden fragment contracts.
 
 A deterministic workload may require fixed Memory fragments. A long-horizon task normally measures capture
 coverage, grounding, and recall instead of requiring a fixed task answer.
@@ -221,6 +229,9 @@ The replay records the dataset checksum, the workload's single `execution.type`,
 database identity, resolved instructions, and PowerContext scope state. The common envelope supports offline rescoring. Adapter-native
 evidence remains typed within that envelope; the current Bub adapter records ACP summaries, captured events,
 checkpoints, tool observations, and trajectory artifacts.
+
+For negative recall contracts, the replay stores the pre-redaction match verdict rather than the matched text. This
+keeps offline rescoring consistent with the live result without exposing a configured secret through the replay.
 
 Final artifact sinks remove configured secrets. Native task artifacts may contain task content and require review
 before publication.

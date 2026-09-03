@@ -24,7 +24,7 @@ import shlex
 import shutil
 import sys
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -914,7 +914,7 @@ def _validate_server_settings(values: Mapping[str, str]) -> None:
 
 
 @contextmanager
-def _temporary_environment(values: Mapping[str, str], *, clear: set[str]) -> Iterator[None]:
+def _temporary_environment(values: Mapping[str, str], *, clear: set[str]) -> Generator[None, None, None]:
     original = {name: os.environ.get(name) for name in clear | set(values)}
     try:
         for name in clear:

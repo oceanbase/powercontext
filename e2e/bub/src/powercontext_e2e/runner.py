@@ -43,7 +43,7 @@ from powercontext.http import ListMemoryEntriesRequest, PrepareContextRequest
 
 from .artifacts import write_artifacts
 from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
-from .evaluation import evaluate_observation
+from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
 from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION
 from .models import (
@@ -649,11 +649,19 @@ async def _prepared_probes(
 ) -> tuple[RecallProbeObservation, ...]:
     probes = []
     for probe in evaluation.probes:
+        context = await prepared_context(client, scope_id, probe.query)
+        forbidden_context_matched = context.status == "ready" and matches_forbidden_context(
+            context.content,
+            probe.forbidden_context,
+        )
+        if forbidden_context_matched:
+            context = context.model_copy(update={"content": ""})
         probes.append(
             RecallProbeObservation(
                 id=probe.id,
                 query=probe.query,
-                prepared_context=await prepared_context(client, scope_id, probe.query),
+                prepared_context=context,
+                forbidden_context_matched=forbidden_context_matched,
             )
         )
     return tuple(probes)

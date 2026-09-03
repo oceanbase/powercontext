@@ -21,7 +21,7 @@ import stat
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,7 +32,7 @@ import pytest
 
 
 @contextmanager
-def _serve(handler: type[BaseHTTPRequestHandler]) -> Iterator[str]:
+def _serve(handler: type[BaseHTTPRequestHandler]) -> Generator[str, None, None]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

@@ -2898,6 +2898,7 @@ button:disabled {
 }
 
 .review-proposal,
+.review-package,
 .review-evidence,
 .review-lineage,
 .review-publication,
@@ -2905,6 +2906,7 @@ button:disabled {
   padding: 24px 28px;
 }
 
+.review-package,
 .review-evidence,
 .review-lineage,
 .review-publication,
@@ -2939,6 +2941,50 @@ button:disabled {
 .review-proposal dd,
 .review-lineage dd {
   margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-package-browser {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.38fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.review-package-browser ul {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-package-browser button {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 7px 9px;
+  color: var(--pc-text);
+  font: inherit;
+  text-align: left;
+}
+
+.review-package-browser button:hover,
+.review-package-browser button:focus-visible {
+  background: var(--pc-surface-secondary);
+}
+
+.review-package-browser pre {
+  min-height: 150px;
+  max-height: 420px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--pc-rule);
+  border-radius: 8px;
+  background: var(--pc-surface-secondary);
+  padding: 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -3476,6 +3522,13 @@ button:disabled {
   gap: 12px;
 }
 
+.skills-list-labels {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
 .skills-authority-label {
   color: var(--pc-muted);
   font-size: 11px;
@@ -3484,6 +3537,28 @@ button:disabled {
 
 .skills-authority-managed {
   color: var(--pc-accent);
+}
+
+.skills-origin-badge {
+  min-width: 0;
+  overflow: hidden;
+  flex-shrink: 1;
+  text-overflow: ellipsis;
+}
+
+.skills-origin-powercontext {
+  background: var(--pc-accent-soft);
+  color: var(--pc-accent);
+}
+
+.skills-origin-external_import {
+  background: var(--pc-success-soft);
+  color: var(--pc-success);
+}
+
+.skills-origin-external_fork {
+  background: var(--pc-warning-soft);
+  color: var(--pc-warning);
 }
 
 .skills-list-item > strong,
@@ -3622,12 +3697,16 @@ button:disabled {
 
 .skills-overview,
 .skills-instructions,
+.skills-package,
+.skills-governance,
 .skills-lineage,
 .skills-delivery {
   padding: 24px 28px;
 }
 
 .skills-instructions,
+.skills-package,
+.skills-governance,
 .skills-lineage,
 .skills-delivery {
   border-top: 1px solid var(--pc-rule);
@@ -3705,6 +3784,122 @@ button:disabled {
   line-height: 1.55;
 }
 
+.skills-package > p,
+.skills-governance > p {
+  margin: -6px 0 12px;
+  color: var(--pc-muted);
+  font-size: 12px;
+}
+
+.skills-package-browser {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.36fr) minmax(0, 1fr);
+  min-height: 220px;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius);
+  background: var(--pc-surface-secondary);
+  overflow: hidden;
+}
+
+.skills-package-browser ul {
+  max-height: 420px;
+  margin: 0;
+  border-right: 1px solid var(--pc-rule);
+  overflow: auto;
+  padding: 8px;
+  list-style: none;
+}
+
+.skills-package-browser button {
+  width: 100%;
+  border: 0;
+  border-radius: var(--pc-radius-control);
+  background: transparent;
+  color: var(--pc-text);
+  font: 11px/1.5 var(--pc-font-code);
+  padding: 7px 9px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.skills-package-browser button:hover,
+.skills-package-browser button:focus-visible,
+.skills-package-browser button[aria-current="true"] {
+  background: var(--pc-accent-soft);
+  color: var(--pc-accent);
+}
+
+.skills-package-browser > div {
+  min-width: 0;
+  padding: 12px;
+}
+
+.skills-package-browser > div > code {
+  color: var(--pc-muted);
+  font: 11px/1.5 var(--pc-font-code);
+}
+
+.skills-package-browser pre {
+  min-height: 170px;
+  max-height: 390px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  font: 12px/1.65 var(--pc-font-code);
+  padding: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skills-governance-controls {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.6fr) minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.skills-governance-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skills-governance-controls :is(input, select) {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--pc-rule-strong);
+  border-radius: var(--pc-radius-control);
+  outline: 0;
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  padding: 7px 10px;
+}
+
+.skills-governance-controls :is(input, select):focus {
+  border-color: var(--pc-accent);
+}
+
+.skills-status-active {
+  background: var(--pc-success-soft);
+  color: var(--pc-success);
+}
+
+.skills-status-deprecated {
+  background: var(--pc-warning-soft);
+  color: var(--pc-warning);
+}
+
+.skills-status-retired {
+  background: var(--pc-danger-soft);
+  color: var(--pc-danger);
+}
+
 .skills-reference-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3759,6 +3954,36 @@ button:disabled {
   display: none;
 }
 
+.skills-delivery-status[data-tone="success"] {
+  color: var(--pc-success);
+}
+
+.skills-delivery-status[data-tone="error"] {
+  color: var(--pc-danger);
+}
+
+.skills-delivery-mode-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.skills-delivery-mode-row label {
+  display: grid;
+  width: min(320px, 100%);
+  gap: 7px;
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skills-delivery-mode-row .secondary-button {
+  border: 1px solid var(--pc-rule-strong);
+  padding: 0 14px;
+}
+
 .skills-delivery-empty {
   margin-top: 16px;
   border: 1px dashed var(--pc-rule-strong);
@@ -3772,6 +3997,27 @@ button:disabled {
   grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
   gap: 14px;
   margin-top: 18px;
+}
+
+#skills-remote-content {
+  margin-top: 18px;
+}
+
+.skills-remote-target-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.skills-remote-target-row .secondary-button {
+  border: 1px solid var(--pc-rule-strong);
+  padding: 0 14px;
+}
+
+.skills-remote-target-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .skills-delivery-target {
@@ -3798,6 +4044,11 @@ button:disabled {
   overflow: hidden;
 }
 
+.skills-delivery-facts.skills-remote-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
 .skills-delivery-facts > div {
   min-width: 0;
   padding: 14px 16px;
@@ -3821,6 +4072,16 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.skills-compatibility-reasons {
+  display: grid;
+  gap: 4px;
+  margin: 7px 0 0;
+  padding-left: 16px;
+  color: var(--pc-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .skills-delivery-path {
   display: grid;
   grid-column: 1 / -1;
@@ -3838,6 +4099,159 @@ button:disabled {
   overflow-wrap: anywhere;
   padding: 10px 12px;
   white-space: normal;
+}
+
+.skills-remote-next-step {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius);
+  background: var(--pc-surface-secondary);
+  padding: 14px 16px;
+}
+
+.skills-remote-next-step strong {
+  font-size: 12px;
+}
+
+.skills-remote-next-step code,
+.skills-copy-row code,
+.skills-enrollment-summary code {
+  color: var(--pc-ink);
+  font: 11px/1.55 var(--pc-font-code);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.skills-remote-next-step p {
+  margin: 0;
+  color: var(--pc-muted);
+  font-size: 12px;
+}
+
+.skills-remote-dialog {
+  width: min(680px, calc(100% - 32px));
+}
+
+.skills-remote-dialog label {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  color: var(--pc-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skills-remote-dialog :is(input, select) {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--pc-rule-strong);
+  border-radius: var(--pc-radius-control);
+  outline: 0;
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  padding: 7px 10px;
+}
+
+.skills-remote-dialog :is(input, select):hover,
+.skills-remote-dialog :is(input, select):focus {
+  border-color: var(--pc-accent);
+}
+
+.skills-remote-dialog small {
+  color: var(--pc-tertiary);
+  font-weight: 400;
+}
+
+.skills-remote-dialog .review-dialog-error {
+  min-height: 18px;
+  margin: 12px 0 0;
+  color: var(--pc-danger);
+  font-size: 12px;
+}
+
+.skills-remote-dialog .review-dialog-error:empty {
+  display: none;
+}
+
+.skills-enrollment-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 14px;
+  border-top: 1px solid var(--pc-rule);
+  border-bottom: 1px solid var(--pc-rule);
+  padding: 14px 0;
+  color: var(--pc-muted);
+  font-size: 12px;
+}
+
+.skills-enrollment-summary :is(code, time) {
+  color: var(--pc-ink);
+}
+
+.skills-enrollment-connection {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface-secondary);
+  padding: 11px 12px;
+}
+
+.skills-enrollment-connection strong {
+  font-size: 12px;
+}
+
+.skills-enrollment-connection p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.skills-enrollment-connection[data-tone="ready"] p {
+  color: var(--pc-success);
+}
+
+.skills-enrollment-connection[data-tone="warning"] {
+  background: var(--pc-warning-soft);
+}
+
+.skills-enrollment-connection[data-tone="warning"] p {
+  color: var(--pc-warning);
+}
+
+.skills-enrollment-step {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.skills-enrollment-step > strong {
+  font-size: 12px;
+}
+
+.skills-copy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface-secondary);
+  padding: 8px 8px 8px 12px;
+}
+
+.skills-copy-row .secondary-button {
+  min-height: 32px;
+  border: 1px solid var(--pc-rule-strong);
+  padding: 0 11px;
+}
+
+.skills-copy-status {
+  min-height: 18px;
+  margin: 10px 0 0 !important;
+  color: var(--pc-muted);
+  font-size: 12px;
 }
 
 .skills-detail-actions {
@@ -4025,14 +4439,53 @@ button:disabled {
     gap: 10px;
   }
 
+  .skills-delivery-mode-row,
+  .skills-remote-target-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .skills-remote-target-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .skills-delivery-mode-row {
+    flex-direction: column;
+  }
+
+  .skills-delivery-mode-row label {
+    width: 100%;
+  }
+
   .skills-overview dl,
   .skills-reference-groups,
+  .skills-package-browser,
+  .skills-governance-controls,
   #skills-delivery-content {
     grid-template-columns: 1fr;
   }
 
+  .skills-package-browser ul {
+    max-height: 190px;
+    border-right: 0;
+    border-bottom: 1px solid var(--pc-rule);
+  }
+
   .skills-delivery-facts {
     grid-template-columns: 1fr;
+  }
+
+  .skills-delivery-facts.skills-remote-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .skills-copy-row {
+    grid-template-columns: 1fr;
+  }
+
+  .skills-copy-row .secondary-button {
+    justify-self: start;
   }
 
   .skills-delivery-facts > div + div {

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -71,10 +72,29 @@ class CaptureThresholds(CatalogModel):
     minimum_in_run_contexts: int = Field(default=0, ge=0)
 
 
+def normalize_context_fragment(value: str) -> str:
+    """Normalize context fragments for stable case-insensitive matching."""
+
+    return unicodedata.normalize("NFC", value.casefold())
+
+
 class RecallProbeSpec(CatalogModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     query: str = Field(min_length=1, max_length=8192)
     expected_context: tuple[str, ...] = ()
+    forbidden_context: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_context_fragments(self) -> RecallProbeSpec:
+        for field_name in ("expected_context", "forbidden_context"):
+            if any(not fragment.strip() for fragment in getattr(self, field_name)):
+                raise ValueError(f"{field_name} fragments must be nonblank")  # noqa: TRY003
+
+        expected = tuple(normalize_context_fragment(fragment) for fragment in self.expected_context)
+        forbidden = tuple(normalize_context_fragment(fragment) for fragment in self.forbidden_context)
+        if any(blocked in required for required in expected for blocked in forbidden):
+            raise ValueError("forbidden_context cannot be contained in expected_context")  # noqa: TRY003
+        return self
 
 
 class MemoryEvaluationSpec(CatalogModel):

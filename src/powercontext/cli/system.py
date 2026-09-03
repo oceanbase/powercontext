@@ -37,7 +37,7 @@ from pydantic import ValidationError
 from powercontext.client.settings import normalize_server_url
 from powercontext.http import HealthResponse, ReadinessResponse, ReadinessStatus
 from powercontext.paths import powercontext_data_dir
-from powercontext.transport import is_loopback_host
+from powercontext.transport import canonical_loopback_endpoint, is_loopback_host
 
 HELP_OPTION_NAMES = ("-h", "--help")
 DEFAULT_MARKETPLACE_SOURCE = "oceanbase/powercontext"
@@ -1047,11 +1047,13 @@ def run_diagnostics(*, server_url: str) -> dict[str, Diagnostic]:
     """Collect installed-environment diagnostics without changing state."""
 
     package = Diagnostic(status=DiagnosticStatus.OK, detail=f"powercontext {version('powercontext')}")
+    service: dict[str, Diagnostic] = {}
     try:
         server_url = normalize_server_url(server_url)
     except ValueError as error:
         liveness = Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
     else:
+        service = _local_service_diagnostics(server_url)
         liveness = _server_liveness_diagnostic(server_url)
     readiness = (
         _server_readiness_diagnostic(server_url)
@@ -1063,9 +1065,97 @@ def run_diagnostics(*, server_url: str) -> dict[str, Diagnostic]:
     )
     return {
         "package": package,
+        **service,
         "server_liveness": liveness,
         "server_readiness": readiness,
     }
+
+
+def _local_service_diagnostics(server_url: str) -> dict[str, Diagnostic]:
+    """Correlate a loopback diagnostic target with the optional personal service registration."""
+
+    parsed = urlsplit(server_url)
+    if not is_loopback_host(parsed.hostname):
+        return {}
+
+    from powercontext.service.controller import ServiceController
+    from powercontext.service.model import (
+        DefinitionState,
+        ManagerState,
+        RegistrationState,
+        SupportState,
+    )
+
+    controller = ServiceController()
+    try:
+        status = controller.registration_status()
+    except Exception as error:  # Native diagnostics must not hide the Server checks that follow.
+        return {
+            "service_support": Diagnostic(
+                status=DiagnosticStatus.DEGRADED,
+                detail=f"personal service status is unavailable: {error}",
+            )
+        }
+
+    diagnostics: dict[str, Diagnostic] = {}
+    if status.support is SupportState.UNSUPPORTED:
+        diagnostics["service_support"] = Diagnostic(
+            status=DiagnosticStatus.OK,
+            detail=f"unsupported (optional): {status.detail or 'no verified native adapter'}",
+        )
+        return diagnostics
+    diagnostics["service_support"] = Diagnostic(
+        status=DiagnosticStatus.OK,
+        detail="native personal service adapter is supported",
+    )
+
+    if status.registration is RegistrationState.NOT_INSTALLED:
+        diagnostics["service_registration"] = Diagnostic(
+            status=DiagnosticStatus.OK,
+            detail="not_installed (optional)",
+        )
+        return diagnostics
+    if status.registration is not RegistrationState.INSTALLED:
+        diagnostics["service_registration"] = Diagnostic(
+            status=DiagnosticStatus.FAILED,
+            detail=status.detail or status.registration.value,
+        )
+        return diagnostics
+    if status.endpoint is None or canonical_loopback_endpoint(status.endpoint) != canonical_loopback_endpoint(
+        server_url
+    ):
+        return {}
+
+    try:
+        status = controller.status()
+    except Exception as error:  # Manager diagnostics must not hide the Server checks that follow.
+        diagnostics["service_registration"] = Diagnostic(
+            status=DiagnosticStatus.OK,
+            detail="installed",
+        )
+        diagnostics["service_manager"] = Diagnostic(
+            status=DiagnosticStatus.DEGRADED,
+            detail=f"personal service manager status is unavailable: {error}",
+        )
+        return diagnostics
+
+    diagnostics["service_registration"] = Diagnostic(
+        status=DiagnosticStatus.OK,
+        detail="installed",
+    )
+    diagnostics["service_definition"] = Diagnostic(
+        status=(DiagnosticStatus.OK if status.definition is DefinitionState.CURRENT else DiagnosticStatus.FAILED),
+        detail=status.definition.value,
+    )
+    diagnostics["service_manager"] = Diagnostic(
+        status=(DiagnosticStatus.OK if status.manager is ManagerState.ACTIVE else DiagnosticStatus.FAILED),
+        detail=(
+            f"{status.manager.value}; ownership: {status.manager_ownership.value}"
+            if status.log_location is None
+            else (f"{status.manager.value}; ownership: {status.manager_ownership.value}; logs: {status.log_location}")
+        ),
+    )
+    return diagnostics
 
 
 def run_codex_diagnostics() -> dict[str, Diagnostic]:

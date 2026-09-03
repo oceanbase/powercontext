@@ -245,7 +245,7 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
     asyncio.run(scenario())
 
 
-def test_candidate_cli_lists_shows_revises_approves_and_rejects(
+def test_candidate_cli_lists_shows_revises_approves_and_rejects(  # noqa: C901
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -293,6 +293,10 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(
         async def get_skill(self, request):
             assert self._client is not None
             return await self._client.get_skill(request)
+
+        async def download_skill_package(self, request):
+            assert self._client is not None
+            return await self._client.download_skill_package(request)
 
     monkeypatch.setattr(client_cli, "PowerContextClient", InProcessClient)
     cli = create_cli([])

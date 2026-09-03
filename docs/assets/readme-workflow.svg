@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="360" viewBox="0 0 1080 360" role="img" aria-labelledby="title description">
+  <title id="title">PowerContext keeps context with work as it changes hands</title>
+  <desc id="description">You begin a task, an agent moves it forward, and you or another agent continues later. The same work gains detail at each stage while PowerContext keeps its context connected.</desc>
+  <defs>
+    <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path class="arrowhead" d="M0 0L10 5L0 10Z" />
+    </marker>
+  </defs>
+  <style>
+    .background { fill: #fbfcfe; }
+    .frame { fill: none; stroke: #d8dee8; }
+    .heading { fill: #040d2b; }
+    .accent-text { fill: #006dff; }
+    .secondary { fill: #626b7a; }
+    .quiet { fill: #8b94a3; }
+    .card-shadow { fill: #e8edf4; }
+    .card { fill: #ffffff; stroke: #cbd3df; }
+    .paper-line { fill: #dce2ea; }
+    .paper-line-strong { fill: #9aa5b4; }
+    .checkbox { fill: #ffffff; stroke: #9aa5b4; }
+    .checkbox-done { fill: #006dff; stroke: #006dff; }
+    .check { fill: none; stroke: #ffffff; }
+    .flow { fill: none; stroke: #9aa5b4; }
+    .arrowhead { fill: #9aa5b4; }
+    .context-path { fill: none; stroke: #006dff; }
+    .context-halo { fill: none; stroke: #dcecff; }
+    .context-dot {
+      fill: #fbfcfe;
+      stroke: #006dff;
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: context-step 9s ease-in-out infinite;
+    }
+    .context-dot-middle { animation-delay: 3s; }
+    .context-dot-end { animation-delay: 6s; }
+    .person-icon { fill: none; stroke: #040d2b; }
+    .agent-icon { fill: none; stroke: #006dff; }
+    .mark-primary { fill: #006dff; }
+    .mark-secondary { fill: #040d2b; }
+    .mark-outline { fill: #040d2b; stroke: #040d2b; }
+    @media (prefers-color-scheme: dark) {
+      .background { fill: #0d1117; }
+      .frame { stroke: #30363d; }
+      .heading { fill: #f0f6fc; }
+      .accent-text { fill: #58a6ff; }
+      .secondary { fill: #9aa4b2; }
+      .quiet { fill: #7d8590; }
+      .card-shadow { fill: #070a10; }
+      .card { fill: #161b22; stroke: #3b434d; }
+      .paper-line { fill: #343b45; }
+      .paper-line-strong { fill: #66707d; }
+      .checkbox { fill: #161b22; stroke: #66707d; }
+      .checkbox-done { fill: #58a6ff; stroke: #58a6ff; }
+      .flow { stroke: #66707d; }
+      .arrowhead { fill: #66707d; }
+      .context-path { stroke: #58a6ff; }
+      .context-halo { stroke: #172a46; }
+      .context-dot { fill: #0d1117; stroke: #58a6ff; }
+      .person-icon { stroke: #f0f6fc; }
+      .agent-icon { stroke: #58a6ff; }
+      .mark-primary { fill: #58a6ff; }
+      .mark-secondary { fill: #f0f6fc; }
+      .mark-outline { fill: #f0f6fc; stroke: #f0f6fc; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .context-dot { animation: none; }
+    }
+    @keyframes context-step {
+      0%, 18%, 100% { transform: scale(1); }
+      7% { transform: scale(1.35); }
+    }
+  </style>
+
+  <rect class="background" width="1080" height="360" rx="16" />
+  <rect class="frame" x="0.5" y="0.5" width="1079" height="359" rx="15.5" />
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text class="heading" x="48" y="54" font-size="26" font-weight="650">Work changes hands. <tspan class="accent-text">Context stays with it.</tspan></text>
+
+    <g transform="translate(70 82)">
+      <circle class="person-icon" cx="12" cy="9" r="5" stroke-width="2" />
+      <path class="person-icon" d="M3 25C3.8 18.8 7 16 12 16C17 16 20.2 18.8 21 25" stroke-width="2" stroke-linecap="round" />
+      <text class="heading" x="32" y="18" font-size="15" font-weight="600">You begin</text>
+    </g>
+
+    <g transform="translate(411 82)">
+      <path class="agent-icon" d="M12 1.5C12.8 7.7 16.3 11.2 22.5 12C16.3 12.8 12.8 16.3 12 22.5C11.2 16.3 7.7 12.8 1.5 12C7.7 11.2 11.2 7.7 12 1.5Z" stroke-width="2" stroke-linejoin="round" />
+      <text class="heading" x="34" y="18" font-size="15" font-weight="600">An agent moves it forward</text>
+    </g>
+
+    <g transform="translate(760 82)">
+      <circle class="person-icon" cx="10" cy="8" r="4" stroke-width="1.8" />
+      <path class="person-icon" d="M3 22C3.6 16.8 6 14.5 10 14.5C14 14.5 16.4 16.8 17 22" stroke-width="1.8" stroke-linecap="round" />
+      <path class="agent-icon" d="M24 3C24.5 7.1 26.9 9.5 31 10C26.9 10.5 24.5 12.9 24 17C23.5 12.9 21.1 10.5 17 10C21.1 9.5 23.5 7.1 24 3Z" stroke-width="1.6" stroke-linejoin="round" />
+      <text class="heading" x="42" y="18" font-size="15" font-weight="600">You or another agent continues</text>
+    </g>
+
+    <path class="flow" d="M287 185C329 166 353 166 397 185" stroke-width="1.6" stroke-dasharray="4 5" marker-end="url(#flow-arrow)" />
+    <text class="quiet" x="342" y="153" font-size="12" font-weight="500" text-anchor="middle">HANDOFF</text>
+
+    <path class="flow" d="M661 185C700 166 724 166 764 185" stroke-width="1.6" stroke-dasharray="4 5" marker-end="url(#flow-arrow)" />
+    <text class="quiet" x="712" y="153" font-size="12" font-weight="500" text-anchor="middle">CONTINUE</text>
+
+    <g transform="rotate(-2 180 190)">
+      <rect class="card-shadow" x="75" y="121" width="216" height="132" rx="8" transform="translate(4 6)" />
+      <rect class="card" x="75" y="121" width="216" height="132" rx="8" />
+      <circle class="accent-text" cx="99" cy="146" r="4" />
+      <rect class="paper-line-strong" x="112" y="141" width="92" height="9" rx="4.5" />
+      <rect class="paper-line" x="99" y="166" width="158" height="7" rx="3.5" />
+      <rect class="paper-line" x="99" y="183" width="129" height="7" rx="3.5" />
+      <rect class="checkbox" x="99" y="202" width="15" height="15" rx="3" />
+      <rect class="paper-line" x="125" y="206" width="91" height="7" rx="3.5" />
+      <rect class="checkbox" x="99" y="226" width="15" height="15" rx="3" />
+      <rect class="paper-line" x="125" y="230" width="112" height="7" rx="3.5" />
+    </g>
+
+    <g transform="rotate(1.5 540 190)">
+      <rect class="card-shadow" x="432" y="121" width="216" height="132" rx="8" transform="translate(4 6)" />
+      <rect class="card" x="432" y="121" width="216" height="132" rx="8" />
+      <circle class="accent-text" cx="456" cy="146" r="4" />
+      <rect class="paper-line-strong" x="469" y="141" width="112" height="9" rx="4.5" />
+      <rect class="paper-line" x="456" y="166" width="158" height="7" rx="3.5" />
+      <rect class="paper-line" x="456" y="183" width="139" height="7" rx="3.5" />
+      <rect class="checkbox-done" x="456" y="202" width="15" height="15" rx="3" />
+      <path class="check" d="M460 209L464 213L468 206" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <rect class="paper-line-strong" x="482" y="206" width="108" height="7" rx="3.5" />
+      <rect class="checkbox" x="456" y="226" width="15" height="15" rx="3" />
+      <rect class="paper-line" x="482" y="230" width="91" height="7" rx="3.5" />
+    </g>
+
+    <g transform="rotate(-1 900 190)">
+      <rect class="card-shadow" x="789" y="121" width="216" height="132" rx="8" transform="translate(4 6)" />
+      <rect class="card" x="789" y="121" width="216" height="132" rx="8" />
+      <circle class="accent-text" cx="813" cy="146" r="4" />
+      <rect class="paper-line-strong" x="826" y="141" width="121" height="9" rx="4.5" />
+      <rect class="paper-line" x="813" y="166" width="158" height="7" rx="3.5" />
+      <rect class="paper-line" x="813" y="183" width="147" height="7" rx="3.5" />
+      <rect class="checkbox-done" x="813" y="202" width="15" height="15" rx="3" />
+      <path class="check" d="M817 209L821 213L825 206" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <rect class="paper-line-strong" x="839" y="206" width="113" height="7" rx="3.5" />
+      <rect class="checkbox-done" x="813" y="226" width="15" height="15" rx="3" />
+      <path class="check" d="M817 233L821 237L825 230" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      <rect class="paper-line-strong" x="839" y="230" width="92" height="7" rx="3.5" />
+    </g>
+
+    <path class="context-halo" d="M32 292C88 278 136 286 180 302C300 284 360 316 540 298C680 282 760 312 900 292C940 286 1012 294 1048 303" stroke-width="13" stroke-linecap="round" />
+    <path class="context-path" d="M32 292C88 278 136 286 180 302C300 284 360 316 540 298C680 282 760 312 900 292C940 286 1012 294 1048 303" stroke-width="2.5" stroke-linecap="round" />
+
+    <line class="context-path" x1="180" y1="253" x2="180" y2="302" stroke-width="1.5" stroke-dasharray="3 5" />
+    <line class="context-path" x1="540" y1="253" x2="540" y2="298" stroke-width="1.5" stroke-dasharray="3 5" />
+    <line class="context-path" x1="900" y1="253" x2="900" y2="292" stroke-width="1.5" stroke-dasharray="3 5" />
+    <circle class="context-dot" cx="180" cy="302" r="6" stroke-width="2.5" />
+    <circle class="context-dot context-dot-middle" cx="540" cy="298" r="6" stroke-width="2.5" />
+    <circle class="context-dot context-dot-end" cx="900" cy="292" r="6" stroke-width="2.5" />
+
+    <g transform="translate(36 310.5) scale(0.252) translate(-85 -64)">
+      <path class="mark-primary" d="M144.581 137.057H95.3388L100.456 126.479H140.529C141.059 126.479 141.565 126.711 141.91 127.114C143.884 129.419 145.372 131.958 146.299 134.646C146.707 135.827 145.83 137.057 144.581 137.057Z" />
+      <path class="mark-secondary" d="M165 142.182C165 125.362 153.601 115.026 141.166 107.015C140.59 106.644 139.852 106.629 139.261 106.976C136.752 108.448 134.208 109.885 131.651 111.351C130.46 112.033 130.427 113.738 131.589 114.467C137.577 118.226 142.634 122.044 146.198 126.479C147.659 128.296 148.231 129.211 149.409 131.511C150.575 133.786 150.988 135.451 151.315 137.057C151.642 138.664 151.818 140.368 151.818 142.182C151.818 143.186 152.632 144 153.636 144H163.181C164.186 144 165 143.186 165 142.182Z" />
+      <path class="mark-primary" d="M146.205 81.5212C141.364 87.5501 133.794 92.3822 125 97.4781L113.709 104C99.467 112.485 85 123.234 85 142.181C85 143.186 85.814 144 86.8182 144H96.3636C97.3677 144 98.1817 143.186 98.1817 142.181C98.1817 134.189 101.557 128.187 107.077 122.934C112.672 117.611 120.358 113.158 128.847 108.307L128.849 108.309L129.288 108.059L129.291 108.057L129.398 107.996C137.532 103.348 146.392 98.2855 153.201 91.7342C160.099 85.0972 165 76.8315 165 65.8182C165 64.814 164.186 64 163.181 64H153.636C152.632 64 151.818 64.814 151.818 65.8182C151.818 67.6344 151.642 69.3371 151.315 70.9424C150.988 72.5478 150.501 74.2709 149.66 76.1139C148.503 78.6488 146.205 81.5212 146.205 81.5212Z" />
+      <path class="mark-secondary" d="M108.835 100.985C96.4001 92.9735 85.0015 82.6382 85.0015 65.8182C85.0015 64.814 85.8155 64 86.8196 64L96.365 64C97.3692 64 98.1832 64.814 98.1832 65.8182C98.1832 67.6319 98.3588 69.3362 98.6857 70.9424L144.581 70.9424C145.83 70.9424 146.707 72.173 146.299 73.3536C145.372 76.0412 143.884 78.5809 141.91 80.8855C141.565 81.2883 141.059 81.5212 140.529 81.5212L103.803 81.5212C107.367 85.9557 112.424 89.7739 118.412 93.5329C119.574 94.2619 119.541 95.9672 118.35 96.649C115.793 98.1144 113.249 99.5516 110.74 101.024C110.149 101.371 109.411 101.356 108.835 100.985Z" />
+      <path class="mark-secondary" d="M436.944 114.192C434.125 118.354 429.358 121.084 423.943 121.084C415.261 121.084 408.235 114.058 408.235 105.375C408.235 96.6932 415.261 89.6669 423.943 89.6669C429.202 89.6669 433.856 92.2627 436.698 96.2458L443.858 92.0837C439.562 85.6616 432.245 81.4324 423.943 81.4324C410.718 81.4324 400 92.1507 400 105.375C400 118.6 410.718 129.319 423.943 129.319C432.357 129.319 439.741 124.978 444.015 118.421L436.944 114.192Z" />
+      <path class="mark-secondary" d="M513.904 128.685V106.397C513.904 102.264 510.263 98.9289 505.778 98.9289C501.292 98.9289 497.652 102.287 497.652 106.397V128.685H489.244V92.3531H497.652V95.594L498.192 95.1478C500.799 92.9167 504.063 91.7424 507.61 91.7424C516.017 91.7424 522.358 98.0599 522.358 106.421V128.708H513.904V128.685Z" />
+      <path class="mark-secondary" d="M571.114 128.661C560.945 128.661 552.654 120.371 552.654 110.202C552.654 100.033 560.945 91.7424 571.114 91.7424C581.283 91.7424 589.573 100.033 589.573 110.202C589.573 111.282 589.479 112.386 589.268 113.49H560.968L561.109 113.889C562.612 118.351 566.628 121.357 571.114 121.357C574.942 121.357 578.464 119.197 580.367 115.698L587.365 118.891C584.125 124.927 577.948 128.661 571.114 128.661ZM571.114 99.0463C566.628 99.0463 562.612 102.053 561.109 106.515L560.968 106.914H581.283L581.142 106.515C579.639 102.053 575.623 99.0463 571.137 99.0463H571.114Z" />
+      <path class="mark-secondary" d="M526.82 100.479V92.9871H531.846V80H540.324V92.9871H549.155V100.479H526.82Z" />
+      <path class="mark-secondary" d="M540.324 100.479V115.932C540.324 118.633 542.508 120.864 545.256 120.864H549.319V128.567H542.931C536.801 128.567 531.822 123.612 531.822 117.459V100.503H540.347L540.324 100.479Z" />
+      <path class="mark-secondary" d="M627.807 100.479V92.9871H632.833V80H641.311V92.9871H650.141V100.479H627.807Z" />
+      <path class="mark-secondary" d="M641.31 100.479V115.932C641.31 118.633 643.494 120.864 646.242 120.864H650.305V128.567H643.917C637.787 128.567 632.809 123.612 632.809 117.459V100.503H641.334L641.31 100.479Z" />
+      <path class="mark-outline" d="M624.659 92.4207H616.43L607.823 104.56L599.225 92.4207H591.005L603.717 110.37L591.005 128.319H599.225L607.823 116.17L616.43 128.319H624.659L611.938 110.37L624.659 92.4207Z" stroke-width="0.628214" stroke-miterlimit="10" />
+      <path class="mark-secondary" d="M465.76 128.953C455.403 128.953 446.972 120.521 446.972 110.164C446.972 99.8074 455.403 91.3762 465.76 91.3762C476.117 91.3762 484.548 99.8074 484.548 110.164C484.548 120.521 476.117 128.953 465.76 128.953ZM465.76 99.69C459.959 99.69 455.262 104.387 455.262 110.188C455.262 115.989 459.959 120.686 465.76 120.686C471.561 120.686 476.258 115.989 476.258 110.188C476.258 104.387 471.561 99.69 465.76 99.69Z" />
+      <path class="mark-secondary" d="M350.844 129C340.181 129 331.453 120.32 331.453 109.609C331.453 98.8986 340.133 90.2188 350.844 90.2188C361.554 90.2188 370.234 98.8986 370.234 109.609C370.234 110.77 370.138 111.906 369.92 113.067H340.205L340.351 113.478C341.922 118.144 346.129 121.311 350.892 121.311C354.93 121.311 358.605 119.039 360.587 115.339L367.937 118.676C364.552 125.011 358.024 128.927 350.844 128.927V129ZM350.844 97.8832C346.129 97.8832 341.922 101.026 340.302 105.717L340.157 106.128H361.506L361.361 105.717C359.79 101.05 355.583 97.8832 350.82 97.8832H350.844Z" />
+      <path class="mark-secondary" d="M259.717 128.952C249.055 128.952 240.375 120.272 240.375 109.609C240.375 98.9469 249.055 90.2671 259.717 90.2671C270.38 90.2671 279.06 98.9469 279.06 109.609C279.06 120.272 270.38 128.952 259.717 128.952ZM259.717 98.8261C253.745 98.8261 248.91 103.662 248.91 109.634C248.91 115.605 253.745 120.441 259.717 120.441C265.689 120.441 270.525 115.605 270.525 109.634C270.525 103.662 265.689 98.8261 259.717 98.8261Z" />
+      <path class="mark-secondary" d="M374.08 128.25V90.8957H382.663V93.8696L383.195 93.4827C384.863 92.2255 386.677 91.3792 388.611 90.944C390.497 90.4846 393.108 90.2913 396.396 90.2429V98.3908C394.196 98.3908 392.286 98.5359 390.714 98.8018C389.046 99.092 387.692 99.4546 386.628 99.9624C385.589 100.446 384.742 101.147 384.162 102.018C383.558 102.888 383.195 103.807 382.978 104.774C382.76 105.717 382.663 106.877 382.663 108.183V128.202H374.08H374.104L374.08 128.25Z" />
+      <path class="mark-secondary" d="M197 128.299V79H222C227.053 79 231.163 80.4991 234.306 83.4971C237.45 86.4952 239.021 90.1219 239.021 94.4013C239.021 99.382 237.498 103.371 234.427 106.442C231.357 109.464 227.246 111.012 222.024 111.012H205.994V128.299H197ZM205.994 102.839H221.758C224.224 102.839 226.183 102.114 227.73 100.615C229.253 99.116 230.003 97.2301 230.003 94.9574C230.003 92.6847 229.229 90.8713 227.706 89.3723C226.183 87.8975 224.224 87.148 221.782 87.148H206.018V102.815L205.994 102.839Z" />
+      <path class="mark-secondary" d="M311.457 128.298L305.268 101.727L298.981 128.298H288.561L279.083 90.9436H287.763L293.952 117.805L300.239 90.9436H310.321L316.583 117.805L322.772 90.9436H331.452L321.902 128.298H311.457Z" />
+    </g>
+  </g>
+</svg>

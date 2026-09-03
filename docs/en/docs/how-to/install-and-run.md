@@ -11,7 +11,7 @@ Server startup, seekDB, diagnostics, and updates for readers who already know wh
 
 ## Install the application
 
-You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS or Linux. Then install
+You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install
 PowerContext directly from a Git ref:
 
 ```bash

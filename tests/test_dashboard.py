@@ -14,13 +14,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from powercontext.builtin.artifacts.skill import AgentSkillTarget
+from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot, Skill, SkillContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import ExternalSkillsConfig, HandoffReportConfig
 from powercontext.server.factory import create_server_app
@@ -31,6 +32,7 @@ from powercontext.server.settings import (
     McpConfig,
     ServerSettings,
 )
+from powercontext.server.web import _skill_projection_response
 
 _AUTH_HEADERS = {"Authorization": "Bearer dashboard-secret"}
 
@@ -41,6 +43,8 @@ def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_pa
         "POWERCONTEXT_SERVER_AUTH_TOKEN",
         "POWERCONTEXT_SERVER_DASHBOARD_ENABLED",
         "POWERCONTEXT_SERVER_DASHBOARD_SCOPES",
+        "POWERCONTEXT_SERVER_PUBLIC_URL",
+        "POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP",
     ):
         monkeypatch.delenv(name, raising=False)
     settings = ServerSettings(
@@ -62,6 +66,25 @@ def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_pa
     assert review.status_code == 200
     assert scopes.status_code == 200
     assert scopes.json() == []
+
+
+def test_dashboard_exposes_explicit_insecure_http_enrollment_guidance(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            public_url="http://11.162.218.22:8765",
+            allow_insecure_http=True,
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'dashboard-http.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        skills = client.get("/skills")
+
+    assert skills.status_code == 200
+    assert 'data-public-server-url="http://11.162.218.22:8765"' in skills.text
+    assert 'data-allow-insecure-http="true"' in skills.text
+    assert 'id="skills-insecure-http-warning"' in skills.text
 
 
 def test_dashboard_can_be_disabled_explicitly(tmp_path) -> None:
@@ -110,6 +133,7 @@ def test_dashboard_mount_failure_does_not_prevent_server_startup(tmp_path, monke
 def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(
+            public_url="https://powercontext.example.com/base/",
             auth=BearerAuthConfig(
                 enabled=True,
                 token=SecretStr("dashboard-secret"),
@@ -146,35 +170,154 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     ]
 
 
-def test_review_publishes_an_approved_managed_skill_into_configured_agent_targets(tmp_path) -> None:
-    codex_skill_root = tmp_path / "repository" / ".agents" / "skills"
-    claude_skill_root = tmp_path / "repository" / ".claude" / "skills"
+def test_publication_status_exposes_a_standard_package_blocker_for_a_legacy_skill() -> None:
+    legacy_skill = Skill(
+        artifact_id="legacy-release-check",
+        revision=1,
+        content=SkillContent(
+            name="legacy-release-check",
+            description="Verify a release created before standard packages were introduced.",
+            instructions="Run the release verification.",
+            validation=("The release report passes.",),
+        ),
+    )
+
+    response = asyncio.run(
+        _skill_projection_response(
+            object(),
+            "project:powercontext",
+            legacy_skill,
+            (
+                AgentSkillTarget(
+                    target_id="codex-project",
+                    agent_kind="codex",
+                    installation_scope="project",
+                    path=Path(".agents/skills"),
+                    allow_managed_publish=True,
+                ),
+            ),
+        )
+    )
+
+    assert response.model_dump(mode="json") == {
+        "artifact": legacy_skill.as_ref().model_dump(mode="json"),
+        "name": "legacy-release-check",
+        "blocker": "standard_package_required",
+        "targets": [],
+    }
+
+
+def test_skill_library_exposes_external_takeover_machine_through_later_revisions(tmp_path) -> None:
+    skill_root = tmp_path / "external" / ".agents" / "skills"
+    package = skill_root / "review-origin"
+    package.mkdir(parents=True)
+    manifest = package / "SKILL.md"
+    manifest.write_text(
+        "---\nname: review-origin\ndescription: Preserve exact Skill origin.\n---\n\nCheck the persisted origin.\n",
+        encoding="utf-8",
+    )
     settings = ServerSettings(
         auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
         dashboard=DashboardConfig(
             enabled=True,
             scopes=[DashboardScopeConfig(scope_id="project:powercontext", display_name="PowerContext")],
         ),
-        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'managed-skill-publish.db'}"),
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'skill-origin.db'}"),
         external_skills=ExternalSkillsConfig(
-            host_id="dashboard-test",
-            targets=(
-                AgentSkillTarget(
-                    target_id="codex-project",
-                    agent_kind="codex",
-                    installation_scope="project",
-                    path=codex_skill_root,
-                    allow_managed_publish=True,
-                ),
-                AgentSkillTarget(
-                    target_id="claude-project",
-                    agent_kind="claude_code",
-                    installation_scope="project",
-                    path=claude_skill_root,
-                    allow_managed_publish=True,
-                ),
-            ),
+            host_id="build-machine-07",
+            codex_roots=(CodexSkillRoot(root_id="origin-test", installation_scope="project", path=skill_root),),
         ),
+        mcp=McpConfig(enabled=False),
+    )
+    app = create_server_app(settings=settings)
+
+    with TestClient(app) as client:
+        scanned = client.post(
+            "/v1/external-skills/scan",
+            headers=_AUTH_HEADERS,
+            json={"scope_id": "project:powercontext"},
+        ).json()
+        registration = scanned["registrations"][0]
+        candidate = client.post(
+            "/v1/external-skills/import",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "external_skill_id": registration["external_skill_id"],
+                "fingerprint": registration["fingerprint"],
+                "mode": "import",
+            },
+        ).json()["candidate"]
+        approved = client.post(
+            "/v1/artifact-candidates/approve",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "candidate_id": candidate["candidate_id"],
+                "expected_version": candidate["version"],
+            },
+        ).json()
+        revision_source = client.post(
+            "/v1/sources/content",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "source_id": "origin-revision",
+                "content": "Keep the original takeover evidence visible after a managed revision.",
+            },
+        ).json()["source"]
+        revision_candidate = client.post(
+            "/v1/skill/propose",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "proposal": candidate["proposal"],
+                "source_refs": [revision_source],
+                "artifact_refs": [approved["result_artifact"]],
+                "target": approved["result_artifact"],
+            },
+        ).json()
+        client.post(
+            "/v1/artifact-candidates/approve",
+            headers=_AUTH_HEADERS,
+            json={
+                "scope_id": "project:powercontext",
+                "candidate_id": revision_candidate["candidate_id"],
+                "expected_version": revision_candidate["version"],
+            },
+        ).raise_for_status()
+        library = client.post(
+            "/dashboard/skills/library",
+            headers=_AUTH_HEADERS,
+            json={"scope_id": "project:powercontext", "include_deprecated": True},
+        )
+
+    assert library.status_code == 200
+    [entry] = library.json()
+    assert entry["artifact"]["revision"] == 2
+    assert entry["origin"] == {
+        "kind": "external_import",
+        "registration": registration,
+        "source": {
+            "source_type": candidate["source_refs"][0]["name"],
+            "source_id": candidate["source_refs"][0]["source_id"],
+        },
+    }
+
+
+def test_review_publishes_an_approved_managed_skill_into_default_project_targets(tmp_path) -> None:
+    workspace = tmp_path / "repository"
+    workspace.mkdir()
+    codex_skill_root = workspace / ".agents" / "skills"
+    claude_skill_root = workspace / ".claude" / "skills"
+    settings = ServerSettings(
+        workspace=workspace,
+        auth=BearerAuthConfig(enabled=True, token=SecretStr("dashboard-secret")),
+        dashboard=DashboardConfig(
+            enabled=True,
+            scopes=[DashboardScopeConfig(scope_id="project:powercontext", display_name="PowerContext")],
+        ),
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'managed-skill-publish.db'}"),
         mcp=McpConfig(enabled=False),
     )
     app = create_server_app(settings=settings)
@@ -282,6 +425,11 @@ def test_review_publishes_an_approved_managed_skill_into_configured_agent_target
                 "expected_version": revision_candidate["version"],
             },
         ).json()
+        library = client.post(
+            "/dashboard/skills/library",
+            headers=_AUTH_HEADERS,
+            json={"scope_id": "project:powercontext", "include_deprecated": True},
+        )
         revision_selection = {
             "scope_id": "project:powercontext",
             "candidate_id": revision_approved["candidate_id"],
@@ -299,6 +447,18 @@ def test_review_publishes_an_approved_managed_skill_into_configured_agent_target
         )
         claude_updated = client.post(
             "/dashboard/skill-projections/publish",
+            headers=_AUTH_HEADERS,
+            json={**revision_selection, "target_id": "claude-project"},
+        )
+        unpublished = client.post(
+            "/dashboard/skill-projections/unpublish",
+            headers=_AUTH_HEADERS,
+            json={**revision_selection, "target_id": "codex-project"},
+        )
+        claude_skill = claude_skill_root / "review-contract-change" / "SKILL.md"
+        claude_skill.write_text(claude_skill.read_text(encoding="utf-8") + "\nLocal edit.\n", encoding="utf-8")
+        drifted_unpublish = client.post(
+            "/dashboard/skill-projections/unpublish",
             headers=_AUTH_HEADERS,
             json={**revision_selection, "target_id": "claude-project"},
         )
@@ -321,6 +481,8 @@ def test_review_publishes_an_approved_managed_skill_into_configured_agent_target
         **approved["result_artifact"],
         "revision": approved["result_artifact"]["revision"] + 1,
     }
+    assert library.status_code == 200
+    assert library.json()[0]["origin"] == {"kind": "powercontext", "registration": None, "source": None}
     assert update_available.status_code == 200
     assert update_available.json()["targets"][0]["state"] == "update_available"
     assert updated.status_code == 200
@@ -329,10 +491,14 @@ def test_review_publishes_an_approved_managed_skill_into_configured_agent_target
     assert claude_updated.status_code == 200
     assert claude_updated.json()["targets"][1]["state"] == "current"
     assert claude_updated.json()["targets"][1]["published_revision"] == 2
-    assert codex_destination.joinpath("SKILL.md").is_file()
+    assert unpublished.status_code == 200
+    assert unpublished.json()["targets"][0]["state"] == "unpublished"
+    assert not codex_destination.exists()
+    assert drifted_unpublish.status_code == 409
+    assert drifted_unpublish.json()["error"]["details"]["state"] == "drifted"
     assert claude_destination.joinpath("SKILL.md").is_file()
-    assert "verify the packaged contract" in codex_destination.joinpath("SKILL.md").read_text(encoding="utf-8")
     assert "verify the packaged contract" in claude_destination.joinpath("SKILL.md").read_text(encoding="utf-8")
+    assert {path.name for path in claude_destination.iterdir()} == {"SKILL.md"}
     assert registered.status_code == 200
     assert {skill["registration"]["locator"] for skill in registered.json()["skills"]} == {
         str(codex_destination),

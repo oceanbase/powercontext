@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent, ExperienceSearchHit
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
-from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillPackageSnapshot, SkillSearchHit
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE, BUILTIN_TABLES
@@ -83,6 +83,26 @@ class _FailingExperienceIndex:
         _limit: int,
         /,
     ) -> tuple[ExperienceSearchHit, ...]:
+        return ()
+
+    async def replace_skill(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _skill: Skill,
+        _package: SkillPackageSnapshot,
+        /,
+    ) -> None:
+        pass
+
+    async def search_skills(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _query: str,
+        _limit: int,
+        /,
+    ) -> tuple[SkillSearchHit, ...]:
         return ()
 
 

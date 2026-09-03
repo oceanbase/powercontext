@@ -15,7 +15,7 @@
 import pytest
 from pydantic import ValidationError
 
-from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.skill import SkillContent, SkillGenerationOutput
 
 
 def test_skill_content_requires_complete_portable_instructions() -> None:
@@ -49,3 +49,22 @@ def test_skill_content_rejects_incomplete_or_ambiguous_text(field: str, value: o
 
     with pytest.raises(ValidationError):
         SkillContent.model_validate(payload)
+
+
+def test_model_generated_skill_cannot_claim_an_existing_package_snapshot() -> None:
+    with pytest.raises(ValidationError):
+        SkillGenerationOutput.model_validate({
+            "proposal": {
+                "name": "forked-skill",
+                "description": "A semantic fork.",
+                "instructions": "Use the revised procedure.",
+                "validation": ["The revised check passes."],
+                "package": {
+                    "tree_digest": "a" * 64,
+                    "archive_digest": "b" * 64,
+                    "file_count": 1,
+                    "uncompressed_size": 1,
+                    "archive_size": 1,
+                },
+            }
+        })

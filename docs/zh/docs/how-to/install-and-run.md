@@ -11,7 +11,7 @@ description: 从 Git 安装 PowerContext，并运行本地 Server。
 
 ## 安装应用
 
-需要在 macOS 或 Linux 上准备 Python 3.11 或更新版本、Git 和
+需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和
 [`uv`](https://docs.astral.sh/uv/)，然后从指定 Git ref 直接安装 PowerContext：
 
 ```bash

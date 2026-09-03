@@ -16,16 +16,13 @@
 
 from __future__ import annotations
 
-import os
-from collections.abc import Mapping
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from pydantic import ValidationError
 
-from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
+from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
 from powercontext.server.settings import (
@@ -78,49 +75,39 @@ def run(
 ) -> None:
     """Run the ASGI service in the foreground."""
 
-    loaded: Mapping[str, str] = {}
-    if env_file is not None:
-        try:
-            loaded = read_environment_file(env_file)
-        except (EnvironmentFileError, OSError) as error:
-            typer.echo(f"Invalid value for --env-file: {error}", err=True)
-            raise typer.Exit(code=2) from error
-    server_environment = {name for name in os.environ if name.startswith("POWERCONTEXT_SERVER_")}
-    loaded_context = (
-        environment_context(loaded, override=True, clear=server_environment) if env_file is not None else nullcontext()
-    )
-    with loaded_context:
-        # Layer CLI overrides in before validation so the bind policy checks the address
-        # the process will actually use, including values loaded from --env-file.
-        http_overrides: dict[str, Any] = {}
-        if host is not None:
-            http_overrides["host"] = host
-        if port is not None:
-            http_overrides["port"] = port
-        settings_kwargs: dict[str, Any] = {"http": http_overrides} if http_overrides else {}
-        try:
-            settings = ServerSettings(**settings_kwargs)
-        except ValidationError as error:
-            raise _friendly_bad_parameter(error) from error
-        configure_server_logging(settings.logging)
-        tracing = configure_server_tracing(settings.tracing)
-        try:
-            application = create_server_app(settings=settings, tracing=tracing)
-            if settings.dashboard.enabled:
-                if application.state.dashboard_started:
-                    typer.echo(f"PowerContext Dashboard: http://{settings.http.host}:{settings.http.port}/")
-                else:
-                    typer.echo(
-                        f"PowerContext Dashboard failed to start: {application.state.dashboard_startup_error}",
-                        err=True,
-                    )
-            _run_server(
-                application,
-                host=settings.http.host,
-                port=settings.http.port,
-            )
-        finally:
-            tracing.shutdown()
+    try:
+        with server_settings_context(host=host, port=port, env_file=env_file) as settings:
+            _run_configured_server(settings)
+    except ServerConfigurationError as error:
+        if isinstance(error.cause, ValidationError):
+            raise _friendly_bad_parameter(error.cause) from error
+        hint = "Invalid value for --env-file" if env_file is not None else "Invalid Server configuration"
+        typer.echo(f"{hint}: {error}", err=True)
+        raise typer.Exit(code=2) from error
+
+
+def _run_configured_server(settings: ServerSettings) -> None:
+    """Run one already-validated configuration in the current process."""
+
+    configure_server_logging(settings.logging)
+    tracing = configure_server_tracing(settings.tracing)
+    try:
+        application = create_server_app(settings=settings, tracing=tracing)
+        if settings.dashboard.enabled:
+            if application.state.dashboard_started:
+                typer.echo(f"PowerContext Dashboard: http://{settings.http.host}:{settings.http.port}/")
+            else:
+                typer.echo(
+                    f"PowerContext Dashboard failed to start: {application.state.dashboard_startup_error}",
+                    err=True,
+                )
+        _run_server(
+            application,
+            host=settings.http.host,
+            port=settings.http.port,
+        )
+    finally:
+        tracing.shutdown()
 
 
 def _friendly_bad_parameter(error: ValidationError) -> typer.BadParameter:

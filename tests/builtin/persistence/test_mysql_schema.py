@@ -21,9 +21,11 @@ from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConst
 
 from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
 from powercontext.builtin.persistence.tables import (
+    AGENT_SKILL_TARGETS_TABLE,
     ARTIFACTS_TABLE,
     BUILTIN_TABLES,
     SHARED_METADATA,
+    SKILL_PACKAGES_TABLE,
     SOURCE_CURSORS_TABLE,
     SOURCES_TABLE,
 )
@@ -61,14 +63,26 @@ def test_mysql_ddl_uses_utf8mb4_bin_for_identity_keys() -> None:
 def test_mysql_ddl_uses_mediumblob_for_every_canonical_payload() -> None:
     dialect = mysql.dialect()
     expected = {
-        SOURCES_TABLE: "payload",
-        ARTIFACTS_TABLE: "content",
-        SOURCE_CURSORS_TABLE: "`cursor`",
+        SOURCES_TABLE: ("payload",),
+        ARTIFACTS_TABLE: ("content",),
+        SOURCE_CURSORS_TABLE: ("`cursor`",),
+        SKILL_PACKAGES_TABLE: ("archive_bytes", "manifest"),
     }
 
-    for table, column_name in expected.items():
+    for table, column_names in expected.items():
         ddl = str(CreateTable(table).compile(dialect=dialect))
-        assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
+        for column_name in column_names:
+            assert f"{column_name} MEDIUMBLOB NOT NULL" in ddl
+
+
+def test_mysql_remote_target_credentials_use_binary_identity_columns() -> None:
+    ddl = str(CreateTable(AGENT_SKILL_TARGETS_TABLE).compile(dialect=mysql.dialect()))
+
+    assert "credential_verifier VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin" in ddl
+    assert "UNIQUE (credential_verifier)" in ddl
+    assert "ck_pc_agent_skill_targets_state_payload" in ddl
+    assert "state = 'active'" in ddl
+    assert "credential_verifier IS NOT NULL" in ddl
 
 
 def _assert_restore_layers_are_parent_first(

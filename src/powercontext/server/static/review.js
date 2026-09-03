@@ -98,6 +98,7 @@ const translations = {
     installationPlugin: "Plugin",
     noPublishTargets: "No writable Skill target is configured.",
     noPublishTargetsHint: "Enable managed publication on an explicit local Agent target.",
+    standardPackageRequired: "This approved Skill predates standard package snapshots. Create and approve a package-backed revision before publishing.",
     publishedRevision: "Published revision",
     destination: "Destination",
     discovery: "Discovery",
@@ -137,6 +138,11 @@ const translations = {
     description: "Description",
     instructions: "Instructions",
     validation: "Validation",
+    packageContents: "Package contents",
+    packageFiles: "Package files",
+    packageLoading: "Loading exact package files...",
+    packageBinary: "Binary file preview is unavailable.",
+    packageLoadFailed: "The exact package could not be loaded.",
     revise: "Revise",
     approve: "Approve",
     reject: "Reject",
@@ -250,6 +256,7 @@ const translations = {
     installationPlugin: "插件级",
     noPublishTargets: "未配置可写的技能目标。",
     noPublishTargetsHint: "请在一个明确的本地技能目录上启用受管发布。",
+    standardPackageRequired: "这项已批准技能创建于标准技能包支持之前。请先创建并批准一个由完整技能包支持的新修订，再进行发布。",
     publishedRevision: "已发布修订",
     destination: "目标位置",
     discovery: "发现状态",
@@ -289,6 +296,11 @@ const translations = {
     description: "说明",
     instructions: "使用指引",
     validation: "验证条件",
+    packageContents: "技能包内容",
+    packageFiles: "技能包文件",
+    packageLoading: "正在加载精确技能包文件……",
+    packageBinary: "二进制文件不提供预览。",
+    packageLoadFailed: "无法加载精确技能包。",
     revise: "修订",
     approve: "批准",
     reject: "拒绝",
@@ -373,6 +385,11 @@ const conflictActions = document.getElementById("review-conflict-actions");
 const resumeDraftButton = document.getElementById("review-resume-draft");
 const discardDraftButton = document.getElementById("review-discard-draft");
 const proposalFields = document.getElementById("review-proposal-fields");
+const packageSection = document.getElementById("review-package");
+const packageStatus = document.getElementById("review-package-status");
+const packageFiles = document.getElementById("review-package-files");
+const packagePath = document.getElementById("review-package-path");
+const packagePreview = document.getElementById("review-package-preview");
 const sourceRefs = document.getElementById("review-source-refs");
 const artifactRefs = document.getElementById("review-artifact-refs");
 const lineageFields = document.getElementById("review-lineage-fields");
@@ -423,6 +440,8 @@ let draft = null;
 let conflictDraft = null;
 let projectionView = null;
 let projectionLoading = false;
+let packageManifest = null;
+let packageLoadingDigest = "";
 let busy = false;
 let scopeActiveIndex = -1;
 
@@ -433,6 +452,7 @@ const listRequests = createRequestGate();
 const detailRequests = createRequestGate();
 const actionRequests = createRequestGate();
 const projectionRequests = createRequestGate();
+const packageRequests = createRequestGate();
 const ui = createPageUi(translations, () => {
   renderAuthError();
   renderPageStatus();
@@ -503,7 +523,7 @@ signOut.addEventListener("click", () => {
 });
 
 editButton.addEventListener("click", () => {
-  if (selectedCandidate && isSupportedCandidate(selectedCandidate)) {
+  if (isEditableCandidate(selectedCandidate)) {
     startRevision(selectedCandidate.proposal, selectedCandidate.version);
   }
 });
@@ -1418,6 +1438,7 @@ function renderDetail() {
   detailStatus.textContent = translate(candidate.status);
   detailVersion.textContent = translate("version", {version: candidate.version});
   renderProposal(candidate);
+  renderPackage(candidate);
   renderEvidence(candidate);
   renderLineage(candidate);
   renderPublication();
@@ -1426,6 +1447,7 @@ function renderDetail() {
   }
   const decisionEnabled = canDecide(candidate);
   reviewActions.hidden = !decisionEnabled || !revisionForm.hidden;
+  editButton.hidden = !isEditableCandidate(candidate);
   editButton.disabled = busy;
   approveButton.disabled = busy;
   rejectButton.disabled = busy;
@@ -1442,6 +1464,12 @@ function clearDetail() {
   detailContent.hidden = true;
   revisionForm.hidden = true;
   proposalFields.replaceChildren();
+  packageRequests.cancel();
+  packageManifest = null;
+  packageLoadingDigest = "";
+  packageSection.hidden = true;
+  packageFiles.replaceChildren();
+  packagePreview.textContent = "";
   sourceRefs.replaceChildren();
   artifactRefs.replaceChildren();
   lineageFields.replaceChildren();
@@ -1464,6 +1492,90 @@ function renderProposal(candidate) {
   for (const key of keys) {
     const value = candidate.proposal[key];
     appendDefinition(proposalFields, key, Array.isArray(value) ? value.join("\n") : value);
+  }
+}
+
+function renderPackage(candidate) {
+  const reference = candidate.family === "skill" ? candidate.proposal.package : null;
+  packageSection.hidden = !reference;
+  if (!reference) {
+    packageManifest = null;
+    packageFiles.replaceChildren();
+    packagePreview.textContent = "";
+    return;
+  }
+  if (packageManifest?.package?.tree_digest === reference.tree_digest) {
+    renderPackageFiles(candidate);
+    return;
+  }
+  if (packageLoadingDigest === reference.tree_digest) {
+    return;
+  }
+  packageLoadingDigest = reference.tree_digest;
+  packageStatus.textContent = translate("packageLoading");
+  packageFiles.replaceChildren();
+  packagePreview.textContent = "";
+  void loadPackageManifest(candidate, reference);
+}
+
+async function loadPackageManifest(candidate, reference) {
+  const request = packageRequests.start();
+  try {
+    const manifest = await requestJson("/dashboard/skill-packages/manifest", {
+      scope_id: currentScopeId,
+      package: reference
+    });
+    if (!request.isCurrent() || selectedCandidateId !== candidate.candidate_id) {
+      return;
+    }
+    packageManifest = manifest;
+    packageLoadingDigest = "";
+    packageStatus.textContent = "";
+    renderPackageFiles(candidate);
+    if (manifest.files.length) {
+      void loadPackagePreview(candidate, reference, manifest.files[0].path);
+    }
+  } catch (error) {
+    if (request.isCurrent() && selectedCandidateId === candidate.candidate_id) {
+      packageLoadingDigest = "";
+      packageStatus.textContent = translate("packageLoadFailed");
+    }
+  }
+}
+
+function renderPackageFiles(candidate) {
+  packageFiles.replaceChildren();
+  for (const file of packageManifest?.files || []) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${file.path} · ${formatNumber(file.size)} B${file.executable ? " · executable" : ""}`;
+    button.addEventListener("click", () => {
+      void loadPackagePreview(candidate, candidate.proposal.package, file.path);
+    });
+    item.append(button);
+    packageFiles.append(item);
+  }
+}
+
+async function loadPackagePreview(candidate, reference, path) {
+  const request = packageRequests.start();
+  packagePath.textContent = path;
+  packagePreview.textContent = "";
+  try {
+    const preview = await requestJson("/dashboard/skill-packages/preview", {
+      scope_id: currentScopeId,
+      package: reference,
+      path
+    });
+    if (!request.isCurrent() || selectedCandidateId !== candidate.candidate_id) {
+      return;
+    }
+    packagePreview.textContent = preview.binary ? translate("packageBinary") : (preview.content || "");
+  } catch (error) {
+    if (request.isCurrent() && selectedCandidateId === candidate.candidate_id) {
+      packagePreview.textContent = translate("packageLoadFailed");
+    }
   }
 }
 
@@ -1527,6 +1639,10 @@ function renderPublication() {
   if (projectionLoading || !projectionView) {
     return;
   }
+  if (projectionView.blocker === "standard_package_required") {
+    publicationStatus.textContent = translate("standardPackageRequired");
+    return;
+  }
   if (projectionView.targets.length === 0) {
     publicationEmpty.hidden = false;
     return;
@@ -1588,8 +1704,10 @@ function isPublishableCandidate(candidate) {
 }
 
 function canPublishProjection(target) {
-  return ["unpublished", "update_available"].includes(target.state)
-    || (target.state === "current" && target.discovery !== "available");
+  return target.compatibility !== "incompatible" && (
+    ["unpublished", "update_available"].includes(target.state)
+    || (target.state === "current" && target.discovery !== "available")
+  );
 }
 
 function publicationActionKey(target) {
@@ -1909,6 +2027,13 @@ function readReviewDeepLink() {
 
 function canDecide(candidate) {
   return Boolean(candidate && candidate.status === "pending" && isSupportedCandidate(candidate));
+}
+
+function isEditableCandidate(candidate) {
+  return Boolean(
+    isSupportedCandidate(candidate)
+    && !(candidate.family === "skill" && candidate.proposal.package)
+  );
 }
 
 function isSupportedCandidate(candidate) {
