@@ -62,6 +62,28 @@ def test_vector_index_probe_clears_a_leftover_probe_row(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_vector_index_initialize_drops_embeddings_without_metadata(tmp_path) -> None:
+    async def scenario() -> None:
+        async with (
+            SQLiteProfile.open(
+                SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}"),
+                tables=SQLITE_MEMORY_VECTOR_TABLES,
+                load_vector_extension=True,
+            ) as profile,
+            profile.database.transaction() as connection,
+        ):
+            await connection.exec_driver_sql("CREATE VIRTUAL TABLE pc_memory_entry_vec USING vec0(embedding float[3])")
+            await connection.execute(
+                _INSERT_VECTOR_SQL,
+                {"vector_id": 7, "embedding": _pack_vector((0.0, 0.0, 1.0))},
+            )
+            await SQLiteMemoryVectorIndex(_profile(3)).initialize(connection)
+            remaining = (await connection.exec_driver_sql("SELECT count(*) FROM pc_memory_entry_vec")).scalar()
+            assert int(remaining) == 0
+
+    asyncio.run(scenario())
+
+
 def test_vector_index_probe_reports_a_table_dimension_mismatch(tmp_path) -> None:
     async def scenario() -> None:
         async with (

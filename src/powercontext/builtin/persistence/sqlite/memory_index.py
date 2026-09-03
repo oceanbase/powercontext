@@ -152,6 +152,9 @@ _INSERT_FTS_SQL = text(
     """
 )
 _DELETE_VECTOR_SQL = text("DELETE FROM pc_memory_entry_vec WHERE rowid = :vector_id")
+_DELETE_ORPHAN_VECTORS_SQL = (
+    "DELETE FROM pc_memory_entry_vec WHERE rowid NOT IN (SELECT vector_id FROM pc_memory_vector_entries)"
+)
 _INSERT_VECTOR_SQL = text("INSERT INTO pc_memory_entry_vec (rowid, embedding) VALUES (:vector_id, :embedding)")
 _SELECT_VECTOR_SQL = text("SELECT embedding FROM pc_memory_entry_vec WHERE rowid = :vector_id")
 _VECTOR_SEARCH_SQL = text(
@@ -347,6 +350,9 @@ class SQLiteMemoryVectorIndex:
             raise CapabilityNotSupportedError("vector", detail) from error
         if row is None or int(row[0]) != -1:
             raise CapabilityNotSupportedError("vector", "sqlite-vec probe returned an invalid row")
+        # Embeddings are only reachable through their metadata rows. Drop any that
+        # lost theirs, so stale neighbors cannot take the place of live entries.
+        await connection.exec_driver_sql(_DELETE_ORPHAN_VECTORS_SQL)
 
     async def replace(
         self,
