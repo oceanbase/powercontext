@@ -94,7 +94,7 @@ jobs:
         run: make opendal-test
 
 
-  check-docs:
+  check-website:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -103,5 +103,8 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
-      - name: Check if documentation can be built
+      - name: Set up website tools
+        uses: jdx/mise-action@v2
+
+      - name: Check website
         run: make docs-test
