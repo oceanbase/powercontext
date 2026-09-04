@@ -102,19 +102,26 @@ class HandoffService:
             content=content,
         )
 
-    async def commit(self, prepared: PreparedHandoff, /) -> Handoff:
+    async def commit(
+        self,
+        prepared: PreparedHandoff,
+        /,
+        *,
+        additional_sources: tuple[SourceRef, ...] = (),
+        force_revision: bool = False,
+    ) -> Handoff:
         """Commit an explicit milestone with no-op and optimistic concurrency semantics."""
 
         self._require_prepared(prepared)
         current = await self._backend.latest(self.artifact_id)
-        if current is not None and current.content == prepared.content:
+        if not force_revision and current is not None and current.content == prepared.content:
             return current
 
         self._require_current_base(prepared.base, current)
         await self._validate_evidence(prepared.content)
         draft = HandoffArtifactDraft(
             content=prepared.content,
-            sources=_source_lineage(prepared.content),
+            sources=(*additional_sources, *_source_lineage(prepared.content)),
             artifacts=_artifact_lineage(prepared.content),
         )
         if current is None:

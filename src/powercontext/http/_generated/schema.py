@@ -2056,10 +2056,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "post": {
                 "tags": ["artifacts"],
                 "summary": "Create an Artifact",
-                "description": "Validate family content "
-                "and atomically create "
-                "revision one with its "
-                "system provenance Source.",
+                "description": "Dispatch the "
+                "family-specific creation "
+                "command through the owning "
+                "Family writer and "
+                "atomically create revision "
+                "one, its derived Family "
+                "state, and its system "
+                "provenance Source. Handoff "
+                "is the Scope singleton: "
+                "Create returns 409 when it "
+                "already exists and callers "
+                "must use Replace to update "
+                "it.",
                 "operationId": "create_artifact",
                 "parameters": [
                     {
@@ -5044,13 +5053,130 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["hits"],
             },
             "CreateArtifactRequest": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/CreateMemoryArtifactRequest"},
+                    {"$ref": "#/components/schemas/CreateExperienceArtifactRequest"},
+                    {"$ref": "#/components/schemas/CreateSkillArtifactRequest"},
+                    {"$ref": "#/components/schemas/CreateHandoffArtifactRequest"},
+                ],
+                "discriminator": {
+                    "propertyName": "family",
+                    "mapping": {
+                        "memory": "#/components/schemas/CreateMemoryArtifactRequest",
+                        "experience": "#/components/schemas/CreateExperienceArtifactRequest",
+                        "skill": "#/components/schemas/CreateSkillArtifactRequest",
+                        "handoff": "#/components/schemas/CreateHandoffArtifactRequest",
+                    },
+                },
+            },
+            "CreateMemoryArtifactRequest": {
                 "properties": {
-                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
-                    "content": {"additionalProperties": True, "type": "object"},
+                    "family": {"type": "string", "enum": ["memory"]},
+                    "content": {"$ref": "#/components/schemas/CreateMemoryArtifactContent"},
                 },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["family", "content"],
+            },
+            "CreateExperienceArtifactRequest": {
+                "properties": {
+                    "family": {"type": "string", "enum": ["experience"]},
+                    "content": {"$ref": "#/components/schemas/ExperienceProposal"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "content"],
+            },
+            "CreateSkillArtifactRequest": {
+                "properties": {
+                    "family": {"type": "string", "enum": ["skill"]},
+                    "content": {"$ref": "#/components/schemas/SkillProposal"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "content"],
+            },
+            "CreateHandoffArtifactRequest": {
+                "properties": {
+                    "family": {"type": "string", "enum": ["handoff"]},
+                    "content": {"$ref": "#/components/schemas/HandoffContent"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "content"],
+            },
+            "CreateMemoryArtifactContent": {
+                "properties": {
+                    "entries": {
+                        "items": {"$ref": "#/components/schemas/CreateMemoryArtifactEntry"},
+                        "type": "array",
+                        "maxItems": 100,
+                        "minItems": 1,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["entries"],
+            },
+            "CreateMemoryArtifactEntry": {
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "description": "Open "
+                        "application-defined "
+                        "Memory "
+                        "kind. "
+                        "Recommended "
+                        "values "
+                        "are "
+                        "fact, "
+                        "preference, "
+                        "decision, "
+                        "constraint, "
+                        "and "
+                        "working_note. "
+                        "The "
+                        "Server "
+                        "validates "
+                        "and "
+                        "preserves "
+                        "the "
+                        "supplied "
+                        "value; "
+                        "it "
+                        "never "
+                        "guesses "
+                        "or "
+                        "replaces "
+                        "it.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "maxLength": 8192,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "description": "Durable "
+                        "non-empty "
+                        "Memory "
+                        "entry "
+                        "text "
+                        "used "
+                        "to "
+                        "create "
+                        "the "
+                        "Entry "
+                        "Version "
+                        "and "
+                        "search "
+                        "projection.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "text"],
             },
             "CreateSourceRequest": {
                 "properties": {
@@ -5070,7 +5196,69 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "ReplaceArtifactRequest": {
-                "properties": {"content": {"additionalProperties": True, "type": "object"}},
+                "oneOf": [
+                    {"$ref": "#/components/schemas/ReplaceMemoryArtifactRequest"},
+                    {"$ref": "#/components/schemas/ReplaceExperienceArtifactRequest"},
+                    {"$ref": "#/components/schemas/ReplaceSkillArtifactRequest"},
+                    {"$ref": "#/components/schemas/ReplaceHandoffArtifactRequest"},
+                ]
+            },
+            "ReplaceMemoryArtifactRequest": {
+                "properties": {"content": {"$ref": "#/components/schemas/ReplaceMemoryArtifactContent"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content"],
+            },
+            "ReplaceMemoryArtifactContent": {
+                "properties": {
+                    "entries": {
+                        "items": {"$ref": "#/components/schemas/ReplaceMemoryArtifactEntry"},
+                        "type": "array",
+                        "maxItems": 100,
+                        "minItems": 1,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["entries"],
+            },
+            "ReplaceMemoryArtifactEntry": {
+                "properties": {
+                    "entry_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "description": "Existing logical entry to revise. Omit to append a new entry.",
+                        "nullable": True,
+                    },
+                    "kind": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "description": "Open application-defined kind; the Server preserves the supplied value.",
+                    },
+                    "text": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "text"],
+            },
+            "ReplaceExperienceArtifactRequest": {
+                "properties": {"content": {"$ref": "#/components/schemas/ExperienceProposal"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content"],
+            },
+            "ReplaceSkillArtifactRequest": {
+                "properties": {"content": {"$ref": "#/components/schemas/SkillProposal"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content"],
+            },
+            "ReplaceHandoffArtifactRequest": {
+                "properties": {"content": {"$ref": "#/components/schemas/HandoffContent"}},
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["content"],

@@ -2240,7 +2240,10 @@ paths:
     post:
       tags: [artifacts]
       summary: Create an Artifact
-      description: Validate family content and atomically create revision one with its system provenance Source.
+      description: >-
+        Dispatch the family-specific creation command through the owning Family writer and atomically create
+        revision one, its derived Family state, and its system provenance Source. Handoff is the Scope singleton:
+        Create returns 409 when it already exists and callers must use Replace to update it.
       operationId: create_artifact
       parameters:
         - name: scope_id
@@ -6220,15 +6223,88 @@ components:
           items:
             $ref: "#/components/schemas/SearchMemoryHit"
     CreateArtifactRequest:
+      oneOf:
+        - $ref: "#/components/schemas/CreateMemoryArtifactRequest"
+        - $ref: "#/components/schemas/CreateExperienceArtifactRequest"
+        - $ref: "#/components/schemas/CreateSkillArtifactRequest"
+        - $ref: "#/components/schemas/CreateHandoffArtifactRequest"
+      discriminator:
+        propertyName: family
+        mapping:
+          memory: "#/components/schemas/CreateMemoryArtifactRequest"
+          experience: "#/components/schemas/CreateExperienceArtifactRequest"
+          skill: "#/components/schemas/CreateSkillArtifactRequest"
+          handoff: "#/components/schemas/CreateHandoffArtifactRequest"
+    CreateMemoryArtifactRequest:
       type: object
       additionalProperties: false
       required: [family, content]
       properties:
         family:
-          $ref: "#/components/schemas/BaseArtifactFamily"
+          type: string
+          enum: [memory]
         content:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/CreateMemoryArtifactContent"
+    CreateExperienceArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [family, content]
+      properties:
+        family:
+          type: string
+          enum: [experience]
+        content:
+          $ref: "#/components/schemas/ExperienceProposal"
+    CreateSkillArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [family, content]
+      properties:
+        family:
+          type: string
+          enum: [skill]
+        content:
+          $ref: "#/components/schemas/SkillProposal"
+    CreateHandoffArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [family, content]
+      properties:
+        family:
+          type: string
+          enum: [handoff]
+        content:
+          $ref: "#/components/schemas/HandoffContent"
+    CreateMemoryArtifactContent:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CreateMemoryArtifactEntry"
+    CreateMemoryArtifactEntry:
+      type: object
+      additionalProperties: false
+      required: [kind, text]
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          description: >-
+            Open application-defined Memory kind. Recommended values are fact, preference, decision, constraint,
+            and working_note. The Server validates and preserves the supplied value; it never guesses or replaces it.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+          description: Durable non-empty Memory entry text used to create the Entry Version and search projection.
     CreateSourceRequest:
       type: object
       additionalProperties: false
@@ -6255,13 +6331,73 @@ components:
           maxLength: 4096
           nullable: true
     ReplaceArtifactRequest:
+      oneOf:
+        - $ref: "#/components/schemas/ReplaceMemoryArtifactRequest"
+        - $ref: "#/components/schemas/ReplaceExperienceArtifactRequest"
+        - $ref: "#/components/schemas/ReplaceSkillArtifactRequest"
+        - $ref: "#/components/schemas/ReplaceHandoffArtifactRequest"
+    ReplaceMemoryArtifactRequest:
       type: object
       additionalProperties: false
       required: [content]
       properties:
         content:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/ReplaceMemoryArtifactContent"
+    ReplaceMemoryArtifactContent:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ReplaceMemoryArtifactEntry"
+    ReplaceMemoryArtifactEntry:
+      type: object
+      additionalProperties: false
+      required: [kind, text]
+      properties:
+        entry_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
+          nullable: true
+          description: Existing logical entry to revise. Omit to append a new entry.
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          description: Open application-defined kind; the Server preserves the supplied value.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '.*\S.*'
+    ReplaceExperienceArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          $ref: "#/components/schemas/ExperienceProposal"
+    ReplaceSkillArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          $ref: "#/components/schemas/SkillProposal"
+    ReplaceHandoffArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          $ref: "#/components/schemas/HandoffContent"
     SourceRecord:
       type: object
       required: [scope_id, source_type, source_id, content, position, content_digest]

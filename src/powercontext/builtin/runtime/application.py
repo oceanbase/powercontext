@@ -97,6 +97,7 @@ from powercontext.builtin.persistence.artifact_governance import (
     ArtifactLifecycleState,
 )
 from powercontext.builtin.persistence.skill_publications import SkillPublication
+from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.records import (
     ArtifactCreated,
     ArtifactRecord,
@@ -107,7 +108,6 @@ from powercontext.builtin.records import (
     ScopeSummaryPage,
     SourceRecord,
 )
-from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime._scope_cache import (

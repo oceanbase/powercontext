@@ -89,6 +89,13 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.family_management import (
+    ExperienceManagementWriter,
+    FamilyManagementWriterRegistry,
+    HandoffManagementWriter,
+    MemoryManagementWriter,
+    SkillManagementWriter,
+)
 from powercontext.builtin.persistence.handoff import (
     RelationalHandoffBackend,
     RelationalHandoffEvidenceResolver,
@@ -123,8 +130,8 @@ from powercontext.builtin.runtime.prepared_context import PreparedContextBuild
 from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
-from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
 from powercontext.builtin.scope import ScopeApplication
+from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -409,10 +416,36 @@ class RelationalContexts:
             skill_publications=SkillPublicationRepository(),
             statistics=StatisticsRepository(),
         )
+        self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
+        family_writers = FamilyManagementWriterRegistry((
+            MemoryManagementWriter(
+                database=database,
+                artifacts=self.repositories.artifacts,
+                index=self.index,
+                embedding_model=embedding_model,
+                id_factory=self._id_factory,
+            ),
+            ExperienceManagementWriter(self.repositories.artifacts, self.experience_index),
+            SkillManagementWriter(
+                self.repositories.artifacts,
+                self.experience_index,
+                self.repositories.skill_packages,
+            ),
+            HandoffManagementWriter(
+                database=database,
+                artifacts=self.repositories.artifacts,
+                sources=self.repositories.sources,
+                memory_index=self.index,
+                id_factory=self._id_factory,
+                memory_artifact_id=memory_artifact_id,
+                handoff_artifact_id=handoff_artifact_id,
+            ),
+        ))
         self.records = RelationalRecordService(
             database,
             self.repositories.sources,
             self.repositories.artifacts,
+            family_writers,
             id_factory=id_factory,
             cursor_secret=cursor_secret,
         )
@@ -438,7 +471,6 @@ class RelationalContexts:
         self._token_estimator = token_estimator
         self._memory_reranker = memory_reranker
         self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
-        self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
         self._contexts: dict[

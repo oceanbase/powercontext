@@ -27,6 +27,9 @@ from powercontext.http import (
     GetHandoffReportRequest,
     ListArtifactsRequest,
     ReplaceArtifactRequest,
+    ReplaceMemoryArtifactContent,
+    ReplaceMemoryArtifactEntry,
+    ReplaceMemoryArtifactRequest,
     ReportFormat,
     ScopeId,
     ScopeSelection,
@@ -321,7 +324,13 @@ def test_client_sends_opaque_replace_precondition_verbatim() -> None:
                 "scope-a",
                 "memory",
                 "artifact-1",
-                ReplaceArtifactRequest(content={"manifest": {}}),
+                ReplaceArtifactRequest(
+                    root=ReplaceMemoryArtifactRequest(
+                        content=ReplaceMemoryArtifactContent(
+                            entries=[ReplaceMemoryArtifactEntry(kind="preference", text="Use Chinese")]
+                        )
+                    )
+                ),
                 expected_etag='"opaque-v4"',
             )
 

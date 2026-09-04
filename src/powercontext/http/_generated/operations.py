@@ -12,7 +12,10 @@ from powercontext.http._generated.models import (
     ApproveArtifactCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    ArtifactCreated,
+    ArtifactPage,
     ArtifactPublication,
+    ArtifactRevision,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
@@ -23,8 +26,10 @@ from powercontext.http._generated.models import (
     CommittedHandoff,
     ConnectorCheckpointState,
     ContinueHandoffRequest,
+    CreateArtifactRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
+    CreateSourceRequest,
     CreateWorkContractRequest,
     DownloadRemoteSkillPackageRequest,
     EnrollRemoteSkillTargetRequest,
@@ -53,6 +58,7 @@ from powercontext.http._generated.models import (
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListArtifactsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListManagedSkillsRequest,
@@ -90,6 +96,7 @@ from powercontext.http._generated.models import (
     RemoteSkillTargetCredential,
     RemoteSkillTargetEnrollment,
     RenameRemoteSkillTargetRequest,
+    ReplaceArtifactRequest,
     ResolveExternalSkillRequest,
     ResolveScopeBindingRequest,
     ResolveScopeSelectionRequest,
@@ -113,6 +120,7 @@ from powercontext.http._generated.models import (
     SkillPackageManifest,
     SourceDefinitionManifest,
     SourceObservationReceipt,
+    SourceRecord,
     SubmitSourceObservationRequest,
     UnpublishRemoteSkillRequest,
     UpdateScopeRequest,
@@ -135,8 +143,8 @@ class Operation(BaseModel, Generic[RequestT, ResponseT]):
     operation_id: str
     request_type: type[RequestT] | None
     request_location: Literal["body", "query"] | None
+    response_type: type[ResponseT] | None
     path_parameters: tuple[str, ...]
-    response_type: type[ResponseT]
     success_status: int
     summary: str
     tags: tuple[str, ...]
@@ -1789,6 +1797,204 @@ GET_HANDOFF_REPORT = Operation[GetHandoffReportRequest, HandoffReportResponse](
         401: {"$ref": "#/components/responses/Unauthorized"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         413: {"$ref": "#/components/responses/ReportTooLarge"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+CREATE_SOURCE = Operation[CreateSourceRequest, SourceRecord](
+    method="POST",
+    path="/v1/scopes/{scope_id}/sources",
+    operation_id="create_source",
+    request_type=CreateSourceRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=SourceRecord,
+    success_status=201,
+    summary="Create a durable Source",
+    tags=("sources",),
+    scope_mode="none",
+    responses={
+        201: {
+            "description": "The Source was durably created.",
+            "headers": {
+                "Location": {"$ref": "#/components/headers/Location"},
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+            },
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_SOURCE = Operation[None, SourceRecord](
+    method="GET",
+    path="/v1/scopes/{scope_id}/sources/{source_type}/{source_id}",
+    operation_id="get_source",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "source_type", "source_id"),
+    response_type=SourceRecord,
+    success_status=200,
+    summary="Get one exact Source",
+    tags=("sources",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The exact Source.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+CREATE_ARTIFACT = Operation[CreateArtifactRequest, ArtifactCreated](
+    method="POST",
+    path="/v1/scopes/{scope_id}/artifacts",
+    operation_id="create_artifact",
+    request_type=CreateArtifactRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=ArtifactCreated,
+    success_status=201,
+    summary="Create an Artifact",
+    tags=("artifacts",),
+    scope_mode="none",
+    responses={
+        201: {
+            "description": "Artifact revision one was committed.",
+            "headers": {
+                "Location": {"$ref": "#/components/headers/Location"},
+                "ETag": {"$ref": "#/components/headers/ArtifactETag"},
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+            },
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+LIST_ARTIFACTS = Operation[ListArtifactsRequest, ArtifactPage](
+    method="GET",
+    path="/v1/scopes/{scope_id}/artifacts/{family}",
+    operation_id="list_artifacts",
+    request_type=ListArtifactsRequest,
+    request_location="query",
+    path_parameters=("scope_id", "family"),
+    response_type=ArtifactPage,
+    success_status=200,
+    summary="List current Artifact heads",
+    tags=("artifacts",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "One stable page of current Artifact heads.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_ARTIFACT = Operation[None, ArtifactRevision](
+    method="GET",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+    operation_id="get_artifact",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "family", "artifact_id"),
+    response_type=ArtifactRevision,
+    success_status=200,
+    summary="Get the current Artifact head",
+    tags=("artifacts",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The current visible Artifact head.",
+            "headers": {
+                "ETag": {"$ref": "#/components/headers/ArtifactETag"},
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+            },
+        },
+        304: {
+            "description": "If-None-Match identifies the current Artifact head.",
+            "headers": {
+                "ETag": {"$ref": "#/components/headers/ArtifactETag"},
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+            },
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+REPLACE_ARTIFACT = Operation[ReplaceArtifactRequest, ArtifactRevision](
+    method="PUT",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+    operation_id="replace_artifact",
+    request_type=ReplaceArtifactRequest,
+    request_location="body",
+    path_parameters=("scope_id", "family", "artifact_id"),
+    response_type=ArtifactRevision,
+    success_status=200,
+    summary="Replace the current Artifact head",
+    tags=("artifacts",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The complete replacement was committed as the next revision.",
+            "headers": {
+                "ETag": {"$ref": "#/components/headers/ArtifactETag"},
+                "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+            },
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        412: {"$ref": "#/components/responses/PreconditionFailed"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        428: {"$ref": "#/components/responses/PreconditionRequired"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_ARTIFACT_REVISION = Operation[None, ArtifactRevision](
+    method="GET",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
+    operation_id="get_artifact_revision",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "family", "artifact_id", "revision"),
+    response_type=ArtifactRevision,
+    success_status=200,
+    summary="Get one exact immutable Artifact revision",
+    tags=("artifacts",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "The exact immutable Artifact revision.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
     },

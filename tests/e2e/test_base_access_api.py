@@ -24,9 +24,14 @@ import pytest
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
-    BaseArtifactFamily,
+    ArtifactReference,
+    ContinueHandoffRequest,
     CreateArtifactRequest,
     CreateSourceRequest,
+    GetExperienceRequest,
+    GetSkillPackageRequest,
+    GetSkillRequest,
+    HandoffSelection,
     ListArtifactsRequest,
     ReplaceArtifactRequest,
 )
@@ -36,13 +41,11 @@ from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSett
 
 def _memory_content() -> dict[str, object]:
     return {
-        "manifest": {"entries": [], "format": "flat-v1"},
-        "changes": [],
-        "schema": "powercontext.memory.v1",
+        "entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}],
     }
 
 
-def _handoff_content(objective: str = "Transfer the API test result.") -> dict[str, object]:
+def _handoff_content(source_id: str, objective: str = "Transfer the API test result.") -> dict[str, object]:
     return {
         "schema": "powercontext.handoff.v1",
         "objective": objective,
@@ -52,7 +55,7 @@ def _handoff_content(objective: str = "Transfer the API test result.") -> dict[s
                 "citations": [
                     {
                         "kind": "source",
-                        "source_ref": {"source_type": "content", "source_id": "source-evidence"},
+                        "source_ref": {"name": "content", "source_id": source_id},
                     }
                 ],
             }
@@ -73,13 +76,13 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
     )
 
     async def scenario() -> None:
-        scope_id = "git:github.com/oceanbase/powercontext"
-        encoded_scope = quote(scope_id, safe="")
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope_id = (await client.get_default_scope()).scope_id
+            encoded_scope = quote(scope_id, safe="")
             source = await client.create_source(
                 scope_id,
                 CreateSourceRequest(content={"statement": "Keep the public Source immutable."}),
@@ -110,7 +113,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
 
             created = await client.create_artifact(
                 scope_id,
-                CreateArtifactRequest(family=BaseArtifactFamily.MEMORY, content=_memory_content()),
+                CreateArtifactRequest.model_validate({"family": "memory", "content": _memory_content()}),
             )
             assert created.revision == 1
             assert len(created.sources) == 1
@@ -132,6 +135,8 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
             loaded = await client.get_artifact(scope_id, "memory", created.artifact_id)
             assert loaded is not None
             assert loaded.sources == created.sources
+            assert len(loaded.content["manifest"]["entries"]) == 1
+            assert loaded.content["changes"][0]["op"] == "add"
             not_modified = await client.get_artifact(
                 scope_id,
                 "memory",
@@ -149,7 +154,9 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 scope_id,
                 "memory",
                 created.artifact_id,
-                ReplaceArtifactRequest(content=_memory_content()),
+                ReplaceArtifactRequest.model_validate({
+                    "content": {"entries": [{"kind": "working_note", "text": "继续验证基础 API"}]}
+                }),
                 expected_etag=etag,
             )
             assert replaced.revision == 2
@@ -160,7 +167,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 replaced.sources[0].source_type.value,
                 replaced.sources[0].source_id,
             )
-            assert replacement_source.content == _memory_content()
+            assert replacement_source.content == {"entries": [{"kind": "working_note", "text": "继续验证基础 API"}]}
             exact_first = await client.get_artifact_revision(scope_id, "memory", created.artifact_id, 1)
             assert exact_first.revision == 1
             assert exact_first.sources == created.sources
@@ -170,7 +177,9 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                     scope_id,
                     "memory",
                     created.artifact_id,
-                    ReplaceArtifactRequest(content=_memory_content()),
+                    ReplaceArtifactRequest.model_validate({
+                        "content": {"entries": [{"kind": "working_note", "text": "不能覆盖并发更新"}]}
+                    }),
                     expected_etag=etag,
                 )
             assert stale.value.status_code == 412
@@ -189,28 +198,120 @@ def test_handoff_artifact_round_trip_accepts_json_arrays(tmp_path: Path) -> None
     )
 
     async def scenario() -> None:
-        scope_id = "git:github.com/oceanbase/powercontext"
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope_id = (await client.get_default_scope()).scope_id
+            evidence = await client.create_source(scope_id, CreateSourceRequest(content="verified API test"))
             created = await client.create_artifact(
                 scope_id,
-                CreateArtifactRequest(family=BaseArtifactFamily.HANDOFF, content=_handoff_content()),
+                CreateArtifactRequest.model_validate({
+                    "family": "handoff",
+                    "content": _handoff_content(evidence.source_id),
+                }),
             )
+            assert created.artifact_id == "handoff"
             loaded = await client.get_artifact(scope_id, "handoff", created.artifact_id)
             assert loaded is not None
-            assert loaded.content == _handoff_content()
+            assert loaded.sources[0] == created.sources[0]
+            assert loaded.sources[1].source_id == evidence.source_id
+            assert loaded.content["objective"] == _handoff_content(evidence.source_id)["objective"]
+            assert loaded.content["state"][0]["citations"][0]["source_ref"] == {
+                "source_type": "content",
+                "source_id": evidence.source_id,
+            }
+            continued = await client.continue_handoff(
+                ContinueHandoffRequest(scope_id=scope_id, selection=HandoffSelection.LATEST)
+            )
+            assert continued.content is not None
+            assert continued.content.objective == "Transfer the API test result."
+
+            with pytest.raises(ServerResponseError) as duplicate:
+                await client.create_artifact(
+                    scope_id,
+                    CreateArtifactRequest.model_validate({
+                        "family": "handoff",
+                        "content": _handoff_content(evidence.source_id),
+                    }),
+                )
+            assert duplicate.value.status_code == 409
+            assert duplicate.value.code == "artifact_already_exists"
+            assert duplicate.value.details == {"family": "handoff", "artifact_id": "handoff", "use_replace": True}
 
             replaced = await client.replace_artifact(
                 scope_id,
                 "handoff",
                 created.artifact_id,
-                ReplaceArtifactRequest(content=_handoff_content("Transfer the verified API test result.")),
+                ReplaceArtifactRequest.model_validate({
+                    "content": _handoff_content(evidence.source_id, "Transfer the verified API test result.")
+                }),
                 expected_etag='"revision:1"',
             )
             assert replaced.revision == 2
-            assert replaced.content == _handoff_content("Transfer the verified API test result.")
+            assert replaced.sources[0].source_id != created.sources[0].source_id
+            assert replaced.sources[1].source_id == evidence.source_id
+            assert replaced.content["objective"] == "Transfer the verified API test result."
+
+    asyncio.run(scenario())
+
+
+def test_experience_and_skill_base_writes_are_visible_through_existing_apis(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'family-base-access.db'}"),
+            auth=BearerAuthConfig(enabled=False),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope_id = (await client.get_default_scope()).scope_id
+            experience_content = {
+                "situation": "A compatibility issue was found before release",
+                "action": "Add cross-version tests",
+                "outcome": "Avoided a production regression",
+                "lesson": "Public API changes require compatibility coverage",
+            }
+            experience = await client.create_artifact(
+                scope_id,
+                CreateArtifactRequest.model_validate({"family": "experience", "content": experience_content}),
+            )
+            experience_ref = ArtifactReference(
+                family="experience",
+                artifact_id=experience.artifact_id,
+                revision=experience.revision,
+            )
+            loaded_experience = await client.get_experience(
+                GetExperienceRequest(scope_id=scope_id, artifact=experience_ref)
+            )
+            assert loaded_experience.content.model_dump() == experience_content
+
+            skill = await client.create_artifact(
+                scope_id,
+                CreateArtifactRequest.model_validate({
+                    "family": "skill",
+                    "content": {
+                        "name": "compatibility-check",
+                        "description": "Check compatibility before release",
+                        "instructions": "Run cross-version compatibility tests.",
+                        "validation": ["Compatibility tests pass"],
+                    },
+                }),
+            )
+            skill_ref = ArtifactReference(family="skill", artifact_id=skill.artifact_id, revision=skill.revision)
+            loaded_skill = await client.get_skill(GetSkillRequest(scope_id=scope_id, artifact=skill_ref))
+            assert loaded_skill.content.package is not None
+            package = await client.get_skill_package_manifest(
+                GetSkillPackageRequest(scope_id=scope_id, artifact=skill_ref)
+            )
+            assert package.name == "compatibility-check"
+            assert [item.path for item in package.files] == ["SKILL.md"]
 
     asyncio.run(scenario())

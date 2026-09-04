@@ -51,7 +51,19 @@ def test_js_operations_record_method_path_location_and_scope() -> None:
     generator = _load_generator()
     doc = yaml.safe_load(generator.CONTRACT_PATH.read_text(encoding="utf-8"))
     by_id = {row["operationId"]: row for row in generator.parse_operations(doc)}
-    assert {key: by_id["get_liveness"][key] for key in ("operationId", "method", "path", "location", "scopeMode")} == {
+    expected_keys = (
+        "operationId",
+        "method",
+        "path",
+        "location",
+        "scopeMode",
+        "pathParameters",
+        "queryParams",
+        "headerParams",
+        "successStatuses",
+        "emptyStatuses",
+    )
+    assert {key: by_id["get_liveness"][key] for key in expected_keys} == {
         "operationId": "get_liveness",
         "method": "GET",
         "path": "/health/live",

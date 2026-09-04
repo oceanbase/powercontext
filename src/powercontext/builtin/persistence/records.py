@@ -32,13 +32,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import Artifact, ArtifactRef
-from powercontext.builtin.persistence.artifacts import ArtifactRepository, RepositoryArtifactDraft
+from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
-    InvalidRepositoryArgumentError,
     RepositoryNotFoundError,
     StoredPayloadConflictError,
 )
+from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -89,6 +89,7 @@ class RelationalRecordService:
         database: AsyncDatabase,
         sources: SourceRepository,
         artifacts: ArtifactRepository,
+        family_writers: FamilyManagementWriterRegistry,
         /,
         *,
         clock: Clock | None = None,
@@ -103,6 +104,7 @@ class RelationalRecordService:
         self._database = database
         self._sources = sources
         self._artifacts = artifacts
+        self._family_writers = family_writers
         self._clock = _utc_now if clock is None else clock
         self._id_factory = _resource_id if id_factory is None else id_factory
         self._cursor_secret = secrets.token_bytes(32) if cursor_secret is None else cursor_secret
@@ -172,10 +174,14 @@ class RelationalRecordService:
         write: ArtifactWrite,
         /,
     ) -> ArtifactCreated:
-        draft = self._validated_draft(family, write.content)
-        artifact_id = self._id_factory(family)
+        writer = self._family_writers.get(family)
+        command = writer.validate_create(write.content)
+        artifact_id = writer.artifact_id_for_create(self._id_factory(family))
         source_id = self._id_factory("source")
-        canonical_content = cast(dict[str, JsonValue], draft.content.model_dump(mode="json", by_alias=True))
+        canonical_content = cast(
+            dict[str, JsonValue],
+            command.model_dump(mode="json", by_alias=True, exclude_none=True),
+        )
         source = ContentSource(
             name=source_id,
             materialization=SourceMaterialization.CAPTURED,
@@ -189,19 +195,14 @@ class RelationalRecordService:
                     scope_id=scope_id,
                     family=cast(Any, family),
                     artifact_id=artifact_id,
+                    revision=1,
                 ),
             ),
         )
         try:
             async with self._database.transaction() as connection:
                 stored = await self._sources.add(connection, scope_id, source)
-                draft = draft.model_copy(update={"sources": (stored.ref,)})
-                artifact = await self._artifacts.create(
-                    connection,
-                    scope_id,
-                    artifact_id,
-                    draft,
-                )
+                artifact = await writer.create(connection, scope_id, artifact_id, command, stored.ref)
         except (StoredPayloadConflictError, RevisionConflictError) as error:
             raise BaseValueConflictError("artifact", (scope_id, family, artifact_id)) from error
         return _artifact_created(scope_id, artifact)
@@ -297,8 +298,8 @@ class RelationalRecordService:
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord:
-        self._require_family(family)
-        draft = self._validated_draft(family, write.content)
+        writer = self._family_writers.get(family)
+        command = writer.validate_replace(write.content)
         async with self._database.transaction() as connection:
             try:
                 current = await self._artifacts.latest(connection, scope_id, family, artifact_id)
@@ -308,7 +309,10 @@ class RelationalRecordService:
             if expected_etag != current_etag:
                 raise ArtifactRevisionPreconditionError(expected_etag, current_etag)
             next_revision = current.revision + 1
-            canonical_content = cast(dict[str, JsonValue], draft.content.model_dump(mode="json", by_alias=True))
+            canonical_content = cast(
+                dict[str, JsonValue],
+                command.model_dump(mode="json", by_alias=True, exclude_none=True),
+            )
             source = ContentSource(
                 name=self._id_factory("source"),
                 materialization=SourceMaterialization.CAPTURED,
@@ -328,13 +332,7 @@ class RelationalRecordService:
             )
             try:
                 stored = await self._sources.add(connection, scope_id, source)
-                draft = draft.model_copy(
-                    update={
-                        "sources": (stored.ref,),
-                        "artifacts": current.lineage.artifacts,
-                    }
-                )
-                revised = await self._artifacts.revise(connection, scope_id, current, draft)
+                revised = await writer.replace(connection, scope_id, current, command, stored.ref)
             except StoredPayloadConflictError as error:
                 raise BaseValueConflictError("source", (scope_id, CONTENT_SOURCE_NAME, source.name)) from error
             except RevisionConflictError:
@@ -371,21 +369,6 @@ class RelationalRecordService:
     def _require_family(self, family: str) -> None:
         if family not in self._artifacts.families:
             raise InvalidBaseAccessRequestError("family", "must be memory, experience, skill, or handoff")
-
-    def _validated_draft(
-        self,
-        family: str,
-        content: dict[str, JsonValue],
-        /,
-        *,
-        sources: tuple[SourceRef, ...] = (),
-        artifacts: tuple[ArtifactRef, ...] = (),
-    ) -> RepositoryArtifactDraft:
-        self._require_family(family)
-        try:
-            return self._artifacts.draft(family, content, sources=sources, artifacts=artifacts)
-        except InvalidRepositoryArgumentError as error:
-            raise InvalidBaseAccessRequestError("content", "does not match the Artifact family") from error
 
     async def _get_source(
         self,

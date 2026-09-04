@@ -30,7 +30,6 @@ from functools import wraps
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeVar, cast
 from urllib.parse import quote, unquote
-from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, status
 from fastapi import Path as PathParameter
@@ -128,6 +127,24 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.skill_publications import SkillPublication
+from powercontext.builtin.publication import (
+    ArtifactPublicationApplication,
+    ArtifactPublicationConflictError,
+    ArtifactPublicationUnsupportedError,
+)
+from powercontext.builtin.publication import (
+    ArtifactPublicationRequest as DomainArtifactPublicationRequest,
+)
+from powercontext.builtin.records import (
+    ArtifactAlreadyExistsError,
+    ArtifactRevisionPreconditionError,
+    BaseAccessError,
+    BaseValueConflictError,
+    BaseValueNotFoundError,
+    CursorExpiredError,
+    InvalidBaseAccessRequestError,
+    InvalidCursorError,
+)
 from powercontext.builtin.records import (
     ArtifactCollectionItem as RuntimeArtifactCollectionItem,
 )
@@ -141,27 +158,10 @@ from powercontext.builtin.records import (
     ArtifactRecordPage as RuntimeArtifactRecordPage,
 )
 from powercontext.builtin.records import (
-    ArtifactRevisionPreconditionError,
-    BaseAccessError,
-    BaseValueConflictError,
-    BaseValueNotFoundError,
-    CursorExpiredError,
-    InvalidBaseAccessRequestError,
-    InvalidCursorError,
-)
-from powercontext.builtin.records import (
     ArtifactWrite as RuntimeArtifactWrite,
 )
 from powercontext.builtin.records import (
     SourceRecord as RuntimeSourceRecord,
-)
-from powercontext.builtin.publication import (
-    ArtifactPublicationApplication,
-    ArtifactPublicationConflictError,
-    ArtifactPublicationUnsupportedError,
-)
-from powercontext.builtin.publication import (
-    ArtifactPublicationRequest as DomainArtifactPublicationRequest,
 )
 from powercontext.builtin.review import (
     ArtifactTargetConflictError,
@@ -268,7 +268,6 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
-from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingNotFoundError,
@@ -291,6 +290,7 @@ from powercontext.builtin.scope import (
 from powercontext.builtin.scope import (
     ScopeSelection as DomainScopeSelection,
 )
+from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import (
     ObservedInvocation,
     ObservedOutcome,
@@ -344,9 +344,9 @@ from powercontext.http import (
     ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateArtifactRequest,
-    CreateSourceRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
+    CreateSourceRequest,
     CreateWorkContractRequest,
     DownloadRemoteSkillPackageRequest,
     EnrollRemoteSkillTargetRequest,
@@ -456,6 +456,7 @@ from powercontext.http import (
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
 )
+from powercontext.http import HandoffContent as TransportHandoffContent
 from powercontext.http import (
     HandoffDraft as TransportHandoffDraft,
 )
@@ -478,9 +479,9 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_ARTIFACT,
-    CREATE_SOURCE,
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SCOPE,
+    CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
     DOWNLOAD_REMOTE_SKILL_PACKAGE,
     DOWNLOAD_SKILL_PACKAGE,
@@ -1387,7 +1388,7 @@ async def create_artifact(
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactCreated:
     result = await application.records.for_scope(scope_id).create_artifact(
-        request.family.value,
+        request.root.family,
         _artifact_write(request),
     )
     response.headers["Location"] = _artifact_location(result)
@@ -1521,8 +1522,14 @@ def _artifact_collection_item_response(value: RuntimeArtifactCollectionItem) -> 
 
 
 def _artifact_write(value: CreateArtifactRequest | ReplaceArtifactRequest) -> RuntimeArtifactWrite:
+    content = value.root.content
+    if isinstance(content, TransportHandoffContent):
+        content = mapping.runtime_handoff_content(content)
     return RuntimeArtifactWrite(
-        content=value.content,
+        content=cast(
+            dict[str, JsonValue],
+            content.model_dump(mode="json", by_alias=True, exclude_none=True),
+        ),
     )
 
 
@@ -2552,7 +2559,7 @@ def _validation_error_details(error: RequestValidationError | PydanticValidation
     return details
 
 
-def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:  # noqa: C901
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
     base_access_error = _map_base_access_error(error)
@@ -2673,6 +2680,17 @@ def _map_base_access_error(error: Exception) -> tuple[int, str, str, dict[str, A
             "idempotency_conflict",
             "The stable identity already names different durable state.",
             {"kind": error.kind},
+        )
+    if isinstance(error, ArtifactAlreadyExistsError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "artifact_already_exists",
+            "The Scope already has this singleton Artifact; use Replace Artifact to update it.",
+            {
+                "family": error.family,
+                "artifact_id": error.artifact_id,
+                "use_replace": error.use_replace,
+            },
         )
     if isinstance(error, CursorExpiredError):
         return (

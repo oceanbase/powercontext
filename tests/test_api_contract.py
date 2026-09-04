@@ -26,13 +26,15 @@ from powercontext.http import (
     ArtifactCreated,
     ArtifactReference,
     ArtifactRevision,
-    BaseArtifactFamily,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CommitHandoffRequest,
     CommittedHandoff,
     ContinueHandoffRequest,
     CreateArtifactRequest,
+    CreateMemoryArtifactContent,
+    CreateMemoryArtifactEntry,
+    CreateMemoryArtifactRequest,
     CreateSourceRequest,
     CreateWorkContractRequest,
     ExternalSkillResolution,
@@ -82,8 +84,8 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_ARTIFACT,
-    CREATE_SOURCE,
     CREATE_REMOTE_SKILL_TARGET,
+    CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
     DOWNLOAD_REMOTE_SKILL_PACKAGE,
     DOWNLOAD_SKILL_PACKAGE,
@@ -99,8 +101,8 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_READINESS,
     GET_SKILL,
-    GET_SOURCE,
     GET_SKILL_PACKAGE_MANIFEST,
+    GET_SOURCE,
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
@@ -123,8 +125,8 @@ from powercontext.http._generated.operations import (
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
-    REPLACE_ARTIFACT,
     RENAME_REMOTE_SKILL_TARGET,
+    REPLACE_ARTIFACT,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
@@ -620,7 +622,7 @@ def test_base_access_contract_uses_only_the_seven_scoped_operations() -> None:
         operation_id in {"list_sources", "search_sources", "search_artifacts", "delete_artifact", "list_scopes"}
         for operation_id in actual_operations.values()
     )
-    assert not any("search-results" in path or path == "/v1/scopes" for path in paths)
+    assert not any("search-results" in path for path in paths)
 
 
 def test_base_access_create_requests_leave_identity_generation_to_the_server() -> None:
@@ -634,15 +636,42 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
-    assert artifact["required"] == ["family", "content"]
-    assert set(artifact["properties"]) == {"family", "content"}
-    assert not {"scope_id", "source_id", "artifact_id"} & set(source["properties"] | artifact["properties"])
+    assert len(artifact["oneOf"]) == 4
+    assert artifact["discriminator"]["propertyName"] == "family"
+    for name in (
+        "CreateMemoryArtifactRequest",
+        "CreateExperienceArtifactRequest",
+        "CreateSkillArtifactRequest",
+        "CreateHandoffArtifactRequest",
+    ):
+        family_request = schemas[name]
+        assert family_request["required"] == ["family", "content"]
+        assert set(family_request["properties"]) == {"family", "content"}
+        assert not {"scope_id", "source_id", "artifact_id"} & set(family_request["properties"])
 
     assert CreateSourceRequest(content="evidence").source_type is SourceType.CONTENT
     assert (
-        CreateArtifactRequest(family=BaseArtifactFamily.MEMORY, content={"manifest": {}}).family
-        is BaseArtifactFamily.MEMORY
+        CreateArtifactRequest(
+            root=CreateMemoryArtifactRequest(
+                family="memory",
+                content=CreateMemoryArtifactContent(
+                    entries=[CreateMemoryArtifactEntry(kind="preference", text="Use Chinese")]
+                ),
+            )
+        ).root.family
+        == "memory"
     )
+    memory_entry = schemas["CreateMemoryArtifactEntry"]["properties"]
+    assert memory_entry["kind"]["minLength"] == 1
+    assert memory_entry["kind"]["maxLength"] == 128
+    for recommended in ("fact", "preference", "decision", "constraint", "working_note"):
+        assert recommended in memory_entry["kind"]["description"]
+    assert (
+        CreateMemoryArtifactEntry(kind="business_specific", text="Keep the caller's kind").kind == "business_specific"
+    )
+    for invalid_kind in (" ", "x" * 129):
+        with pytest.raises(ValidationError):
+            CreateMemoryArtifactEntry(kind=invalid_kind, text="invalid")
     for model, payload in (
         (CreateSourceRequest, {"scope_id": "scope", "content": "evidence"}),
         (CreateSourceRequest, {"source_id": "source", "content": "evidence"}),
@@ -672,8 +701,17 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
         assert schemas[schema_name]["properties"]["sources"]["items"] == {
             "$ref": "#/components/schemas/SourceTypeReference"
         }
-    assert "sources" not in schemas["CreateArtifactRequest"]["properties"]
-    assert "sources" not in schemas["ReplaceArtifactRequest"]["properties"]
+    for request_name in (
+        "CreateMemoryArtifactRequest",
+        "CreateExperienceArtifactRequest",
+        "CreateSkillArtifactRequest",
+        "CreateHandoffArtifactRequest",
+        "ReplaceMemoryArtifactRequest",
+        "ReplaceExperienceArtifactRequest",
+        "ReplaceSkillArtifactRequest",
+        "ReplaceHandoffArtifactRequest",
+    ):
+        assert "sources" not in schemas[request_name]["properties"]
     assert SourceTypeReference(source_type=SourceType.CONTENT, source_id="source").source_type is SourceType.CONTENT
 
 

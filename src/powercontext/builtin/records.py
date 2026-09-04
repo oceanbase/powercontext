@@ -134,6 +134,16 @@ class BaseValueConflictError(BaseAccessError):
         super().__init__(f"{kind} identity conflicts with durable state")
 
 
+class ArtifactAlreadyExistsError(BaseAccessError):
+    """Report a singleton Artifact that must be updated through Replace."""
+
+    def __init__(self, family: str, artifact_id: str, *, use_replace: bool = False) -> None:
+        self.family = family
+        self.artifact_id = artifact_id
+        self.use_replace = use_replace
+        super().__init__(f"{family} Artifact {artifact_id} already exists")
+
+
 class BaseOperationNotSupportedError(BaseAccessError):
     """Report an operation disabled for one Source type or Artifact family."""
 
