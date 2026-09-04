@@ -1,0 +1,12 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "tutorials",
+    "how-to",
+    "explanation",
+    "reference",
+    "---API Reference---",
+    "[HTTP API](/api)",
+    "[Python API](/en/modules)"
+  ]
+}
