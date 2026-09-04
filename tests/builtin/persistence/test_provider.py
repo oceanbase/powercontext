@@ -29,6 +29,7 @@ from powercontext import (
 )
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, ContentCapture, ContentSource, SourceCursor
 
@@ -104,6 +105,30 @@ def test_provider_uses_one_injected_source_registry_for_routing_and_persistence(
             assert isinstance(stored, CustomSource)
             assert await context.sources.read(stored) == "typed value"
             assert await context.sources.list() == (stored,)
+
+    asyncio.run(scenario())
+
+
+def test_lineage_only_source_remains_readable_but_is_skipped_by_memory_flush() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(
+            BuiltinConfig(database=SQLiteConfig()),
+            candidate_pipeline=EchoCandidatePipeline(),
+        ) as contexts:
+            context = await contexts.get("project")
+            created = await contexts.records.create_artifact(
+                "project",
+                "memory",
+                ArtifactWrite(content={"entries": [{"kind": "fact", "text": "Directly managed."}]}),
+            )
+            async with contexts.database.transaction() as connection:
+                stored = await contexts.repositories.sources.get(connection, "project", created.sources[0])
+
+            assert await context.sources.get(stored.value) == stored.value
+            flushed = await context.triggers.flush(limit=10)
+            assert flushed.source_count == 0
+            assert flushed.current_cursor == stored.journal_position
+            assert flushed.memory_ref is None
 
     asyncio.run(scenario())
 

@@ -20,6 +20,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
 
+from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH
 from powercontext.sources import TEXT_EVIDENCE_PROJECTION_KEY, AdapterSourceDefinition, TextEvidence
 from powercontext.sources.models import Source, SourceMaterialization
 
@@ -46,9 +47,16 @@ class ContentSourceTarget(BaseModel):
     """Exact Artifact revision to which one system Source is bound."""
 
     scope_id: str
-    family: Literal["memory", "experience", "skill", "handoff"]
+    family: Annotated[str, Field(min_length=1, max_length=MAX_ARTIFACT_FAMILY_LENGTH)]
     artifact_id: str
     revision: Annotated[int, Field(ge=1)] = 1
+
+    @field_validator("family")
+    @classmethod
+    def require_canonical_family(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("family must not contain leading or trailing whitespace")  # noqa: TRY003
+        return value
 
 
 class ContentSourceInternal(BaseModel):

@@ -2647,8 +2647,8 @@ def _map_base_access_error(error: Exception) -> tuple[int, str, str, dict[str, A
         return (
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "source_not_eligible",
-            "The Source is reserved for its bound Artifact creation lineage.",
-            {"source": error.source.model_dump(mode="json")},
+            "The Source cannot be used as Artifact generation evidence.",
+            {"source_ref": error.source.model_dump(mode="json")},
         )
     if isinstance(error, _PreconditionRequiredError):
         return (
