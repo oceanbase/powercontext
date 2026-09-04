@@ -57,7 +57,7 @@ class SharedRateLimiter:
     async def consume(self, principal: PrincipalRef) -> tuple[bool, int]:
         database = self._database
         if database is None:
-            return False, 1
+            raise RuntimeError("rate limiter must be bound before handling requests")  # noqa: TRY003
         async with database.transaction() as connection:
             decision = await self._repository.consume(
                 connection,
