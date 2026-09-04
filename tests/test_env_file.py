@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import time
 
 import pytest
 
@@ -64,6 +66,20 @@ def test_multiline_double_quoted_value_unescapes_json_quotes() -> None:
     content = 'JSON="[\n  {\\"name\\": \\"value\\"}\n]"\n'
 
     assert parse_environment(content) == {"JSON": '[\n  {"name": "value"}\n]'}
+
+
+def test_large_multiline_value_parses_within_linear_time_budget() -> None:
+    value = json.dumps(
+        [{"scope_id": f"project:{index}", "display_name": f"Project {index}"} for index in range(800)],
+        indent=2,
+    )
+    started = time.monotonic()
+
+    parsed = parse_environment(f"SCOPES='{value}'\n")
+
+    elapsed = time.monotonic() - started
+    assert parsed == {"SCOPES": value}
+    assert elapsed < 1.0, f"large multiline value took {elapsed:.3f}s to parse"
 
 
 def test_url_fragment_assignment_survives() -> None:

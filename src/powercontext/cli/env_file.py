@@ -81,35 +81,52 @@ def _split_assignment(
 ) -> list[str]:
     """Split one assignment, consuming physical lines until its quotes close."""
 
-    assignment = first_line
-    while True:
-        try:
-            return _split_shell_words(assignment)
-        except ValueError as error:
-            if str(error) != _NO_CLOSING_QUOTATION:
-                raise EnvironmentFileError(  # noqa: TRY003
-                    f"invalid assignment at {source}:{line_number}: {error}"
-                ) from error
-            try:
-                continuation_line_number, continuation = next(following_lines)
-            except StopIteration:
-                raise EnvironmentFileError(  # noqa: TRY003
-                    f"invalid assignment at {source}:{line_number}: {error}"
-                ) from error
-            if "\x00" in continuation:
-                raise EnvironmentFileError(  # noqa: TRY003
-                    f"invalid NUL character at {source}:{continuation_line_number}"
-                ) from None
-            assignment = f"{assignment}\n{continuation}"
-
-
-def _split_shell_words(line: str) -> list[str]:  # noqa: C901
-    """Split one shell assignment without expansion or command evaluation."""
-
     words: list[str] = []
     word: list[str] = []
     quote = ""
     word_started = False
+    line = first_line
+    while True:
+        try:
+            quote, word_started = _scan_shell_words(
+                line,
+                words,
+                word,
+                quote=quote,
+                word_started=word_started,
+            )
+        except ValueError as error:
+            raise EnvironmentFileError(  # noqa: TRY003
+                f"invalid assignment at {source}:{line_number}: {error}"
+            ) from error
+        if not quote:
+            if word_started:
+                words.append("".join(word))
+            return words
+        try:
+            continuation_line_number, line = next(following_lines)
+        except StopIteration:
+            error = ValueError(_NO_CLOSING_QUOTATION)
+            raise EnvironmentFileError(  # noqa: TRY003
+                f"invalid assignment at {source}:{line_number}: {error}"
+            ) from error
+        if "\x00" in line:
+            raise EnvironmentFileError(  # noqa: TRY003
+                f"invalid NUL character at {source}:{continuation_line_number}"
+            )
+        word.append("\n")
+
+
+def _scan_shell_words(  # noqa: C901
+    line: str,
+    words: list[str],
+    word: list[str],
+    *,
+    quote: str,
+    word_started: bool,
+) -> tuple[str, bool]:
+    """Scan one physical line while carrying the current assignment state."""
+
     index = 0
     while index < len(line):
         character = line[index]
@@ -142,7 +159,7 @@ def _split_shell_words(line: str) -> list[str]:  # noqa: C901
         elif character in {" ", "\t"}:
             if word_started:
                 words.append("".join(word))
-                word = []
+                word.clear()
                 word_started = False
         elif character == "#" and not word_started:
             break
@@ -152,11 +169,7 @@ def _split_shell_words(line: str) -> list[str]:  # noqa: C901
             word.append(character)
             word_started = True
         index += 1
-    if quote:
-        raise ValueError(_NO_CLOSING_QUOTATION)
-    if word_started:
-        words.append("".join(word))
-    return words
+    return quote, word_started
 
 
 def read_environment_file(path: Path) -> dict[str, str]:
