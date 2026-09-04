@@ -744,7 +744,8 @@ class RelationalContexts:
             stored = await self.repositories.sources.add(connection, scope, source)
             artifacts = () if target is None else (target,)
             return (
-                await self._services_for(scope)
+                await self
+                ._services_for(scope)
                 .review(connection)
                 .propose_skill(
                     package.as_skill_content(),
@@ -844,7 +845,8 @@ class RelationalContexts:
             stored = await self.repositories.sources.add(connection, scope, source)
             if mode is ExternalSkillImportMode.IMPORT:
                 candidate = (
-                    await self._services_for(scope)
+                    await self
+                    ._services_for(scope)
                     .review(connection)
                     .propose_skill(
                         capture.package.as_skill_content(),
