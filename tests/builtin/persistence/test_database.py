@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 
@@ -26,11 +26,12 @@ from powercontext.builtin.persistence.database import database_now
 
 def test_mysql_coordination_time_is_queried_in_utc() -> None:
     statements: list[str] = []
+    expected = datetime(2026, 9, 4, 12, 0, tzinfo=UTC).replace(tzinfo=None)
 
     class Result:
         @staticmethod
         def scalar_one() -> datetime:
-            return datetime(2026, 9, 4, 12, 0)
+            return expected
 
     class Connection:
         dialect = SimpleNamespace(name="mysql")
@@ -42,5 +43,5 @@ def test_mysql_coordination_time_is_queried_in_utc() -> None:
 
     value = asyncio.run(database_now(cast(AsyncConnection, Connection())))
 
-    assert value == datetime(2026, 9, 4, 12, 0)
+    assert value == expected
     assert statements == ["SELECT UTC_TIMESTAMP(6)"]
