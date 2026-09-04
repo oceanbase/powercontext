@@ -189,18 +189,15 @@ def test_server_reuses_file_backed_cursor_secret_across_restarts(tmp_path) -> No
     )
     first_app = create_server_app(settings=settings)
     with TestClient(first_app) as client:
-        content = {
-            "manifest": {"entries": [], "format": "flat-v1"},
-            "changes": [],
-            "schema": "powercontext.memory.v1",
-        }
+        scope_id = client.get("/v1/scopes/default").json()["scope_id"]
+        content = {"entries": [{"kind": "working_note", "text": "Verify cursor reuse after restart"}]}
         for _ in range(2):
             response = client.post(
-                "/v1/scopes/scope-a/artifacts",
+                f"/v1/scopes/{scope_id}/artifacts",
                 json={"family": "memory", "content": content},
             )
             assert response.status_code == 201
-        first_page = client.get("/v1/scopes/scope-a/artifacts/memory", params={"limit": 1})
+        first_page = client.get(f"/v1/scopes/{scope_id}/artifacts/memory", params={"limit": 1})
         assert first_page.status_code == 200
         cursor = first_page.json()["next_cursor"]
         assert cursor is not None
@@ -208,7 +205,7 @@ def test_server_reuses_file_backed_cursor_secret_across_restarts(tmp_path) -> No
     second_app = create_server_app(settings=settings)
     with TestClient(second_app) as client:
         second_page = client.get(
-            "/v1/scopes/scope-a/artifacts/memory",
+            f"/v1/scopes/{scope_id}/artifacts/memory",
             params={"limit": 1, "cursor": cursor},
         )
 

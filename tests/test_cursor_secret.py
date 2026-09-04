@@ -48,9 +48,7 @@ def test_explicit_cursor_secret_overrides_database_storage(tmp_path) -> None:
 
 def test_remote_database_without_override_reuses_local_persisted_secret(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path))
-    config = OceanBaseConfig(
-        url=SecretStr("mysql+aoceanbase://user:password@127.0.0.1:2881/test?charset=utf8mb4")
-    )
+    config = OceanBaseConfig(url=SecretStr("mysql+aoceanbase://user:password@127.0.0.1:2881/test?charset=utf8mb4"))
 
     first = resolve_cursor_secret(config, None)
     second = resolve_cursor_secret(config, None)
