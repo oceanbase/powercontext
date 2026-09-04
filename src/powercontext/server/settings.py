@@ -22,6 +22,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     DatabaseConfig,
@@ -210,12 +211,16 @@ class ServerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def reject_unauthenticated_non_loopback_bind(self) -> ServerSettings:
-        if is_unauthenticated_non_loopback_bind(
+        if self.runtime.artifact_processing_role != "background" and is_unauthenticated_non_loopback_bind(
             host=self.http.host,
             auth_enabled=self.auth.enabled,
             allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
         ):
             raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
+        if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
+            raise ValueError(  # noqa: TRY003
+                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
+            )
         return self
 
 

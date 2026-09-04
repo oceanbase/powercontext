@@ -76,6 +76,29 @@ class ArtifactProcessingPendingRepository:
         stored = await self.load(connection, scope_id, binding_name)
         return cast(StoredArtifactProcessingPending, stored)
 
+    async def scan(
+        self,
+        connection: AsyncConnection,
+        /,
+        *,
+        binding_name: str | None = None,
+        for_update: bool = False,
+    ) -> tuple[StoredArtifactProcessingPending, ...]:
+        """Return the durable dirty set in a deterministic queue seed order."""
+
+        statement = select(ARTIFACT_PROCESSING_PENDING_TABLE)
+        if binding_name is not None:
+            _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+            statement = statement.where(ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == binding_name)
+        statement = statement.order_by(
+            ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name,
+            ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        rows = (await connection.execute(statement)).mappings()
+        return tuple(_decode(row) for row in rows)
+
     async def request_flush(
         self,
         connection: AsyncConnection,
@@ -133,17 +156,21 @@ class ArtifactProcessingPendingRepository:
         /,
         *,
         cursor: int | None = None,
+        source_through_limit: int | None = None,
     ) -> bool:
         if cursor is None:
             stored_cursor = await SourceCursorRepository().load(connection, scope_id, binding_name)
             cursor = 0 if stored_cursor is None else stored_cursor.cursor.sequence
         if cursor < 0:
             raise InvalidRepositoryArgumentError("cursor", "must be non-negative")
+        if source_through_limit is not None and source_through_limit < 1:
+            raise InvalidRepositoryArgumentError("source_through_limit", "must be positive")
+        covered_through = cursor if source_through_limit is None else min(cursor, source_through_limit)
         result = await connection.execute(
             delete(ARTIFACT_PROCESSING_PENDING_TABLE).where(
                 ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id == scope_id,
                 ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == binding_name,
-                ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through <= cursor,
+                ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through <= covered_through,
                 ARTIFACT_PROCESSING_PENDING_TABLE.c.handled_flush_generation
                 == ARTIFACT_PROCESSING_PENDING_TABLE.c.flush_generation,
             )

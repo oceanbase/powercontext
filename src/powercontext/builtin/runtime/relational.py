@@ -78,6 +78,10 @@ from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryI
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
+from powercontext.builtin.persistence.supervision import (
+    ArtifactProcessingBindingStateRepository,
+    ArtifactProcessingLeaseRepository,
+)
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -137,6 +141,8 @@ class _Repositories:
     external_skills: ExternalSkillRepository
     statistics: StatisticsRepository
     processing_pending: ArtifactProcessingPendingRepository
+    processing_leases: ArtifactProcessingLeaseRepository
+    processing_binding_states: ArtifactProcessingBindingStateRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,6 +328,8 @@ class RelationalContexts:
             external_skills=ExternalSkillRepository(),
             statistics=StatisticsRepository(),
             processing_pending=ArtifactProcessingPendingRepository(),
+            processing_leases=ArtifactProcessingLeaseRepository(),
+            processing_binding_states=ArtifactProcessingBindingStateRepository(),
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None

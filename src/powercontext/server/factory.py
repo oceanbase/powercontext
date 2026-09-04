@@ -51,6 +51,13 @@ from powercontext.server.web import mount_web_ui
 logger = logging.getLogger(__name__)
 
 
+class BackgroundRoleRequiresBackgroundRunnerError(RuntimeError):
+    """Prevent a background-only process from accidentally exposing HTTP/MCP."""
+
+    def __init__(self) -> None:
+        super().__init__("artifact processing role 'background' must use the background service runner")
+
+
 def create_server_app(
     *,
     settings: ServerSettings | None = None,
@@ -68,6 +75,8 @@ def create_server_app(
     """Build the Server process and mount MCP when configured."""
 
     resolved = ServerSettings() if settings is None else settings
+    if resolved.runtime.artifact_processing_role == "background":
+        raise BackgroundRoleRequiresBackgroundRunnerError
     config = BuiltinConfig(
         runtime=resolved.runtime,
         database=resolved.database,

@@ -131,6 +131,7 @@ from powercontext.builtin.runtime.readiness import (
     ReadinessCheckStatus,
     RuntimeReadiness,
     RuntimeReadinessChecks,
+    RuntimeReadinessStatus,
 )
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.sources import (
@@ -176,6 +177,7 @@ if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
+    from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisor
 
 logger = logging.getLogger(__name__)
 
@@ -1274,6 +1276,7 @@ class BuiltinRuntime:
         self.skill = SkillApplication(self)
         self.statistics = StatisticsApplication(self)
         self.handoff_report: HandoffReportApplication | None = None
+        self.artifact_processing_supervisor: ArtifactProcessingSupervisor | None = None
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
         self.experience_processor = (
             None if scope_ids is None or experience_incubator is None else ScheduledExperienceProcessor(self, scope_ids)
@@ -1294,9 +1297,21 @@ class BuiltinRuntime:
 
         async with self._operation():
             dependencies = await self._readiness.run()
+        supervisor_status = (
+            "disabled"
+            if self.artifact_processing_supervisor is None
+            else self.artifact_processing_supervisor.status.value
+        )
+        status = dependencies.status
+        if supervisor_status == "degraded":
+            status = RuntimeReadinessStatus.NOT_READY
         return RuntimeReadiness(
-            status=dependencies.status,
-            checks={"runtime": ReadinessCheckStatus.READY, **dependencies.checks},
+            status=status,
+            checks={
+                "runtime": ReadinessCheckStatus.READY,
+                **dependencies.checks,
+                "artifact_processing_supervisor": supervisor_status,
+            },
         )
 
     def start_scheduler(
@@ -1375,6 +1390,8 @@ class BuiltinRuntime:
             async with self._lifecycle:
                 self._closing = True
                 await self._lifecycle.wait_for(lambda: self._active_operations == 0)
+            if self.artifact_processing_supervisor is not None:
+                await self.artifact_processing_supervisor.close()
             async with self._processor_lock:
                 pass
             try:

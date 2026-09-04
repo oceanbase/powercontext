@@ -17,6 +17,8 @@
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
+    ArtifactProcessingLeadershipLostError,
+    ArtifactProcessingWaveIncompleteError,
     DatabaseClosedError,
     GenerationConflictError,
     IdentityMismatchError,
@@ -35,8 +37,22 @@ from powercontext.builtin.persistence.statistics import (
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
+from powercontext.builtin.persistence.supervision import (
+    GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP,
+    ArtifactProcessingBindingStateRepository,
+    ArtifactProcessingFence,
+    ArtifactProcessingLeaseRepository,
+    StoredArtifactProcessingBindingState,
+    StoredArtifactProcessingLease,
+)
 
 __all__ = (
+    "GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP",
+    "ArtifactProcessingBindingStateRepository",
+    "ArtifactProcessingFence",
+    "ArtifactProcessingLeadershipLostError",
+    "ArtifactProcessingLeaseRepository",
+    "ArtifactProcessingWaveIncompleteError",
     "AsyncDatabase",
     "CandidateRepository",
     "DatabaseClosedError",
@@ -50,6 +66,8 @@ __all__ = (
     "RepositoryError",
     "RepositoryNotFoundError",
     "StatisticsRepository",
+    "StoredArtifactProcessingBindingState",
+    "StoredArtifactProcessingLease",
     "StoredInventoryCounts",
     "StoredModelUsage",
     "StoredPayloadConflictError",

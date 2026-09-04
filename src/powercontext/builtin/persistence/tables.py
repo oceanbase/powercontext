@@ -20,6 +20,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Date,
+    DateTime,
     ForeignKeyConstraint,
     Integer,
     LargeBinary,
@@ -295,6 +296,26 @@ ARTIFACT_PROCESSING_PENDING_TABLE = Table(
     ),
 )
 
+ARTIFACT_PROCESSING_LEASES_TABLE = Table(
+    "pc_artifact_processing_leases",
+    SHARED_METADATA,
+    Column("supervisor_group", identity_string(64), primary_key=True),
+    Column("holder_id", identity_string(36), nullable=False),
+    Column("supervisor_generation", BigInteger, nullable=False),
+    Column("lease_expires_at", DateTime(timezone=False)),
+    CheckConstraint(
+        "supervisor_generation > 0",
+        name="ck_pc_artifact_processing_leases_generation_positive",
+    ),
+)
+
+ARTIFACT_PROCESSING_BINDING_STATES_TABLE = Table(
+    "pc_artifact_processing_binding_states",
+    SHARED_METADATA,
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("last_auto_wave_completed_at", DateTime(timezone=False)),
+)
+
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     "pc_external_skill_registrations",
     SHARED_METADATA,
@@ -378,6 +399,8 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     SOURCE_CURSORS_TABLE,
+    ARTIFACT_PROCESSING_LEASES_TABLE,
+    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     ARTIFACT_PROCESSING_PENDING_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
 )

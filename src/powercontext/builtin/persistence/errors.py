@@ -96,3 +96,30 @@ class GenerationConflictError(RepositoryError):
         self.expected = expected
         self.actual = actual
         super().__init__(f"trigger state {binding_name!r} generation conflict: expected {expected!r}, found {actual!r}")
+
+
+class ArtifactProcessingLeadershipLostError(RepositoryError):
+    """Raised when a fenced processing transaction no longer owns its term."""
+
+    def __init__(self, supervisor_group: str, holder_id: str, generation: int) -> None:
+        self.supervisor_group = supervisor_group
+        self.holder_id = holder_id
+        self.generation = generation
+        super().__init__(
+            f"artifact processing leadership lost for {supervisor_group!r}: "
+            f"holder={holder_id!r}, generation={generation}"
+        )
+
+
+class ArtifactProcessingWaveIncompleteError(RepositoryError):
+    """Raised when an automatic wave completion is not covered by its Cursor."""
+
+    def __init__(self, binding_name: str, scope_id: str, target: int, cursor: int) -> None:
+        self.binding_name = binding_name
+        self.scope_id = scope_id
+        self.target = target
+        self.cursor = cursor
+        super().__init__(
+            f"artifact processing wave {binding_name!r}/{scope_id!r} is incomplete: "
+            f"cursor {cursor} does not cover target {target}"
+        )

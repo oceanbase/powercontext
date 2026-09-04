@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
@@ -61,6 +61,10 @@ from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLite
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
 from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import BuiltinRuntime
+from powercontext.builtin.runtime.artifact_processing import (
+    ArtifactProcessingBinding,
+    ArtifactProcessingSupervisor,
+)
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.protocols import RuntimeTracing
@@ -176,6 +180,7 @@ async def open_builtin_runtime(
     instrumentation: InstrumentationSettings | None = None,
     scope_cache_observer: ScopeCacheObserver | None = None,
     tracing: RuntimeTracing | None = None,
+    artifact_processing_bindings: Sequence[ArtifactProcessingBinding] = (),
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
@@ -291,6 +296,9 @@ async def open_builtin_runtime(
                 tracing=tracing,
             )
         )
+        runtime.artifact_processing_supervisor = await resources.enter_async_context(
+            _open_artifact_processing_supervisor(config, contexts, artifact_processing_bindings)
+        )
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
                 contexts.database,
@@ -298,19 +306,52 @@ async def open_builtin_runtime(
                 continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
                 scope_ids=contexts.handoff_scope_ids,
             )
-        if config.runtime.schedule_seconds is not None and configured_pipeline is None:
+        if (
+            config.runtime.artifact_processing_role == "all"
+            and config.runtime.schedule_seconds is not None
+            and configured_pipeline is None
+        ):
             raise BuiltinConfigurationError("scheduled-pipeline")
-        if config.runtime.experience_schedule_seconds is not None and configured_incubation is None:
+        if (
+            config.runtime.artifact_processing_role == "all"
+            and config.runtime.experience_schedule_seconds is not None
+            and configured_incubation is None
+        ):
             raise BuiltinConfigurationError("scheduled-experience-pipeline")
         if config.runtime.memory_rerank_enabled and configured_reranker is None:
             raise BuiltinConfigurationError("memory-reranker")
-        if config.runtime.schedule_seconds is not None or config.runtime.experience_schedule_seconds is not None:
+        if config.runtime.artifact_processing_role == "all" and (
+            config.runtime.schedule_seconds is not None or config.runtime.experience_schedule_seconds is not None
+        ):
             runtime.start_scheduler(
                 scheduler_path,
                 config.runtime.schedule_seconds,
                 experience_schedule_seconds=config.runtime.experience_schedule_seconds,
             )
         yield runtime
+
+
+@asynccontextmanager
+async def _open_artifact_processing_supervisor(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    bindings: Sequence[ArtifactProcessingBinding],
+) -> AsyncIterator[ArtifactProcessingSupervisor | None]:
+    if config.runtime.artifact_processing_role == "api":
+        yield None
+        return
+    async with ArtifactProcessingSupervisor(
+        database=contexts.database,
+        bindings=bindings,
+        lease_mode="oceanbase" if isinstance(config.database, OceanBaseConfig) else "single-process",
+        max_workers=config.runtime.artifact_processing_max_workers,
+        worker_timeout_seconds=config.runtime.artifact_processing_worker_timeout_seconds,
+        pending=contexts.repositories.processing_pending,
+        cursors=contexts.repositories.cursors,
+        leases=contexts.repositories.processing_leases,
+        binding_states=contexts.repositories.processing_binding_states,
+    ) as supervisor:
+        yield supervisor
 
 
 @asynccontextmanager

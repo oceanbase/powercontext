@@ -42,6 +42,22 @@ class RuntimeConfig(BaseModel):
     memory_rerank_candidate_limit: int = Field(default=30, ge=1, le=100)
     schedule_seconds: float | None = Field(default=None, gt=0)
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
+    topic_memory_schedule_seconds: float | None = Field(default=None, gt=0)
+    topic_memory_source_window_limit: int = Field(default=10, ge=1)
+    topic_memory_history_max_candidates: int = Field(default=20, ge=1)
+    topic_memory_history_rrf_threshold: int = Field(default=70, ge=0, le=100)
+    topic_memory_history_min_candidates: int = Field(default=5, ge=1)
+    artifact_processing_max_workers: int = Field(default=10, ge=1)
+    artifact_processing_worker_timeout_seconds: float = Field(default=600, gt=0)
+    artifact_processing_role: Literal["all", "api", "background"] = "all"
+
+    @model_validator(mode="after")
+    def validate_topic_memory_history_candidates(self) -> RuntimeConfig:
+        if self.topic_memory_history_min_candidates > self.topic_memory_history_max_candidates:
+            raise ValueError(  # noqa: TRY003
+                "topic_memory_history_min_candidates must not exceed topic_memory_history_max_candidates"
+            )
+        return self
 
 
 class HandoffReportConfig(BaseModel):
@@ -61,6 +77,7 @@ class InferenceConfig(BaseModel):
     generation_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     generation_timeout_seconds: float = Field(default=30.0, gt=0)
     generation_max_requests: int = Field(default=2, ge=1)
+    generation_model_context_window_tokens: int = Field(default=125_000, ge=1)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None
     embedding_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
@@ -213,6 +230,14 @@ class BuiltinConfig(BaseModel):
     @classmethod
     def default_database_to_sqlite(cls, value: Any) -> Any:
         return normalize_database_discriminator(value)
+
+    @model_validator(mode="after")
+    def validate_artifact_processing_role(self) -> BuiltinConfig:
+        if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
+            raise ValueError(  # noqa: TRY003
+                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
+            )
+        return self
 
 
 __all__ = [
