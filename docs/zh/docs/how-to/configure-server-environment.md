@@ -22,7 +22,8 @@ powercontext config show --env-file .env
 powercontext config validate --env-file .env
 ```
 
-`config show` 会隐藏已识别的凭据。校验会检查文件和所选 model 设置，但不会输出机密。
+`config show` 会隐藏已识别的凭据。校验接受只包含 Server 设置的最小环境文件；配置 inference model 或依赖 inference
+的 Runtime 功能时，还会检查 Runtime 组装，但不会输出机密。
 
 ## 3. 使用同一份配置启动
 

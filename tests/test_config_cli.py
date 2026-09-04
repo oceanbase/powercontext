@@ -21,6 +21,7 @@ import pytest
 from typer.testing import CliRunner
 
 import powercontext.cli.config as config_cli
+from powercontext.server.configuration import server_settings_context
 
 
 def test_init_asks_for_protocol_endpoint_key_and_plain_model_name(tmp_path: Path) -> None:
@@ -120,6 +121,145 @@ def test_init_validate_and_show_round_trip_managed_environment(
     assert "initial-secret" not in shown.output
 
 
+def test_validate_accepts_minimal_server_environment_without_inference_models(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_DATABASE_KIND=seekdb",
+            "POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1",
+            "POWERCONTEXT_SERVER_HTTP_PORT=8888",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+    assert "Configuration is valid" in result.output
+    with server_settings_context(env_file=environment) as settings:
+        assert settings.database.kind == "seekdb"
+        assert settings.http.host == "127.0.0.1"
+        assert settings.http.port == 8888
+
+
+@pytest.mark.parametrize("role", ("api", "scheduler"))
+def test_validate_accepts_non_executing_distributed_roles_without_inference_models(
+    role: str,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase",
+            "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://root@127.0.0.1:2881/powercontext?charset=utf8mb4",
+            "POWERCONTEXT_SERVER_DEPLOYMENT_MODE=distributed",
+            f"POWERCONTEXT_SERVER_DEPLOYMENT_ROLE={role}",
+            "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60",
+            "POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=60",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+    assert "Configuration is valid" in result.output
+
+
+def test_validate_rejects_distributed_worker_without_inference_model(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase",
+            "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://root@127.0.0.1:2881/powercontext?charset=utf8mb4",
+            "POWERCONTEXT_SERVER_DEPLOYMENT_MODE=distributed",
+            "POWERCONTEXT_SERVER_DEPLOYMENT_ROLE=worker",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 2
+    assert "built-in runtime cannot be configured" in result.output
+
+
+@pytest.mark.parametrize(
+    "runtime_setting",
+    (
+        "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60",
+        "POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=60",
+        "POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true",
+    ),
+)
+def test_validate_rejects_runtime_features_without_required_inference(
+    runtime_setting: str,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(f"{runtime_setting}\n", encoding="utf-8")
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 2
+    assert "built-in runtime cannot be configured" in result.output
+
+
+def test_validate_uses_runtime_provider_factory_for_custom_headers(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-chat:test-model",
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL=https://provider.example/v1",
+            'POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS=\'{"Authorization":"Bearer test"}\'',
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+
+
+def test_validate_uses_runtime_provider_factory_for_active_reranking(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true",
+            "POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL=openai-chat:rerank-model",
+            "POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL=https://provider.example/v1",
+            'POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS=\'{"Authorization":"Bearer test"}\'',
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+
+
+def test_validate_rejects_unsupported_custom_endpoint_provider(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=deepseek:deepseek-chat",
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL=https://provider.example/v1",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 2
+    assert "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier" in result.output
+
+
 def test_init_rejects_configuration_that_validation_rejects(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -148,7 +288,7 @@ def test_init_rejects_provider_models_that_cannot_be_constructed(
     result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
 
     assert result.exit_code == 2
-    assert "provider models cannot be configured" in result.output
+    assert "built-in runtime cannot be configured" in result.output
     assert not environment.exists()
 
 
@@ -284,7 +424,7 @@ def test_init_records_generated_credential_names_for_show_redaction(
         credentials=("SERVICE_CREDENTIAL",),
     )
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: configuration)
-    monkeypatch.setattr(config_cli, "_validate_provider_models", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(config_cli, "_validate_builtin_runtime", lambda *_args, **_kwargs: None)
 
     generated = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)], input="\n")
     text = environment.read_text(encoding="utf-8")
@@ -376,7 +516,7 @@ def test_init_hides_and_redacts_marked_additional_credentials(
 ) -> None:
     environment = tmp_path / ".env"
     monkeypatch.setattr(config_cli, "_select_value", lambda *_args, **_kwargs: "custom")
-    monkeypatch.setattr(config_cli, "_validate_provider_models", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(config_cli, "_validate_builtin_runtime", lambda *_args, **_kwargs: None)
 
     result = CliRunner().invoke(
         config_cli.app,

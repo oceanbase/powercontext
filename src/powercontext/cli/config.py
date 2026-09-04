@@ -28,13 +28,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Never
+from typing import TYPE_CHECKING, Annotated, Never
 from urllib.parse import urlsplit
 
 import typer
 from pydantic import ValidationError
 
 from powercontext.cli.env_file import EnvironmentFileError, parse_environment
+
+if TYPE_CHECKING:
+    from powercontext.server.settings import ServerSettings
 
 HELP_OPTION_NAMES = ("-h", "--help")
 MANAGED_BEGIN = "# >>> powercontext managed configuration >>>"
@@ -287,13 +290,16 @@ def show_command(
 def validate_command(
     env_file: Annotated[Path, typer.Option(help="Environment file to validate.")] = Path(".env"),
 ) -> None:
-    """Validate syntax, model configuration, and Server settings."""
+    """Validate syntax, configured model adapters, and Server settings."""
 
     try:
         content = env_file.read_text(encoding="utf-8")
         values = parse_environment(content, source=str(env_file))
-        configuration = configuration_from_document(content)
-        _validate_operational_configuration(configuration, values=values)
+        if _has_complete_generated_configuration(values) or _managed_metadata(content):
+            configuration = configuration_from_document(content)
+            validate_configuration(configuration)
+        _validate_server_settings(values)
+        _validate_builtin_runtime(values)
     except (ConfigError, EnvironmentFileError, OSError, UnicodeError, ValidationError) as error:
         _fail(str(error))
     typer.echo(f"Configuration is valid: {env_file.resolve()}")
@@ -499,23 +505,39 @@ def _validate_operational_configuration(
     validate_configuration(configuration)
     rendered = render_environment(configuration) if values is None else dict(values)
     _validate_server_settings(rendered)
-    _validate_provider_models(configuration, rendered)
+    _validate_builtin_runtime(rendered)
 
 
-def _validate_provider_models(configuration: GeneratedConfiguration, values: Mapping[str, str]) -> None:
-    with _temporary_environment(values, clear=set()):
+def _validate_builtin_runtime(values: Mapping[str, str]) -> None:
+    server_environment = {name for name in os.environ if name.startswith("POWERCONTEXT_SERVER_")}
+    with _temporary_environment(values, clear=server_environment):
         try:
-            asyncio.run(_construct_provider_models(configuration))
+            settings = _server_settings_from_environment()
+            from powercontext.builtin.runtime.composition import preflight_builtin_runtime
+
+            asyncio.run(preflight_builtin_runtime(settings.to_builtin_config()))
+        except ConfigError:
+            raise
         except Exception as error:
-            raise ConfigError(f"provider models cannot be configured: {error}") from error  # noqa: TRY003
+            raise ConfigError(f"built-in runtime cannot be configured: {error}") from error  # noqa: TRY003
 
 
-async def _construct_provider_models(configuration: GeneratedConfiguration) -> None:
-    from pydantic_ai.embeddings import infer_embedding_model
-    from pydantic_ai.models import infer_model
+def _server_settings_from_environment() -> ServerSettings:
+    from powercontext.server.settings import ServerSettings
 
-    async with infer_model(configuration.generation.model):
-        infer_embedding_model(configuration.embedding.model)
+    return ServerSettings()
+
+
+def _has_complete_generated_configuration(values: Mapping[str, str]) -> bool:
+    return all(
+        name in values
+        for name in (
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION",
+        )
+    )
 
 
 def write_environment(path: Path, content: str, *, backup: bool) -> Path | None:

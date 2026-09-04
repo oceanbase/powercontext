@@ -933,6 +933,22 @@ async def _generation_pipelines(
     )
 
 
+async def preflight_builtin_runtime(config: BuiltinConfig) -> None:
+    """Validate Runtime composition without opening persistence or making requests."""
+
+    async with AsyncExitStack() as resources:
+        memory, incubation, _, _, _, reranker, _, _ = await _generation_pipelines(
+            config.inference,
+            config.runtime,
+            resources,
+            None,
+            BUILTIN_SOURCE_REGISTRY,
+        )
+        if config.inference.embedding_model is not None:
+            await _embedding_models(config.inference, resources, None)
+        _validate_work_configuration(config, memory, incubation, reranker)
+
+
 async def _open_pydantic_ai_model(
     model_name: str,
     *,
@@ -1129,4 +1145,10 @@ def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, .
     return tuple(modes)
 
 
-__all__ = ["BuiltinConfigurationError", "migrate_builtin_database", "open_builtin_contexts", "open_builtin_runtime"]
+__all__ = [
+    "BuiltinConfigurationError",
+    "migrate_builtin_database",
+    "open_builtin_contexts",
+    "open_builtin_runtime",
+    "preflight_builtin_runtime",
+]
