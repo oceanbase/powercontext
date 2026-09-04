@@ -23,10 +23,13 @@ from powercontext.builtin.artifacts.topic_memory.models import (
     TopicMemoryDraft,
 )
 
+TOPIC_MEMORY_SOURCE_WINDOW_BINDING = "topic-memory-source-window"
+
 __all__ = [
     "MAX_TOPIC_MEMORY_DETAIL_LENGTH",
     "MAX_TOPIC_MEMORY_SUMMARY_LENGTH",
     "MAX_TOPIC_MEMORY_TITLE_LENGTH",
+    "TOPIC_MEMORY_SOURCE_WINDOW_BINDING",
     "TopicMemory",
     "TopicMemoryContent",
     "TopicMemoryDraft",

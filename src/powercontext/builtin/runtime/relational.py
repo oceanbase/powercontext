@@ -59,7 +59,7 @@ from powercontext.builtin.artifacts.skill import (
     SkillGenerator,
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
-from powercontext.builtin.artifacts.topic_memory import TopicMemory
+from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING, TopicMemory
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
@@ -75,6 +75,7 @@ from powercontext.builtin.persistence.handoff import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
@@ -135,6 +136,7 @@ class _Repositories:
     cursors: SourceCursorRepository
     external_skills: ExternalSkillRepository
     statistics: StatisticsRepository
+    processing_pending: ArtifactProcessingPendingRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +171,7 @@ class _ScopedServices:
             scope_id=self.scope_id,
             adapters=_SOURCE_ADAPTERS,
             repository=self.repositories.sources,
+            processing_pending=self.repositories.processing_pending,
             write_lock=self.source_lock,
             connection=connection,
         )
@@ -318,6 +321,7 @@ class RelationalContexts:
             cursors=SourceCursorRepository(),
             external_skills=ExternalSkillRepository(),
             statistics=StatisticsRepository(),
+            processing_pending=ArtifactProcessingPendingRepository(),
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
@@ -425,7 +429,14 @@ class RelationalContexts:
             ExternalSkillSnapshotCapture(snapshot=snapshot, mode=mode)
         )
         async with self.database.transaction() as connection:
-            stored = await self.repositories.sources.add(connection, scope, source)
+            stored, created = await self.repositories.sources.add_with_status(connection, scope, source)
+            if created:
+                await self.repositories.processing_pending.raise_source(
+                    connection,
+                    scope,
+                    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                    stored.journal_position,
+                )
         return await self.generation(scope).skill(
             origin=SkillGenerationOrigin.SOURCE,
             sources=(stored.ref,),
@@ -534,6 +545,7 @@ class _RelationalSources:
         scope_id: str,
         adapters: tuple[SourceAdapter[Any, Any, Any], ...],
         repository: SourceRepository,
+        processing_pending: ArtifactProcessingPendingRepository,
         write_lock: asyncio.Lock,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -541,6 +553,7 @@ class _RelationalSources:
         self._scope_id = scope_id
         self._source_names = {adapter.source_class: adapter.name for adapter in adapters}
         self._repository = repository
+        self._processing_pending = processing_pending
         self._write_lock = write_lock
         self._bound_connection = connection
 
@@ -548,7 +561,15 @@ class _RelationalSources:
         async with self._write_lock:
             try:
                 async with self._database.connection(self._bound_connection) as connection:
-                    return (await self._repository.add(connection, self._scope_id, source)).value
+                    stored, created = await self._repository.add_with_status(connection, self._scope_id, source)
+                    if created:
+                        await self._processing_pending.raise_source(
+                            connection,
+                            self._scope_id,
+                            TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                            stored.journal_position,
+                        )
+                    return stored.value
             except StoredPayloadConflictError as error:
                 raise SourceConflictError("identity", error.identity) from None
 

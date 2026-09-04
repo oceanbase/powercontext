@@ -275,6 +275,26 @@ SOURCE_CURSORS_TABLE = Table(
     CheckConstraint("generation >= 0", name="ck_pc_source_cursors_generation_nonnegative"),
 )
 
+ARTIFACT_PROCESSING_PENDING_TABLE = Table(
+    "pc_artifact_processing_pending",
+    SHARED_METADATA,
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_through", BigInteger, nullable=False),
+    Column("flush_generation", BigInteger, nullable=False, server_default="0"),
+    Column("handled_flush_generation", BigInteger, nullable=False, server_default="0"),
+    CheckConstraint("source_through >= 1", name="ck_pc_artifact_processing_pending_source_positive"),
+    CheckConstraint("flush_generation >= 0", name="ck_pc_artifact_processing_pending_flush_nonnegative"),
+    CheckConstraint(
+        "handled_flush_generation >= 0",
+        name="ck_pc_artifact_processing_pending_handled_nonnegative",
+    ),
+    CheckConstraint(
+        "handled_flush_generation <= flush_generation",
+        name="ck_pc_artifact_processing_pending_handled_not_ahead",
+    ),
+)
+
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     "pc_external_skill_registrations",
     SHARED_METADATA,
@@ -358,6 +378,7 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     SOURCE_CURSORS_TABLE,
+    ARTIFACT_PROCESSING_PENDING_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
 )
 

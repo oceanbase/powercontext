@@ -72,6 +72,18 @@ class SourceRepository:
     ) -> StoredSource:
         """Add one stable Source or return an identical existing capture."""
 
+        stored, _created = await self.add_with_status(connection, scope_id, source)
+        return stored
+
+    async def add_with_status(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        source: Source,
+        /,
+    ) -> tuple[StoredSource, bool]:
+        """Add one Source and report whether this call inserted its journal row."""
+
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
         adapter = self._adapter_for_value(source)
         ref = SourceRef(source_type=adapter.name, source_id=source.name)
@@ -81,7 +93,7 @@ class SourceRepository:
         if existing is not None:
             if stored_bytes(existing["payload"], column="payload") != payload:
                 raise StoredPayloadConflictError("source", (scope_id, ref))
-            return self._decode_row(existing)
+            return self._decode_row(existing), False
 
         position = await _next_journal_position(connection, scope_id)
         try:
@@ -103,8 +115,8 @@ class SourceRepository:
                 raise
             if stored_bytes(existing["payload"], column="payload") != payload:
                 raise StoredPayloadConflictError("source", (scope_id, ref)) from None
-            return self._decode_row(existing)
-        return StoredSource(ref=ref, value=source, journal_position=position)
+            return self._decode_row(existing), False
+        return StoredSource(ref=ref, value=source, journal_position=position), True
 
     async def get(
         self,
