@@ -33,11 +33,10 @@ from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillGener
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
-from powercontext.builtin.persistence.sources import SourceRepository
+from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.review.errors import InvalidCandidateError
 from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
-from powercontext.builtin.source_eligibility import require_source_eligible
 from powercontext.errors import PowerContextError
 from powercontext.sources import Source, SourceRef
 
@@ -79,7 +78,7 @@ class ReviewedGenerationService:
         *,
         database: AsyncDatabase,
         scope_id: str,
-        sources: SourceRepository,
+        sources: GenerationSourceAccess,
         artifacts: ArtifactRepository,
         review: ReviewService,
         experience_generator: ExperienceGenerator | None,
@@ -151,10 +150,8 @@ class ReviewedGenerationService:
         evidence: list[GenerationEvidence] = []
         try:
             async with self._database.transaction() as connection:
-                for ref in sources:
-                    row = await self._sources.get(connection, self._scope_id, ref)
-                    require_source_eligible(ref, row.value)
-                    evidence.append(_source_evidence(ref, row.value))
+                source_rows = await self._sources.require_for_generation(connection, self._scope_id, sources)
+                evidence.extend(_source_evidence(row.ref, row.value) for row in source_rows)
                 for ref in artifacts:
                     artifact = await self._artifacts.get(connection, self._scope_id, ref)
                     evidence.append(_artifact_evidence(ref, artifact))

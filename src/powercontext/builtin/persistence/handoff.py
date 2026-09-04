@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -42,8 +43,7 @@ from powercontext.builtin.artifacts.memory import (
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
-from powercontext.builtin.persistence.sources import SourceRepository
-from powercontext.builtin.source_eligibility import require_source_eligible
+from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.errors import ArtifactNotFoundError
 
 
@@ -123,7 +123,7 @@ class RelationalHandoffEvidenceResolver:
         *,
         database: AsyncDatabase,
         scope_id: str,
-        sources: SourceRepository,
+        sources: GenerationSourceAccess,
         artifacts: ArtifactRepository,
         memory: MemoryService,
         connection: AsyncConnection | None = None,
@@ -136,30 +136,73 @@ class RelationalHandoffEvidenceResolver:
         self._bound_connection = connection
 
     async def resolve(self, citation: HandoffCitation, /) -> HandoffGenerationEvidence:
+        return (await self.resolve_many((citation,)))[0]
+
+    async def resolve_many(
+        self,
+        citations: Sequence[HandoffCitation],
+        /,
+    ) -> tuple[HandoffGenerationEvidence, ...]:
+        requested = tuple(citations)
+        source_refs = tuple(
+            citation.source_ref for citation in requested if isinstance(citation, HandoffSourceCitation)
+        )
+        artifact_refs = tuple(
+            citation.artifact_ref for citation in requested if isinstance(citation, HandoffArtifactCitation)
+        )
         try:
+            async with self._database.connection(self._bound_connection) as connection:
+                sources = await self._sources.require_for_generation(connection, self._scope_id, source_refs)
+                artifacts = await self._artifacts.get_many(connection, self._scope_id, artifact_refs)
+        except RepositoryNotFoundError as error:
+            unavailable = _missing_citation(requested, error)
+            raise HandoffEvidenceUnavailableError(unavailable) from error
+
+        source_values = {(row.ref.source_type, row.ref.source_id): row.value for row in sources}
+        artifact_values = {
+            (artifact.family, artifact.artifact_id, artifact.revision): artifact for artifact in artifacts
+        }
+        evidence: list[HandoffGenerationEvidence] = []
+        for citation in requested:
             if isinstance(citation, HandoffSourceCitation):
-                async with self._database.connection(self._bound_connection) as connection:
-                    source = await self._sources.get(connection, self._scope_id, citation.source_ref)
-                require_source_eligible(citation.source_ref, source.value)
-                return HandoffSourceEvidence(citation=citation, source=source.value)
-            if isinstance(citation, HandoffArtifactCitation):
-                async with self._database.connection(self._bound_connection) as connection:
-                    artifact = await self._artifacts.get(connection, self._scope_id, citation.artifact_ref)
-                return HandoffArtifactEvidence(citation=citation, artifact=artifact)
-            if isinstance(citation, HandoffMemoryCitation):
-                entry = await self._memory.validate_citation(citation.memory_citation)
-                return HandoffMemoryEvidence(citation=citation, entry=entry)
-        except (
-            ArtifactNotFoundError,
-            InvalidMemoryCitationError,
-            MemoryEntryNotFoundError,
-            RepositoryNotFoundError,
-        ) as error:
-            raise HandoffEvidenceUnavailableError(citation) from error
-        raise TypeError(f"unsupported Handoff citation: {type(citation).__name__}")  # noqa: TRY003
+                source = source_values[(citation.source_ref.source_type, citation.source_ref.source_id)]
+                evidence.append(HandoffSourceEvidence(citation=citation, source=source))
+            elif isinstance(citation, HandoffArtifactCitation):
+                reference = citation.artifact_ref
+                evidence.append(
+                    HandoffArtifactEvidence(
+                        citation=citation,
+                        artifact=artifact_values[(reference.family, reference.artifact_id, reference.revision)],
+                    )
+                )
+            elif isinstance(citation, HandoffMemoryCitation):
+                try:
+                    entry = await self._memory.validate_citation(citation.memory_citation)
+                except (ArtifactNotFoundError, InvalidMemoryCitationError, MemoryEntryNotFoundError) as error:
+                    raise HandoffEvidenceUnavailableError(citation) from error
+                evidence.append(HandoffMemoryEvidence(citation=citation, entry=entry))
+            else:
+                raise TypeError(f"unsupported Handoff citation: {type(citation).__name__}")  # noqa: TRY003
+        return tuple(evidence)
 
     async def validate(self, citation: HandoffCitation, /) -> None:
         await self.resolve(citation)
+
+
+def _missing_citation(
+    citations: tuple[HandoffCitation, ...],
+    error: RepositoryNotFoundError,
+) -> HandoffCitation:
+    identity = error.identity
+    missing = identity[-1] if isinstance(identity, tuple) and identity else None
+    for citation in citations:
+        if isinstance(citation, HandoffSourceCitation) and citation.source_ref == missing:
+            return citation
+        if isinstance(citation, HandoffArtifactCitation) and citation.artifact_ref == missing:
+            return citation
+    if citations:
+        return citations[0]
+    raise error
 
 
 __all__ = ["RelationalHandoffBackend", "RelationalHandoffEvidenceResolver"]

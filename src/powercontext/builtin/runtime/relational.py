@@ -96,6 +96,7 @@ from powercontext.builtin.persistence.family_management import (
     MemoryManagementWriter,
     SkillManagementWriter,
 )
+from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.handoff import (
     RelationalHandoffBackend,
     RelationalHandoffEvidenceResolver,
@@ -131,7 +132,6 @@ from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.scope import ScopeApplication
-from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -227,6 +227,9 @@ class _ScopedServices:
     token_estimator: TokenEstimator | None
     source_registry: SourceDefinitionRegistry
 
+    def generation_sources(self) -> GenerationSourceAccess:
+        return GenerationSourceAccess(self.repositories.sources)
+
     def sources(
         self,
         connection: AsyncConnection | None = None,
@@ -276,7 +279,7 @@ class _ScopedServices:
             artifacts=self.repositories.artifacts,
             experience_index=self.experience_index,
             skill_packages=self.repositories.skill_packages,
-            sources=self.repositories.sources,
+            sources=self.generation_sources(),
             id_factory=self.id_factory,
             connection=connection,
         )
@@ -285,7 +288,7 @@ class _ScopedServices:
         return ReviewedGenerationService(
             database=self.database,
             scope_id=self.scope_id,
-            sources=self.repositories.sources,
+            sources=self.generation_sources(),
             artifacts=self.repositories.artifacts,
             review=self.review(),
             experience_generator=self.experience_generator,
@@ -304,7 +307,7 @@ class _ScopedServices:
             return RelationalHandoffEvidenceResolver(
                 database=services.database,
                 scope_id=scope_id,
-                sources=services.repositories.sources,
+                sources=services.generation_sources(),
                 artifacts=services.repositories.artifacts,
                 memory=services.memory(catalog),
             )
@@ -320,7 +323,7 @@ class _ScopedServices:
             evidence_resolver=RelationalHandoffEvidenceResolver(
                 database=self.database,
                 scope_id=self.scope_id,
-                sources=self.repositories.sources,
+                sources=self.generation_sources(),
                 artifacts=self.repositories.artifacts,
                 memory=memory,
             ),
@@ -1035,9 +1038,7 @@ class _RelationalSources:
         ref = self._as_ref(source)
         try:
             async with self._database.connection(self._bound_connection) as connection:
-                value = (await self._repository.get(connection, self._scope_id, ref)).value
-                require_source_eligible(ref, value)
-                return value
+                return (await self._repository.get(connection, self._scope_id, ref)).value
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
 
@@ -1114,16 +1115,15 @@ class _RelationalTriggers:
         async with self._lock:
             async with self._services.database.transaction() as connection:
                 try:
-                    source = await self._services.repositories.sources.get(
+                    (source,) = await self._services.generation_sources().require_for_generation(
                         connection,
                         self._services.scope_id,
-                        request.boundary_source,
+                        (request.boundary_source,),
                     )
                 except RepositoryNotFoundError:
                     raise HandoffEvidenceUnavailableError(
                         HandoffSourceCitation(source_ref=request.boundary_source)
                     ) from None
-                require_source_eligible(request.boundary_source, source.value)
                 state_row = await self._services.repositories.cursors.load(
                     connection,
                     self._services.scope_id,
@@ -1239,14 +1239,13 @@ class _RelationalTriggers:
         connection: AsyncConnection,
         action: ProcessSourceWindow,
     ) -> tuple[Source, ...]:
-        rows = await self._services.repositories.sources.list(
+        rows = await self._services.generation_sources().list_window_for_generation(
             connection,
             self._services.scope_id,
             after=action.after,
+            through=action.through,
         )
-        return tuple(
-            row.value for row in rows if row.journal_position <= action.through and is_generation_eligible(row.value)
-        )
+        return tuple(row.value for row in rows)
 
     async def _prepare_memory(self, sources: tuple[Source, ...]) -> MemoryWritePlan:
         _, source_catalog = self._services.sources()
@@ -1302,8 +1301,7 @@ class _RelationalExperienceIncubator:
             if pipeline is None:
                 raise RuntimeError("Experience incubation pipeline is not configured")  # noqa: TRY003
             action = transition.actions[0]
-            eligible_rows = tuple(row for row in rows if is_generation_eligible(row.value))
-            if not eligible_rows:
+            if not rows:
                 async with self._services.database.transaction() as connection:
                     await self._services.repositories.cursors.save(
                         connection,
@@ -1319,8 +1317,8 @@ class _RelationalExperienceIncubator:
                     source_count=0,
                     candidate_count=0,
                 )
-            plans = await pipeline.incubate(tuple(row.value for row in eligible_rows))
-            _validate_experience_plans(plans, eligible_rows)
+            plans = await pipeline.incubate(tuple(row.value for row in rows))
+            _validate_experience_plans(plans, rows)
             async with self._services.database.transaction() as connection:
                 review = self._services.review(connection)
                 for plan in plans:
@@ -1342,7 +1340,7 @@ class _RelationalExperienceIncubator:
                 previous_cursor=action.after,
                 high_watermark=high_watermark,
                 current_cursor=action.through,
-                source_count=len(eligible_rows),
+                source_count=len(rows),
                 candidate_count=len(plans),
             )
 
@@ -1351,11 +1349,11 @@ class _RelationalExperienceIncubator:
         connection: AsyncConnection,
         action: ProcessSourceWindow,
     ) -> tuple[StoredSource, ...]:
-        return await self._services.repositories.sources.list(
+        return await self._services.generation_sources().list_window_for_generation(
             connection,
             self._services.scope_id,
             after=action.after,
-            limit=action.through - action.after,
+            through=action.through,
         )
 
 

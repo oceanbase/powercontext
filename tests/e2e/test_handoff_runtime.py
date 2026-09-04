@@ -23,6 +23,7 @@ import pytest
 from powercontext.builtin.artifacts.handoff import HandoffScopeMismatchError
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     ActivateHandoff,
     BuiltinConfig,
@@ -38,6 +39,7 @@ from powercontext.builtin.runtime import (
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.errors import RevisionConflictError
 
 
@@ -101,6 +103,33 @@ def test_runtime_owns_handoff_trigger_activation_and_deduplication() -> None:
             assert draft.state[0].citations == (HandoffSourceCitation(source_ref=source.source_ref),)
             assert await handoffs.latest() is None
             assert (await runtime.capabilities()).handoff_generation is True
+
+    asyncio.run(scenario())
+
+
+def test_handoff_activation_rejects_a_lineage_only_boundary_source() -> None:
+    async def scenario() -> None:
+        pipeline = _EchoHandoffPipeline()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()),
+            handoff_pipeline=pipeline,
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Project", summary="Reserved boundary", idempotency_key="reserved-boundary")
+            )
+            created = await runtime.records.for_scope(scope.scope_id).create_artifact(
+                "memory",
+                ArtifactWrite(content={"entries": [{"kind": "fact", "text": "Direct input."}]}),
+            )
+
+            with pytest.raises(SourceNotEligibleError):
+                await runtime.handoff.for_scope(scope.scope_id).activate(
+                    ActivateHandoff(
+                        boundary_source=created.sources[0],
+                        objective="Do not regenerate from management provenance.",
+                    )
+                )
 
     asyncio.run(scenario())
 

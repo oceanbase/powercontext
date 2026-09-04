@@ -29,8 +29,8 @@ from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
+from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
-from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.models import (
     MAX_CANDIDATE_EVIDENCE,
@@ -39,7 +39,6 @@ from powercontext.builtin.review.models import (
     ArtifactCandidatePage,
     CandidateStatus,
 )
-from powercontext.builtin.source_eligibility import require_source_eligible
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 from powercontext.sources import SourceRef
 
@@ -62,7 +61,7 @@ class ReviewService:
         artifacts: ArtifactRepository,
         experience_index: ExperienceIndex,
         skill_packages: SkillPackageRepository,
-        sources: SourceRepository,
+        sources: GenerationSourceAccess,
         id_factory: IdFactory,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -286,6 +285,7 @@ class ReviewService:
                 )
             )
             _validate_approval_lineage(candidate)
+            await self._validate_evidence(connection, candidate.sources, candidate.artifacts)
             if isinstance(candidate.proposal, SkillContent) and candidate.proposal.package is not None:
                 await self._canonical_skill_proposal(connection, candidate.proposal)
             draft = _candidate_draft(candidate)
@@ -353,9 +353,7 @@ class ReviewService:
         if len(sources) + len(artifacts) > MAX_CANDIDATE_EVIDENCE:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
         try:
-            for source in sources:
-                stored = await self._sources.get(connection, self._scope_id, source)
-                require_source_eligible(source, stored.value)
+            await self._sources.require_for_generation(connection, self._scope_id, sources)
             for artifact in artifacts:
                 await self._artifacts.get(connection, self._scope_id, artifact)
         except RepositoryNotFoundError as error:

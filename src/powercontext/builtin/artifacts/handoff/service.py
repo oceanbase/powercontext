@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
+from typing import Protocol, runtime_checkable
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.handoff.errors import (
@@ -36,6 +37,7 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffContent,
     HandoffDraft,
     HandoffEvidenceCheck,
+    HandoffGenerationEvidence,
     HandoffGenerationRequest,
     HandoffMemoryCitation,
     HandoffResolution,
@@ -51,6 +53,15 @@ from powercontext.builtin.artifacts.handoff.protocols import (
 )
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceRef
+
+
+@runtime_checkable
+class _BatchHandoffEvidenceResolver(Protocol):
+    async def resolve_many(
+        self,
+        citations: Sequence[HandoffCitation],
+        /,
+    ) -> tuple[HandoffGenerationEvidence, ...]: ...
 
 
 class HandoffService:
@@ -79,7 +90,10 @@ class HandoffService:
 
         if self._generation_pipeline is None:
             raise HandoffGenerationUnavailableError
-        evidence = tuple([await self._evidence_resolver.resolve(citation) for citation in action.evidence])
+        if isinstance(self._evidence_resolver, _BatchHandoffEvidenceResolver):
+            evidence = await self._evidence_resolver.resolve_many(action.evidence)
+        else:
+            evidence = tuple([await self._evidence_resolver.resolve(citation) for citation in action.evidence])
         draft = await self._generation_pipeline.generate(
             HandoffGenerationRequest(
                 objective=action.objective,

@@ -45,6 +45,7 @@ from powercontext.builtin.persistence.artifacts import ArtifactRepository, Repos
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
+from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.handoff import RelationalHandoffBackend, RelationalHandoffEvidenceResolver
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex
@@ -462,7 +463,7 @@ class HandoffManagementWriter:
             evidence_resolver=RelationalHandoffEvidenceResolver(
                 database=self._database,
                 scope_id=scope_id,
-                sources=self._sources,
+                sources=GenerationSourceAccess(self._sources),
                 artifacts=self._artifacts,
                 memory=memory,
                 connection=connection,
