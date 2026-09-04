@@ -68,7 +68,7 @@ class CoordinationConfig(BaseModel):
     scan_page_size: int = Field(default=100, ge=1, le=100)
     member_ttl_seconds: int = Field(default=30, ge=3)
     member_heartbeat_seconds: int = Field(default=10, ge=1)
-    emit_payload_version: Literal[1] = 1
+    emit_payload_version: int = Field(default=1, ge=1, le=1)
 
     @model_validator(mode="after")
     def validate_lease_intervals(self) -> CoordinationConfig:
