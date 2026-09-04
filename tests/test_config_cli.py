@@ -345,6 +345,28 @@ def test_validate_reports_invalid_numeric_values_without_a_traceback(tmp_path: P
     assert "Traceback" not in result.output
 
 
+def test_validate_accepts_multiline_quoted_dashboard_scopes(tmp_path: Path) -> None:
+    environment = tmp_path / ".env"
+    multiline = """POWERCONTEXT_SERVER_DASHBOARD_SCOPES='[
+  {
+    "scope_id": "project:quickstart",
+    "display_name": "Quick Start"
+  }
+]'"""
+    generated = config_cli.render_managed_block(_configuration())
+    content = "\n".join(
+        line for line in generated.splitlines() if not line.startswith("POWERCONTEXT_SERVER_DASHBOARD_SCOPES=")
+    )
+    content = f"{content}\n{multiline}\n"
+    environment.write_text(content, encoding="utf-8")
+
+    with patch.object(config_cli, "_validate_provider_models"):
+        result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+    assert "Configuration is valid" in result.output
+
+
 def test_show_redacts_standard_credential_container_variables(tmp_path: Path) -> None:
     environment = tmp_path / ".env"
     environment.write_text(

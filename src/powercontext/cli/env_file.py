@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Collection, Generator, Mapping, MutableMapping
+from collections.abc import Collection, Generator, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -44,7 +44,8 @@ def parse_environment(content: str, *, source: str = "environment") -> dict[str,
     """
 
     environment: dict[str, str] = {}
-    for line_number, line in enumerate(content.splitlines(), start=1):
+    lines = iter(enumerate(content.splitlines(), start=1))
+    for line_number, line in lines:
         stripped = line.lstrip(" \t")
         if not stripped or stripped.startswith("#"):
             continue
@@ -53,12 +54,7 @@ def parse_environment(content: str, *, source: str = "environment") -> dict[str,
             stripped = stripped[export.end() :]
         if "\x00" in stripped:
             raise EnvironmentFileError(f"invalid NUL character at {source}:{line_number}")  # noqa: TRY003
-        try:
-            tokens = _split_shell_words(stripped)
-        except ValueError as error:
-            raise EnvironmentFileError(  # noqa: TRY003
-                f"invalid assignment at {source}:{line_number}: {error}"
-            ) from error
+        tokens = _split_assignment(stripped, lines, source=source, line_number=line_number)
         if not tokens:
             continue
         if len(tokens) != 1 or "=" not in tokens[0]:
@@ -76,13 +72,61 @@ def parse_environment(content: str, *, source: str = "environment") -> dict[str,
     return environment
 
 
-def _split_shell_words(line: str) -> list[str]:  # noqa: C901
-    """Split one shell assignment without expansion or command evaluation."""
+def _split_assignment(
+    first_line: str,
+    following_lines: Iterator[tuple[int, str]],
+    *,
+    source: str,
+    line_number: int,
+) -> list[str]:
+    """Split one assignment, consuming physical lines until its quotes close."""
 
     words: list[str] = []
     word: list[str] = []
     quote = ""
     word_started = False
+    line = first_line
+    while True:
+        try:
+            quote, word_started = _scan_shell_words(
+                line,
+                words,
+                word,
+                quote=quote,
+                word_started=word_started,
+            )
+        except ValueError as error:
+            raise EnvironmentFileError(  # noqa: TRY003
+                f"invalid assignment at {source}:{line_number}: {error}"
+            ) from error
+        if not quote:
+            if word_started:
+                words.append("".join(word))
+            return words
+        try:
+            continuation_line_number, line = next(following_lines)
+        except StopIteration:
+            error = ValueError(_NO_CLOSING_QUOTATION)
+            raise EnvironmentFileError(  # noqa: TRY003
+                f"invalid assignment at {source}:{line_number}: {error}"
+            ) from error
+        if "\x00" in line:
+            raise EnvironmentFileError(  # noqa: TRY003
+                f"invalid NUL character at {source}:{continuation_line_number}"
+            )
+        word.append("\n")
+
+
+def _scan_shell_words(  # noqa: C901
+    line: str,
+    words: list[str],
+    word: list[str],
+    *,
+    quote: str,
+    word_started: bool,
+) -> tuple[str, bool]:
+    """Scan one physical line while carrying the current assignment state."""
+
     index = 0
     while index < len(line):
         character = line[index]
@@ -115,7 +159,7 @@ def _split_shell_words(line: str) -> list[str]:  # noqa: C901
         elif character in {" ", "\t"}:
             if word_started:
                 words.append("".join(word))
-                word = []
+                word.clear()
                 word_started = False
         elif character == "#" and not word_started:
             break
@@ -125,11 +169,7 @@ def _split_shell_words(line: str) -> list[str]:  # noqa: C901
             word.append(character)
             word_started = True
         index += 1
-    if quote:
-        raise ValueError(_NO_CLOSING_QUOTATION)
-    if word_started:
-        words.append("".join(word))
-    return words
+    return quote, word_started
 
 
 def read_environment_file(path: Path) -> dict[str, str]:
