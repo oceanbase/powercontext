@@ -94,6 +94,9 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 "position",
                 "content_digest",
             }
+            null_source = await client.create_source(scope_id, CreateSourceRequest(content=None))
+            assert null_source.content is None
+            assert (await client.get_source(scope_id, "content", null_source.source_id)).content is None
 
             invalid_source_type = await transport.get(
                 f"/v1/scopes/{encoded_scope}/sources/private/{quote(source.source_id, safe='')}"
@@ -150,9 +153,17 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 expected_etag=etag,
             )
             assert replaced.revision == 2
-            assert replaced.sources == []
+            assert len(replaced.sources) == 1
+            assert replaced.sources != created.sources
+            replacement_source = await client.get_source(
+                scope_id,
+                replaced.sources[0].source_type.value,
+                replaced.sources[0].source_id,
+            )
+            assert replacement_source.content == _memory_content()
             exact_first = await client.get_artifact_revision(scope_id, "memory", created.artifact_id, 1)
             assert exact_first.revision == 1
+            assert exact_first.sources == created.sources
 
             with pytest.raises(ServerResponseError) as stale:
                 await client.replace_artifact(

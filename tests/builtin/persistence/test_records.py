@@ -19,7 +19,7 @@ from collections.abc import Iterator
 
 import pytest
 from pydantic import JsonValue
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
@@ -95,12 +95,15 @@ def _services(
 def test_source_create_persists_json_without_public_internal_fields() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
-            records, _, _ = _services(profile, iter(("src-1",)))
+            records, _, _ = _services(profile, iter(("src-1", "src-2")))
             created = await records.create_source("scope-a", "content", {"fact": True})
             loaded = await records.get_source("scope-a", "content", "src-1")
+            null_source = await records.create_source("scope-a", "content", None)
 
             assert loaded == created
             assert created.content == {"fact": True}
+            assert null_source.content is None
+            assert (await records.get_source("scope-a", "content", "src-2")).content is None
             assert set(created.model_dump()) == {
                 "scope_id",
                 "source_type",
@@ -158,7 +161,7 @@ def test_artifact_create_is_atomic_and_binds_its_system_source() -> None:
 def test_artifact_get_list_replace_use_family_models_and_opaque_etags() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
-            records, _, _ = _services(profile, iter(("mem-1", "src-1")))
+            records, _, sources = _services(profile, iter(("mem-1", "src-1", "src-2")))
             created = await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
             head = await records.get_artifact("scope-a", "memory", created.artifact_id)
             page = await records.query_artifacts("scope-a", "memory", limit=10, cursor=None)
@@ -175,8 +178,15 @@ def test_artifact_get_list_replace_use_family_models_and_opaque_etags() -> None:
                 ArtifactWrite(content=_memory_content()),
             )
             assert replaced.revision == 2
-            assert replaced.sources == ()
-            assert (await records.get_artifact_revision("scope-a", "memory", created.artifact_id, 1)).revision == 1
+            assert replaced.sources[0].source_id == "src-2"
+            original = await records.get_artifact_revision("scope-a", "memory", created.artifact_id, 1)
+            assert original.sources == created.sources
+            async with profile.database.transaction() as connection:
+                replacement_source = await sources.get(connection, "scope-a", replaced.sources[0])
+            assert isinstance(replacement_source.value, ContentSource)
+            assert replacement_source.value.internal is not None
+            assert replacement_source.value.internal.operation == "artifact_replace"
+            assert replacement_source.value.internal.target.revision == 2
 
             with pytest.raises(ArtifactRevisionPreconditionError):
                 await records.replace_artifact(
@@ -197,7 +207,7 @@ def test_artifact_get_list_replace_use_family_models_and_opaque_etags() -> None:
 def test_artifact_create_and_replace_validate_handoff_as_json() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
-            records, _, _ = _services(profile, iter(("handoff-1", "src-1")))
+            records, _, _ = _services(profile, iter(("handoff-1", "src-1", "src-2")))
             created = await records.create_artifact(
                 "scope-a",
                 "handoff",
@@ -217,6 +227,33 @@ def test_artifact_create_and_replace_validate_handoff_as_json() -> None:
             )
             assert replaced.revision == 2
             assert replaced.content == replacement
+
+    asyncio.run(scenario())
+
+
+def test_artifact_list_batches_revision_and_lineage_reads() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
+            records, _, _ = _services(
+                profile,
+                iter(("mem-1", "src-1", "mem-2", "src-2", "mem-3", "src-3")),
+            )
+            for _ in range(3):
+                await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
+
+            statements: list[str] = []
+
+            def record_statement(*args: object) -> None:
+                statements.append(str(args[2]))
+
+            event.listen(profile.database.engine.sync_engine, "before_cursor_execute", record_statement)
+            try:
+                page = await records.query_artifacts("scope-a", "memory", limit=10, cursor=None)
+            finally:
+                event.remove(profile.database.engine.sync_engine, "before_cursor_execute", record_statement)
+
+            assert len(page.items) == 3
+            assert len([statement for statement in statements if statement.lstrip().upper().startswith("SELECT")]) == 4
 
     asyncio.run(scenario())
 

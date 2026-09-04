@@ -364,6 +364,7 @@ class RelationalContexts:
         handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
         source_registry: SourceDefinitionRegistry | None = None,
+        cursor_secret: bytes | None = None,
     ) -> None:
         self.database = database
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
@@ -396,6 +397,7 @@ class RelationalContexts:
             self.repositories.sources,
             self.repositories.artifacts,
             id_factory=id_factory,
+            cursor_secret=cursor_secret,
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None

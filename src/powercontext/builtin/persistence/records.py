@@ -62,7 +62,6 @@ from powercontext.builtin.records import (
     ScopeSummaryPage,
     SourceRecord,
 )
-from powercontext.builtin.source_eligibility import is_generation_eligible
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
     CONTENT_SOURCE_NAME,
@@ -121,7 +120,8 @@ class RelationalRecordService:
             name=self._id_factory("source"),
             materialization=SourceMaterialization.CAPTURED,
             content=_canonical_source_text(content),
-            wire_content=None if isinstance(content, str) else _JSON_VALUE.validate_python(content, strict=True),
+            wire_content=_JSON_VALUE.validate_python(content, strict=True),
+            wire_content_present=True,
         )
         return await self._store_source(scope_id, source_type, source)
 
@@ -181,6 +181,7 @@ class RelationalRecordService:
             materialization=SourceMaterialization.CAPTURED,
             content=_canonical_source_text(canonical_content),
             wire_content=canonical_content,
+            wire_content_present=True,
             internal=ContentSourceInternal(
                 role="lineage_only",
                 operation="artifact_create",
@@ -269,20 +270,21 @@ class RelationalRecordService:
             )
             rows = (await connection.execute(statement)).all()
             selected_rows = rows[:limit]
-            items = []
-            for row in selected_rows:
-                artifact = await self._artifacts.get(
-                    connection,
-                    scope_id,
-                    ArtifactRef(family=family, artifact_id=str(row.artifact_id), revision=int(row.revision)),
-                )
-                items.append(_artifact_collection_item(scope_id, artifact))
+            artifacts = await self._artifacts.get_many(
+                connection,
+                scope_id,
+                tuple(
+                    ArtifactRef(family=family, artifact_id=str(row.artifact_id), revision=int(row.revision))
+                    for row in selected_rows
+                ),
+            )
+            items = tuple(_artifact_collection_item(scope_id, artifact) for artifact in artifacts)
 
         next_cursor = None
         if len(rows) > limit and selected_rows:
             next_cursor = self._encode_cursor(expected_cursor, str(selected_rows[-1].artifact_id))
         return ArtifactRecordPage(
-            items=tuple(items),
+            items=items,
             next_cursor=next_cursor,
         )
 
@@ -296,6 +298,7 @@ class RelationalRecordService:
         /,
     ) -> ArtifactRecord:
         self._require_family(family)
+        draft = self._validated_draft(family, write.content)
         async with self._database.transaction() as connection:
             try:
                 current = await self._artifacts.latest(connection, scope_id, family, artifact_id)
@@ -304,19 +307,36 @@ class RelationalRecordService:
             current_etag = _artifact_etag(current.revision)
             if expected_etag != current_etag:
                 raise ArtifactRevisionPreconditionError(expected_etag, current_etag)
-            sources = []
-            for source_ref in current.lineage.sources:
-                stored = await self._sources.get(connection, scope_id, source_ref)
-                if is_generation_eligible(stored.value):
-                    sources.append(source_ref)
-            draft = self._validated_draft(
-                family,
-                write.content,
-                sources=tuple(sources),
-                artifacts=current.lineage.artifacts,
+            next_revision = current.revision + 1
+            canonical_content = cast(dict[str, JsonValue], draft.content.model_dump(mode="json", by_alias=True))
+            source = ContentSource(
+                name=self._id_factory("source"),
+                materialization=SourceMaterialization.CAPTURED,
+                content=_canonical_source_text(canonical_content),
+                wire_content=canonical_content,
+                wire_content_present=True,
+                internal=ContentSourceInternal(
+                    role="lineage_only",
+                    operation="artifact_replace",
+                    target=ContentSourceTarget(
+                        scope_id=scope_id,
+                        family=cast(Any, family),
+                        artifact_id=artifact_id,
+                        revision=next_revision,
+                    ),
+                ),
             )
             try:
+                stored = await self._sources.add(connection, scope_id, source)
+                draft = draft.model_copy(
+                    update={
+                        "sources": (stored.ref,),
+                        "artifacts": current.lineage.artifacts,
+                    }
+                )
                 revised = await self._artifacts.revise(connection, scope_id, current, draft)
+            except StoredPayloadConflictError as error:
+                raise BaseValueConflictError("source", (scope_id, CONTENT_SOURCE_NAME, source.name)) from error
             except RevisionConflictError:
                 latest = await self._artifacts.latest(connection, scope_id, family, artifact_id)
                 raise ArtifactRevisionPreconditionError(expected_etag, _artifact_etag(latest.revision)) from None
@@ -421,12 +441,16 @@ def _source_record(
         scope_id=scope_id,
         source_type=cast(Any, stored.ref.source_type),
         source_id=stored.ref.source_id,
-        content=stored.value.content if stored.value.wire_content is None else stored.value.wire_content,
+        content=_source_content(stored.value),
         position=stored.journal_position,
-        content_digest=_content_digest(
-            stored.value.content if stored.value.wire_content is None else stored.value.wire_content
-        ),
+        content_digest=_content_digest(_source_content(stored.value)),
     )
+
+
+def _source_content(source: ContentSource) -> JsonValue:
+    if source.wire_content_present or source.wire_content is not None:
+        return source.wire_content
+    return source.content
 
 
 def _artifact_record(

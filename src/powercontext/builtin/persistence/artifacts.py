@@ -16,11 +16,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -223,6 +223,50 @@ class ArtifactRepository:
             raise RepositoryNotFoundError("artifact", (scope_id, ref))
         return await self._decode_row(connection, row)
 
+    async def get_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        refs: Sequence[ArtifactRef],
+        /,
+    ) -> tuple[Artifact[Any], ...]:
+        """Load exact Revisions and ordered lineage with bounded batch queries."""
+
+        _require_scope(scope_id)
+        requested = tuple(refs)
+        if not requested:
+            return ()
+        keys = tuple(dict.fromkeys((ref.family, ref.artifact_id, ref.revision) for ref in requested))
+        for family, _, _ in keys:
+            self._artifact_type(family)
+        identity = tuple_(
+            ARTIFACTS_TABLE.c.family,
+            ARTIFACTS_TABLE.c.artifact_id,
+            ARTIFACTS_TABLE.c.revision,
+        )
+        rows = (
+            await connection.execute(
+                select(ARTIFACTS_TABLE).where(
+                    ARTIFACTS_TABLE.c.scope_id == scope_id,
+                    identity.in_(keys),
+                )
+            )
+        ).mappings()
+        by_key = {(str(row["family"]), str(row["artifact_id"]), int(row["revision"])): row for row in rows}
+        for ref in requested:
+            key = (ref.family, ref.artifact_id, ref.revision)
+            if key not in by_key:
+                raise RepositoryNotFoundError("artifact", (scope_id, ref))
+
+        lineage = await self._load_lineage_many(connection, scope_id, keys)
+        return tuple(
+            self._decode_artifact(
+                by_key[(ref.family, ref.artifact_id, ref.revision)],
+                lineage[(ref.family, ref.artifact_id, ref.revision)],
+            )
+            for ref in requested
+        )
+
     async def latest(
         self,
         connection: AsyncConnection,
@@ -342,6 +386,20 @@ class ArtifactRepository:
         row: Mapping[Any, Any],
     ) -> Artifact[Any]:
         family = str(row["family"])
+        ref = ArtifactRef(
+            family=family,
+            artifact_id=str(row["artifact_id"]),
+            revision=int(row["revision"]),
+        )
+        lineage = await self._load_lineage(connection, str(row["scope_id"]), ref)
+        return self._decode_artifact(row, lineage)
+
+    def _decode_artifact(
+        self,
+        row: Mapping[Any, Any],
+        lineage: ArtifactLineage,
+    ) -> Artifact[Any]:
+        family = str(row["family"])
         artifact_type = self._artifact_type(family)
         content = load_model(
             self._content_types[family],
@@ -354,7 +412,6 @@ class ArtifactRepository:
             artifact_id=str(row["artifact_id"]),
             revision=int(row["revision"]),
         )
-        lineage = await self._load_lineage(connection, str(row["scope_id"]), ref)
         artifact = artifact_type(
             artifact_id=ref.artifact_id,
             revision=ref.revision,
@@ -364,6 +421,68 @@ class ArtifactRepository:
         if artifact.as_ref() != ref:
             raise IdentityMismatchError("artifact", ref, artifact.as_ref())
         return artifact
+
+    async def _load_lineage_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        keys: Sequence[tuple[str, str, int]],
+    ) -> dict[tuple[str, str, int], ArtifactLineage]:
+        source_identity = tuple_(
+            ARTIFACT_LINEAGE_SOURCES_TABLE.c.family,
+            ARTIFACT_LINEAGE_SOURCES_TABLE.c.artifact_id,
+            ARTIFACT_LINEAGE_SOURCES_TABLE.c.revision,
+        )
+        source_rows = (
+            await connection.execute(
+                select(ARTIFACT_LINEAGE_SOURCES_TABLE)
+                .where(
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.scope_id == scope_id,
+                    source_identity.in_(keys),
+                )
+                .order_by(
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.family,
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.artifact_id,
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.revision,
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.ordinal,
+                )
+            )
+        ).mappings()
+        artifact_identity = tuple_(
+            ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.family,
+            ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.artifact_id,
+            ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.revision,
+        )
+        artifact_rows = (
+            await connection.execute(
+                select(ARTIFACT_LINEAGE_ARTIFACTS_TABLE)
+                .where(
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.scope_id == scope_id,
+                    artifact_identity.in_(keys),
+                )
+                .order_by(
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.family,
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.artifact_id,
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.revision,
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.ordinal,
+                )
+            )
+        ).mappings()
+        sources: dict[tuple[str, str, int], list[SourceRef]] = {key: [] for key in keys}
+        artifacts: dict[tuple[str, str, int], list[ArtifactRef]] = {key: [] for key in keys}
+        for row in source_rows:
+            key = (str(row["family"]), str(row["artifact_id"]), int(row["revision"]))
+            sources[key].append(SourceRef(source_type=str(row["source_type"]), source_id=str(row["source_id"])))
+        for row in artifact_rows:
+            key = (str(row["family"]), str(row["artifact_id"]), int(row["revision"]))
+            artifacts[key].append(
+                ArtifactRef(
+                    family=str(row["upstream_family"]),
+                    artifact_id=str(row["upstream_artifact_id"]),
+                    revision=int(row["upstream_revision"]),
+                )
+            )
+        return {key: ArtifactLineage(sources=tuple(sources[key]), artifacts=tuple(artifacts[key])) for key in keys}
 
     async def _load_lineage(
         self,

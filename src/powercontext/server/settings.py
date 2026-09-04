@@ -213,11 +213,19 @@ class ServerSettings(BaseSettings):
     logging: ServerLoggingConfig = Field(default_factory=ServerLoggingConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     tracing: TracingConfig = Field(default_factory=TracingConfig)
+    cursor_signing_secret: SecretStr | None = Field(default=None, repr=False)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+
+    @field_validator("cursor_signing_secret")
+    @classmethod
+    def validate_cursor_signing_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value().encode()) < 32:
+            raise ValueError("cursor signing secret must contain at least 32 bytes")  # noqa: TRY003
+        return value
 
     @field_validator("workspace")
     @classmethod

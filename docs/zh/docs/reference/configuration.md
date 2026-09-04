@@ -55,6 +55,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | 记录外部 HTTP 和逻辑 MCP request completion |
 | `POWERCONTEXT_SERVER_METRICS_ENABLED` | `true` | 在 `/metrics` 暴露 Prometheus metrics |
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | 启用 span recording 和 OTLP export |
+| `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` | 本地持久化密钥 | 用于签名 REST 分页 cursor 的共享密钥，至少 32 字节 |
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekDB 不设置 |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekDB 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
@@ -87,6 +88,11 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
+
+未设置 cursor 签名密钥时，使用文件 SQLite 的 Server 会在数据库旁创建权限受限的密钥文件；其他持久化后端会在
+PowerContext 用户数据目录创建密钥。内存 SQLite 使用进程内密钥。多副本部署必须为所有副本配置相同的
+`POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET`，这样重启或下一请求落到其他副本后，已签发 cursor 仍然有效。
+在已签发 cursor 仍需有效期间，不要泄漏或轮换该值。
 
 静态 Bearer 鉴权默认关闭。启用后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`；liveness 和
 readiness endpoint 仍然公开。明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意

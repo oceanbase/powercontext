@@ -41,6 +41,7 @@ from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSch
 from powercontext.paths import default_scheduler_path
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import create_app
+from powercontext.server.cursor_secret import resolve_cursor_secret
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
 from powercontext.server.middleware import StaticBearerMiddleware
@@ -88,6 +89,10 @@ def create_server_app(
             _log_insecure_remote_http_warning()
         if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
             _log_in_memory_database_warning()
+        configured_cursor_secret = (
+            None if resolved.cursor_signing_secret is None else resolved.cursor_signing_secret.get_secret_value()
+        )
+        cursor_secret = resolve_cursor_secret(config.database, configured_cursor_secret)
         async with open_builtin_runtime(
             config,
             scheduler_path=default_scheduler_path() if scheduler_path is None else scheduler_path,
@@ -101,6 +106,7 @@ def create_server_app(
             instrumentation=resolved_tracing.instrumentation,
             scope_cache_observer=None if metrics is None else metrics.set_runtime_scopes,
             tracing=resolved_tracing,
+            cursor_secret=cursor_secret,
         ) as runtime:
             readiness_probe.bind(runtime)
             app.state.application = runtime

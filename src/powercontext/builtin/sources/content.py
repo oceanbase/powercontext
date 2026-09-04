@@ -48,14 +48,14 @@ class ContentSourceTarget(BaseModel):
     scope_id: str
     family: Literal["memory", "experience", "skill", "handoff"]
     artifact_id: str
-    revision: Literal[1] = 1
+    revision: Annotated[int, Field(ge=1)] = 1
 
 
 class ContentSourceInternal(BaseModel):
     """Server-owned Source purpose data never exposed by the base REST API."""
 
     role: Literal["lineage_only"]
-    operation: Literal["artifact_create"]
+    operation: Literal["artifact_create", "artifact_replace"]
     target: ContentSourceTarget
 
 
@@ -65,6 +65,7 @@ class ContentSource(Source):
     content: str
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
     wire_content: JsonValue | None = None
+    wire_content_present: bool = False
     internal: ContentSourceInternal | None = None
 
 

@@ -105,6 +105,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED", "true")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT", "40")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS", "45")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET", "cursor-secret-with-at-least-thirty-two-bytes")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
     monkeypatch.setenv(
         "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS",
@@ -141,6 +142,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.runtime.memory_rerank_enabled is True
     assert settings.runtime.memory_rerank_candidate_limit == 40
     assert settings.runtime.experience_schedule_seconds == 45
+    assert settings.cursor_signing_secret == SecretStr("cursor-secret-with-at-least-thirty-two-bytes")
     assert settings.inference.generation_model == "test"
     assert settings.inference.generation_model_settings == {
         "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}
@@ -178,6 +180,42 @@ def test_server_settings_configure_default_project_skill_targets(tmp_path, monke
     ]
     assert all(target.installation_scope == "project" for target in settings.external_skills.targets)
     assert all(target.allow_managed_publish for target in settings.external_skills.targets)
+
+
+def test_server_reuses_file_backed_cursor_secret_across_restarts(tmp_path) -> None:
+    database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+    settings = ServerSettings(
+        database=database,
+        auth=BearerAuthConfig(enabled=False),
+        mcp=McpConfig(enabled=False),
+    )
+    first_app = create_server_app(settings=settings)
+    with TestClient(first_app) as client:
+        content = {
+            "manifest": {"entries": [], "format": "flat-v1"},
+            "changes": [],
+            "schema": "powercontext.memory.v1",
+        }
+        for _ in range(2):
+            response = client.post(
+                "/v1/scopes/scope-a/artifacts",
+                json={"family": "memory", "content": content},
+            )
+            assert response.status_code == 201
+        first_page = client.get("/v1/scopes/scope-a/artifacts/memory", params={"limit": 1})
+        assert first_page.status_code == 200
+        cursor = first_page.json()["next_cursor"]
+        assert cursor is not None
+
+    second_app = create_server_app(settings=settings)
+    with TestClient(second_app) as client:
+        second_page = client.get(
+            "/v1/scopes/scope-a/artifacts/memory",
+            params={"limit": 1, "cursor": cursor},
+        )
+
+    assert second_page.status_code == 200
+    assert len(second_page.json()["items"]) == 1
 
 
 def test_server_settings_use_configured_workspace_for_default_skill_targets(tmp_path, monkeypatch) -> None:
