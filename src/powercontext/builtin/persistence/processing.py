@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel
-from sqlalchemy import case, delete, insert, select, update
+from sqlalchemy import case, delete, select, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -64,34 +66,15 @@ class ArtifactProcessingPendingRepository:
         /,
     ) -> StoredArtifactProcessingPending:
         _require_position("source_position", source_position)
-        current = await self.load(connection, scope_id, binding_name, for_update=True)
-        if current is None:
-            await connection.execute(
-                insert(ARTIFACT_PROCESSING_PENDING_TABLE).values(
-                    binding_name=binding_name,
-                    scope_id=scope_id,
-                    source_through=source_position,
-                    flush_generation=0,
-                    handled_flush_generation=0,
-                )
-            )
-        else:
-            await connection.execute(
-                update(ARTIFACT_PROCESSING_PENDING_TABLE)
-                .where(
-                    ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id == scope_id,
-                    ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == binding_name,
-                )
-                .values(
-                    source_through=case(
-                        (ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through < source_position, source_position),
-                        else_=ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through,
-                    )
-                )
-            )
+        await _upsert_pending(
+            connection,
+            scope_id=scope_id,
+            binding_name=binding_name,
+            source_through=source_position,
+            increment_flush=False,
+        )
         stored = await self.load(connection, scope_id, binding_name)
-        assert stored is not None
-        return stored
+        return cast(StoredArtifactProcessingPending, stored)
 
     async def request_flush(
         self,
@@ -109,32 +92,13 @@ class ArtifactProcessingPendingRepository:
         cursor = await SourceCursorRepository().load(connection, scope_id, binding_name)
         if (0 if cursor is None else cursor.cursor.sequence) >= source_head:
             return None
-        current = await self.load(connection, scope_id, binding_name, for_update=True)
-        if current is None:
-            await connection.execute(
-                insert(ARTIFACT_PROCESSING_PENDING_TABLE).values(
-                    binding_name=binding_name,
-                    scope_id=scope_id,
-                    source_through=source_head,
-                    flush_generation=1,
-                    handled_flush_generation=0,
-                )
-            )
-        else:
-            await connection.execute(
-                update(ARTIFACT_PROCESSING_PENDING_TABLE)
-                .where(
-                    ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id == scope_id,
-                    ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == binding_name,
-                )
-                .values(
-                    source_through=case(
-                        (ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through < source_head, source_head),
-                        else_=ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through,
-                    ),
-                    flush_generation=ARTIFACT_PROCESSING_PENDING_TABLE.c.flush_generation + 1,
-                )
-            )
+        await _upsert_pending(
+            connection,
+            scope_id=scope_id,
+            binding_name=binding_name,
+            source_through=source_head,
+            increment_flush=True,
+        )
         return await self.load(connection, scope_id, binding_name)
 
     async def mark_flush_handled(
@@ -195,6 +159,60 @@ def _decode(row: Mapping[Any, Any]) -> StoredArtifactProcessingPending:
         flush_generation=int(row["flush_generation"]),
         handled_flush_generation=int(row["handled_flush_generation"]),
     )
+
+
+async def _upsert_pending(
+    connection: AsyncConnection,
+    *,
+    scope_id: str,
+    binding_name: str,
+    source_through: int,
+    increment_flush: bool,
+) -> None:
+    values = {
+        "binding_name": binding_name,
+        "scope_id": scope_id,
+        "source_through": source_through,
+        "flush_generation": int(increment_flush),
+        "handled_flush_generation": 0,
+    }
+    dialect = connection.dialect.name
+    if dialect == "sqlite":
+        statement = sqlite_insert(ARTIFACT_PROCESSING_PENDING_TABLE).values(**values)
+        incoming = statement.excluded
+        changes = {
+            "source_through": case(
+                (
+                    ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through < incoming.source_through,
+                    incoming.source_through,
+                ),
+                else_=ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through,
+            )
+        }
+        if increment_flush:
+            changes["flush_generation"] = ARTIFACT_PROCESSING_PENDING_TABLE.c.flush_generation + 1
+        statement = statement.on_conflict_do_update(
+            index_elements=["binding_name", "scope_id"],
+            set_=changes,
+        )
+    elif dialect == "mysql":
+        statement = mysql_insert(ARTIFACT_PROCESSING_PENDING_TABLE).values(**values)
+        incoming = statement.inserted
+        changes = {
+            "source_through": case(
+                (
+                    ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through < incoming.source_through,
+                    incoming.source_through,
+                ),
+                else_=ARTIFACT_PROCESSING_PENDING_TABLE.c.source_through,
+            )
+        }
+        if increment_flush:
+            changes["flush_generation"] = ARTIFACT_PROCESSING_PENDING_TABLE.c.flush_generation + 1
+        statement = statement.on_duplicate_key_update(**changes)
+    else:
+        raise InvalidRepositoryArgumentError("dialect", f"unsupported database dialect: {dialect}")
+    await connection.execute(statement)
 
 
 def _require_identifier(field: str, value: object, maximum: int) -> None:
