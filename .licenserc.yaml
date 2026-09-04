@@ -34,6 +34,7 @@ header:
 
   paths-ignore:
     - '**/*.md'
+    - '**/*.mdx'
     - '**/*.json'
     - '**/*.svg'
     - '.github/**'

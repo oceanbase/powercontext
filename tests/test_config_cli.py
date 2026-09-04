@@ -360,8 +360,7 @@ def test_validate_accepts_multiline_quoted_dashboard_scopes(tmp_path: Path) -> N
     content = f"{content}\n{multiline}\n"
     environment.write_text(content, encoding="utf-8")
 
-    with patch.object(config_cli, "_validate_provider_models"):
-        result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
 
     assert result.exit_code == 0
     assert "Configuration is valid" in result.output
