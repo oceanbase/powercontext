@@ -216,8 +216,7 @@ def test_sqlite_experience_fts_tracks_only_approved_current_heads_and_rebuilds()
                 assert "regenerate" in skill_searchable_text
 
                 await connection.execute(
-                    ARTIFACT_HEADS_TABLE
-                    .update()
+                    ARTIFACT_HEADS_TABLE.update()
                     .where(ARTIFACT_HEADS_TABLE.c.family == Experience.family)
                     .values(searchable_text=None)
                 )

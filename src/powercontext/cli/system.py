@@ -1295,7 +1295,9 @@ def _dashboard_scopes_diagnostic(server_url: str) -> Diagnostic:
             detail="Dashboard is disabled; enable it with POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true",
         )
     if status_code != 200 or not isinstance(payload, list):
-        return Diagnostic(status=DiagnosticStatus.FAILED, detail="Dashboard scope discovery returned an invalid response")
+        return Diagnostic(
+            status=DiagnosticStatus.FAILED, detail="Dashboard scope discovery returned an invalid response"
+        )
     if not payload:
         return Diagnostic(
             status=DiagnosticStatus.DEGRADED,

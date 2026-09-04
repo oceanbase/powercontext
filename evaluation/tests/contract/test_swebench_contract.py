@@ -231,7 +231,12 @@ def test_official_evaluator_and_codex_exec_share_docker_pressure_budget(tmp_path
         instance_id = f"instance-{index}"
         evaluator = OfficialEvaluator(BlockingProcess(instance_id), python_executable=sys.executable)
         jobs.append(
-            lambda evaluator=evaluator, harness=harness, raw=raw, prediction=prediction, root=root, instance_id=instance_id: (
+            lambda evaluator=evaluator,
+            harness=harness,
+            raw=raw,
+            prediction=prediction,
+            root=root,
+            instance_id=instance_id: (
                 evaluator.evaluate(
                     harness_root=harness,
                     raw_sample_path=raw,
