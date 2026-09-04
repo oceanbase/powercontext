@@ -655,6 +655,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
             side_effect=[
                 _Response(200, {"status": "ok"}),
                 _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+                _Response(200, [{"scope_id": "scp_default"}]),
             ]
         ),
     )
@@ -671,6 +672,7 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
         "service_registration",
         "server_liveness",
         "server_readiness",
+        "dashboard_scopes",
     ]
 
 
@@ -680,6 +682,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
         side_effect=[
             _Response(200, {"status": "ok"}),
             _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+            _Response(200, [{"scope_id": "scp_default"}]),
         ]
     )
     monkeypatch.setattr(system_cli, "urlopen", urlopen)
@@ -692,6 +695,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
         "http://127.0.0.1:8888/health/live",
         "http://127.0.0.1:8888/health/ready",
+        "http://127.0.0.1:8888/dashboard/scopes",
     ]
 
     # Explicit CLI argument should override the environment variable.
@@ -699,6 +703,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     urlopen.side_effect = [
         _Response(200, {"status": "ok"}),
         _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
+        _Response(200, [{"scope_id": "scp_default"}]),
     ]
     override = CliRunner().invoke(
         create_cli([doctor_app]),
@@ -711,6 +716,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
         "http://127.0.0.1:9999/health/live",
         "http://127.0.0.1:9999/health/ready",
+        "http://127.0.0.1:9999/dashboard/scopes",
     ]
 
 
@@ -849,6 +855,11 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
                     "database": "ready",
                     "inference.embedding": "misconfigured",
                 },
+            },
+            "dashboard_scopes": {
+                "ok": False,
+                "status": "skipped",
+                "detail": "not checked because Server readiness is not healthy",
             },
         },
     }

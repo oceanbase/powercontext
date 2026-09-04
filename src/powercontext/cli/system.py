@@ -1046,11 +1046,20 @@ def run_diagnostics(*, server_url: str) -> dict[str, Diagnostic]:
             detail="not checked because Server liveness failed",
         )
     )
+    dashboard_scopes = (
+        _dashboard_scopes_diagnostic(server_url)
+        if readiness.ok
+        else Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because Server readiness is not healthy",
+        )
+    )
     return {
         "package": package,
         **service,
         "server_liveness": liveness,
         "server_readiness": readiness,
+        "dashboard_scopes": dashboard_scopes,
     }
 
 
@@ -1266,6 +1275,36 @@ def _server_readiness_diagnostic(server_url: str) -> Diagnostic:
         detail=f"{server_url} status={readiness.status.value}",
         checks=readiness.checks,
     )
+
+
+def _dashboard_scopes_diagnostic(server_url: str) -> Diagnostic:
+    """Confirm that the Dashboard can discover at least the automatic default Scope."""
+
+    try:
+        status_code, payload = _request_json(server_url, "/dashboard/scopes")
+    except OSError:
+        return Diagnostic(status=DiagnosticStatus.DEGRADED, detail="cannot query Dashboard scopes")
+    if status_code == 401:
+        return Diagnostic(
+            status=DiagnosticStatus.OK,
+            detail="Dashboard scope discovery requires authentication; verify the configured bearer token",
+        )
+    if status_code == 404:
+        return Diagnostic(
+            status=DiagnosticStatus.DEGRADED,
+            detail="Dashboard is disabled; enable it with POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true",
+        )
+    if status_code != 200 or not isinstance(payload, list):
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail="Dashboard scope discovery returned an invalid response")
+    if not payload:
+        return Diagnostic(
+            status=DiagnosticStatus.DEGRADED,
+            detail=(
+                "no Dashboard scopes are available; restart the Server to bootstrap the Default Scope, "
+                "or create a Scope through the API"
+            ),
+        )
+    return Diagnostic(status=DiagnosticStatus.OK, detail=f"Dashboard exposes {len(payload)} Scope(s)")
 
 
 def _request_json(server_url: str, path: str) -> tuple[int, object]:

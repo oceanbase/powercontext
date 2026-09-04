@@ -134,7 +134,8 @@ service readiness; and `capabilities` returns the currently enabled capabilities
 may be disabled when no inference provider is configured. That does not block the explicit Memory and Handoff steps
 in this tutorial.
 
-You can also open `http://127.0.0.1:8000/` in a browser. An empty Dashboard is expected before the first project data
+You can also open `http://127.0.0.1:8000/` in a browser. On first startup, PowerContext creates and selects a
+persistent `Default` Scope automatically; the Dashboard may still have empty metrics until the first project data
 has been written.
 
 ## 4. Create a safe example project
