@@ -185,11 +185,18 @@ def test_pending_lifecycle_keeps_cursor_cas_as_publication_guard(tmp_path: Path)
                     BINDING,
                     second_flush.flush_generation,
                 )
+                deleted_before_cursor_coverage = await pending.delete_if_covered(
+                    connection,
+                    "scope-a",
+                    BINDING,
+                    cursor=1,
+                )
                 deleted = await pending.delete_if_covered(connection, "scope-a", BINDING)
                 stored_pending = await pending.load(connection, "scope-a", BINDING)
                 stored_cursor = await cursors.load(connection, "scope-a", BINDING)
 
             assert handled_latest is not None and handled_latest.handled_flush_generation == 2
+            assert not deleted_before_cursor_coverage
             assert deleted
             assert stored_pending is None
             assert stored_cursor == published
