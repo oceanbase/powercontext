@@ -174,9 +174,7 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs/zensical documentation
-/site
-/docs/api/openapi.yaml
+# Generated outputs
 e2e/bub/results/
 
 # mypy

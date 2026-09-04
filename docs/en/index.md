@@ -1,11 +1,6 @@
 ---
-template: home.html
 title: PowerContext
 description: Keep project knowledge and active work available across people, agents, and sessions.
-hide:
-  - navigation
-  - toc
-  - footer
 home:
   hero:
     label: Open source · local-first

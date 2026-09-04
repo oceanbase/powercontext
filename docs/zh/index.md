@@ -1,11 +1,6 @@
 ---
-template: home.html
 title: PowerContext
 description: 让项目知识和当前任务状态在人、Agent 与不同会话之间延续。
-hide:
-  - navigation
-  - toc
-  - footer
 home:
   hero:
     label: 开源 · 本地优先

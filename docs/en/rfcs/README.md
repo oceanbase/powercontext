@@ -1,5 +1,4 @@
 ---
-template: records.html
 title: PowerContext RFCs
 ---
 
@@ -8,7 +7,7 @@ title: PowerContext RFCs
 RFCs record substantial design proposals and the decisions made about them.
 
 An RFC describes design intent, not released behavior or implementation progress. Use the current source and
-[API reference](../modules.md) for implemented public contracts and availability.
+[Python API reference](https://powercontext.oceanbase.io/en/modules/) for implemented public contracts and availability.
 
 The "RFC" (request for comments) process provides a consistent path for substantial changes so maintainers and contributors can build consensus before implementation work starts.
 

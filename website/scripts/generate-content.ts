@@ -14,8 +14,6 @@ const publicDir = path.join(websiteDir, 'public');
 await Promise.all([
   rm(pythonDir, { recursive: true, force: true }),
   rm(generatedDocsDir, { recursive: true, force: true }),
-  rm(path.join(publicDir, 'locomo-benchmark-comparison.svg'), { force: true }),
-  rm(path.join(publicDir, 'swe-bench-pro-public-v2-comparison.svg'), { force: true }),
 ]);
 
 await Promise.all([
@@ -73,11 +71,11 @@ for (const moduleName of pythonModules) {
 
 await Promise.all([
   copyFile(
-    path.join(repositoryDir, 'theme', 'powercontext', 'assets', 'images', 'powercontext-color.png'),
+    path.join(repositoryDir, 'src', 'powercontext', 'server', 'static', 'powercontext-color.png'),
     path.join(publicDir, 'powercontext-color.png'),
   ),
   copyFile(
-    path.join(repositoryDir, 'theme', 'powercontext', 'assets', 'images', 'powercontext-reverse.png'),
+    path.join(repositoryDir, 'src', 'powercontext', 'server', 'static', 'powercontext-reverse.png'),
     path.join(publicDir, 'powercontext-reverse.png'),
   ),
 ]);

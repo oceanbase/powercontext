@@ -1,11 +1,6 @@
 ---
-template: benchmark.html
-page_type: benchmark
 title: 基准测试
 description: 查看 PowerContext 能否找回长期上下文，以及这些上下文能否帮助 Codex 解决代码仓库问题。
-hide:
-  - navigation
-  - toc
 benchmark:
   hero:
     label: 产品评测

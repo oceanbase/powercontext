@@ -139,27 +139,3 @@ def test_agent_plugin_docs_include_verified_host_loading_procedure() -> None:
         assert "chat.plugins.enabled" in content
         assert "chat.pluginLocations" in content
         assert "/absolute/path/to/cloned/powercontext/integrations/agent-plugin/powercontext" in content
-
-
-def test_docs_overview_keeps_existing_cards_and_agent_plugin_card_aligned() -> None:
-    expected_cards = {
-        "en": (
-            "Continue in OpenClaw",
-            "Continue in OpenCode",
-            "Load an Agent Plugin",
-            "en/docs/how-to/configure-agent-plugin/",
-        ),
-        "zh": (
-            "在 OpenClaw 中继续",
-            "在 OpenCode 中继续",
-            "加载 Agent Plugin",
-            "zh/docs/how-to/configure-agent-plugin/",
-        ),
-    }
-
-    for locale, fragments in expected_cards.items():
-        content = (REPOSITORY_ROOT / f"docs/{locale}/docs/index.md").read_text(encoding="utf-8")
-
-        assert "template: docs-overview.html" in content
-        for fragment in fragments:
-            assert fragment in content

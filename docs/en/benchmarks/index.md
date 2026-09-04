@@ -1,11 +1,6 @@
 ---
-template: benchmark.html
-page_type: benchmark
 title: Benchmarks
 description: Results showing how PowerContext retrieves long-term context and whether it helps Codex resolve repository issues.
-hide:
-  - navigation
-  - toc
 benchmark:
   hero:
     label: Product benchmarks

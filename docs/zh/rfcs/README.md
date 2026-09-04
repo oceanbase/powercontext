@@ -1,5 +1,4 @@
 ---
-template: records.html
 title: PowerContext RFC
 ---
 
@@ -8,7 +7,7 @@ title: PowerContext RFC
 RFC 记录重要的设计提案及其决策。
 
 RFC 描述设计意图，不代表已经发布的行为或实现进度。已实现的公开契约及其可用性以当前源码和
-[API 参考](../modules.md)为准。
+[Python API 参考](https://powercontext.oceanbase.io/zh/modules/)为准。
 
 RFC（request for comments）流程为重大变更提供一致路径，使维护者和贡献者可以在实现开始前形成共识。
 

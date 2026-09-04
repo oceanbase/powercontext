@@ -161,16 +161,18 @@ publish: ## Publish a release to PyPI.
 .PHONY: build-and-publish
 build-and-publish: build publish ## Build and publish.
 
+.PHONY: docs-install
+docs-install: ## Install the website dependencies.
+	@pnpm --dir website install --frozen-lockfile
+
 .PHONY: docs-build
-docs-build: ## Build the documentation and publish the canonical OpenAPI contract.
-	@mkdir -p docs/api
-	@install -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
-	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical build --clean -s
+docs-build: docs-install ## Build the static website, including HTTP and Python API references.
+	@CI=true pnpm --dir website build
 
 .PHONY: docs-test
-docs-test: docs-build ## Test if documentation can be built without warnings or errors
-	@test -f site/api/index.html
-	@cmp --silent openapi/powercontext.yaml site/api/openapi.yaml
+docs-test: docs-install ## Lint and build the static website.
+	@CI=true pnpm --dir website lint
+	@CI=true pnpm --dir website build
 
 .PHONY: integration-manifest-docs
 integration-manifest-docs: ## Generate the checked-in integration capability matrix pages.
@@ -185,10 +187,8 @@ integration-manifest-check: integration-manifest-docs-check ## Verify the comple
 	@uv run python -m pytest tests/test_integration_manifest.py
 
 .PHONY: docs
-docs: ## Build and serve the documentation
-	@mkdir -p docs/api
-	@install -m 0644 openapi/powercontext.yaml docs/api/openapi.yaml
-	@trap 'rm -f docs/api/openapi.yaml' EXIT; uv run zensical serve $(ARGS)
+docs: docs-install ## Build and serve the website locally.
+	@pnpm --dir website dev -- $(ARGS)
 
 .PHONY: help
 help:

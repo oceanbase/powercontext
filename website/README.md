@@ -1,13 +1,13 @@
-# PowerContext Fumadocs PoC
+# PowerContext website
 
-这是一个与现有 Zensical 站点隔离的 Fumadocs PoC，用于评估成熟文档组件、品牌化官网页面、双语内容、OpenAPI 与 Python API 文档。
+PowerContext 官网使用 Next.js 和 Fumadocs 构建，包含双语产品页、文档、基准测试、更新日志、HTTP API 和 Python API 参考。
 
-## 边界
+## 内容边界
 
-- `docs/en` 与 `docs/zh` 仍是源内容，PoC 不移动或修改它们。
-- 构建脚本只把 `docs/<locale>/docs` 复制到被 Git 忽略的 `website/content/docs`，供 MDX 编译。
-- 现有 `zensical.toml`、主题目录与文档构建命令保持不变。
-- meetings 不进入 PoC 的导航或内容源。
+- `docs/en` 与 `docs/zh` 保存双语源内容。
+- 构建脚本把 `docs/<locale>/docs` 复制到被 Git 忽略的 `website/content/docs`，供 MDX 编译。
+- 首页与基准测试页的双语文案仍从 `docs/<locale>` 读取。
+- OpenAPI 契约和 Python 源码在构建时生成对应的 API 参考页。
 
 ## 本地运行
 
@@ -33,6 +33,6 @@ pnpm build
 
 - OpenAPI 页面由 `openapi/powercontext.yaml` 直接生成。
 - Python API 使用 Fumadocs 官方 `fumadocs-python` 与 Griffe 生成。
-- Python PoC 仅展开 7 个公开模块；generated HTTP models 由 OpenAPI 页面承担，避免生成数千个类页面。
+- Python API 仅展开 7 个公开模块；generated HTTP models 由 OpenAPI 页面承担，避免生成数千个类页面。
 
-`fumadocs-python` 当前仍由官方标记为 experimental。PoC 证明它能完成静态构建，但正式采用前仍应验证版本升级策略、公开 API 白名单与交叉链接稳定性。
+`fumadocs-python` 当前仍由官方标记为 experimental。升级时需要验证公开 API 白名单、生成页数与交叉链接。
