@@ -1,6 +1,6 @@
 - Proposal Name: `artifact_generation_source_access`
 - Start Date: 2026-09-04
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1458](https://github.com/oceanbase/powercontext/pull/1458)
 - Related RFC: [RFC 1437: Source and Artifact REST APIs](1437_source_artifact_rest_api.md)
 
 # Summary
