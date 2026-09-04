@@ -51,6 +51,7 @@ from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, RememberMemoryRequest, open_builtin_runtime
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import RevisionConflictError
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import OperationalContextFilter
@@ -101,6 +102,7 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.operation.name",
         "powercontext.operation.unit",
         "powercontext.operation.outcome",
+        "powercontext.context.build.scope_count",
         "powercontext.context.build.memory_candidate_count",
         "powercontext.context.build.experience_candidate_count",
         "powercontext.context.build.selected_count",
@@ -242,7 +244,6 @@ def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog,
         ),
         tracing=tracing,
     )
-    scope_id = "project:sensitive-evaluation"
 
     def create_http_client(
         headers: dict[str, str] | None = None,
@@ -259,7 +260,7 @@ def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog,
             follow_redirects=True,
         )
 
-    async def scenario() -> str:
+    async def scenario() -> tuple[str, str]:
         transport = StreamableHttpTransport(
             "http://testserver/mcp/",
             httpx_client_factory=create_http_client,
@@ -271,14 +272,17 @@ def test_observability_signals_correlate_without_counting_the_mcp_bridge(caplog,
         ):
             direct = await http_client.get("/v1/capabilities")
             assert direct.status_code == 200
+            default_scope = await http_client.get("/v1/scopes/default")
+            assert default_scope.status_code == 200
+            scope_id = default_scope.json()["scope_id"]
             await mcp_client.call_tool("list_memory_entries", {"scope_id": scope_id})
-            return (await http_client.get("/metrics")).text
+            return scope_id, (await http_client.get("/metrics")).text
 
     correlation_filter = OperationalContextFilter()
     caplog.handler.addFilter(correlation_filter)
     try:
         with caplog.at_level(logging.INFO):
-            metrics = asyncio.run(scenario())
+            scope_id, metrics = asyncio.run(scenario())
     finally:
         caplog.handler.removeFilter(correlation_filter)
 
@@ -332,6 +336,7 @@ def test_database_failure_log_does_not_include_memory_content(caplog, tmp_path) 
     memory_content = "PROBE-SENSITIVE-MEMORY-1318"
 
     with TestClient(app, raise_server_exceptions=False) as client:
+        scope_id = _get_default_scope_id(client)
         with sqlite3.connect(database_path) as connection:
             connection.executescript("""
                 CREATE TRIGGER reject_memory_insert
@@ -344,7 +349,7 @@ def test_database_failure_log_does_not_include_memory_content(caplog, tmp_path) 
         with caplog.at_level(logging.ERROR, logger="powercontext.server.app"):
             response = client.post(
                 "/v1/memory/remember",
-                json={"scope_id": "project:failure-log", "kind": "fact", "text": memory_content},
+                json={"scope_id": scope_id, "kind": "fact", "text": memory_content},
             )
 
     records = [
@@ -413,12 +418,22 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         ),
         tracing=ServerTracing(provider, instrumented=True),
     )
-    scope_id = "project:private-trace-scope"
     memory_content = "Private trace sentinel evidence."
     query = "private trace sentinel"
     no_match_query = "unmatched giraffe phrase"
 
     with TestClient(app) as client:
+        scope_id = _create_scope(client, title="Memory trace", idempotency_key="memory-trace")
+        empty_search_scope_id = _create_scope(
+            client,
+            title="Empty memory search",
+            idempotency_key="empty-memory-search",
+        )
+        empty_context_scope_id = _create_scope(
+            client,
+            title="Empty context",
+            idempotency_key="empty-context",
+        )
         remembered = client.post(
             "/v1/memory/remember",
             json={"scope_id": scope_id, "kind": "fact", "text": memory_content},
@@ -434,7 +449,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         no_memory = client.post(
             "/v1/memory/search",
             json={
-                "scope_id": "project:private-empty-search-scope",
+                "scope_id": empty_search_scope_id,
                 "query": query,
                 "limit": 1,
                 "mode": "fts",
@@ -446,7 +461,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         )
         empty = client.post(
             "/v1/context/prepare",
-            json={"scope_id": "project:private-empty-scope", "query": query},
+            json={"scope_id": empty_context_scope_id, "query": query},
         )
 
     assert remembered.status_code == 200
@@ -589,8 +604,8 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
 
     exported = _exported_span_data(spans)
     assert scope_id not in exported
-    assert "project:private-empty-scope" not in exported
-    assert "project:private-empty-search-scope" not in exported
+    assert empty_context_scope_id not in exported
+    assert empty_search_scope_id not in exported
     assert memory_content not in exported
     assert query not in exported
     assert no_match_query not in exported
@@ -600,14 +615,20 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
     exporter = InMemorySpanExporter()
     provider = TracerProvider(sampler=ALWAYS_ON, shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    scope_id = "project:private-lock-scope"
+    scope_id = ""
     memory_content = "Private lock sentinel evidence."
 
     async def scenario() -> None:
+        nonlocal scope_id
         async with open_builtin_runtime(
             BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scope-lock.db'}")),
             tracing=ServerTracing(provider),
         ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Private lock", summary="Lock observability", idempotency_key="private-lock")
+            )
+            scope_id = scope.scope_id
             memory = runtime.memory.for_scope(scope_id)
             first = await memory.remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text=memory_content),))
@@ -655,22 +676,23 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
 
 
 def test_scope_lock_is_released_when_stage_teardown_fails(tmp_path) -> None:
-    scope_id = "project:private-broken-tracing"
-
     async def scenario() -> bool:
-        async with (
-            open_builtin_runtime(
-                BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
-                tracing=_ScopeLockTeardownFailingTracing(),
-            ) as runtime,
-            runtime._scope_operation(scope_id),
-        ):
-            lock = runtime._lock(scope_id)
-            with pytest.raises(_StageTeardownError):
-                await runtime.memory.for_scope(scope_id).remember(
-                    RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
-                )
-            return lock.locked()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'broken-tracing.db'}")),
+            tracing=_ScopeLockTeardownFailingTracing(),
+        ) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Broken tracing", summary="Lock teardown", idempotency_key="broken-tracing")
+            )
+            scope_id = scope.scope_id
+            async with runtime._scope_operation(scope_id):
+                lock = runtime._lock(scope_id)
+                with pytest.raises(_StageTeardownError):
+                    await runtime.memory.for_scope(scope_id).remember(
+                        RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Guarded fact."),))
+                    )
+                return lock.locked()
 
     assert asyncio.run(scenario()) is False
 
@@ -705,10 +727,10 @@ def test_scheduled_source_window_starts_an_independent_trace_root(tmp_path) -> N
         candidate_pipeline=_EmptyCandidatePipeline(),
         tracing=ServerTracing(provider),
     )
-    scope_id = "project:private-scheduled-trace"
     content = "private scheduled evidence"
 
     with TestClient(app) as client:
+        scope_id = _get_default_scope_id(client)
         captured = client.post(
             "/v1/sources/content",
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
@@ -736,10 +758,10 @@ def test_scheduled_experience_starts_an_independent_trace_root(tmp_path) -> None
         experience_pipeline=_EmptyExperiencePipeline(),
         tracing=ServerTracing(provider),
     )
-    scope_id = "project:private-scheduled-experience"
     content = "private scheduled incubation evidence"
 
     with TestClient(app) as client:
+        scope_id = _get_default_scope_id(client)
         captured = client.post(
             "/v1/sources/content",
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
@@ -780,11 +802,11 @@ def test_vector_search_exports_embedding_under_memory_search_without_recording_t
         ),
         tracing=ServerTracing(provider, instrumented=True),
     )
-    scope_id = "project:private-vector-scope"
     memory_content = "Private vector memory sentinel."
     private_text = "private embedding sentinel"
 
     with TestClient(app) as client:
+        scope_id = _get_default_scope_id(client)
         remembered = client.post(
             "/v1/memory/remember",
             json={"scope_id": scope_id, "kind": "fact", "text": memory_content},
@@ -850,14 +872,13 @@ def test_injected_always_on_embedding_skips_readiness_but_traces_vector_search(m
         embedding_model=embedding_model,
         tracing=tracing,
     )
-    scope_id = "project:injected-always-on"
-
     with TestClient(app) as client:
         readiness = client.get("/health/ready")
         readiness_spans = list(exporter.get_finished_spans())
         assert not [span for span in readiness_spans if span.parent is None]
         assert not any(_is_inference_span(span) for span in readiness_spans)
 
+        scope_id = _get_default_scope_id(client)
         remembered = client.post(
             "/v1/memory/remember",
             json={"scope_id": scope_id, "kind": "fact", "text": "Private injected vector memory."},
@@ -893,9 +914,8 @@ def _flush_memory_spans(database_path: Path, *, instrumented: bool) -> list[Read
         ),
         tracing=ServerTracing(provider, instrumented=instrumented),
     )
-    scope_id = "project:inference-tracing"
-
     with TestClient(app) as client:
+        scope_id = _get_default_scope_id(client)
         captured = client.post(
             "/v1/sources/content",
             json={"scope_id": scope_id, "source_id": "task-1", "content": "bounded evidence"},
@@ -905,6 +925,25 @@ def _flush_memory_spans(database_path: Path, *, instrumented: bool) -> list[Read
         assert flushed.status_code == 200
 
     return list(exporter.get_finished_spans())
+
+
+def _get_default_scope_id(client: TestClient) -> str:
+    response = client.get("/v1/scopes/default")
+    assert response.status_code == 200
+    return response.json()["scope_id"]
+
+
+def _create_scope(client: TestClient, *, title: str, idempotency_key: str) -> str:
+    response = client.post(
+        "/v1/scopes",
+        json={
+            "title": title,
+            "summary": "Observability acceptance test scope",
+            "idempotency_key": idempotency_key,
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["scope_id"]
 
 
 def _is_inference_span(span: ReadableSpan) -> bool:

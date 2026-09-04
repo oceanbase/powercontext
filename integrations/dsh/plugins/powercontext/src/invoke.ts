@@ -103,8 +103,11 @@ export function injectScope(
   payload: JsonObject | undefined,
   scopeId: string,
 ): JsonObject | undefined {
-  if (!OPERATIONS[operationId].scope) return payload
-  return { ...payload, scope_id: scopeId }
+  const mode = OPERATIONS[operationId].scopeMode
+  if (mode === 'selection') {
+    return { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
+  }
+  return mode === 'current' ? { ...payload, scope_id: scopeId } : payload
 }
 
 function encodeSuccess(result: Awaited<ReturnType<PowerContextClient['request']>>): ToolResult {

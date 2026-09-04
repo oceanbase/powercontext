@@ -33,7 +33,6 @@ _HERMES_MODULE_NAMES = (
     "plugins.powercontext.provider",
     "plugins.powercontext.commands",
     "plugins.powercontext.trace",
-    "plugins.powercontext.workstream",
     "plugins.powercontext.operations",
     "plugins.powercontext.helpers",
     "plugins.powercontext.client",
@@ -65,6 +64,31 @@ class FakeClient:
         self._revision = 0
         self._memory_entries: dict[str, dict[str, Any]] = {}
         self.memory_extraction = True
+        self.default_scope_id = "scp_00000000000000000000000000"
+        self.scope_bindings: dict[tuple[str, str, str], str] = {}
+        self.resolved_binding_keys: list[dict[str, str]] = []
+
+    def resolve_scope_binding(self, *, explicit_scope_id, binding_keys):
+        self.resolved_binding_keys = binding_keys
+        if explicit_scope_id:
+            return {"scope_id": explicit_scope_id}
+        for key in binding_keys:
+            identity = (key["integration"], key["kind"], key["external_id"])
+            if identity in self.scope_bindings:
+                return {"scope_id": self.scope_bindings[identity]}
+        return {"scope_id": self.default_scope_id}
+
+    def set_scope_binding(self, key, scope_id):
+        identity = (key["integration"], key["kind"], key["external_id"])
+        self.scope_bindings[identity] = scope_id
+        self.calls.append(("set_scope_binding", (key, scope_id), {}))
+        return {"key": key, "scope_id": scope_id}
+
+    def clear_scope_binding(self, key):
+        identity = (key["integration"], key["kind"], key["external_id"])
+        cleared = self.scope_bindings.pop(identity, None) is not None
+        self.calls.append(("clear_scope_binding", (key,), {}))
+        return {"cleared": cleared}
 
     def prepare_context(self, scope_id, query, *, max_bytes):
         self.calls.append(("prepare_context", (scope_id, query), {"max_bytes": max_bytes}))
@@ -145,7 +169,7 @@ def provider_and_client(tmp_path, hermes_modules):
     provider_module, _cli_module = hermes_modules
     client = FakeClient()
     provider = provider_module.PowerContextMemoryProvider(
-        {"scope_id": "hermes:{profile}:{user_id}"},
+        {},
         client_factory=lambda _config: client,
     )
     provider.initialize("session-1", hermes_home=str(tmp_path), agent_identity="coder", user_id="user-7")
@@ -161,7 +185,7 @@ def test_prefetch_uses_profile_and_user_scoped_context(provider_and_client):
     assert "remembered project context" in recalled
     assert client.calls[0] == (
         "prepare_context",
-        ("hermes:coder:user-7", "What did we decide about the deployment?"),
+        ("scp_00000000000000000000000000", "What did we decide about the deployment?"),
         {"max_bytes": 8000},
     )
 
@@ -392,7 +416,7 @@ def test_queue_prefetch_honors_max_bytes_environment_override(provider_and_clien
 
     assert client.calls[0] == (
         "prepare_context",
-        ("hermes:coder:user-7", "What did we decide about the deployment?"),
+        ("scp_00000000000000000000000000", "What did we decide about the deployment?"),
         {"max_bytes": 16000},
     )
 
@@ -431,7 +455,6 @@ def test_json_config_is_loaded_from_hermes_home(tmp_path, hermes_modules):
     config_path.write_text(
         json.dumps({
             "base_url": "http://powercontext.test:9000",
-            "scope_id": "hermes:{profile}:{user_id}",
             "max_bytes": 1200,
             "capture_turns": False,
         }),
@@ -444,7 +467,7 @@ def test_json_config_is_loaded_from_hermes_home(tmp_path, hermes_modules):
     assert provider._config["base_url"] == "http://powercontext.test:9000"
     assert provider._config["max_bytes"] == 1200
     assert provider._config["capture_turns"] is False
-    assert provider._scope_id == "hermes:coder:user-7"
+    assert provider._scope_id == "scp_00000000000000000000000000"
     provider.shutdown()
 
 
@@ -461,7 +484,8 @@ def test_memory_setup_schema_exposes_powercontext_configuration(hermes_modules):
     assert fields["capture_pre_compress"]["choices"] == ["true", "false"]
     assert "capture_turns" in fields
     assert "flush_on_session_end" in fields
-    assert fields["workstream_persistence"]["default"] == "true"
+    assert fields["scope_id"]["default"] == ""
+    assert "scope_binding" not in fields
 
 
 def test_memory_setup_saves_powercontext_json_and_preserves_existing_values(tmp_path, hermes_modules):
@@ -495,7 +519,7 @@ def test_sync_turn_is_flushed_before_session_end(provider_and_client):
 
     names = [call[0] for call in client.calls]
     assert names == ["capture_content", "get_capabilities", "flush_memory"]
-    assert client.calls[0][1][0] == "hermes:coder:user-7"
+    assert client.calls[0][1][0] == "scp_00000000000000000000000000"
     assert client.calls[0][2]["metadata"]["kind"] == "hermes-turn"
 
 
@@ -776,13 +800,13 @@ def test_extended_tools_are_registered_and_scope_bound(provider_and_client):
     assert result["operation"] == "list_memory_entries"
     assert result["payload"] == {
         "include_inactive": True,
-        "scope_id": "hermes:coder:user-7",
+        "scope_id": "scp_00000000000000000000000000",
     }
     assert client.calls[-1] == (
         "request_operation",
         (
             "list_memory_entries",
-            {"include_inactive": True, "scope_id": "hermes:coder:user-7"},
+            {"include_inactive": True, "scope_id": "scp_00000000000000000000000000"},
         ),
         {},
     )
@@ -800,11 +824,11 @@ def test_extended_slash_commands_dispatch_json_operations(provider_and_client):
     help_text = provider.handle_slash_command("help")
 
     assert result["operation"] == "prepare_handoff"
-    assert result["payload"]["scope_id"] == "hermes:coder:user-7"
+    assert result["payload"]["scope_id"] == "scp_00000000000000000000000000"
     assert result["payload"]["objective"] == "finish integration"
     assert stats["operation"] == "get_stats"
-    assert stats["payload"] == {"period": "7d", "scope_id": "hermes:coder:user-7"}
-    assert "/pc workstream" in help_text
+    assert stats["payload"] == {"period": "7d", "scope_id": "scp_00000000000000000000000000"}
+    assert "/pc scope" in help_text
     assert [call[0] for call in client.calls] == ["request_operation", "request_operation"]
 
 
@@ -846,23 +870,12 @@ def test_slash_commands_parse_unwrapped_citation_json_from_readme(provider_and_c
     ]
 
 
-def test_workstream_binding_is_shared_with_hermes_scope(tmp_path, hermes_modules, monkeypatch):
+def test_scope_resolution_uses_session_workspace_and_server_default(tmp_path, hermes_modules):
     provider_module, _cli_module = hermes_modules
-    git_directory = tmp_path / ".git"
-    state_path = git_directory / "powercontext" / "codex-workspace.json"
-    state_path.parent.mkdir(parents=True)
-    state_path.write_text(
-        json.dumps({
-            "schema": "powercontext.codex-workspace.v1",
-            "scope_id": "git:example/project",
-        }),
-        encoding="utf-8",
-    )
-    workstream_module = importlib.import_module("plugins.powercontext.workstream")
-    monkeypatch.setattr(workstream_module, "git_value", lambda _cwd, *_args: str(git_directory))
+    client = FakeClient()
     provider = provider_module.PowerContextMemoryProvider(
-        {"scope_id": "hermes:{profile}:{user_id}"},
-        client_factory=lambda _config: FakeClient(),
+        {},
+        client_factory=lambda _config: client,
     )
     provider.initialize(
         "session-1",
@@ -872,21 +885,33 @@ def test_workstream_binding_is_shared_with_hermes_scope(tmp_path, hermes_modules
         user_id="user-7",
     )
 
-    status = json.loads(provider.handle_slash_command("workstream status"))
-    assert status["bound_scope_id"] == "git:example/project"
+    status = json.loads(provider.handle_slash_command("scope status"))
+    assert status["active_scope_id"] == client.default_scope_id
+    assert [key["kind"] for key in client.resolved_binding_keys] == ["session", "workspace"]
+    assert all(key["integration"] == "hermes" for key in client.resolved_binding_keys)
     provider.shutdown()
 
 
-def test_workstream_clear_restores_default_scope(tmp_path, hermes_modules, monkeypatch):
+def test_explicit_scope_precedes_server_bindings(tmp_path, hermes_modules):
     provider_module, _cli_module = hermes_modules
-    git_directory = tmp_path / ".git"
-    git_directory.mkdir()
-    workstream_module = importlib.import_module("plugins.powercontext.workstream")
-    monkeypatch.setattr(workstream_module, "git_value", lambda _cwd, *_args: str(git_directory))
+    client = FakeClient()
+    provider = provider_module.PowerContextMemoryProvider(
+        {"scope_id": "scp_explicit"},
+        client_factory=lambda _config: client,
+    )
+
+    provider.initialize("session-1", hermes_home=str(tmp_path), cwd=str(tmp_path))
+
+    assert provider._scope_id == "scp_explicit"
+    provider.shutdown()
+
+
+def test_scope_binding_clear_restores_default_scope(tmp_path, hermes_modules):
+    provider_module, _cli_module = hermes_modules
 
     client = FakeClient()
     provider = provider_module.PowerContextMemoryProvider(
-        {"scope_id": "hermes:{profile}:{user_id}"},
+        {},
         client_factory=lambda _config: client,
     )
     provider.initialize(
@@ -899,13 +924,13 @@ def test_workstream_clear_restores_default_scope(tmp_path, hermes_modules, monke
     default_scope_id = provider._scope_id
 
     try:
-        bound = json.loads(provider.handle_slash_command("workstream bind shared:scope"))
+        bound = json.loads(provider.handle_slash_command("scope bind shared:scope"))
         assert bound["scope_id"] == "shared:scope"
 
-        cleared = json.loads(provider.handle_slash_command("workstream clear"))
+        cleared = json.loads(provider.handle_slash_command("scope clear"))
         assert cleared["status"] == "cleared"
 
-        status = json.loads(provider.handle_slash_command("workstream status"))
+        status = json.loads(provider.handle_slash_command("scope status"))
         assert status["bound_scope_id"] is None
         assert status["active_scope_id"] == default_scope_id
 
@@ -916,16 +941,12 @@ def test_workstream_clear_restores_default_scope(tmp_path, hermes_modules, monke
         provider.shutdown()
 
 
-def test_workstream_bind_isolates_queued_background_work(tmp_path, hermes_modules, monkeypatch):
+def test_scope_binding_isolates_queued_background_work(tmp_path, hermes_modules, monkeypatch):
     provider_module, _cli_module = hermes_modules
-    git_directory = tmp_path / ".git"
-    git_directory.mkdir()
-    workstream_module = importlib.import_module("plugins.powercontext.workstream")
-    monkeypatch.setattr(workstream_module, "git_value", lambda _cwd, *_args: str(git_directory))
 
     client = FakeClient()
     provider = provider_module.PowerContextMemoryProvider(
-        {"scope_id": "hermes:{profile}:{user_id}", "shutdown_timeout": 0.01},
+        {"shutdown_timeout": 0.01},
         client_factory=lambda _config: client,
     )
     provider.initialize(
@@ -937,7 +958,7 @@ def test_workstream_bind_isolates_queued_background_work(tmp_path, hermes_module
     )
     release = threading.Event()
     started = threading.Event()
-    old_scope_id = "hermes:coder:user-7"
+    old_scope_id = "scp_00000000000000000000000000"
 
     def blocked_prepare(*args: Any, **kwargs: Any) -> dict[str, Any]:
         scope_id = args[0]
@@ -953,7 +974,7 @@ def test_workstream_bind_isolates_queued_background_work(tmp_path, hermes_module
         assert started.wait(timeout=1)
         provider.sync_turn("old user", "old assistant")
 
-        result = json.loads(provider.handle_slash_command("workstream bind new:scope"))
+        result = json.loads(provider.handle_slash_command("scope bind new:scope"))
         assert result["status"] == "bound"
 
         release.set()

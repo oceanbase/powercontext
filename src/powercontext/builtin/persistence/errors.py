@@ -88,6 +88,15 @@ class InvalidStoredColumnError(RepositoryError, TypeError):
         super().__init__(f"stored {column} column is not {expected}")
 
 
+class InvalidPublicationLineageError(RepositoryError):
+    """Raised when persisted publication provenance cannot form one exact chain."""
+
+    def __init__(self, issue: str) -> None:
+        self.issue = issue
+        detail = "inconsistent content digests" if issue == "digest" else issue
+        super().__init__(f"invalid publication lineage: {detail}")
+
+
 class GenerationConflictError(RepositoryError):
     """Raised when Trigger State compare-and-swap observes another generation."""
 

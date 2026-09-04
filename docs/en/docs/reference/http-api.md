@@ -56,8 +56,8 @@ curl --fail \
 
 ## Store and search one Memory
 
-Choose a stable `scope_id` for the project or tenant. Reuse it across sessions; a session ID is not a durable project
-identity.
+Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope`. Reuse that Scope across sessions; a Session
+ID is not a durable project identity.
 
 Store one already-curated Memory entry:
 
@@ -66,11 +66,11 @@ curl --fail \
   --request POST \
   --header 'Content-Type: application/json' \
   --header "$POWERCONTEXT_AUTH_HEADER" \
-  --data '{
-    "scope_id": "project:example",
-    "kind": "decision",
-    "text": "Keep the public API asynchronous."
-  }' \
+  --data "{
+    \"scope_id\": \"${POWERCONTEXT_SCOPE_ID}\",
+    \"kind\": \"decision\",
+    \"text\": \"Keep the public API asynchronous.\"
+  }" \
   "$POWERCONTEXT_URL/v1/memory/remember"
 ```
 
@@ -84,11 +84,11 @@ curl --fail \
   --request POST \
   --header 'Content-Type: application/json' \
   --header "$POWERCONTEXT_AUTH_HEADER" \
-  --data '{
-    "scope_id": "project:example",
-    "query": "public API",
-    "limit": 5
-  }' \
+  --data "{
+    \"scope_id\": \"${POWERCONTEXT_SCOPE_ID}\",
+    \"query\": \"public API\",
+    \"limit\": 5
+  }" \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
@@ -104,7 +104,7 @@ curl --fail \
 | Experience and Skill | `/v1/experience/*`, `/v1/skill/*` | Propose, generate, and read Artifact revisions |
 | Review | `/v1/artifact-candidates/*` | List, inspect, revise, approve, or reject pending Candidates |
 | External Skills | `/v1/external-skills/*` | Scan configured targets and resolve or import packages |
-| Handoff Reports | `/v1/handoff-reports/*` | Manage Projects, Workstreams, activities, reports, and workspace bindings |
+| Handoff Reports | `/v1/handoff-reports/*` | Generate a read-only report for a Scope selection |
 | Statistics | `/v1/stats` | Read scoped usage statistics |
 
 The OpenAPI contract defines the complete path list, schemas, limits, and status codes. The higher-level workflow and

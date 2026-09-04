@@ -21,6 +21,8 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import Field, HttpUrl, SecretStr, TypeAdapter, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from powercontext.limits import MAX_SCOPE_ID_LENGTH
+
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
@@ -37,7 +39,7 @@ class PowerContextSettings(BaseSettings):
 
     base_url: str = "http://127.0.0.1:8000"
     token: SecretStr | None = Field(default=None, repr=False)
-    scope_id: str | None = Field(default=None, min_length=1)
+    scope_id: str | None = Field(default=None, min_length=1, max_length=MAX_SCOPE_ID_LENGTH)
     timeout: float = Field(default=10, gt=0)
     max_bytes: int = Field(default=8000, ge=512, le=32768)
     capture_events: bool = False

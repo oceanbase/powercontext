@@ -218,7 +218,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
     async def _prepare_context(self, query: str) -> str | None:
         state = self._require_state()
         request = PrepareContextRequest(
-            scope_id=state.scope_id,
+            scope_id=state.require_scope_id(),
             query=query[:8192],
             max_bytes=self.settings.max_bytes,
         )
@@ -244,7 +244,8 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
         async with state.lock:
             state.sequence += 1
             sequence = state.sequence
-            source_id = _source_id(state.scope_id, state.run_id, sequence, event)
+            scope_id = state.require_scope_id()
+            source_id = _source_id(scope_id, state.run_id, sequence, event)
             try:
                 content = render_capture_event(
                     event,
@@ -266,7 +267,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
                     metadata["conversation_id"] = conversation_id
                 response = await self._toolset._require_client().capture_content_source(
                     CaptureContentSourceRequest(
-                        scope_id=state.scope_id,
+                        scope_id=scope_id,
                         source_id=source_id,
                         content=content,
                         metadata=metadata,
@@ -291,6 +292,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
 
     async def _flush_locked(self, *, final: bool) -> None:
         state = self._require_state()
+        scope_id = state.require_scope_id()
         target_position = state.captured_position
         if target_position <= state.flushed_position:
             return
@@ -298,9 +300,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             async with asyncio.timeout(self.settings.timeout):
                 while state.flushed_position < target_position:
                     previous_position = state.flushed_position
-                    response = await self._toolset._require_client().flush_memory(
-                        FlushMemoryRequest(scope_id=state.scope_id)
-                    )
+                    response = await self._toolset._require_client().flush_memory(FlushMemoryRequest(scope_id=scope_id))
                     state.flushed_position = max(state.flushed_position, response.current_cursor)
                     if state.flushed_position <= previous_position:
                         logger.debug(

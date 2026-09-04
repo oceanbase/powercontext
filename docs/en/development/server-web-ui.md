@@ -72,21 +72,23 @@ versioned prefixes.
 
 ## Understand Dashboard data
 
-The browser authenticates against `/dashboard/scopes`, then requests `/v1/stats` with the selected `scope_id` and a
-`30d` period. The Server reads one scoped snapshot and returns inventory, model usage, and recall statistics.
+The browser authenticates against `/dashboard/scopes`, builds the shared Scope selector, then posts the selected
+`ScopeSelection` and period to `/v1/stats`. The selector exposes three observation views: `all`, one root's `subtree`,
+or one `exact` Scope. A Parent relation organizes the selector; it does not make parent data visible to a child.
 
 | Dashboard value | Source |
 | --- | --- |
-| Sources | Current scoped Source journal position |
-| Memory entries | Entries in the current Memory Artifact |
-| Artifacts | Current Artifact heads grouped by family |
-| Pending review | Current Candidate heads grouped by family and status |
+| Sources | Selected Scopes' Source journal positions |
+| Memory entries | Entries in the selected Scopes' Memory Artifacts |
+| Artifacts | Selected Scopes' Artifact heads grouped by family |
+| Pending review | Selected Scopes' Candidate heads grouped by family and status |
 | Skill origin | Immutable lineage for managed Skills; registration for external Skills |
 | Model usage | Persisted daily generation and embedding usage |
 | Recall hits, token reduction, and savings trend | Persisted daily recall measurements for the configured estimator |
 
-The Runtime performs these reads in one database transaction and calculates totals, pending Sources, family counts,
-daily buckets, and token reduction on the Server. The browser presents `ready_preparations` as recall hits and plots the
+The Runtime resolves the selection to exact Scope IDs, aggregates totals, pending Sources, family counts, daily buckets,
+and token reduction on the Server, and returns both the selection and resolved IDs. The browser presents
+`ready_preparations` as recall hits and plots the
 signed daily `token_reduction` as the savings trend. Each heatmap cell combines those two fields for its date. Its fixed
 bands are no hit, hit without a positive reduction, 1–255, 256–1023, and 1024 or more estimated tokens reduced. The
 fixed thresholds keep sparse activity and outliers from changing the meaning of every other cell.
@@ -109,17 +111,17 @@ or rendering contract only after a second page needs the same behavior.
 
 ## Add the Handoff Report page
 
-When Handoff Report is enabled, the Server hosts the scope Handoff page at `/handoff-reports` without requiring the scoped-statistics Dashboard or its configured scope list. The optional Dashboard remains at `/` when separately enabled. The pages share only `base.html`, the header and footer, `auth.js`, theme state, and locale state; their statistics and report calculations remain independent.
+When Handoff Report is enabled, the Server hosts a read-only report page at `/handoff-reports`; the Dashboard remains
+optional. Both pages load Scopes from `/dashboard/scopes` and use `scope-selection.js` to expose the same `all`,
+`subtree`, and `exact` views.
 
-The Handoff Report page obtains exact `scope_id` values with committed Handoffs from `POST /v1/handoff-reports/scopes/list-known` and uses them in a searchable scope combobox. Selecting a scope sends its required `scope_id` to `POST /v1/handoff-reports/get`; neither the Project catalog nor `project_id` participates in report selection. The page presents the exact current Handoff snapshot at full width.
+The page posts the selected `ScopeSelection` to `/v1/handoff-reports/get`. The Server resolves it to exact Scope IDs
+and projects each Scope's descriptor and latest exact Handoff. A Scope without a committed Handoff remains visible as
+`no_handoff`. Parent does not infer Context sharing, and the report does not edit Handoff state.
 
-The current snapshot displays objective, current state, disposition, next action, and known omissions as one Handoff document. One Edit action opens all five fields, and one Save Revision action prepares and commits the complete document as a new immutable Handoff Revision. Scope switching and background refresh pause while the editor is open. Receiver-side decisions are not part of this page; existing continuity records remain available in the read-only Continuity timeline. Apart from the explicit revision write, the browser formats returned `summary`, `coverage`, Workstream state, and digests without recalculating report semantics.
-
-When known-scope discovery succeeds but no scope has a committed Handoff, the page replaces report controls with a clearly labeled, data-free template preview. Retry enumerates Handoff heads again; the first committed scope replaces the preview. The preview neither creates a Handoff nor requests fabricated report data.
-
-The page requests the current day in UTC by default and provides current-day, ISO-week, calendar-month, and custom date-range inputs. The custom end date is inclusive in the UI and is converted to the exclusive start of the next day for the API. The current scope application normalizes this input but supplies no Activity events, reports `activity_coverage=not_configured`, and returns no period comparison. Handoff status comes from the current exact selection and must not be presented as a historical period-end state.
-
-The overview request may disable evidence checks for lower latency. A Markdown download makes a separate request with `format=markdown`, `download=true`, and evidence checks enabled by default. The browser never reconstructs Markdown from rendered DOM or canonical JSON. Both background refresh and browser download currently require a stored bearer token even when Server authentication is disabled; initial and manual report loads still work without one. Disabling Handoff Report removes the `/handoff-reports` page and its API while leaving the original Dashboard route, scope selection, and statistics request unchanged.
+JSON is the browser projection. Markdown download repeats the same selection with `format=markdown` and
+`download=true`; the browser does not reconstruct Markdown from the rendered DOM. Disabling Handoff Report removes
+the page and report API without changing Dashboard selection or statistics behavior.
 
 ## Preserve the security boundary
 

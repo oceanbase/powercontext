@@ -28,6 +28,33 @@ function clientFor(response: Response): PowerContextClient {
 }
 
 describe('PowerContextClient response limits', () => {
+  it('binds scope resource paths and omits path values from the request body', async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = []
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 1000,
+      fetch: async (url, init) => {
+        requests.push({ url, init })
+        return new Response(JSON.stringify({ scope_id: 'scope:feature' }), { status: 200 })
+      },
+    })
+
+    await client.request('get_scope', { scope_id: 'scope:feature' })
+    await client.request('update_scope', {
+      scope_id: 'scope:feature',
+      expected_version: 1,
+      title: 'Feature',
+      summary: 'Current work',
+    })
+
+    expect(requests.map((request) => request.url)).toEqual([
+      'http://127.0.0.1:8000/v1/scopes/scope%3Afeature',
+      'http://127.0.0.1:8000/v1/scopes/scope%3Afeature',
+    ])
+    expect(requests[0]!.init.body).toBeUndefined()
+    expect(JSON.parse(String(requests[1]!.init.body))).not.toHaveProperty('scope_id')
+  })
+
   it('cancels a chunked response before it can exceed 1 MiB', async () => {
     let pulls = 0
     let cancelled = false

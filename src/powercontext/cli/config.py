@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import re
 import shlex
@@ -29,13 +28,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Never
+from typing import TYPE_CHECKING, Annotated, Never
 from urllib.parse import urlsplit
 
 import typer
 from pydantic import ValidationError
 
 from powercontext.cli.env_file import EnvironmentFileError, parse_environment
+
+if TYPE_CHECKING:
+    from powercontext.server.settings import ServerSettings
 
 HELP_OPTION_NAMES = ("-h", "--help")
 MANAGED_BEGIN = "# >>> powercontext managed configuration >>>"
@@ -70,8 +72,6 @@ class GeneratedConfiguration:
     """Canonical state rendered into one managed environment block."""
 
     config_version: int
-    scope_id: str
-    display_name: str
     generation: ModelSelection
     embedding: ModelSelection
     embedding_profile_id: str
@@ -193,7 +193,7 @@ _BASE_ENVIRONMENT: dict[str, str] = {
     "POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS": "true",
     "POWERCONTEXT_PI_CAPTURE_PROMPTS": "true",
 }
-_SCOPE_NAMES = (
+_EXPLICIT_SCOPE_NAMES = (
     "POWERCONTEXT_CODEX_SCOPE_ID",
     "POWERCONTEXT_CLAUDE_SCOPE_ID",
     "POWERCONTEXT_DSH_SCOPE_ID",
@@ -208,11 +208,10 @@ _OPTIONAL_MANAGED_NAMES = {
 }
 _ALL_FIXED_MANAGED_NAMES = (
     set(_BASE_ENVIRONMENT)
-    | set(_SCOPE_NAMES)
+    | set(_EXPLICIT_SCOPE_NAMES)
     | _KNOWN_PROVIDER_NAMES
     | _OPTIONAL_MANAGED_NAMES
     | {
-        "POWERCONTEXT_SERVER_DASHBOARD_SCOPES",
         "POWERCONTEXT_SERVER_DATABASE_KIND",
         "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS",
         "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL",
@@ -291,13 +290,16 @@ def show_command(
 def validate_command(
     env_file: Annotated[Path, typer.Option(help="Environment file to validate.")] = Path(".env"),
 ) -> None:
-    """Validate syntax, model configuration, and Server settings."""
+    """Validate syntax, configured model adapters, and Server settings."""
 
     try:
         content = env_file.read_text(encoding="utf-8")
         values = parse_environment(content, source=str(env_file))
-        configuration = configuration_from_document(content)
-        _validate_operational_configuration(configuration, values=values)
+        if _has_complete_generated_configuration(values) or _managed_metadata(content):
+            configuration = configuration_from_document(content)
+            validate_configuration(configuration)
+        _validate_server_settings(values)
+        _validate_builtin_runtime(values)
     except (ConfigError, EnvironmentFileError, OSError, UnicodeError, ValidationError) as error:
         _fail(str(error))
     typer.echo(f"Configuration is valid: {env_file.resolve()}")
@@ -313,7 +315,7 @@ def _print_summary(configuration: GeneratedConfiguration) -> None:
         "provider default",
     )
     typer.secho("\nConfiguration", bold=True, fg=typer.colors.CYAN)
-    typer.echo(f"  Scope       {configuration.scope_id}")
+    typer.echo("  Scope       Server default; integrations may bind a Session or workspace")
     typer.echo(f"  Generation  {configuration.generation.model.partition(':')[2]} ({generation_url})")
     typer.echo(f"  Embedding   {configuration.embedding.model.partition(':')[2]} ({embedding_url})")
     typer.echo(f"  Database    {configuration.database_kind}")
@@ -327,8 +329,6 @@ def collect_configuration(
 
     typer.secho("\nPowerContext configuration", bold=True, fg=typer.colors.CYAN)
     typer.echo("Press Enter to accept a default. Provider details are derived from the API protocol.\n")
-    scope_id = typer.prompt("Scope ID", default="project:quickstart").strip()
-    display_name = typer.prompt("Dashboard display name", default="Quick Start").strip()
     generation, generation_credentials = _collect_connection("generation")
     generation_protocol = _PROTOCOL_BY_ID.get(generation.protocol_id or "")
     can_reuse = generation_protocol is not None and generation_protocol.embedding_adapter is not None
@@ -355,8 +355,6 @@ def collect_configuration(
         schedule = 60
     return GeneratedConfiguration(
         config_version=CONFIG_VERSION,
-        scope_id=scope_id,
-        display_name=display_name,
         generation=generation,
         embedding=embedding,
         embedding_profile_id=profile,
@@ -374,11 +372,6 @@ def render_environment(configuration: GeneratedConfiguration) -> dict[str, str]:
 
     values = dict(_BASE_ENVIRONMENT)
     values.update({
-        "POWERCONTEXT_SERVER_DASHBOARD_SCOPES": json.dumps(
-            [{"scope_id": configuration.scope_id, "display_name": configuration.display_name}],
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ),
         "POWERCONTEXT_SERVER_DATABASE_KIND": configuration.database_kind,
         "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS": str(configuration.schedule_seconds),
         "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL": configuration.generation.model,
@@ -386,7 +379,6 @@ def render_environment(configuration: GeneratedConfiguration) -> dict[str, str]:
         "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID": configuration.embedding_profile_id,
         "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION": str(configuration.embedding_dimension),
     })
-    values.update(dict.fromkeys(_SCOPE_NAMES, configuration.scope_id))
     if configuration.database_url is not None:
         values["POWERCONTEXT_SERVER_DATABASE_URL"] = configuration.database_url
     if configuration.database_path is not None:
@@ -446,11 +438,8 @@ def configuration_from_document(content: str) -> GeneratedConfiguration:
     metadata = _managed_metadata(content)
     generation_model = _required(values, "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL")
     embedding_model = _required(values, "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL")
-    scope_id, display_name = _scope(values)
     return GeneratedConfiguration(
         config_version=_parse_integer(str(metadata.get("config-version", CONFIG_VERSION)), "config-version"),
-        scope_id=scope_id,
-        display_name=display_name,
         generation=ModelSelection(
             generation_model, _provider_variables("generation", generation_model, metadata, values)
         ),
@@ -472,16 +461,10 @@ def configuration_from_document(content: str) -> GeneratedConfiguration:
 
 
 def validate_configuration(configuration: GeneratedConfiguration) -> None:
-    """Validate model, environment, database, Scope, and runtime contracts."""
+    """Validate model, environment, database, and runtime contracts."""
 
     if configuration.config_version != CONFIG_VERSION:
         raise ConfigError(f"unsupported config version: {configuration.config_version}")  # noqa: TRY003
-    if not configuration.scope_id.strip() or not configuration.display_name.strip():
-        raise ConfigError("Scope ID and Dashboard display name are required")  # noqa: TRY003
-    if len(configuration.scope_id) > 255:
-        raise ConfigError("Scope ID must contain at most 255 characters")  # noqa: TRY003
-    if len(configuration.display_name) > 80:
-        raise ConfigError("Dashboard display name must contain at most 80 characters")  # noqa: TRY003
     if configuration.embedding_dimension < 1 or configuration.schedule_seconds < 1:
         raise ConfigError("Embedding dimension and Source interval must be positive")  # noqa: TRY003
     _validate_model_selection("Generation", configuration.generation)
@@ -522,23 +505,50 @@ def _validate_operational_configuration(
     validate_configuration(configuration)
     rendered = render_environment(configuration) if values is None else dict(values)
     _validate_server_settings(rendered)
-    _validate_provider_models(configuration, rendered)
+    _validate_builtin_runtime(rendered)
 
 
-def _validate_provider_models(configuration: GeneratedConfiguration, values: Mapping[str, str]) -> None:
-    with _temporary_environment(values, clear=set()):
+def _validate_builtin_runtime(values: Mapping[str, str]) -> None:
+    server_environment = {name for name in os.environ if name.startswith("POWERCONTEXT_SERVER_")}
+    with _temporary_environment(values, clear=server_environment):
         try:
-            asyncio.run(_construct_provider_models(configuration))
+            settings = _server_settings_from_environment()
+            from powercontext.builtin.runtime.composition import preflight_builtin_runtime
+            from powercontext.builtin.runtime.config import BuiltinConfig
+
+            asyncio.run(
+                preflight_builtin_runtime(
+                    BuiltinConfig(
+                        runtime=settings.runtime,
+                        database=settings.database,
+                        handoff_report=settings.handoff_report,
+                        inference=settings.inference,
+                        external_skills=settings.external_skills,
+                    )
+                )
+            )
+        except ConfigError:
+            raise
         except Exception as error:
-            raise ConfigError(f"provider models cannot be configured: {error}") from error  # noqa: TRY003
+            raise ConfigError(f"built-in runtime cannot be configured: {error}") from error  # noqa: TRY003
 
 
-async def _construct_provider_models(configuration: GeneratedConfiguration) -> None:
-    from pydantic_ai.embeddings import infer_embedding_model
-    from pydantic_ai.models import infer_model
+def _server_settings_from_environment() -> ServerSettings:
+    from powercontext.server.settings import ServerSettings
 
-    async with infer_model(configuration.generation.model):
-        infer_embedding_model(configuration.embedding.model)
+    return ServerSettings()
+
+
+def _has_complete_generated_configuration(values: Mapping[str, str]) -> bool:
+    return all(
+        name in values
+        for name in (
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION",
+        )
+    )
 
 
 def write_environment(path: Path, content: str, *, backup: bool) -> Path | None:
@@ -835,17 +845,6 @@ def _provider_variables(
 
 def _environment_names(selection: ModelSelection) -> str:
     return ",".join(variable.name for variable in selection.environment)
-
-
-def _scope(values: Mapping[str, str]) -> tuple[str, str]:
-    raw = _required(values, "POWERCONTEXT_SERVER_DASHBOARD_SCOPES")
-    try:
-        first = json.loads(raw)[0]
-        return str(first["scope_id"]), str(first["display_name"])
-    except (IndexError, KeyError, TypeError, json.JSONDecodeError) as error:
-        raise ConfigError(  # noqa: TRY003
-            "Dashboard scopes must contain one scope_id and display_name"
-        ) from error
 
 
 def _required(values: Mapping[str, str], name: str) -> str:

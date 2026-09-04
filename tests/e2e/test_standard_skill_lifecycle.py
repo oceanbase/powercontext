@@ -26,9 +26,7 @@ from powercontext.builtin.artifacts.skill import AgentSkillTarget, capture_skill
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import ExternalSkillsConfig
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import DashboardConfig, DashboardScopeConfig, McpConfig, ServerSettings
-
-_SCOPE = "project:standard-skill"
+from powercontext.server.settings import DashboardConfig, McpConfig, ServerSettings
 
 
 def test_standard_skill_package_review_revision_usage_governance_and_publication(tmp_path: Path) -> None:
@@ -36,10 +34,7 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
     claude_root = tmp_path / "repo" / ".claude" / "skills"
     app = create_server_app(
         settings=ServerSettings(
-            dashboard=DashboardConfig(
-                enabled=True,
-                scopes=[DashboardScopeConfig(scope_id=_SCOPE, display_name="Standard Skill")],
-            ),
+            dashboard=DashboardConfig(enabled=True),
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'standard-skill.db'}"),
             external_skills=ExternalSkillsConfig(
                 host_id="standard-skill-test",
@@ -67,42 +62,46 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
     second_archive = _skill_archive("Run the exact checks, then inspect the report.", "successor-search-needle")
 
     with TestClient(app) as client:
-        first_candidate = _propose_package(client, first_archive)
-        first_approved = _approve(client, first_candidate)
+        scope_id = client.post(
+            "/v1/scopes",
+            json={"title": "Standard Skill", "summary": "Standard Skill lifecycle", "idempotency_key": "standard"},
+        ).json()["scope_id"]
+        first_candidate = _propose_package(client, scope_id, first_archive)
+        first_approved = _approve(client, scope_id, first_candidate)
         first_ref = first_approved["result_artifact"]
 
         manifest = client.post(
             "/v1/skill/package/manifest",
-            json={"scope_id": _SCOPE, "artifact": first_ref},
+            json={"scope_id": scope_id, "artifact": first_ref},
         )
         download = client.post(
             "/v1/skill/package/download",
-            json={"scope_id": _SCOPE, "artifact": first_ref},
+            json={"scope_id": scope_id, "artifact": first_ref},
         )
         searched_reference = client.post(
             "/v1/skill/library",
-            json={"scope_id": _SCOPE, "query": "reference-search-needle", "limit": 20},
+            json={"scope_id": scope_id, "query": "reference-search-needle", "limit": 20},
         )
         searched_script_body = client.post(
             "/v1/skill/library",
-            json={"scope_id": _SCOPE, "query": "script-body-must-not-be-indexed", "limit": 20},
+            json={"scope_id": scope_id, "query": "script-body-must-not-be-indexed", "limit": 20},
         )
 
-        second_candidate = _propose_package(client, second_archive, target=first_ref)
-        second_approved = _approve(client, second_candidate)
+        second_candidate = _propose_package(client, scope_id, second_archive, target=first_ref)
+        second_approved = _approve(client, scope_id, second_candidate)
         second_ref = second_approved["result_artifact"]
         second_package = second_candidate["proposal"]["package"]
 
         task_source = client.post(
             "/v1/sources/content",
             json={
-                "scope_id": _SCOPE,
+                "scope_id": scope_id,
                 "source_id": "task-outcome-1",
                 "content": "The release verification completed successfully.",
             },
         ).json()["source"]
         usage_payload = {
-            "scope_id": _SCOPE,
+            "scope_id": scope_id,
             "observation_id": "usage-1",
             "skill_ref": second_ref,
             "package_digest": f"sha256:{second_package['tree_digest']}",
@@ -125,7 +124,7 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
             json={**usage_payload, "observation_id": "usage-wrong", "package_digest": f"sha256:{'b' * 64}"},
         )
 
-        selection = {"scope_id": _SCOPE, "candidate_id": None, "artifact": second_ref}
+        selection = {"scope_id": scope_id, "candidate_id": None, "artifact": second_ref}
         codex_published = client.post(
             "/dashboard/skill-projections/publish",
             json={**selection, "target_id": "codex-project"},
@@ -138,7 +137,7 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
         deprecated = client.post(
             "/v1/skill/lifecycle",
             json={
-                "scope_id": _SCOPE,
+                "scope_id": scope_id,
                 "artifact_id": second_ref["artifact_id"],
                 "expected_generation": 0,
                 "lifecycle_state": "deprecated",
@@ -148,7 +147,7 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
         stale_lifecycle = client.post(
             "/v1/skill/lifecycle",
             json={
-                "scope_id": _SCOPE,
+                "scope_id": scope_id,
                 "artifact_id": second_ref["artifact_id"],
                 "expected_generation": 0,
                 "lifecycle_state": "active",
@@ -157,11 +156,11 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
         )
         active_library = client.post(
             "/v1/skill/library",
-            json={"scope_id": _SCOPE, "include_deprecated": False, "limit": 20},
+            json={"scope_id": scope_id, "include_deprecated": False, "limit": 20},
         )
         governed_library = client.post(
             "/v1/skill/library",
-            json={"scope_id": _SCOPE, "include_deprecated": True, "limit": 20},
+            json={"scope_id": scope_id, "include_deprecated": True, "limit": 20},
         )
 
         codex_unpublished = client.post(
@@ -189,7 +188,7 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
         retired = client.post(
             "/v1/skill/lifecycle",
             json={
-                "scope_id": _SCOPE,
+                "scope_id": scope_id,
                 "artifact_id": second_ref["artifact_id"],
                 "expected_generation": 1,
                 "lifecycle_state": "retired",
@@ -199,7 +198,7 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
         reverse_retirement = client.post(
             "/v1/skill/lifecycle",
             json={
-                "scope_id": _SCOPE,
+                "scope_id": scope_id,
                 "artifact_id": second_ref["artifact_id"],
                 "expected_generation": 2,
                 "lifecycle_state": "active",
@@ -260,6 +259,7 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
 
 def _propose_package(
     client: TestClient,
+    scope_id: str,
     archive: bytes,
     *,
     target: dict[str, Any] | None = None,
@@ -267,7 +267,7 @@ def _propose_package(
     response = client.post(
         "/v1/skill/package/propose",
         json={
-            "scope_id": _SCOPE,
+            "scope_id": scope_id,
             "archive_base64": base64.b64encode(archive).decode("ascii"),
             "reason": "Review the complete standard package.",
             "target": target,
@@ -277,11 +277,11 @@ def _propose_package(
     return response.json()
 
 
-def _approve(client: TestClient, candidate: dict[str, Any]) -> dict[str, Any]:
+def _approve(client: TestClient, scope_id: str, candidate: dict[str, Any]) -> dict[str, Any]:
     response = client.post(
         "/v1/artifact-candidates/approve",
         json={
-            "scope_id": _SCOPE,
+            "scope_id": scope_id,
             "candidate_id": candidate["candidate_id"],
             "expected_version": candidate["version"],
         },

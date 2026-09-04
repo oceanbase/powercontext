@@ -12,9 +12,10 @@ The plugin is a client of a running PowerContext Server:
 - MCP exposes explicit Memory and Handoff operations;
 - Server and transport failures never block normal Claude Code work.
 
-The plugin uses the same Git-derived project scope as the Codex integration, so
-both agents can recall and maintain the same project context. It does not use a
-`Stop` hook and does not capture Claude's final response in v1.
+The plugin resolves the current Scope through the Server. An explicit Scope has
+priority, followed by durable session and workspace bindings, then the Server's
+default Scope. It does not use a `Stop` hook and does not capture Claude's final
+response in v1.
 
 Validate the marketplace and plugin from a repository checkout:
 

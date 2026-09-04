@@ -45,7 +45,7 @@ agent = create_react_agent(
     context_schema=PowerContextScope,
     checkpointer=my_checkpointer,
 )
-await agent.ainvoke(state, context=PowerContextScope(scope_id="git:github.com/acme/api"))
+await agent.ainvoke(state, context=PowerContextScope())
 ```
 
 召回 hook 和 Memory 工具都是异步的，因此请用 `ainvoke`/`astream` 驱动图；同步的 `invoke`/`stream` 无法运行它们。
@@ -75,7 +75,7 @@ builder.add_edge(START, "recall")
 builder.add_edge("recall", "model")
 
 graph = builder.compile(checkpointer=my_checkpointer)
-await graph.ainvoke(state, context=PowerContextScope(scope_id="git:github.com/acme/api"))
+await graph.ainvoke(state, context=PowerContextScope())
 ```
 
 召回 hook 和工具都从 LangGraph runtime 读取当前 `PowerContextScope`，因此 `context` 上的单个值即可配置整轮运行。在
@@ -89,7 +89,7 @@ await graph.ainvoke(state, context=PowerContextScope(scope_id="git:github.com/ac
 | --- | --- | --- |
 | `POWERCONTEXT_LANGGRAPH_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server 地址 |
 | `POWERCONTEXT_LANGGRAPH_TOKEN` | 未设置 | 转发给 `PowerContextClient` 的裸 token |
-| `POWERCONTEXT_LANGGRAPH_SCOPE_ID` | 推导 | 跨运行共享的持久 scope |
+| `POWERCONTEXT_LANGGRAPH_SCOPE_ID` | 未设置 | 用于替代 Server 默认 Scope 的现有 Server Scope |
 | `POWERCONTEXT_LANGGRAPH_TIMEOUT` | `10` | Client 超时（秒） |
 | `POWERCONTEXT_LANGGRAPH_MAX_BYTES` | `8000` | 准备上下文的大小上限 |
 
@@ -102,15 +102,13 @@ await graph.ainvoke(state, context=PowerContextScope(scope_id="git:github.com/ac
 
 ## 解析 scope
 
-单次运行的 scope 按以下顺序解析：
+适配器会为每个操作请求 Server 解析 Scope：
 
-1. `PowerContextScope` 上显式的 `scope_id`，或 `POWERCONTEXT_LANGGRAPH_SCOPE_ID`；
-2. 由当前 Git remote 推导的 scope；
-3. 否则适配器抛出 `MissingScopeError`。
+1. `PowerContextScope` 上显式且已存在的 `scope_id`，或 `POWERCONTEXT_LANGGRAPH_SCOPE_ID`；
+2. 否则使用 Server 默认 Scope。
 
-该优先级与 Codex 插件**相反**——Codex 优先使用由 Git 或路径推导的本地 scope。LangGraph 部署通常是长期运行的服务，
-其工作目录与项目无关，因此显式配置是主路径，Git 推导只是回退。两者都不可用时，适配器直接报错，而不是退回到共享的
-本地 scope——那样会把不相关的租户放到一起。
+Scope ID 是由 Server 拥有的不透明标识符。适配器绝不会从进程工作目录、Git remote 或文件系统路径推导 Scope ID。操作
+继续前，Server 会验证显式 ID；请通过 Scope API 获取它，不要在本地自行构造。
 
 ## 把召回内容当作不可信历史
 

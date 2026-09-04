@@ -41,6 +41,7 @@ from powercontext.builtin.runtime import (
     SearchMemoryRequest,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import RevisionConflictError
 
 DatabaseKind = Literal["sqlite", "oceanbase"]
@@ -103,7 +104,15 @@ def test_memory_search_stays_consistent_when_append_advances_head_before_index_q
             BuiltinConfig(database=database),
             embedding_model=embedding_model,
         ) as runtime:
-            memory = runtime.memory.for_scope(f"concurrent-memory-search-{uuid4()}")
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(
+                    title="Concurrent Memory search",
+                    summary="Index snapshot consistency",
+                    idempotency_key=f"concurrent-memory-search-{uuid4()}",
+                )
+            )
+            memory = runtime.memory.for_scope(scope.scope_id)
             initial = await memory.remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Stable searchable fact."),))
             )
@@ -159,7 +168,13 @@ def test_memory_search_keeps_the_completed_revision_snapshot_when_head_advances_
         reranker = _PausingReranker()
         database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'rerank-snapshot.db'}")
         async with open_builtin_runtime(BuiltinConfig(database=database), memory_reranker=reranker) as runtime:
-            memory = runtime.memory.for_scope("rerank-snapshot")
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(
+                    title="Rerank snapshot", summary="Stable revision snapshot", idempotency_key="rerank-snapshot"
+                )
+            )
+            memory = runtime.memory.for_scope(scope.scope_id)
             initial = await memory.remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Stable searchable fact."),))
             )
@@ -192,7 +207,15 @@ def test_memory_search_keeps_the_completed_revision_snapshot_when_head_advances_
 def test_memory_search_reports_revision_conflict_when_every_attempt_starts_from_a_stale_head() -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(BuiltinConfig(database=SQLiteConfig())) as runtime:
-            scope_id = "perpetually-stale-search"
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(
+                    title="Perpetually stale search",
+                    summary="Revision conflict retry limit",
+                    idempotency_key="perpetually-stale-search",
+                )
+            )
+            scope_id = scope.scope_id
             memory = runtime.memory.for_scope(scope_id)
             await memory.remember(
                 RememberMemoryRequest(entries=(MemoryEntryInput(kind="fact", text="Stable searchable fact."),))

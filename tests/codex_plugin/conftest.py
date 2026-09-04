@@ -35,7 +35,7 @@ def _load_module(name: str, path: Path) -> ModuleType:
 
 @pytest.fixture
 def scope_module() -> ModuleType:
-    return _load_module("powercontext_codex_scope", PLUGIN_ROOT / "scripts" / "project_scope.py")
+    return _load_module("powercontext_codex_scope", PLUGIN_ROOT / "scripts" / "scope_binding.py")
 
 
 @pytest.fixture
@@ -51,3 +51,13 @@ def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
 @pytest.fixture
 def settings_module() -> ModuleType:
     return _load_module("powercontext_codex_settings", PLUGIN_ROOT / "settings.py")
+
+
+@pytest.fixture
+def bind_tools_module() -> ModuleType:
+    return _load_module("powercontext_codex_bind_tools", PLUGIN_ROOT / "hooks" / "bind_tools.py")
+
+
+@pytest.fixture
+def session_binding_module() -> ModuleType:
+    return _load_module("powercontext_codex_session_binding", PLUGIN_ROOT / "hooks" / "session_binding.py")

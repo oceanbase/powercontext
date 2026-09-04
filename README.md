@@ -24,16 +24,39 @@ You decide what will matter later and what needs to move with the task. PowerCon
 
 ## Works with your agents
 
-Install [PowerContext](https://pypi.org/project/powercontext/):
+Install the latest released [PowerContext](https://pypi.org/project/powercontext/):
 
 ```bash
 uv tool install "powercontext[cli,server]==0.1.0"
-
-# To use the latest unreleased code instead:
-# uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
-For a persistent personal Server that survives terminal closure and can start again after login, install the native current-user service:
+Start a local Server in its own terminal:
+
+```bash
+powercontext server run
+```
+
+The `powercontext service` command is not available in the `0.1.0` release. Keep `powercontext server run` running
+while you use PowerContext, or install the unreleased `master` version below to use the native personal service.
+
+The Server stores context in a local SQLite database by default.
+
+Then set up an agent integration from the matching release. For example:
+
+```bash
+powercontext setup codex --ref powercontext-v0.1.0
+```
+
+Keep the PowerContext tool and agent integration on the same Git ref. To try the latest unreleased `master`, install
+and configure both from `master`:
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup codex --source oceanbase/powercontext --ref master
+```
+
+The current `master` also provides an optional persistent personal Server that survives terminal closure and can
+start again after login:
 
 ```bash
 powercontext service install # Uninstall with `powercontext service uninstall`
@@ -42,20 +65,6 @@ powercontext service status
 
 On Windows, the installer asks whether to enable startup at the next login when no login option is supplied; pressing
 Enter keeps it disabled. Use `--start-on-login` or `--no-start-on-login` to choose explicitly.
-
-If you want to use it foreground in a terminal, you can run:
-
-```bash
-powercontext server run
-```
-
-The Server stores context in a local SQLite database by default.
-
-Then set up an agent integration. For example:
-
-```bash
-powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such as 55616dca.
-```
 
 For other agents and deployment options, continue with the [agent setup guide](https://powercontext.oceanbase.io/en/docs/tutorials/agent-quickstart/). Supported agent clients and IDEs connect through MCP or a dedicated integration.
 

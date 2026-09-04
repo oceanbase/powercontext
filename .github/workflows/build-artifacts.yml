@@ -254,35 +254,28 @@ jobs:
 
           root = Path(os.environ["PLUGIN_ROOT"])
           python_executable = f"python{os.environ['PYTHON_VERSION']}"
+          plugin_root = "$" + "{PLUGIN_ROOT}"
           hooks_path = root / "hooks/hooks.json"
           hooks = json.loads(hooks_path.read_text())
-          recall_hook = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-          expected = (
-              'uv run --locked --quiet --project "${PLUGIN_ROOT}" '
-              'python "${PLUGIN_ROOT}/hooks/recall.py"'
-          )
-          if recall_hook["command"] != expected:
-              raise SystemExit("unexpected Codex recall command")
-          recall_hook["command"] = (
-              'PYTHONPATH="${PLUGIN_ROOT}/vendor" '
-              + python_executable
-              + ' "${PLUGIN_ROOT}/hooks/recall.py"'
-          )
+          hook_scripts = {
+              "SessionStart": "session_binding.py",
+              "PreToolUse": "bind_tools.py",
+              "UserPromptSubmit": "recall.py",
+          }
+          for event, script in hook_scripts.items():
+              hook = hooks["hooks"][event][0]["hooks"][0]
+              expected = (
+                  f'uv run --frozen --quiet --project "{plugin_root}" '
+                  f'python "{plugin_root}/hooks/{script}"'
+              )
+              if hook["command"] != expected:
+                  raise SystemExit(f"unexpected Codex {event} command")
+              hook["command"] = (
+                  'PYTHONPATH="${PLUGIN_ROOT}/vendor" '
+                  + python_executable
+                  + f' "{plugin_root}/hooks/{script}"'
+              )
           hooks_path.write_text(json.dumps(hooks, indent=2) + "\n")
-
-          skill_path = root / "skills/project-context/SKILL.md"
-          skill = skill_path.read_text()
-          expected_skill = (
-              'uv run --locked --quiet --project "$PLUGIN_ROOT" python '
-              '"$PLUGIN_ROOT/scripts/project_scope.py" --cwd "$PWD"'
-          )
-          replacement_skill = (
-              f'PYTHONPATH="$PLUGIN_ROOT/vendor" {python_executable} '
-              '"$PLUGIN_ROOT/scripts/project_scope.py" --cwd "$PWD"'
-          )
-          if skill.count(expected_skill) != 1:
-              raise SystemExit("unexpected project-context Skill command")
-          skill_path.write_text(skill.replace(expected_skill, replacement_skill))
 
           readme_path = root / "README.md"
           readme = readme_path.read_text()
@@ -390,7 +383,7 @@ jobs:
           (
             cd "$plugin_root"
             PYTHONPATH="$plugin_root/vendor" \
-              "python${PYTHON_VERSION}" scripts/project_scope.py --cwd "$GITHUB_WORKSPACE"
+              "python${PYTHON_VERSION}" -m compileall -q hooks scripts
           )
 
       - name: Create compressed artifact

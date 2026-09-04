@@ -50,10 +50,11 @@ def _tracing(*, instrumented: bool = False) -> tuple[ServerTracing, InMemorySpan
     return ServerTracing(provider, instrumented=instrumented), exporter
 
 
-def test_http_and_application_spans_preserve_incoming_context() -> None:
+def test_http_and_application_spans_preserve_incoming_context(tmp_path) -> None:
     tracing, exporter = _tracing()
     app = create_server_app(
         settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tracing.db'}"),
             mcp=McpConfig(enabled=False),
             metrics=MetricsConfig(enabled=False),
             logging=ServerLoggingConfig(access=False),

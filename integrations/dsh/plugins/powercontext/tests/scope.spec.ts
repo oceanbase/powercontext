@@ -14,70 +14,31 @@
  * limitations under the License.
  */
 
-import { createHash } from 'node:crypto'
-import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { deriveScopeId, normalizeGitRemote, sessionCwd } from '../src/scope.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { resolveScopeId } from '../src/scope.ts'
 
-describe('normalizeGitRemote', () => {
-  it('normalizes https, ssh, and scp remotes without credentials', () => {
-    expect(normalizeGitRemote('https://user:token@github.com/org/repo.git')).toBe('github.com/org/repo')
-    expect(normalizeGitRemote('ssh://git@github.com/org/repo.git')).toBe('github.com/org/repo')
-    expect(normalizeGitRemote('git@github.com:org/repo.git')).toBe('github.com/org/repo')
-  })
+describe('Scope binding', () => {
+  it('delegates explicit, durable, and default precedence to the Server', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'scp_00000000000000000000000000' } })
+    const client = { request } as never
 
-  it('returns undefined for unsupported remotes', () => {
-    expect(normalizeGitRemote('')).toBeUndefined()
-    expect(normalizeGitRemote('file:///tmp/repo')).toBeUndefined()
-  })
-})
-
-describe('deriveScopeId', () => {
-  it('uses an explicit configured id and hashes when it exceeds 256 characters', async () => {
-    expect(await deriveScopeId('/tmp/project', { configuredScopeId: 'project:demo' })).toBe('project:demo')
-    const long = `x`.repeat(300)
-    expect(await deriveScopeId('/tmp/project', { configuredScopeId: long })).toBe(
-      `sha256:${createHash('sha256').update(long).digest('hex')}`,
+    await expect(resolveScopeId(client, '/workspace', 'explicit-scope')).resolves.toBe(
+      'scp_00000000000000000000000000',
     )
+    const [operation, input] = request.mock.calls[0]
+    expect(operation).toBe('resolve_scope_binding')
+    expect(input.explicit_scope_id).toBe('explicit-scope')
+    expect(input.binding_keys).toHaveLength(1)
+    expect(input.binding_keys[0]).toMatchObject({ integration: 'dsh', kind: 'workspace' })
+    expect(input.binding_keys[0].external_id).not.toContain('/workspace')
   })
 
-  it('derives git:host/path from origin', async () => {
-    const git = async (_cwd: string, args: string[]) => {
-      if (args[0] === 'rev-parse') return '/repo'
-      if (args[0] === 'config') return 'https://github.com/acme/power.git'
-      return undefined
-    }
-    expect(await deriveScopeId('/workspace', { git })).toBe('git:github.com/acme/power')
-  })
-
-  it('falls back to local hash when git is unavailable', async () => {
-    const cwd = resolve('/tmp/no-git-project')
-    const scope = await deriveScopeId(cwd, { git: async () => undefined })
-    expect(scope).toBe(`local:${createHash('sha256').update(cwd).digest('hex')}`)
-  })
-
-  it('uses a configured scopeId even when session cwd is missing or blank', async () => {
-    const git = async () => {
-      throw new Error('git must not run when scopeId is configured')
-    }
-    expect(await deriveScopeId(undefined, { configuredScopeId: 'project:demo', git })).toBe('project:demo')
-    expect(await deriveScopeId('', { configuredScopeId: 'project:demo', git })).toBe('project:demo')
-    expect(await deriveScopeId('   ', { configuredScopeId: 'project:demo', git })).toBe('project:demo')
-  })
-
-  it('does not treat a missing or blank cwd as the process directory', async () => {
-    const git = async () => undefined
-    await expect(deriveScopeId(undefined, { git })).resolves.toBeUndefined()
-    await expect(deriveScopeId('', { git })).resolves.toBeUndefined()
-    await expect(deriveScopeId('   ', { git })).resolves.toBeUndefined()
-  })
-})
-
-describe('sessionCwd', () => {
-  it('treats missing and blank values as absent', () => {
-    expect(sessionCwd(undefined)).toBeUndefined()
-    expect(sessionCwd('')).toBeUndefined()
-    expect(sessionCwd('   ')).toBeUndefined()
-    expect(sessionCwd('/repo')).toBe('/repo')
+  it('uses the Server default when cwd is absent', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'default-scope' } })
+    await expect(resolveScopeId({ request } as never, undefined)).resolves.toBe('default-scope')
+    expect(request).toHaveBeenCalledWith('resolve_scope_binding', {
+      explicit_scope_id: undefined,
+      binding_keys: [],
+    })
   })
 })

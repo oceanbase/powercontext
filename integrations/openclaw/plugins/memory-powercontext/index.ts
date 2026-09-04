@@ -140,7 +140,9 @@ export default definePluginEntry({
           );
           return;
         }
-        api.logger.info(`memory-powercontext: configured (${config.scopeMode} scope)`);
+        api.logger.info(
+          `memory-powercontext: configured (${config.scopeId ? "explicit" : "server-resolved"} scope)`,
+        );
       },
       stop: async () => {
         managers.clear();

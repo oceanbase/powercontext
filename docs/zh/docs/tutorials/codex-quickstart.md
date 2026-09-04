@@ -146,8 +146,8 @@ git status --short
 commit 命令只为这一次提交提供本地身份，不会修改全局 Git 配置。最后一条命令应没有输出，表示示例项目的初始工作区
 是干净的。不要求配置 Git remote。
 
-PowerContext 的数据按 scope 隔离。Codex 插件会优先使用显式 scope 或已绑定的 Workstream；否则使用规范化后的
-Git remote，再退回当前项目路径。因此，后续所有 Codex 会话都必须从这个**同一个目录**启动。
+PowerContext 的数据按 Scope 隔离。Codex 插件会让 Server 依次解析显式 Scope、持久 session 或 workspace binding，
+以及默认 Scope。因此，后续所有 Codex 会话都必须从这个**同一个目录**启动，以提供相同的 workspace binding key。
 
 ## 5. 在第一个 Codex 会话中保存 Memory
 

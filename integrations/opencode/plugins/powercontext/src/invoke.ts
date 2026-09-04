@@ -82,7 +82,12 @@ export async function invokeOperation(
   scopeId: string,
   signal?: AbortSignal,
 ): Promise<ToolResult> {
-  const body = OPERATIONS[operationId].scope ? { ...payload, scope_id: scopeId } : payload
+  const mode = OPERATIONS[operationId].scopeMode
+  const body = mode === 'selection'
+    ? { ...payload, selection: { mode: 'exact', scope_ids: [scopeId] } }
+    : mode === 'current'
+      ? { ...payload, scope_id: scopeId }
+      : payload
   if (operationMutates(operationId) && hasSecret(body)) {
     return { ok: false, code: 'secret_rejected', message: 'Refused to send secret-like content to PowerContext.' }
   }

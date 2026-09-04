@@ -23,7 +23,8 @@ powercontext server run
 powercontext capabilities
 ```
 
-输出应包含 `Managed Skill generation: enabled`。生成前选择一种 provenance origin：
+输出应包含 `Managed Skill generation: enabled`。将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有
+ID，然后选择一种 provenance origin：
 
 | Origin | 适用情况 |
 | --- | --- |
@@ -37,7 +38,7 @@ powercontext capabilities
 
 ```bash
 powercontext skill generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --origin experience \
   --artifact-ref experience/EXPERIENCE_ID@REVISION \
   --reason "把经过审核的经验转为可复用指令。"
@@ -47,7 +48,7 @@ powercontext skill generate \
 
 ```bash
 powercontext skill generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --origin source \
   --source-ref content/SOURCE_ID \
   --reason "根据已批准的操作规程创建 Skill。"
@@ -61,14 +62,14 @@ powercontext skill generate \
 检查返回的 Candidate：
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 检查名称、用于发现的描述、完整 instructions、validation checks 和精确 lineage。然后批准你检查过的 version：
 
 ```bash
 powercontext candidate approve \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   CANDIDATE_ID
 ```
@@ -82,7 +83,7 @@ powercontext candidate approve \
 
 ```bash
 powercontext skill show \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --revision 1 \
   SKILL_ID
 ```
@@ -98,7 +99,7 @@ exact read 和显式导出使用。
 ```bash
 powercontext skill export \
   --target codex \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --revision 1 \
   --destination .agents/skills/backend-validation \
   SKILL_ID
@@ -123,7 +124,7 @@ Codex 会自动检测导出的代码库级 Skill。如果没有出现，再重�
 
 ```bash
 powercontext skill generate \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --origin usage \
   --target skill/SKILL_ID@REVISION \
   --source-ref content/USAGE_SOURCE_ID \

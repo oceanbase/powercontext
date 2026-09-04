@@ -131,7 +131,12 @@ def test_prompt_hook_probe_follows_registered_command(
             "id": "codex",
             "kind": "agent_host",
             "availability": "master_only",
-            "capabilities": ["source_capture", "context_injection", "flush_or_checkpoint"],
+            "capabilities": [
+                "source_capture",
+                "context_injection",
+                "flush_or_checkpoint",
+                "persistent_scope_binding",
+            ],
             "toolsets": ["prompt-hooks"],
             "evidence": {
                 "implementation": ["integrations/codex/plugins/powercontext/hooks/recall.py"],

@@ -23,6 +23,7 @@ import {
   storeServerToken
 } from "./auth.js?v=optional-auth";
 import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
+import {buildScopeSelectionChoices} from "./scope-selection.js?v=selection-v1";
 
 const translations = {
   en: {
@@ -40,6 +41,10 @@ const translations = {
     tokenLabel: "Server token",
     continue: "Continue",
     selectScope: "View",
+    allScopes: "All work",
+    subtreeView: "{title} and related work",
+    exactFocus: "Focus: {title}",
+    period30: "Last 30 days",
     estimatedReduction: "Compared with using the original materials directly",
     sources: "Work materials",
     memoryEntries: "Memory",
@@ -49,6 +54,7 @@ const translations = {
     family: "Type",
     currentArtifacts: "Saved",
     pendingCandidates: "Awaiting review",
+    artifactSubtitle: "Current Artifacts and pending Candidates",
     experience: "Experience",
     handoff: "Handoff",
     memory: "Memory",
@@ -105,6 +111,10 @@ const translations = {
     tokenLabel: "服务器访问令牌",
     continue: "继续",
     selectScope: "查看",
+    allScopes: "全部工作",
+    subtreeView: "{title}及相关工作",
+    exactFocus: "聚焦：{title}",
+    period30: "过去 30 天",
     estimatedReduction: "相比直接使用原始材料",
     sources: "工作材料",
     memoryEntries: "记忆",
@@ -239,11 +249,10 @@ async function authenticate(token, scopeId = "") {
       showPageStatus("noScopes");
       return;
     }
-    const selectedScopeId = currentScopes.some((scope) => scope.scope_id === scopeId)
-      ? scopeId
-      : currentScopes[0].scope_id;
-    currentScopeId = selectedScopeId;
-    await loadStatistics(token, selectedScopeId, request);
+    const choices = buildScopeSelectionChoices(currentScopes, translate);
+    const selectedKey = choices.some((choice) => choice.key === scopeId) ? scopeId : "all";
+    currentScopeId = selectedKey;
+    await loadStatistics(token, selectedKey, request);
   } catch (error) {
     if (request.isCurrent()) {
       showPageStatus("serverUnavailable", {}, true);
@@ -265,10 +274,16 @@ async function loadStatistics(token, scopeId, request = null) {
   currentScopeId = scopeId;
   scopeSelect.disabled = true;
   try {
-    const url = new URL("/v1/stats", window.location.origin);
-    url.searchParams.set("scope_id", scopeId);
-    url.searchParams.set("period", "30d");
-    const response = await fetchWithBearer(url, token);
+    const choice = buildScopeSelectionChoices(currentScopes, translate).find((item) => item.key === scopeId);
+    if (!choice) {
+      showPageStatus("scopeUnavailable", {}, true);
+      return;
+    }
+    const response = await fetchWithBearer("/v1/stats", token, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({selection: choice.selection, period: "30d"})
+    });
     if (!activeRequest.isCurrent()) {
       return;
     }
@@ -285,12 +300,7 @@ async function loadStatistics(token, scopeId, request = null) {
     if (!activeRequest.isCurrent()) {
       return;
     }
-    const selectedScope = currentScopes.find((scope) => scope.scope_id === statistics.scope_id);
-    if (!selectedScope) {
-      showPageStatus("scopeUnavailable", {}, true);
-      return;
-    }
-    renderDashboard({scopes: currentScopes, selectedScope, statistics});
+    renderDashboard({scopes: currentScopes, choice, statistics});
   } catch (error) {
     if (activeRequest.isCurrent()) {
       showPageStatus("serverUnavailable", {}, true);
@@ -359,8 +369,8 @@ function renderDashboard(view) {
   dashboard.hidden = false;
   signOut.hidden = !authenticationRequired;
 
-  renderScopes(view.scopes, statistics.scope_id);
-  setText("dashboard-name", view.selectedScope.display_name);
+  renderScopes(view.scopes, view.choice.key);
+  setText("dashboard-name", view.choice.label);
   setText("as-of", translate("updated", {value: formatDateTime(statistics.as_of)}));
   setText("sources", formatNumber(inventory.sources.total));
   setText("memory-entries", formatNumber(inventory.memory.entries.active));
@@ -376,13 +386,13 @@ function renderDashboard(view) {
   renderTrend(recall.daily, comparisonAvailable);
 }
 
-function renderScopes(scopes, selectedScopeId) {
+function renderScopes(scopes, selectedKey) {
   scopeSelect.replaceChildren();
-  for (const scope of scopes) {
+  for (const choice of buildScopeSelectionChoices(scopes, translate)) {
     const option = document.createElement("option");
-    option.value = scope.scope_id;
-    option.textContent = scope.display_name;
-    option.selected = scope.scope_id === selectedScopeId;
+    option.value = choice.key;
+    option.textContent = choice.label;
+    option.selected = choice.key === selectedKey;
     scopeSelect.appendChild(option);
   }
 }

@@ -21,7 +21,7 @@ from typing import ClassVar, Generic, TypeVar
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
 from powercontext.errors import InvalidArtifactReferenceError
-from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH, MAX_ARTIFACT_ID_LENGTH
+from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH, MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 from powercontext.sources.models import SourceRef
 
 ContentT = TypeVar("ContentT", covariant=True)
@@ -44,11 +44,37 @@ class ArtifactRef(BaseModel):
         return value
 
 
+class ArtifactAddress(BaseModel):
+    """A complete address for one exact Artifact revision across Scope boundaries."""
+
+    scope_id: str
+    artifact: ArtifactRef
+
+    @field_validator("scope_id")
+    @classmethod
+    def validate_scope_id(cls, value: str) -> str:
+        _validate_reference_part("scope_id", value)
+        if len(value) > MAX_SCOPE_ID_LENGTH:
+            raise InvalidArtifactReferenceError(
+                "scope_id",
+                f"must not exceed {MAX_SCOPE_ID_LENGTH} characters",
+            )
+        return value
+
+
 class ArtifactLineage(BaseModel):
     """The direct evidence used to produce one artifact revision."""
 
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    publication_source: ArtifactAddress | None = None
+    publication_digest: str | None = None
+
+    @model_validator(mode="after")
+    def require_complete_publication_provenance(self):
+        if (self.publication_source is None) != (self.publication_digest is None):
+            raise ValueError("publication source and digest must be provided together")  # noqa: TRY003
+        return self
 
 
 class ArtifactDraft(BaseModel, Generic[ContentT]):

@@ -33,6 +33,7 @@ from powercontext.client import (
 )
 from powercontext.http import (
     CommitConnectorCheckpointRequest,
+    CreateScopeRequest,
     FlushMemoryRequest,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
@@ -102,9 +103,9 @@ class TextEvidenceCandidatePipeline:
         return tuple(entries)
 
 
-def _binding() -> ConnectorBinding:
+def _binding(scope_id: str = "project-a") -> ConnectorBinding:
     return ConnectorBinding(
-        scope_id="project-a",
+        scope_id=scope_id,
         binding_id="documents-a",
         connector_name=OPENDAL_TEXT_FILE_CONNECTOR_NAME,
         connector_version="1",
@@ -135,15 +136,22 @@ async def _run(
         ) as transport,
     ):
         client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+        scope = await client.create_scope(
+            CreateScopeRequest(
+                title="OpenDAL test",
+                summary="Scope-owned Connector observations",
+                idempotency_key="opendal-project-a",
+            )
+        )
         worker = RemoteConnectorWorker(
             client=client,
             registry=SourceDefinitionRegistry((TEXT_FILE_SNAPSHOT_SOURCE_DEFINITION,)),
         )
-        result = await worker.run(connector, _binding())
+        result = await worker.run(connector, _binding(scope.scope_id))
         memory = None
         if flush_memory:
-            await client.flush_memory(FlushMemoryRequest(scope_id="project-a"))
-            memory = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id="project-a"))
+            await client.flush_memory(FlushMemoryRequest(scope_id=scope.scope_id))
+            memory = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope.scope_id))
         return result, memory
 
 
@@ -277,8 +285,6 @@ def test_remote_ingestion_rejects_invalid_projection_and_stale_checkpoint(tmp_pa
         )
         observation = project_source_for_transport(registry, source)
         malformed = observation.model_copy(update={"projections": ()})
-        binding = HttpConnectorBinding.model_validate(_binding().model_dump(mode="json"))
-
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -287,6 +293,14 @@ def test_remote_ingestion_rejects_invalid_projection_and_stale_checkpoint(tmp_pa
             ) as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope = await client.create_scope(
+                CreateScopeRequest(
+                    title="OpenDAL validation test",
+                    summary="Validate the remote ingestion boundary",
+                    idempotency_key="opendal-validation",
+                )
+            )
+            binding = HttpConnectorBinding.model_validate(_binding(scope.scope_id).model_dump(mode="json"))
             with pytest.raises(ServerResponseError) as missing:
                 await client.submit_source_observation(
                     SubmitSourceObservationRequest(

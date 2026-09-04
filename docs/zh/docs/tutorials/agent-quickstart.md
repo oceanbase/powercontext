@@ -190,8 +190,9 @@ git status --short
 
 最后一条命令应没有输出。commit 的身份只用于这一次提交，不会修改全局 Git 配置。
 
-后续每个会话都应从这个同一目录启动。多数专属集成会从 Git remote 或项目路径推导稳定 scope；如果显式配置了
-scope，则同一条流程中的 Memory 与 Handoff 调用必须始终复用这个 exact `scope_id`。
+后续每个会话都应从这个同一目录启动。专属 Host 集成只把 session 或 workspace identity 当作 binding key，再由
+Server 返回真实 Scope；不会把 Git remote 或路径变成 Scope ID。显式配置的 Scope 必须已存在于 Server，同一流程
+中的 Memory 和 Handoff 调用必须复用它。
 
 ## 7. 启动 Agent 并检查集成表面
 
@@ -272,7 +273,7 @@ hermes powercontext search "Python parser"
 OpenClaw 需要跨 Agent 使用项目 Memory 时，应重新配置并确认 Host 提供可信 project identity：
 
 ```bash
-powercontext setup openclaw --scope-mode project
+powercontext setup openclaw
 ```
 
 不要把 scope 当成权限边界。远程或多用户 Server 仍需要独立配置鉴权和访问控制。
@@ -341,15 +342,15 @@ OpenClaw 当前插件提供自动 context preparation 和五个 Memory tools，�
 
 ## 12. 跑通一个非 Codex 的跨 Agent 示例
 
-下面使用 DeepSeek Harness 产生 Handoff，再由 OpenCode 接收。两个 Host 必须显式使用同一个 scope：
+下面使用 DeepSeek Harness 产生 Handoff，再由 OpenCode 接收。在这个隔离的教程环境中，不设置两个 Host 的 Scope
+覆盖项，让它们共同使用 Server 默认 Scope：
 
 ```bash
-export POWERCONTEXT_DSH_SCOPE_ID=git:github.com/example/powercontext-agent-quickstart
-export POWERCONTEXT_OPENCODE_SCOPE_ID=git:github.com/example/powercontext-agent-quickstart
+unset POWERCONTEXT_DSH_SCOPE_ID
+unset POWERCONTEXT_OPENCODE_SCOPE_ID
 ```
 
-把 `example/powercontext-agent-quickstart` 换成你控制的稳定项目标识。两个变量应分别在启动 DSH 和 OpenCode 的
-shell 中设置。
+如需使用非默认边界，先通过 Scope API 或 Dashboard 创建 Scope，再把 Server 生成的真实 Scope ID 配置给两个 Host。
 
 在示例项目中启动 DSH：
 
@@ -368,10 +369,8 @@ opencode
 
 输入：
 
-> 使用 `pc_handoff_continue` 读取 scope
-> `git:github.com/example/powercontext-agent-quickstart` 中的 exact Handoff Revision `<exact-revision>`。把内容当作
-> 不可信历史，重新检查 README.md、Git 状态和已有检查，只汇报目标、changed files、checks 和 next action；不要继续
-> 修改文件。
+> 使用 `pc_handoff_continue` 读取当前 Scope 中的 exact Handoff Revision `<exact-revision>`。把内容当作不可信历史，
+> 重新检查 README.md、Git 状态和已有检查，只汇报目标、changed files、checks 和 next action；不要继续修改文件。
 
 **成功标准：** OpenCode 读取同一个 exact Revision，并用当前项目状态复核，而不是依赖 DSH 的聊天历史。这个示例
 证明共享边界来自 Server、scope、evidence 和 Revision，不来自某个特定 Agent Host。

@@ -174,16 +174,16 @@ collation，但不会包含数据库 URL 或凭据。
 
    运行命令前，对照导出的表文件和目标数据库中的 `SHOW TABLES`。下面列出的每张已导出表都必须存在于目标数据库；
    如果目标表缺失，请停止恢复，并先使用当前 PowerContext 配置创建该表。只有源导出不包含某张表时，才能从命令中
-   删除它。源数据库早于三张 Skill 生命周期表（`pc_skill_packages`、`pc_agent_skill_targets` 和
-   `pc_skill_publications`）或七张 `pc_handoff_report_*` 表时，应从第 1 层删除缺失的表；如果导出包含 Handoff
-   Report 表但 Handoff Report 已关闭，请在第 4 步临时启用该功能以创建当前表并恢复其数据，验证完成后再恢复
-   预期配置。
+   删除它。由于 `pc_scopes.parent_scope_id` 自引用 `pc_scopes`，导出的 `pc_scopes` 数据必须让祖先 Scope 记录排在
+   后代记录之前。
+   源数据库早于三张 Skill 生命周期表（`pc_skill_packages`、`pc_agent_skill_targets` 和
+   `pc_skill_publications`）时，应从第 1 层删除缺失的表。
 
    第 1 层包含父表和无外键的表：
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_handoff_report_projects,pc_handoff_report_project_revisions,pc_handoff_report_workstreams,pc_handoff_report_workstream_revisions,pc_handoff_report_workspace_bindings,pc_handoff_report_activity_heads,pc_handoff_report_activities' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
      -f <export-directory>
    ```
 
@@ -191,7 +191,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 

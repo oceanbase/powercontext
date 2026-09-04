@@ -29,6 +29,7 @@ import pytest
 import uvicorn
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from httpx import Client as HttpClient
 from pydantic import SecretStr
 from pydantic_ai.models.test import TestModel
 
@@ -40,7 +41,6 @@ from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSett
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKBUDDY_PLUGIN = PROJECT_ROOT / "integrations" / "workbuddy" / "plugins" / "powercontext"
-SCOPE_ID = "project:workbuddy-e2e"
 AUTH_TOKEN = "workbuddy-e2e-token"  # noqa: S105 - non-secret test credential.
 AUTHORIZATION = f"Bearer {AUTH_TOKEN}"
 _SERVER_URL_TEMPLATE = "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp"
@@ -98,6 +98,7 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
         command = _powercontext_hook_command(settings)
         authorization = AUTHORIZATION if authentication_enabled else None
         environment = _workbuddy_environment(base_url, authorization=authorization)
+        scope_id = _resolve_default_scope(base_url, authorization=authorization)
 
         captured = _run_hook(
             command,
@@ -132,7 +133,7 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
                 result = await client.call_tool(
                     "search_memory",
                     {
-                        "scope_id": SCOPE_ID,
+                        "scope_id": scope_id,
                         "query": "WorkBuddy service chain",
                     },
                 )
@@ -172,13 +173,25 @@ def _workbuddy_environment(base_url: str, *, authorization: str | None) -> dict[
         "POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE": "true",
         "POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS": "10",
         "POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS": "5",
-        "POWERCONTEXT_WORKBUDDY_SCOPE_ID": SCOPE_ID,
         "POWERCONTEXT_WORKBUDDY_SERVER_URL": base_url,
     }
     environment.pop("POWERCONTEXT_WORKBUDDY_AUTHORIZATION", None)
     if authorization is not None:
         environment["POWERCONTEXT_WORKBUDDY_AUTHORIZATION"] = authorization
     return environment
+
+
+def _resolve_default_scope(base_url: str, *, authorization: str | None) -> str:
+    headers = {} if authorization is None else {"Authorization": authorization}
+    with HttpClient(base_url=base_url, headers=headers) as client:
+        response = client.post(
+            "/v1/scope-bindings/resolve",
+            json={"binding_keys": []},
+        )
+    response.raise_for_status()
+    scope_id = response.json()["scope_id"]
+    assert isinstance(scope_id, str)
+    return scope_id
 
 
 def _run_hook(

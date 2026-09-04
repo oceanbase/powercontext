@@ -48,16 +48,12 @@ def install_openclaw_plugin(
     source: str,
     ref: str,
     server_url: str,
-    scope_mode: str,
 ) -> OpenClawSetupResult:
     """Build, install, and configure the OpenClaw plugin from one source/ref."""
 
     executable = openclaw_executable()
     require_supported_openclaw(executable)
     normalized_url = normalize_server_url(server_url)
-    if scope_mode not in {"agent", "project"}:
-        raise SetupError.invalid_openclaw_scope()
-
     data_dir = powercontext_data_dir()
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -70,13 +66,11 @@ def install_openclaw_plugin(
     configure_openclaw(
         executable=executable,
         server_url=normalized_url,
-        scope_mode=scope_mode,
     )
     return OpenClawSetupResult(
         plugin=OPENCLAW_PLUGIN_NAME,
         plugin_path=str(plugin_dir),
         server_url=normalized_url,
-        scope_mode=scope_mode,
         data_dir=str(data_dir),
     )
 
@@ -239,7 +233,7 @@ def normalize_server_url(value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
 
-def configure_openclaw(*, executable: str, server_url: str, scope_mode: str) -> None:
+def configure_openclaw(*, executable: str, server_url: str) -> None:
     """Write plugin, memory-slot, and coding-tool allowlist configuration."""
 
     settings = [
@@ -247,7 +241,6 @@ def configure_openclaw(*, executable: str, server_url: str, scope_mode: str) -> 
         {"path": "plugins.entries.memory-powercontext.config.endpoint", "value": server_url},
         {"path": "plugins.entries.memory-powercontext.config.autoRecall", "value": True},
         {"path": "plugins.entries.memory-powercontext.config.autoCapture", "value": True},
-        {"path": "plugins.entries.memory-powercontext.config.scopeMode", "value": scope_mode},
         {"path": "plugins.entries.memory-powercontext.hooks.allowConversationAccess", "value": True},
         {"path": "plugins.slots.memory", "value": OPENCLAW_PLUGIN_NAME},
     ]

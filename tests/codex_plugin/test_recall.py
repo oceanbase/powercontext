@@ -71,7 +71,7 @@ def test_recall_emits_bounded_untrusted_context(
     monkeypatch.setattr(
         recall_module,
         "resolve_scope_id",
-        lambda _cwd, *, configured_scope_id: "project:test",
+        lambda _cwd, **_kwargs: "project:test",
     )
     captured: list[tuple[str, str]] = []
     monkeypatch.setattr(
@@ -116,7 +116,7 @@ def test_recall_reads_utf8_stdin_on_windows_encodings(
     monkeypatch.setattr(
         recall_module,
         "resolve_scope_id",
-        lambda _cwd, *, configured_scope_id: "project:test",
+        lambda _cwd, **_kwargs: "project:test",
     )
     monkeypatch.setattr(
         recall_module,
@@ -154,7 +154,7 @@ def test_recall_failure_is_non_blocking(
     monkeypatch.setattr(
         recall_module,
         "resolve_scope_id",
-        lambda _cwd, *, configured_scope_id: "project:test",
+        lambda _cwd, **_kwargs: "project:test",
     )
     monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
@@ -303,7 +303,7 @@ def test_recall_records_exact_injected_context_only_when_eval_trace_is_enabled(
     monkeypatch.setattr(
         recall_module,
         "resolve_scope_id",
-        lambda _cwd, *, configured_scope_id: "eval:run-1:on",
+        lambda _cwd, **_kwargs: "eval:run-1:on",
     )
     monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
@@ -356,7 +356,7 @@ def test_recall_does_not_write_an_evaluation_trace_by_default(
     monkeypatch.setattr(
         recall_module,
         "resolve_scope_id",
-        lambda _cwd, *, configured_scope_id: "project:test",
+        lambda _cwd, **_kwargs: "project:test",
     )
     monkeypatch.setattr(recall_module, "_capture_prompt", lambda *_args, **_kwargs: {"position": 1})
     monkeypatch.setattr(
@@ -428,7 +428,7 @@ def test_hook_accepts_codex_event_name_variants(
     monkeypatch.setattr(
         recall_module,
         "resolve_scope_id",
-        lambda _cwd, *, configured_scope_id: "project:test",
+        lambda _cwd, **_kwargs: "project:test",
     )
     monkeypatch.setattr(
         sys,

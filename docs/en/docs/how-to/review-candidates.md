@@ -16,20 +16,20 @@ Start the Server and confirm that it is ready:
 powercontext ready
 ```
 
-You need the `scope_id` that contains the Candidate. This guide starts after an Experience or Skill operation has
-created a pending Candidate.
+Set `POWERCONTEXT_SCOPE_ID` to the existing Scope ID that contains the Candidate. This guide starts after an
+Experience or Skill operation has created a pending Candidate.
 
 ## 1. List pending Candidates
 
 ```bash
-powercontext candidate list --scope-id project:example
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID"
 ```
 
 The default Review Inbox contains only `pending` Candidate heads. Filter it by family when needed:
 
 ```bash
-powercontext candidate list --scope-id project:example --family experience
-powercontext candidate list --scope-id project:example --family skill
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --family experience
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --family skill
 ```
 
 The response contains each `candidate_id` and current `version`. If it returns `next_cursor`, pass that value through
@@ -38,7 +38,7 @@ The response contains each `candidate_id` and current `version`. If it returns `
 ## 2. Inspect one Candidate
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 Before deciding, inspect:
@@ -60,7 +60,7 @@ Use the `version` you inspected as `--expected-version`.
 
 ```bash
 powercontext candidate approve \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   CANDIDATE_ID
 ```
@@ -72,7 +72,7 @@ Candidate approved in one transaction. The Candidate is then terminal.
 
 ```bash
 powercontext candidate reject \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   --reason "The evidence does not support the proposed lesson." \
   CANDIDATE_ID
@@ -88,7 +88,7 @@ version:
 
 ```bash
 powercontext candidate revise experience \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   --situation "Only one storage backend was tested." \
   --action "Run the same acceptance scenario on both backends." \
@@ -107,7 +107,7 @@ Repeat `--validation` for each check:
 
 ```bash
 powercontext candidate revise skill \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   --name backend-validation \
   --description "Validate storage backends consistently." \
@@ -126,15 +126,15 @@ automatically.
 Read the Candidate again:
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 For an approved Candidate, record the exact `result_artifact`. For a rejected Candidate, confirm `decision_reason`.
 The default Inbox no longer lists either terminal state; audit them explicitly when needed:
 
 ```bash
-powercontext candidate list --scope-id project:example --status approved
-powercontext candidate list --scope-id project:example --status rejected
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --status approved
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --status rejected
 ```
 
 If a write reports that the Candidate version is stale, show the Candidate again and review the new version. Do not

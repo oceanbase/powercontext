@@ -68,7 +68,6 @@ def test_configure_openclaw_preserves_existing_tools_and_adds_missing_tools(monk
     openclaw_cli.configure_openclaw(
         executable="openclaw",
         server_url="http://127.0.0.1:8765",
-        scope_mode="agent",
     )
 
     allowlist_call = run_openclaw.call_args_list[1]
@@ -102,11 +101,14 @@ def test_configure_openclaw_initializes_local_gateway_when_mode_is_missing(
     openclaw_cli.configure_openclaw(
         executable="openclaw",
         server_url="http://127.0.0.1:8765",
-        scope_mode="agent",
     )
 
     settings = json.loads(run_openclaw.call_args_list[0].args[4])
     assert settings[0] == {"path": "gateway.mode", "value": "local"}
+    assert {
+        "path": "plugins.entries.memory-powercontext.hooks.allowConversationAccess",
+        "value": True,
+    } in settings
 
 
 def test_install_openclaw_plugin_builds_installs_and_configures(
@@ -129,14 +131,12 @@ def test_install_openclaw_plugin_builds_installs_and_configures(
         source="oceanbase/powercontext",
         ref="tested-ref",
         server_url="http://127.0.0.1:8765/",
-        scope_mode="project",
     )
 
     assert result == OpenClawSetupResult(
         plugin="memory-powercontext",
         plugin_path=str(plugin),
         server_url="http://127.0.0.1:8765",
-        scope_mode="project",
         data_dir=str(tmp_path / "data"),
     )
     build.assert_called_once_with(plugin)
@@ -144,7 +144,6 @@ def test_install_openclaw_plugin_builds_installs_and_configures(
     configure.assert_called_once_with(
         executable="/usr/bin/openclaw",
         server_url="http://127.0.0.1:8765",
-        scope_mode="project",
     )
 
 
@@ -188,7 +187,6 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
             plugin="memory-powercontext",
             plugin_path="plugin-path",
             server_url="http://127.0.0.1:8765",
-            scope_mode="agent",
             data_dir="data-dir",
         )
     )
@@ -205,8 +203,6 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
             "tested-ref",
             "--server-url",
             "http://127.0.0.1:8765",
-            "--scope-mode",
-            "agent",
             "--json",
         ],
     )
@@ -217,7 +213,6 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
         source="oceanbase/powercontext",
         ref="tested-ref",
         server_url="http://127.0.0.1:8765",
-        scope_mode="agent",
     )
 
 
@@ -229,7 +224,6 @@ def test_setup_openclaw_defaults_to_the_server_default_endpoint(monkeypatch: pyt
             plugin="memory-powercontext",
             plugin_path="plugin-path",
             server_url=kwargs["server_url"],
-            scope_mode=kwargs["scope_mode"],
             data_dir="data-dir",
         )
 

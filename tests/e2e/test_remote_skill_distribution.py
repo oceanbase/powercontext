@@ -30,6 +30,7 @@ from powercontext.client import PowerContextClient, RemoteSkillReceiver, RemoteS
 from powercontext.http import (
     ApproveArtifactCandidateRequest,
     CreateRemoteSkillTargetRequest,
+    CreateScopeRequest,
     DownloadRemoteSkillPackageRequest,
     EnrollRemoteSkillTargetRequest,
     ListRemoteSkillTargetsRequest,
@@ -72,6 +73,13 @@ def _quarantine_paths(workspace: Path) -> list[Path]:
     return list(workspace.glob(".agents/.powercontext-quarantine-*"))
 
 
+async def _create_scope(client: PowerContextClient) -> str:
+    scope = await client.create_scope(
+        CreateScopeRequest(title="Remote Skill", summary="Remote Skill distribution", idempotency_key="remote-skill")
+    )
+    return scope.scope_id
+
+
 def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversible(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -101,15 +109,16 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 base_url="https://testserver",
             ) as transport:
                 admin = PowerContextClient("https://testserver", http_client=transport)
+                scope_id = await _create_scope(admin)
                 candidate = await admin.propose_skill_package(
                     ProposeSkillPackageRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         archive_base64=base64.b64encode(package.archive_bytes).decode("ascii"),
                     )
                 )
                 approved = await admin.approve_artifact_candidate(
                     ApproveArtifactCandidateRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         candidate_id=candidate.candidate_id,
                         expected_version=candidate.version,
                     )
@@ -117,14 +126,14 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 assert approved.result_artifact is not None
                 updated_candidate = await admin.propose_skill_package(
                     ProposeSkillPackageRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         archive_base64=base64.b64encode(updated_package.archive_bytes).decode("ascii"),
                         target=approved.result_artifact,
                     )
                 )
                 updated_approved = await admin.approve_artifact_candidate(
                     ApproveArtifactCandidateRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         candidate_id=updated_candidate.candidate_id,
                         expected_version=updated_candidate.version,
                     )
@@ -133,7 +142,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
 
                 await admin.update_skill_lifecycle(
                     UpdateSkillLifecycleRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         artifact_id=approved.result_artifact.artifact_id,
                         expected_generation=0,
                         lifecycle_state=SkillLifecycleState.DEPRECATED,
@@ -142,7 +151,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
 
                 enrollment = await admin.create_remote_skill_target(
                     CreateRemoteSkillTargetRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         agent_kind=RemoteAgentKind.CODEX,
                         display_name="Primary build machine",
                     )
@@ -157,11 +166,11 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                     )
                 )
                 activated_status = await admin.list_remote_skill_targets(
-                    ListRemoteSkillTargetsRequest(scope_id="project:one", target_id=activated.target_id)
+                    ListRemoteSkillTargetsRequest(scope_id=scope_id, target_id=activated.target_id)
                 )
                 renamed = await admin.rename_remote_skill_target(
                     RenameRemoteSkillTargetRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         target_id=activated.target_id,
                         display_name="Hangzhou build machine",
                         expected_generation=activated_status.targets[0].target.generation,
@@ -174,7 +183,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 with pytest.raises(ServerResponseError) as lifecycle_rejected:
                     await admin.publish_remote_skill(
                         PublishRemoteSkillRequest(
-                            scope_id="project:one",
+                            scope_id=scope_id,
                             target_id=activated.target_id,
                             artifact=approved.result_artifact,
                             expected_generation=None,
@@ -184,7 +193,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 assert lifecycle_rejected.value.code == "invalid_skill_lifecycle"
                 publication = await admin.publish_remote_skill(
                     PublishRemoteSkillRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         target_id=activated.target_id,
                         artifact=approved.result_artifact,
                         expected_generation=None,
@@ -193,7 +202,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 )
                 assert publication.generation == 0
                 status = await admin.list_remote_skill_targets(
-                    ListRemoteSkillTargetsRequest(scope_id="project:one", target_id=activated.target_id)
+                    ListRemoteSkillTargetsRequest(scope_id=scope_id, target_id=activated.target_id)
                 )
                 assert len(status.targets) == 1
                 assert status.targets[0].target.target_id == activated.target_id
@@ -202,7 +211,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
 
                 other_enrollment = await admin.create_remote_skill_target(
                     CreateRemoteSkillTargetRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         agent_kind=RemoteAgentKind.CLAUDE_CODE,
                         display_name="Other test machine",
                     )
@@ -257,7 +266,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
 
                 updated_publication = await admin.publish_remote_skill(
                     PublishRemoteSkillRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         target_id=activated.target_id,
                         artifact=updated_approved.result_artifact,
                         expected_generation=publication.generation,
@@ -288,14 +297,14 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 assert recovered.requested == 0
                 assert "stricter" in (tmp_path / ".agents/skills/release-check/SKILL.md").read_text(encoding="utf-8")
                 recovered_status = await admin.list_remote_skill_targets(
-                    ListRemoteSkillTargetsRequest(scope_id="project:one", target_id=activated.target_id)
+                    ListRemoteSkillTargetsRequest(scope_id=scope_id, target_id=activated.target_id)
                 )
                 assert recovered_status.targets[0].publications[0].state.value == "current"
                 assert recovered_status.targets[0].publications[0].last_error_code is None
 
                 desired_absence = await admin.unpublish_remote_skill(
                     UnpublishRemoteSkillRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         target_id=activated.target_id,
                         artifact_id=approved.result_artifact.artifact_id,
                         expected_generation=updated_publication.generation,
@@ -315,7 +324,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
 
                 republished = await admin.publish_remote_skill(
                     PublishRemoteSkillRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         target_id=activated.target_id,
                         artifact=updated_approved.result_artifact,
                         expected_generation=desired_absence.generation,
@@ -325,7 +334,7 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 assert (await receiver.sync()).succeeded == 1
                 final_absence = await admin.unpublish_remote_skill(
                     UnpublishRemoteSkillRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         target_id=activated.target_id,
                         artifact_id=updated_approved.result_artifact.artifact_id,
                         expected_generation=republished.generation,
@@ -336,11 +345,11 @@ def test_https_remote_receiver_http_vertical_slice_is_exact_isolated_and_reversi
                 assert not (tmp_path / ".agents/skills/release-check").exists()
 
                 current = await admin.list_remote_skill_targets(
-                    ListRemoteSkillTargetsRequest(scope_id="project:one", target_id=activated.target_id)
+                    ListRemoteSkillTargetsRequest(scope_id=scope_id, target_id=activated.target_id)
                 )
                 await admin.revoke_remote_skill_target(
                     RevokeRemoteSkillTargetRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         target_id=activated.target_id,
                         expected_generation=current.targets[0].target.generation,
                     )
@@ -380,9 +389,10 @@ def test_remote_enrollment_rejects_non_loopback_cleartext_http() -> None:
                     http_client=transport,
                     trust_transport_security=True,
                 )
+                scope_id = await _create_scope(client)
                 enrollment = await client.create_remote_skill_target(
                     CreateRemoteSkillTargetRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         agent_kind=RemoteAgentKind.CODEX,
                         display_name="Rejected HTTP machine",
                     )
@@ -416,9 +426,10 @@ def test_remote_enrollment_allows_non_loopback_cleartext_http_only_after_server_
                     http_client=transport,
                     trust_transport_security=True,
                 )
+                scope_id = await _create_scope(client)
                 enrollment = await client.create_remote_skill_target(
                     CreateRemoteSkillTargetRequest(
-                        scope_id="project:one",
+                        scope_id=scope_id,
                         agent_kind=RemoteAgentKind.CODEX,
                         display_name="Private HTTP machine",
                     )

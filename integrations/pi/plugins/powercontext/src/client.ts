@@ -141,7 +141,7 @@ function headerPayloadKey(name: string): string {
 function prepareRequest(spec: OperationSpec, payload: JsonObject | undefined): PreparedRequest {
   const remaining = { ...(payload ?? {}) }
   let path = spec.path as string
-  for (const name of spec.pathParams as readonly string[]) {
+  for (const name of spec.pathParameters as readonly string[]) {
     const value = remaining[name]
     if (value === undefined || value === null) {
       throw new TypeError(`${spec.method} ${spec.path} requires ${name}`)
@@ -210,7 +210,7 @@ export class PowerContextClient {
       ) {
         throw error
       }
-      throw new UnavailableError(spec.path, error)
+      throw new UnavailableError(prepared.path, error)
     }
   }
 

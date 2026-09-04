@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, ValidationError
 from powercontext.client import ClientError
 from powercontext.http import PrepareContextRequest, RememberMemoryRequest, SearchMemoryRequest
 
-from .client import open_client, resolve_config
+from .client import open_client, resolve_config, resolve_server_scope
 from .runtime import current_scope
 
 # The public ``query`` contract caps a search or prepare request at this many characters. A model can emit more,
@@ -54,8 +54,9 @@ async def powercontext_search(query: str, limit: int = 5) -> str:
 
     try:
         config = resolve_config(current_scope())
-        request = SearchMemoryRequest(scope_id=config.scope_id, query=query[:_MAX_QUERY_CHARS], limit=limit)
         async with open_client(config) as client:
+            scope_id = await resolve_server_scope(client, config)
+            request = SearchMemoryRequest(scope_id=scope_id, query=query[:_MAX_QUERY_CHARS], limit=limit)
             response = await client.search_memory(request)
     except ValidationError:
         return _invalid_arguments()
@@ -85,8 +86,9 @@ async def powercontext_remember(text: str, kind: str = "agent-note", reason: str
 
     try:
         config = resolve_config(current_scope())
-        request = RememberMemoryRequest(scope_id=config.scope_id, kind=kind, text=text, reason=reason)
         async with open_client(config) as client:
+            scope_id = await resolve_server_scope(client, config)
+            request = RememberMemoryRequest(scope_id=scope_id, kind=kind, text=text, reason=reason)
             response = await client.remember_memory(request)
     except ValidationError:
         return _invalid_arguments()
@@ -105,10 +107,11 @@ async def powercontext_context(query: str) -> str:
 
     try:
         config = resolve_config(current_scope())
-        request = PrepareContextRequest(
-            scope_id=config.scope_id, query=query[:_MAX_QUERY_CHARS], max_bytes=config.max_bytes
-        )
         async with open_client(config) as client:
+            scope_id = await resolve_server_scope(client, config)
+            request = PrepareContextRequest(
+                scope_id=scope_id, query=query[:_MAX_QUERY_CHARS], max_bytes=config.max_bytes
+            )
             response = await client.prepare_context(request)
     except ValidationError:
         return _invalid_arguments()
@@ -136,7 +139,6 @@ def _invalid_arguments() -> str:
 
 
 def _unavailable() -> str:
-    # A configuration or unexpected fault (an unresolvable scope, a malformed base URL, or any other client error
-    # outside ClientError) prevented the call. Report it as a tool result so the model can proceed rather than
-    # aborting the graph.
+    # A configuration or unexpected fault outside ClientError prevented the call. Report it as a tool result so the
+    # model can proceed rather than aborting the graph.
     return "(PowerContext unavailable: the request could not be completed)"

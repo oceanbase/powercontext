@@ -39,6 +39,7 @@ from powercontext.builtin.runtime.scheduler import (
     SchedulerStateError,
     scheduler_database_path,
 )
+from powercontext.builtin.scope import ScopeDescriptor
 from powercontext.builtin.sources import SourceCursor
 from powercontext.server.tracing import ServerTracing
 
@@ -50,6 +51,11 @@ class _Provider:
     async def get(self, scope_id: str, /) -> PowerContext[Any, Any, Any]:
         del scope_id
         return self.context
+
+
+class _Scopes:
+    async def get(self, scope_id: str, /) -> ScopeDescriptor:
+        return ScopeDescriptor(scope_id=scope_id, title="Scheduled", summary="Scheduled scope", version=1)
 
 
 class _ScheduledTriggers:
@@ -157,6 +163,7 @@ def _runtime(
         provider=_Provider(PowerContext(sources=object(), artifacts=object(), triggers=triggers)),  # type: ignore[arg-type]
         capabilities=RuntimeCapabilities(memory_extraction=True, memory_search_modes=("fts",)),
         scope_ids=scope_ids,
+        scope_application=_Scopes(),  # ty: ignore[invalid-argument-type]
         experience_incubator=experience_incubator,
         tracing=tracing,
     )

@@ -79,12 +79,272 @@ paths:
                 $ref: "#/components/schemas/Capabilities"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/scopes:
+    get:
+      tags: [scopes]
+      summary: List observable Scopes
+      operationId: list_scopes
+      responses:
+        "200":
+          description: Durable Scope metadata in deterministic identity order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      tags: [scopes]
+      summary: Create an independent Scope boundary
+      operationId: create_scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScopeRequest"
+      responses:
+        "201":
+          description: The durable Scope descriptor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/artifact-publications:
+    post:
+      tags: [scopes]
+      summary: Publish one exact Artifact revision into another Scope
+      description: >-
+        Memory publication is rejected until its complete family-owned state can be created atomically in the target Scope.
+      operationId: publish_artifact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishArtifactRequest"
+      responses:
+        "201":
+          description: Independent target Artifact and its exact source provenance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactPublication"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/scopes/{scope_id}:
+    get:
+      tags: [scopes]
+      summary: Get one Scope descriptor
+      operationId: get_scope
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+      responses:
+        "200":
+          description: The exact Scope descriptor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [scopes]
+      summary: Replace mutable Scope metadata and relationships
+      operationId: update_scope
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateScopeRequest"
+      responses:
+        "200":
+          description: The updated Scope descriptor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/scopes/default:
+    get:
+      tags: [scopes]
+      summary: Get the default Scope binding target
+      operationId: get_default_scope
+      responses:
+        "200":
+          description: The ordinary Scope selected by the host default pointer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [scopes]
+      summary: Change the default Scope binding target
+      operationId: set_default_scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetDefaultScopeRequest"
+      responses:
+        "200":
+          description: The selected ordinary Scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/scopes/selection/resolve:
+    post:
+      tags: [scopes]
+      summary: Resolve an observation selection to a frozen Scope set
+      operationId: resolve_scope_selection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveScopeSelectionRequest"
+      responses:
+        "200":
+          description: The selected Scope descriptors in deterministic order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopePage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/scope-bindings/resolve:
+    post:
+      tags: [scope-bindings]
+      summary: Resolve an explicit durable or default Scope binding
+      operationId: resolve_scope_binding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveScopeBindingRequest"
+      responses:
+        "200":
+          description: The resolved Scope descriptor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeDescriptor"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/scope-bindings:
+    put:
+      tags: [scope-bindings]
+      summary: Persist an external identity to Scope binding
+      operationId: set_scope_binding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetScopeBindingRequest"
+      responses:
+        "200":
+          description: The durable external binding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScopeBinding"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+  /v1/scope-bindings/clear:
+    post:
+      tags: [scope-bindings]
+      summary: Remove one durable external Scope binding
+      operationId: clear_scope_binding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClearScopeBindingRequest"
+      responses:
+        "200":
+          description: Whether a durable binding was removed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClearScopeBindingResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
   /v1/sources/content:
     post:
       tags: [sources]
       summary: Capture durable ContentSource evidence
       description: Accept raw content as an idempotent Source without synchronously deriving Artifacts.
       operationId: capture_content_source
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -218,6 +478,7 @@ paths:
       summary: Prepare bounded context for an Agent turn
       description: Prepare final, ephemeral context from Runtime-owned sources without persisting or injecting it.
       operationId: prepare_context
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -248,6 +509,7 @@ paths:
       summary: Create a grounded Work Contract
       description: Persist an inspectable delegation baseline without granting execution authority.
       operationId: create_work_contract
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -282,6 +544,7 @@ paths:
       summary: Hand off current work in one high-level operation
       description: Capture an inspected boundary and prepare a temporary evidence-bearing Handoff without committing it.
       operationId: handoff_current_work
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -316,6 +579,7 @@ paths:
       summary: Resolve and acknowledge a Handoff
       description: Re-resolve one prepared or exact Handoff, check evidence, and capture the receiver's explicit live-state, capability, and authorization checks.
       operationId: acknowledge_handoff
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -350,6 +614,7 @@ paths:
       summary: Record a completion-aware Task Outcome
       description: Preserve one attempt's status and checks, optionally linked to the exact accepted Handoff Receipt that the result covers.
       operationId: record_task_outcome
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -384,6 +649,7 @@ paths:
       summary: Activate Handoff generation at a Source boundary
       description: Evaluate the standard Handoff Trigger and synchronously execute any emitted PrepareHandoff Action.
       operationId: activate_handoff
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -415,6 +681,7 @@ paths:
       tags: [handoff]
       summary: Generate an inspectable Handoff Draft
       operationId: prepare_handoff
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -446,6 +713,7 @@ paths:
       tags: [handoff]
       summary: Finalize an inspected Handoff Draft
       operationId: finalize_handoff
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -477,6 +745,7 @@ paths:
       tags: [handoff]
       summary: Commit an explicit Handoff milestone
       operationId: commit_handoff
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -510,6 +779,7 @@ paths:
       tags: [handoff]
       summary: Resolve a Handoff as untrusted historical input
       operationId: continue_handoff
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -542,6 +812,7 @@ paths:
       summary: Process the pending Source window into Memory
       description: Run one bounded Source-to-Memory activation for operational control and testing.
       operationId: flush_memory
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -572,6 +843,7 @@ paths:
       summary: Remember explicit Memory content
       description: Save one already-curated Memory entry without creating a Source or invoking extraction.
       operationId: remember_memory
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -604,6 +876,7 @@ paths:
       summary: Search active Memory entries
       description: Retrieve relevant active Memory entries within one explicit application scope.
       operationId: search_memory
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -638,6 +911,7 @@ paths:
         Read active entries from the current Memory head. Inactive entries are available only when explicitly
         requested for audit.
       operationId: list_memory_entries
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -670,6 +944,7 @@ paths:
       summary: Get an exact Memory entry version
       description: Resolve an immutable entry citation within one Memory Revision.
       operationId: get_memory_entry
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -702,6 +977,7 @@ paths:
       summary: Revise an exact Memory entry
       description: Replace active entry content against an explicit current Memory Revision.
       operationId: revise_memory_entry
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -736,6 +1012,7 @@ paths:
       summary: Retire an exact Memory entry
       description: Deactivate an entry against an explicit current Memory Revision without deleting history.
       operationId: retire_memory_entry
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -770,6 +1047,7 @@ paths:
       summary: List Memory Revision changes
       description: Read compact entry changes without expanding entry bodies.
       operationId: list_memory_changes
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -802,6 +1080,7 @@ paths:
       summary: Propose Experience content
       description: Persist a pending Experience Candidate without creating an Artifact Revision.
       operationId: propose_experience
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -834,6 +1113,7 @@ paths:
       summary: Generate an Experience Candidate
       description: Use the configured model and caller-selected exact evidence; persist only a schema-valid pending Candidate.
       operationId: generate_experience
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -866,6 +1146,7 @@ paths:
       summary: Get an exact Experience Revision
       description: Read approved Experience content and its exact direct evidence.
       operationId: get_experience
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -898,6 +1179,7 @@ paths:
       summary: Propose managed Skill content
       description: Persist a pending managed Skill Candidate without creating an Artifact Revision.
       operationId: propose_skill
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -930,6 +1212,7 @@ paths:
       summary: Generate a managed Skill Candidate
       description: Use the configured model with an explicit provenance shape; persist only a schema-valid pending Candidate.
       operationId: generate_skill
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -962,6 +1245,7 @@ paths:
       summary: Get an exact managed Skill Revision
       description: Read approved managed Skill content and its exact direct evidence.
       operationId: get_skill
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -994,6 +1278,7 @@ paths:
       summary: List or search current managed Skills
       description: Return current managed Skill heads with lifecycle governance; retired Skills remain exact-read only.
       operationId: list_managed_skills
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1024,6 +1309,7 @@ paths:
       summary: Update managed Skill lifecycle
       description: Apply an explicit lifecycle transition using governance generation CAS without changing package bytes.
       operationId: update_skill_lifecycle
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1058,6 +1344,7 @@ paths:
       summary: Get an exact managed Skill package manifest
       description: Return verified metadata and file inventory without executing or returning file bodies.
       operationId: get_skill_package_manifest
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1087,6 +1374,7 @@ paths:
       summary: Download an exact managed Skill package
       description: Return canonical ZIP bytes as bounded base64 with their content-addressed reference.
       operationId: download_skill_package
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1116,6 +1404,7 @@ paths:
       summary: Propose an uploaded standard Skill package
       description: Canonicalize exact ZIP bytes, store them once, and create a pending Candidate without LLM rewriting.
       operationId: propose_skill_package
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1145,6 +1434,7 @@ paths:
       summary: Record a bounded Skill usage observation
       description: Validate an exact managed Skill Revision and capture immutable bounded usage Source evidence.
       operationId: record_skill_usage
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1176,6 +1466,7 @@ paths:
       summary: List remote Agent Skill target status
       description: Return credential-free target metadata and desired/observed publication state for one scope.
       operationId: list_remote_skill_targets
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1203,6 +1494,7 @@ paths:
       summary: Create a remote Agent Skill target enrollment
       description: Create a pending project target and return one short-lived enrollment code exactly once.
       operationId: create_remote_skill_target
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1258,6 +1550,7 @@ paths:
       summary: Rename a remote Agent Skill target
       description: Change the human-readable target name with target generation CAS while retaining its durable identity.
       operationId: rename_remote_skill_target
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1287,6 +1580,7 @@ paths:
       summary: Revoke a remote Agent Skill target
       description: Revoke the per-target credential with target generation CAS while retaining durable identity.
       operationId: revoke_remote_skill_target
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1316,6 +1610,7 @@ paths:
       summary: Set a remote target Skill desired Revision
       description: Advance only Server-owned desired state; delivery is confirmed later by an exact Receipt.
       operationId: publish_remote_skill
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1345,6 +1640,7 @@ paths:
       summary: Set remote target Skill desired absence
       description: Advance desired state without claiming that any remote directory has already been removed.
       operationId: unpublish_remote_skill
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1465,6 +1761,7 @@ paths:
       summary: Scan configured external Skill roots
       description: Replace the current host-local Registry projection without copying or rewriting package content.
       operationId: scan_external_skills
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1495,6 +1792,7 @@ paths:
       summary: List external Skills visible on this host
       description: Return live local resolutions; unavailable registrations are omitted unless explicitly requested.
       operationId: list_external_skills
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1525,6 +1823,7 @@ paths:
       summary: Resolve an exact external Skill fingerprint
       description: Resolve only the registered local package version requested by the caller; never install or fall back.
       operationId: resolve_external_skill
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1557,6 +1856,7 @@ paths:
       summary: Import or fork an external Skill into Review
       description: Capture one exact local snapshot and use the configured model to propose a new managed Skill Candidate.
       operationId: import_external_skill
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1591,6 +1891,7 @@ paths:
       summary: List Artifact Candidates
       description: Page current Candidate heads; pending is the default Review Inbox view.
       operationId: list_artifact_candidates
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1621,6 +1922,7 @@ paths:
       summary: Get an Artifact Candidate
       description: Read the current head and exact immutable proposal version.
       operationId: get_artifact_candidate
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1653,6 +1955,7 @@ paths:
       summary: Approve an Artifact Candidate
       description: Commit the reviewed proposal and mark the Candidate approved in one transaction.
       operationId: approve_artifact_candidate
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1687,6 +1990,7 @@ paths:
       summary: Reject an Artifact Candidate
       description: Move the exact pending version to its rejected terminal state without writing an Artifact.
       operationId: reject_artifact_candidate
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1721,6 +2025,7 @@ paths:
       summary: Revise an Artifact Candidate
       description: Append a complete replacement proposal as the next immutable pending version.
       operationId: revise_artifact_candidate
+      x-powercontext-scope-mode: current
       requestBody:
         required: true
         content:
@@ -1750,27 +2055,20 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
   /v1/stats:
-    get:
+    post:
       tags: [stats]
-      summary: Get scoped product statistics
+      summary: Aggregate product statistics over a Scope selection
       operationId: get_stats
-      parameters:
-        - name: scope_id
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 256
-            pattern: '.*\S.*'
-        - name: period
-          in: query
-          required: false
-          schema:
-            $ref: "#/components/schemas/StatsPeriod"
+      x-powercontext-scope-mode: selection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetStatsRequest"
       responses:
         "200":
-          description: Current inventory, model usage, and recall token estimates for the scope.
+          description: Current inventory, model usage, and recall token estimates for the frozen Scope set.
           headers:
             X-PowerContext-Request-ID:
               $ref: "#/components/headers/RequestId"
@@ -1791,245 +2089,12 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/projects/create:
-    post:
-      tags: [handoff-reports]
-      summary: Create a Handoff Report Project
-      operationId: create_handoff_report_project
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateHandoffReportProjectRequest"
-      responses:
-        "201":
-          description: The created Report Project.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectDescriptor"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/projects/list:
-    post:
-      tags: [handoff-reports]
-      summary: List Handoff Report Projects
-      operationId: list_handoff_report_projects
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ListHandoffReportProjectsRequest"
-      responses:
-        "200":
-          description: A cursor-paginated page of Report Projects.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectPage"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/scopes/list-known:
-    post:
-      tags: [handoff-reports]
-      summary: List scopes that contain a committed Handoff
-      operationId: list_handoff_report_known_scopes
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ListHandoffReportKnownScopesRequest"
-      responses:
-        "200":
-          description: A cursor-paginated page of scopes that can be rendered as Handoff Reports.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/KnownHandoffScopePage"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/projects/get:
-    post:
-      tags: [handoff-reports]
-      summary: Get a Handoff Report Project
-      operationId: get_handoff_report_project
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GetHandoffReportProjectRequest"
-      responses:
-        "200":
-          description: The exact current Report Project descriptor.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectDescriptor"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/projects/update:
-    post:
-      tags: [handoff-reports]
-      summary: Update a Handoff Report Project
-      operationId: update_handoff_report_project
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateHandoffReportProjectRequest"
-      responses:
-        "200":
-          description: The updated Report Project descriptor.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProjectDescriptor"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/workstreams/register:
-    post:
-      tags: [handoff-reports]
-      summary: Register a Handoff Report Workstream
-      operationId: register_handoff_report_workstream
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RegisterHandoffReportWorkstreamRequest"
-      responses:
-        "201":
-          description: The registered Report Workstream.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkstreamDescriptor"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/workstreams/list:
-    post:
-      tags: [handoff-reports]
-      summary: List Handoff Report Workstreams
-      operationId: list_handoff_report_workstreams
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ListHandoffReportWorkstreamsRequest"
-      responses:
-        "200":
-          description: A cursor-paginated page of Report Workstreams.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkstreamPage"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/workstreams/update:
-    post:
-      tags: [handoff-reports]
-      summary: Update a Handoff Report Workstream
-      operationId: update_handoff_report_workstream
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateHandoffReportWorkstreamRequest"
-      responses:
-        "200":
-          description: The updated Report Workstream descriptor.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkstreamDescriptor"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
   /v1/handoff-reports/get:
     post:
       tags: [handoff-reports]
       summary: Generate a Handoff Report
       operationId: get_handoff_report
+      x-powercontext-scope-mode: selection
       requestBody:
         required: true
         content:
@@ -2078,186 +2143,6 @@ paths:
           $ref: "#/components/responses/ReportTooLarge"
         "503":
           $ref: "#/components/responses/Unavailable"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/activities/record:
-    post:
-      tags: [handoff-reports]
-      summary: Record a Handoff Report Activity
-      operationId: record_handoff_report_activity
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RecordHandoffReportActivityRequest"
-      responses:
-        "201":
-          description: The idempotently recorded Report Activity.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StoredHandoffReportActivity"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/activities/list:
-    post:
-      tags: [handoff-reports]
-      summary: List Handoff Report Activities
-      operationId: list_handoff_report_activities
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ListHandoffReportActivitiesRequest"
-      responses:
-        "200":
-          description: A frozen cursor page of Report Activities.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HandoffReportActivityPage"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/activities/purge:
-    post:
-      tags: [handoff-reports]
-      summary: Purge Handoff Report Activities
-      operationId: purge_handoff_report_activities
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PurgeHandoffReportActivitiesRequest"
-      responses:
-        "200":
-          description: The number of deleted Report-owned Activity rows.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PurgeHandoffReportActivitiesResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/workspace-bindings/get:
-    post:
-      tags: [handoff-reports]
-      summary: Get a Handoff Report Workspace Binding
-      operationId: get_handoff_report_workspace
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/GetHandoffReportWorkspaceRequest"
-      responses:
-        "200":
-          description: The confirmed Workspace binding.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HandoffReportWorkspaceBinding"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/workspace-bindings/attach:
-    post:
-      tags: [handoff-reports]
-      summary: Attach a Handoff Report Workspace Binding
-      operationId: attach_handoff_report_workspace
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AttachHandoffReportWorkspaceRequest"
-      responses:
-        "200":
-          description: The confirmed Workspace binding.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HandoffReportWorkspaceBinding"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
-        "500":
-          $ref: "#/components/responses/InternalError"
-  /v1/handoff-reports/workspace-bindings/detach:
-    post:
-      tags: [handoff-reports]
-      summary: Detach a Handoff Report Workspace Binding
-      operationId: detach_handoff_report_workspace
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/DetachHandoffReportWorkspaceRequest"
-      responses:
-        "200":
-          description: The detached Workspace binding record.
-          headers:
-            X-PowerContext-Request-ID:
-              $ref: "#/components/headers/RequestId"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HandoffReportWorkspaceBinding"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "422":
-          $ref: "#/components/responses/InvalidRequest"
         "500":
           $ref: "#/components/responses/InternalError"
   /v1/scopes/{scope_id}/sources:
@@ -2916,6 +2801,318 @@ components:
         revision:
           type: integer
           minimum: 1
+    ArtifactAddress:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+    PublishArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [source, target_scope_id, idempotency_key]
+      properties:
+        source:
+          $ref: "#/components/schemas/ArtifactAddress"
+        target_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    ArtifactPublication:
+      type: object
+      additionalProperties: false
+      required: [source, target, content_digest]
+      properties:
+        source:
+          $ref: "#/components/schemas/ArtifactAddress"
+        target:
+          $ref: "#/components/schemas/ArtifactAddress"
+        content_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    ScopeExternalReference:
+      type: object
+      additionalProperties: false
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        value:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: '.*\S.*'
+    ScopeDescriptor:
+      type: object
+      additionalProperties: false
+      required: [scope_id, title, summary, context_references, external_references, version]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: '.*\S.*'
+        parent_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+          nullable: true
+        context_references:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        external_references:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ScopeExternalReference"
+        version:
+          type: integer
+          minimum: 1
+    ScopePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeDescriptor"
+    CreateScopeRequest:
+      type: object
+      additionalProperties: false
+      required: [title, summary, idempotency_key]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: '.*\S.*'
+        parent_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+          nullable: true
+        context_references:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+          default: []
+        external_references:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ScopeExternalReference"
+          default: []
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    UpdateScopeRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version, title, summary]
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          pattern: '.*\S.*'
+        parent_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+          nullable: true
+        context_references:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+          default: []
+        external_references:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ScopeExternalReference"
+          default: []
+    SetDefaultScopeRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    AllScopeSelection:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [all]
+    ExactScopeSelection:
+      type: object
+      additionalProperties: false
+      required: [mode, scope_ids]
+      properties:
+        mode:
+          type: string
+          enum: [exact]
+        scope_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+    SubtreeScopeSelection:
+      type: object
+      additionalProperties: false
+      required: [mode, root_scope_id]
+      properties:
+        mode:
+          type: string
+          enum: [subtree]
+        root_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    ScopeSelection:
+      oneOf:
+        - $ref: "#/components/schemas/AllScopeSelection"
+        - $ref: "#/components/schemas/ExactScopeSelection"
+        - $ref: "#/components/schemas/SubtreeScopeSelection"
+      discriminator:
+        propertyName: mode
+    ResolveScopeSelectionRequest:
+      type: object
+      additionalProperties: false
+      required: [selection]
+      properties:
+        selection:
+          $ref: "#/components/schemas/ScopeSelection"
+    ScopeBindingKey:
+      type: object
+      additionalProperties: false
+      required: [integration, kind, external_id]
+      properties:
+        integration:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        kind:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '.*\S.*'
+        external_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    ScopeBinding:
+      type: object
+      additionalProperties: false
+      required: [key, scope_id]
+      properties:
+        key:
+          $ref: "#/components/schemas/ScopeBindingKey"
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    SetScopeBindingRequest:
+      $ref: "#/components/schemas/ScopeBinding"
+    ClearScopeBindingRequest:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key:
+          $ref: "#/components/schemas/ScopeBindingKey"
+    ClearScopeBindingResponse:
+      type: object
+      additionalProperties: false
+      required: [cleared]
+      properties:
+        cleared:
+          type: boolean
+    ResolveScopeBindingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        explicit_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+          nullable: true
+        binding_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeBindingKey"
+          default: []
     ArtifactCandidate:
       type: object
       additionalProperties: false
@@ -3348,13 +3545,31 @@ components:
           maxItems: 30
           items:
             $ref: "#/components/schemas/RecallTokenDay"
-    ScopedStats:
+    ScopeStats:
       type: object
       additionalProperties: false
-      required: [scope_id, as_of, inventory, usage, recall]
+      required: [scope_id, inventory, usage, recall]
       properties:
         scope_id:
           type: string
+        inventory:
+          $ref: "#/components/schemas/InventoryStatistics"
+        usage:
+          $ref: "#/components/schemas/UsageStatistics"
+        recall:
+          $ref: "#/components/schemas/RecallTokenStatistics"
+    ScopedStats:
+      type: object
+      additionalProperties: false
+      required: [selection, scope_ids, as_of, inventory, usage, recall, by_scope]
+      properties:
+        selection:
+          $ref: "#/components/schemas/ScopeSelection"
+        scope_ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
         as_of:
           type: string
           format: date-time
@@ -3364,16 +3579,17 @@ components:
           $ref: "#/components/schemas/UsageStatistics"
         recall:
           $ref: "#/components/schemas/RecallTokenStatistics"
+        by_scope:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScopeStats"
     GetStatsRequest:
       type: object
       additionalProperties: false
-      required: [scope_id]
+      required: [selection]
       properties:
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '.*\S.*'
+        selection:
+          $ref: "#/components/schemas/ScopeSelection"
         period:
           $ref: "#/components/schemas/StatsPeriod"
           default: 30d
@@ -5378,220 +5594,17 @@ components:
           pattern: '.*\S.*'
         artifact:
           $ref: "#/components/schemas/ArtifactReference"
-    CreateHandoffReportProjectRequest:
-      type: object
-      additionalProperties: false
-      required: [project_key, title]
-      properties:
-        project_key:
-          type: string
-          minLength: 1
-          maxLength: 64
-        title:
-          type: string
-          minLength: 1
-          maxLength: 256
-        description:
-          type: string
-          maxLength: 2000
-          nullable: true
-        default_locale:
-          $ref: "#/components/schemas/ReportLocale"
-          default: zh-CN
-        timezone:
-          type: string
-          minLength: 1
-          maxLength: 256
-          default: UTC
-    ListHandoffReportProjectsRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        cursor:
-          type: string
-          nullable: true
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-        include_archived:
-          type: boolean
-          default: false
-    GetHandoffReportProjectRequest:
-      type: object
-      additionalProperties: false
-      required: [project_id]
-      properties:
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-    UpdateHandoffReportProjectRequest:
-      type: object
-      additionalProperties: false
-      required: [project, expected_version]
-      properties:
-        project:
-          $ref: "#/components/schemas/ProjectDescriptor"
-        expected_version:
-          type: integer
-          minimum: 1
-    RegisterHandoffReportWorkstreamRequest:
-      type: object
-      additionalProperties: false
-      required: [project_id, scope_id, title, kind]
-      properties:
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        key:
-          type: string
-          minLength: 1
-          maxLength: 64
-          nullable: true
-        title:
-          type: string
-          minLength: 1
-          maxLength: 256
-        kind:
-          $ref: "#/components/schemas/WorkstreamKind"
-        catalog_state:
-          $ref: "#/components/schemas/ReportCatalogState"
-          default: included
-        external_refs:
-          type: array
-          maxItems: 32
-          items:
-            $ref: "#/components/schemas/HandoffReportExternalReference"
-          default: []
-        labels:
-          type: array
-          maxItems: 32
-          items:
-            type: string
-            minLength: 1
-            maxLength: 128
-          default: []
-    ListHandoffReportWorkstreamsRequest:
-      type: object
-      additionalProperties: false
-      required: [project_id]
-      properties:
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        cursor:
-          type: string
-          nullable: true
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-        include_archived:
-          type: boolean
-          default: false
-    UpdateHandoffReportWorkstreamRequest:
-      type: object
-      additionalProperties: false
-      required: [workstream, expected_version]
-      properties:
-        workstream:
-          $ref: "#/components/schemas/WorkstreamDescriptor"
-        expected_version:
-          type: integer
-          minimum: 1
     GetHandoffReportRequest:
       type: object
       additionalProperties: false
-      required: [scope_id]
+      required: [selection]
       properties:
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-          deprecated: true
-          description: Retained for wire compatibility and ignored when generating a scope report.
-        locale:
-          $ref: "#/components/schemas/ReportLocale"
-          nullable: true
-        include_evidence_checks:
-          type: boolean
-          default: true
+        selection:
+          $ref: "#/components/schemas/ScopeSelection"
         format:
           $ref: "#/components/schemas/ReportFormat"
-          default: markdown
-        include_archived:
-          type: boolean
-          default: false
+          default: json
         download:
-          type: boolean
-          default: false
-        period:
-          $ref: "#/components/schemas/HandoffReportPeriodRequest"
-          nullable: true
-    ListHandoffReportKnownScopesRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        cursor:
-          type: string
-          nullable: true
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-    KnownHandoffScope:
-      type: object
-      additionalProperties: false
-      required: [scope_id]
-      properties:
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-    KnownHandoffScopePage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/KnownHandoffScope"
-        next_cursor:
-          type: string
-          nullable: true
-    HandoffReportPeriodRequest:
-      type: object
-      additionalProperties: false
-      required: [start, end]
-      properties:
-        start:
-          type: string
-          format: date-time
-        end:
-          type: string
-          format: date-time
-        timezone:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        compare_to_previous_period:
           type: boolean
           default: false
     HandoffReportResponse:
@@ -5614,473 +5627,9 @@ components:
         report_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
-    ReportActivitySource:
-      type: string
-      enum: [handoff_observation, git_commit, git_worktree, coding_session, other]
-    ReportTimeBasis:
-      type: string
-      enum: [source_reported, host_observed, first_seen, current_only, unknown]
-    HandoffReportActivityAgent:
-      type: object
-      additionalProperties: false
-      properties:
-        provider:
-          type: string
-          minLength: 1
-          maxLength: 64
-          nullable: true
-        label:
-          type: string
-          minLength: 1
-          maxLength: 128
-          nullable: true
-    HandoffReportActivityVcsContext:
-      type: object
-      additionalProperties: false
-      properties:
-        branch:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        head_revision:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-    RecordHandoffReportActivityRequest:
-      type: object
-      additionalProperties: false
-      required: [project_id, source, source_event_id, time_basis]
-      properties:
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        source:
-          $ref: "#/components/schemas/ReportActivitySource"
-        source_event_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        source_ref:
-          $ref: "#/components/schemas/HandoffReportExternalReference"
-          nullable: true
-        occurred_at:
-          type: string
-          format: date-time
-          nullable: true
-        time_basis:
-          $ref: "#/components/schemas/ReportTimeBasis"
-        title:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        summary:
-          type: string
-          minLength: 1
-          maxLength: 2000
-          nullable: true
-        agent:
-          $ref: "#/components/schemas/HandoffReportActivityAgent"
-          nullable: true
-        session_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        vcs_context:
-          $ref: "#/components/schemas/HandoffReportActivityVcsContext"
-          nullable: true
-        evidence_refs:
-          type: array
-          maxItems: 32
-          items:
-            $ref: "#/components/schemas/HandoffReportExternalReference"
-          default: []
-    HandoffReportActivity:
-      type: object
-      additionalProperties: false
-      required: [schema, event_id, project_id, scope_id, source, source_event_id, source_ref, occurred_at, observed_at, time_basis, title, summary, agent, session_id, vcs_context, evidence_refs, trust]
-      properties:
-        schema:
-          type: string
-          enum: [powercontext.handoff-report-activity.v1]
-        event_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        source:
-          $ref: "#/components/schemas/ReportActivitySource"
-        source_event_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        source_ref:
-          $ref: "#/components/schemas/HandoffReportExternalReference"
-          nullable: true
-        occurred_at:
-          type: string
-          format: date-time
-          nullable: true
-        observed_at:
-          type: string
-          format: date-time
-        time_basis:
-          $ref: "#/components/schemas/ReportTimeBasis"
-        title:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        summary:
-          type: string
-          minLength: 1
-          maxLength: 2000
-          nullable: true
-        agent:
-          $ref: "#/components/schemas/HandoffReportActivityAgent"
-          nullable: true
-        session_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        vcs_context:
-          $ref: "#/components/schemas/HandoffReportActivityVcsContext"
-          nullable: true
-        evidence_refs:
-          type: array
-          maxItems: 32
-          items:
-            $ref: "#/components/schemas/HandoffReportExternalReference"
-        trust:
-          type: string
-          enum: [untrusted_observation]
-    StoredHandoffReportActivity:
-      type: object
-      additionalProperties: false
-      required: [cursor, event]
-      properties:
-        cursor:
-          type: integer
-          minimum: 1
-        event:
-          $ref: "#/components/schemas/HandoffReportActivity"
-    ListHandoffReportActivitiesRequest:
-      type: object
-      additionalProperties: false
-      required: [project_id]
-      properties:
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        period_start:
-          type: string
-          format: date-time
-          nullable: true
-        period_end:
-          type: string
-          format: date-time
-          nullable: true
-        sources:
-          type: array
-          maxItems: 5
-          items:
-            $ref: "#/components/schemas/ReportActivitySource"
-          nullable: true
-        after_cursor:
-          type: integer
-          minimum: 0
-          default: 0
-        through_cursor:
-          type: integer
-          minimum: 0
-          nullable: true
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-    HandoffReportActivityPage:
-      type: object
-      additionalProperties: false
-      required: [items, next_cursor, high_watermark]
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            $ref: "#/components/schemas/HandoffReportActivity"
-        next_cursor:
-          type: integer
-          minimum: 1
-          nullable: true
-        high_watermark:
-          type: integer
-          minimum: 0
-    PurgeHandoffReportActivitiesRequest:
-      type: object
-      additionalProperties: false
-      required: [project_id, observed_before]
-      properties:
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        observed_before:
-          type: string
-          format: date-time
-    PurgeHandoffReportActivitiesResponse:
-      type: object
-      additionalProperties: false
-      required: [deleted_count]
-      properties:
-        deleted_count:
-          type: integer
-          minimum: 0
-    HandoffReportRepositoryRef:
-      type: object
-      additionalProperties: false
-      required: [provider, repository_id, normalized_remote, subpath]
-      properties:
-        provider:
-          type: string
-          enum: [github, gitlab, local, other]
-        repository_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          nullable: true
-        normalized_remote:
-          type: string
-          minLength: 1
-          maxLength: 2048
-          nullable: true
-        subpath:
-          type: string
-          minLength: 1
-          maxLength: 1024
-          nullable: true
-    HandoffReportWorkspaceBinding:
-      type: object
-      additionalProperties: false
-      required: [schema, workspace_instance_id, project_id, repository_ref, state, confirmed_at, version]
-      properties:
-        schema:
-          type: string
-          enum: [powercontext.workspace-binding.v1]
-        workspace_instance_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        repository_ref:
-          $ref: "#/components/schemas/HandoffReportRepositoryRef"
-        state:
-          type: string
-          enum: [confirmed, detached]
-        confirmed_at:
-          type: string
-          format: date-time
-        version:
-          type: integer
-          minimum: 1
-    GetHandoffReportWorkspaceRequest:
-      type: object
-      additionalProperties: false
-      required: [workspace_instance_id]
-      properties:
-        workspace_instance_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-    AttachHandoffReportWorkspaceRequest:
-      type: object
-      additionalProperties: false
-      required: [workspace_instance_id, project_id, repository_ref, expected_version]
-      properties:
-        workspace_instance_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        repository_ref:
-          $ref: "#/components/schemas/HandoffReportRepositoryRef"
-        expected_version:
-          type: integer
-          minimum: 1
-          nullable: true
-    DetachHandoffReportWorkspaceRequest:
-      type: object
-      additionalProperties: false
-      required: [workspace_instance_id, expected_version]
-      properties:
-        workspace_instance_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        expected_version:
-          type: integer
-          minimum: 1
-    ProjectDescriptor:
-      type: object
-      additionalProperties: false
-      required: [schema, project_id, project_key, title, description, default_locale, timezone, catalog_state, version]
-      properties:
-        schema:
-          type: string
-          enum: [powercontext.project.v1]
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        project_key:
-          type: string
-          minLength: 1
-          maxLength: 64
-        title:
-          type: string
-          minLength: 1
-          maxLength: 256
-        description:
-          type: string
-          maxLength: 2000
-          nullable: true
-        default_locale:
-          $ref: "#/components/schemas/ReportLocale"
-        timezone:
-          type: string
-          minLength: 1
-          maxLength: 256
-        catalog_state:
-          $ref: "#/components/schemas/ReportCatalogState"
-        version:
-          type: integer
-          minimum: 1
-    ProjectPage:
-      type: object
-      additionalProperties: false
-      required: [items, next_cursor]
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            $ref: "#/components/schemas/ProjectDescriptor"
-        next_cursor:
-          type: string
-          nullable: true
-    WorkstreamDescriptor:
-      type: object
-      additionalProperties: false
-      required: [schema, scope_id, project_id, key, title, kind, catalog_state, external_refs, labels, version]
-      properties:
-        schema:
-          type: string
-          enum: [powercontext.workstream.v1]
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        project_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        key:
-          type: string
-          maxLength: 64
-          nullable: true
-        title:
-          type: string
-          minLength: 1
-          maxLength: 256
-        kind:
-          $ref: "#/components/schemas/WorkstreamKind"
-        catalog_state:
-          $ref: "#/components/schemas/ReportCatalogState"
-        external_refs:
-          type: array
-          maxItems: 32
-          items:
-            $ref: "#/components/schemas/HandoffReportExternalReference"
-        labels:
-          type: array
-          maxItems: 32
-          items:
-            type: string
-            minLength: 1
-            maxLength: 128
-        version:
-          type: integer
-          minimum: 1
-    WorkstreamPage:
-      type: object
-      additionalProperties: false
-      required: [items, next_cursor]
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            $ref: "#/components/schemas/WorkstreamDescriptor"
-        next_cursor:
-          type: string
-          nullable: true
-    HandoffReportExternalReference:
-      type: object
-      additionalProperties: false
-      required: [kind, provider, external_id, url]
-      properties:
-        kind:
-          type: string
-          enum: [issue, task, pull_request, branch, feature, release, program, other]
-        provider:
-          type: string
-          minLength: 1
-          maxLength: 64
-        external_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-        url:
-          type: string
-          maxLength: 2048
-          nullable: true
-    ReportLocale:
-      type: string
-      enum: [zh-CN, en]
     ReportFormat:
       type: string
       enum: [json, markdown]
-    ReportCatalogState:
-      type: string
-      enum: [included, archived]
-    WorkstreamKind:
-      type: string
-      enum: [feature, bug, refactor, operations, research, other]
     HealthResponse:
       type: object
       additionalProperties: false

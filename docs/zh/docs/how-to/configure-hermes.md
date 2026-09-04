@@ -51,14 +51,13 @@ hermes powercontext search "Python package manager"
 ```
 
 在交互式 Hermes 会话中，`/pc status` 应连接到同一个 active provider。输入 `/pc ` 后按 Tab/Down，可查看
-Memory、Handoff、Experience、Skill、审核、统计、trace 和 Workstream 命令。Hermes 0.20.4 没有为 gateway
+Memory、Handoff、Experience、Skill、审核、统计、trace 和 Scope 命令。Hermes 0.20.4 没有为 gateway
 slash command 提供足够的调用上下文，因此该插件会拒绝 gateway 调用；gateway 会话应使用 provider 提供的
 Hermes tools。
 
-provider 默认连接 `http://127.0.0.1:8000`。在 Git workspace 中，默认启用的 Workstream persistence 会先读取
-共享的 `.git/powercontext/codex-workspace.json` scope binding；显式 scope 配置的优先级更高。两者都没有时，
-provider 根据当前 Hermes profile 和 gateway user identifier 推导 scope；本地 CLI 会话没有 user identifier 时，
-会从 `HERMES_HOME` 推导稳定值。
+provider 默认连接 `http://127.0.0.1:8000`。Server 依次解析显式 Scope、持久 session binding、持久 workspace
+binding 和默认 Scope。Hermes 只把 workspace 路径哈希用作外部 binding key，不会根据 profile、user、repository
+或目录生成 Scope ID。
 
 ## 配置连接
 
@@ -70,7 +69,7 @@ provider 根据当前 Hermes profile 和 gateway user identifier 推导 scope；
 | `POWERCONTEXT_HERMES_BASE_URL` | PowerContext Server URL |
 | `POWERCONTEXT_HERMES_AUTHORIZATION` | 完整 authorization header，例如 `Bearer <token>` |
 | `POWERCONTEXT_HERMES_TOKEN` | 未设置 `AUTHORIZATION` 时使用的裸 token 简写 |
-| `POWERCONTEXT_HERMES_SCOPE_ID` | 显式 scope 或 scope template |
+| `POWERCONTEXT_HERMES_SCOPE_ID` | 显式的服务端 Scope ID |
 | `POWERCONTEXT_HERMES_MAX_BYTES` | Prepared Context 上限，范围为 512 到 32768 字节 |
 | `POWERCONTEXT_HERMES_TIMEOUT` | HTTP 请求超时秒数 |
 | `POWERCONTEXT_HERMES_CAPTURE_TURNS` | 是否把完成的 turn 采集为 Source |
@@ -78,7 +77,6 @@ provider 根据当前 Hermes profile 和 gateway user identifier 推导 scope；
 | `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS` | compression 前采集过滤后的新 turn；默认关闭 |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE` | 把召回上下文记录到敏感的本地 JSONL trace；默认关闭 |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE_PATH` | 覆盖 evaluation trace 目录 |
-| `POWERCONTEXT_HERMES_WORKSTREAM` | 读取 Git-private 的共享 Workstream binding；默认启用 |
 
 应由 Hermes 向导把 authorization 保存到受保护的 `.env` secret store，不要把 token 写入 `config.json`。明文 HTTP
 只用于 loopback Server；连接远程部署前请阅读[部署 Server](deploy-server.md)。Evaluation trace 包含 prompt 和

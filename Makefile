@@ -117,7 +117,6 @@ js-test: ## Install, build, and test the DeepSeek Harness plugin.
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 	@pnpm --dir integrations/dsh/plugins/powercontext build
 	@git diff --exit-code -- \
-		integrations/dsh/plugins/powercontext/openapi/powercontext.yaml \
 		integrations/dsh/plugins/powercontext/src/operations.generated.ts \
 		integrations/dsh/plugins/powercontext/lib
 	@pnpm --dir integrations/dsh/plugins/powercontext test

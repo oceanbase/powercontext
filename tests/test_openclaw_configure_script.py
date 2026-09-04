@@ -76,6 +76,10 @@ def test_enable_initializes_local_gateway_when_mode_is_missing(monkeypatch: pyte
         if command[1:4] == ["config", "set", "--batch-json"]:
             settings = json.loads(command[4])
             assert settings[0] == {"path": "gateway.mode", "value": "local"}
+            assert {
+                "path": "plugins.entries.memory-powercontext.hooks.allowConversationAccess",
+                "value": True,
+            } in settings
             return CompletedProcess(command, 0, "", "")
         if command[1:3] == ["gateway", "restart"]:
             return CompletedProcess(command, 0, "", "")
@@ -84,7 +88,7 @@ def test_enable_initializes_local_gateway_when_mode_is_missing(monkeypatch: pyte
     monkeypatch.setattr(configure_openclaw, "run_command", fake_run)
     monkeypatch.setenv("OPENCLAW_RESTART", "1")
 
-    configure_openclaw.enable("openclaw", "http://127.0.0.1:8765", "agent")
+    configure_openclaw.enable("openclaw", "http://127.0.0.1:8765")
 
     assert commands[0][1:4] == ["config", "get", "gateway.mode"]
 

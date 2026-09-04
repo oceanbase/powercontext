@@ -52,7 +52,6 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | Explicitly allow cleartext HTTP for remote Skill Receiver endpoints and guidance |
 | `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK` | `false` | Opt in to a non-loopback bind while authentication is disabled |
 | `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `true` | Enable the Dashboard at the Server root path `/` |
-| `POWERCONTEXT_SERVER_DASHBOARD_SCOPES` | `[]` | JSON array of selectable Dashboard scopes |
 | `POWERCONTEXT_SERVER_HANDOFF_REPORT_ENABLED` | `true` | Enable Handoff Report and its API routes |
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | Operational log level |
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` or structured `json` output |
@@ -114,9 +113,9 @@ ASGI app, Unix-domain socket, or TLS-terminating proxy, must supply its own `htt
 `trust_transport_security=True` explicitly. See
 [Deploy the Server](../how-to/deploy-server.md) for a safe Docker and remote-access setup.
 
-The Dashboard is enabled by default and shares the Server listener and port with the HTTP API and MCP. With no scopes
-configured, the page shows an empty state. Dashboard initialization failures are logged with their direct cause and do
-not prevent the Server HTTP API, MCP, or health checks from starting.
+The Dashboard is enabled by default and shares the Server listener and port with the HTTP API and MCP. It discovers
+the default Scope and every created Scope from the Server. Dashboard initialization failures are logged with their
+direct cause and do not prevent the Server HTTP API, MCP, or health checks from starting.
 
 By default, the Server treats its startup directory as the workspace and exposes two writable local project targets:
 `<workspace>/.agents/skills` for Codex and `<workspace>/.claude/skills` for Claude Code. Missing directories are harmless
@@ -313,7 +312,7 @@ only through the environment so it does not appear in command-line arguments.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `POWERCONTEXT_CODEX_SCOPE_ID` | derived from Git remote or project path | Override project scope |
+| `POWERCONTEXT_CODEX_SCOPE_ID` | unset | Explicitly select an existing Scope instead of resolving bindings and the Server default |
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
@@ -322,15 +321,16 @@ only through the environment so it does not appear in command-line arguments.
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
 
 The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
-the Server is unavailable or rejects authentication. The variable must be present in the environment that starts
-Codex; restart Codex after changing it.
+the Server is unavailable or rejects authentication. Without an explicit Scope, the plugin resolves the Session
+binding, workspace binding, then Server default. Configuration variables must be present in the environment that
+starts Codex; restart Codex after changing them.
 
 ## Claude Code plugin
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Server base URL used by the Hook |
-| `POWERCONTEXT_CLAUDE_SCOPE_ID` | derived from Git remote or project path | Override project scope |
+| `POWERCONTEXT_CLAUDE_SCOPE_ID` | unset | Override durable bindings and the Server default Scope |
 | `POWERCONTEXT_CLAUDE_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | Capture user prompts as ordinary Source evidence |
 | `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
@@ -351,7 +351,7 @@ after changing its environment.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | Server base URL used by the plugin |
-| `POWERCONTEXT_DSH_SCOPE_ID` | derived from Git remote or project path | Override project scope |
+| `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for plugin HTTP requests |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
@@ -363,7 +363,7 @@ after changing its environment.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL; non-loopback endpoints must use HTTPS |
-| `POWERCONTEXT_PI_SCOPE_ID` | derived from Git remote or project path | Override project scope |
+| `POWERCONTEXT_PI_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_PI_AUTHORIZATION` | unset | Complete `Bearer <token>` header for package HTTP requests |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | Capture eligible user prompts as Source evidence |
 | `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `1000` | Per-request timeout in milliseconds |

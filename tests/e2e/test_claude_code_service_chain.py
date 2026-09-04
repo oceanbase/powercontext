@@ -26,6 +26,7 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 import uvicorn
 from fastmcp import Client
@@ -42,7 +43,6 @@ from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSett
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CLAUDE_PLUGIN = PROJECT_ROOT / "integrations" / "claude-code" / "plugins" / "powercontext"
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
-SCOPE_ID = "git:github.com/oceanbase/powercontext"
 AUTH_TOKEN = "claude-code-e2e-token"  # noqa: S105 - non-secret test credential.
 AUTHORIZATION = f"Bearer {AUTH_TOKEN}"
 
@@ -107,6 +107,10 @@ def test_claude_sessions_and_codex_share_one_project_memory(
         mcp_configuration = json.loads((codex_plugin / ".mcp.json").read_text())
         mcp_configuration["mcpServers"]["powercontext"]["url"] = f"{base_url}/mcp"
         (codex_plugin / ".mcp.json").write_text(json.dumps(mcp_configuration))
+        scope_id = _create_scope(
+            base_url,
+            authorization=AUTHORIZATION if authentication_enabled else None,
+        )
 
         captured = _run_claude_hook(
             prompt="Remember the shared project context service.",
@@ -114,6 +118,7 @@ def test_claude_sessions_and_codex_share_one_project_memory(
             prompt_id="prompt-1",
             base_url=base_url,
             authorization=AUTHORIZATION if authentication_enabled else None,
+            scope_id=scope_id,
         )
         assert captured.stdout == ""
         assert AUTH_TOKEN not in captured.stderr
@@ -124,6 +129,7 @@ def test_claude_sessions_and_codex_share_one_project_memory(
             prompt_id="prompt-2",
             base_url=base_url,
             authorization=AUTHORIZATION if authentication_enabled else None,
+            scope_id=scope_id,
         )
         claude_context = json.loads(recalled_by_claude.stdout)["hookSpecificOutput"]["additionalContext"]
         claude_envelope = json.loads(claude_context.splitlines()[-2])
@@ -134,6 +140,7 @@ def test_claude_sessions_and_codex_share_one_project_memory(
             codex_plugin,
             prompt="Which shared project context service should we use?",
             authorization=AUTHORIZATION if authentication_enabled else None,
+            scope_id=scope_id,
         )
         codex_context = json.loads(recalled_by_codex.stdout)["hookSpecificOutput"]["additionalContext"]
         codex_envelope = json.loads(codex_context.splitlines()[-2])
@@ -214,8 +221,16 @@ def _claude_mcp_connection(base_url: str, *, authorization: str | None) -> tuple
 
 
 async def _exercise_explicit_mcp_workflows(endpoint: str, headers: dict[str, str]) -> dict[str, object]:
-    scope_id = "project:claude-code-mcp"
     async with Client(StreamableHttpTransport(endpoint, headers=headers)) as client:
+        created_scope = await client.call_tool(
+            "create_scope",
+            {
+                "title": "Claude Code MCP workflow",
+                "summary": "Explicit memory and Handoff workflow acceptance.",
+                "idempotency_key": "claude-code-mcp-workflow",
+            },
+        )
+        scope_id = (created_scope.structured_content or {})["scope_id"]
         remembered_result = await client.call_tool(
             "remember_memory",
             {
@@ -302,6 +317,7 @@ def _run_claude_hook(
     prompt_id: str,
     base_url: str,
     authorization: str | None,
+    scope_id: str,
 ) -> subprocess.CompletedProcess[str]:
     environment: dict[str, str] = {
         **os.environ,
@@ -309,7 +325,7 @@ def _run_claude_hook(
         "POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE": "true",
         "POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS": "10",
         "POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS": "5",
-        "POWERCONTEXT_CLAUDE_SCOPE_ID": SCOPE_ID,
+        "POWERCONTEXT_CLAUDE_SCOPE_ID": scope_id,
     }
     environment.pop("POWERCONTEXT_CLAUDE_AUTHORIZATION", None)
     if authorization is not None:
@@ -337,10 +353,11 @@ def _run_codex_hook(
     *,
     prompt: str,
     authorization: str | None,
+    scope_id: str,
 ) -> subprocess.CompletedProcess[str]:
     environment: dict[str, str] = {
         **os.environ,
-        "POWERCONTEXT_CODEX_SCOPE_ID": SCOPE_ID,
+        "POWERCONTEXT_CODEX_SCOPE_ID": scope_id,
         "POWERCONTEXT_CODEX_CAPTURE_PROMPTS": "false",
         "POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS": "10",
         "POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS": "5",
@@ -364,6 +381,22 @@ def _run_codex_hook(
         check=True,
         timeout=15,
     )
+
+
+def _create_scope(base_url: str, *, authorization: str | None) -> str:
+    headers = {"Authorization": authorization} if authorization is not None else None
+    response = httpx.post(
+        f"{base_url}/v1/scopes",
+        headers=headers,
+        json={
+            "title": "Shared agent work",
+            "summary": "Shared memory for the Claude Code and Codex sessions.",
+            "idempotency_key": "shared-agent-work",
+        },
+        timeout=5,
+    )
+    response.raise_for_status()
+    return response.json()["scope_id"]
 
 
 def _wait_until_started(server: uvicorn.Server, thread: threading.Thread) -> None:

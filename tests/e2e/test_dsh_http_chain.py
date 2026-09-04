@@ -31,7 +31,6 @@ from powercontext.http import (
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, ServerSettings
 
-SCOPE_ID = "project:dsh-e2e"
 TEXT = "Keep the DSH plugin on the public HTTP contract."
 
 
@@ -54,18 +53,19 @@ def test_dsh_http_paths_work_without_a_model(tmp_path: Path) -> None:
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             live = await client.get_liveness()
             ready = await client.get_readiness()
+            scope_id = (await client.get_default_scope()).scope_id
             remembered = await client.remember_memory(
-                RememberMemoryRequest(scope_id=SCOPE_ID, kind="decision", text=TEXT),
+                RememberMemoryRequest(scope_id=scope_id, kind="decision", text=TEXT),
             )
             found = await client.search_memory(
-                SearchMemoryRequest(scope_id=SCOPE_ID, query="DSH plugin HTTP contract"),
+                SearchMemoryRequest(scope_id=scope_id, query="DSH plugin HTTP contract"),
             )
             prepared = await client.prepare_context(
-                PrepareContextRequest(scope_id=SCOPE_ID, query="DSH plugin HTTP contract"),
+                PrepareContextRequest(scope_id=scope_id, query="DSH plugin HTTP contract"),
             )
             captured = await client.capture_content_source(
                 CaptureContentSourceRequest(
-                    scope_id=SCOPE_ID,
+                    scope_id=scope_id,
                     source_id="dsh-e2e-turn-1",
                     content="Call through the plugin client without a model.",
                     metadata={"origin": "dsh", "event": "e2e"},

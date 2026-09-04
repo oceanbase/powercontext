@@ -70,21 +70,22 @@ router.add_api_route(
 
 ## 理解 Dashboard 数据来源
 
-浏览器先通过 `/dashboard/scopes` 完成认证并读取可选 scope，再使用所选 `scope_id` 和 `30d` period 请求
-`/v1/stats`。Server 读取同一个 scope 的 snapshot，返回 inventory、model usage 和 recall statistics。
+浏览器先通过 `/dashboard/scopes` 完成认证并读取 Scope，再用公共 Scope selector 构造 selection，将其和 period
+一起提交到 `/v1/stats`。Selector 提供三种观察视图：`all`、某个组织根的 `subtree`、单个 `exact` Scope。Parent
+只用于组织展示，不会让子 Scope 自动看到父 Scope 数据。
 
 | Dashboard 数据 | 来源 |
 | --- | --- |
-| Sources | 当前 scope 的 Source journal position |
-| Memory entries | 当前 Memory Artifact 中的 entry |
-| Artifacts | 按 family 分组的当前 Artifact head |
-| Pending review | 按 family 和 status 分组的当前 Candidate head |
+| Sources | 所选 Scope 的 Source journal position |
+| Memory entries | 所选 Scope 的 Memory Artifact entry |
+| Artifacts | 所选 Scope 中按 family 分组的 Artifact head |
+| Pending review | 所选 Scope 中按 family 和 status 分组的 Candidate head |
 | Skill 出处 | Managed Skill 的不可变 lineage；外部 Skill 的 registration |
 | Model usage | 持久化的每日 generation 和 embedding usage |
 | Recall 命中、Token 减少量与节约趋势 | 当前 estimator 对应的持久化每日 recall measurement |
 
-Runtime 在一个 database transaction 中读取这些数据，并在 Server 端计算 total、pending Source、family count、daily
-bucket 和 token reduction。浏览器将 `ready_preparations` 展示为 Recall 命中，并将每日有符号的
+Runtime 先将 selection 解析为 exact Scope ID，再在 Server 端汇总 total、pending Source、family count、daily bucket
+和 token reduction，并同时返回 selection 与解析后的 ID。浏览器将 `ready_preparations` 展示为 Recall 命中，并将每日有符号的
 `token_reduction` 绘制为节约趋势。Heatmap 的每个日期格同时使用这两个字段，固定分档为：无命中、命中但没有正向
 减少、减少 1–255、256–1023，以及 1024 个以上预估 Token。固定阈值避免稀疏活动和异常大值改变其他日期的颜色含义。
 
@@ -104,17 +105,15 @@ document-level 结构放在 `base.html`。一个片段已经被复用，或者�
 
 ## 添加 Handoff Report 页面
 
-启用 Handoff Report 后，Server 会在 `/handoff-reports` 托管 scope 交接页面，不再要求同时启用 scoped statistics Dashboard 或配置其 scope 列表。单独启用 Dashboard 时，根路径 `/` 仍提供原有统计页面。两个页面只复用 `base.html`、header、footer、`auth.js`、主题和 locale storage，不共享统计或报告计算逻辑。
+启用 Handoff Report 后，Server 会在 `/handoff-reports` 托管只读报告页面，Dashboard 仍是可选功能。两个页面都从
+`/dashboard/scopes` 读取 Scope，并通过 `scope-selection.js` 提供一致的 `all`、`subtree` 和 `exact` 视图。
 
-Handoff Report 页面通过 `POST /v1/handoff-reports/scopes/list-known` 获取当前 token 可访问且存在 committed Handoff 的 exact `scope_id`，并将它作为可搜索范围选择器的值。选择范围后，浏览器通过 `POST /v1/handoff-reports/get` 发送必填 `scope_id` 请求 canonical JSON；Project catalog 和 `project_id` 不参与报告选择。页面继续以完整宽度显示当前精确交接快照。
+页面将所选 `ScopeSelection` 提交到 `/v1/handoff-reports/get`。Server 把它解析为 exact Scope ID，并投影每个 Scope
+的 descriptor 和 latest exact Handoff。没有 committed Handoff 的 Scope 仍以 `no_handoff` 展示。报告不会创建
+Parent 不会推断 Context 共享，报告也不会编辑 Handoff 状态。
 
-当前快照把目标、当前状态、处置状态、下一步和已知缺失作为一份完整交接内容展示。一个“编辑”操作会同时打开五个字段，一个“保存新版本”操作会把完整内容 prepare 并 commit 为新的不可变 Handoff Revision。编辑器打开期间暂停 scope 切换和后台刷新。页面不提供接手方决策操作，已有连续性记录继续通过只读连续性时间线展示。除显式保存交接版本外，浏览器只格式化 `summary`、`coverage`、Workstream 状态和 digest，不重新计算报告口径。
-
-已知 scope 请求成功但没有任何 committed Handoff 时，页面会以明确标记的无数据模板预览替代报告控件。点击重试会重新枚举 Handoff heads；一旦某个 scope 完成交接提交，就以真实报告替换预览。预览不会创建 Handoff，也不会请求伪造报告数据。
-
-页面默认请求 UTC 当日周期，并提供本日、ISO 本周、自然月和自定义起止日期输入。日期输入的结束日按包含当天解释，发给 API 时转换为下一日零点的排他边界。当前 scope application 只规范化该输入，不提供 Activity event，`activity_coverage=not_configured`，也不返回 period comparison。Handoff 状态来自当前 exact selection，不能把它显示成历史期末状态。
-
-概览请求可以关闭 evidence check 以降低延迟；Markdown 下载必须重新请求 `format=markdown`、`download=true` 且默认启用 evidence check。浏览器不得从已经渲染的 DOM 或 canonical JSON 自行拼接 Markdown。当前后台刷新和浏览器下载都要求已保存的 Bearer token，即使 Server 未启用鉴权也是如此；首次和手动报告加载仍可在无 token 时工作。Handoff Report 功能关闭时不注册 `/handoff-reports` 页面和对应 API，原 Dashboard 路径、scope 切换和统计请求保持不变。
+浏览器使用 JSON 投影。下载 Markdown 时，使用相同 selection 重新请求 `format=markdown`、`download=true`；浏览器
+不会从 DOM 重建 Markdown。关闭 Handoff Report 会移除页面和报告 API，不影响 Dashboard selection 和统计行为。
 
 ## 保持安全边界
 

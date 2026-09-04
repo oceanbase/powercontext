@@ -30,6 +30,188 @@ class ArtifactReference(BaseModel):
     revision: Annotated[StrictInt, Field(ge=1)]
 
 
+class ArtifactAddress(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact: ArtifactReference
+
+
+class PublishArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source: ArtifactAddress
+    target_scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    idempotency_key: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class ArtifactPublication(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source: ArtifactAddress
+    target: ArtifactAddress
+    content_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+
+
+class ScopeExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    value: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern=".*\\S.*")]
+
+
+class ContextReference(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class ScopeDescriptor(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    title: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    summary: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern=".*\\S.*")]
+    parent_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
+    context_references: list[ContextReference]
+    external_references: list[ScopeExternalReference]
+    version: Annotated[StrictInt, Field(ge=1)]
+
+
+class ScopePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[ScopeDescriptor]
+
+
+class CreateScopeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    title: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    summary: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern=".*\\S.*")]
+    parent_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
+    context_references: Annotated[list[ContextReference], Field(validate_default=True)] = []
+    external_references: Annotated[list[ScopeExternalReference], Field(validate_default=True)] = []
+    idempotency_key: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class UpdateScopeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    title: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    summary: Annotated[StrictStr, Field(max_length=2000, min_length=1, pattern=".*\\S.*")]
+    parent_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
+    context_references: Annotated[list[ContextReference], Field(validate_default=True)] = []
+    external_references: Annotated[list[ScopeExternalReference], Field(validate_default=True)] = []
+
+
+class SetDefaultScopeRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class Mode(StrEnum):
+    ALL = "all"
+
+
+class AllScopeSelection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: Literal["all"]
+
+
+class Mode1(StrEnum):
+    EXACT = "exact"
+
+
+class ScopeId(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class ExactScopeSelection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: Literal["exact"]
+    scope_ids: Annotated[list[ScopeId], Field(min_length=1)]
+
+
+class Mode2(StrEnum):
+    SUBTREE = "subtree"
+
+
+class SubtreeScopeSelection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: Literal["subtree"]
+    root_scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class ScopeSelection(RootModel[AllScopeSelection | ExactScopeSelection | SubtreeScopeSelection]):
+    root: Annotated[AllScopeSelection | ExactScopeSelection | SubtreeScopeSelection, Field(discriminator="mode")]
+
+
+class ResolveScopeSelectionRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    selection: ScopeSelection
+
+
+class ScopeBindingKey(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integration: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    kind: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern=".*\\S.*")]
+    external_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class ScopeBinding(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: ScopeBindingKey
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class SetScopeBindingRequest(RootModel[ScopeBinding]):
+    root: ScopeBinding
+
+
+class ClearScopeBindingRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: ScopeBindingKey
+
+
+class ClearScopeBindingResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cleared: StrictBool
+
+
+class ResolveScopeBindingRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    explicit_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
+    binding_keys: Annotated[list[ScopeBindingKey], Field(validate_default=True)] = []
+
+
 class ApproveArtifactCandidateRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -863,252 +1045,9 @@ class GetSkillRequest(BaseModel):
     artifact: ArtifactReference
 
 
-class ListHandoffReportProjectsRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cursor: StrictStr | None = None
-    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
-    include_archived: StrictBool = False
-
-
-class GetHandoffReportProjectRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-
-
-class Label(RootModel[StrictStr]):
-    root: Annotated[StrictStr, Field(max_length=128, min_length=1)]
-
-
-class ListHandoffReportWorkstreamsRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    cursor: StrictStr | None = None
-    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
-    include_archived: StrictBool = False
-
-
-class ListHandoffReportKnownScopesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cursor: StrictStr | None = None
-    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
-
-
-class KnownHandoffScope(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-
-
-class KnownHandoffScopePage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    items: list[KnownHandoffScope]
-    next_cursor: StrictStr | None = None
-
-
-class HandoffReportPeriodRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    start: AwareDatetime
-    end: AwareDatetime
-    timezone: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    compare_to_previous_period: StrictBool = False
-
-
-class ReportActivitySource(StrEnum):
-    HANDOFF_OBSERVATION = "handoff_observation"
-    GIT_COMMIT = "git_commit"
-    GIT_WORKTREE = "git_worktree"
-    CODING_SESSION = "coding_session"
-    OTHER = "other"
-
-
-class ReportTimeBasis(StrEnum):
-    SOURCE_REPORTED = "source_reported"
-    HOST_OBSERVED = "host_observed"
-    FIRST_SEEN = "first_seen"
-    CURRENT_ONLY = "current_only"
-    UNKNOWN = "unknown"
-
-
-class HandoffReportActivityAgent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    provider: Annotated[StrictStr | None, Field(max_length=64, min_length=1)] = None
-    label: Annotated[StrictStr | None, Field(max_length=128, min_length=1)] = None
-
-
-class HandoffReportActivityVcsContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    branch: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    head_revision: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-
-
-class Schema3(StrEnum):
-    POWERCONTEXT_HANDOFF_REPORT_ACTIVITY_V1 = "powercontext.handoff-report-activity.v1"
-
-
-class Trust4(StrEnum):
-    UNTRUSTED_OBSERVATION = "untrusted_observation"
-
-
-class ListHandoffReportActivitiesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    period_start: AwareDatetime | None = None
-    period_end: AwareDatetime | None = None
-    sources: Annotated[list[ReportActivitySource] | None, Field(max_length=5)] = None
-    after_cursor: Annotated[StrictInt, Field(ge=0)] = 0
-    through_cursor: Annotated[StrictInt | None, Field(ge=0)] = None
-    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
-
-
-class PurgeHandoffReportActivitiesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    observed_before: AwareDatetime
-
-
-class PurgeHandoffReportActivitiesResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    deleted_count: Annotated[StrictInt, Field(ge=0)]
-
-
-class Provider1(StrEnum):
-    GITHUB = "github"
-    GITLAB = "gitlab"
-    LOCAL = "local"
-    OTHER = "other"
-
-
-class HandoffReportRepositoryRef(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    provider: Provider1
-    repository_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
-    normalized_remote: Annotated[StrictStr | None, Field(max_length=2048, min_length=1)]
-    subpath: Annotated[StrictStr | None, Field(max_length=1024, min_length=1)]
-
-
-class Schema4(StrEnum):
-    POWERCONTEXT_WORKSPACE_BINDING_V1 = "powercontext.workspace-binding.v1"
-
-
-class State(StrEnum):
-    CONFIRMED = "confirmed"
-    DETACHED = "detached"
-
-
-class HandoffReportWorkspaceBinding(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    schema_: Annotated[Schema4, Field(alias="schema")]
-    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    repository_ref: HandoffReportRepositoryRef
-    state: State
-    confirmed_at: AwareDatetime
-    version: Annotated[StrictInt, Field(ge=1)]
-
-
-class GetHandoffReportWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-
-
-class AttachHandoffReportWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    repository_ref: HandoffReportRepositoryRef
-    expected_version: Annotated[StrictInt | None, Field(ge=1)]
-
-
-class DetachHandoffReportWorkspaceRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    workspace_instance_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    expected_version: Annotated[StrictInt, Field(ge=1)]
-
-
-class Schema5(StrEnum):
-    POWERCONTEXT_PROJECT_V1 = "powercontext.project.v1"
-
-
-class Schema6(StrEnum):
-    POWERCONTEXT_WORKSTREAM_V1 = "powercontext.workstream.v1"
-
-
-class Kind3(StrEnum):
-    ISSUE = "issue"
-    TASK = "task"
-    PULL_REQUEST = "pull_request"
-    BRANCH = "branch"
-    FEATURE = "feature"
-    RELEASE = "release"
-    PROGRAM = "program"
-    OTHER = "other"
-
-
-class HandoffReportExternalReference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Kind3
-    provider: Annotated[StrictStr, Field(max_length=64, min_length=1)]
-    external_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    url: Annotated[StrictStr | None, Field(max_length=2048)]
-
-
-class ReportLocale(StrEnum):
-    ZH_CN = "zh-CN"
-    EN = "en"
-
-
 class ReportFormat(StrEnum):
     JSON = "json"
     MARKDOWN = "markdown"
-
-
-class ReportCatalogState(StrEnum):
-    INCLUDED = "included"
-    ARCHIVED = "archived"
-
-
-class WorkstreamKind(StrEnum):
-    FEATURE = "feature"
-    BUG = "bug"
-    REFACTOR = "refactor"
-    OPERATIONS = "operations"
-    RESEARCH = "research"
-    OTHER = "other"
 
 
 class HealthResponse(BaseModel):
@@ -1557,22 +1496,34 @@ class RecallTokenStatistics(BaseModel):
     daily: Annotated[list[RecallTokenDay], Field(max_length=30)]
 
 
-class ScopedStats(BaseModel):
+class ScopeStats(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     scope_id: StrictStr
+    inventory: InventoryStatistics
+    usage: UsageStatistics
+    recall: RecallTokenStatistics
+
+
+class ScopedStats(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    selection: ScopeSelection
+    scope_ids: list[StrictStr]
     as_of: AwareDatetime
     inventory: InventoryStatistics
     usage: UsageStatistics
     recall: RecallTokenStatistics
+    by_scope: list[ScopeStats]
 
 
 class GetStatsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    selection: ScopeSelection
     period: StatsPeriod = StatsPeriod.FIELD_30D
 
 
@@ -1767,51 +1718,13 @@ class GetMemoryEntryRequest(BaseModel):
     citation: MemoryCitation
 
 
-class CreateHandoffReportProjectRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project_key: Annotated[StrictStr, Field(max_length=64, min_length=1)]
-    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    description: Annotated[StrictStr | None, Field(max_length=2000)] = None
-    default_locale: ReportLocale = ReportLocale.ZH_CN
-    timezone: Annotated[StrictStr, Field(max_length=256, min_length=1)] = "UTC"
-
-
-class RegisterHandoffReportWorkstreamRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    key: Annotated[StrictStr | None, Field(max_length=64, min_length=1)] = None
-    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    kind: WorkstreamKind
-    catalog_state: ReportCatalogState = ReportCatalogState.INCLUDED
-    external_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32, validate_default=True)] = []
-    labels: Annotated[list[Label], Field(max_length=32, validate_default=True)] = []
-
-
 class GetHandoffReportRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    project_id: Annotated[
-        StrictStr | None,
-        Field(
-            deprecated=True,
-            description="Retained for wire compatibility and ignored when generating a scope report.",
-            max_length=256,
-            min_length=1,
-        ),
-    ] = None
-    locale: ReportLocale | None = None
-    include_evidence_checks: StrictBool = True
-    format: ReportFormat = ReportFormat.MARKDOWN
-    include_archived: StrictBool = False
+    selection: ScopeSelection
+    format: ReportFormat = ReportFormat.JSON
     download: StrictBool = False
-    period: HandoffReportPeriodRequest | None = None
 
 
 class HandoffReportResponse(BaseModel):
@@ -1823,112 +1736,6 @@ class HandoffReportResponse(BaseModel):
     markdown: Annotated[StrictStr | None, Field(...)]
     selection_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
     report_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
-
-
-class RecordHandoffReportActivityRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    source: ReportActivitySource
-    source_event_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    source_ref: HandoffReportExternalReference | None = None
-    occurred_at: AwareDatetime | None = None
-    time_basis: ReportTimeBasis
-    title: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    summary: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
-    agent: HandoffReportActivityAgent | None = None
-    session_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
-    vcs_context: HandoffReportActivityVcsContext | None = None
-    evidence_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32, validate_default=True)] = []
-
-
-class HandoffReportActivity(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    schema_: Annotated[Schema3, Field(alias="schema")]
-    event_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
-    source: ReportActivitySource
-    source_event_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    source_ref: Annotated[HandoffReportExternalReference | None, Field(...)]
-    occurred_at: Annotated[AwareDatetime | None, Field(...)]
-    observed_at: AwareDatetime
-    time_basis: ReportTimeBasis
-    title: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
-    summary: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
-    agent: Annotated[HandoffReportActivityAgent | None, Field(...)]
-    session_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)]
-    vcs_context: Annotated[HandoffReportActivityVcsContext | None, Field(...)]
-    evidence_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32)]
-    trust: Trust4
-
-
-class StoredHandoffReportActivity(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cursor: Annotated[StrictInt, Field(ge=1)]
-    event: HandoffReportActivity
-
-
-class HandoffReportActivityPage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    items: Annotated[list[HandoffReportActivity], Field(max_length=100)]
-    next_cursor: Annotated[StrictInt | None, Field(ge=1)]
-    high_watermark: Annotated[StrictInt, Field(ge=0)]
-
-
-class ProjectDescriptor(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    schema_: Annotated[Schema5, Field(alias="schema")]
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    project_key: Annotated[StrictStr, Field(max_length=64, min_length=1)]
-    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    description: Annotated[StrictStr | None, Field(max_length=2000)]
-    default_locale: ReportLocale
-    timezone: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    catalog_state: ReportCatalogState
-    version: Annotated[StrictInt, Field(ge=1)]
-
-
-class ProjectPage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    items: Annotated[list[ProjectDescriptor], Field(max_length=100)]
-    next_cursor: Annotated[StrictStr | None, Field(...)]
-
-
-class WorkstreamDescriptor(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    schema_: Annotated[Schema6, Field(alias="schema")]
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    project_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    key: Annotated[StrictStr | None, Field(max_length=64)]
-    title: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    kind: WorkstreamKind
-    catalog_state: ReportCatalogState
-    external_refs: Annotated[list[HandoffReportExternalReference], Field(max_length=32)]
-    labels: Annotated[list[Label], Field(max_length=32)]
-    version: Annotated[StrictInt, Field(ge=1)]
-
-
-class WorkstreamPage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    items: Annotated[list[WorkstreamDescriptor], Field(max_length=100)]
-    next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
 class ListArtifactCandidatesRequest(BaseModel):
@@ -2290,22 +2097,6 @@ class ListManagedSkillsResponse(BaseModel):
         extra="forbid",
     )
     skills: Annotated[list[ManagedSkillLibraryEntry], Field(max_length=200)]
-
-
-class UpdateHandoffReportProjectRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    project: ProjectDescriptor
-    expected_version: Annotated[StrictInt, Field(ge=1)]
-
-
-class UpdateHandoffReportWorkstreamRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    workstream: WorkstreamDescriptor
-    expected_version: Annotated[StrictInt, Field(ge=1)]
 
 
 class ListMemoryChangesResponse(BaseModel):

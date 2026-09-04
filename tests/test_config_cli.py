@@ -21,6 +21,7 @@ import pytest
 from typer.testing import CliRunner
 
 import powercontext.cli.config as config_cli
+from powercontext.server.configuration import server_settings_context
 
 
 def test_init_asks_for_protocol_endpoint_key_and_plain_model_name(tmp_path: Path) -> None:
@@ -120,18 +121,113 @@ def test_init_validate_and_show_round_trip_managed_environment(
     assert "initial-secret" not in shown.output
 
 
-def test_init_rejects_configuration_that_server_settings_reject(
+def test_validate_accepts_minimal_server_environment_without_inference_models(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_DATABASE_KIND=seekdb",
+            "POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1",
+            "POWERCONTEXT_SERVER_HTTP_PORT=8888",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+    assert "Configuration is valid" in result.output
+    with server_settings_context(env_file=environment) as settings:
+        assert settings.database.kind == "seekdb"
+        assert settings.http.host == "127.0.0.1"
+        assert settings.http.port == 8888
+
+
+@pytest.mark.parametrize(
+    "runtime_setting",
+    (
+        "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60",
+        "POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=60",
+        "POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true",
+    ),
+)
+def test_validate_rejects_runtime_features_without_required_inference(
+    runtime_setting: str,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(f"{runtime_setting}\n", encoding="utf-8")
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 2
+    assert "built-in runtime cannot be configured" in result.output
+
+
+def test_validate_uses_runtime_provider_factory_for_custom_headers(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-chat:test-model",
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL=https://provider.example/v1",
+            'POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS=\'{"Authorization":"Bearer test"}\'',
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+
+
+def test_validate_uses_runtime_provider_factory_for_active_reranking(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED=true",
+            "POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL=openai-chat:rerank-model",
+            "POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL=https://provider.example/v1",
+            'POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS=\'{"Authorization":"Bearer test"}\'',
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+
+
+def test_validate_rejects_unsupported_custom_endpoint_provider(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=deepseek:deepseek-chat",
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL=https://provider.example/v1",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 2
+    assert "custom inference endpoints require an OpenAI- or Anthropic-compatible model identifier" in result.output
+
+
+def test_init_rejects_configuration_that_validation_rejects(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     environment = tmp_path / ".env"
-    invalid = _configuration(scope_id="p" * 256)
+    invalid = _configuration(embedding_dimension=0)
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: invalid)
 
     result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
 
     assert result.exit_code == 2
-    assert "at most 255 characters" in result.output
+    assert "Embedding dimension and Source interval must be positive" in result.output
     assert not environment.exists()
 
 
@@ -148,7 +244,7 @@ def test_init_rejects_provider_models_that_cannot_be_constructed(
     result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
 
     assert result.exit_code == 2
-    assert "provider models cannot be configured" in result.output
+    assert "built-in runtime cannot be configured" in result.output
     assert not environment.exists()
 
 
@@ -200,7 +296,7 @@ def test_custom_connection_is_not_reclassified_from_its_model_prefix(monkeypatch
     )
     connections = iter(((generation, ("CUSTOM_CREDENTIAL",)), (embedding, ("VOYAGE_API_KEY",))))
     monkeypatch.setattr(config_cli, "_collect_connection", lambda _role: next(connections))
-    prompts = iter(("project:test", "Test", 3))
+    prompts = iter((3,))
     monkeypatch.setattr(config_cli.typer, "prompt", lambda *_args, **_kwargs: next(prompts))
 
     with patch.object(
@@ -284,7 +380,7 @@ def test_init_records_generated_credential_names_for_show_redaction(
         credentials=("SERVICE_CREDENTIAL",),
     )
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: configuration)
-    monkeypatch.setattr(config_cli, "_validate_provider_models", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(config_cli, "_validate_builtin_runtime", lambda *_args, **_kwargs: None)
 
     generated = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)], input="\n")
     text = environment.read_text(encoding="utf-8")
@@ -376,12 +472,12 @@ def test_init_hides_and_redacts_marked_additional_credentials(
 ) -> None:
     environment = tmp_path / ".env"
     monkeypatch.setattr(config_cli, "_select_value", lambda *_args, **_kwargs: "custom")
-    monkeypatch.setattr(config_cli, "_validate_provider_models", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(config_cli, "_validate_builtin_runtime", lambda *_args, **_kwargs: None)
 
     result = CliRunner().invoke(
         config_cli.app,
         ["init", "--output", str(environment)],
-        input="\n\n\n-\n-\nMYTOKEN\ny\nextra-secret\n\n\n-\n-\n\n1536\ny\n",
+        input="\n-\n-\nMYTOKEN\ny\nextra-secret\n\n\n-\n-\n\n1536\ny\n",
     )
     text = environment.read_text(encoding="utf-8")
 
@@ -448,7 +544,7 @@ def _configuration(
     generation: config_cli.ModelSelection | None = None,
     embedding: config_cli.ModelSelection | None = None,
     credentials: tuple[str, ...] = ("OPENAI_API_KEY",),
-    scope_id: str = "project:quickstart",
+    embedding_dimension: int = 1536,
     database_kind: str = "sqlite",
     database_url: str | None = None,
     database_path: str | None = None,
@@ -456,12 +552,10 @@ def _configuration(
     shared = (config_cli.ProviderVariable("OPENAI_API_KEY", "initial-secret"),)
     return config_cli.GeneratedConfiguration(
         config_version=1,
-        scope_id=scope_id,
-        display_name="Quick Start",
         generation=generation or config_cli.ModelSelection("openai:gpt-4.1-mini", shared),
         embedding=embedding or config_cli.ModelSelection("openai:text-embedding-3-small", shared),
         embedding_profile_id="openai-text-embedding-3-small-1536-unit-v1",
-        embedding_dimension=1536,
+        embedding_dimension=embedding_dimension,
         database_kind=database_kind,
         database_url=database_url,
         database_path=database_path,

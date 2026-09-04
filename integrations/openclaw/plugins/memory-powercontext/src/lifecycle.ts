@@ -17,7 +17,7 @@
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { PowerContextConfig } from "./config.js";
-import { opaqueSessionId, resolvePowerContextScope } from "./config.js";
+import { opaqueSessionId } from "./config.js";
 import {
   captureTranscript,
   deterministicSourceId,
@@ -27,6 +27,7 @@ import {
 } from "./content.js";
 import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
+import { resolvePowerContextScope } from "./scope.js";
 import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
 
 type LifecycleDependencies = {
@@ -75,13 +76,14 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       );
     }
   };
-  const resolveScope = (params: {
+  const resolveScope = async (params: {
     agentId: string;
     sessionId?: string;
+    sessionKey?: string;
     activeProjectKeys?: readonly string[];
   }) => {
     const config = deps.getConfig();
-    const scopeId = resolvePowerContextScope(params.agentId, config, params.activeProjectKeys);
+    const scopeId = await resolvePowerContextScope(deps.client, config, params);
     rememberScope(params.sessionId, scopeId);
     return scopeId;
   };
@@ -93,7 +95,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     activeProjectKeys?: readonly string[];
     channel?: string;
     messages: unknown[];
-  }) => {
+  }, resolvedScopeId?: string) => {
     const config = deps.getConfig();
     if (
       !config.endpoint ||
@@ -112,8 +114,9 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       opaqueSessionId: sessionIdentity,
       content,
     });
+    const scopeId = resolvedScopeId ?? await resolveScope(params);
     await deps.client.post("/v1/sources/content", {
-      scope_id: resolveScope(params),
+      scope_id: scopeId,
       source_id: sourceId,
       content,
       metadata: {
@@ -159,9 +162,10 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       return undefined;
     }
     try {
-      const scopeId = resolveScope({
+      const scopeId = await resolveScope({
         agentId,
         sessionId: ctx.sessionId,
+        sessionKey: ctx.sessionKey,
         activeProjectKeys: ctx.activeProjectKeys,
       });
       const prepared = await deps.client.post<unknown>("/v1/context/prepare", {
@@ -216,6 +220,18 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     if (!agentId || !deps.isPrivateSession(agentId, ctx.sessionKey)) {
       return;
     }
+    let scopeId: string;
+    try {
+      scopeId = await resolveScope({
+        agentId,
+        sessionId: ctx.sessionId,
+        sessionKey: ctx.sessionKey,
+        activeProjectKeys: ctx.activeProjectKeys,
+      });
+    } catch (error) {
+      reportFailure("scope_binding", error);
+      return;
+    }
     if (event.messages?.length) {
       try {
         await capture({
@@ -225,18 +241,14 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
           activeProjectKeys: ctx.activeProjectKeys,
           channel: ctx.channel ?? ctx.messageProvider,
           messages: event.messages,
-        });
+        }, scopeId);
       } catch (error) {
         reportFailure("capture_source", error);
       }
     }
     try {
       if (await canExtractMemory()) {
-        await flush(resolveScope({
-          agentId,
-          sessionId: ctx.sessionId,
-          activeProjectKeys: ctx.activeProjectKeys,
-        }));
+        await flush(scopeId);
       }
     } catch (error) {
       reportFailure("pre_compaction_flush", error);
@@ -249,19 +261,16 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
     if (!agentId || !deps.isPrivateSession(agentId, sessionKey)) {
       return;
     }
-    const config = deps.getConfig();
     const observedScopes = sessionScopes.get(event.sessionId);
     sessionScopes.delete(event.sessionId);
-    if (!observedScopes?.size && config.scopeMode === "project") {
-      api.logger.debug?.(
-        "memory-powercontext: session-end flush skipped because no trusted project scope was observed",
-      );
-      return;
-    }
     try {
       const scopes = observedScopes?.size
         ? [...observedScopes]
-        : [resolvePowerContextScope(agentId, config)];
+        : [await resolveScope({
+            agentId,
+            sessionId: event.sessionId,
+            sessionKey,
+          })];
       if (!(await canExtractMemory())) {
         return;
       }

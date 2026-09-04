@@ -12,50 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Read-only ports consumed by the optional Handoff Report feature."""
+"""Read ports used by Handoff Report projection."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.handoff import Handoff, HandoffEvidenceCheck
-from powercontext.builtin.work import WorkContinuity
+from powercontext.builtin.artifacts.handoff import Handoff
+from powercontext.builtin.scope.models import ScopeDescriptor, ScopeSelection
 
 
 class HandoffReadAdapter(Protocol):
-    """Read committed Handoffs without extending their persistence protocol."""
+    async def latest(self, scope_id: str, /) -> Handoff | None: ...
 
-    async def latest(self, scope_id: str, /) -> Handoff | None:
-        """Return one scope's current committed Handoff, if it exists."""
-
-        ...
-
-    async def get(self, scope_id: str, reference: ArtifactRef, /) -> Handoff:
-        """Return the exact committed Handoff addressed by ``reference``."""
-
-        ...
-
-    async def revisions(self, scope_id: str, /) -> tuple[Handoff, ...]:
-        """Return one scope's committed Handoffs in ascending Revision order."""
-
-        ...
-
-    async def check_evidence(
-        self,
-        scope_id: str,
-        reference: ArtifactRef,
-        /,
-    ) -> tuple[HandoffEvidenceCheck, ...]:
-        """Recheck evidence readability for one exact committed Handoff."""
-
-        ...
+    async def get(self, scope_id: str, reference: ArtifactRef, /) -> Handoff: ...
 
 
-class WorkContinuityReadAdapter(Protocol):
-    """Read the high-level Work loop projection for one scope."""
-
-    async def get(self, scope_id: str, reference: ArtifactRef | None, /) -> WorkContinuity: ...
+class ScopeSelectionResolver(Protocol):
+    async def resolve_selection(self, selection: ScopeSelection, /) -> tuple[ScopeDescriptor, ...]: ...
 
 
-__all__ = ["HandoffReadAdapter", "WorkContinuityReadAdapter"]
+__all__ = ["HandoffReadAdapter", "ScopeSelectionResolver"]

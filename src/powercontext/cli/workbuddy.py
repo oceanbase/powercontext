@@ -52,15 +52,15 @@ WORKBUDDY_SKILLS_DIRNAME = "skills"
 WORKBUDDY_SKILL_NAME = "project-context"
 WORKBUDDY_SKILL_MANIFEST = ".powercontext.json"
 WORKBUDDY_PYTHON_PLACEHOLDER = "${POWERCONTEXT_PYTHON}"
-WORKBUDDY_PROJECT_SCOPE_PLACEHOLDER = "${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}"
+WORKBUDDY_SCOPE_BINDING_PLACEHOLDER = "${POWERCONTEXT_SCOPE_BINDING_SCRIPT}"
 WORKBUDDY_HOOK_DRIVER = "workbuddy_powercontext_hook.py"
-WORKBUDDY_SCOPE_RESOLVER = "powercontext_project_scope.py"
+WORKBUDDY_SCOPE_RESOLVER = "powercontext_scope_binding.py"
 WORKBUDDY_HOOK_MODULES = (
     "workbuddy_powercontext_hook.py",
     "workbuddy_settings.py",
     "prepared_context.py",
 )
-WORKBUDDY_SCRIPT_MODULES = ("__init__.py", "project_scope.py")
+WORKBUDDY_SCRIPT_MODULES = ("__init__.py", "workspace_scope.py")
 WORKBUDDY_SERVER_URL_ENV = "POWERCONTEXT_WORKBUDDY_SERVER_URL"
 WORKBUDDY_AUTHORIZATION_ENV = "POWERCONTEXT_WORKBUDDY_AUTHORIZATION"
 WORKBUDDY_MCP_URL = f"${{{WORKBUDDY_SERVER_URL_ENV}:-http://127.0.0.1:8000}}/mcp"
@@ -220,7 +220,7 @@ def _install_hook_files(plugin_dir: Path, hooks_dir: Path) -> None:
         source_hooks = plugin_dir / WORKBUDDY_HOOKS_DIRNAME
         for name in WORKBUDDY_HOOK_MODULES:
             shutil.copy2(source_hooks / name, hooks_dir / name)
-        shutil.copy2(plugin_dir / "scripts" / "project_scope.py", hooks_dir / WORKBUDDY_SCOPE_RESOLVER)
+        shutil.copy2(plugin_dir / "scripts" / "workspace_scope.py", hooks_dir / WORKBUDDY_SCOPE_RESOLVER)
     except OSError as error:
         raise SetupError.workbuddy_hooks_write(hooks_dir, error) from error
 
@@ -330,7 +330,7 @@ def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path
         content = skill_markdown.read_text(encoding="utf-8")
         content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
         content = content.replace(
-            WORKBUDDY_PROJECT_SCOPE_PLACEHOLDER,
+            WORKBUDDY_SCOPE_BINDING_PLACEHOLDER,
             _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
         )
         skill_markdown.write_text(content, encoding="utf-8")
@@ -438,7 +438,7 @@ def _skill_diagnostic(skill_file: Path) -> Diagnostic:
         content = skill_file.read_text(encoding="utf-8")
     except OSError:
         return Diagnostic(status=DiagnosticStatus.FAILED, detail=f"cannot read {skill_file}")
-    if WORKBUDDY_PROJECT_SCOPE_PLACEHOLDER in content or WORKBUDDY_PYTHON_PLACEHOLDER in content:
+    if WORKBUDDY_SCOPE_BINDING_PLACEHOLDER in content or WORKBUDDY_PYTHON_PLACEHOLDER in content:
         return Diagnostic(
             status=DiagnosticStatus.FAILED,
             detail="PowerContext WorkBuddy skill still contains an unresolved command placeholder",

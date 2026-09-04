@@ -155,9 +155,9 @@ The commit command supplies an identity for this one commit without changing glo
 command should print nothing, which means the example starts with a clean worktree. You do not need to configure a Git
 remote.
 
-PowerContext isolates data by scope. The Codex plugin first uses an explicit scope or a bound Workstream. Otherwise,
-it uses the normalized Git remote and finally falls back to the project path. Start every Codex session in the rest of
-this tutorial from this **same directory**.
+PowerContext isolates data by Scope. The Codex plugin asks the Server to resolve an explicit Scope, a durable session
+or workspace binding, or the default Scope. Start every Codex session in the rest of this tutorial from this
+**same directory** so it supplies the same workspace binding key.
 
 ## 5. Save Memory in the first Codex session
 

@@ -36,27 +36,30 @@ from powercontext.http._generated.operations import (
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
+    CLEAR_SCOPE_BINDING,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_SCOPE,
     CREATE_WORK_CONTRACT,
     FINALIZE_HANDOFF,
     GET_ARTIFACT_CANDIDATE,
     GET_HANDOFF_REPORT,
-    GET_HANDOFF_REPORT_WORKSPACE,
     GET_MEMORY_ENTRY,
+    GET_SCOPE,
     HANDOFF_CURRENT_WORK,
     LIST_ARTIFACT_CANDIDATES,
-    LIST_HANDOFF_REPORT_KNOWN_SCOPES,
-    LIST_HANDOFF_REPORT_PROJECTS,
-    LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MEMORY_ENTRIES,
+    LIST_SCOPES,
+    PUBLISH_ARTIFACT,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
+    RESOLVE_SCOPE_BINDING,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
+    SET_SCOPE_BINDING,
 )
 from powercontext.server.access import McpAccessLogMiddleware
 from powercontext.server.app import REQUEST_ID_HEADER
@@ -65,7 +68,6 @@ from powercontext.server.context import (
     current_request_id,
     reset_internal_bridge,
 )
-from powercontext.server.handoff_picker import register_handoff_workstream_picker
 from powercontext.server.metrics import McpMetricsMiddleware, ServerMetrics
 from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
@@ -87,14 +89,19 @@ _MCP_OPERATION_IDS = frozenset({
     REMEMBER_MEMORY.operation_id,
     REVISE_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,
-    LIST_HANDOFF_REPORT_KNOWN_SCOPES.operation_id,
-    GET_HANDOFF_REPORT_WORKSPACE.operation_id,
     RETIRE_MEMORY_ENTRY.operation_id,
     LIST_ARTIFACT_CANDIDATES.operation_id,
     GET_ARTIFACT_CANDIDATE.operation_id,
     APPROVE_ARTIFACT_CANDIDATE.operation_id,
     REJECT_ARTIFACT_CANDIDATE.operation_id,
     REVISE_ARTIFACT_CANDIDATE.operation_id,
+    CREATE_SCOPE.operation_id,
+    LIST_SCOPES.operation_id,
+    GET_SCOPE.operation_id,
+    RESOLVE_SCOPE_BINDING.operation_id,
+    SET_SCOPE_BINDING.operation_id,
+    CLEAR_SCOPE_BINDING.operation_id,
+    PUBLISH_ARTIFACT.operation_id,
 })
 _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     CONTINUE_HANDOFF.operation_id,
@@ -102,10 +109,11 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     LIST_MEMORY_ENTRIES.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,
-    LIST_HANDOFF_REPORT_KNOWN_SCOPES.operation_id,
-    GET_HANDOFF_REPORT_WORKSPACE.operation_id,
     LIST_ARTIFACT_CANDIDATES.operation_id,
     GET_ARTIFACT_CANDIDATE.operation_id,
+    LIST_SCOPES.operation_id,
+    GET_SCOPE.operation_id,
+    RESOLVE_SCOPE_BINDING.operation_id,
 })
 _MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
     APPROVE_ARTIFACT_CANDIDATE.operation_id,
@@ -132,6 +140,7 @@ def _annotate_mcp_component(
         component.annotations = ToolAnnotations(
             readOnlyHint=True,
             destructiveHint=False,
+            idempotentHint=True,
             openWorldHint=False,
         )
     elif route.operation_id == HANDOFF_CURRENT_WORK.operation_id:
@@ -186,11 +195,6 @@ def create_mcp_server(
         validate_output=False,
     )
     server = FastMCP(name=MCP_SERVER_NAME, providers=[provider])
-    if {
-        LIST_HANDOFF_REPORT_PROJECTS.path,
-        LIST_HANDOFF_REPORT_WORKSTREAMS.path,
-    }.issubset(server_app.openapi()["paths"]):
-        register_handoff_workstream_picker(server, client)
     server.add_middleware(McpTracingMiddleware(resolved_tracing))
     if access_log:
         server.add_middleware(McpAccessLogMiddleware())

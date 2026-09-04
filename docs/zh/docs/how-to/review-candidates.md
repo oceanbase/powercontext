@@ -16,19 +16,20 @@ Revision；拒绝会关闭 Candidate，但不会写入 Artifact。
 powercontext ready
 ```
 
-你需要知道 Candidate 所在的 `scope_id`。本指南从 Experience 或 Skill 操作已经创建 pending Candidate 后开始。
+将 `POWERCONTEXT_SCOPE_ID` 设置为 Candidate 所在的已有 Scope ID。本指南从 Experience 或 Skill 操作已经创建
+pending Candidate 后开始。
 
 ## 1. 列出待审核 Candidate
 
 ```bash
-powercontext candidate list --scope-id project:example
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID"
 ```
 
 默认 Review Inbox 只列出 `pending` Candidate head。需要时可以按 family 筛选：
 
 ```bash
-powercontext candidate list --scope-id project:example --family experience
-powercontext candidate list --scope-id project:example --family skill
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --family experience
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --family skill
 ```
 
 响应包含每个 Candidate 的 `candidate_id` 和当前 `version`。如果响应返回 `next_cursor`，通过 `--cursor` 读取下一页。
@@ -37,7 +38,7 @@ powercontext candidate list --scope-id project:example --family skill
 ## 2. 检查一个 Candidate
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 做决定前，检查以下内容：
@@ -58,7 +59,7 @@ powercontext candidate show --scope-id project:example CANDIDATE_ID
 
 ```bash
 powercontext candidate approve \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   CANDIDATE_ID
 ```
@@ -70,7 +71,7 @@ powercontext candidate approve \
 
 ```bash
 powercontext candidate reject \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   --reason "证据不能支持提议的经验结论。" \
   CANDIDATE_ID
@@ -85,7 +86,7 @@ powercontext candidate reject \
 
 ```bash
 powercontext candidate revise experience \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   --situation "只测试了一个存储后端。" \
   --action "在两个后端运行相同的验收场景。" \
@@ -104,7 +105,7 @@ powercontext candidate revise experience \
 
 ```bash
 powercontext candidate revise skill \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --expected-version 1 \
   --name backend-validation \
   --description "以一致方式验证存储后端。" \
@@ -123,15 +124,15 @@ powercontext candidate revise skill \
 再次读取 Candidate：
 
 ```bash
-powercontext candidate show --scope-id project:example CANDIDATE_ID
+powercontext candidate show --scope-id "$POWERCONTEXT_SCOPE_ID" CANDIDATE_ID
 ```
 
 Candidate 已批准时，记录精确的 `result_artifact`；Candidate 已拒绝时，确认 `decision_reason`。默认 Inbox 不再列出
 这两种终态，需要审计时应显式查询：
 
 ```bash
-powercontext candidate list --scope-id project:example --status approved
-powercontext candidate list --scope-id project:example --status rejected
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --status approved
+powercontext candidate list --scope-id "$POWERCONTEXT_SCOPE_ID" --status rejected
 ```
 
 如果写操作报告 Candidate 版本过期，请重新显示 Candidate 并审核新版本。不要在未检查替代内容时直接修改

@@ -37,6 +37,8 @@ from powercontext.client import InvalidResponseError, PowerContextClient, Server
 from powercontext.client.capture import render_capture_event
 from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest
 
+from .scope import resolve_scope_id, workspace_binding_key
+
 STATE_KEY = "_powercontext"
 CONTEXT_MARKER = "PowerContext host-supplied context"
 CLIENT_ERRORS = (InvalidResponseError, ServerResponseError, TransportError)
@@ -104,16 +106,21 @@ class PowerContextPlugin:
     def __init__(self, framework: Any) -> None:
         self.settings = ensure_config(PowerContextSettings)
         self.base_url = str(self.settings.base_url).rstrip("/")
-        self.scope_id = self.settings.scope_id or _workspace_scope(Path(framework.workspace))
+        self._framework = framework
+        self._scope_lock = asyncio.Lock()
         self._capture_lock = asyncio.Lock()
 
     @hookimpl
     def load_state(self, message: Any, session_id: str) -> TurnState:
         del message, session_id
+        workspace_key = workspace_binding_key(getattr(self._framework, "workspace", None))
+        binding_keys = [workspace_key] if workspace_key is not None else []
         return {
             STATE_KEY: {
                 "base_url": self.base_url,
-                "scope_id": self.scope_id,
+                "scope_id": None,
+                "explicit_scope_id": self.settings.scope_id,
+                "binding_keys": binding_keys,
                 "timeout": self.settings.timeout,
                 "trust_transport_security": self.settings.trust_transport_security,
                 "capture_sequence": 0,
@@ -132,6 +139,13 @@ class PowerContextPlugin:
     @hookimpl
     async def before_llm_call(self, request: LlmCallRequest, state: TurnState) -> LlmCallRequest | None:
         query = _latest_user_text(request.messages)
+        if not query:
+            return None
+
+        scope_id = await self._scope_id(state)
+        if scope_id is None:
+            return None
+
         capture_state = state[STATE_KEY]
         if self.settings.capture_events and query and not capture_state["prompt_captured"]:
             capture_state["prompt_captured"] = True
@@ -145,10 +159,7 @@ class PowerContextPlugin:
         if any(_contains_context_marker(message) for message in request.messages):
             return None
 
-        if not query:
-            return None
-
-        prepared_content = await self._prepare_context(query, state)
+        prepared_content = await self._prepare_context(query, scope_id, state)
         if not prepared_content:
             return None
 
@@ -206,9 +217,41 @@ class PowerContextPlugin:
             trust_transport_security=self.settings.trust_transport_security,
         )
 
-    async def _prepare_context(self, query: str, state: TurnState) -> str | None:
+    async def _scope_id(self, state: TurnState) -> str | None:
+        scope_state = state[STATE_KEY]
+        explicit_scope_id = scope_state["explicit_scope_id"]
+        binding_keys = scope_state["binding_keys"]
+        cached_scope_id = scope_state.get("scope_id")
+        if cached_scope_id is not None:
+            return cached_scope_id
+
+        async with self._scope_lock:
+            cached_scope_id = scope_state.get("scope_id")
+            if cached_scope_id is not None:
+                return cached_scope_id
+            try:
+                async with self._client() as client:
+                    resolved_scope_id = await resolve_scope_id(
+                        client,
+                        explicit_scope_id=explicit_scope_id,
+                        binding_keys=binding_keys,
+                    )
+            except CLIENT_ERRORS as exc:
+                scope_state["scope_error"] = type(exc).__name__
+                self._write_capture_record(
+                    event="scope",
+                    status="failed",
+                    error=type(exc).__name__,
+                )
+                return None
+
+            scope_state["scope_id"] = resolved_scope_id
+            scope_state.pop("scope_error", None)
+            return resolved_scope_id
+
+    async def _prepare_context(self, query: str, scope_id: str, state: TurnState) -> str | None:
         request = PrepareContextRequest(
-            scope_id=self.scope_id,
+            scope_id=scope_id,
             query=query,
             max_bytes=self.settings.max_bytes,
         )
@@ -241,15 +284,19 @@ class PowerContextPlugin:
         payload: dict[str, Any],
         state: TurnState,
     ) -> None:
+        scope_id = await self._scope_id(state)
+        if scope_id is None:
+            return
+
         async with self._capture_lock:
             capture_state = state[STATE_KEY]
             capture_state["capture_sequence"] += 1
             sequence = capture_state["capture_sequence"]
             session_id = str(state.get("session_id", "unknown"))
-            source_id = _source_id(self.scope_id, session_id, sequence, event, run_id)
+            source_id = _source_id(scope_id, session_id, sequence, event, run_id)
             content = render_capture_event(event, sequence, payload, self.settings.capture_max_bytes)
             request = CaptureContentSourceRequest(
-                scope_id=self.scope_id,
+                scope_id=scope_id,
                 source_id=source_id,
                 content=content,
                 metadata={
@@ -292,9 +339,13 @@ class PowerContextPlugin:
         if target_position <= capture_state["flushed_position"]:
             return
 
+        scope_id = await self._scope_id(state)
+        if scope_id is None:
+            return
+
         try:
             async with self._client() as client:
-                response = await client.flush_memory(FlushMemoryRequest(scope_id=self.scope_id))
+                response = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
         except CLIENT_ERRORS as exc:
             self._write_capture_record(
                 event="checkpoint",
@@ -352,11 +403,6 @@ def _latest_user_text(messages: list[dict[str, Any]]) -> str:
 def _contains_context_marker(message: dict[str, Any]) -> bool:
     content = message.get("content")
     return isinstance(content, str) and CONTEXT_MARKER in content
-
-
-def _workspace_scope(workspace: Path) -> str:
-    digest = hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:20]
-    return f"bub:{digest}"
 
 
 def _source_id(scope_id: str, session_id: str, sequence: int, event: str, run_id: str) -> str:

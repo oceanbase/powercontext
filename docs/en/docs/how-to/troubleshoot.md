@@ -181,16 +181,16 @@ so the previous database remains available for recovery:
    Before running the commands, compare the exported table files with `SHOW TABLES` in the target database. Every
    exported table named below must exist in the target; if one is missing, stop and create it with the current
    PowerContext configuration before importing. Remove a name only when the source export does not contain that table.
+   Because `pc_scopes.parent_scope_id` is self-referential, keep ancestor Scope rows before their descendants in the
+   exported `pc_scopes` data.
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
-   `pc_skill_publications`) or the seven `pc_handoff_report_*` tables, remove the absent tables from Layer 1. If the
-   export contains the Handoff Report tables but Handoff Report is disabled, temporarily enable it in step 4 to
-   create the current tables, restore their data, and return the setting to its intended value only after verification.
+   `pc_skill_publications`), remove the absent tables from Layer 1.
 
    Layer 1 contains parents and tables without foreign keys:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_handoff_report_projects,pc_handoff_report_project_revisions,pc_handoff_report_workstreams,pc_handoff_report_workstream_revisions,pc_handoff_report_workspace_bindings,pc_handoff_report_activity_heads,pc_handoff_report_activities' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
      -f <export-directory>
    ```
 
@@ -198,7 +198,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 

@@ -21,13 +21,13 @@ import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 export type PowerContextConfig = {
   endpoint?: string;
+  scopeId?: string;
   tokenEnv: string;
   timeoutMs: number;
   prepareMaxBytes: number;
   autoRecall: boolean;
   autoCapture: boolean;
   captureMaxChars: number;
-  scopeMode: "agent" | "project";
 };
 
 const DEFAULT_CONFIG: PowerContextConfig = {
@@ -37,7 +37,6 @@ const DEFAULT_CONFIG: PowerContextConfig = {
   autoRecall: true,
   autoCapture: true,
   captureMaxChars: 4000,
-  scopeMode: "agent",
 };
 
 function readPluginConfig(config: OpenClawConfig | undefined, fallback: unknown): Record<string, unknown> {
@@ -79,35 +78,18 @@ export function resolvePowerContextConfig(
     typeof raw.tokenEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(raw.tokenEnv.trim())
       ? raw.tokenEnv.trim()
       : DEFAULT_CONFIG.tokenEnv;
-  const scopeMode = raw.scopeMode === "project" ? "project" : DEFAULT_CONFIG.scopeMode;
+  const scopeId = typeof raw.scopeId === "string" && raw.scopeId.trim() ? raw.scopeId.trim() : undefined;
   return {
     ...DEFAULT_CONFIG,
     ...(endpoint ? { endpoint } : {}),
+    ...(scopeId ? { scopeId } : {}),
     tokenEnv,
     timeoutMs: boundedInteger(raw.timeoutMs, DEFAULT_CONFIG.timeoutMs, 250, 15000),
     prepareMaxBytes: boundedInteger(raw.prepareMaxBytes, DEFAULT_CONFIG.prepareMaxBytes, 512, 32768),
     autoRecall: raw.autoRecall !== false,
     autoCapture: raw.autoCapture !== false,
     captureMaxChars: boundedInteger(raw.captureMaxChars, DEFAULT_CONFIG.captureMaxChars, 128, 20000),
-    scopeMode,
   };
-}
-
-function encoded(value: string): string {
-  return encodeURIComponent(value.trim());
-}
-
-export function resolvePowerContextScope(
-  agentId: string,
-  config: PowerContextConfig,
-  activeProjectKeys?: readonly string[],
-): string {
-  const agent = encoded(agentId);
-  if (config.scopeMode !== "project" || activeProjectKeys?.length !== 1) {
-    return `openclaw:agent:${agent}`;
-  }
-  const projectHash = createHash("sha256").update(activeProjectKeys[0]).digest("hex").slice(0, 32);
-  return `openclaw:agent:${agent}:project:${projectHash}`;
 }
 
 export function opaqueSessionId(sessionId: string | undefined, sessionKey: string | undefined): string | undefined {

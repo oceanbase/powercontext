@@ -90,8 +90,8 @@ def parse_operations(doc: dict[str, Any]) -> list[dict[str, Any]]:
                 "method": method.upper(),
                 "path": path,
                 "location": _request_location(body_schema, parameters),
-                "scope": _operation_has_scope(doc, body_schema, parameters),
-                "pathParams": _parameter_names(parameters, "path"),
+                "scopeMode": _scope_mode(operation),
+                "pathParameters": _path_parameters(parameters),
                 "queryParams": _parameter_names(parameters, "query"),
                 "headerParams": _parameter_names(parameters, "header"),
                 "successStatuses": success_statuses,
@@ -118,10 +118,10 @@ def main() -> None:
 
 def _render_row(row: dict[str, Any]) -> str:
     location = "null" if row["location"] is None else f'"{row["location"]}"'
-    scope = "true" if row["scope"] else "false"
+    path_parameters = ", ".join(f"'{name}'" for name in row["pathParameters"])
     return (
         f"  {row['operationId']}: {{ method: '{row['method']}', path: '{row['path']}', "
-        f"location: {location}, scope: {scope}, pathParams: {_render_array(row['pathParams'])}, "
+        f"location: {location}, scopeMode: '{row['scopeMode']}', pathParameters: [{path_parameters}], "
         f"queryParams: {_render_array(row['queryParams'])}, headerParams: {_render_array(row['headerParams'])}, "
         f"successStatuses: {_render_array(row['successStatuses'])}, "
         f"emptyStatuses: {_render_array(row['emptyStatuses'])} }},"
@@ -155,20 +155,6 @@ def _deref(doc: dict[str, Any], node: Any, seen: set[str] | None = None) -> Any:
     return node
 
 
-def _schema_has_scope(doc: dict[str, Any], schema: Any, seen: set[str] | None = None) -> bool:
-    resolved = _deref(doc, schema, seen or set())
-    if not isinstance(resolved, dict):
-        return False
-    properties = resolved.get("properties")
-    if isinstance(properties, dict) and "scope_id" in properties:
-        return True
-    for key in ("allOf", "oneOf", "anyOf"):
-        parts = resolved.get(key)
-        if isinstance(parts, list) and any(_schema_has_scope(doc, part, set(seen or set())) for part in parts):
-            return True
-    return False
-
-
 def _json_body_schema(doc: dict[str, Any], operation: dict[str, Any]) -> Any:
     body = _deref(doc, operation.get("requestBody"))
     if not isinstance(body, dict):
@@ -200,14 +186,6 @@ def _request_location(body_schema: Any, parameters: list[dict[str, Any]]) -> str
     return None
 
 
-def _operation_has_scope(doc: dict[str, Any], body_schema: Any, parameters: list[dict[str, Any]]) -> bool:
-    if body_schema and _schema_has_scope(doc, body_schema):
-        return True
-    return any(
-        parameter.get("in") in {"path", "query"} and parameter.get("name") == "scope_id" for parameter in parameters
-    )
-
-
 def _parameter_names(parameters: list[dict[str, Any]], location: str) -> list[str]:
     return [
         str(parameter["name"])
@@ -230,6 +208,21 @@ def _response_statuses(doc: dict[str, Any], operation: dict[str, Any]) -> tuple[
         if not isinstance(resolved, dict) or not resolved.get("content"):
             empty.append(status)
     return success, empty
+
+
+def _scope_mode(operation: dict[str, Any]) -> str:
+    value = operation.get("x-powercontext-scope-mode", "none")
+    if value not in {"none", "current", "selection"}:
+        raise SystemExit("invalid x-powercontext-scope-mode")  # noqa: TRY003
+    return value
+
+
+def _path_parameters(parameters: list[dict[str, Any]]) -> list[str]:
+    return [
+        name
+        for parameter in parameters
+        if parameter.get("in") == "path" and isinstance(name := parameter.get("name"), str)
+    ]
 
 
 if __name__ == "__main__":

@@ -39,9 +39,8 @@ from powercontext.builtin.artifacts.memory import (
     MemoryReranker,
 )
 from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
-from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
+from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
-from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
 from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
@@ -311,6 +310,8 @@ async def open_builtin_runtime(
                 statistics_service=contexts.statistics,
                 record_service=contexts.records,
                 recall_token_estimator=contexts.estimate_recall_tokens,
+                publication_application=contexts.publications,
+                scope_application=contexts.scopes,
                 readiness=RuntimeReadinessChecks(readiness_probes),
                 tracing=tracing,
                 remote_ingestion=contexts,
@@ -318,10 +319,8 @@ async def open_builtin_runtime(
         )
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
-                contexts.database,
+                contexts.scopes,
                 RuntimeHandoffReadAdapter(runtime.handoff),
-                continuity=RuntimeWorkContinuityReadAdapter(runtime.work),
-                scope_ids=contexts.handoff_scope_ids,
             )
         if config.runtime.schedule_seconds is not None and configured_pipeline is None:
             raise BuiltinConfigurationError("scheduled-pipeline")
@@ -357,7 +356,6 @@ async def open_builtin_contexts(
     """Open the selected database and expose scope-bound PowerContext providers."""
 
     database = config.database
-    report_tables = HANDOFF_REPORT_TABLES if config.handoff_report.enabled else ()
     configured_token_estimator = character_token_estimator() if token_estimator is None else token_estimator
     if isinstance(database, SQLiteConfig):
         experience_index = SQLiteExperienceFTSIndex()
@@ -367,14 +365,14 @@ async def open_builtin_contexts(
         index = CompositeMemoryIndex(*indexes)
         async with SQLiteProfile.open(
             database,
-            tables=BUILTIN_TABLES + report_tables + index.tables,
+            tables=BUILTIN_TABLES + index.tables,
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
                 await ensure_skill_distribution_schema(connection)
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
-            yield RelationalContexts(
+            contexts = RelationalContexts(
                 database=profile.database,
                 index=index,
                 experience_index=experience_index,
@@ -391,13 +389,15 @@ async def open_builtin_contexts(
                 source_registry=source_registry,
                 cursor_secret=cursor_secret,
             )
+            await contexts.scopes.bootstrap_default()
+            yield contexts
         return
     experience_index = OceanBaseExperienceFTSIndex()
     indexes = [OceanBaseMemoryFTSIndex()]
     if embedding_model is not None:
         indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
     index = CompositeMemoryIndex(*indexes)
-    tables = BUILTIN_TABLES + report_tables + index.tables
+    tables = BUILTIN_TABLES + index.tables
     if isinstance(database, OceanBaseConfig):
         profile_context = OceanBaseProfile.open(database, tables=tables)
     elif isinstance(database, SeekDBConfig):
@@ -409,7 +409,7 @@ async def open_builtin_contexts(
             await ensure_skill_distribution_schema(connection)
             await index.initialize(connection)
             await experience_index.initialize(connection)
-        yield RelationalContexts(
+        contexts = RelationalContexts(
             database=profile.database,
             index=index,
             experience_index=experience_index,
@@ -426,6 +426,8 @@ async def open_builtin_contexts(
             source_registry=source_registry,
             cursor_secret=cursor_secret,
         )
+        await contexts.scopes.bootstrap_default()
+        yield contexts
 
 
 async def _generation_pipelines(
@@ -657,6 +659,29 @@ async def _generation_pipelines(
     )
 
 
+async def preflight_builtin_runtime(config: BuiltinConfig) -> None:
+    """Validate Runtime composition without opening persistence or making requests."""
+
+    async with AsyncExitStack() as resources:
+        await _generation_pipelines(
+            config.inference,
+            config.runtime,
+            resources,
+            None,
+            BUILTIN_SOURCE_REGISTRY,
+        )
+        if config.inference.embedding_model is not None:
+            await _embedding_models(config.inference, resources, None)
+        if config.runtime.schedule_seconds is not None and config.inference.generation_model is None:
+            raise BuiltinConfigurationError("scheduled-pipeline")
+        if config.runtime.experience_schedule_seconds is not None and config.inference.generation_model is None:
+            raise BuiltinConfigurationError("scheduled-experience-pipeline")
+        if config.runtime.memory_rerank_enabled and (
+            config.inference.generation_model is None and config.inference.rerank_model is None
+        ):
+            raise BuiltinConfigurationError("memory-reranker")
+
+
 async def _open_pydantic_ai_model(
     model_name: str,
     *,
@@ -853,4 +878,4 @@ def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, .
     return tuple(modes)
 
 
-__all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_runtime"]
+__all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_runtime", "preflight_builtin_runtime"]

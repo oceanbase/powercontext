@@ -234,6 +234,27 @@ class PowerContextClient:
     def get_capabilities(self) -> dict[str, Any]:
         return self._request("/v1/capabilities", method="GET")
 
+    def resolve_scope_binding(
+        self,
+        *,
+        explicit_scope_id: str | None,
+        binding_keys: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        return self._request(
+            "/v1/scope-bindings/resolve",
+            {"explicit_scope_id": explicit_scope_id, "binding_keys": binding_keys},
+        )
+
+    def set_scope_binding(self, key: dict[str, str], scope_id: str) -> dict[str, Any]:
+        return self._request(
+            "/v1/scope-bindings",
+            {"key": key, "scope_id": scope_id},
+            method="PUT",
+        )
+
+    def clear_scope_binding(self, key: dict[str, str]) -> dict[str, Any]:
+        return self._request("/v1/scope-bindings/clear", {"key": key})
+
     def prepare_context(self, scope_id: str, query: str, *, max_bytes: int) -> dict[str, Any]:
         return self._request(
             "/v1/context/prepare",

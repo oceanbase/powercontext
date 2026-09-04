@@ -15,77 +15,54 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from types import ModuleType
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "integrations" / "codex" / "plugins" / "powercontext"
+REPOSITORY_ROOT = PLUGIN_ROOT.parents[3]
 
 
-@pytest.mark.parametrize(
-    ("remote", "expected"),
-    [
-        ("https://github.com/OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-        ("ssh://git@github.com/OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-        ("git@github.com:OceanBase/powercontext.git", "github.com/OceanBase/powercontext"),
-    ],
-)
-def test_scope_normalizes_network_git_remotes(
-    scope_module: ModuleType,
-    remote: str,
-    expected: str,
-) -> None:
-    assert scope_module.normalize_git_remote(remote) == expected
-
-
-def test_scope_override_wins(scope_module: ModuleType, tmp_path: Path) -> None:
-    assert (
-        scope_module.derive_scope_id(
-            str(tmp_path),
-            configured_scope_id="project:explicit",
-        )
-        == "project:explicit"
-    )
-
-
-def test_scope_binding_is_persisted_in_git_private_state(
+def test_scope_resolver_uses_server_binding_and_fixes_new_session(
     scope_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    git_directory = tmp_path / ".git"
-    git_directory.mkdir()
-    monkeypatch.setattr(
-        scope_module,
-        "_git_value",
-        lambda _cwd, *arguments: str(git_directory) if arguments == ("rev-parse", "--absolute-git-dir") else None,
-    )
+    requests: list[tuple[str, dict[str, object], str]] = []
 
-    assert scope_module.bind_workstream_scope(str(tmp_path), "handoff-ui-review") == "handoff-ui-review"
-    assert scope_module.read_bound_scope_id(str(tmp_path)) == "handoff-ui-review"
-    assert scope_module.resolve_scope_id(str(tmp_path)) == "handoff-ui-review"
-    assert scope_module.resolve_scope_id(str(tmp_path), configured_scope_id="scope:override") == "scope:override"
-    state_path = git_directory / "powercontext" / "codex-workspace.json"
-    if os.name != "nt":
-        assert state_path.stat().st_mode & 0o777 == 0o600
+    def post(path, payload, *, settings, deadline, method="POST"):
+        requests.append((path, payload, method))
+        return {"scope_id": "scp_00000000000000000000000000"}
 
-    assert scope_module.clear_workstream_scope(str(tmp_path)) is True
-    assert scope_module.read_bound_scope_id(str(tmp_path)) is None
-    assert scope_module.clear_workstream_scope(str(tmp_path)) is False
-
-
-def test_scope_binding_requires_a_git_workspace(
-    scope_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+    monkeypatch.setattr(scope_module, "_post_json", post)
     monkeypatch.setattr(scope_module, "_git_value", lambda *_args: None)
 
-    with pytest.raises(ValueError, match="requires a Git workspace"):
-        scope_module.bind_workstream_scope(str(tmp_path), "handoff-ui-review")
+    resolved = scope_module.resolve_scope_id(
+        str(tmp_path),
+        session_id="session-1",
+        settings=scope_module.CodexPluginSettings(),
+        deadline=float("inf"),
+        persist_session=True,
+    )
+
+    assert resolved == "scp_00000000000000000000000000"
+    assert requests[0][0] == "/v1/scope-bindings/resolve"
+    binding_keys = cast(list[dict[str, Any]], requests[0][1]["binding_keys"])
+    assert [key["kind"] for key in binding_keys] == ["session", "workspace"]
+    assert binding_keys[0]["external_id"] == "session-1"
+    assert binding_keys[1]["external_id"] != str(tmp_path)
+    assert not binding_keys[1]["external_id"].startswith("scp_")
+    assert requests[1] == (
+        "/v1/scope-bindings",
+        {
+            "key": {"integration": "codex", "kind": "session", "external_id": "session-1"},
+            "scope_id": resolved,
+        },
+        "PUT",
+    )
 
 
 def test_codex_settings_precedence_and_validation(
@@ -177,27 +154,19 @@ def test_codex_settings_normalize_the_mcp_path_to_http_base(
     assert settings_module._http_base_url("https://memory.example/api/mcp/") == "https://memory.example/api"
 
 
-def test_project_context_skill_uses_the_high_level_work_continuity_loop() -> None:
-    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
+def test_codex_hooks_fix_session_and_data_plane_bindings() -> None:
+    configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
 
-    assert 'description: Create and commit a current-work Handoff when the user says "交接"' in content
-    assert "including explicit requests to save or search durable Memory." in content
-    assert '"$PLUGIN_ROOT/.venv/bin/python" "$PLUGIN_ROOT/scripts/project_scope.py"' in content
-    assert "uv run --frozen" not in content
-    assert "create_work_contract" in content
-    assert "select_handoff_workstream" in content
-    assert "handoff_current_work" in content
-    assert "acknowledge_handoff" in content
-    assert "record_task_outcome" in content
-    assert "Complete a one-turn durable Handoff" in content
-    assert "do not ask for a second confirmation" in content
-    assert "native\npicker" in content
-    assert "Pass the returned `handoff` member unchanged" in content
-    assert "no durable Handoff milestone was committed" in content
-    assert "canonical temporary carrier" in content
-    assert 'selection: "prepared"' in content
-    assert "call `commit_handoff` only when" in content
-    assert "Do not treat every session stop as task completion" in content
+    assert "session_binding.py" in configuration["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    pre_tool_use = configuration["hooks"]["PreToolUse"][0]
+    assert pre_tool_use["matcher"] == "mcp__powercontext__.*"
+    assert "bind_tools.py" in pre_tool_use["hooks"][0]["command"]
+
+
+def test_customer_artifact_workflow_does_not_parse_plugin_root_as_an_actions_expression() -> None:
+    workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "build-artifacts.yml").read_text()
+
+    assert "${{PLUGIN_ROOT}}" not in workflow
 
 
 def test_project_context_skill_requires_explicit_memory_routing_and_failure_reporting() -> None:

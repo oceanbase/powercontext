@@ -24,16 +24,38 @@ PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，�
 
 ## 与你使用的 Agent 一起工作
 
-安装 [PowerContext](https://pypi.org/project/powercontext/)：
+安装最新发布的 [PowerContext](https://pypi.org/project/powercontext/)：
 
 ```bash
 uv tool install "powercontext[cli,server]==0.1.0"
-
-# To use the latest unreleased code instead:
-# uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
-如需让个人 Server 在终端关闭后继续运行，并可以在下次登录后再次启动，请安装原生当前用户服务：
+在单独的终端中启动本地 Server：
+
+```bash
+powercontext server run
+```
+
+`0.1.0` 发布版不包含 `powercontext service` 命令。使用 PowerContext 时，请保持 `powercontext server run`
+进程运行；如需使用原生个人服务，请改用下文尚未发布的 `master` 版本。
+
+Server 默认将上下文保存到本地 SQLite 数据库。
+
+然后从同一个发布版本配置 Agent 集成。例如：
+
+```bash
+powercontext setup codex --ref powercontext-v0.1.0
+```
+
+PowerContext 工具与 Agent 集成应始终使用同一个 Git ref。如需试用最新但尚未发布的 `master`，请同时从
+`master` 安装工具和配置集成：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup codex --source oceanbase/powercontext --ref master
+```
+
+当前 `master` 还提供可选的持久个人 Server，它可以在终端关闭后继续运行，并在下次登录后再次启动：
 
 ```bash
 powercontext service install # 卸载请运行 `powercontext service uninstall`
@@ -42,20 +64,6 @@ powercontext service status
 
 在 Windows 上，未提供登录启动选项时，安装器会询问是否在下次登录时自动启动；直接按 Enter 的默认选择是不启用。
 需要显式选择时，请使用 `--start-on-login` 或 `--no-start-on-login`。
-
-如果想在终端以前台方式使用，可以运行：
-
-```bash
-powercontext server run
-```
-
-Server 默认将上下文保存到本地 SQLite 数据库。
-
-然后为 Agent 配置集成。例如：
-
-```bash
-powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such as 55616dca.
-```
 
 其他 Agent 的配置方式和部署选项请继续阅读 [Agent 配置指南](https://powercontext.oceanbase.io/zh/docs/tutorials/agent-quickstart/)。支持的 Agent Client 和 IDE 可通过 MCP 或专用集成连接。
 

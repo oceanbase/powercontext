@@ -24,39 +24,47 @@ PowerContext は、会話をまたいでもコンテキストを作業ととも�
 
 ## 利用中の Agent と接続する
 
-[PowerContext](https://pypi.org/project/powercontext/) をインストールします：
+最新リリースの [PowerContext](https://pypi.org/project/powercontext/) をインストールします：
 
 ```bash
 uv tool install "powercontext[cli,server]==0.1.0"
-
-# To use the latest unreleased code instead:
-# uv tool install "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
-ターミナルを閉じても動作を続け、次回ログイン時に再び起動できる個人用 Server を実行するには、現在のユーザー用
-ネイティブサービスをインストールします：
-
-```bash
-powercontext service install # Uninstall with `powercontext service uninstall`
-powercontext service status
-```
-
-Windows では、ログイン起動のオプションを指定しない場合、次回ログイン時の自動起動を有効にするか確認します。
-Enter を押すと既定では無効のままです。明示的に選ぶ場合は `--start-on-login` または `--no-start-on-login` を指定します。
-
-ターミナルでフォアグラウンド実行する場合は、次のコマンドを使用できます：
+別のターミナルでローカル Server を起動します：
 
 ```bash
 powercontext server run
 ```
 
+`0.1.0` リリースには `powercontext service` コマンドは含まれていません。PowerContext の使用中は
+`powercontext server run` を実行したままにするか、ネイティブの個人用サービスを使用するために、以下の未リリース版
+`master` をインストールしてください。
+
 Server はデフォルトで、コンテキストをローカルの SQLite データベースに保存します。
 
-次に Agent との連携を設定します。例：
+次に同じリリースから Agent との連携を設定します。例：
 
 ```bash
-powercontext setup codex --ref v0.1.0  # --ref also accepts a Git commit, such as 55616dca.
+powercontext setup codex --ref powercontext-v0.1.0
 ```
+
+PowerContext ツールと Agent 連携には、常に同じ Git ref を使用してください。最新の未リリース版 `master` を試す場合は、
+ツールのインストールと連携の設定の両方で `master` を指定します：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup codex --source oceanbase/powercontext --ref master
+```
+
+現在の `master` では、ターミナルを閉じても動作を続け、次回ログイン時に再び起動できる個人用 Server も利用できます：
+
+```bash
+powercontext service install # アンインストールは `powercontext service uninstall`
+powercontext service status
+```
+
+Windows では、ログイン起動のオプションを指定しない場合、次回ログイン時の自動起動を有効にするか確認します。
+Enter を押すと既定では無効のままです。明示的に選ぶ場合は `--start-on-login` または `--no-start-on-login` を指定します。
 
 その他の Agent の設定方法と導入方法は、[Agent セットアップガイド](https://powercontext.oceanbase.io/en/docs/tutorials/agent-quickstart/)を参照してください。対応する Agent クライアントと IDE は MCP または専用の連携機能で接続できます。
 

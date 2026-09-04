@@ -37,6 +37,7 @@ from powercontext.builtin.runtime import (
     SearchMemoryRequest,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.settings import ServerSettings
 
 
@@ -259,8 +260,16 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
             )
 
             async with open_builtin_runtime(config) as runtime:
+                assert runtime.scopes is not None
+                scope = await runtime.scopes.create(
+                    ScopeDraft(
+                        title="Custom inference",
+                        summary="Workload-specific inference settings",
+                        idempotency_key="custom-inference",
+                    )
+                )
                 readiness = await runtime.readiness()
-                memory = runtime.memory.for_scope("custom-inference")
+                memory = runtime.memory.for_scope(scope.scope_id)
                 await memory.remember(
                     RememberMemoryRequest(
                         entries=(

@@ -91,7 +91,6 @@ class _SequencedEmbeddingModel:
 
 def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", raising=False)
-    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_SCOPES", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
     monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", " https://powercontext.example.com/base/ ")
@@ -152,7 +151,6 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
     assert settings.dashboard.enabled is True
-    assert settings.dashboard.scopes == []
     assert settings.external_skills.host_id == "workstation-1"
     assert settings.external_skills.targets[0].target_id == "codex-project"
     assert settings.external_skills.targets[0].path.as_posix() == "/srv/project/.agents/skills"
@@ -306,7 +304,7 @@ def test_env_example_loads_server_settings(monkeypatch) -> None:
     settings = ServerSettings()
 
     assert isinstance(settings.database, SQLiteConfig)
-    assert settings.dashboard.scopes[0].scope_id == "project:quickstart"
+    assert settings.dashboard.enabled is True
     assert settings.runtime.schedule_seconds == 60
     assert settings.inference.generation_model == "openai:gpt-4.1-mini"
     assert settings.inference.embedding_dimension == 1536
@@ -926,6 +924,7 @@ def test_stats_returns_inclusive_utc_periods_for_empty_scope(tmp_path) -> None:
     )
 
     with TestClient(app) as client:
+        default_scope_id = client.get("/v1/scopes/default").json()["scope_id"]
         responses = []
         for requested_period, expected_preset, expected_days in (
             (None, "30d", 30),
@@ -933,13 +932,18 @@ def test_stats_returns_inclusive_utc_periods_for_empty_scope(tmp_path) -> None:
             ("7d", "7d", 7),
             ("30d", "30d", 30),
         ):
-            params = {"scope_id": "project:test"}
+            payload: dict[str, object] = {
+                "selection": {"mode": "exact", "scope_ids": [default_scope_id]},
+            }
             if requested_period is not None:
-                params["period"] = requested_period
-            responses.append((client.get("/v1/stats", params=params), expected_preset, expected_days))
-        invalid = client.get(
+                payload["period"] = requested_period
+            responses.append((client.post("/v1/stats", json=payload), expected_preset, expected_days))
+        invalid = client.post(
             "/v1/stats",
-            params={"scope_id": "project:test", "period": "all"},
+            json={
+                "selection": {"mode": "exact", "scope_ids": [default_scope_id]},
+                "period": "all",
+            },
         )
 
     assert invalid.status_code == 422
@@ -960,7 +964,15 @@ def test_stats_returns_inclusive_utc_periods_for_empty_scope(tmp_path) -> None:
         }
         expected_dates = [(start_date + timedelta(days=offset)).isoformat() for offset in range(expected_days)]
 
-        assert body["scope_id"] == "project:test"
+        assert body["selection"] == {
+            "mode": "exact",
+            "scope_ids": [default_scope_id],
+        }
+        assert body["scope_ids"] == [default_scope_id]
+        assert [item["scope_id"] for item in body["by_scope"]] == [default_scope_id]
+        assert body["by_scope"][0]["inventory"] == body["inventory"]
+        assert body["by_scope"][0]["usage"] == body["usage"]
+        assert body["by_scope"][0]["recall"] == body["recall"]
         assert body["usage"]["period"] == expected_period
         assert body["recall"]["period"] == expected_period
         assert [day["date"] for day in body["usage"]["daily"]] == expected_dates

@@ -77,13 +77,11 @@
         "maximum": 20000,
         "default": 4000
       },
-      "scopeMode": {
+      "scopeId": {
         "type": "string",
-        "enum": [
-          "agent",
-          "project"
-        ],
-        "default": "agent"
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": ".*\\S.*"
       }
     }
   },
@@ -96,9 +94,9 @@
       "label": "PowerContext Token Environment Variable",
       "help": "Environment variable containing the Bearer token, read by the Gateway process."
     },
-    "scopeMode": {
-      "label": "Memory Scope",
-      "help": "Agent scope is the default. Project scope is used only when OpenClaw supplies exactly one trusted project identity for a turn."
+    "scopeId": {
+      "label": "Explicit Scope ID",
+      "help": "Optional existing PowerContext Scope. When unset, the Server resolves durable OpenClaw bindings and then its default Scope."
     }
   }
 }

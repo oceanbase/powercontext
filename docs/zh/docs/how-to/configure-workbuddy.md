@@ -63,8 +63,8 @@ cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$WORKBUDDY_HOOKS_DIR"/
-cp "$PLUGIN/scripts/project_scope.py" \
-   "$WORKBUDDY_HOOKS_DIR/powercontext_project_scope.py"
+cp "$PLUGIN/scripts/workspace_scope.py" \
+   "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
 ```
 
 ### 2. 注册 Hook
@@ -122,8 +122,8 @@ EOF
 ```
 
 然后把 `~/.workbuddy/skills/project-context/SKILL.md` 中的 `${POWERCONTEXT_PYTHON}` 替换为 shell-safe
-的 Python executable 参数，把 `${POWERCONTEXT_PROJECT_SCOPE_SCRIPT}` 替换为 shell-safe 的完整
-`<WORKBUDDY_HOOKS_DIR>/powercontext_project_scope.py` 路径。
+的 Python executable 参数，把 `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` 替换为 shell-safe 的完整
+`<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py` 路径。
 
 ### 5. 启动 Server、重启 WorkBuddy 并验证
 
@@ -187,7 +187,7 @@ export POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE=true
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext Server URL（默认 `http://127.0.0.1:8000`） |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | 完整的 Authorization header，例如 `Bearer <token>` |
-| `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | 显式 scope 或 scope 模板覆盖 |
+| `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | 显式的服务端 Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | 是否把用户提示词采集为 Source（默认 `true`） |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | 是否等待采集的 Source 被处理（仅测试，默认 `false`） |
 | `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | 单次 HTTP 请求超时（默认 `1.0`） |
@@ -199,16 +199,15 @@ Hook 会校验其 PowerContext MCP URL，并通过去掉末尾 `/mcp` 路径段�
 
 ## 解析项目 scope
 
-WorkBuddy 按以下顺序解析 scope：
+Server 按以下顺序为 WorkBuddy 解析 Scope：
 
 1. 显式的 `POWERCONTEXT_WORKBUDDY_SCOPE_ID`；
-2. 当前 Git 工作区持久绑定的 Workstream scope（存储在 Git 私有目录的
-   `powercontext/codex-workspace.json` 中，与 Codex 和 Claude Code 插件共享）；
-3. 规范化后的 Git remote；
-4. 解析后的本地项目目录的哈希。
+2. 持久 session binding；
+3. 持久 workspace binding；
+4. Server 的默认 Scope。
 
-同一工作区后续开启的新 WorkBuddy 会话会复用同一个 scope。`project-context` Skill 的
-`--bind-workstream` 操作会为选中的 Handoff 持久化 Workstream 绑定；绑定不会进入工作树或提交。
+同一工作区后续开启的新 WorkBuddy 会话会复用同一个 Scope。`project-context` Skill 的 `--bind-scope` 操作会在
+PowerContext 中持久化 workspace binding。插件只把 workspace 路径哈希用作外部 binding key，不会据此生成 Scope ID。
 
 ## 连接启用鉴权的本地 Server
 

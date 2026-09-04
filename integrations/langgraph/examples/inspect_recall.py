@@ -35,9 +35,8 @@ from powercontext_langgraph import PowerContextRecall, PowerContextScope
 from typing_extensions import TypedDict
 
 from powercontext.client import PowerContextClient
-from powercontext.http import RememberMemoryRequest
+from powercontext.http import RememberMemoryRequest, ResolveScopeBindingRequest
 
-SCOPE_ID = "project:langgraph-inspect-recall"
 SEED_TEXT = "Adopt hexagonal architecture for the payment gateway."
 
 
@@ -55,12 +54,13 @@ def _build_graph():
 
 
 async def main(base_url: str) -> None:
-    scope = PowerContextScope(scope_id=SCOPE_ID, base_url=base_url)
+    scope = PowerContextScope(base_url=base_url)
 
     async with PowerContextClient(base_url) as client:
+        scope_id = (await client.resolve_scope_binding(ResolveScopeBindingRequest())).scope_id
         await client.remember_memory(
             RememberMemoryRequest(
-                scope_id=SCOPE_ID,
+                scope_id=scope_id,
                 kind="decision",
                 text=SEED_TEXT,
                 reason="example seed",

@@ -48,10 +48,10 @@ CONFIG_SCHEMA = ProviderConfigSchema(
         ),
         ProviderField(
             key="scope_id",
-            label="Memory scope template",
+            label="Explicit Scope ID",
             kind=KIND_TEXT,
-            default="hermes:{profile}:{user_id}",
-            description="Supports {profile}, {agent_identity}, {user_id}, and {hermes_home}.",
+            default="",
+            description="Optional server-owned Scope selected before durable bindings and the server default.",
         ),
         ProviderField(
             key="max_bytes",
@@ -100,13 +100,6 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             label="Evaluation trace directory",
             kind=KIND_TEXT,
             description="Optional directory for per-session evaluation trace files.",
-        ),
-        ProviderField(
-            key="workstream_persistence",
-            label="Git-private Workstream binding",
-            kind=KIND_BOOL,
-            default="true",
-            description="Use the shared .git/powercontext/codex-workspace.json scope binding when present.",
         ),
     ),
 )

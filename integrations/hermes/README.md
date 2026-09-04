@@ -83,14 +83,12 @@ Configuration can also be stored manually in `$HERMES_HOME/powercontext/config.j
 ```json
 {
   "base_url": "http://127.0.0.1:8000",
-  "scope_id": "hermes:{profile}:{user_id}",
   "max_bytes": 8000,
   "timeout": 5,
   "capture_turns": true,
   "flush_on_session_end": true,
   "capture_pre_compress": false,
-  "evaluation_trace": false,
-  "workstream_persistence": true
+  "evaluation_trace": false
 }
 ```
 
@@ -102,7 +100,7 @@ Environment variables override file values:
 | `POWERCONTEXT_HERMES_BASE_URL` | PowerContext server URL |
 | `POWERCONTEXT_HERMES_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
 | `POWERCONTEXT_HERMES_TOKEN` | Token shorthand; used when `AUTHORIZATION` is absent |
-| `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit scope or scope template |
+| `POWERCONTEXT_HERMES_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_HERMES_MAX_BYTES` | Maximum prepared context size, 512–32768 |
 | `POWERCONTEXT_HERMES_TIMEOUT` | HTTP request timeout in seconds |
 | `POWERCONTEXT_HERMES_CAPTURE_TURNS` | Capture completed turns as PowerContext Sources |
@@ -110,13 +108,11 @@ Environment variables override file values:
 | `POWERCONTEXT_HERMES_CAPTURE_PRE_COMPRESS` | Capture filtered new user/assistant turns before compression; disabled by default |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE` | Record recalled context in per-session local JSONL files; disabled by default |
 | `POWERCONTEXT_HERMES_EVALUATION_TRACE_PATH` | Override the evaluation trace directory |
-| `POWERCONTEXT_HERMES_WORKSTREAM` | Read the shared Git-private Workstream scope binding; enabled by default |
 
-The default scope template is `hermes:{profile}:{user_id}`. The provider uses
-the active Hermes profile and gateway user identifier when available. For local
-CLI sessions without a user identifier, it derives a stable identifier from
-the active `HERMES_HOME` path. This prevents cross-profile memory leakage while
-keeping memories available across sessions.
+Hermes asks the Server to resolve an explicit Scope, durable session and
+workspace bindings, or the Server default, in that order. Workspace paths are
+hashed only as external binding keys. Hermes does not generate Scope IDs from
+profiles, users, repositories, or directories.
 
 ## Runtime behavior
 
@@ -139,9 +135,8 @@ keeping memories available across sessions.
 - Mutating operations are described as explicit user-authorized actions. Artifact
   approval and rejection should only be used after the candidate has been
   reviewed.
-- When Workstream persistence is enabled, Hermes reads
-  .git/powercontext/codex-workspace.json, the same Git-private binding used by
-  the other integrations. An explicit scope_id configuration takes precedence.
+- `/pc scope bind SCOPE_ID` stores a durable workspace binding in PowerContext.
+  `/pc scope clear` removes it and resolves the current Scope again.
 - When evaluation tracing is enabled, each session gets its own JSONL file under
   `powercontext/evaluation-trace/sessions/`. Events include the session ID,
   parent session ID, scope, turn number, and a unique event ID.
@@ -199,7 +194,7 @@ Hermes exposes that invocation context.
 /pc skill {propose|generate|get} PAYLOAD_JSON
 /pc external-skills {scan|list|resolve|import} [PAYLOAD_JSON]
 /pc review {list|get|approve|reject|revise} [PAYLOAD_JSON]
-/pc workstream {status|bind SCOPE_ID|clear}
+/pc scope {status|bind SCOPE_ID|clear}
 /pc call OPERATION [PAYLOAD_JSON]
 ```
 

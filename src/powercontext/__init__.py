@@ -16,6 +16,7 @@
 
 from powercontext.artifacts import (
     Artifact,
+    ArtifactAddress,
     ArtifactCatalog,
     ArtifactDraft,
     ArtifactLineage,
@@ -67,6 +68,7 @@ from powercontext.triggers import PolicyTransition, Trigger
 __all__ = [
     "AdapterSourceDefinition",
     "Artifact",
+    "ArtifactAddress",
     "ArtifactCatalog",
     "ArtifactDraft",
     "ArtifactError",

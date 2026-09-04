@@ -107,15 +107,6 @@ async function readLimitedBody(response: Response): Promise<Uint8Array> {
   return body
 }
 
-function queryString(payload: JsonObject | undefined): string {
-  const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(payload ?? {})) {
-    if (value !== undefined && value !== null) params.set(key, String(value))
-  }
-  const encoded = params.toString()
-  return encoded ? `?${encoded}` : ''
-}
-
 interface PreparedRequest {
   path: string
   query: string
@@ -136,7 +127,7 @@ function headerPayloadKey(name: string): string {
 function prepareRequest(spec: OperationSpec, payload: JsonObject | undefined): PreparedRequest {
   const remaining = { ...(payload ?? {}) }
   let path = spec.path as string
-  for (const name of spec.pathParams as readonly string[]) {
+  for (const name of spec.pathParameters as readonly string[]) {
     const value = remaining[name]
     if (value === undefined || value === null) {
       throw new TypeError(`${spec.method} ${spec.path} requires ${name}`)
@@ -219,7 +210,7 @@ export class PowerContextClient {
       if (error instanceof ServerResponseError || error instanceof InvalidResponseError || error instanceof UnknownOperationError) {
         throw error
       }
-      throw new UnavailableError(spec.path, error)
+      throw new UnavailableError(prepared.path, error)
     }
   }
 

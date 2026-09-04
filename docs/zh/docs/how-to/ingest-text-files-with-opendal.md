@@ -22,7 +22,8 @@ uv tool install --python 3.12 --with-editable ".[client]" ./integrations/opendal
 ```
 
 选择稳定的 `source_namespace` 来区分不同 storage authority。不要把 credential 写进 namespace、Source payload 或
-checkpoint。Server 启用 authentication 时，通过 `POWERCONTEXT_TOKEN` 环境变量提供 bearer token。
+checkpoint。Server 启用 authentication 时，通过 `POWERCONTEXT_TOKEN` 环境变量提供 bearer token。将
+`POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。
 
 ## 运行一个 binding
 
@@ -32,7 +33,7 @@ checkpoint。Server 启用 authentication 时，通过 `POWERCONTEXT_TOKEN` 环�
 ```bash
 powercontext-connector-opendal \
   --base-url http://127.0.0.1:8765 \
-  --scope-id project:example \
+  --scope-id "$POWERCONTEXT_SCOPE_ID" \
   --binding-id project-docs \
   --service fs \
   --storage-option root=/absolute/path/to/project \
@@ -52,6 +53,8 @@ cron、Kubernetes Job 或其他外部 scheduler 周期执行该命令。
 需要自定义进程监管或多 binding 调度时，可直接使用通用远程 lifecycle：
 
 ```python
+import os
+
 from powercontext.client import PowerContextClient, RemoteConnectorWorker
 from powercontext.sources import ConnectorBinding, SourceDefinitionRegistry
 from powercontext_connector_opendal import (
@@ -66,7 +69,7 @@ connector = OpenDALTextFileConnector.from_service(
     storage_options={"root": "/absolute/path/to/project"},
 )
 binding = ConnectorBinding(
-    scope_id="project:example",
+    scope_id=os.environ["POWERCONTEXT_SCOPE_ID"],
     binding_id="project-docs",
     connector_name=connector.name,
     connector_version=connector.version,

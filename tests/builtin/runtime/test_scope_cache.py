@@ -17,17 +17,25 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.runtime import (
     BuiltinRuntime,
     ProposeExperienceRequest,
     RuntimeCapabilities,
 )
+from powercontext.builtin.scope import ScopeDescriptor
 
 
 class _UnusedProvider:
     async def get(self, scope_id: str, /) -> Any:
         raise AssertionError(scope_id)
+
+
+class _Scopes:
+    async def get(self, scope_id: str, /) -> ScopeDescriptor:
+        return ScopeDescriptor(scope_id=scope_id, title="Test", summary="Test scope", version=1)
 
 
 class _ReviewService:
@@ -64,6 +72,20 @@ def _proposal() -> ProposeExperienceRequest:
     )
 
 
+def test_scoped_operation_fails_closed_without_scope_services() -> None:
+    async def scenario() -> None:
+        runtime = BuiltinRuntime(
+            provider=_UnusedProvider(),
+            capabilities=RuntimeCapabilities(memory_extraction=False, memory_search_modes=()),
+        )
+
+        with pytest.raises(RuntimeError, match="Scope services are not configured"):
+            await runtime.experience.for_scope("unregistered").propose(_proposal())
+        await runtime.close()
+
+    asyncio.run(scenario())
+
+
 def test_scope_cache_does_not_evict_a_lock_with_holders_or_waiters() -> None:
     async def scenario() -> None:
         services = {"same": _ReviewService(block_first=True)}
@@ -85,6 +107,7 @@ def test_scope_cache_does_not_evict_a_lock_with_holders_or_waiters() -> None:
             provider=_UnusedProvider(),
             capabilities=RuntimeCapabilities(memory_extraction=False, memory_search_modes=()),
             review_service=review_service,
+            scope_application=_Scopes(),  # ty: ignore[invalid-argument-type]
             scope_cache_size=1,
             scope_evictor=evicted.append,
             scope_cache_observer=observe,

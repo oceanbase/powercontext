@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from functools import cache
 from typing import Literal
 
@@ -52,6 +51,7 @@ from powercontext.builtin.persistence.artifact_governance import (
     ArtifactLifecycleState,
 )
 from powercontext.builtin.runtime import GetSkillRequest, ListExternalSkillsRequest
+from powercontext.builtin.scope import ScopeNotFoundError
 from powercontext.errors import ArtifactNotFoundError
 from powercontext.http import (
     ErrorDetail,
@@ -75,12 +75,14 @@ _PAGE_HEADERS = {
 
 
 class DashboardScope(BaseModel):
-    """One Server scope exposed by the personal Dashboard."""
+    """One durable Scope exposed by the personal Dashboard."""
 
     model_config = ConfigDict(extra="forbid")
 
     scope_id: str
     display_name: str
+    summary: str
+    parent_scope_id: str | None = None
 
 
 class DashboardSkillProjectionRequest(BaseModel):
@@ -206,8 +208,7 @@ class DashboardSkillPackageFilePreview(BaseModel):
 
 
 class _DashboardSkillProjectionRoutes:
-    def __init__(self, scope_ids: frozenset[str], targets: tuple[AgentSkillTarget, ...]) -> None:
-        self._scope_ids = scope_ids
+    def __init__(self, targets: tuple[AgentSkillTarget, ...]) -> None:
         self._targets = targets
 
     async def inspect(
@@ -215,7 +216,7 @@ class _DashboardSkillProjectionRoutes:
         request: DashboardSkillProjectionRequest,
         http_request: Request,
     ) -> DashboardSkillProjection | JSONResponse:
-        resolved = await _dashboard_managed_skill(http_request, request, self._scope_ids)
+        resolved = await _dashboard_managed_skill(http_request, request)
         if isinstance(resolved, JSONResponse):
             return resolved
         application, skill = resolved
@@ -226,7 +227,7 @@ class _DashboardSkillProjectionRoutes:
         request: DashboardSkillPublishRequest,
         http_request: Request,
     ) -> DashboardSkillProjection | JSONResponse:
-        resolved = await _dashboard_managed_skill(http_request, request, self._scope_ids)
+        resolved = await _dashboard_managed_skill(http_request, request)
         if isinstance(resolved, JSONResponse):
             return resolved
         application, skill = resolved
@@ -268,7 +269,7 @@ class _DashboardSkillProjectionRoutes:
         request: DashboardSkillUnpublishRequest,
         http_request: Request,
     ) -> DashboardSkillProjection | JSONResponse:
-        resolved = await _dashboard_managed_skill(http_request, request, self._scope_ids)
+        resolved = await _dashboard_managed_skill(http_request, request)
         if isinstance(resolved, JSONResponse):
             return resolved
         application, skill = resolved
@@ -307,7 +308,6 @@ class _DashboardSkillProjectionRoutes:
 def mount_web_ui(  # noqa: C901
     app: FastAPI,
     *,
-    scopes: Mapping[str, str],
     dashboard_enabled: bool = False,
     handoff_report_enabled: bool = False,
     authentication_required: bool = False,
@@ -317,10 +317,8 @@ def mount_web_ui(  # noqa: C901
 ) -> None:
     """Mount Server-owned pages, static assets, and UI support endpoints."""
 
-    dashboard_scopes = tuple(DashboardScope(scope_id=scope_id, display_name=name) for scope_id, name in scopes.items())
-    dashboard_scope_ids = frozenset(scopes)
     publish_targets = tuple(target for target in agent_skill_targets if target.allow_managed_publish)
-    skill_projection_routes = _DashboardSkillProjectionRoutes(dashboard_scope_ids, publish_targets)
+    skill_projection_routes = _DashboardSkillProjectionRoutes(publish_targets)
     templates = _templates()
     if dashboard_enabled:
         templates.env.get_template("pages/dashboard.html")
@@ -398,19 +396,20 @@ def mount_web_ui(  # noqa: C901
             headers=_PAGE_HEADERS,
         )
 
-    async def list_dashboard_scopes(response: Response) -> tuple[DashboardScope, ...]:
+    async def list_dashboard_scopes(request: Request, response: Response) -> tuple[DashboardScope, ...]:
         response.headers["Cache-Control"] = "no-store"
-        return dashboard_scopes
+        return await _dashboard_scopes(request.app.state.application)
 
     async def list_managed_skills(
         request: DashboardSkillLibraryRequest,
         http_request: Request,
     ) -> list[DashboardManagedSkill] | JSONResponse:
-        if request.scope_id not in dashboard_scope_ids:
-            return _web_error(404, "dashboard_scope_not_found", "The Dashboard scope was not found.")
         application = http_request.app.state.application
         if application is None:
             return _web_error(503, "runtime_not_ready", "The Runtime is not ready.")
+        scope_error = await _dashboard_scope_error(application, request.scope_id)
+        if scope_error is not None:
+            return scope_error
         scoped = application.skill.for_scope(request.scope_id)
         values: list[tuple[Skill, ArtifactGovernance]] = []
         query = "" if request.query is None else request.query.strip()
@@ -447,11 +446,12 @@ def mount_web_ui(  # noqa: C901
         request: DashboardSkillLifecycleRequest,
         http_request: Request,
     ) -> ArtifactGovernance | JSONResponse:
-        if request.scope_id not in dashboard_scope_ids:
-            return _web_error(404, "dashboard_scope_not_found", "The Dashboard scope was not found.")
         application = http_request.app.state.application
         if application is None:
             return _web_error(503, "runtime_not_ready", "The Runtime is not ready.")
+        scope_error = await _dashboard_scope_error(application, request.scope_id)
+        if scope_error is not None:
+            return scope_error
         try:
             return await application.skill.for_scope(request.scope_id).update_lifecycle(
                 request.artifact_id,
@@ -471,7 +471,7 @@ def mount_web_ui(  # noqa: C901
         request: DashboardSkillPackageRequest,
         http_request: Request,
     ) -> SkillPackageManifest | JSONResponse:
-        resolved = await _dashboard_package(http_request, request, dashboard_scope_ids)
+        resolved = await _dashboard_package(http_request, request)
         if isinstance(resolved, JSONResponse):
             return resolved
         return _dashboard_package_manifest(resolved)
@@ -480,7 +480,7 @@ def mount_web_ui(  # noqa: C901
         request: DashboardSkillPackageFileRequest,
         http_request: Request,
     ) -> DashboardSkillPackageFilePreview | JSONResponse:
-        resolved = await _dashboard_package(http_request, request, dashboard_scope_ids)
+        resolved = await _dashboard_package(http_request, request)
         if isinstance(resolved, JSONResponse):
             return resolved
         entry = next((entry for entry in resolved.entries if entry.path == request.path), None)
@@ -507,13 +507,6 @@ def mount_web_ui(  # noqa: C901
             methods=["GET"],
             response_class=HTMLResponse,
             name="dashboard_home",
-        )
-        router.add_api_route(
-            "/dashboard/scopes",
-            list_dashboard_scopes,
-            methods=["GET"],
-            response_model=list[DashboardScope],
-            name="dashboard_scopes",
         )
         router.add_api_route(
             "/skills",
@@ -578,6 +571,14 @@ def mount_web_ui(  # noqa: C901
             response_model=DashboardSkillProjection,
             name="dashboard_skill_projection_unpublish",
         )
+    if dashboard_enabled or handoff_report_enabled:
+        router.add_api_route(
+            "/dashboard/scopes",
+            list_dashboard_scopes,
+            methods=["GET"],
+            response_model=list[DashboardScope],
+            name="dashboard_scopes",
+        )
     if handoff_report_enabled:
         router.add_api_route(
             "/handoff-reports",
@@ -607,13 +608,13 @@ def _templates() -> Jinja2Templates:
 async def _dashboard_managed_skill(
     request: Request,
     selection: DashboardSkillProjectionRequest,
-    dashboard_scope_ids: frozenset[str],
 ):
-    if selection.scope_id not in dashboard_scope_ids:
-        return _web_error(404, "dashboard_scope_not_found", "The Dashboard scope was not found.")
     application = request.app.state.application
     if application is None:
         return _web_error(503, "runtime_not_ready", "The Runtime is not ready.")
+    scope_error = await _dashboard_scope_error(application, selection.scope_id)
+    if scope_error is not None:
+        return scope_error
     try:
         skill = await application.skill.for_scope(selection.scope_id).get(GetSkillRequest(artifact=selection.artifact))
     except ArtifactNotFoundError:
@@ -623,6 +624,20 @@ async def _dashboard_managed_skill(
             "The selected Artifact is not an exact approved managed Skill Revision.",
         )
     return application, skill
+
+
+async def _dashboard_scopes(application) -> tuple[DashboardScope, ...]:
+    if application is None or application.scopes is None:
+        return ()
+    return tuple(
+        DashboardScope(
+            scope_id=scope.scope_id,
+            display_name=scope.title,
+            summary=scope.summary,
+            parent_scope_id=scope.parent_scope_id,
+        )
+        for scope in await application.scopes.list()
+    )
 
 
 async def _skill_projection_response(
@@ -708,14 +723,24 @@ def _skill_library_search_text(content: SkillContent) -> str:
 async def _dashboard_package(
     request: Request,
     selection: DashboardSkillPackageRequest,
-    dashboard_scope_ids: frozenset[str],
 ) -> SkillPackageSnapshot | JSONResponse:
-    if selection.scope_id not in dashboard_scope_ids:
-        return _web_error(404, "dashboard_scope_not_found", "The Dashboard scope was not found.")
     application = request.app.state.application
     if application is None:
         return _web_error(503, "runtime_not_ready", "The Runtime is not ready.")
+    scope_error = await _dashboard_scope_error(application, selection.scope_id)
+    if scope_error is not None:
+        return scope_error
     return await application.skill.for_scope(selection.scope_id).package_snapshot(selection.package)
+
+
+async def _dashboard_scope_error(application, scope_id: str) -> JSONResponse | None:
+    if application.scopes is None:
+        return _web_error(503, "runtime_not_ready", "The Runtime is not ready.")
+    try:
+        await application.scopes.get(scope_id)
+    except ScopeNotFoundError:
+        return _web_error(404, "dashboard_scope_not_found", "The Dashboard scope was not found.")
+    return None
 
 
 def _dashboard_package_manifest(package: SkillPackageSnapshot) -> SkillPackageManifest:

@@ -35,24 +35,19 @@ powercontext setup codex --source oceanbase/powercontext --ref master
 交接
 ```
 
-`project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。如果目录中存在多个 Workstream，Codex 会先
-打开原生工作选择框；只有一个候选时会自动选中。选定后，Codex 把该 Workstream 绑定到当前工作区，在同一轮中检查
-当前对话和仓库，整理目标、分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后依次调用
-`handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回所选 Workstream 和 exact Handoff Revision；用户
-不需要再填写交接内容或重复确认提交。
+`project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理目标、
+分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后在当前 Session Scope 中依次调用
+`handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回 exact Handoff Revision；用户不需要再填写交接
+内容或重复确认提交。
 
 `交接当前工作`、`把当前工作交接出去` 和 `handoff this work` 使用相同行为。若只想检查内容而不写入，请明确说
 `预览交接，不要提交`；Skill 此时只在对话中渲染建议内容，不调用写工具。讨论 Handoff 设计或询问 Handoff
 如何工作也不会触发持久化。
 
-Codex scope 按以下顺序解析：显式的 `POWERCONTEXT_CODEX_SCOPE_ID`、当前 Git 工作区持久绑定的 Workstream
-scope、规范化后的 Git remote、项目路径。同一工作区后续开启的新 Codex 会话会复用同一个 scope。
-
-选择工具返回面向用户的 `work_id` 和权威 `scope_id`。`project-context` Skill 会把这个 exact scope 传给 scope
-resolver 的 `--bind-workstream` 操作，并再次校验解析结果。绑定写在 Git 私有目录的
-`powercontext/codex-workspace.json` 中，不进入工作树或提交。随后，新 Handoff 会继续写入所选 Workstream 的同一
-Artifact lifecycle，并得到下一个 Revision。如果 MCP 客户端不支持原生 elicitation，工具会改为返回结构化候选
-列表；集成仍然必须取得用户的明确选择，不得静默选择。
+Session 启动时，Codex 按以下顺序解析 Scope：显式的 `POWERCONTEXT_CODEX_SCOPE_ID`、已有 Session binding、
+host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会固定到当前 Session。仓库和目录身份只用于查找
+binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采集；`PreToolUse` 将同一 binding 注入 data-plane
+工具，Agent 输入不能把读写重定向到其他 Scope。Session 切换工作边界时，应由 host 创建或绑定另一个 Scope。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留

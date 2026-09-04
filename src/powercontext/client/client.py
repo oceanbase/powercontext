@@ -36,21 +36,22 @@ from powercontext.http import (
     ArtifactCreated,
     ArtifactPage,
     ArtifactRevision,
-    AttachHandoffReportWorkspaceRequest,
+    ArtifactPublication,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    ClearScopeBindingRequest,
+    ClearScopeBindingResponse,
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
     ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateArtifactRequest,
-    CreateHandoffReportProjectRequest,
     CreateRemoteSkillTargetRequest,
     CreateSourceRequest,
+    CreateScopeRequest,
     CreateWorkContractRequest,
-    DetachHandoffReportWorkspaceRequest,
     DownloadRemoteSkillPackageRequest,
     EnrollRemoteSkillTargetRequest,
     ErrorResponse,
@@ -65,9 +66,7 @@ from powercontext.http import (
     GetArtifactCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
-    GetHandoffReportProjectRequest,
     GetHandoffReportRequest,
-    GetHandoffReportWorkspaceRequest,
     GetMemoryEntryRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -76,21 +75,14 @@ from powercontext.http import (
     HandoffActivation,
     HandoffCurrentWorkRequest,
     HandoffDraft,
-    HandoffReportActivityPage,
     HandoffReportResponse,
-    HandoffReportWorkspaceBinding,
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
-    KnownHandoffScopePage,
     ListArtifactCandidatesRequest,
     ListArtifactsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
-    ListHandoffReportActivitiesRequest,
-    ListHandoffReportKnownScopesRequest,
-    ListHandoffReportProjectsRequest,
-    ListHandoffReportWorkstreamsRequest,
     ListManagedSkillsRequest,
     ListManagedSkillsResponse,
     ListMemoryChangesRequest,
@@ -106,22 +98,17 @@ from powercontext.http import (
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
-    ProjectDescriptor,
-    ProjectPage,
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
     ProposeSkillRequest,
+    PublishArtifactRequest,
     PublishRemoteSkillRequest,
-    PurgeHandoffReportActivitiesRequest,
-    PurgeHandoffReportActivitiesResponse,
     ReadinessResponse,
     ReconcileRemoteSkillsRequest,
     ReconcileRemoteSkillsResponse,
-    RecordHandoffReportActivityRequest,
     RecordRemoteSkillReceiptRequest,
     RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
-    RegisterHandoffReportWorkstreamRequest,
     RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
@@ -133,15 +120,22 @@ from powercontext.http import (
     RenameRemoteSkillTargetRequest,
     ReplaceArtifactRequest,
     ResolveExternalSkillRequest,
+    ResolveScopeBindingRequest,
+    ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
     RevokeRemoteSkillTargetRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopeBinding,
+    ScopeDescriptor,
     ScopedStats,
+    ScopePage,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SetDefaultScopeRequest,
+    SetScopeBindingRequest,
     SkillArtifact,
     SkillGovernance,
     SkillPackageDownload,
@@ -149,31 +143,26 @@ from powercontext.http import (
     SourceDefinitionManifest,
     SourceObservationReceipt,
     SourceRecord,
-    StoredHandoffReportActivity,
     SubmitSourceObservationRequest,
     UnpublishRemoteSkillRequest,
-    UpdateHandoffReportProjectRequest,
-    UpdateHandoffReportWorkstreamRequest,
+    UpdateScopeRequest,
     UpdateSkillLifecycleRequest,
     WorkSourceReceipt,
-    WorkstreamDescriptor,
-    WorkstreamPage,
 )
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
-    ATTACH_HANDOFF_REPORT_WORKSPACE,
     CAPTURE_CONTENT_SOURCE,
+    CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_ARTIFACT,
-    CREATE_HANDOFF_REPORT_PROJECT,
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SOURCE,
+    CREATE_SCOPE,
     CREATE_WORK_CONTRACT,
-    DETACH_HANDOFF_REPORT_WORKSPACE,
     DOWNLOAD_REMOTE_SKILL_PACKAGE,
     DOWNLOAD_SKILL_PACKAGE,
     ENROLL_REMOTE_SKILL_TARGET,
@@ -186,13 +175,13 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_REVISION,
     GET_CAPABILITIES,
     GET_CONNECTOR_CHECKPOINT,
+    GET_DEFAULT_SCOPE,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
-    GET_HANDOFF_REPORT_PROJECT,
-    GET_HANDOFF_REPORT_WORKSPACE,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_READINESS,
+    GET_SCOPE,
     GET_SKILL,
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
@@ -202,43 +191,41 @@ from powercontext.http._generated.operations import (
     LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
-    LIST_HANDOFF_REPORT_ACTIVITIES,
-    LIST_HANDOFF_REPORT_KNOWN_SCOPES,
-    LIST_HANDOFF_REPORT_PROJECTS,
-    LIST_HANDOFF_REPORT_WORKSTREAMS,
     LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
     LIST_REMOTE_SKILL_TARGETS,
+    LIST_SCOPES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PROPOSE_SKILL_PACKAGE,
+    PUBLISH_ARTIFACT,
     PUBLISH_REMOTE_SKILL,
-    PURGE_HANDOFF_REPORT_ACTIVITIES,
     RECONCILE_REMOTE_SKILLS,
-    RECORD_HANDOFF_REPORT_ACTIVITY,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
-    REGISTER_HANDOFF_REPORT_WORKSTREAM,
     REGISTER_SOURCE_DEFINITION,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
     REPLACE_ARTIFACT,
     RESOLVE_EXTERNAL_SKILL,
+    RESOLVE_SCOPE_BINDING,
+    RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SET_DEFAULT_SCOPE,
+    SET_SCOPE_BINDING,
     SUBMIT_SOURCE_OBSERVATION,
     UNPUBLISH_REMOTE_SKILL,
-    UPDATE_HANDOFF_REPORT_PROJECT,
-    UPDATE_HANDOFF_REPORT_WORKSTREAM,
+    UPDATE_SCOPE,
     UPDATE_SKILL_LIFECYCLE,
     Operation,
 )
@@ -319,122 +306,65 @@ class PowerContextClient:
 
         return await self._request(GET_CAPABILITIES)
 
+    async def list_scopes(self) -> ScopePage:
+        """List durable Scope descriptors."""
+
+        return await self._request(LIST_SCOPES)
+
+    async def create_scope(self, request: CreateScopeRequest) -> ScopeDescriptor:
+        """Create one independent Scope boundary."""
+
+        return await self._request(CREATE_SCOPE, request)
+
+    async def get_scope(self, scope_id: str) -> ScopeDescriptor:
+        """Read one exact Scope descriptor."""
+
+        return await self._request(GET_SCOPE, path_parameters={"scope_id": scope_id})
+
+    async def update_scope(self, scope_id: str, request: UpdateScopeRequest) -> ScopeDescriptor:
+        """Replace mutable Scope metadata and relationships."""
+
+        return await self._request(UPDATE_SCOPE, request, path_parameters={"scope_id": scope_id})
+
+    async def get_default_scope(self) -> ScopeDescriptor:
+        """Read the host's default Scope target."""
+
+        return await self._request(GET_DEFAULT_SCOPE)
+
+    async def set_default_scope(self, request: SetDefaultScopeRequest) -> ScopeDescriptor:
+        """Change the host's default Scope target."""
+
+        return await self._request(SET_DEFAULT_SCOPE, request)
+
+    async def resolve_scope_selection(self, request: ResolveScopeSelectionRequest) -> ScopePage:
+        """Resolve all, exact, or subtree into exact Scope descriptors."""
+
+        return await self._request(RESOLVE_SCOPE_SELECTION, request)
+
+    async def resolve_scope_binding(self, request: ResolveScopeBindingRequest) -> ScopeDescriptor:
+        """Resolve explicit and external host bindings to one Scope."""
+
+        return await self._request(RESOLVE_SCOPE_BINDING, request)
+
+    async def set_scope_binding(self, request: SetScopeBindingRequest) -> ScopeBinding:
+        """Bind one external integration identity to a Scope."""
+
+        return await self._request(SET_SCOPE_BINDING, request)
+
+    async def clear_scope_binding(self, request: ClearScopeBindingRequest) -> ClearScopeBindingResponse:
+        """Clear one external integration binding."""
+
+        return await self._request(CLEAR_SCOPE_BINDING, request)
+
+    async def publish_artifact(self, request: PublishArtifactRequest) -> ArtifactPublication:
+        """Deliver one exact Artifact revision into another Scope."""
+
+        return await self._request(PUBLISH_ARTIFACT, request)
+
     async def get_stats(self, request: GetStatsRequest) -> ScopedStats:
         """Read current inventory and bounded usage for one scope."""
 
         return await self._request(GET_STATS, request)
-
-    async def create_handoff_report_project(
-        self,
-        request: CreateHandoffReportProjectRequest,
-    ) -> ProjectDescriptor:
-        """Create one explicit Report Project."""
-
-        return await self._request(CREATE_HANDOFF_REPORT_PROJECT, request)
-
-    async def get_handoff_report_project(
-        self,
-        request: GetHandoffReportProjectRequest,
-    ) -> ProjectDescriptor:
-        """Read one current Report Project descriptor."""
-
-        return await self._request(GET_HANDOFF_REPORT_PROJECT, request)
-
-    async def update_handoff_report_project(
-        self,
-        request: UpdateHandoffReportProjectRequest,
-    ) -> ProjectDescriptor:
-        """CAS-update one Report Project descriptor."""
-
-        return await self._request(UPDATE_HANDOFF_REPORT_PROJECT, request)
-
-    async def list_handoff_report_projects(
-        self,
-        request: ListHandoffReportProjectsRequest,
-    ) -> ProjectPage:
-        """List Report Projects with cursor pagination."""
-
-        return await self._request(LIST_HANDOFF_REPORT_PROJECTS, request)
-
-    async def list_handoff_report_known_scopes(
-        self,
-        request: ListHandoffReportKnownScopesRequest,
-    ) -> KnownHandoffScopePage:
-        """List scopes that contain a committed Handoff."""
-
-        return await self._request(LIST_HANDOFF_REPORT_KNOWN_SCOPES, request)
-
-    async def register_handoff_report_workstream(
-        self,
-        request: RegisterHandoffReportWorkstreamRequest,
-    ) -> WorkstreamDescriptor:
-        """Register one existing scope as a Report Workstream."""
-
-        return await self._request(REGISTER_HANDOFF_REPORT_WORKSTREAM, request)
-
-    async def list_handoff_report_workstreams(
-        self,
-        request: ListHandoffReportWorkstreamsRequest,
-    ) -> WorkstreamPage:
-        """List Workstreams belonging to one Report Project."""
-
-        return await self._request(LIST_HANDOFF_REPORT_WORKSTREAMS, request)
-
-    async def update_handoff_report_workstream(
-        self,
-        request: UpdateHandoffReportWorkstreamRequest,
-    ) -> WorkstreamDescriptor:
-        """CAS-update one Report Workstream descriptor."""
-
-        return await self._request(UPDATE_HANDOFF_REPORT_WORKSTREAM, request)
-
-    async def record_handoff_report_activity(
-        self,
-        request: RecordHandoffReportActivityRequest,
-    ) -> StoredHandoffReportActivity:
-        """Record one explicit Report-owned Activity observation."""
-
-        return await self._request(RECORD_HANDOFF_REPORT_ACTIVITY, request)
-
-    async def list_handoff_report_activities(
-        self,
-        request: ListHandoffReportActivitiesRequest,
-    ) -> HandoffReportActivityPage:
-        """List one frozen cursor page of Report-owned Activities."""
-
-        return await self._request(LIST_HANDOFF_REPORT_ACTIVITIES, request)
-
-    async def purge_handoff_report_activities(
-        self,
-        request: PurgeHandoffReportActivitiesRequest,
-    ) -> PurgeHandoffReportActivitiesResponse:
-        """Purge Report-owned Activities before an observation boundary."""
-
-        return await self._request(PURGE_HANDOFF_REPORT_ACTIVITIES, request)
-
-    async def get_handoff_report_workspace(
-        self,
-        request: GetHandoffReportWorkspaceRequest,
-    ) -> HandoffReportWorkspaceBinding:
-        """Read one confirmed Workspace-to-Project binding."""
-
-        return await self._request(GET_HANDOFF_REPORT_WORKSPACE, request)
-
-    async def attach_handoff_report_workspace(
-        self,
-        request: AttachHandoffReportWorkspaceRequest,
-    ) -> HandoffReportWorkspaceBinding:
-        """Attach a Workspace to an exact Report Project using CAS."""
-
-        return await self._request(ATTACH_HANDOFF_REPORT_WORKSPACE, request)
-
-    async def detach_handoff_report_workspace(
-        self,
-        request: DetachHandoffReportWorkspaceRequest,
-    ) -> HandoffReportWorkspaceBinding:
-        """Detach a Workspace binding using its exact version."""
-
-        return await self._request(DETACH_HANDOFF_REPORT_WORKSPACE, request)
 
     async def get_handoff_report(self, request: GetHandoffReportRequest) -> HandoffReportResponse | str:
         """Generate the current canonical Handoff Report projection."""
@@ -928,7 +858,7 @@ class PowerContextClient:
             return TypeAdapter(operation.response_type).validate_json(response.content)
         except ValidationError as exc:
             raise InvalidResponseError(
-                operation.path,
+                path,
                 request_id=request_id,
             ) from exc
 
@@ -956,22 +886,34 @@ def _prepare_request(
             json_payload = payload
     if query_parameters is not None:
         request_query.update({key: value for key, value in query_parameters.items() if value is not None})
-    path = _operation_path(operation, path_parameters)
+    path = _bind_operation_path(operation, path_parameters)
     return path, json_payload, request_query or None
 
 
-def _operation_path(
+def _bind_operation_path(
     operation: Operation[Any, Any],
     path_parameters: Mapping[str, str | int] | None,
 ) -> str:
+    values = {} if path_parameters is None else dict(path_parameters)
+    expected = set(operation.path_parameters)
+    provided = set(values)
+    if provided != expected:
+        missing = sorted(expected - provided)
+        unexpected = sorted(provided - expected)
+        message = f"{operation.operation_id} path parameters do not match"
+        if missing:
+            message += f"; missing: {', '.join(missing)}"
+        if unexpected:
+            message += f"; unexpected: {', '.join(unexpected)}"
+        raise TypeError(message)
+
     path = operation.path
-    for name, value in (path_parameters or {}).items():
-        placeholder = f"{{{name}}}"
-        if placeholder not in path:
-            raise ValueError(f"{operation.operation_id} has no {name} path parameter")  # noqa: TRY003
-        path = path.replace(placeholder, quote(str(value), safe=""))
-    if "{" in path or "}" in path:
-        raise ValueError(f"{operation.operation_id} requires path parameters")  # noqa: TRY003
+    for name in operation.path_parameters:
+        value = values[name]
+        if not isinstance(value, str | int) or isinstance(value, bool):
+            message = f"{operation.operation_id} path parameter {name} must be a string or integer"
+            raise TypeError(message)
+        path = path.replace(f"{{{name}}}", quote(str(value), safe=""))
     return path
 
 

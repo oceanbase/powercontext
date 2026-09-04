@@ -34,7 +34,7 @@ vi.mock('../../src/peers.ts', () => ({
   },
 }))
 
-const SCOPE_ID = 'project:dsh-e2e'
+let scopeId = ''
 const TEXT = 'Keep the DSH plugin on the public HTTP contract.'
 const REQUIRED_SERVICES = ['tools', 'agents', 'commands', 'skills', 'systemPrompt'] as const
 
@@ -211,7 +211,7 @@ async function withHarness<T>(
   baseUrl: string,
   callback: (harness: PluginHarness) => Promise<T>,
 ): Promise<T> {
-  const harness = new PluginHarness(baseUrl, SCOPE_ID)
+  const harness = new PluginHarness(baseUrl, scopeId)
   try {
     return await callback(harness)
   } finally {
@@ -229,6 +229,9 @@ describe('plugin HTTP call-through without a model', () => {
       baseUrl: server.baseUrl,
       requestTimeoutMs: 5000,
     })
+    const resolved = await client.request('get_default_scope')
+    expect(resolved.kind).toBe('json')
+    scopeId = (resolved.value as { scope_id: string }).scope_id
   }, 60_000)
 
   afterAll(async () => {
@@ -246,14 +249,14 @@ describe('plugin HTTP call-through without a model', () => {
 
   it('remembers, searches, prepares, and captures over HTTP', async () => {
     const remembered = await client.request('remember_memory', {
-      scope_id: SCOPE_ID,
+      scope_id: scopeId,
       kind: 'decision',
       text: TEXT,
     })
     expect(remembered.kind).toBe('json')
 
     const found = await client.request('search_memory', {
-      scope_id: SCOPE_ID,
+      scope_id: scopeId,
       query: 'DSH plugin HTTP contract',
     })
     expect(found.kind).toBe('json')
@@ -262,14 +265,14 @@ describe('plugin HTTP call-through without a model', () => {
     expect(hits.some((hit) => hit.text === TEXT)).toBe(true)
 
     const prepared = await client.request('prepare_context', {
-      scope_id: SCOPE_ID,
+      scope_id: scopeId,
       query: 'DSH plugin HTTP contract',
     })
     expect(prepared.kind).toBe('json')
     expect(typeof prepared.value.content === 'string' || prepared.value.content === null).toBe(true)
 
     const captured = await client.request('capture_content_source', {
-      scope_id: SCOPE_ID,
+      scope_id: scopeId,
       source_id: 'dsh-e2e-turn-1',
       content: 'Call through the plugin client without a model.',
       metadata: { origin: 'dsh', event: 'e2e' },
@@ -309,7 +312,7 @@ describe('plugin HTTP call-through without a model', () => {
       })])
       const status = await invokePc(harness.commandHandler(), '')
       expect(status.kind).toBe('success')
-      expect(status.text).toContain(`scope=${SCOPE_ID}`)
+      expect(status.text).toContain(`scope=${scopeId}`)
     })
   })
 

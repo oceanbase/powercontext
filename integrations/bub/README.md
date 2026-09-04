@@ -20,7 +20,6 @@ configuration file:
 ```yaml
 powercontext:
   base_url: http://127.0.0.1:8000
-  scope_id: project:example
   capture_events: true
   capture_checkpoint_every: 5
 ```
@@ -31,7 +30,7 @@ validated by Pydantic before the plugin starts.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `POWERCONTEXT_BUB_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server URL |
-| `POWERCONTEXT_BUB_SCOPE_ID` | workspace-derived | Durable scope shared by Bub sessions |
+| `POWERCONTEXT_BUB_SCOPE_ID` | unset | Explicit Scope resolved and validated by the Server before use |
 | `POWERCONTEXT_BUB_TIMEOUT` | `10` | Client timeout in seconds |
 | `POWERCONTEXT_BUB_MAX_BYTES` | `8000` | Maximum prepared-context size |
 | `POWERCONTEXT_BUB_CAPTURE_EVENTS` | `false` | Capture completed Bub events as Content Sources |
@@ -39,6 +38,11 @@ validated by Pydantic before the plugin starts.
 | `POWERCONTEXT_BUB_CAPTURE_MAX_BYTES` | `8192` | Maximum UTF-8 bytes stored for one captured event |
 | `POWERCONTEXT_BUB_CAPTURE_LOG` | unset | Optional JSONL evidence path; records metadata but not event content |
 | `POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY` | `false` | Vouch for a plaintext non-loopback `BASE_URL` on an operator-controlled network (for example a private Compose bridge); otherwise such URLs are refused |
+
+The plugin never derives a Scope ID from the current directory, Git metadata, or a workspace path. It asks the Server
+to resolve the configured explicit Scope first, then an opaque stable binding key derived from Bub's workspace identity,
+and finally the Server default. Only the real Scope returned by the Server is cached and used for recall, capture, and
+tools.
 
 Captured tool arguments redact values under credential-like keys. Known credential environment values are also
 removed from serialized event content. Keep the PowerContext scope and optional capture log protected because normal

@@ -45,6 +45,8 @@ from typing_extensions import TypedDict
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
+from powercontext.client import PowerContextClient
+from powercontext.http import ResolveScopeBindingRequest
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
 
@@ -52,7 +54,6 @@ pytest.importorskip("powercontext_langgraph")
 
 from powercontext_langgraph import PowerContextRecall, PowerContextScope, powercontext_remember
 
-SCOPE_ID = "project:langgraph-e2e"
 AUTH_TOKEN = "langgraph-e2e-token"  # noqa: S105 - non-secret test credential.
 MEMORY_TEXT = "Adopt hexagonal architecture for the payment gateway."
 UNTRUSTED_LABEL = "untrusted historical evidence"
@@ -119,16 +120,11 @@ def test_langgraph_write_then_recall_over_real_http(tmp_path: Path, authenticati
         _wait_until_started(server, thread)
         model_inputs: list[list[BaseMessage]] = []
         graph = _build_graph(model_inputs)
-        scope = PowerContextScope(
-            scope_id=SCOPE_ID,
-            base_url=base_url,
-            token=AUTH_TOKEN if authentication_enabled else None,
-        )
-
         result = asyncio.run(
-            graph.ainvoke(
-                {"messages": [HumanMessage(content="What architecture should the payment gateway use?")]},
-                context=scope,
+            _invoke_with_explicit_server_scope(
+                graph,
+                base_url=base_url,
+                token=AUTH_TOKEN if authentication_enabled else None,
             )
         )
 
@@ -153,6 +149,15 @@ def test_langgraph_write_then_recall_over_real_http(tmp_path: Path, authenticati
         thread.join(timeout=10)
         listener.close()
         assert not thread.is_alive()
+
+
+async def _invoke_with_explicit_server_scope(graph, *, base_url: str, token: str | None):  # type: ignore[no-untyped-def]
+    async with PowerContextClient(base_url, token=token) as client:
+        scope_id = (await client.resolve_scope_binding(ResolveScopeBindingRequest())).scope_id
+    return await graph.ainvoke(
+        {"messages": [HumanMessage(content="What architecture should the payment gateway use?")]},
+        context=PowerContextScope(scope_id=scope_id, base_url=base_url, token=token),
+    )
 
 
 def _wait_until_started(server: uvicorn.Server, thread: threading.Thread) -> None:

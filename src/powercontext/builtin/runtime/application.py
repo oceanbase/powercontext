@@ -107,6 +107,7 @@ from powercontext.builtin.records import (
     ScopeSummaryPage,
     SourceRecord,
 )
+from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime._scope_cache import (
@@ -158,7 +159,12 @@ from powercontext.builtin.runtime.models import (
     SourceReceipt,
     SubmitSourceObservation,
 )
-from powercontext.builtin.runtime.prepared_context import PreparedContextBuild, PreparedContextBuilder
+from powercontext.builtin.runtime.prepared_context import (
+    PreparedContextBuild,
+    PreparedContextBuilder,
+    PreparedExperienceCandidates,
+    PreparedMemoryCandidates,
+)
 from powercontext.builtin.runtime.protocols import (
     BuiltinTriggers,
     PowerContextProvider,
@@ -173,6 +179,7 @@ from powercontext.builtin.runtime.readiness import (
     RuntimeReadinessChecks,
 )
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
+from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_NAME,
     ContentCapture,
@@ -189,6 +196,7 @@ from powercontext.builtin.statistics import (
     Statistics,
     StatisticsPeriod,
 )
+from powercontext.builtin.statistics.aggregation import aggregate_statistics
 from powercontext.builtin.work import (
     HANDOFF_BOUNDARY_SOURCE_KIND,
     HANDOFF_RECEIPT_SOURCE_KIND,
@@ -271,6 +279,7 @@ class _RuntimeStateError(RuntimeError):
             "records": "Base Source and Artifact access is not configured",
             "remote-skill-distribution": "Remote Skill distribution services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
+            "scope": "Scope services are not configured",
             "skill-publication": "Managed Skill publication services are not configured",
             "skill-provenance": "Managed Skill provenance services are not configured",
             "skill-governance": "Managed Skill governance services are not configured",
@@ -443,15 +452,15 @@ class RemoteIngestionApplication:
             return await self._require_service().register_source_definition(manifest)
 
     async def checkpoint(self, binding: ConnectorBinding, /) -> ConnectorCheckpointState:
-        async with self._runtime._operation():
+        async with self._runtime._scope_operation(binding.scope_id):
             return await self._require_service().connector_checkpoint(binding)
 
     async def submit(self, request: SubmitSourceObservation, /) -> SourceReceipt:
-        async with self._runtime._operation():
+        async with self._runtime._scope_operation(request.scope_id):
             return await self._require_service().submit_source_observation(request)
 
     async def commit(self, request: CommitConnectorCheckpoint, /) -> ConnectorCheckpointState:
-        async with self._runtime._operation():
+        async with self._runtime._scope_operation(request.binding.scope_id):
             return await self._require_service().commit_connector_checkpoint(request)
 
 
@@ -527,6 +536,27 @@ class StatisticsApplication:
     def for_scope(self, scope_id: str, /) -> ScopedStatisticsApplication:
         return ScopedStatisticsApplication(self._runtime, scope_id)
 
+    async def overview(
+        self,
+        selection: ScopeSelection,
+        *,
+        period: StatisticsPeriod = StatisticsPeriod.THIRTY_DAYS,
+    ) -> Statistics:
+        if self._runtime.scopes is None:
+            raise _RuntimeStateError("statistics")
+        async with self._runtime._operation():
+            resolved = await self._runtime.scopes.resolve_selection(selection)
+            captured_at = self._runtime._clock()
+            snapshots = tuple([
+                await self._runtime._statistics(scope.scope_id).overview(period, captured_at) for scope in resolved
+            ])
+        return aggregate_statistics(
+            selection,
+            tuple(scope.scope_id for scope in resolved),
+            snapshots,
+            captured_at,
+        )
+
 
 class ScopedContextApplication:
     """Prepare final context for one scope using Runtime-owned source policy."""
@@ -536,83 +566,54 @@ class ScopedContextApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def prepare(self, request: PrepareContextRequest, /) -> PreparedContext:
-        async with self._runtime._scope_operation(self.scope_id):
-            return await self._prepare(request)
+        async with self._runtime._scope_operation(self.scope_id) as scope:
+            return await self._prepare(request, scope)
 
-    async def _prepare(self, request: PrepareContextRequest, /) -> PreparedContext:
+    async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
         builder = PreparedContextBuilder()
-        async with (
-            self._runtime._context(self.scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL) as context,
-            self._runtime._locked(self.scope_id),
-        ):
-            with self._runtime._stage(
-                _MEMORY_SEARCH_STAGE,
-                attributes={
-                    _MEMORY_SEARCH_REQUESTED_MODE: "auto",
-                    _MEMORY_SEARCH_LIMIT: builder.memory_candidate_limit,
-                },
-            ) as span:
-                service = context.artifacts.memory
-                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
-                memory_hits = ()
-                search_mode: str | None = None
-                if current is not None:
-                    result = await service.search(
-                        request.query,
-                        memories=(current,),
-                        limit=builder.memory_candidate_limit,
-                        mode="auto",
-                    )
-                    memory_hits = result.hits
-                    search_mode = result.mode
-                if span is not None:
-                    attributes: dict[str, TraceAttribute] = {
-                        _MEMORY_SEARCH_MEMORY_PRESENT: current is not None,
-                        _MEMORY_SEARCH_RESULT_COUNT: len(memory_hits),
-                    }
-                    if search_mode is not None:
-                        attributes[_MEMORY_SEARCH_MODE] = search_mode
-                    span.set_attributes(attributes)
+        scope_ids = [self.scope_id, *scope.context_references]
 
-            experience_recall = self._runtime._experience_recall
-            with self._runtime._stage(
-                "experience.search",
-                attributes={
-                    "powercontext.experience.search.configured": experience_recall is not None,
-                    "powercontext.experience.search.limit": builder.experience_candidate_limit,
-                },
-            ) as span:
-                experience_hits = (
-                    ()
-                    if experience_recall is None
-                    else await experience_recall(
-                        self.scope_id,
-                        request.query,
-                        builder.experience_candidate_limit,
-                    )
-                )
-                if span is not None:
-                    span.set_attributes({"powercontext.experience.search.result_count": len(experience_hits)})
+        memory_candidates: list[PreparedMemoryCandidates] = []
+        experience_candidates: list[PreparedExperienceCandidates] = []
+        for scope_id in scope_ids:
+            memory, experiences = await self._recall_scope(
+                scope_id,
+                request,
+                memory_limit=builder.memory_candidate_limit,
+                experience_limit=builder.experience_candidate_limit,
+            )
+            memory_candidates.append(memory)
+            experience_candidates.append(experiences)
+        memory_candidates = _limit_memory_candidates(memory_candidates, builder.memory_candidate_limit)
+        experience_candidates = _limit_experience_candidates(
+            experience_candidates,
+            builder.experience_candidate_limit,
+        )
 
-            with self._runtime._stage(
-                "context.build",
-                attributes={
-                    "powercontext.context.build.memory_candidate_count": len(memory_hits),
-                    "powercontext.context.build.experience_candidate_count": len(experience_hits),
-                },
-            ) as span:
-                build = builder.build_result(
-                    request=request,
-                    memory_ref=None if current is None else current.as_ref(),
-                    hits=memory_hits,
-                    experience_hits=experience_hits,
-                )
-                if span is not None:
-                    span.set_attributes({
-                        "powercontext.context.build.selected_count": len(build.origins),
-                        "powercontext.context.build.status": build.context.status,
-                        "powercontext.context.build.content_bytes": build.context.content_bytes,
-                    })
+        with self._runtime._stage(
+            "context.build",
+            attributes={
+                "powercontext.context.build.scope_count": len(scope_ids),
+                "powercontext.context.build.memory_candidate_count": sum(
+                    len(candidates.hits) for candidates in memory_candidates
+                ),
+                "powercontext.context.build.experience_candidate_count": sum(
+                    len(candidates.hits) for candidates in experience_candidates
+                ),
+            },
+        ) as span:
+            build = builder.build_scopes_result(
+                request=request,
+                current_scope_id=self.scope_id,
+                memory_candidates=memory_candidates,
+                experience_candidates=experience_candidates,
+            )
+            if span is not None:
+                span.set_attributes({
+                    "powercontext.context.build.selected_count": len(build.origins),
+                    "powercontext.context.build.status": build.context.status,
+                    "powercontext.context.build.content_bytes": build.context.content_bytes,
+                })
         if self._runtime._recall_token_estimator is not None:
             try:
                 measurement = await self._runtime._recall_token_estimator(self.scope_id, build)
@@ -632,6 +633,119 @@ class ScopedContextApplication:
                 if measurement is not None:
                     await self._runtime.statistics.for_scope(self.scope_id).record_recall(measurement)
         return build.context
+
+    async def _recall_scope(
+        self,
+        scope_id: str,
+        request: PrepareContextRequest,
+        *,
+        memory_limit: int,
+        experience_limit: int,
+    ) -> tuple[PreparedMemoryCandidates, PreparedExperienceCandidates]:
+        async with (
+            self._runtime._context(scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL) as context,
+            self._runtime._locked(scope_id),
+        ):
+            with self._runtime._stage(
+                _MEMORY_SEARCH_STAGE,
+                attributes={
+                    _MEMORY_SEARCH_REQUESTED_MODE: "auto",
+                    _MEMORY_SEARCH_LIMIT: memory_limit,
+                },
+            ) as span:
+                service = context.artifacts.memory
+                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                memory_hits = ()
+                search_mode: str | None = None
+                if current is not None and memory_limit > 0:
+                    result = await service.search(
+                        request.query,
+                        memories=(current,),
+                        limit=memory_limit,
+                        mode="auto",
+                    )
+                    memory_hits = result.hits
+                    search_mode = result.mode
+                if span is not None:
+                    attributes: dict[str, TraceAttribute] = {
+                        _MEMORY_SEARCH_MEMORY_PRESENT: current is not None,
+                        _MEMORY_SEARCH_RESULT_COUNT: len(memory_hits),
+                    }
+                    if search_mode is not None:
+                        attributes[_MEMORY_SEARCH_MODE] = search_mode
+                    span.set_attributes(attributes)
+
+            experience_recall = self._runtime._experience_recall
+            with self._runtime._stage(
+                "experience.search",
+                attributes={
+                    "powercontext.experience.search.configured": experience_recall is not None,
+                    "powercontext.experience.search.limit": experience_limit,
+                },
+            ) as span:
+                experience_hits = (
+                    ()
+                    if experience_recall is None or experience_limit == 0
+                    else await experience_recall(
+                        scope_id,
+                        request.query,
+                        experience_limit,
+                    )
+                )
+                if span is not None:
+                    span.set_attributes({"powercontext.experience.search.result_count": len(experience_hits)})
+        return (
+            PreparedMemoryCandidates(
+                scope_id=scope_id,
+                memory_ref=None if current is None else current.as_ref(),
+                hits=memory_hits,
+            ),
+            PreparedExperienceCandidates(scope_id=scope_id, hits=experience_hits),
+        )
+
+
+def _limit_memory_candidates(
+    candidates: list[PreparedMemoryCandidates],
+    limit: int,
+) -> list[PreparedMemoryCandidates]:
+    counts = _round_robin_counts(tuple(len(group.hits) for group in candidates), limit)
+    return [
+        PreparedMemoryCandidates(
+            scope_id=group.scope_id,
+            memory_ref=group.memory_ref,
+            hits=group.hits[:count],
+        )
+        for group, count in zip(candidates, counts, strict=True)
+    ]
+
+
+def _limit_experience_candidates(
+    candidates: list[PreparedExperienceCandidates],
+    limit: int,
+) -> list[PreparedExperienceCandidates]:
+    counts = _round_robin_counts(tuple(len(group.hits) for group in candidates), limit)
+    return [
+        PreparedExperienceCandidates(scope_id=group.scope_id, hits=group.hits[:count])
+        for group, count in zip(candidates, counts, strict=True)
+    ]
+
+
+def _round_robin_counts(sizes: tuple[int, ...], limit: int) -> tuple[int, ...]:
+    counts = [0] * len(sizes)
+    remaining = limit
+    while remaining > 0:
+        advanced = False
+        for index, size in enumerate(sizes):
+            if counts[index] >= size:
+                continue
+            counts[index] += 1
+            remaining -= 1
+            advanced = True
+            if remaining == 0:
+                break
+        if not advanced:
+            break
+    return tuple(counts)
 
 
 class ContextApplication:
@@ -1710,6 +1824,8 @@ class BuiltinRuntime:
         statistics_service: StatisticsServiceFactory | None = None,
         record_service: RecordService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
+        publication_application: ArtifactPublicationApplication | None = None,
+        scope_application: ScopeApplication | None = None,
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
         tracing: RuntimeTracing | None = None,
@@ -1741,6 +1857,8 @@ class BuiltinRuntime:
         self._statistics_service = statistics_service
         self._record_service = record_service
         self._recall_token_estimator = recall_token_estimator
+        self.publications = publication_application
+        self.scopes = scope_application
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
         self._tracing = tracing
@@ -1916,11 +2034,14 @@ class BuiltinRuntime:
                         self._lifecycle.notify_all()
 
     @asynccontextmanager
-    async def _scope_operation(self, scope_id: str) -> AsyncIterator[None]:
+    async def _scope_operation(self, scope_id: str) -> AsyncIterator[ScopeDescriptor]:
         scope = validate_scope_id(scope_id)
         async with self._operation():
+            if self.scopes is None:
+                raise _RuntimeStateError("scope")
+            registered = await self.scopes.get(scope)
             with self._scope_cache.lease(scope):
-                yield
+                yield registered
 
     @asynccontextmanager
     async def _scoped_operation(

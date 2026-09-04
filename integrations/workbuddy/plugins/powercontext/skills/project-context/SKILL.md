@@ -5,9 +5,9 @@ description: Create and commit a current-work Handoff when the user says "交接
 
 <!--
   Installation note: this Skill is distributed with ${POWERCONTEXT_PYTHON} and
-  ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} placeholders in the shell commands below.
+  ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} placeholders in the shell commands below.
   After copying the plugin, replace them with shell-safe arguments for the Python
-  executable and installed project-scope resolver.
+  executable and installed Scope binding resolver.
 -->
 
 # Project Context
@@ -25,36 +25,29 @@ to duplicate the current prompt. Ordinary prompt Sources are not task outcomes.
 Before the first memory tool call, run:
 
 ```bash
-${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} --cwd "$PWD"
+${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"
 ```
 
 Reuse that exact `scope_id` for the task.
 
-The resolver first honors an explicit plugin scope, then the same Git-private
-Workstream binding used by Codex, and finally the normalized remote or project
-path. When the user explicitly asks to bind the current checkout to a known
-Handoff Report Workstream, run:
+The Server resolves an explicit Scope first, then durable session and workspace
+bindings, and finally its default Scope. When the user explicitly asks to bind
+the current checkout to a known Scope, run:
 
 ```bash
-${POWERCONTEXT_PYTHON} ${POWERCONTEXT_PROJECT_SCOPE_SCRIPT} \
-  --cwd "$PWD" --bind-workstream "WORKSTREAM_SCOPE_ID"
+${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
 ```
 
-Then run the normal resolver command again and verify the same scope. The
-binding is stored below the checkout's Git directory and is not committed.
-Never infer one Workstream when multiple candidates remain consequential.
+Then run the normal resolver command again and verify the same Scope. The
+binding is stored by PowerContext; the plugin never derives a Scope ID from a
+Git remote or directory. Never infer a Scope when multiple candidates remain
+consequential.
 
-Before a durable one-turn Handoff or a `latest` Continue without an exact
-Workstream, call `select_handoff_workstream` when that MCP tool is available.
-Clients with MCP elicitation can present a native picker; otherwise the tool
-returns structured choices. On `selected`, bind the returned `scope_id` with
-`--bind-workstream`, run the normal resolver again, and require the resolved
-scope to match before any Handoff write. On `needs_selection`, present the
-returned choices and call the tool again with the user's exact `project_id` and
-`work_id`; never choose a fallback candidate silently. On `cancelled` or
-`declined`, stop the Handoff flow. If the tool is unavailable or returns
-`empty`, preserve the existing resolver behavior. The picker is read-only and
-selecting work does not itself prepare or commit a Handoff.
+Before a durable one-turn Handoff or a `latest` Continue, resolve the intended
+Scope explicitly. If the current binding is not the intended boundary, ask the
+user or host for the exact Scope ID, bind it, and verify the resolver result
+before any Handoff write. Never infer a Scope from a report view.
 
 ## Read
 
@@ -75,8 +68,7 @@ Handoff, a design discussion, or a preview request does not authorize a write.
 
 When the one-turn flow applies:
 
-1. Select the Workstream when the picker is available, then resolve and verify
-   the exact scope using the commands above.
+1. Resolve and verify the exact Scope using the commands above.
 2. Inspect the current conversation and repository before writing. Ground the
    objective, branch and worktree state, changed files, checks, blockers,
    omissions, and next executable action without reading or including secrets.

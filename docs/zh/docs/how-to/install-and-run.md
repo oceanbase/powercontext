@@ -37,7 +37,7 @@ powercontext setup select --host codex --host dsh --source oceanbase/powercontex
 ```
 
 未传入 `--server-url` 时，Claude Code 和 OpenClaw 保留 `http://127.0.0.1:8000` 默认值；显式传入该选项时会覆盖
-两个被选中宿主的地址。OpenClaw 的 `--scope-mode` 默认值为 `agent`。Codex、DSH、OpenCode、Pi 和 Hermes 只有在
+两个被选中宿主的地址。Codex、DSH、OpenCode、Pi 和 Hermes 只有在
 通过现有安装后诊断后才会报告为 installed。安装 Hermes 后，还需运行 `hermes memory setup` 并选择 PowerContext，
 然后再启动 Hermes。
 
@@ -54,7 +54,7 @@ powercontext server run
 
 - 监听 `127.0.0.1:8000`；
 - 在 `/mcp` 启用 Streamable HTTP MCP；
-- 在 `/` 启用 Dashboard；尚未配置 scope 时，页面会显示明确的空状态；
+- 创建默认 Scope，并在 `/` 启用 Dashboard；
 - 在操作系统的用户数据目录中创建持久化 SQLite 数据库；
 - 无需推理服务即可支持显式 Memory 操作。
 

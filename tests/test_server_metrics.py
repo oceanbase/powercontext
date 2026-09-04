@@ -57,9 +57,10 @@ def test_http_metrics_use_declared_operations_and_exclude_infrastructure(tmp_pat
     app = create_server_app(settings=_settings(tmp_path / "runtime.db"))
 
     with TestClient(app) as client:
+        scope_id = client.get("/v1/scopes/default").json()["scope_id"]
         assert client.get("/v1/capabilities").status_code == 200
-        assert client.post("/v1/memory/flush", json={"scope_id": "project:metrics"}).status_code == 200
-        assert client.post("/v1/artifact-candidates/list", json={"scope_id": "project:metrics"}).status_code == 200
+        assert client.post("/v1/memory/flush", json={"scope_id": scope_id}).status_code == 200
+        assert client.post("/v1/artifact-candidates/list", json={"scope_id": scope_id}).status_code == 200
         assert client.get("/health/live").status_code == 200
         response = client.get("/metrics")
 
@@ -113,9 +114,17 @@ def test_one_off_scope_ids_keep_runtime_scope_cache_bounded(tmp_path) -> None:
 
     with TestClient(app) as client:
         for index in range(12):
+            scope_id = client.post(
+                "/v1/scopes",
+                json={
+                    "title": f"One-off {index}",
+                    "summary": "Runtime cache behavior",
+                    "idempotency_key": f"one-off-{index}",
+                },
+            ).json()["scope_id"]
             response = client.post(
                 "/v1/context/prepare",
-                json={"scope_id": f"one-off-{index}", "query": "short query"},
+                json={"scope_id": scope_id, "query": "short query"},
             )
             assert response.status_code == 200
         metrics = client.get("/metrics").text
@@ -153,7 +162,17 @@ def test_mcp_metrics_count_one_logical_request_and_one_application_operation(tmp
             Client(transport) as client,
             create_http_client() as http_client,
         ):
-            await client.call_tool("list_memory_entries", {"scope_id": "project:metrics"})
+            created = await http_client.post(
+                "/v1/scopes",
+                json={
+                    "title": "Metrics",
+                    "summary": "MCP metrics behavior",
+                    "idempotency_key": "metrics",
+                },
+            )
+            created.raise_for_status()
+            scope_id = created.json()["scope_id"]
+            await client.call_tool("list_memory_entries", {"scope_id": scope_id})
             return (await http_client.get("/metrics")).text
 
     metrics = asyncio.run(scenario())

@@ -50,7 +50,7 @@ describe('invokeOperation', () => {
     expect(seen[1].url).toBe('http://127.0.0.1:8000/health/live')
   })
 
-  it('overwrites a caller-supplied scope_id with the derived workspace scope', async () => {
+  it('overwrites a caller-supplied scope_id with the resolved workspace scope', async () => {
     let body: string | undefined
     const client = new PowerContextClient({
       baseUrl: 'http://127.0.0.1:8000',
@@ -64,12 +64,57 @@ describe('invokeOperation', () => {
     await invokeOperation(client, 'search_memory', {
       query: 'api',
       scope_id: 'project:attacker-controlled',
-    }, 'project:derived-workspace')
+    }, 'scp_workspace_binding')
 
     expect(JSON.parse(body ?? '{}')).toMatchObject({
       query: 'api',
-      scope_id: 'project:derived-workspace',
+      scope_id: 'scp_workspace_binding',
     })
+  })
+
+  it('limits observation selections to the resolved workspace scope', async () => {
+    const bodies: unknown[] = []
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 1000,
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      },
+    })
+
+    await invokeOperation(client, 'get_stats', { selection: { mode: 'all' } }, 'scp_workspace_binding')
+    await invokeOperation(client, 'get_handoff_report', {
+      selection: { mode: 'subtree', root_scope_id: 'scope:other' },
+      format: 'json',
+    }, 'scp_workspace_binding')
+
+    expect(bodies).toEqual([
+      { selection: { mode: 'exact', scope_ids: ['scp_workspace_binding'] } },
+      {
+        selection: { mode: 'exact', scope_ids: ['scp_workspace_binding'] },
+        format: 'json',
+      },
+    ])
+  })
+
+  it('preserves explicit Scope control requests', async () => {
+    let body: string | undefined
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 1000,
+      fetch: async (_url, init) => {
+        body = init?.body ? String(init.body) : undefined
+        return new Response(JSON.stringify({ scope_id: 'scp_target' }), { status: 200 })
+      },
+    })
+
+    await invokeOperation(client, 'set_scope_binding', {
+      key: { integration: 'dsh', kind: 'session', external_id: 'session-1' },
+      scope_id: 'scp_target',
+    }, 'scp_current')
+
+    expect(JSON.parse(body ?? '{}').scope_id).toBe('scp_target')
   })
 
   it('returns unavailable instead of throwing when the server is down', async () => {

@@ -14,23 +14,43 @@
  * limitations under the License.
  */
 
-import { describe, expect, it } from 'vitest'
-import { deriveScopeId, normalizeGitRemote } from '../src/scope.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { resolveScopeId } from '../src/scope.ts'
 
-describe('scope', () => {
-  it('normalizes HTTPS and SCP remotes identically', () => {
-    expect(normalizeGitRemote('https://github.com/oceanbase/powercontext.git')).toBe('github.com/oceanbase/powercontext')
-    expect(normalizeGitRemote('git@github.com:oceanbase/powercontext.git')).toBe('github.com/oceanbase/powercontext')
+describe('Scope binding', () => {
+  it('resolves session, workspace, and default precedence on the Server', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'scp_00000000000000000000000000' } })
+    const client = { request } as never
+
+    await expect(resolveScopeId(client, {
+      cwd: '/workspace/powercontext',
+      sessionID: 'session-a',
+      configuredScopeId: 'explicit-scope',
+    })).resolves.toBe('scp_00000000000000000000000000')
+    const firstCall = request.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    if (!firstCall) throw new Error('resolve_scope_binding was not called')
+    const [operation, input] = firstCall
+    expect(operation).toBe('resolve_scope_binding')
+    expect(input.explicit_scope_id).toBe('explicit-scope')
+    expect(input.binding_keys[0]).toEqual({ integration: 'opencode', kind: 'session', external_id: 'session-a' })
+    expect(input.binding_keys[1]).toMatchObject({ integration: 'opencode', kind: 'workspace' })
+    expect(input.binding_keys[1].external_id).not.toContain('/workspace/powercontext')
   })
 
-  it('prefers an explicit scope', async () => {
-    await expect(deriveScopeId('/tmp/project', { configuredScopeId: 'project:test' })).resolves.toBe('project:test')
-  })
-
-  it('derives a git scope from the project remote', async () => {
-    const git = async (_cwd: string, args: string[]) => args.includes('--show-toplevel')
-      ? '/tmp/project'
-      : 'git@github.com:oceanbase/powercontext.git'
-    await expect(deriveScopeId('/tmp/project/subdir', { git })).resolves.toBe('git:github.com/oceanbase/powercontext')
+  it('fixes a new session to its resolved Scope', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: 'scope-a' } })
+    await resolveScopeId({ request } as never, {
+      cwd: '/workspace',
+      sessionID: 'session-a',
+      persistSession: true,
+    })
+    expect(request.mock.calls[1]).toEqual([
+      'set_scope_binding',
+      {
+        key: { integration: 'opencode', kind: 'session', external_id: 'session-a' },
+        scope_id: 'scope-a',
+      },
+    ])
   })
 })

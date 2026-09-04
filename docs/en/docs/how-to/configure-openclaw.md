@@ -52,16 +52,25 @@ Explicit search and get calls use `/v1/memory/search` and `/v1/memory/entries/ge
 `/v1/context/prepare`. Search limits the query to 8192 characters and clamps the requested result limit to 1–50
 (default 10), while each get returns at most 120 lines and 12,000 characters.
 
-## Choose the memory scope
+## Choose the memory Scope
 
-Scope mode defaults to `agent`, which derives the memory scope from the OpenClaw agent identity. Use project scope
-when the memory must be shared across agents working in the same project:
+The plugin asks the Server to resolve one existing Scope before each operation. The Server checks, in order:
+
+1. the plugin's explicit `scopeId`;
+2. durable bindings for the OpenClaw session, each ordered active project, and the agent identity;
+3. the Server's default Scope.
+
+Agent, project, path, and session identities are binding lookup inputs only. The plugin never derives a Scope ID from
+them and never creates a Scope. To select one existing Scope explicitly for all OpenClaw operations:
 
 ```bash
-powercontext setup openclaw --scope-mode project
+openclaw config set plugins.entries.memory-powercontext.config.scopeId scp_0123456789abcdefghjkmnpqrs
+openclaw gateway restart
 ```
 
-Project scope is used only when OpenClaw supplies exactly one trusted project identity for a turn.
+Without `scopeId`, provision a durable Server binding only when an OpenClaw host identity must retain a selection;
+otherwise the Server default is used. The plugin does not persist bindings because OpenClaw currently has no Scope
+selection contract.
 
 ## Connect to an authenticated Server
 
