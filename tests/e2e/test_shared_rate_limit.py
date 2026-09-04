@@ -15,11 +15,12 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import RateLimitConfig
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import McpConfig, ServerSettings
+from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
 
 
 def test_shared_rate_limit_rejects_only_protected_requests(tmp_path) -> None:
@@ -41,3 +42,25 @@ def test_shared_rate_limit_rejects_only_protected_requests(tmp_path) -> None:
     assert rejected.headers["Retry-After"]
     assert rejected.json()["error"]["code"] == "rate_limited"
     assert health.status_code == 200
+
+
+def test_shared_rate_limit_skips_unauthenticated_receiver_routes(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+            auth=BearerAuthConfig(enabled=True, token=SecretStr("server-token")),
+            rate_limit=RateLimitConfig(enabled=True, requests=1, window_seconds=60),
+        )
+    )
+    paths = (
+        "/v1/skill/remote/target/enroll",
+        "/v1/skill/remote/reconcile",
+        "/v1/skill/remote/package/download",
+        "/v1/skill/remote/receipt",
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        responses = [client.post(path, json={}) for path in paths]
+
+    assert {response.status_code for response in responses} == {422}

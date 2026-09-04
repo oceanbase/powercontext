@@ -195,6 +195,10 @@ def test_two_api_replicas_share_http_operations_and_stateless_mcp_without_affini
             httpx.AsyncClient(transport=httpx.ASGITransport(app=first), base_url="http://first") as first_http,
             httpx.AsyncClient(transport=httpx.ASGITransport(app=second), base_url="http://second") as second_http,
         ):
+            capabilities = await first_http.get("/v1/capabilities")
+            assert capabilities.status_code == 200
+            assert capabilities.json()["memory_extraction"] is True
+
             scope_id = f"distributed-api:{marker}"
             captured = await first_http.post(
                 "/v1/sources/content",

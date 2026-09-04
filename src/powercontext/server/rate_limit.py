@@ -23,20 +23,11 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.rate_limit import RateLimitRepository
 from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.server.context import is_internal_bridge
+from powercontext.server.middleware import is_public_http_path
 from powercontext.server.principal import PrincipalRef, current_principal
 
 _POLICY_ID = "http.default.v1"
-_PUBLIC_PATHS = frozenset({
-    "/",
-    "/docs",
-    "/handoff-reports",
-    "/reviews",
-    "/skills",
-    "/health/live",
-    "/health/ready",
-    "/metrics",
-})
-_PUBLIC_PREFIXES = ("/static/",)
+_RATE_LIMIT_EXEMPT_PATHS = frozenset({"/metrics"})
 
 
 class SharedRateLimiter:
@@ -105,8 +96,8 @@ class SharedRateLimitMiddleware:
         return (
             scope["type"] != "http"
             or is_internal_bridge()
-            or scope["path"] in _PUBLIC_PATHS
-            or scope["path"].startswith(_PUBLIC_PREFIXES)
+            or is_public_http_path(scope["path"])
+            or scope["path"] in _RATE_LIMIT_EXEMPT_PATHS
         )
 
 

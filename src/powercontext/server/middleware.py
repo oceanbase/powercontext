@@ -42,6 +42,12 @@ _PUBLIC_PATHS = frozenset({
 _PUBLIC_PATH_PREFIXES = ("/static/",)
 
 
+def is_public_http_path(path: str) -> bool:
+    """Return whether a request bypasses Server bearer authentication."""
+
+    return path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PATH_PREFIXES)
+
+
 class StaticBearerMiddleware:
     """Require one configured bearer token for external HTTP requests."""
 
@@ -55,7 +61,7 @@ class StaticBearerMiddleware:
         if scope["type"] != "http" or is_internal_bridge():
             await self.app(scope, receive, send)
             return
-        if scope["path"] in _PUBLIC_PATHS or scope["path"].startswith(_PUBLIC_PATH_PREFIXES):
+        if is_public_http_path(scope["path"]):
             await self.app(scope, receive, send)
             return
 
@@ -111,4 +117,4 @@ class LocalPrincipalMiddleware:
             reset_principal(token)
 
 
-__all__ = ["LocalPrincipalMiddleware", "StaticBearerMiddleware"]
+__all__ = ["LocalPrincipalMiddleware", "StaticBearerMiddleware", "is_public_http_path"]

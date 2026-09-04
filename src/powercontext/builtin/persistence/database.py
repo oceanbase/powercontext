@@ -32,7 +32,7 @@ from powercontext.builtin.persistence.errors import DatabaseClosedError, Invalid
 async def database_now(connection: AsyncConnection, /) -> datetime:
     """Return normalized UTC-naive database time for coordination decisions."""
 
-    statement = "SELECT CURRENT_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
+    statement = "SELECT UTC_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
     value = (await connection.exec_driver_sql(statement)).scalar_one()
     if isinstance(value, str):
         value = datetime.fromisoformat(value.replace("Z", "+00:00"))

@@ -21,6 +21,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     BuiltinConfig,
+    CoordinationConfig,
     DeploymentConfig,
     WorkerConfig,
 )
@@ -57,3 +58,8 @@ def test_worker_heartbeat_and_shutdown_must_fit_inside_the_lease() -> None:
 
     with pytest.raises(ValidationError, match="shutdown_grace_seconds must be less than lease_seconds"):
         WorkerConfig(lease_seconds=120, shutdown_grace_seconds=120)
+
+
+def test_scheduler_emits_only_the_supported_payload_version() -> None:
+    with pytest.raises(ValidationError):
+        CoordinationConfig.model_validate({"emit_payload_version": 2})

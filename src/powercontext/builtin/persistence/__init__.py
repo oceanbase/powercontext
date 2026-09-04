@@ -92,8 +92,6 @@ __all__ = (
     "RemoteAgentSkillTargetRepository",
     "RemoteAgentSkillTargetState",
     "RepositoryError",
-    "RepositoryError",
-    "RepositoryNotFoundError",
     "RepositoryNotFoundError",
     "RuntimeMember",
     "RuntimeMemberSpec",

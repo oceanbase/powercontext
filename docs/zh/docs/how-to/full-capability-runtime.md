@@ -120,11 +120,6 @@ Codex 启动后发送普通 prompt。插件从绑定 Scope 召回内容，并把
 
 ## 数据与重启
 
-没有覆盖数据库设置时，SQLite 在用户数据目录保存 `powercontext.db` 和 `scheduler.db`：
-
-- Linux：`$XDG_DATA_HOME/powercontext`，或 `~/.local/share/powercontext`；
-- macOS：`~/Library/Application Support/powercontext`。
-
 生成的配置不指定数据库位置，因此 Server 把数据保存在用户数据目录，而不是项目内文件。在未设置
 `POWERCONTEXT_HOME` 时，SQLite 的 `powercontext.db`（包含持久调度与 operation 状态）位于：
 

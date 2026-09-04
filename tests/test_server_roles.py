@@ -14,12 +14,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
+import asyncio
+from typing import Literal, cast
 
 from pydantic import SecretStr
 
 import powercontext.server.factory as factory
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
+from powercontext.builtin.runtime import BuiltinRuntime, RuntimeCapabilities
 from powercontext.builtin.runtime.config import DeploymentConfig, HandoffReportConfig
 from powercontext.server.settings import DashboardConfig, McpConfig, MetricsConfig, ServerSettings
 
@@ -61,3 +63,18 @@ def test_distributed_api_mounts_stateless_mcp(monkeypatch) -> None:
 
     assert any(getattr(route, "path", None) == "/v1/operations" for route in app.routes)
     assert captured["stateless_http"] is True
+
+
+def test_distributed_api_advertises_worker_backed_memory_extraction() -> None:
+    class RuntimeWithoutLocalInference:
+        async def capabilities(self) -> RuntimeCapabilities:
+            return RuntimeCapabilities(memory_extraction=False, memory_search_modes=())
+
+    capabilities = asyncio.run(
+        factory._server_capabilities(
+            cast(BuiltinRuntime, RuntimeWithoutLocalInference()),
+            accepts_distributed_memory_work=True,
+        )
+    )
+
+    assert capabilities.memory_extraction is True

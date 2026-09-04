@@ -20,7 +20,7 @@ import asyncio
 from collections.abc import Mapping
 from time import monotonic
 from types import TracebackType
-from typing import Any, Self, TypeVar
+from typing import Any, Self, TypeVar, cast
 from urllib.parse import quote
 from uuid import UUID
 
@@ -420,10 +420,10 @@ class PowerContextClient:
             span.finish("failure", error=error)
             raise
         span.finish(
-            "success" if response.status_code == GET_HANDOFF_REPORT.success_status else "failure",
+            "success" if response.status_code in GET_HANDOFF_REPORT.success_statuses else "failure",
             status_code=response.status_code,
         )
-        if response.status_code != GET_HANDOFF_REPORT.success_status:
+        if response.status_code not in GET_HANDOFF_REPORT.success_statuses:
             error = _decode_error(response.content)
             raise ServerResponseError(
                 status_code=response.status_code,
@@ -510,20 +510,11 @@ class PowerContextClient:
     ) -> FlushMemoryResponse | OperationAccepted:
         """Submit one Memory window and return immediately when it remains pending."""
 
-        payload = TypeAdapter(FLUSH_MEMORY.request_type).dump_python(request, mode="json", by_alias=True)
-        response, request_id = await self._send(
-            method=FLUSH_MEMORY.method,
-            path=FLUSH_MEMORY.path,
-            operation_id=FLUSH_MEMORY.operation_id,
-            json_payload=payload,
+        return await self._request(
+            FLUSH_MEMORY,
+            request,
             extra_headers={"Prefer": "respond-async"},
-            success_statuses=(200, 202),
         )
-        response_type = FlushMemoryResponse if response.status_code == 200 else OperationAccepted
-        try:
-            return TypeAdapter(response_type).validate_json(response.content)
-        except ValidationError as error:
-            raise InvalidResponseError(FLUSH_MEMORY.path, request_id=request_id) from error
 
     async def get_operation(self, operation_id: str | UUID) -> OperationRecord:
         """Read one durable operation."""
@@ -814,6 +805,7 @@ class PowerContextClient:
         request: _RequestT | None = None,
         *,
         path_parameters: Mapping[str, str] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> _ResponseT:
         operation_path = _bind_operation_path(operation, path_parameters)
         json_payload = None
@@ -838,11 +830,13 @@ class PowerContextClient:
             operation_id=operation.operation_id,
             json_payload=json_payload,
             query_parameters=query_parameters,
-            success_statuses=(operation.success_status,),
+            extra_headers=extra_headers,
+            success_statuses=operation.success_statuses,
         )
 
         try:
-            return TypeAdapter(operation.response_type).validate_json(response.content)
+            response_type = operation.success_response_types[response.status_code]
+            return cast(_ResponseT, TypeAdapter(response_type).validate_json(response.content))
         except ValidationError as exc:
             raise InvalidResponseError(
                 operation_path,

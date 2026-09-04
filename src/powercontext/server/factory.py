@@ -108,7 +108,11 @@ def create_server_app(
             app.state.operation_manager = operations
             if rate_limiter is not None:
                 rate_limiter.bind(operations.database)
-            app.state.capabilities = await _server_capabilities(runtime)
+            app.state.capabilities = await _server_capabilities(
+                runtime,
+                accepts_distributed_memory_work=config.deployment.mode == "distributed"
+                and config.deployment.role == "api",
+            )
             await readiness_probe()
             try:
                 yield
@@ -346,12 +350,16 @@ def _http_operations(app: FastAPI) -> dict[tuple[str, str], str]:
     }
 
 
-async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
+async def _server_capabilities(
+    runtime: BuiltinRuntime,
+    *,
+    accepts_distributed_memory_work: bool = False,
+) -> Capabilities:
     capabilities = await runtime.capabilities()
     return Capabilities(
         source_types=[CONTENT_SOURCE_NAME],
         artifact_families=["memory", "experience", "skill", "handoff"],
-        memory_extraction=capabilities.memory_extraction,
+        memory_extraction=capabilities.memory_extraction or accepts_distributed_memory_work,
         experience_generation=capabilities.experience_generation,
         managed_skill_generation=capabilities.managed_skill_generation,
         external_skill_registry=capabilities.external_skill_registry,
