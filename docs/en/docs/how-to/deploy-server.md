@@ -70,8 +70,9 @@ export POWERCONTEXT_HOME=/srv/powercontext
 powercontext server run
 ```
 
-The process must be able to create and update this directory. The default SQLite database and scheduler state are
-stored below it. Supply the same environment variables whenever your service manager restarts the process.
+The process must be able to create and update this directory. The default SQLite database also stores durable
+Scheduler, Worker lease, and Operation state. Supply the same environment variables whenever your service manager
+restarts the process.
 
 PowerContext does not search for a `.env` file automatically. Export the variables, configure them in the service
 manager or container platform, or pass one explicit file:
@@ -110,7 +111,40 @@ docker run --rm \
 ```
 
 The image listens on `0.0.0.0:8000` inside the container, so the host-side address in `--publish` is important. The
-named volume persists the SQLite database and scheduler state after the container stops.
+named volume persists the SQLite database and durable work state after the container stops.
+
+## Run distributed roles
+
+Distributed mode requires OceanBase and a schema migration before any role starts. The repository includes
+`docker/compose.distributed.yaml` as a topology example with two APIs, two Schedulers, and two Workers. One Scheduler is
+leader and the other remains ready to take over; both APIs and both Workers are active.
+
+Export secrets and deployment choices without writing them into Compose:
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN"
+export POWERCONTEXT_GENERATION_MODEL="openai:gpt-4.1-mini"
+export OPENAI_API_KEY
+docker compose --file docker/compose.distributed.yaml up migrate
+docker compose --file docker/compose.distributed.yaml up -d api-a api-b scheduler-a scheduler-b worker-a worker-b
+```
+
+The two API examples listen on host ports 8001 and 8002. Put a TLS-terminating load balancer in front of them and use
+round-robin routing without session affinity. Distributed MCP is stateless. The example intentionally supplies model
+credentials only to Workers and no public port to Scheduler or Worker roles. A production deployment should also use
+separate least-privilege database users instead of the shared demonstration URL.
+
+Every replica in one rollout must use the same behavior revision. Upgrade in this order:
+
+1. run `powercontext server migrate` with a dedicated DDL account;
+2. replace Workers and wait for readiness;
+3. replace Schedulers and confirm a leader can scan;
+4. replace APIs.
+
+Keep `POWERCONTEXT_SERVER_COORDINATION_EMIT_PAYLOAD_VERSION` on the older supported value until old Workers have drained.
+Rollback in the reverse order and never start a distributed role against a schema that has not reached the packaged
+revision.
 
 ## Enable authentication
 

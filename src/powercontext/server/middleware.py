@@ -24,6 +24,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from powercontext.http import ErrorDetail, ErrorResponse
 from powercontext.server.context import is_internal_bridge
+from powercontext.server.principal import PrincipalRef, bind_principal, reset_principal
 
 _PUBLIC_PATHS = frozenset({
     "/",
@@ -41,6 +42,12 @@ _PUBLIC_PATHS = frozenset({
 _PUBLIC_PATH_PREFIXES = ("/static/",)
 
 
+def is_public_http_path(path: str) -> bool:
+    """Return whether a request bypasses Server bearer authentication."""
+
+    return path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PATH_PREFIXES)
+
+
 class StaticBearerMiddleware:
     """Require one configured bearer token for external HTTP requests."""
 
@@ -51,8 +58,19 @@ class StaticBearerMiddleware:
         self._token = token.encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if self._allows(scope):
+        if scope["type"] != "http" or is_internal_bridge():
             await self.app(scope, receive, send)
+            return
+        if is_public_http_path(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+
+        if self._has_valid_bearer(scope):
+            token = bind_principal(PrincipalRef(kind="static_bearer", subject="default"))
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                reset_principal(token)
             return
 
         error = ErrorResponse(
@@ -69,15 +87,7 @@ class StaticBearerMiddleware:
         )
         await response(scope, receive, send)
 
-    def _allows(self, scope: Scope) -> bool:
-        if (
-            scope["type"] != "http"
-            or scope["path"] in _PUBLIC_PATHS
-            or scope["path"].startswith(_PUBLIC_PATH_PREFIXES)
-            or is_internal_bridge()
-        ):
-            return True
-
+    def _has_valid_bearer(self, scope: Scope) -> bool:
         authorization = Headers(scope=scope).get("authorization")
         if authorization is None:
             return False
@@ -90,4 +100,21 @@ class StaticBearerMiddleware:
         )
 
 
-__all__ = ["StaticBearerMiddleware"]
+class LocalPrincipalMiddleware:
+    """Bind the implicit principal used by an authenticated local transport."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or is_internal_bridge():
+            await self.app(scope, receive, send)
+            return
+        token = bind_principal(PrincipalRef(kind="local", subject="default"))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            reset_principal(token)
+
+
+__all__ = ["LocalPrincipalMiddleware", "StaticBearerMiddleware", "is_public_http_path"]

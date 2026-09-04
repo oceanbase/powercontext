@@ -84,6 +84,7 @@ class SQLiteProfile:
         *,
         tables: tuple[Table, ...],
         load_vector_extension: bool = False,
+        create_schema: bool = True,
     ) -> AsyncIterator[SQLiteProfile]:
         """Create, initialize and exclusively own one SQLite engine."""
 
@@ -93,12 +94,13 @@ class SQLiteProfile:
             engine_options["poolclass"] = StaticPool
         engine = create_async_engine(config.url, **engine_options)
         _configure_sqlite(engine, config, load_vector_extension=load_vector_extension)
-        database = AsyncDatabase.own(engine)
+        database = AsyncDatabase.own(engine, serialize_transactions=config.is_in_memory)
         profile = cls(database=database, tables=tables)
         try:
             await _warm_sqlite(engine, config)
-            async with database.transaction() as connection:
-                await create_tables(connection, tables)
+            if create_schema:
+                async with database.transaction() as connection:
+                    await create_tables(connection, tables)
             yield profile
         finally:
             await database.close()

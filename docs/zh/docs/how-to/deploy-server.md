@@ -68,8 +68,8 @@ export POWERCONTEXT_HOME=/srv/powercontext
 powercontext server run
 ```
 
-运行进程必须能创建和更新该目录。默认 SQLite 数据库和 scheduler 状态都保存在这里。服务管理器每次重启进程时都应
-提供相同的环境变量。
+运行进程必须能创建和更新该目录。默认 SQLite 数据库也保存持久 Scheduler、Worker lease 和 Operation 状态。
+服务管理器每次重启进程时都应提供相同的环境变量。
 
 PowerContext 不会自动搜索 `.env` 文件。可以导出变量、由服务管理器或容器平台提供，或者显式传入一个文件：
 
@@ -106,7 +106,38 @@ docker run --rm \
 ```
 
 镜像内部监听 `0.0.0.0:8000`，所以 `--publish` 中的宿主机地址非常重要。容器停止后，named volume 仍会保留
-SQLite 数据库和 scheduler 状态。
+SQLite 数据库和持久 work 状态。
+
+## 运行分布式角色
+
+分布式模式要求 OceanBase，并且任何角色启动前都必须先迁移 schema。仓库中的
+`docker/compose.distributed.yaml` 提供两 API、两 Scheduler、两 Worker 的拓扑示例。一个 Scheduler 成为 leader，
+另一个保持 ready 并可接管；两个 API 和两个 Worker 都会同时工作。
+
+通过环境传入 secret 和部署选择，不要把它们写进 Compose：
+
+```bash
+export POWERCONTEXT_SERVER_DATABASE_URL="$OCEANBASE_URL"
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN"
+export POWERCONTEXT_GENERATION_MODEL="openai:gpt-4.1-mini"
+export OPENAI_API_KEY
+docker compose --file docker/compose.distributed.yaml up migrate
+docker compose --file docker/compose.distributed.yaml up -d api-a api-b scheduler-a scheduler-b worker-a worker-b
+```
+
+两个 API 示例分别监听宿主机 8001 和 8002 端口。应在它们前面配置终止 TLS 的 load balancer，并使用不带 session
+affinity 的 round-robin；分布式 MCP 是 stateless。示例有意只把模型 credential 交给 Worker，也不向宿主机发布
+Scheduler 或 Worker 的端口。生产环境还应为各角色使用独立最小权限数据库账号，而不是复用示例 URL。
+
+同一轮发布的所有副本必须使用相同 behavior revision。升级顺序如下：
+
+1. 使用专门的 DDL 账号运行 `powercontext server migrate`；
+2. 替换 Worker 并等待 readiness；
+3. 替换 Scheduler 并确认 leader 可以扫描；
+4. 替换 API。
+
+旧 Worker 排空前，`POWERCONTEXT_SERVER_COORDINATION_EMIT_PAYLOAD_VERSION` 必须保持旧的受支持值。回滚顺序相反，
+并且绝不能让分布式角色连接尚未升级到 packaged revision 的 schema。
 
 ## 启用鉴权
 

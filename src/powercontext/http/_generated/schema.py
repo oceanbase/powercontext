@@ -57,6 +57,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Capabilities"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                 },
             }
         },
@@ -320,6 +321,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -450,6 +452,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PreparedContext"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -478,6 +481,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -512,6 +516,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -547,6 +552,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -587,6 +593,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -622,6 +629,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -646,6 +654,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -672,6 +681,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -697,6 +707,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -723,6 +734,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -736,9 +748,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "summary": "Process the pending Source window into Memory",
                 "description": "Run one bounded Source-to-Memory activation for operational control and testing.",
                 "operationId": "flush_memory",
+                "x-powercontext-scope-mode": "current",
+                "parameters": [
+                    {
+                        "name": "Prefer",
+                        "in": "header",
+                        "required": False,
+                        "description": "Use `respond-async` for "
+                        "an immediate handle or "
+                        "`wait=N` to wait at most "
+                        "30 seconds.",
+                        "schema": {"type": "string"},
+                    }
+                ],
                 "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlushMemoryRequest"}}},
                     "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlushMemoryRequest"}}},
                 },
                 "responses": {
                     "200": {
@@ -748,12 +773,28 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             "application/json": {"schema": {"$ref": "#/components/schemas/FlushMemoryResponse"}}
                         },
                     },
+                    "202": {
+                        "description": "The durable operation is still queued, running, or waiting to retry.",
+                        "headers": {
+                            "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                            "Location": {
+                                "description": "Relative URL of the accepted operation.",
+                                "schema": {"type": "string"},
+                            },
+                            "Retry-After": {
+                                "description": "Suggested polling delay in seconds.",
+                                "schema": {"type": "integer"},
+                            },
+                        },
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationAccepted"}}},
+                    },
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
-                "x-powercontext-scope-mode": "current",
             }
         },
         "/v1/memory/remember": {
@@ -778,6 +819,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -805,6 +847,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -837,6 +880,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -862,6 +906,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -892,6 +937,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -924,6 +970,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -953,6 +1000,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -980,6 +1028,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1012,6 +1061,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1039,6 +1089,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1064,6 +1115,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1093,6 +1145,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1118,6 +1171,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1642,6 +1696,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1681,6 +1736,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1713,6 +1769,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1746,6 +1803,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1774,6 +1832,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         },
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1801,6 +1860,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1829,6 +1889,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1860,6 +1921,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1888,6 +1950,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -1920,11 +1983,133 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ScopedStats"}}},
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
                 "x-powercontext-scope-mode": "selection",
+            }
+        },
+        "/v1/operations": {
+            "get": {
+                "tags": ["operations"],
+                "summary": "List durable operations visible to the caller",
+                "operationId": "list_operations",
+                "parameters": [
+                    {"name": "scope_id", "in": "query", "schema": {"type": "string", "minLength": 1, "maxLength": 256}},
+                    {"name": "kind", "in": "query", "schema": {"$ref": "#/components/schemas/OperationKind"}},
+                    {"name": "status", "in": "query", "schema": {"$ref": "#/components/schemas/OperationStatus"}},
+                    {"name": "cursor", "in": "query", "schema": {"type": "string", "nullable": True}},
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A bounded cursor page of authorized operations.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationPage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/operations/{operation_id}": {
+            "get": {
+                "tags": ["operations"],
+                "summary": "Get one durable operation",
+                "operationId": "get_operation",
+                "parameters": [
+                    {
+                        "name": "operation_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "format": "uuid"},
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The authorized operation and its safe result or error metadata.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationRecord"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                },
+            }
+        },
+        "/v1/operations/{operation_id}/cancel": {
+            "post": {
+                "tags": ["operations"],
+                "summary": "Cancel one durable operation using optimistic concurrency",
+                "operationId": "cancel_operation",
+                "parameters": [
+                    {
+                        "name": "operation_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "format": "uuid"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/OperationMutationRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The updated operation.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationRecord"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
+            }
+        },
+        "/v1/operations/{operation_id}/retry": {
+            "post": {
+                "tags": ["operations"],
+                "summary": "Recover one blocked failed operation using optimistic concurrency",
+                "operationId": "retry_operation",
+                "parameters": [
+                    {
+                        "name": "operation_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "format": "uuid"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/OperationMutationRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The recovered queued operation.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationRecord"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                },
             }
         },
         "/v1/handoff-reports/get": {
@@ -1967,6 +2152,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "404": {"$ref": "#/components/responses/NotFound"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "429": {"$ref": "#/components/responses/RateLimited"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "413": {"$ref": "#/components/responses/ReportTooLarge"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
@@ -4674,6 +4860,127 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["hits"],
             },
+            "OperationStatus": {
+                "type": "string",
+                "enum": ["queued", "running", "retry_wait", "cancelling", "succeeded", "failed", "cancelled"],
+            },
+            "OperationKind": {"type": "string", "enum": ["memory_flush", "experience_incubation"]},
+            "MemoryOperationResult": {
+                "properties": {
+                    "type": {"type": "string", "enum": ["memory_flush"]},
+                    "previous_cursor": {"type": "integer", "minimum": 0.0},
+                    "high_watermark": {"type": "integer", "minimum": 0.0},
+                    "current_cursor": {"type": "integer", "minimum": 0.0},
+                    "processed_source_count": {"type": "integer", "minimum": 0.0},
+                    "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["type", "previous_cursor", "high_watermark", "current_cursor", "processed_source_count"],
+            },
+            "ExperienceOperationResult": {
+                "properties": {
+                    "type": {"type": "string", "enum": ["experience_incubation"]},
+                    "previous_cursor": {"type": "integer", "minimum": 0.0},
+                    "high_watermark": {"type": "integer", "minimum": 0.0},
+                    "current_cursor": {"type": "integer", "minimum": 0.0},
+                    "processed_source_count": {"type": "integer", "minimum": 0.0},
+                    "candidate_count": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "type",
+                    "previous_cursor",
+                    "high_watermark",
+                    "current_cursor",
+                    "processed_source_count",
+                    "candidate_count",
+                ],
+            },
+            "OperationError": {
+                "properties": {
+                    "category": {"type": "string", "maxLength": 64, "minLength": 1},
+                    "code": {"type": "string", "maxLength": 128, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["category", "code"],
+            },
+            "OperationRecord": {
+                "properties": {
+                    "operation_id": {"type": "string", "format": "uuid"},
+                    "kind": {"$ref": "#/components/schemas/OperationKind"},
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "status": {"$ref": "#/components/schemas/OperationStatus"},
+                    "attempt_count": {"type": "integer", "minimum": 0.0},
+                    "state_version": {"type": "integer", "minimum": 1.0},
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "updated_at": {"type": "string", "format": "date-time"},
+                    "completed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "result": {
+                        "oneOf": [
+                            {"$ref": "#/components/schemas/MemoryOperationResult"},
+                            {"$ref": "#/components/schemas/ExperienceOperationResult"},
+                        ],
+                        "discriminator": {"propertyName": "type"},
+                        "nullable": True,
+                    },
+                    "error": {"$ref": "#/components/schemas/OperationError", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "operation_id",
+                    "kind",
+                    "scope_id",
+                    "status",
+                    "attempt_count",
+                    "state_version",
+                    "created_at",
+                    "updated_at",
+                ],
+            },
+            "OperationAccepted": {
+                "properties": {
+                    "operation_id": {"type": "string", "format": "uuid"},
+                    "status": {"$ref": "#/components/schemas/OperationStatus"},
+                    "status_url": {"type": "string", "pattern": "^/v1/operations/[0-9a-f-]{36}$"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["operation_id", "status", "status_url"],
+            },
+            "OperationPage": {
+                "properties": {
+                    "items": {
+                        "items": {"$ref": "#/components/schemas/OperationRecord"},
+                        "type": "array",
+                        "maxItems": 100,
+                    },
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items"],
+            },
+            "ListOperationsRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "kind": {"$ref": "#/components/schemas/OperationKind"},
+                    "status": {"$ref": "#/components/schemas/OperationStatus"},
+                    "cursor": {"type": "string", "nullable": True},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "OperationMutationRequest": {
+                "properties": {"expected_version": {"type": "integer", "minimum": 1.0}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["expected_version"],
+            },
             "SourceReference": {
                 "properties": {
                     "name": {"type": "string", "description": "Stable Source type."},
@@ -4738,6 +5045,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "Unavailable": {
                 "description": "A required Runtime binding or dependency is unavailable.",
                 "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+            },
+            "RateLimited": {
+                "description": "The shared request policy rejected this fixed-window request.",
+                "headers": {
+                    "Retry-After": {
+                        "description": "Seconds until the current shared window expires.",
+                        "schema": {"type": "integer"},
+                    },
+                    "X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"},
+                },
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },
             "InternalError": {

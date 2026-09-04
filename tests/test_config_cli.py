@@ -143,6 +143,50 @@ def test_validate_accepts_minimal_server_environment_without_inference_models(tm
         assert settings.http.port == 8888
 
 
+@pytest.mark.parametrize("role", ("api", "scheduler"))
+def test_validate_accepts_non_executing_distributed_roles_without_inference_models(
+    role: str,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase",
+            "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://root@127.0.0.1:2881/powercontext?charset=utf8mb4",
+            "POWERCONTEXT_SERVER_DEPLOYMENT_MODE=distributed",
+            f"POWERCONTEXT_SERVER_DEPLOYMENT_ROLE={role}",
+            "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60",
+            "POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS=60",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 0
+    assert "Configuration is valid" in result.output
+
+
+def test_validate_rejects_distributed_worker_without_inference_model(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_DATABASE_KIND=oceanbase",
+            "POWERCONTEXT_SERVER_DATABASE_URL=mysql+aoceanbase://root@127.0.0.1:2881/powercontext?charset=utf8mb4",
+            "POWERCONTEXT_SERVER_DEPLOYMENT_MODE=distributed",
+            "POWERCONTEXT_SERVER_DEPLOYMENT_ROLE=worker",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+
+    assert result.exit_code == 2
+    assert "built-in runtime cannot be configured" in result.output
+
+
 @pytest.mark.parametrize(
     "runtime_setting",
     (

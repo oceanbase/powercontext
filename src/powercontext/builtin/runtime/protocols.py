@@ -16,9 +16,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
-from typing import Protocol, TypeVar
+from dataclasses import dataclass
+from typing import Any, Protocol, TypeVar
 
 from powercontext.builtin.artifacts.handoff import ActivateHandoff, HandoffActivation
 from powercontext.builtin.runtime.models import (
@@ -36,6 +37,14 @@ SourcesT = TypeVar("SourcesT", covariant=True)
 ArtifactsT = TypeVar("ArtifactsT", covariant=True)
 TriggersT = TypeVar("TriggersT", covariant=True)
 TraceAttribute = str | bool | int | float
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeTraceContext:
+    """Portable non-sensitive trace identity used to link background attempts."""
+
+    trace_id: str
+    span_id: str
 
 
 class RuntimeSpan(Protocol):
@@ -62,7 +71,15 @@ class RuntimeTracing(Protocol):
         *,
         operation: str,
         attributes: Mapping[str, TraceAttribute],
+        links: Sequence[RuntimeTraceContext] = (),
     ) -> AbstractContextManager[RuntimeSpan]: ...
+
+
+def runtime_trace_context(span: RuntimeSpan | None) -> RuntimeTraceContext | None:
+    """Read an optional concrete tracing context without expanding the port."""
+
+    value: Any = getattr(span, "trace_context", None)
+    return value if isinstance(value, RuntimeTraceContext) else None
 
 
 class PowerContextProvider(Protocol[SourcesT, ArtifactsT, TriggersT]):

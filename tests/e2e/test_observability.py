@@ -51,6 +51,7 @@ from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, RememberMemoryRequest, open_builtin_runtime
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.work_handlers import EXPERIENCE_WORK_KIND, MEMORY_WORK_KIND
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import RevisionConflictError
 from powercontext.server.factory import create_server_app
@@ -134,6 +135,22 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.operation.outcome",
         "powercontext.background.source_count",
         "powercontext.background.candidate_count",
+    },
+    "work.commit": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.work.kind",
+        "powercontext.work.payload_version",
+    },
+    "work.execute": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.work.kind",
+        "powercontext.work.payload_version",
+        "powercontext.work.attempt",
+        "powercontext.work.recovery_generation",
     },
 }
 
@@ -381,21 +398,24 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
 
     transport = next(span for span in instrumented if span.name == "HTTP flush_memory")
     application = next(span for span in instrumented if span.name == "powercontext flush_memory")
-    flush_stage = next(span for span in instrumented if span.name == "memory.flush")
+    enqueue = _only_child(instrumented, application, "work.enqueue")
+    execute = _work_span(instrumented, "work.execute", MEMORY_WORK_KIND, outcome="succeeded")
     invoke_agent = next(span for span in instrumented if span.name == "invoke_agent memory_extraction")
     chat = next(span for span in instrumented if span.name.startswith("chat "))
+    commit = _only_child(instrumented, execute, "work.commit")
 
     assert application.parent is not None
     assert application.parent.span_id == transport.context.span_id
-    assert flush_stage.parent is not None
-    assert flush_stage.parent.span_id == application.context.span_id
+    assert enqueue.context.trace_id == application.context.trace_id
+    assert execute.parent is None
+    assert execute.context.trace_id != application.context.trace_id
     assert invoke_agent.parent is not None
-    assert invoke_agent.parent.span_id == flush_stage.context.span_id
+    assert invoke_agent.parent.span_id == execute.context.span_id
     assert chat.parent is not None
     assert chat.parent.span_id == invoke_agent.context.span_id
-    assert {span.context.trace_id for span in (transport, application, flush_stage, invoke_agent, chat)} == {
-        transport.context.trace_id
-    }
+    assert commit.context.trace_id == execute.context.trace_id
+    assert {span.context.trace_id for span in (transport, application, enqueue)} == {transport.context.trace_id}
+    assert {span.context.trace_id for span in (execute, invoke_agent, chat, commit)} == {execute.context.trace_id}
     assert not any(_is_inference_span(span) for span in uninstrumented)
 
 
@@ -666,7 +686,7 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
         (span.attributes or {})["powercontext.scope.lock.contended"] for span in spans if span.name == "scope.lock"
     ] == [False, True, False, False]
     # Every wait span succeeds, including the conflicting write's: the span closes before the critical section runs.
-    for span in spans:
+    for span in (span for span in spans if span.name == "scope.lock"):
         assert (span.attributes or {}).get("powercontext.operation.outcome") == "success"
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
         assert allowed_keys is None or (span.attributes or {}).keys() <= allowed_keys
@@ -736,12 +756,10 @@ def test_scheduled_source_window_starts_an_independent_trace_root(tmp_path) -> N
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
         )
         assert captured.status_code == 202
-        root = _wait_for_named_span(exporter, "scheduled.process_source_window", outcome="success")
+        root = _wait_for_work_span(exporter, MEMORY_WORK_KIND)
         spans = list(exporter.get_finished_spans())
-        flush = _only_child(spans, root, "memory.flush")
-        _assert_scheduled_background_trace(root, flush, spans, scope_id=scope_id, content=content)
-        assert (root.attributes or {})["powercontext.background.source_count"] == 1
-        assert (flush.attributes or {})["powercontext.memory.flush.source_count"] == 1
+        commit = _only_child(spans, root, "work.commit")
+        _assert_scheduled_background_trace(root, commit, spans, scope_id=scope_id, content=content)
 
 
 def test_scheduled_experience_starts_an_independent_trace_root(tmp_path) -> None:
@@ -767,14 +785,10 @@ def test_scheduled_experience_starts_an_independent_trace_root(tmp_path) -> None
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
         )
         assert captured.status_code == 202
-        root = _wait_for_named_span(exporter, "scheduled.incubate_experience_candidates", outcome="success")
+        root = _wait_for_work_span(exporter, EXPERIENCE_WORK_KIND)
         spans = list(exporter.get_finished_spans())
-        incubation = _only_child(spans, root, "experience.incubation")
-        _assert_scheduled_background_trace(root, incubation, spans, scope_id=scope_id, content=content)
-        assert (root.attributes or {})["powercontext.background.source_count"] == 1
-        assert (root.attributes or {})["powercontext.background.candidate_count"] == 0
-        assert (incubation.attributes or {})["powercontext.experience.incubation.source_count"] == 1
-        assert (incubation.attributes or {})["powercontext.experience.incubation.candidate_count"] == 0
+        commit = _only_child(spans, root, "work.commit")
+        _assert_scheduled_background_trace(root, commit, spans, scope_id=scope_id, content=content)
 
 
 def test_vector_search_exports_embedding_under_memory_search_without_recording_text(monkeypatch, tmp_path) -> None:
@@ -873,9 +887,15 @@ def test_injected_always_on_embedding_skips_readiness_but_traces_vector_search(m
         tracing=tracing,
     )
     with TestClient(app) as client:
+        exporter.clear()
         readiness = client.get("/health/ready")
         readiness_spans = list(exporter.get_finished_spans())
-        assert not [span for span in readiness_spans if span.parent is None]
+        root_span_names = [
+            span.name
+            for span in readiness_spans
+            if span.parent is None and (span.attributes or {}).get("powercontext.operation.unit") != "background"
+        ]
+        assert not root_span_names, root_span_names
         assert not any(_is_inference_span(span) for span in readiness_spans)
 
         scope_id = _get_default_scope_id(client)
@@ -974,6 +994,32 @@ def _wait_for_named_span(
     raise AssertionError(f"{name} span was not exported")  # noqa: TRY003
 
 
+def _wait_for_work_span(
+    exporter: InMemorySpanExporter,
+    kind: str,
+    *,
+    timeout: float = 3,
+) -> ReadableSpan:
+    deadline = monotonic() + timeout
+    while monotonic() < deadline:
+        spans = list(exporter.get_finished_spans())
+        try:
+            return _work_span(spans, "work.execute", kind, outcome="succeeded")
+        except StopIteration:
+            sleep(0.02)
+    raise AssertionError(f"work.execute span for {kind} was not exported")  # noqa: TRY003
+
+
+def _work_span(spans: list[ReadableSpan], name: str, kind: str, *, outcome: str) -> ReadableSpan:
+    return next(
+        span
+        for span in spans
+        if span.name == name
+        and (span.attributes or {}).get("powercontext.work.kind") == kind
+        and (span.attributes or {}).get("powercontext.operation.outcome") == outcome
+    )
+
+
 def _assert_stage_attribute_keys(span: ReadableSpan) -> None:
     allowed_keys = _STAGE_ATTRIBUTE_KEYS[span.name]
     attributes = dict(span.attributes or {})
@@ -992,7 +1038,7 @@ def _assert_scheduled_background_trace(
     assert root.parent is None
     assert stage.parent is not None and stage.parent.span_id == root.context.span_id
     assert (root.attributes or {})["powercontext.operation.unit"] == "background"
-    assert (root.attributes or {})["powercontext.operation.outcome"] == "success"
+    assert (root.attributes or {})["powercontext.operation.outcome"] == "succeeded"
     assert (stage.attributes or {})["powercontext.operation.unit"] == "stage"
     _assert_stage_attribute_keys(root)
     _assert_stage_attribute_keys(stage)

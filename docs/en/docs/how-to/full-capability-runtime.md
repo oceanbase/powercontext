@@ -126,13 +126,23 @@ evidence. Scheduled processing handles new Sources within the configured interva
 
 ## Data and restart behavior
 
-With no database override, SQLite stores `powercontext.db` and `scheduler.db` under the user data directory:
+The generated configuration leaves the database unset, so the Server stores data in the user data directory instead of
+a project-local file. With `POWERCONTEXT_HOME` unset, SQLite keeps `powercontext.db`, including durable scheduling and
+operation state, under:
 
-- Linux: `$XDG_DATA_HOME/powercontext`, or `~/.local/share/powercontext`;
-- macOS: `~/Library/Application Support/powercontext`.
+- macOS: `~/Library/Application Support/powercontext/`
+- Linux: `~/.local/share/powercontext/`
 
-Press `Ctrl+C` to stop the Server. Restart it with the same `.env` and data directory. The default Scope and its opaque
-ID remain stable because they are persisted in the database.
+Set `POWERCONTEXT_HOME` before starting the Server to relocate all of this. Changing the database URL later points the
+Server at a different (possibly empty) database; keep the previous value if you need the old data.
+
+## Stop and restart
+
+Press `Ctrl+C` in the Server terminal to stop it. Data persists in SQLite across restarts. To resume, load the same
+`.env` and run `powercontext server run --env-file .env` again; pending Sources are processed on the next Scheduler run
+or flush. The default Scope and its opaque ID also remain stable because they are persisted in the same database.
+
+## Quick troubleshooting
 
 | Symptom | Action |
 | --- | --- |

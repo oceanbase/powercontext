@@ -22,6 +22,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKeyConstraint,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -30,7 +31,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import MEDIUMBLOB, MEDIUMTEXT, VARCHAR
+from sqlalchemy.dialects.mysql import DATETIME, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
@@ -83,6 +84,12 @@ def _canonical_payload_type():
 
 def _entry_text_type():
     return Text().with_variant(MEDIUMTEXT(), "mysql")
+
+
+def _coordination_timestamp_type():
+    """Preserve the microsecond precision used by database-time leases."""
+
+    return DateTime(timezone=False).with_variant(DATETIME(fsp=6), "mysql")
 
 
 SCOPES_TABLE = Table(
@@ -641,6 +648,163 @@ SHARED_TABLES = (
 )
 
 
+WORK_LANES_TABLE = Table(
+    "pc_work_lanes",
+    SHARED_METADATA,
+    Column("lane_key", identity_string(64), primary_key=True),
+    Column("head_sequence", BigInteger),
+    Column("next_sequence", BigInteger, nullable=False),
+    CheckConstraint("head_sequence IS NULL OR head_sequence > 0", name="ck_pc_work_lanes_head_positive"),
+    CheckConstraint("next_sequence > 0", name="ck_pc_work_lanes_next_positive"),
+)
+
+WORK_ITEMS_TABLE = Table(
+    "pc_work_items",
+    SHARED_METADATA,
+    Column("work_id", identity_string(36), primary_key=True),
+    Column("logical_key", identity_string(64), nullable=False),
+    Column("lane_key", identity_string(64), nullable=False),
+    Column("lane_sequence", BigInteger, nullable=False),
+    Column("kind", identity_string(128), nullable=False),
+    Column("payload_version", Integer, nullable=False),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("payload", _canonical_payload_type(), nullable=False),
+    Column("status", identity_string(16), nullable=False),
+    Column("available_at", _coordination_timestamp_type(), nullable=False),
+    Column("lease_owner", identity_string(128)),
+    Column("lease_fence", BigInteger, nullable=False),
+    Column("lease_expires_at", _coordination_timestamp_type()),
+    Column("attempt_count", Integer, nullable=False),
+    Column("generation_attempt_count", Integer, nullable=False),
+    Column("recovery_generation", Integer, nullable=False),
+    Column("max_attempts", Integer, nullable=False),
+    Column("cancel_requested", Boolean, nullable=False),
+    Column("result_code", identity_string(128)),
+    Column("result_payload", _canonical_payload_type()),
+    Column("error_category", identity_string(64)),
+    Column("error_code", identity_string(128)),
+    Column("state_version", BigInteger, nullable=False),
+    Column("created_at", _coordination_timestamp_type(), nullable=False),
+    Column("updated_at", _coordination_timestamp_type(), nullable=False),
+    Column("completed_at", _coordination_timestamp_type()),
+    UniqueConstraint("lane_key", "lane_sequence", name="uq_pc_work_items_lane_sequence"),
+    CheckConstraint(
+        "status IN ('queued', 'running', 'retry_wait', 'cancelling', 'succeeded', 'failed', 'cancelled')",
+        name="ck_pc_work_items_status",
+    ),
+    CheckConstraint("lane_sequence > 0", name="ck_pc_work_items_lane_sequence_positive"),
+    CheckConstraint("payload_version > 0", name="ck_pc_work_items_payload_version_positive"),
+    CheckConstraint("lease_fence >= 0", name="ck_pc_work_items_fence_nonnegative"),
+    CheckConstraint("attempt_count >= 0", name="ck_pc_work_items_attempts_nonnegative"),
+    CheckConstraint("generation_attempt_count >= 0", name="ck_pc_work_items_generation_attempts_nonnegative"),
+    CheckConstraint("recovery_generation >= 0", name="ck_pc_work_items_recovery_nonnegative"),
+    CheckConstraint("max_attempts > 0", name="ck_pc_work_items_max_attempts_positive"),
+    CheckConstraint("state_version > 0", name="ck_pc_work_items_state_version_positive"),
+)
+Index("ix_pc_work_items_claim", WORK_ITEMS_TABLE.c.status, WORK_ITEMS_TABLE.c.available_at)
+Index("ix_pc_work_items_lane_status", WORK_ITEMS_TABLE.c.lane_key, WORK_ITEMS_TABLE.c.status)
+Index("ix_pc_work_items_completed", WORK_ITEMS_TABLE.c.completed_at)
+Index("ix_pc_work_items_scope_created", WORK_ITEMS_TABLE.c.scope_id, WORK_ITEMS_TABLE.c.created_at)
+
+WORK_KEYS_TABLE = Table(
+    "pc_work_keys",
+    SHARED_METADATA,
+    Column("logical_key", identity_string(64), primary_key=True),
+    Column("work_id", identity_string(36), nullable=False, unique=True),
+    Column("lane_key", identity_string(64), nullable=False),
+    Column("created_at", _coordination_timestamp_type(), nullable=False),
+)
+
+WORK_ATTEMPTS_TABLE = Table(
+    "pc_work_attempts",
+    SHARED_METADATA,
+    Column("work_id", identity_string(36), primary_key=True),
+    Column("attempt_no", Integer, primary_key=True),
+    Column("recovery_generation", Integer, nullable=False),
+    Column("owner_id", identity_string(128), nullable=False),
+    Column("fence", BigInteger, nullable=False),
+    Column("started_at", _coordination_timestamp_type(), nullable=False),
+    Column("heartbeat_at", _coordination_timestamp_type(), nullable=False),
+    Column("finished_at", _coordination_timestamp_type()),
+    Column("outcome", identity_string(32)),
+    Column("error_category", identity_string(64)),
+    Column("error_code", identity_string(128)),
+    Column("trace_id", identity_string(32)),
+    Column("span_id", identity_string(16)),
+    CheckConstraint("attempt_no > 0", name="ck_pc_work_attempts_attempt_positive"),
+    CheckConstraint("recovery_generation >= 0", name="ck_pc_work_attempts_recovery_nonnegative"),
+    CheckConstraint("fence > 0", name="ck_pc_work_attempts_fence_positive"),
+)
+Index("ix_pc_work_attempts_finished", WORK_ATTEMPTS_TABLE.c.finished_at)
+
+WORK_TABLES = (
+    WORK_LANES_TABLE,
+    WORK_ITEMS_TABLE,
+    WORK_KEYS_TABLE,
+    WORK_ATTEMPTS_TABLE,
+)
+
+SCHEDULER_LEASES_TABLE = Table(
+    "pc_scheduler_leases",
+    SHARED_METADATA,
+    Column("lease_name", identity_string(64), primary_key=True),
+    Column("owner_id", identity_string(128)),
+    Column("fence", BigInteger, nullable=False),
+    Column("lease_expires_at", _coordination_timestamp_type()),
+    Column("updated_at", _coordination_timestamp_type(), nullable=False),
+    CheckConstraint("fence >= 0", name="ck_pc_scheduler_leases_fence_nonnegative"),
+)
+
+SCHEDULER_SCANS_TABLE = Table(
+    "pc_scheduler_scans",
+    SHARED_METADATA,
+    Column("discoverer", identity_string(128), primary_key=True),
+    Column("next_run_at", _coordination_timestamp_type(), nullable=False),
+    Column("continuation", identity_string(MAX_SCOPE_ID_LENGTH)),
+    Column("state_version", BigInteger, nullable=False),
+    Column("updated_at", _coordination_timestamp_type(), nullable=False),
+    CheckConstraint("state_version > 0", name="ck_pc_scheduler_scans_version_positive"),
+)
+
+RUNTIME_MEMBERS_TABLE = Table(
+    "pc_runtime_members",
+    SHARED_METADATA,
+    Column("member_id", identity_string(128), primary_key=True),
+    Column("role", identity_string(16), nullable=False),
+    Column("build_version", identity_string(64), nullable=False),
+    Column("schema_min", Integer, nullable=False),
+    Column("schema_max", Integer, nullable=False),
+    Column("payload_min", Integer, nullable=False),
+    Column("payload_max", Integer, nullable=False),
+    Column("behavior_revision", identity_string(128), nullable=False),
+    Column("heartbeat_at", _coordination_timestamp_type(), nullable=False),
+    Column("expires_at", _coordination_timestamp_type(), nullable=False),
+    CheckConstraint("role IN ('all', 'api', 'scheduler', 'worker')", name="ck_pc_runtime_members_role"),
+    CheckConstraint("schema_min > 0 AND schema_max >= schema_min", name="ck_pc_runtime_members_schema_range"),
+    CheckConstraint("payload_min > 0 AND payload_max >= payload_min", name="ck_pc_runtime_members_payload_range"),
+)
+Index("ix_pc_runtime_members_role_expiry", RUNTIME_MEMBERS_TABLE.c.role, RUNTIME_MEMBERS_TABLE.c.expires_at)
+
+RATE_LIMIT_WINDOWS_TABLE = Table(
+    "pc_rate_limit_windows",
+    SHARED_METADATA,
+    Column("principal_key", identity_string(64), primary_key=True),
+    Column("policy_id", identity_string(64), primary_key=True),
+    Column("window_started_at", _coordination_timestamp_type(), primary_key=True),
+    Column("request_count", BigInteger, nullable=False),
+    Column("expires_at", _coordination_timestamp_type(), nullable=False),
+    CheckConstraint("request_count > 0", name="ck_pc_rate_limit_windows_count_positive"),
+)
+Index("ix_pc_rate_limit_windows_expiry", RATE_LIMIT_WINDOWS_TABLE.c.expires_at)
+
+COORDINATION_TABLES = (
+    SCHEDULER_LEASES_TABLE,
+    SCHEDULER_SCANS_TABLE,
+    RUNTIME_MEMBERS_TABLE,
+    RATE_LIMIT_WINDOWS_TABLE,
+)
+
+
 MAX_MEMORY_ENTRY_ID_LENGTH = 128
 MAX_MEMORY_ENTRY_KIND_LENGTH = 128
 MAX_MEMORY_HASH_LENGTH = 64
@@ -732,4 +896,4 @@ MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
-BUILTIN_TABLES = SCOPE_TABLES + SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES
+BUILTIN_TABLES = SCOPE_TABLES + SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES + WORK_TABLES + COORDINATION_TABLES

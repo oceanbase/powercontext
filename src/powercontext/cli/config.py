@@ -514,19 +514,8 @@ def _validate_builtin_runtime(values: Mapping[str, str]) -> None:
         try:
             settings = _server_settings_from_environment()
             from powercontext.builtin.runtime.composition import preflight_builtin_runtime
-            from powercontext.builtin.runtime.config import BuiltinConfig
 
-            asyncio.run(
-                preflight_builtin_runtime(
-                    BuiltinConfig(
-                        runtime=settings.runtime,
-                        database=settings.database,
-                        handoff_report=settings.handoff_report,
-                        inference=settings.inference,
-                        external_skills=settings.external_skills,
-                    )
-                )
-            )
+            asyncio.run(preflight_builtin_runtime(settings.to_builtin_config()))
         except ConfigError:
             raise
         except Exception as error:

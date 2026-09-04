@@ -565,6 +565,34 @@ const OPERATIONS = {
 		scopeMode: "selection",
 		pathParameters: []
 	},
+	list_operations: {
+		method: "GET",
+		path: "/v1/operations",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: []
+	},
+	get_operation: {
+		method: "GET",
+		path: "/v1/operations/{operation_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["operation_id"]
+	},
+	cancel_operation: {
+		method: "POST",
+		path: "/v1/operations/{operation_id}/cancel",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["operation_id"]
+	},
+	retry_operation: {
+		method: "POST",
+		path: "/v1/operations/{operation_id}/retry",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["operation_id"]
+	},
 	get_handoff_report: {
 		method: "POST",
 		path: "/v1/handoff-reports/get",

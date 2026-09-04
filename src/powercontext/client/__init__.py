@@ -15,7 +15,14 @@
 """Python Client SDK package for the public PowerContext HTTP API."""
 
 from powercontext.client.client import PowerContextClient
-from powercontext.client.errors import ClientError, InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.errors import (
+    ClientError,
+    InvalidResponseError,
+    OperationFailedError,
+    OperationPendingError,
+    ServerResponseError,
+    TransportError,
+)
 from powercontext.client.ingestion import RemoteConnectorWorker
 from powercontext.client.skill_receiver import (
     RECEIVER_VERSION,
@@ -32,6 +39,8 @@ __all__ = [
     "RECEIVER_VERSION",
     "ClientError",
     "InvalidResponseError",
+    "OperationFailedError",
+    "OperationPendingError",
     "PowerContextClient",
     "ReceiverSyncResult",
     "RemoteConnectorWorker",

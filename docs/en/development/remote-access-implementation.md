@@ -76,8 +76,9 @@ and OceanBase uses HNSW for `vector` and `hybrid` searches.
 Inference configuration is documented in [Configure Pydantic AI inference](pydantic-ai-inference.md).
 
 Set `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` to process pending Source windows on a persisted interval. Scheduled
-jobs use the SQLite sidecar at `POWERCONTEXT_HOME/scheduler.db`. Scheduling works with either application database and
-requires a configured generation pipeline.
+discovery and execution use the primary database Work Ledger. In `single_node/all` mode the embedded Scheduler and
+Worker share that ledger; distributed OceanBase deployments run them as separate roles. A generation pipeline is
+required by the Worker.
 
 ## HTTP surface
 
@@ -90,6 +91,7 @@ The source contract is `openapi/powercontext.yaml`. Generated Pydantic models an
 | Capabilities | source types, Artifact families, extraction, search modes |
 | Sources | capture durable content evidence |
 | Memory | flush pending Sources, remember explicit entries, search |
+| Operations | inspect, list, cancel, and retry durable background work |
 | Memory entries | list, get, revise, retire |
 | History | list Memory changes |
 

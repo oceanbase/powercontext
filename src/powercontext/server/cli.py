@@ -16,12 +16,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import typer
 from pydantic import ValidationError
 
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.persistence.migration import SchemaMigrationError
+from powercontext.builtin.runtime.composition import migrate_builtin_database
+from powercontext.builtin.runtime.config import InferenceConfig
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
@@ -84,6 +89,48 @@ def run(
         hint = "Invalid value for --env-file" if env_file is not None else "Invalid Server configuration"
         typer.echo(f"{hint}: {error}", err=True)
         raise typer.Exit(code=2) from error
+
+
+@app.command()
+def migrate(
+    env_file: Annotated[
+        Path | None,
+        typer.Option(help="Load Server and database settings from this environment file."),
+    ] = None,
+) -> None:
+    """Upgrade the configured database through the forward-only schema chain."""
+
+    try:
+        with server_settings_context(env_file=env_file) as settings:
+            revision = asyncio.run(_migrate_configured_database(settings))
+    except ServerConfigurationError as error:
+        if isinstance(error.cause, ValidationError):
+            raise _friendly_bad_parameter(error.cause) from error
+        typer.echo(f"Invalid Server configuration: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    except SchemaMigrationError as error:
+        typer.echo(f"Schema migration failed: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"PowerContext database schema is at {revision}.")
+
+
+async def _migrate_configured_database(settings: ServerSettings) -> str:
+    return await migrate_builtin_database(
+        settings.to_builtin_config(),
+        embedding_profile=_configured_embedding_profile(settings.inference),
+    )
+
+
+def _configured_embedding_profile(settings: InferenceConfig) -> EmbeddingProfile | None:
+    if settings.embedding_model is None:
+        return None
+    return EmbeddingProfile(
+        profile_id=cast(str, settings.embedding_profile_id),
+        model=settings.embedding_model,
+        dimension=cast(int, settings.embedding_dimension),
+        distance="l2",
+        normalization=settings.embedding_normalization,
+    )
 
 
 def _run_configured_server(settings: ServerSettings) -> None:

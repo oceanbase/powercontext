@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shlex
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -330,7 +331,7 @@ def test_server_settings_reject_custom_embedded_seekdb_database(tmp_path, monkey
         ServerSettings()
 
 
-def test_server_scheduler_uses_the_powercontext_data_directory(tmp_path, monkeypatch) -> None:
+def test_server_scheduler_uses_the_primary_work_ledger_without_a_sidecar(tmp_path, monkeypatch) -> None:
     data_dir = tmp_path / "powercontext-data"
     monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
     app = create_server_app(
@@ -342,7 +343,13 @@ def test_server_scheduler_uses_the_powercontext_data_directory(tmp_path, monkeyp
     )
 
     with TestClient(app):
-        assert (data_dir / "scheduler.db").is_file()
+        database = data_dir / "powercontext.db"
+        assert database.is_file()
+        with sqlite3.connect(database) as connection:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert "pc_scheduler_leases" in tables
+        assert "pc_work_items" in tables
+        assert not (data_dir / "scheduler.db").exists()
 
 
 def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:

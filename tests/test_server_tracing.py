@@ -27,6 +27,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import SpanKind, StatusCode
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime.protocols import RuntimeTraceContext
 from powercontext.client import PowerContextClient
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
@@ -276,6 +277,27 @@ def test_background_stage_starts_a_fresh_trace_outside_an_ambient_span() -> None
     assert attributes["powercontext.operation.unit"] == "background"
     assert attributes["powercontext.operation.outcome"] == "noop"
     assert attributes["powercontext.background.source_count"] == 0
+
+
+def test_background_stage_links_a_recovered_attempt_without_parenting_it() -> None:
+    tracing, exporter = _tracing()
+
+    with tracing.background("work.execute", operation="work.execute", attributes={}) as first:
+        context = first.trace_context
+    assert context is not None
+    with tracing.background(
+        "work.execute",
+        operation="work.execute",
+        attributes={},
+        links=(RuntimeTraceContext(trace_id=context.trace_id, span_id=context.span_id),),
+    ):
+        pass
+
+    first_span, recovered_span = exporter.get_finished_spans()
+    assert recovered_span.parent is None
+    assert len(recovered_span.links) == 1
+    assert recovered_span.links[0].context.trace_id == first_span.context.trace_id
+    assert recovered_span.links[0].context.span_id == first_span.context.span_id
 
 
 def test_background_isolates_child_spans_when_root_start_fails(monkeypatch) -> None:

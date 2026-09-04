@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from time import perf_counter
 from typing import Any
@@ -36,6 +37,7 @@ from prometheus_client import (
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from typing_extensions import override
 
+from powercontext.builtin.persistence.work import WorkQueueStatistic
 from powercontext.server.context import is_internal_bridge
 
 
@@ -88,6 +90,61 @@ class ServerMetrics:
             ("state",),
             registry=self.registry,
         )
+        self.work_enqueues = Counter(
+            "powercontext_work_enqueues_total",
+            "Durable logical work enqueue decisions.",
+            ("kind", "outcome"),
+            registry=self.registry,
+        )
+        self.work_claim_latency = Histogram(
+            "powercontext_work_claim_latency_seconds",
+            "Time from durable work creation to a Worker claim.",
+            ("kind",),
+            registry=self.registry,
+        )
+        self.work_attempts = Counter(
+            "powercontext_work_attempts_total",
+            "Completed durable work attempts.",
+            ("kind", "outcome", "error_category"),
+            registry=self.registry,
+        )
+        self.work_attempt_duration = Histogram(
+            "powercontext_work_attempt_duration_seconds",
+            "Durable work attempt execution duration.",
+            ("kind", "outcome"),
+            registry=self.registry,
+        )
+        self.work_lease_expirations = Counter(
+            "powercontext_work_lease_expirations_total",
+            "Worker leases recovered after database-time expiry.",
+            ("kind", "outcome"),
+            registry=self.registry,
+        )
+        self.scheduler_leadership_changes = Counter(
+            "powercontext_scheduler_leadership_changes_total",
+            "Scheduler leadership transitions observed by this process.",
+            ("outcome",),
+            registry=self.registry,
+        )
+        self.work_queue_depth = Gauge(
+            "powercontext_work_queue_depth",
+            "Durable non-terminal work grouped by bounded kind and state.",
+            ("kind", "status"),
+            registry=self.registry,
+        )
+        self.work_queue_oldest_age = Gauge(
+            "powercontext_work_queue_oldest_age_seconds",
+            "Age of the oldest durable work item in each bounded queue group.",
+            ("kind", "status"),
+            registry=self.registry,
+        )
+        self.runtime_role_members = Gauge(
+            "powercontext_runtime_role_members",
+            "Compatible live runtime members grouped by role.",
+            ("role",),
+            registry=self.registry,
+        )
+        self._work_queue_labels: set[tuple[str, str]] = set()
         self.set_runtime_scopes(0, 0)
 
     def start_transport(self, transport: str, operation: str) -> float:
@@ -127,6 +184,48 @@ class ServerMetrics:
         for state, value in (("active", active), ("cached", cached)):
             with suppress(Exception):
                 self.runtime_scopes.labels(state=state).set(value)
+
+    def observe_work_enqueue(self, kind: str, *, created: bool) -> None:
+        self.work_enqueues.labels(kind=kind, outcome="created" if created else "joined").inc()
+
+    def observe_work_claim(self, kind: str, *, latency_seconds: float) -> None:
+        self.work_claim_latency.labels(kind=kind).observe(max(0.0, latency_seconds))
+
+    def observe_work_attempt(
+        self,
+        kind: str,
+        *,
+        outcome: str,
+        error_category: str,
+        duration_seconds: float,
+    ) -> None:
+        self.work_attempts.labels(
+            kind=kind,
+            outcome=outcome,
+            error_category=error_category,
+        ).inc()
+        self.work_attempt_duration.labels(kind=kind, outcome=outcome).observe(max(0.0, duration_seconds))
+
+    def observe_work_lease_expiry(self, kind: str, *, outcome: str) -> None:
+        self.work_lease_expirations.labels(kind=kind, outcome=outcome).inc()
+
+    def observe_scheduler_leadership(self, *, outcome: str) -> None:
+        self.scheduler_leadership_changes.labels(outcome=outcome).inc()
+
+    def set_work_queue(self, samples: Sequence[WorkQueueStatistic]) -> None:
+        current = {(sample.kind, str(sample.status)) for sample in samples}
+        for kind, status in self._work_queue_labels - current:
+            self.work_queue_depth.labels(kind=kind, status=status).set(0)
+            self.work_queue_oldest_age.labels(kind=kind, status=status).set(0)
+        for sample in samples:
+            status = str(sample.status)
+            self.work_queue_depth.labels(kind=sample.kind, status=status).set(sample.depth)
+            self.work_queue_oldest_age.labels(kind=sample.kind, status=status).set(sample.oldest_age_seconds)
+        self._work_queue_labels = current
+
+    def set_runtime_members(self, counts: Mapping[str, int]) -> None:
+        for role in ("all", "api", "scheduler", "worker"):
+            self.runtime_role_members.labels(role=role).set(counts.get(role, 0))
 
     def render(self) -> bytes:
         return generate_latest(self.registry)

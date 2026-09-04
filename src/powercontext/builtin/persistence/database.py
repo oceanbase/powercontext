@@ -17,12 +17,61 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from datetime import UTC, datetime
+from typing import Any
 
+from sqlalchemy import Table, insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from powercontext.builtin.persistence.errors import DatabaseClosedError
+from powercontext.builtin.persistence.errors import DatabaseClosedError, InvalidStoredColumnError
+
+
+async def database_now(connection: AsyncConnection, /) -> datetime:
+    """Return normalized UTC-naive database time for coordination decisions."""
+
+    statement = "SELECT UTC_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
+    value = (await connection.exec_driver_sql(statement)).scalar_one()
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if not isinstance(value, datetime):
+        raise InvalidStoredColumnError("CURRENT_TIMESTAMP", "a datetime")
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+async def insert_if_absent(
+    connection: AsyncConnection,
+    table: Table,
+    values: Mapping[str, Any],
+    /,
+) -> bool:
+    """Insert validated values without aborting the transaction on a unique-key race.
+
+    OceanBase's async dialect deliberately leaves ``do_begin`` empty.  A
+    zero-row locking update therefore may not establish a server transaction,
+    which makes a SAVEPOINT-based insert race unsafe.  The supported SQL
+    dialects provide a conflict-tolerant insert that starts the real
+    transaction and reports whether this caller created the row.
+    """
+
+    statement = insert(table).values(**values)
+    if connection.dialect.name == "mysql":
+        result = await connection.execute(statement.prefix_with("IGNORE"))
+        return result.rowcount == 1
+    if connection.dialect.name == "sqlite":
+        result = await connection.execute(statement.prefix_with("OR IGNORE"))
+        return result.rowcount == 1
+
+    try:
+        async with connection.begin_nested():
+            await connection.execute(statement)
+    except IntegrityError:
+        return False
+    return True
 
 
 class AsyncDatabase:
@@ -32,9 +81,10 @@ class AsyncDatabase:
     object. Closing an attached database leaves the caller's engine available.
     """
 
-    def __init__(self, engine: AsyncEngine, *, owns_engine: bool) -> None:
+    def __init__(self, engine: AsyncEngine, *, owns_engine: bool, serialize_transactions: bool = False) -> None:
         self._engine = engine
         self._owns_engine = owns_engine
+        self._transaction_lock = asyncio.Lock() if serialize_transactions else None
         self._closed = False
         self._closing = False
         self._active_transactions = 0
@@ -48,10 +98,10 @@ class AsyncDatabase:
         return cls(engine, owns_engine=False)
 
     @classmethod
-    def own(cls, engine: AsyncEngine, /) -> AsyncDatabase:
+    def own(cls, engine: AsyncEngine, /, *, serialize_transactions: bool = False) -> AsyncDatabase:
         """Take disposal ownership of an already configured async engine."""
 
-        return cls(engine, owns_engine=True)
+        return cls(engine, owns_engine=True, serialize_transactions=serialize_transactions)
 
     @property
     def engine(self) -> AsyncEngine:
@@ -68,8 +118,12 @@ class AsyncDatabase:
                 raise DatabaseClosedError
             self._active_transactions += 1
         try:
-            async with self._engine.begin() as connection:
-                yield connection
+            if self._transaction_lock is None:
+                async with self._engine.begin() as connection:
+                    yield connection
+            else:
+                async with self._transaction_lock, self._engine.begin() as connection:
+                    yield connection
         finally:
             async with self._state_changed:
                 self._active_transactions -= 1

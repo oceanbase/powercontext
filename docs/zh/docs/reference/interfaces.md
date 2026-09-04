@@ -197,12 +197,12 @@ Experience Revision 仍不会进入 PreparedContext。
 ## 后台 Experience 孵化
 
 Integration 可以把已完成任务采集为 metadata 含 `"kind": "task-outcome"` 的 Content Source。启用
-Experience schedule 后，APScheduler 会扫描有上限的 Source window，并让配置好的 schema-bound pipeline
-生成可复用的 situation、action、outcome 和 lesson。每条 proposal 都引用精确 Source，并以 pending
-Experience Candidate 进入 Review Inbox。
+Experience schedule 后，持久化 Scheduler 扫描有上限的 Source window 并写入带版本任务；带 fence 的 Worker 再让
+配置好的 schema-bound pipeline 生成可复用的 situation、action、outcome 和 lesson。每条 proposal 都引用精确 Source，
+并以 pending Experience Candidate 进入 Review Inbox。
 
-Experience 孵化使用独立于 Memory extraction 的持久化 Source cursor。Candidate 写入和 cursor 推进会在同一
-事务提交；generation 或写入失败时，该 window 保留给下次重试。普通 Prompt Source 不是 Task Outcome，
+Experience 孵化使用独立于 Memory extraction 的持久化 Source cursor。Candidate 写入、cursor 推进和 Work success
+会在同一事务提交；generation 或写入失败时，该 window 保留给下次重试。普通 Prompt Source 不是 Task Outcome，
 不会进入这个 job。
 
 后台流程止于审核边界：它不会批准 Experience、把 pending 内容放入 PreparedContext、派生 managed Skill、

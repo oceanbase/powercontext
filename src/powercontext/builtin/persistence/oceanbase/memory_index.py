@@ -77,6 +77,15 @@ _OCEANBASE_VECTOR_TYPE_SQL = text(
       AND column_name = 'embedding'
     """
 )
+_OCEANBASE_VECTOR_INDEX_EXISTS_SQL = text(
+    """
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = :table_name
+      AND index_name = :index_name
+    """
+)
 _OCEANBASE_VECTOR_SEARCH_SQL = """
 SELECT
     m.memory_artifact_id,
@@ -112,6 +121,19 @@ class OceanBaseMemoryFTSIndex:
         )
         if count == 0:
             await connection.exec_driver_sql(_OCEANBASE_CREATE_FTS_SQL)
+        await self.verify(connection)
+
+    async def verify(self, connection: AsyncConnection, /) -> None:
+        """Require the migrator-provisioned FTS index without creating it."""
+
+        if connection.dialect.name != "mysql":
+            raise CapabilityNotSupportedError("oceanbase-fts")
+        count = await connection.scalar(
+            _OCEANBASE_FTS_INDEX_EXISTS_SQL,
+            {"index_name": _OCEANBASE_FTS_INDEX_NAME},
+        )
+        if count == 0:
+            raise CapabilityNotSupportedError("oceanbase-fts", "index is missing; run `powercontext server migrate`")
         probe = match(MEMORY_ENTRY_HEADS_TABLE.c.searchable_text, against="powercontext")
         await connection.execute(select(MEMORY_ENTRY_HEADS_TABLE.c.entry_version_id).where(probe).limit(1))
 
@@ -253,6 +275,28 @@ class OceanBaseMemoryVectorIndex:
                 f"OceanBase projection uses {column_type!r}; expected {expected}",
             )
         await connection.run_sync(lambda sync_connection: self._vector_index.create(sync_connection, checkfirst=True))
+
+    async def verify(self, connection: AsyncConnection, /) -> None:
+        """Require the configured vector column and index without issuing DDL."""
+
+        if connection.dialect.name != "mysql":
+            raise CapabilityNotSupportedError("oceanbase-vector")
+        column_type = await connection.scalar(
+            _OCEANBASE_VECTOR_TYPE_SQL,
+            {"table_name": _OCEANBASE_VECTOR_TABLE_NAME},
+        )
+        expected = f"VECTOR({self.profile.dimension})"
+        if str(column_type).upper() != expected:
+            raise CapabilityNotSupportedError(
+                "vector",
+                f"OceanBase projection uses {column_type!r}; expected {expected}",
+            )
+        count = await connection.scalar(
+            _OCEANBASE_VECTOR_INDEX_EXISTS_SQL,
+            {"table_name": _OCEANBASE_VECTOR_TABLE_NAME, "index_name": _OCEANBASE_VECTOR_INDEX_NAME},
+        )
+        if count == 0:
+            raise CapabilityNotSupportedError("oceanbase-vector", "index is missing; run `powercontext server migrate`")
 
     async def replace(
         self,

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from sqlalchemy import Table
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -100,6 +100,10 @@ class MemoryIndex(Protocol):
     ) -> tuple[MemoryProjection, ...]: ...
 
 
+class _SchemaVerifier(Protocol):
+    async def verify(self, connection: AsyncConnection, /) -> None: ...
+
+
 class NoMemoryIndex:
     """Truthfully expose an authoritative store without search projections."""
 
@@ -167,6 +171,12 @@ class CompositeMemoryIndex:
     async def initialize(self, connection: AsyncConnection, /) -> None:
         for index in self.indexes:
             await index.initialize(connection)
+
+    async def verify(self, connection: AsyncConnection, /) -> None:
+        """Probe an already provisioned distributed schema without issuing DDL."""
+
+        for index in self.indexes:
+            await cast(_SchemaVerifier, index).verify(connection)
 
     async def replace(
         self,

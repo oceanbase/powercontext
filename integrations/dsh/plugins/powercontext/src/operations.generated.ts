@@ -86,6 +86,10 @@ export const OPERATIONS = {
   reject_artifact_candidate: { method: 'POST', path: '/v1/artifact-candidates/reject', location: "body", scopeMode: 'current', pathParameters: [] },
   revise_artifact_candidate: { method: 'POST', path: '/v1/artifact-candidates/revise', location: "body", scopeMode: 'current', pathParameters: [] },
   get_stats: { method: 'POST', path: '/v1/stats', location: "body", scopeMode: 'selection', pathParameters: [] },
+  list_operations: { method: 'GET', path: '/v1/operations', location: "query", scopeMode: 'none', pathParameters: [] },
+  get_operation: { method: 'GET', path: '/v1/operations/{operation_id}', location: null, scopeMode: 'none', pathParameters: ['operation_id'] },
+  cancel_operation: { method: 'POST', path: '/v1/operations/{operation_id}/cancel', location: "body", scopeMode: 'none', pathParameters: ['operation_id'] },
+  retry_operation: { method: 'POST', path: '/v1/operations/{operation_id}/retry', location: "body", scopeMode: 'none', pathParameters: ['operation_id'] },
   get_handoff_report: { method: 'POST', path: '/v1/handoff-reports/get', location: "body", scopeMode: 'selection', pathParameters: [] },
 } as const
 

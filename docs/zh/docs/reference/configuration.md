@@ -28,8 +28,8 @@ export POWERCONTEXT_HOME=/srv/powercontext
 - macOS：`~/Library/Application Support/powercontext`；
 - Windows：`%LOCALAPPDATA%\\powercontext`。
 
-默认 SQLite 数据库是该目录下的 `powercontext.db`。启用定时处理时，调度状态保存在同一目录的
-`scheduler.db`。
+默认 SQLite 数据库是该目录下的 `powercontext.db`。定时处理、租约和 operation 状态使用同一个数据库；执行路径
+不再使用旧的 `scheduler.db` sidecar。
 
 ## Server
 
@@ -57,6 +57,33 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekDB 不设置 |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekDB 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_MODE` | `single_node` | `single_node` 或 `distributed` 进程拓扑 |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ROLE` | `all` | `all`、`api`、`scheduler` 或 `worker`；分布式模式禁止 `all` |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ID` | `local` | 非敏感运维实例标签；启动 owner identity 仍然唯一 |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION` | `default` | 所有副本共享的非敏感发布兼容版本 |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_LEASE_SECONDS` | `30` | 使用数据库时间的 Scheduler leader lease 时长 |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_RENEW_SECONDS` | `10` | Scheduler 续租间隔；不超过 lease 的三分之一 |
+| `POWERCONTEXT_SERVER_COORDINATION_SCAN_PAGE_SIZE` | `100` | discoverer 单页最多检查的 scope 数量 |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_TTL_SECONDS` | `30` | Runtime member 声明有效期 |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_HEARTBEAT_SECONDS` | `10` | Runtime member 心跳间隔 |
+| `POWERCONTEXT_SERVER_COORDINATION_EMIT_PAYLOAD_VERSION` | `1` | 滚动发布期间发出的 Work payload version |
+| `POWERCONTEXT_SERVER_WORKER_CONCURRENCY` | `4` | 单个 Worker 并发 attempt 上限 |
+| `POWERCONTEXT_SERVER_WORKER_LEASE_SECONDS` | `120` | Worker claim lease 时长 |
+| `POWERCONTEXT_SERVER_WORKER_HEARTBEAT_SECONDS` | `30` | Claim 心跳间隔；必须小于 lease 的三分之一 |
+| `POWERCONTEXT_SERVER_WORKER_SHUTDOWN_GRACE_SECONDS` | `90` | 最大优雅 drain 时间；必须小于 lease |
+| `POWERCONTEXT_SERVER_WORKER_MAX_ATTEMPTS` | `5` | 需要 operator 恢复前的自动 attempt 上限 |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_BASE_SECONDS` | `2` | full-jitter 指数退避基数 |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_MAX_SECONDS` | `300` | full-jitter 退避上限 |
+| `POWERCONTEXT_SERVER_WORKER_POLL_SECONDS` | `1` | 空闲 claim 轮询间隔 |
+| `POWERCONTEXT_SERVER_OPERATIONS_DEFAULT_WAIT_SECONDS` | `10` | HTTP Memory flush 默认等待时间 |
+| `POWERCONTEXT_SERVER_OPERATIONS_MAXIMUM_WAIT_SECONDS` | `30` | `Prefer: wait=N` 最大允许值 |
+| `POWERCONTEXT_SERVER_OPERATIONS_POLL_SECONDS` | `0.2` | 本地 operation 完成轮询间隔 |
+| `POWERCONTEXT_SERVER_OPERATIONS_RETENTION_DAYS` | `30` | 成功和取消的 operation 历史保留天数 |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_BATCH_SIZE` | `500` | 单次 maintenance attempt 最大清理数量 |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_INTERVAL_SECONDS` | `3600` | 持久 maintenance discovery 间隔 |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_ENABLED` | `false` | 启用数据库共享固定窗口限流 |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_REQUESTS` | `120` | 每个 principal/policy 窗口允许的请求数 |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_WINDOW_SECONDS` | `60` | 共享限流窗口时长 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
@@ -190,12 +217,24 @@ fork/evolution。External Skill 精确导入和完整 package 上传不使用模
 bytes，再创建 package digest 完全相同的 pending Candidate。未配置模型时，语义生成会在持久化 Candidate 前返回
 capability error；Review、package 检查与下载、精确导入、usage recording 和 external Skill scan/list/resolve 仍可使用。
 
-Experience 孵化使用独立的 APScheduler job 和持久化 Source cursor。每次 activation 固定检查最多 32 条 Source，并且只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
-暴露给模型。该 job 会在 Review Inbox 中创建 pending Experience Candidate；它不会自动批准、进入
+Experience 孵化使用独立的持久 Work handler 和 Source cursor。每次 activation 固定检查最多 32 条 Source，并且只把
+metadata 包含 `"kind": "task-outcome"` 的 Content Source 暴露给模型。该 handler 会在 Review Inbox 中创建 pending
+Experience Candidate；它不会自动批准、进入
 PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行任何内容。Memory 和 Experience job 共用
-`POWERCONTEXT_HOME` 下的 APScheduler sidecar，但拥有独立的 job identity 和业务 cursor；取消其中一个 interval
-只会移除对应 job。
+数据库 Work Ledger，但拥有独立 lane、logical key 和业务 cursor；取消其中一个 interval 只会关闭对应 discoverer，
+已经入队的 operation 仍可查询。
 设置与验证步骤见[创建并审核 Experience](../how-to/create-and-review-experience.md)。
+
+### 分布式角色与迁移
+
+分布式模式要求 OceanBase。启动任何角色前，先使用有 DDL 权限的账号执行
+`powercontext server migrate --env-file ...`；角色进程不会创建或修改 schema。升级顺序固定为 migrate、Worker、
+Scheduler、API。当一次发布改变了不能混部的非敏感行为时，应为所有新副本设置新的
+`POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION`。
+
+Scheduler 或 Worker member 缺失时，API 仍可接受持久任务和读取请求，但 readiness 会是 `degraded` 并标出缺失角色。
+Scheduler 与 Worker 角色只暴露 health 和 metrics。分布式 MCP 为 stateless，不需要负载均衡粘性。由于不同副本可能
+返回不同结果，分布式模式会拒绝 host-local External Skill target。
 
 ### Agent Skill 目标
 

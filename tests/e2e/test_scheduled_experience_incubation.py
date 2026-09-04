@@ -53,14 +53,13 @@ class _TaskOutcomePipeline:
         )
 
 
-def _app(database: Path, scheduler: Path):
+def _app(database: Path):
     return create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
             runtime=RuntimeConfig(experience_schedule_seconds=0.02),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=scheduler,
         experience_pipeline=_TaskOutcomePipeline(),
     )
 
@@ -83,8 +82,7 @@ async def _pending_experience(client: PowerContextClient, scope_id: str):
 def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_path: Path) -> None:
     async def scenario() -> None:
         database = tmp_path / "powercontext.db"
-        scheduler = tmp_path / "scheduler.db"
-        app = _app(database, scheduler)
+        app = _app(database)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -115,7 +113,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
             assert candidates[0].result_artifact is None
             assert prepared.status == "empty"
 
-        restored = _app(database, scheduler)
+        restored = _app(database)
         async with (
             restored.router.lifespan_context(restored),
             httpx.AsyncClient(

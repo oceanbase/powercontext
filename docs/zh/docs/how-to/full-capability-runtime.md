@@ -120,12 +120,22 @@ Codex 启动后发送普通 prompt。插件从绑定 Scope 召回内容，并把
 
 ## 数据与重启
 
-没有覆盖数据库设置时，SQLite 在用户数据目录保存 `powercontext.db` 和 `scheduler.db`：
+生成的配置不指定数据库位置，因此 Server 把数据保存在用户数据目录，而不是项目内文件。在未设置
+`POWERCONTEXT_HOME` 时，SQLite 的 `powercontext.db`（包含持久调度与 operation 状态）位于：
 
-- Linux：`$XDG_DATA_HOME/powercontext`，或 `~/.local/share/powercontext`；
-- macOS：`~/Library/Application Support/powercontext`。
+- macOS：`~/Library/Application Support/powercontext/`
+- Linux：`~/.local/share/powercontext/`
 
-按 `Ctrl+C` 停止 Server。使用同一 `.env` 和数据目录重启后，默认 Scope 及其不透明 ID 保持稳定，因为它们保存在数据库中。
+如需迁移，在启动 Server 前设置 `POWERCONTEXT_HOME` 即可。之后再修改数据库 URL 会把 Server 指向另一个（可能是
+空的）数据库；需要旧数据时请保留原来的值。
+
+## 停止与恢复
+
+在 Server 终端按 `Ctrl+C` 停止进程。数据持久保存在 SQLite 中，重启不会丢失。恢复时重新加载同一个 `.env`，再次
+执行 `powercontext server run --env-file .env`；pending 的 Source 会在下一次调度或 flush 时继续处理。默认 Scope 及其
+不透明 ID 也保存在同一数据库中，因此重启后保持稳定。
+
+## 快速排障
 
 | 现象 | 处理方式 |
 | --- | --- |

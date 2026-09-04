@@ -38,8 +38,8 @@ classifiers = [
 
 [project.optional-dependencies]
 builtin = [
+    "alembic>=1.14,<2",
     "aiosqlite>=0.22,<1",
-    "apscheduler>=3.11,<4",
     "jsonschema>=4.23,<5",
     "packaging>=24,<27",
     "pydantic-ai-slim[anthropic,openai]>=2.27.1,<3",

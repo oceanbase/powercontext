@@ -18,14 +18,22 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from time import monotonic
 from types import TracebackType
-from typing import Self, TypeVar
+from typing import Any, Self, TypeVar, cast
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.errors import (
+    InvalidResponseError,
+    OperationFailedError,
+    OperationPendingError,
+    ServerResponseError,
+    TransportError,
+)
 from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
     AcknowledgeHandoffRequest,
@@ -55,6 +63,7 @@ from powercontext.http import (
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    FlushStatus,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
@@ -83,10 +92,17 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesRequest,
     ListMemoryEntriesResponse,
+    ListOperationsRequest,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
     MemoryEntry,
     MemoryMutationResponse,
+    MemoryOperationResult,
+    OperationAccepted,
+    OperationMutationRequest,
+    OperationPage,
+    OperationRecord,
+    OperationStatus,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -145,6 +161,7 @@ from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
+    CANCEL_OPERATION,
     CAPTURE_CONTENT_SOURCE,
     CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
@@ -168,6 +185,7 @@ from powercontext.http._generated.operations import (
     GET_HANDOFF_REPORT,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
+    GET_OPERATION,
     GET_READINESS,
     GET_SCOPE,
     GET_SKILL,
@@ -180,6 +198,7 @@ from powercontext.http._generated.operations import (
     LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
     LIST_MEMORY_ENTRIES,
+    LIST_OPERATIONS,
     LIST_REMOTE_SKILL_TARGETS,
     LIST_SCOPES,
     PREPARE_CONTEXT,
@@ -201,6 +220,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
+    RETRY_OPERATION,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_REMOTE_SKILL_TARGET,
@@ -232,6 +252,8 @@ class PowerContextClient:
         timeout: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
         trust_transport_security: bool = False,
+        operation_timeout: float = 30.0,
+        operation_poll_seconds: float = 0.2,
         allow_insecure_http: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
@@ -252,6 +274,12 @@ class PowerContextClient:
         if not transport_trusted and not allow_insecure_http and is_plaintext_non_loopback(self._base_url):
             raise ValueError("refusing to send requests over unencrypted non-loopback HTTP")  # noqa: TRY003
         self._headers = {"Authorization": f"Bearer {token}"} if token else None
+        if operation_timeout <= 0:
+            raise ValueError("operation_timeout must be positive")  # noqa: TRY003
+        if operation_poll_seconds <= 0:
+            raise ValueError("operation_poll_seconds must be positive")  # noqa: TRY003
+        self._operation_timeout = operation_timeout
+        self._operation_poll_seconds = operation_poll_seconds
         self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
             self._owned_http_client = httpx.AsyncClient(timeout=timeout)
@@ -392,10 +420,10 @@ class PowerContextClient:
             span.finish("failure", error=error)
             raise
         span.finish(
-            "success" if response.status_code == GET_HANDOFF_REPORT.success_status else "failure",
+            "success" if response.status_code in GET_HANDOFF_REPORT.success_statuses else "failure",
             status_code=response.status_code,
         )
-        if response.status_code != GET_HANDOFF_REPORT.success_status:
+        if response.status_code not in GET_HANDOFF_REPORT.success_statuses:
             error = _decode_error(response.content)
             raise ServerResponseError(
                 status_code=response.status_code,
@@ -457,7 +485,75 @@ class PowerContextClient:
     async def flush_memory(self, request: FlushMemoryRequest) -> FlushMemoryResponse:
         """Run one bounded Source-to-Memory activation."""
 
-        return await self._request(FLUSH_MEMORY, request)
+        deadline = monotonic() + self._operation_timeout
+        submitted = await self.submit_memory_flush(request)
+        if isinstance(submitted, FlushMemoryResponse):
+            return submitted
+        operation_id = submitted.operation_id
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise OperationPendingError(str(operation_id))
+            await asyncio.sleep(min(self._operation_poll_seconds, remaining))
+            operation = await self.get_operation(operation_id)
+            if operation.status is OperationStatus.SUCCEEDED:
+                return _flush_response_from_operation(operation)
+            if operation.status in {OperationStatus.FAILED, OperationStatus.CANCELLED}:
+                raise OperationFailedError(
+                    str(operation_id),
+                    code=None if operation.error is None else operation.error.code,
+                )
+
+    async def submit_memory_flush(
+        self,
+        request: FlushMemoryRequest,
+    ) -> FlushMemoryResponse | OperationAccepted:
+        """Submit one Memory window and return immediately when it remains pending."""
+
+        return await self._request(
+            FLUSH_MEMORY,
+            request,
+            extra_headers={"Prefer": "respond-async"},
+        )
+
+    async def get_operation(self, operation_id: str | UUID) -> OperationRecord:
+        """Read one durable operation."""
+
+        return await self._request(
+            GET_OPERATION,
+            path_parameters={"operation_id": str(UUID(str(operation_id)))},
+        )
+
+    async def list_operations(self, request: ListOperationsRequest) -> OperationPage:
+        """List a bounded page of durable operations."""
+
+        return await self._request(LIST_OPERATIONS, request)
+
+    async def cancel_operation(
+        self,
+        operation_id: str | UUID,
+        request: OperationMutationRequest,
+    ) -> OperationRecord:
+        """Cancel a queued or active operation using its state version."""
+
+        return await self._request(
+            CANCEL_OPERATION,
+            request,
+            path_parameters={"operation_id": str(UUID(str(operation_id)))},
+        )
+
+    async def retry_operation(
+        self,
+        operation_id: str | UUID,
+        request: OperationMutationRequest,
+    ) -> OperationRecord:
+        """Recover one blocked failed operation using its state version."""
+
+        return await self._request(
+            RETRY_OPERATION,
+            request,
+            path_parameters={"operation_id": str(UUID(str(operation_id)))},
+        )
 
     async def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
         """Save one explicit Memory entry without creating a Source."""
@@ -709,6 +805,7 @@ class PowerContextClient:
         request: _RequestT | None = None,
         *,
         path_parameters: Mapping[str, str] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> _ResponseT:
         operation_path = _bind_operation_path(operation, path_parameters)
         json_payload = None
@@ -727,13 +824,45 @@ class PowerContextClient:
             else:
                 json_payload = payload
 
-        span = ClientSpan.start(operation.operation_id)
+        response, request_id = await self._send(
+            method=operation.method,
+            path=operation_path,
+            operation_id=operation.operation_id,
+            json_payload=json_payload,
+            query_parameters=query_parameters,
+            extra_headers=extra_headers,
+            success_statuses=operation.success_statuses,
+        )
+
         try:
-            headers = {} if self._headers is None else dict(self._headers)
+            response_type = operation.success_response_types[response.status_code]
+            return cast(_ResponseT, TypeAdapter(response_type).validate_json(response.content))
+        except ValidationError as exc:
+            raise InvalidResponseError(
+                operation_path,
+                request_id=request_id,
+            ) from exc
+
+    async def _send(
+        self,
+        *,
+        method: str,
+        path: str,
+        operation_id: str,
+        success_statuses: tuple[int, ...],
+        json_payload: Any = None,
+        query_parameters: Any = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[httpx.Response, str | None]:
+        headers = {} if self._headers is None else dict(self._headers)
+        if extra_headers is not None:
+            headers.update(extra_headers)
+        span = ClientSpan.start(operation_id)
+        try:
             span.inject(headers)
             response = await self._http_client.request(
-                operation.method,
-                f"{self._base_url}{operation_path}",
+                method,
+                f"{self._base_url}{path}",
                 json=json_payload,
                 headers=headers,
                 params=query_parameters,
@@ -741,19 +870,16 @@ class PowerContextClient:
         except asyncio.CancelledError as error:
             span.finish("cancelled", error=error)
             raise
-        except httpx.HTTPError as exc:
-            span.finish("failure", error=exc)
-            raise TransportError(operation_path) from exc
+        except httpx.HTTPError as error:
+            span.finish("failure", error=error)
+            raise TransportError(path) from error
         except BaseException as error:
             span.finish("failure", error=error)
             raise
-        span.finish(
-            "success" if response.status_code == operation.success_status else "failure",
-            status_code=response.status_code,
-        )
-
+        success = response.status_code in success_statuses
+        span.finish("success" if success else "failure", status_code=response.status_code)
         request_id = response.headers.get(REQUEST_ID_HEADER)
-        if response.status_code != operation.success_status:
+        if not success:
             error = _decode_error(response.content)
             raise ServerResponseError(
                 status_code=response.status_code,
@@ -762,14 +888,7 @@ class PowerContextClient:
                 message=None if error is None else error.error.message,
                 details=None if error is None else error.error.details,
             )
-
-        try:
-            return TypeAdapter(operation.response_type).validate_json(response.content)
-        except ValidationError as exc:
-            raise InvalidResponseError(
-                operation_path,
-                request_id=request_id,
-            ) from exc
+        return response, request_id
 
 
 def _bind_operation_path(
@@ -804,3 +923,18 @@ def _decode_error(content: bytes) -> ErrorResponse | None:
         return ErrorResponse.model_validate_json(content)
     except ValidationError:
         return None
+
+
+def _flush_response_from_operation(operation: OperationRecord) -> FlushMemoryResponse:
+    result = operation.result
+    if not isinstance(result, MemoryOperationResult):
+        raise InvalidResponseError(GET_OPERATION.path, request_id=None)
+    flush_status = FlushStatus.PROCESSED if result.current_cursor > result.previous_cursor else FlushStatus.IDLE
+    return FlushMemoryResponse(
+        status=flush_status,
+        previous_cursor=result.previous_cursor,
+        current_cursor=result.current_cursor,
+        high_watermark=result.high_watermark,
+        processed_source_count=result.processed_source_count,
+        memory=result.memory,
+    )

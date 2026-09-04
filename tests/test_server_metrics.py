@@ -26,9 +26,11 @@ from fastmcp.client.transports import StreamableHttpTransport
 from prometheus_client.parser import text_string_to_metric_families
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.work import WorkQueueStatistic, WorkStatus
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
+from powercontext.server.metrics import ServerMetrics
 from powercontext.server.settings import (
     McpConfig,
     MetricsConfig,
@@ -198,3 +200,34 @@ def test_metrics_failure_does_not_change_application_behavior() -> None:
     response = TestClient(create_app(metrics=metrics)).get("/v1/capabilities")
 
     assert response.status_code == 200
+
+
+def test_work_metrics_use_only_bounded_kind_status_and_outcome_labels() -> None:
+    metrics = ServerMetrics()
+    metrics.observe_work_enqueue("powercontext.memory.source-window", created=True)
+    metrics.observe_work_claim("powercontext.memory.source-window", latency_seconds=0.5)
+    metrics.observe_work_attempt(
+        "powercontext.memory.source-window",
+        outcome="retry_wait",
+        error_category="provider",
+        duration_seconds=1.25,
+    )
+    metrics.observe_work_lease_expiry("powercontext.memory.source-window", outcome="retry_wait")
+    metrics.observe_scheduler_leadership(outcome="acquired")
+    metrics.set_work_queue((
+        WorkQueueStatistic(
+            kind="powercontext.memory.source-window",
+            status=WorkStatus.QUEUED,
+            depth=2,
+            oldest_age_seconds=3.5,
+        ),
+    ))
+    metrics.set_runtime_members({"api": 2, "worker": 3})
+
+    rendered = metrics.render().decode()
+    assert 'powercontext_work_queue_depth{kind="powercontext.memory.source-window",status="queued"} 2.0' in rendered
+    assert 'powercontext_runtime_role_members{role="api"} 2.0' in rendered
+    assert 'powercontext_runtime_role_members{role="worker"} 3.0' in rendered
+    assert "scope_id" not in rendered
+    assert "work_id" not in rendered
+    assert "principal" not in rendered

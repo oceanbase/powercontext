@@ -32,6 +32,7 @@ from powercontext.http import (
     CreateWorkContractRequest,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
+    FlushMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
@@ -46,6 +47,7 @@ from powercontext.http import (
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListMemoryEntriesRequest,
+    OperationAccepted,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -191,6 +193,14 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.request_type is CaptureContentSourceRequest
     assert CAPTURE_CONTENT_SOURCE.response_type is CaptureContentSourceResponse
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
+
+
+def test_flush_operation_exposes_every_declared_success_response() -> None:
+    assert FLUSH_MEMORY.success_statuses == (200, 202)
+    assert FLUSH_MEMORY.success_response_types == {
+        200: FlushMemoryResponse,
+        202: OperationAccepted,
+    }
 
 
 def test_source_observation_contract_uses_explicit_connector_scope_and_captured_values() -> None:
