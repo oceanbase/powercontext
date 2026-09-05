@@ -180,7 +180,8 @@ def test_server_settings_configure_default_project_skill_targets(tmp_path, monke
     assert all(target.allow_managed_publish for target in settings.external_skills.targets)
 
 
-def test_server_reuses_file_backed_cursor_secret_across_restarts(tmp_path) -> None:
+def test_server_reuses_file_backed_cursor_secret_across_restarts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("powercontext.server.cursor_secret.secrets.token_bytes", lambda size: b"\n" * size)
     database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
     settings = ServerSettings(
         database=database,

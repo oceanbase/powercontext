@@ -53,7 +53,9 @@ def _load_or_create(path: Path) -> bytes:
 
     generated = secrets.token_bytes(_CURSOR_SECRET_BYTES)
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        # Windows text descriptors translate LF bytes even when using os.write.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        descriptor = os.open(path, flags, 0o600)
     except FileExistsError:
         return _read(path)
     try:
