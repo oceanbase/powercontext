@@ -28,7 +28,6 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     delete,
-    func,
     insert,
     select,
     text,
@@ -38,8 +37,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.artifacts.memory.canonical import validate_embedding
-from powercontext.builtin.artifacts.search import analyze_text, fts_match_query
+from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
+from powercontext.builtin.artifacts.search import analyze_text, fts_match_query, fts_query_requirements
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryCapabilities,
     TopicMemoryCapabilityError,
@@ -57,6 +56,8 @@ from powercontext.builtin.persistence.tables import (
 )
 from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
+
+_VECTOR_OVERSAMPLE_FACTOR = 64
 
 SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE = Table(
     "pc_topic_memory_fts_index",
@@ -140,22 +141,21 @@ _INSERT_CHUNK_FTS_SQL = text(
          :title, :summary, :chunk_text, :searchable_text)
     """
 )
-_SEARCH_TOPIC_FTS_SQL = text(
-    """
+_SEARCH_TOPIC_FTS_SQL = """
     SELECT artifact_id, revision, title, summary
     FROM pc_topic_memory_topic_fts
     WHERE pc_topic_memory_topic_fts MATCH :query AND scope_id = :scope_id
+      AND ({coverage}) >= :coverage_required
     ORDER BY bm25(pc_topic_memory_topic_fts), artifact_id, revision DESC
     LIMIT :candidate_limit
     """
-)
-_SEARCH_CHUNK_FTS_SQL = text(
-    """
+_SEARCH_CHUNK_FTS_SQL = """
     WITH scored AS (
         SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text,
                bm25(pc_topic_memory_chunk_fts) AS score
         FROM pc_topic_memory_chunk_fts
         WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
+          AND ({coverage}) >= :coverage_required
     ), ranked AS (
         SELECT scored.*,
                row_number() OVER (
@@ -170,23 +170,26 @@ _SEARCH_CHUNK_FTS_SQL = text(
     ORDER BY score, artifact_id, revision DESC, chunk_ordinal
     LIMIT :candidate_limit
     """
-)
 
 _DELETE_TOPIC_VECTOR_SQL = text("DELETE FROM pc_topic_memory_topic_vec WHERE rowid = :vector_id")
 _DELETE_CHUNK_VECTOR_SQL = text("DELETE FROM pc_topic_memory_chunk_vec WHERE rowid = :vector_id")
 _INSERT_TOPIC_VECTOR_SQL = text(
-    "INSERT INTO pc_topic_memory_topic_vec (rowid, embedding) VALUES (:vector_id, :embedding)"
+    "INSERT INTO pc_topic_memory_topic_vec (rowid, scope_id, embedding) VALUES (:vector_id, :scope_id, :embedding)"
 )
 _INSERT_CHUNK_VECTOR_SQL = text(
-    "INSERT INTO pc_topic_memory_chunk_vec (rowid, embedding) VALUES (:vector_id, :embedding)"
+    "INSERT INTO pc_topic_memory_chunk_vec (rowid, scope_id, embedding) VALUES (:vector_id, :scope_id, :embedding)"
 )
-_PROBE_TOPIC_VECTOR_SQL = "SELECT rowid FROM pc_topic_memory_topic_vec WHERE embedding MATCH ? AND k = 1"
-_PROBE_CHUNK_VECTOR_SQL = "SELECT rowid FROM pc_topic_memory_chunk_vec WHERE embedding MATCH ? AND k = 1"
+_PROBE_TOPIC_VECTOR_SQL = (
+    "SELECT rowid FROM pc_topic_memory_topic_vec WHERE scope_id = ? AND embedding MATCH ? AND k = 1"
+)
+_PROBE_CHUNK_VECTOR_SQL = (
+    "SELECT rowid FROM pc_topic_memory_chunk_vec WHERE scope_id = ? AND embedding MATCH ? AND k = 1"
+)
 _TOPIC_VECTOR_SEARCH_SQL = text(
     """
     WITH nearest AS (
         SELECT rowid, distance FROM pc_topic_memory_topic_vec
-        WHERE embedding MATCH :query_vector AND k = :neighbor_limit
+        WHERE scope_id = :scope_id AND embedding MATCH :query_vector AND k = :neighbor_limit
     )
     SELECT a.artifact_id, a.revision, a.title, a.summary, nearest.distance
     FROM nearest
@@ -202,7 +205,7 @@ _CHUNK_VECTOR_SEARCH_SQL = text(
     """
     WITH nearest AS (
         SELECT rowid, distance FROM pc_topic_memory_chunk_vec
-        WHERE embedding MATCH :query_vector AND k = :neighbor_limit
+        WHERE scope_id = :scope_id AND embedding MATCH :query_vector AND k = :neighbor_limit
     ), ranked AS (
         SELECT a.artifact_id, a.revision, a.title, a.summary,
                c.chunk_ordinal, c.start_offset, c.chunk_text, nearest.distance,
@@ -311,13 +314,24 @@ class SQLiteTopicMemoryFTSIndex:
         query = fts_match_query(request.query)
         if query is None:
             return TopicMemorySearchChannels()
+        query_terms, coverage_required = fts_query_requirements(request.query)
+        coverage = " + ".join(
+            f"CASE WHEN instr(' ' || searchable_text || ' ', :coverage_term_{position}) > 0 THEN 1 ELSE 0 END"
+            for position, _term in enumerate(query_terms)
+        )
         parameters = {
             "query": query,
             "scope_id": scope_id,
             "candidate_limit": request.candidate_limit,
+            "coverage_required": coverage_required,
+            **{f"coverage_term_{position}": f" {term} " for position, term in enumerate(query_terms)},
         }
-        topic_rows = (await connection.execute(_SEARCH_TOPIC_FTS_SQL, parameters)).mappings()
-        chunk_rows = (await connection.execute(_SEARCH_CHUNK_FTS_SQL, parameters)).mappings()
+        topic_rows = (
+            await connection.execute(text(_SEARCH_TOPIC_FTS_SQL.format(coverage=coverage)), parameters)
+        ).mappings()
+        chunk_rows = (
+            await connection.execute(text(_SEARCH_CHUNK_FTS_SQL.format(coverage=coverage)), parameters)
+        ).mappings()
         return TopicMemorySearchChannels(
             topic_fts=tuple(_channel_hit(row, "topic_fts") for row in topic_rows),
             detail_fts=tuple(_channel_hit(row, "detail_fts") for row in chunk_rows),
@@ -356,7 +370,7 @@ class SQLiteTopicMemoryVectorIndex:
             for table_name in ("pc_topic_memory_topic_vec", "pc_topic_memory_chunk_vec"):
                 await connection.exec_driver_sql(
                     f"CREATE VIRTUAL TABLE IF NOT EXISTS {table_name} "
-                    f"USING vec0(embedding float[{self.profile.dimension}])"
+                    f"USING vec0(scope_id TEXT partition key, embedding float[{self.profile.dimension}])"
                 )
             probe = _pack_vector((0.0,) * self.profile.dimension)
             probes = (
@@ -375,11 +389,18 @@ class SQLiteTopicMemoryVectorIndex:
             )
             for delete_probe, insert_probe, select_probe, table_name in probes:
                 await connection.execute(delete_probe, {"vector_id": -1})
-                await connection.execute(insert_probe, {"vector_id": -1, "embedding": probe})
+                await connection.execute(
+                    insert_probe,
+                    {
+                        "vector_id": -1,
+                        "scope_id": "__powercontext_probe__",
+                        "embedding": probe,
+                    },
+                )
                 row = (
                     await connection.exec_driver_sql(
                         select_probe,
-                        (probe,),
+                        ("__powercontext_probe__", probe),
                     )
                 ).one_or_none()
                 await connection.execute(delete_probe, {"vector_id": -1})
@@ -418,8 +439,13 @@ class SQLiteTopicMemoryVectorIndex:
             _INSERT_TOPIC_VECTOR_SQL,
             {
                 "vector_id": topic_id,
+                "scope_id": scope_id,
                 "embedding": _pack_vector(
-                    validate_embedding(projection.topic_embedding, dimension=self.profile.dimension)
+                    canonical_embedding(
+                        projection.topic_embedding,
+                        dimension=self.profile.dimension,
+                        normalization=self.profile.normalization,
+                    )
                 ),
             },
         )
@@ -441,7 +467,14 @@ class SQLiteTopicMemoryVectorIndex:
                 _INSERT_CHUNK_VECTOR_SQL,
                 {
                     "vector_id": vector_id,
-                    "embedding": _pack_vector(validate_embedding(embedding, dimension=self.profile.dimension)),
+                    "scope_id": scope_id,
+                    "embedding": _pack_vector(
+                        canonical_embedding(
+                            embedding,
+                            dimension=self.profile.dimension,
+                            normalization=self.profile.normalization,
+                        )
+                    ),
                 },
             )
 
@@ -456,12 +489,12 @@ class SQLiteTopicMemoryVectorIndex:
             return TopicMemorySearchChannels()
         if request.embedding_profile != self.profile or request.query_vector is None:
             raise TopicMemoryCapabilityError("embedding-profile")
-        query_vector = _pack_vector(validate_embedding(request.query_vector, dimension=self.profile.dimension))
-        topic_total = int(
-            await connection.scalar(select(func.count()).select_from(SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE)) or 0
-        )
-        chunk_total = int(
-            await connection.scalar(select(func.count()).select_from(SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE)) or 0
+        query_vector = _pack_vector(
+            canonical_embedding(
+                request.query_vector,
+                dimension=self.profile.dimension,
+                normalization=self.profile.normalization,
+            )
         )
         parameters = {
             "query_vector": query_vector,
@@ -469,19 +502,20 @@ class SQLiteTopicMemoryVectorIndex:
             "candidate_limit": request.candidate_limit,
         }
         topic_rows = (
-            ()
-            if topic_total == 0
-            else (
-                await connection.execute(_TOPIC_VECTOR_SEARCH_SQL, {**parameters, "neighbor_limit": topic_total})
-            ).mappings()
-        )
+            await connection.execute(
+                _TOPIC_VECTOR_SEARCH_SQL,
+                {**parameters, "neighbor_limit": request.candidate_limit},
+            )
+        ).mappings()
         chunk_rows = (
-            ()
-            if chunk_total == 0
-            else (
-                await connection.execute(_CHUNK_VECTOR_SEARCH_SQL, {**parameters, "neighbor_limit": chunk_total})
-            ).mappings()
-        )
+            await connection.execute(
+                _CHUNK_VECTOR_SEARCH_SQL,
+                {
+                    **parameters,
+                    "neighbor_limit": request.candidate_limit * _VECTOR_OVERSAMPLE_FACTOR,
+                },
+            )
+        ).mappings()
         return TopicMemorySearchChannels(
             topic_vector=tuple(_channel_hit(row, "topic_vector") for row in topic_rows),
             detail_vector=tuple(_channel_hit(row, "detail_vector") for row in chunk_rows),

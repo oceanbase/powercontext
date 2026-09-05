@@ -28,9 +28,11 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
     bindparam,
+    case,
     delete,
     func,
     insert,
+    literal,
     select,
     text,
 )
@@ -39,7 +41,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.artifacts.memory.canonical import validate_embedding
+from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
+from powercontext.builtin.artifacts.search import fts_query_requirements
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryCapabilities,
     TopicMemoryCapabilityError,
@@ -56,6 +59,8 @@ from powercontext.builtin.persistence.tables import (
 )
 from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
+
+_VECTOR_OVERSAMPLE_FACTOR = 64
 
 _TOPIC_FTS_INDEX = "ix_pc_topic_memory_active_topics_fts"
 _CHUNK_FTS_INDEX = "ix_pc_topic_memory_active_chunks_fts"
@@ -98,6 +103,9 @@ WITH scored AS (
       ON c.scope_id = v.scope_id AND c.artifact_id = v.artifact_id
      AND c.revision = v.revision AND c.chunk_ordinal = v.chunk_ordinal
     WHERE v.scope_id = :scope_id
+    ORDER BY l2_distance(v.embedding, :query_vector) APPROXIMATE,
+             v.artifact_id, v.revision DESC, v.chunk_ordinal
+    LIMIT :neighbor_limit
 ), ranked AS (
     SELECT scored.*,
            row_number() OVER (
@@ -151,7 +159,13 @@ class OceanBaseTopicMemoryFTSIndex:
     ) -> TopicMemorySearchChannels:
         if request.mode not in {"fts", "hybrid"} or not request.analyzed_query:
             return TopicMemorySearchChannels()
+        query_terms, coverage_required = fts_query_requirements(request.query)
         topic_score = match(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text, against=request.analyzed_query)
+        topic_coverage = _coverage_expression(
+            TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text,
+            query_terms,
+            coverage_required,
+        )
         topic_rows = (
             await connection.execute(
                 select(
@@ -163,6 +177,7 @@ class OceanBaseTopicMemoryFTSIndex:
                 .where(
                     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id == scope_id,
                     topic_score,
+                    topic_coverage,
                 )
                 .order_by(
                     topic_score.desc(),
@@ -173,6 +188,11 @@ class OceanBaseTopicMemoryFTSIndex:
             )
         ).mappings()
         chunk_score = match(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.searchable_text, against=request.analyzed_query)
+        chunk_coverage = _coverage_expression(
+            TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.searchable_text,
+            query_terms,
+            coverage_required,
+        )
         chunk_candidates = (
             select(
                 TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id.label("artifact_id"),
@@ -203,6 +223,7 @@ class OceanBaseTopicMemoryFTSIndex:
             .where(
                 TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
                 chunk_score,
+                chunk_coverage,
             )
             .subquery()
         )
@@ -351,7 +372,11 @@ class OceanBaseTopicMemoryVectorIndex:
                 artifact_id=topic_ref.artifact_id,
                 revision=topic_ref.revision,
                 profile_fingerprint=self._fingerprint,
-                embedding=validate_embedding(projection.topic_embedding, dimension=self.profile.dimension),
+                embedding=canonical_embedding(
+                    projection.topic_embedding,
+                    dimension=self.profile.dimension,
+                    normalization=self.profile.normalization,
+                ),
             )
         )
         await connection.execute(
@@ -363,7 +388,11 @@ class OceanBaseTopicMemoryVectorIndex:
                     "revision": topic_ref.revision,
                     "chunk_ordinal": chunk.ordinal,
                     "profile_fingerprint": self._fingerprint,
-                    "embedding": validate_embedding(embedding, dimension=self.profile.dimension),
+                    "embedding": canonical_embedding(
+                        embedding,
+                        dimension=self.profile.dimension,
+                        normalization=self.profile.normalization,
+                    ),
                 }
                 for chunk, embedding in zip(projection.chunks, projection.chunk_embeddings, strict=True)
             ],
@@ -382,8 +411,13 @@ class OceanBaseTopicMemoryVectorIndex:
             raise TopicMemoryCapabilityError("embedding-profile")
         parameters = {
             "scope_id": scope_id,
-            "query_vector": validate_embedding(request.query_vector, dimension=self.profile.dimension),
+            "query_vector": canonical_embedding(
+                request.query_vector,
+                dimension=self.profile.dimension,
+                normalization=self.profile.normalization,
+            ),
             "candidate_limit": request.candidate_limit,
+            "neighbor_limit": request.candidate_limit * _VECTOR_OVERSAMPLE_FACTOR,
         }
         topic_rows = (await connection.execute(self._topic_search, parameters)).mappings()
         chunk_rows = (await connection.execute(self._chunk_search, parameters)).mappings()
@@ -436,6 +470,20 @@ class OceanBaseTopicMemoryVectorIndex:
             ).scalars()
         )
         return topic_count == 1 and bool(expected_ordinals) and stored_ordinals == expected_ordinals
+
+
+def _coverage_expression(column: Any, terms: tuple[str, ...], required: int) -> Any:
+    matches = (
+        case(
+            (
+                func.instr(func.concat(literal(" "), column, literal(" ")), f" {term} ") > 0,
+                1,
+            ),
+            else_=0,
+        )
+        for term in terms
+    )
+    return sum(matches, start=literal(0)) >= required
 
 
 def _channel_hit(row: Mapping[Any, Any], channel: TopicMemoryMatchedBy) -> TopicMemoryChannelHit:

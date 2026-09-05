@@ -20,7 +20,7 @@ import unicodedata
 from collections import Counter
 from collections.abc import Sequence
 
-from powercontext.builtin.artifacts.search import admits_fts_text, analyze_text
+from powercontext.builtin.artifacts.search import admits_fts_text, analyze_text, analyze_text_with_spans
 from powercontext.builtin.artifacts.topic_memory.models import (
     TopicMemoryChannelHit,
     TopicMemoryMatchedBy,
@@ -37,6 +37,7 @@ _CHANNEL_ORDER: tuple[TopicMemoryMatchedBy, ...] = (
     "detail_fts",
     "detail_vector",
 )
+_MAX_RRF_SCORE = len(_CHANNEL_ORDER) / (_RRF_CONSTANT + 1)
 
 
 def fuse_topic_memory_rankings(
@@ -80,7 +81,7 @@ def fuse_topic_memory_rankings(
             title=candidates[identity].title,
             summary=candidates[identity].summary,
             snippet=snippets.get(identity),
-            score=scores[identity],
+            score=min(100.0, scores[identity] / _MAX_RRF_SCORE * 100.0),
             matched_by=tuple(channel for channel in _CHANNEL_ORDER if channel in matched[identity]),
         )
         for identity in ordered
@@ -123,9 +124,10 @@ def _snippet(query: str, value: str, *, lexical: bool) -> str:
 
 
 def _lexical_focus(query: str, value: str) -> int:
-    normalized = unicodedata.normalize("NFC", value).casefold()
+    normalized, spans = _normalized_spans(value)
+    query_terms = set(analyze_text(query).split())
     occurrences = sorted(
-        occurrence for needle in _query_needles(query) for occurrence in _needle_occurrences(normalized, needle)
+        (start, end - start, term) for term, start, end in analyze_text_with_spans(normalized) if term in query_terms
     )
     if not occurrences:
         return len(value) // 2
@@ -146,29 +148,35 @@ def _lexical_focus(query: str, value: str) -> int:
         if candidate > best:
             best = candidate
             best_focus = (start + position + length) // 2
-    return best_focus
+    return sum(spans[best_focus]) // 2
 
 
-def _needle_occurrences(value: str, needle: str) -> tuple[tuple[int, int, str], ...]:
-    occurrences: list[tuple[int, int, str]] = []
+def _normalized_spans(value: str) -> tuple[str, tuple[tuple[int, int], ...]]:
+    """Map each NFC+casefold code point back to its complete source span."""
+
+    normalized = unicodedata.normalize("NFC", value).casefold()
+    parts: list[str] = []
+    spans: list[tuple[int, int]] = []
     start = 0
-    while (position := value.find(needle, start)) >= 0:
-        occurrences.append((position, len(needle), needle))
-        start = position + 1
-    return tuple(occurrences)
+    for end in range(1, len(value) + 1):
+        if end < len(value) and unicodedata.combining(value[end]):
+            continue
+        part = unicodedata.normalize("NFC", value[start:end]).casefold()
+        parts.append(part)
+        spans.extend(((start, end),) * len(part))
+        start = end
+    if "".join(parts) == normalized:
+        return normalized, tuple(spans)
 
-
-def _query_needles(query: str) -> tuple[str, ...]:
-    needles: set[str] = set()
-    for term in analyze_text(query).split():
-        if term.startswith("u_"):
-            needles.add(chr(int(term[2:], 16)))
-        elif term.startswith("b_"):
-            left, right = term[2:].split("_", maxsplit=1)
-            needles.add(f"{chr(int(left, 16))}{chr(int(right, 16))}")
-        else:
-            needles.add(term)
-    return tuple(sorted(needles, key=lambda needle: (-len(needle), needle)))
+    # NFC can compose across code points whose combining class is zero (for
+    # example Hangul Jamo). Prefix lengths provide an exact, bounded fallback.
+    prefix_lengths = tuple(len(unicodedata.normalize("NFC", value[:end]).casefold()) for end in range(len(value) + 1))
+    spans = []
+    for position in range(len(normalized)):
+        source_start = max(end for end, length in enumerate(prefix_lengths) if length <= position)
+        source_end = max(end for end, length in enumerate(prefix_lengths) if length <= position + 1)
+        spans.append((source_start, max(source_start + 1, source_end)))
+    return normalized, tuple(spans)
 
 
 __all__ = ["fuse_topic_memory_rankings"]

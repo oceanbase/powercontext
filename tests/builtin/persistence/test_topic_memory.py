@@ -15,11 +15,12 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -207,6 +208,35 @@ def test_publication_retains_exact_revisions_and_searches_only_the_current_scope
     asyncio.run(scenario())
 
 
+def test_revision_publication_records_the_exact_previous_head_in_lineage() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            first_content = _content("First", "amber")
+            second_content = _content("Second", "cobalt")
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                first = await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-1",
+                    _draft(first_content),
+                    prepare_topic_memory_projection(first_content),
+                )
+                second = await repository.publish_revision(
+                    connection,
+                    "scope-a",
+                    first.topic,
+                    _draft(second_content),
+                    prepare_topic_memory_projection(second_content),
+                )
+
+            assert second.topic.lineage.artifacts == (first.topic.as_ref(),)
+
+    asyncio.run(scenario())
+
+
 def test_current_browse_uses_stable_exclusive_keyset_order() -> None:
     async def scenario() -> None:
         index = _fts_index()
@@ -346,6 +376,55 @@ def test_detail_fts_limits_distinct_topics_after_selecting_each_best_chunk() -> 
 
             assert {hit.artifact_ref.artifact_id for hit in result.hits} == {"topic-heavy", "topic-light"}
             assert all(hit.matched_by == ("detail_fts",) for hit in result.hits)
+
+    asyncio.run(scenario())
+
+
+def test_detail_fts_applies_analyzer_coverage_before_collapsing_each_topic() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        target = TopicMemoryContent(
+            title="Target recovery",
+            summary="The qualifying evidence is in the second chunk.",
+            detail=f"{'alpha ' * 170}\n\n{'beta gamma ' * 95}",
+        )
+        assert len(prepare_topic_memory_projection(target).chunks) == 2
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-target",
+                    _draft(target),
+                    prepare_topic_memory_projection(target),
+                )
+                for position in range(12):
+                    distractor = TopicMemoryContent(
+                        title=f"Distractor {position}",
+                        summary="Common terms lower their lexical selectivity.",
+                        detail="beta gamma " * 40,
+                    )
+                    await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        f"topic-distractor-{position}",
+                        _draft(distractor),
+                        prepare_topic_memory_projection(distractor),
+                    )
+
+            async with profile.database.transaction() as connection:
+                result = await repository.search(
+                    connection,
+                    "scope-a",
+                    "alpha beta gamma delta",
+                    limit=20,
+                )
+
+            target_hit = next(hit for hit in result.hits if hit.artifact_ref.artifact_id == "topic-target")
+            assert target_hit.snippet is not None
+            assert "beta gamma" in target_hit.snippet
 
     asyncio.run(scenario())
 
@@ -681,6 +760,163 @@ def test_sqlite_vector_and_hybrid_require_complete_active_embeddings() -> None:
             with pytest.raises(TopicMemoryStorageInvariantError, match="incomplete-vector"):
                 async with profile.database.transaction() as connection:
                     await repository.initialize(connection)
+
+    asyncio.run(scenario())
+
+
+def test_unit_vector_contract_is_applied_at_publication_and_query_boundaries() -> None:
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="topic-test-v1",
+            model="test",
+            dimension=2,
+            distance="l2",
+            normalization="unit",
+        )
+        index = CompositeTopicMemoryIndex(
+            SQLiteTopicMemoryFTSIndex(),
+            SQLiteTopicMemoryVectorIndex(embedding_profile),
+        )
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(
+            SQLiteConfig(),
+            tables=BUILTIN_TABLES + index.tables,
+            load_vector_extension=True,
+        ) as profile:
+            content = _content("Normalized", "vector")
+            base = prepare_topic_memory_projection(content)
+            scaled = base.model_copy(
+                update={
+                    "topic_embedding": (3.0, 4.0),
+                    "chunk_embeddings": tuple((3.0, 4.0) for _chunk in base.chunks),
+                    "embedding_profile": embedding_profile,
+                }
+            )
+            zero = scaled.model_copy(
+                update={
+                    "topic_embedding": (0.0, 0.0),
+                    "chunk_embeddings": tuple((0.0, 0.0) for _chunk in base.chunks),
+                }
+            )
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                await repository.publish_create(connection, "scope-a", "topic-normalized", _draft(content), scaled)
+                with pytest.raises(TopicMemoryProjectionError, match="invalid embedding"):
+                    await repository.publish_create(connection, "scope-a", "topic-zero", _draft(content), zero)
+                stored = await connection.scalar(
+                    text("SELECT embedding FROM pc_topic_memory_topic_vec WHERE rowid = 1")
+                )
+                assert stored is not None
+                assert struct.unpack("<2f", stored) == pytest.approx((0.6, 0.8))
+                assert (
+                    int(
+                        await connection.scalar(
+                            select(func.count())
+                            .select_from(ARTIFACTS_TABLE)
+                            .where(ARTIFACTS_TABLE.c.artifact_id == "topic-zero")
+                        )
+                        or 0
+                    )
+                    == 0
+                )
+
+            async with profile.database.transaction() as connection:
+                result = await repository.search(
+                    connection,
+                    "scope-a",
+                    "semantic evidence",
+                    limit=10,
+                    mode="vector",
+                    query_vector=(30.0, 40.0),
+                    embedding_profile=embedding_profile,
+                )
+                with pytest.raises(TopicMemoryCapabilityError, match="embedding-vector"):
+                    await repository.search(
+                        connection,
+                        "scope-a",
+                        "semantic evidence",
+                        limit=10,
+                        mode="vector",
+                        query_vector=(0.0, 0.0),
+                        embedding_profile=embedding_profile,
+                    )
+
+            assert result.hits[0].artifact_ref.artifact_id == "topic-normalized"
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_vector_work_budget_is_partitioned_by_scope() -> None:
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="topic-test-v1",
+            model="test",
+            dimension=2,
+            distance="l2",
+            normalization="unit",
+        )
+        index = CompositeTopicMemoryIndex(
+            SQLiteTopicMemoryFTSIndex(),
+            SQLiteTopicMemoryVectorIndex(embedding_profile),
+        )
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(
+            SQLiteConfig(),
+            tables=BUILTIN_TABLES + index.tables,
+            load_vector_extension=True,
+        ) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                schema = await connection.scalar(
+                    text("SELECT sql FROM sqlite_master WHERE name = 'pc_topic_memory_topic_vec'")
+                )
+                assert "scope_id TEXT partition key" in str(schema)
+                local_content = _content("Local", "local")
+                local_base = prepare_topic_memory_projection(local_content)
+                local_projection = local_base.model_copy(
+                    update={
+                        "topic_embedding": (0.8, 0.6),
+                        "chunk_embeddings": tuple((0.8, 0.6) for _chunk in local_base.chunks),
+                        "embedding_profile": embedding_profile,
+                    }
+                )
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-local",
+                    _draft(local_content),
+                    local_projection,
+                )
+                for position in range(12):
+                    foreign_content = _content(f"Foreign {position}", "foreign")
+                    foreign_base = prepare_topic_memory_projection(foreign_content)
+                    foreign_projection = foreign_base.model_copy(
+                        update={
+                            "topic_embedding": (1.0, 0.0),
+                            "chunk_embeddings": tuple((1.0, 0.0) for _chunk in foreign_base.chunks),
+                            "embedding_profile": embedding_profile,
+                        }
+                    )
+                    await repository.publish_create(
+                        connection,
+                        "scope-b",
+                        f"topic-foreign-{position}",
+                        _draft(foreign_content),
+                        foreign_projection,
+                    )
+
+            async with profile.database.transaction() as connection:
+                result = await repository.search(
+                    connection,
+                    "scope-a",
+                    "semantic evidence",
+                    limit=1,
+                    mode="vector",
+                    query_vector=(1.0, 0.0),
+                    embedding_profile=embedding_profile,
+                )
+
+            assert tuple(hit.artifact_ref.artifact_id for hit in result.hits) == ("topic-local",)
 
     asyncio.run(scenario())
 

@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.artifacts.memory.canonical import validate_embedding
+from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory import (
     PublishedTopicMemory,
@@ -203,7 +203,7 @@ class TopicMemoryRepository:
     ) -> PublishedTopicMemory:
         """Create Revision 1 and activate every configured channel atomically."""
 
-        self._validate_projection(draft, projection)
+        projection = self._validate_projection(draft, projection)
         topic = await self.artifacts.create(connection, scope_id, artifact_id, draft)
         if not isinstance(topic, TopicMemory):
             raise TopicMemoryStorageInvariantError("artifact-type", topic.as_ref())
@@ -226,7 +226,10 @@ class TopicMemoryRepository:
     ) -> PublishedTopicMemory:
         """CAS the current Head and atomically replace its complete active projection."""
 
-        self._validate_projection(draft, projection)
+        projection = self._validate_projection(draft, projection)
+        previous = current.as_ref()
+        if previous not in draft.artifacts:
+            draft = draft.model_copy(update={"artifacts": (previous, *draft.artifacts)})
         topic = await self.artifacts.revise(connection, scope_id, current, draft)
         if not isinstance(topic, TopicMemory):
             raise TopicMemoryStorageInvariantError("artifact-type", topic.as_ref())
@@ -383,6 +386,7 @@ class TopicMemoryRepository:
             raise InvalidRepositoryArgumentError("query", "must be a non-empty trimmed string")
         analyzed = analyze_text(query)
         used_mode = self._select_mode(mode, query_vector, embedding_profile)
+        query_vector = self._canonical_query_vector(used_mode, query_vector)
         if not analyzed and used_mode == "fts":
             return TopicMemorySearchResult(mode=used_mode, hits=())
         request = TopicMemorySearchRequest(
@@ -462,7 +466,11 @@ class TopicMemoryRepository:
         )
         return published_at
 
-    def _validate_projection(self, draft: TopicMemoryDraft, projection: TopicMemoryProjection) -> None:
+    def _validate_projection(
+        self,
+        draft: TopicMemoryDraft,
+        projection: TopicMemoryProjection,
+    ) -> TopicMemoryProjection:
         if projection.content != draft.content:
             raise TopicMemoryProjectionError("content")
         if projection.chunks != chunk_topic_memory_detail(draft.content.detail):
@@ -472,15 +480,15 @@ class TopicMemoryRepository:
         capabilities = self.index.capabilities
         if not capabilities.fts:
             raise TopicMemoryProjectionError("fts")
-        self._validate_vector_projection(projection)
+        return self._canonical_vector_projection(projection)
 
-    def _validate_vector_projection(self, projection: TopicMemoryProjection) -> None:
+    def _canonical_vector_projection(self, projection: TopicMemoryProjection) -> TopicMemoryProjection:
         capabilities = self.index.capabilities
         has_vectors = projection.topic_embedding is not None or bool(projection.chunk_embeddings)
         if not capabilities.vector:
             if has_vectors or projection.embedding_profile is not None:
                 raise TopicMemoryProjectionError("vector-unconfigured")
-            return
+            return projection
         if projection.topic_embedding is None or len(projection.chunk_embeddings) != len(projection.chunks):
             raise TopicMemoryProjectionError("vector-incomplete")
         if projection.embedding_profile != capabilities.embedding_profile:
@@ -489,11 +497,27 @@ class TopicMemoryRepository:
         if profile is None:
             raise TopicMemoryProjectionError("embedding-profile")
         try:
-            validate_embedding(projection.topic_embedding, dimension=profile.dimension)
-            for embedding in projection.chunk_embeddings:
-                validate_embedding(embedding, dimension=profile.dimension)
+            topic_embedding = canonical_embedding(
+                projection.topic_embedding,
+                dimension=profile.dimension,
+                normalization=profile.normalization,
+            )
+            chunk_embeddings = tuple(
+                canonical_embedding(
+                    embedding,
+                    dimension=profile.dimension,
+                    normalization=profile.normalization,
+                )
+                for embedding in projection.chunk_embeddings
+            )
         except ValueError:
             raise TopicMemoryProjectionError("embedding-values") from None
+        return projection.model_copy(
+            update={
+                "topic_embedding": topic_embedding,
+                "chunk_embeddings": chunk_embeddings,
+            }
+        )
 
     async def _ensure_retrieval_shape(self, connection: AsyncConnection) -> None:
         capabilities = self.index.capabilities
@@ -571,6 +595,25 @@ class TopicMemoryRepository:
         if selected not in {"fts", "vector", "hybrid"}:
             raise TopicMemoryCapabilityError(selected)
         return selected
+
+    def _canonical_query_vector(
+        self,
+        mode: TopicMemoryUsedSearchMode,
+        query_vector: tuple[float, ...] | None,
+    ) -> tuple[float, ...] | None:
+        if mode == "fts":
+            return None
+        profile = self.index.capabilities.embedding_profile
+        if profile is None or query_vector is None:
+            raise TopicMemoryCapabilityError("embedding-profile")
+        try:
+            return canonical_embedding(
+                query_vector,
+                dimension=profile.dimension,
+                normalization=profile.normalization,
+            )
+        except ValueError:
+            raise TopicMemoryCapabilityError("embedding-vector", "query vector is invalid") from None
 
 
 def _aware_utc(value: object) -> datetime:

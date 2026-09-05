@@ -100,8 +100,10 @@ def test_oceanbase_fts_initializes_and_queries_both_current_projection_channels(
         ]
         assert "MATCH (pc_topic_memory_active_topics.searchable_text) AGAINST" in query_statements[0]
         assert "pc_topic_memory_active_topics.scope_id" in query_statements[0]
+        assert "instr(concat(" in query_statements[0].casefold()
         assert "MATCH (pc_topic_memory_active_chunks.searchable_text) AGAINST" in query_statements[1]
         assert "pc_topic_memory_active_chunks.scope_id" in query_statements[1]
+        assert "instr(concat(" in query_statements[1].casefold()
         assert "row_number() OVER" in query_statements[1]
         assert "anon_1.topic_rank" in query_statements[1]
         assert result.topic_fts == ()
@@ -132,7 +134,9 @@ def test_oceanbase_detail_vector_collapses_topics_before_the_channel_limit() -> 
         statements = [str(call.args[0]) for call in connection.execute.await_args_list]
         assert "row_number() OVER" in statements[1]
         assert "WHERE topic_rank = 1" in statements[1]
+        assert statements[1].find("LIMIT :neighbor_limit") < statements[1].find("row_number() OVER")
         assert statements[1].rfind("LIMIT :candidate_limit") > statements[1].rfind("WHERE topic_rank = 1")
+        assert connection.execute.await_args_list[1].args[1]["neighbor_limit"] == 128
         assert result.topic_vector == ()
         assert result.detail_vector == ()
 
