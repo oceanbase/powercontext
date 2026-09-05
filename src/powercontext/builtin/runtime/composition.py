@@ -38,6 +38,9 @@ from powercontext.builtin.artifacts.memory import (
     MemoryRerankDecision,
     MemoryReranker,
 )
+from powercontext.builtin.artifacts.prompt import PromptRegistry
+from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
+from powercontext.builtin.artifacts.prompt.service import DemonstrationGenerator
 from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
@@ -80,6 +83,9 @@ if TYPE_CHECKING:
     from pydantic_ai.models import Model
     from pydantic_ai.models.instrumented import InstrumentationSettings
     from pydantic_ai.providers import Provider
+    from pydantic_ai.settings import ModelSettings
+
+    from powercontext.builtin.inference.pydantic_ai import InferenceLimits
 
 ValueT = TypeVar("ValueT")
 
@@ -178,11 +184,13 @@ async def open_builtin_runtime(
     tracing: RuntimeTracing | None = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
+    handoff_verification_keys: tuple[bytes, ...] = (),
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime."""
 
     async with AsyncExitStack() as resources:
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
+        prompt_demonstrators: dict[str, DemonstrationGenerator] = {}
         (
             generated_memory,
             generated_incubation,
@@ -199,6 +207,7 @@ async def open_builtin_runtime(
                 resources,
                 instrumentation,
                 configured_source_registry,
+                prompt_demonstrators=prompt_demonstrators,
             )
             if (
                 candidate_pipeline is None
@@ -216,6 +225,24 @@ async def open_builtin_runtime(
         configured_skill = generated_skill if skill_generator is None else skill_generator
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
+        components = (
+            ("memory.extract", candidate_pipeline, generated_memory),
+            ("memory.rerank", memory_reranker, generated_reranker),
+            ("experience.incubate", experience_pipeline, generated_incubation),
+            ("experience.generate", experience_generator, generated_experience),
+            ("skill.generate", skill_generator, generated_skill),
+            ("handoff.generate", handoff_pipeline, generated_handoff),
+        )
+        prompt_registry = PromptRegistry(
+            builtin_prompt_definitions(config.runtime.memory_extraction_profile),
+            supported=frozenset(
+                key for key, injected, generated in components if injected is None and generated is not None
+            ),
+            injected=frozenset(key for key, injected, _ in components if injected is not None),
+            disabled=frozenset({"memory.rerank"})
+            if not config.runtime.memory_rerank_enabled and memory_reranker is None
+            else frozenset(),
+        )
         if configured_reranker is not None and tracing is not None:
             configured_reranker = _TracingMemoryReranker(configured_reranker, tracing)
         if embedding_model is None:
@@ -255,6 +282,9 @@ async def open_builtin_runtime(
                 memory_reranker=configured_reranker,
                 source_registry=configured_source_registry,
                 cursor_secret=cursor_secret,
+                prompt_registry=prompt_registry,
+                prompt_demonstrators=prompt_demonstrators,
+                handoff_verification_keys=handoff_verification_keys,
             )
         )
         readiness_probes: dict[str, ReadinessProbeDefinition] = {
@@ -284,6 +314,7 @@ async def open_builtin_runtime(
                     external_skill_registry=contexts.external_skill_registry,
                     memory_search_modes=_search_modes(contexts.index.capabilities),
                     handoff_generation=contexts.handoff_generation,
+                    prompts=dict(contexts.prompt_registry.capabilities),
                 ),
                 source_window_limit=config.runtime.source_window_limit,
                 scope_cache_size=config.runtime.scope_cache_size,
@@ -309,6 +340,7 @@ async def open_builtin_runtime(
                 remote_skill_distribution=contexts.remote_skill_distribution(),
                 statistics_service=contexts.statistics,
                 record_service=contexts.records,
+                prompt_service=contexts.prompts,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 publication_application=contexts.publications,
                 scope_application=contexts.scopes,
@@ -352,6 +384,9 @@ async def open_builtin_contexts(
     memory_reranker: MemoryReranker | None = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
+    prompt_registry: PromptRegistry | None = None,
+    prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
+    handoff_verification_keys: tuple[bytes, ...] = (),
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
@@ -386,6 +421,9 @@ async def open_builtin_contexts(
                 token_estimator=configured_token_estimator,
                 memory_reranker=memory_reranker,
                 memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+                prompt_registry=prompt_registry,
+                prompt_demonstrators=prompt_demonstrators,
+                handoff_verification_keys=handoff_verification_keys,
                 source_registry=source_registry,
                 cursor_secret=cursor_secret,
             )
@@ -423,11 +461,29 @@ async def open_builtin_contexts(
             token_estimator=configured_token_estimator,
             memory_reranker=memory_reranker,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+            prompt_registry=prompt_registry,
+            prompt_demonstrators=prompt_demonstrators,
+            handoff_verification_keys=handoff_verification_keys,
             source_registry=source_registry,
             cursor_secret=cursor_secret,
         )
         await contexts.scopes.bootstrap_default()
         yield contexts
+
+
+def _register_prompt_demonstrators(
+    target: dict[str, DemonstrationGenerator] | None,
+    keys: tuple[str, ...],
+    model: Model,
+    limits: InferenceLimits,
+    settings: ModelSettings | None,
+) -> None:
+    if target is None:
+        return
+    from powercontext.builtin.inference.prompt_demonstrations import PromptDemonstrationGenerator
+
+    generator = PromptDemonstrationGenerator(model, limits=limits, model_settings=settings)
+    target.update(dict.fromkeys(keys, generator))
 
 
 async def _generation_pipelines(
@@ -436,6 +492,8 @@ async def _generation_pipelines(
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
     source_registry: SourceDefinitionRegistry,
+    *,
+    prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
 ) -> tuple[
     CandidatePipeline | None,
     ExperienceCandidatePipeline | None,
@@ -513,6 +571,13 @@ async def _generation_pipelines(
             timeout_seconds=settings.generation_timeout_seconds,
             max_requests=settings.generation_max_requests,
         )
+        _register_prompt_demonstrators(
+            prompt_demonstrators,
+            ("memory.extract", "experience.incubate", "experience.generate", "skill.generate", "handoff.generate"),
+            generation_model,
+            generation_limits,
+            generation_request_settings,
+        )
         memory_generator = PydanticAIStructuredGenerator(
             model=generation_model,
             instructions=memory_extraction_instructions(runtime.memory_extraction_profile),
@@ -521,6 +586,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="memory_extraction",
+            prompt_key="memory.extract",
         )
         experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -530,6 +596,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="experience_incubation",
+            prompt_key="experience.incubate",
         )
         explicit_experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -539,6 +606,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="experience_generation",
+            prompt_key="experience.generate",
         )
         skill_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -548,6 +616,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="skill_generation",
+            prompt_key="skill.generate",
         )
         handoff_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -557,6 +626,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="handoff_generation",
+            prompt_key="handoff.generate",
         )
         generated_memory = LLMMemoryCandidatePipeline(
             UsageReportingStructuredGenerator(memory_generator),
@@ -627,8 +697,19 @@ async def _generation_pipelines(
                 ),
                 model_settings=rerank_request_settings,
                 name="memory_rerank",
+                prompt_key="memory.rerank",
             )
             generated_reranker = LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))
+            _register_prompt_demonstrators(
+                prompt_demonstrators,
+                ("memory.rerank",),
+                rerank_model,
+                InferenceLimits(
+                    timeout_seconds=settings.rerank_timeout_seconds or settings.generation_timeout_seconds,
+                    max_requests=settings.rerank_max_requests or settings.generation_max_requests,
+                ),
+                rerank_request_settings,
+            )
 
             if separate_rerank_model or settings.rerank_model_settings:
 

@@ -348,7 +348,7 @@ class ReviewService:
         sources: tuple[SourceRef, ...],
         artifacts: tuple[ArtifactRef, ...],
     ) -> None:
-        if not sources and not artifacts:
+        if not sources and not any(artifact.family != "prompt" for artifact in artifacts):
             raise InvalidCandidateError("evidence", "at least one exact reference is required")
         if len(sources) + len(artifacts) > MAX_CANDIDATE_EVIDENCE:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
@@ -438,10 +438,14 @@ def _validate_approval_lineage(candidate: ReviewedCandidate) -> None:
     if candidate.family != Skill.family:
         return
     if candidate.target is None:
-        if any(artifact.family != Experience.family for artifact in candidate.artifacts):
+        if any(
+            artifact.family != Experience.family
+            and not (artifact.family == "prompt" and artifact.artifact_id == "skill.generate")
+            for artifact in candidate.artifacts
+        ):
             raise InvalidCandidateError(
                 "artifacts",
-                "new managed Skill lineage may reference only Experience Artifacts",
+                "new managed Skill lineage may reference only Experience Artifacts and its generation Prompt",
             )
         return
     if candidate.target not in candidate.artifacts:

@@ -191,6 +191,7 @@ class ServerSettings(BaseSettings):
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     tracing: TracingConfig = Field(default_factory=TracingConfig)
     cursor_signing_secret: SecretStr | None = Field(default=None, repr=False)
+    handoff_generation_verification_secrets: tuple[SecretStr, ...] = Field(default=(), max_length=8, repr=False)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
@@ -203,6 +204,13 @@ class ServerSettings(BaseSettings):
         if value is not None and len(value.get_secret_value().encode()) < 32:
             raise ValueError("cursor signing secret must contain at least 32 bytes")  # noqa: TRY003
         return value
+
+    @field_validator("handoff_generation_verification_secrets")
+    @classmethod
+    def validate_handoff_verification_secrets(cls, values: tuple[SecretStr, ...]) -> tuple[SecretStr, ...]:
+        if any(len(value.get_secret_value().encode()) < 32 for value in values):
+            raise ValueError("Handoff generation verification secrets must contain at least 32 bytes")  # noqa: TRY003
+        return values
 
     @field_validator("workspace")
     @classmethod

@@ -37,7 +37,14 @@ from powercontext.builtin.runtime import BuiltinRuntime
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
-from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema, ReadinessResponse, ReadinessStatus
+from powercontext.http import (
+    Capabilities,
+    MemorySearchMode,
+    PreparedContextSchema,
+    PromptCapability,
+    ReadinessResponse,
+    ReadinessStatus,
+)
 from powercontext.paths import default_scheduler_path
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import create_app
@@ -107,6 +114,9 @@ def create_server_app(
             scope_cache_observer=None if metrics is None else metrics.set_runtime_scopes,
             tracing=resolved_tracing,
             cursor_secret=cursor_secret,
+            handoff_verification_keys=tuple(
+                secret.get_secret_value().encode() for secret in resolved.handoff_generation_verification_secrets
+            ),
         ) as runtime:
             readiness_probe.bind(runtime)
             app.state.application = runtime
@@ -313,7 +323,11 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
     capabilities = await runtime.capabilities()
     return Capabilities(
         source_types=[CONTENT_SOURCE_NAME],
-        artifact_families=["memory", "experience", "skill", "handoff"],
+        artifact_families=["memory", "experience", "skill", "handoff", "prompt"],
+        prompts={
+            key: PromptCapability.model_validate_json(value.model_dump_json())
+            for key, value in capabilities.prompts.items()
+        },
         memory_extraction=capabilities.memory_extraction,
         experience_generation=capabilities.experience_generation,
         managed_skill_generation=capabilities.managed_skill_generation,

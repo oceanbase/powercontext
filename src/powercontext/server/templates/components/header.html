@@ -37,6 +37,7 @@
     <nav class="primary-nav" aria-label="Primary navigation" data-i18n-aria-label="primaryNavigation">
       {% if dashboard_enabled %}
       <a href="{{ url_for('dashboard_home') }}"{% if active_page == "dashboard" %} aria-current="page"{% endif %} data-i18n="dashboardTitle">Overview</a>
+      <a href="{{ url_for('prompt_management') }}"{% if active_page == "prompts" %} aria-current="page"{% endif %} data-i18n="promptsTitle">Prompts</a>
       {% endif %}
       {% if skills_enabled %}
       <a href="{{ url_for('skills_library') }}"{% if active_page == "skills" %} aria-current="page"{% endif %} data-i18n="skillsTitle">Skills</a>

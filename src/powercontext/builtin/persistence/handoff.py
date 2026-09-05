@@ -143,6 +143,8 @@ class RelationalHandoffEvidenceResolver:
                 require_source_eligible(citation.source_ref, source.value)
                 return HandoffSourceEvidence(citation=citation, source=source.value)
             if isinstance(citation, HandoffArtifactCitation):
+                if citation.artifact_ref.family == "prompt":
+                    raise HandoffEvidenceUnavailableError(citation)
                 async with self._database.connection(self._bound_connection) as connection:
                     artifact = await self._artifacts.get(connection, self._scope_id, citation.artifact_ref)
                 return HandoffArtifactEvidence(citation=citation, artifact=artifact)

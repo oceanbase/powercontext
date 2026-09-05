@@ -945,6 +945,32 @@ const OPERATIONS = {
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
+	},
+	list_artifact_revisions: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: [
+			"scope_id",
+			"family",
+			"artifact_id"
+		],
+		queryParams: ["limit", "cursor"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	generate_prompt_demonstrations: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id", "prompt_key"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
 	}
 };
 const OPERATION_IDS = Object.keys(OPERATIONS);

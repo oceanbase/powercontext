@@ -51,6 +51,7 @@ from powercontext.builtin.records import (
     ArtifactCreated,
     ArtifactRecord,
     ArtifactRecordPage,
+    ArtifactRevisionPage,
     ArtifactRevisionPreconditionError,
     ArtifactWrite,
     BaseValueConflictError,
@@ -176,7 +177,15 @@ class RelationalRecordService:
     ) -> ArtifactCreated:
         writer = self._family_writers.get(family)
         command = writer.validate_create(write.content)
-        artifact_id = writer.artifact_id_for_create(self._id_factory(family))
+        if family == "prompt":
+            if write.prompt_key is None:
+                raise InvalidBaseAccessRequestError("prompt_key", "is required for Prompt Create")
+            selected_id = write.prompt_key
+        else:
+            if write.prompt_key is not None:
+                raise InvalidBaseAccessRequestError("prompt_key", "is only accepted for Prompt Create")
+            selected_id = self._id_factory(family)
+        artifact_id = writer.artifact_id_for_create(selected_id)
         source_id = self._id_factory("source")
         canonical_content = cast(
             dict[str, JsonValue],
@@ -235,6 +244,73 @@ class RelationalRecordService:
             except RepositoryNotFoundError:
                 raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id, revision)) from None
             return _artifact_record(scope_id, artifact)
+
+    async def list_artifact_revisions(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> ArtifactRevisionPage:
+        self._require_family(family)
+        _require_limit(limit)
+        expected_cursor = {
+            "version": 1,
+            "endpoint": "list_artifact_revisions",
+            "scope_id": scope_id,
+            "family": family,
+            "artifact_id": artifact_id,
+            "authorization": "scope_read",
+            "order": "revision:desc",
+        }
+        after_text = self._cursor_after_text(cursor, expected_cursor)
+        async with self._database.transaction() as connection:
+            try:
+                current = await self._artifacts.latest(connection, scope_id, family, artifact_id)
+            except RepositoryNotFoundError:
+                raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id)) from None
+            if after_text:
+                try:
+                    snapshot_text, revision_text = after_text.split(":")
+                    snapshot, after = int(snapshot_text), int(revision_text)
+                except ValueError:
+                    raise InvalidCursorError from None
+                if not 1 <= after <= snapshot <= current.revision:
+                    raise InvalidCursorError
+            else:
+                snapshot, after = current.revision, current.revision + 1
+            revisions = tuple(
+                (
+                    await connection.execute(
+                        select(ARTIFACTS_TABLE.c.revision)
+                        .where(
+                            ARTIFACTS_TABLE.c.scope_id == scope_id,
+                            ARTIFACTS_TABLE.c.family == family,
+                            ARTIFACTS_TABLE.c.artifact_id == artifact_id,
+                            ARTIFACTS_TABLE.c.revision <= snapshot,
+                            ARTIFACTS_TABLE.c.revision < after,
+                        )
+                        .order_by(ARTIFACTS_TABLE.c.revision.desc())
+                        .limit(limit + 1)
+                    )
+                ).scalars()
+            )
+            selected = revisions[:limit]
+            artifacts = await self._artifacts.get_many(
+                connection,
+                scope_id,
+                tuple(ArtifactRef(family=family, artifact_id=artifact_id, revision=revision) for revision in selected),
+            )
+            items = tuple(_artifact_collection_item(scope_id, artifact) for artifact in artifacts)
+        next_cursor = (
+            self._encode_cursor(expected_cursor, f"{snapshot}:{selected[-1]}")
+            if len(revisions) > limit and selected
+            else None
+        )
+        return ArtifactRevisionPage(items=items, next_cursor=next_cursor)
 
     async def query_artifacts(
         self,
@@ -298,6 +374,8 @@ class RelationalRecordService:
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord:
+        if write.prompt_key is not None:
+            raise InvalidBaseAccessRequestError("prompt_key", "is not accepted for replacement")
         writer = self._family_writers.get(family)
         command = writer.validate_replace(write.content)
         async with self._database.transaction() as connection:
@@ -368,7 +446,7 @@ class RelationalRecordService:
 
     def _require_family(self, family: str) -> None:
         if family not in self._artifacts.families:
-            raise InvalidBaseAccessRequestError("family", "must be memory, experience, skill, or handoff")
+            raise InvalidBaseAccessRequestError("family", "must be a registered Artifact family")
 
     async def _get_source(
         self,

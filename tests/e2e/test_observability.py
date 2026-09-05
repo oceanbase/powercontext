@@ -505,6 +505,24 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert not _children(spans, search_application, "scope.lock")
     search = _only_child(spans, search_application, "memory.search")
     search_attributes = dict(search.attributes or {})
+    prompt_prefix = "powercontext.prompt.memory.rerank."
+    prompt_attributes = {
+        key.removeprefix(prompt_prefix): search_attributes.pop(key)
+        for key in tuple(search_attributes)
+        if key.startswith(prompt_prefix)
+    }
+    assert set(prompt_attributes) == {
+        "selection",
+        "version",
+        "definition_version",
+        "builtin_version",
+        "compiled_digest",
+        "demonstration_count",
+    }
+    assert prompt_attributes["selection"] == "built_in"
+    assert prompt_attributes["version"] == prompt_attributes["builtin_version"]
+    assert prompt_attributes["demonstration_count"] == 0
+    assert len(str(prompt_attributes["compiled_digest"])) == 64
     assert search_attributes == {
         "powercontext.operation.name": "memory.search",
         "powercontext.operation.unit": "stage",
@@ -598,6 +616,8 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
         if allowed_keys is None:
             continue
+        if span.name == "memory.search":
+            allowed_keys = allowed_keys | {prompt_prefix + key for key in prompt_attributes}
         attributes = dict(span.attributes or {})
         assert attributes.keys() <= allowed_keys
         assert all(isinstance(value, str | bool | int | float) for value in attributes.values())

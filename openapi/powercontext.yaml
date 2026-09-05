@@ -2304,7 +2304,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: limit
           in: query
           required: false
@@ -2361,7 +2361,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: artifact_id
           in: path
           required: true
@@ -2424,7 +2424,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: artifact_id
           in: path
           required: true
@@ -2490,7 +2490,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: artifact_id
           in: path
           required: true
@@ -2515,6 +2515,117 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ArtifactRevision"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions:
+    get:
+      tags: [artifacts]
+      summary: List immutable Artifact revisions
+      description: Descending history with an opaque cursor bound to the Scope, Artifact, and initial revision snapshot.
+      operationId: list_artifact_revisions
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: family
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [memory, experience, skill, handoff, prompt]
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[\x21-\x7E]+$'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+      responses:
+        "200":
+          description: One snapshot-bounded page of immutable revisions without content.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactRevisionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations:
+    post:
+      tags: [prompts]
+      summary: Generate editable Prompt demonstrations without saving
+      description: >-
+        Generate exactly the requested number of typed input/output suggestions for a supported built-in operation.
+        The caller must explicitly create or replace a Prompt Artifact to save suggestions.
+      operationId: generate_prompt_demonstrations
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: prompt_key
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePromptDemonstrationsRequest"
+      responses:
+        "200":
+          description: Validated suggestions; no Artifact or head was written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptDemonstrationResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -2744,6 +2855,18 @@ components:
             $ref: "#/components/schemas/ArtifactReference"
     ArtifactPage:
       type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactCollectionItem"
+        next_cursor:
+          type: string
+          nullable: true
+    ArtifactRevisionPage:
+      type: object
+      additionalProperties: false
       required: [items, next_cursor]
       properties:
         items:
@@ -3212,6 +3335,11 @@ components:
       required:
         [source_types, artifact_families, memory_extraction, handoff_generation, search_modes, context_versions]
       properties:
+        prompts:
+          type: object
+          default: {}
+          additionalProperties:
+            $ref: "#/components/schemas/PromptCapability"
         source_types:
           type: array
           items:
@@ -4259,6 +4387,9 @@ components:
       additionalProperties: false
       required: [schema, objective, state, disposition, next_action, omissions]
       properties:
+        generation:
+          $ref: "#/components/schemas/HandoffGenerationMetadata"
+          nullable: true
         schema:
           $ref: "#/components/schemas/HandoffSchema"
         objective:
@@ -4287,6 +4418,9 @@ components:
       additionalProperties: false
       required: [objective, state, disposition, next_action, omissions]
       properties:
+        generation:
+          $ref: "#/components/schemas/HandoffGenerationEnvelope"
+          nullable: true
         objective:
           type: string
           minLength: 1
@@ -4436,6 +4570,9 @@ components:
       additionalProperties: false
       required: [schema, scope_id, base, content]
       properties:
+        generation:
+          $ref: "#/components/schemas/HandoffGenerationEnvelope"
+          nullable: true
         schema:
           $ref: "#/components/schemas/PreparedHandoffSchema"
         scope_id:
@@ -4445,6 +4582,58 @@ components:
           nullable: true
         content:
           $ref: "#/components/schemas/HandoffContent"
+    HandoffGenerationEnvelope:
+      type: object
+      additionalProperties: false
+      description: >-
+        Transient Server-authenticated generation receipt. Preserve it across finalize and commit.
+        It grants no additional authority and is never stored in the Artifact.
+      required: [receipt]
+      properties:
+        receipt:
+          type: string
+          minLength: 1
+          maxLength: 8192
+    HandoffGenerationMetadata:
+      type: object
+      additionalProperties: false
+      description: >-
+        Server-derived, persisted generation origin. Raw copied metadata is not accepted as verified input
+        without a valid receipt. Prompt references are configuration lineage, not factual citations.
+      required: [scope_id, prompt_key, selection, artifact, definition_version, builtin_version, compiled_digest, original_draft_digest, edit_status]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        prompt_key:
+          $ref: "#/components/schemas/HandoffPromptKey"
+        selection:
+          type: string
+          enum: [built_in, artifact]
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        definition_version:
+          type: string
+          minLength: 1
+          maxLength: 256
+        builtin_version:
+          type: string
+          minLength: 1
+          maxLength: 256
+        compiled_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        original_draft_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        edit_status:
+          type: string
+          enum: [unchanged, edited]
+    HandoffPromptKey:
+      type: string
+      enum: [handoff.generate]
     PreparedContext:
       type: object
       additionalProperties: false
@@ -6228,6 +6417,7 @@ components:
         - $ref: "#/components/schemas/CreateExperienceArtifactRequest"
         - $ref: "#/components/schemas/CreateSkillArtifactRequest"
         - $ref: "#/components/schemas/CreateHandoffArtifactRequest"
+        - $ref: "#/components/schemas/CreatePromptArtifactRequest"
       discriminator:
         propertyName: family
         mapping:
@@ -6235,6 +6425,19 @@ components:
           experience: "#/components/schemas/CreateExperienceArtifactRequest"
           skill: "#/components/schemas/CreateSkillArtifactRequest"
           handoff: "#/components/schemas/CreateHandoffArtifactRequest"
+          prompt: "#/components/schemas/CreatePromptArtifactRequest"
+    CreatePromptArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [family, prompt_key, content]
+      properties:
+        family:
+          type: string
+          enum: [prompt]
+        prompt_key:
+          $ref: "#/components/schemas/PromptKey"
+        content:
+          $ref: "#/components/schemas/PromptContent"
     CreateMemoryArtifactRequest:
       type: object
       additionalProperties: false
@@ -6336,6 +6539,110 @@ components:
         - $ref: "#/components/schemas/ReplaceExperienceArtifactRequest"
         - $ref: "#/components/schemas/ReplaceSkillArtifactRequest"
         - $ref: "#/components/schemas/ReplaceHandoffArtifactRequest"
+        - $ref: "#/components/schemas/ReplacePromptArtifactRequest"
+    ReplacePromptArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          $ref: "#/components/schemas/PromptContent"
+    ListArtifactRevisionsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          nullable: true
+    PromptKey:
+      type: string
+      enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate]
+    PromptContent:
+      type: object
+      additionalProperties: false
+      required: [schema_version, mode, instructions, demonstrations]
+      description: >-
+        Canonical content is limited to 256 KiB. Auto requires empty instructions and demonstrations;
+        Custom requires non-blank trimmed NFC instructions. Demonstrations must match the registered operation types.
+      properties:
+        schema_version:
+          type: string
+          enum: [powercontext.prompt.v1]
+        mode:
+          type: string
+          enum: [auto, custom]
+        instructions:
+          type: string
+          maxLength: 32768
+        demonstrations:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/PromptDemonstration"
+    PromptDemonstration:
+      type: object
+      additionalProperties: false
+      required: [input, expected_output]
+      description: A typed input/output pair limited to 64 KiB of canonical JSON.
+      properties:
+        input:
+          description: Complete JSON input matching the registered Prompt Definition.
+        expected_output:
+          description: Desired JSON output matching the registered Prompt Definition.
+    PromptCapability:
+      type: object
+      additionalProperties: false
+      required: [status, reason, definition_version, builtin_version, builtin_profile]
+      properties:
+        status:
+          type: string
+          enum: [supported, disabled, unsupported]
+        reason:
+          type: string
+          nullable: true
+          enum: [operation_disabled, provider_not_configured, injected_component, null]
+        definition_version:
+          type: string
+        builtin_version:
+          type: string
+        builtin_profile:
+          type: string
+          nullable: true
+          enum: [coding, conversation, null]
+    GeneratePromptDemonstrationsRequest:
+      type: object
+      additionalProperties: false
+      required: [instructions, demonstration_count]
+      properties:
+        instructions:
+          type: string
+          minLength: 1
+          maxLength: 32768
+          pattern: '.*\S.*'
+        demonstration_count:
+          type: integer
+          minimum: 1
+          maximum: 20
+    PromptDemonstrationResult:
+      type: object
+      additionalProperties: false
+      required: [prompt_key, demonstrations]
+      properties:
+        prompt_key:
+          $ref: "#/components/schemas/PromptKey"
+        demonstrations:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/PromptDemonstration"
     ReplaceMemoryArtifactRequest:
       type: object
       additionalProperties: false
@@ -6451,7 +6758,7 @@ components:
       enum: [accepted]
     BaseArtifactFamily:
       type: string
-      enum: [memory, experience, skill, handoff]
+      enum: [memory, experience, skill, handoff, prompt]
     StatsPeriod:
       type: string
       enum: [today, 7d, 30d]

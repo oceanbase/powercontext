@@ -23,6 +23,7 @@ from typing import Annotated, Any, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncConnection
+from typing_extensions import override
 
 from powercontext.artifacts import Artifact, ArtifactLineage
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
@@ -34,6 +35,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryLayerError,
     MemoryService,
 )
+from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptError, PromptRegistry
 from powercontext.builtin.artifacts.skill import (
     Skill,
     SkillContent,
@@ -206,6 +208,54 @@ class _RepositoryFamilyWriter:
                 artifacts=current.lineage.artifacts,
             ),
         )
+
+
+class PromptManagementWriter(_RepositoryFamilyWriter):
+    """Validate a registered operation and reuse the existing atomic Artifact writer."""
+
+    family = Prompt.family
+    content_type = PromptContent
+
+    def __init__(self, artifacts: ArtifactRepository, registry: PromptRegistry, /) -> None:
+        super().__init__(artifacts)
+        self._registry = registry
+
+    @override
+    def artifact_id_for_create(self, generated: str, /) -> str:
+        return self._registry.get(generated).key
+
+    @override
+    def _validate(self, content: Mapping[str, JsonValue]) -> PromptContent:
+        try:
+            return PromptContent.model_validate_json(json.dumps(content), strict=True)
+        except ValidationError:
+            raise PromptError("invalid_prompt_content") from None
+
+    async def create(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        artifact_id: str,
+        content: BaseModel,
+        direct_source: SourceRef,
+        /,
+    ) -> Prompt:
+        validated = cast(PromptContent, content)
+        self._registry.validate(artifact_id, validated)
+        return cast(Prompt, await self._create_artifact(connection, scope_id, artifact_id, validated, direct_source))
+
+    async def replace(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        current: Artifact[Any],
+        content: BaseModel,
+        direct_source: SourceRef,
+        /,
+    ) -> Prompt:
+        validated = cast(PromptContent, content)
+        self._registry.validate(current.artifact_id, validated)
+        return cast(Prompt, await self._revise_artifact(connection, scope_id, current, validated, direct_source))
 
 
 class ExperienceManagementWriter(_RepositoryFamilyWriter):

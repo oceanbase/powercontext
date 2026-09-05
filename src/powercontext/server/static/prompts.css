@@ -1,0 +1,42 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.prompt-workspace { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(0, 3fr); gap: 24px; }
+.prompt-page .hero { display: flex; justify-content: space-between; align-items: start; gap: 24px; }
+.prompt-page select, .prompt-page textarea, .prompt-page input[type="number"] { color: var(--pc-ink); background: var(--pc-surface); border: 1px solid var(--pc-rule-strong); border-radius: 6px; padding: 10px; }
+.prompt-page textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+.prompt-page select { max-width: 340px; }
+#prompt-keys { display: flex; flex-direction: column; gap: 8px; }
+#prompt-keys button { text-align: left; border: 1px solid var(--pc-rule); border-radius: 6px; padding: 14px; color: var(--pc-ink); background: var(--pc-surface); cursor: pointer; }
+#prompt-keys button[aria-current="true"] { border-color: var(--pc-accent); background: var(--pc-accent-soft); }
+#prompt-keys small { display: block; color: var(--pc-muted); margin-top: 6px; }
+.prompt-editor { min-width: 0; }
+.prompt-editor p { color: var(--pc-muted); }
+.prompt-mode { display: flex; gap: 20px; border: 0; padding: 0; margin: 24px 0; }
+.prompt-mode legend { margin-bottom: 8px; }
+.prompt-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.prompt-actions input[type="number"] { width: 70px; margin-left: 8px; }
+.prompt-demonstration { border-top: 1px solid var(--pc-rule); padding: 16px 0; }
+.prompt-demonstration textarea { font: 13px/1.5 var(--pc-font-code); margin: 6px 0 12px; }
+.prompt-demonstration label { display: block; }
+#prompt-notice { min-height: 24px; }
+#prompt-notice[data-error="true"] { color: var(--pc-danger); }
+#prompt-history { margin: 32px 0; border-top: 1px solid var(--pc-rule); padding-top: 20px; }
+#prompt-history summary { cursor: pointer; }
+#prompt-revisions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+#prompt-history-content { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: var(--pc-surface-secondary); max-height: 440px; overflow: auto; }
+.prompt-page button:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 760px) { .prompt-workspace { grid-template-columns: 1fr; } .prompt-page .hero { flex-direction: column; } #prompt-keys { display: grid; grid-template-columns: 1fr 1fr; } }

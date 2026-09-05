@@ -324,6 +324,7 @@ def mount_web_ui(  # noqa: C901
         templates.env.get_template("pages/dashboard.html")
         templates.env.get_template("pages/review.html")
         templates.env.get_template("pages/skills.html")
+        templates.env.get_template("pages/prompts.html")
     if handoff_report_enabled:
         templates.env.get_template("pages/handoff_report.html")
     static_files = StaticFiles(packages=[("powercontext.server", "static")])
@@ -370,6 +371,22 @@ def mount_web_ui(  # noqa: C901
             name="pages/review.html",
             context={
                 "active_page": "review",
+                "dashboard_enabled": True,
+                "skills_enabled": True,
+                "review_enabled": True,
+                "handoff_report_enabled": handoff_report_enabled,
+                "home_route": "dashboard_home",
+                "authentication_required": authentication_required,
+            },
+            headers=_PAGE_HEADERS,
+        )
+
+    async def prompts_page(request: Request) -> Response:
+        return templates.TemplateResponse(
+            request=request,
+            name="pages/prompts.html",
+            context={
+                "active_page": "prompts",
                 "dashboard_enabled": True,
                 "skills_enabled": True,
                 "review_enabled": True,
@@ -507,6 +524,9 @@ def mount_web_ui(  # noqa: C901
             methods=["GET"],
             response_class=HTMLResponse,
             name="dashboard_home",
+        )
+        router.add_api_route(
+            "/prompts", prompts_page, methods=["GET"], response_class=HTMLResponse, name="prompt_management"
         )
         router.add_api_route(
             "/skills",

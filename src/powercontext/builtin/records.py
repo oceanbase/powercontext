@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 from powercontext.artifacts import ArtifactRef
 from powercontext.sources import SourceRef
 
-BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff"]
+BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "prompt"]
 
 
 class _RecordModel(BaseModel):
@@ -46,6 +46,7 @@ class ArtifactWrite(_RecordModel):
     """Complete family-specific content for one Artifact write."""
 
     content: dict[str, JsonValue]
+    prompt_key: str | None = None
 
 
 class ArtifactCreated(_RecordModel):
@@ -86,6 +87,13 @@ class ArtifactCollectionItem(_RecordModel):
 
 class ArtifactRecordPage(_RecordModel):
     """One stable page of current Artifact heads."""
+
+    items: tuple[ArtifactCollectionItem, ...]
+    next_cursor: str | None
+
+
+class ArtifactRevisionPage(_RecordModel):
+    """One descending, snapshot-bounded page of immutable Artifact revisions."""
 
     items: tuple[ArtifactCollectionItem, ...]
     next_cursor: str | None
@@ -224,6 +232,17 @@ class RecordService(Protocol):
         revision: int,
         /,
     ) -> ArtifactRecord: ...
+
+    async def list_artifact_revisions(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> ArtifactRevisionPage: ...
 
     async def query_artifacts(
         self,

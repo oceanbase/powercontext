@@ -1,0 +1,84 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+{% extends "base.html" %}
+
+{% block title %}PowerContext Prompts{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('web_static', path='/prompts.css') }}">
+{% endblock %}
+{% block content %}
+{% include "components/login.html" %}
+<section class="server-content prompt-page" id="prompt-page">
+  <div class="hero">
+    <div>
+      <h1 data-i18n="promptsTitle">Prompts</h1>
+      <p data-i18n="intro">Customize operational guidance in one Scope. Every save creates an immutable revision.</p>
+    </div>
+    <label class="scope-picker"><span data-i18n="selectScope">Scope</span><select id="prompt-scope" aria-label="Scope"></select></label>
+  </div>
+  <p id="prompt-notice" role="status" aria-live="polite"></p>
+  <div class="prompt-workspace">
+    <nav id="prompt-keys" aria-label="Prompt operations" data-i18n-aria-label="operations"></nav>
+    <section class="prompt-editor" aria-labelledby="prompt-title">
+      <h2 id="prompt-title"></h2>
+      <p id="prompt-capability"></p>
+      <p id="prompt-version"></p>
+      <form id="prompt-form">
+        <fieldset class="prompt-mode">
+          <legend data-i18n="mode">Mode</legend>
+          <label><input type="radio" name="mode" value="auto" checked>Auto</label>
+          <label><input type="radio" name="mode" value="custom" id="prompt-custom-mode"><span data-i18n="custom">Custom</span></label>
+        </fieldset>
+        <p id="prompt-auto-note" data-i18n="autoNote">Auto uses the deployed built-in guidance. It does not delete version history.</p>
+        <div id="prompt-custom-fields" hidden>
+          <label class="field-label" for="prompt-instructions" data-i18n="instructions">Instructions</label>
+          <textarea id="prompt-instructions" maxlength="32768" rows="7" spellcheck="false"></textarea>
+          <p data-i18n="safetyNote">Do not include credentials or secrets. Custom guidance cannot change schemas, tools, or Scope permissions.</p>
+          <div class="prompt-actions">
+            <label><span data-i18n="count">Count</span><input id="prompt-count" type="number" min="1" max="20" value="4"></label>
+            <button class="secondary-button" id="prompt-generate" type="button" data-i18n="generate">Generate demonstrations</button>
+          </div>
+          <p data-i18n="demonstrationHint">Each demonstration contains complete JSON input and expected output. Generated suggestions are not saved automatically.</p>
+          <h3 data-i18n="positive">Positive demonstrations</h3>
+          <div id="prompt-positive"></div>
+          <h3 id="prompt-negative-title" data-i18n="negative">Negative demonstrations (valid no-op)</h3>
+          <div id="prompt-negative"></div>
+          <button class="secondary-button" id="prompt-add" type="button" data-i18n="add">Add demonstration</button>
+        </div>
+        <div class="prompt-actions">
+          <button class="primary-button" id="prompt-save" type="submit" data-i18n="save">Save new revision</button>
+          <button class="secondary-button" id="prompt-reload" type="button" data-i18n="reload">Reload current</button>
+        </div>
+      </form>
+      <details id="prompt-history">
+        <summary data-i18n="history">Version history</summary>
+        <p data-i18n="historyNote">Restoring a version creates a new revision. It does not remove history or rerun previous operations.</p>
+        <div id="prompt-revisions"></div>
+        <button class="secondary-button" id="prompt-more" type="button" data-i18n="loadMore" hidden>Load more</button>
+        <div id="prompt-history-detail" hidden>
+          <h3 id="prompt-history-title"></h3>
+          <pre id="prompt-history-content"></pre>
+          <button class="secondary-button" id="prompt-restore" type="button" data-i18n="restore">Restore as new revision</button>
+        </div>
+      </details>
+    </section>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="{{ url_for('web_static', path='/prompts.js') }}"></script>
+{% endblock %}

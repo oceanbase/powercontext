@@ -94,6 +94,8 @@ export const OPERATIONS = {
   get_artifact: { method: 'GET', path: '/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}', location: null, scopeMode: 'none', pathParameters: ['scope_id', 'family', 'artifact_id'], queryParams: [], headerParams: ['If-None-Match'], successStatuses: [200,304], emptyStatuses: [304] },
   replace_artifact: { method: 'PUT', path: '/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}', location: "body", scopeMode: 'none', pathParameters: ['scope_id', 'family', 'artifact_id'], queryParams: [], headerParams: ['If-Match'], successStatuses: [200], emptyStatuses: [] },
   get_artifact_revision: { method: 'GET', path: '/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}', location: null, scopeMode: 'none', pathParameters: ['scope_id', 'family', 'artifact_id', 'revision'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  list_artifact_revisions: { method: 'GET', path: '/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions', location: "query", scopeMode: 'none', pathParameters: ['scope_id', 'family', 'artifact_id'], queryParams: ['limit','cursor'], headerParams: [], successStatuses: [200], emptyStatuses: [] },
+  generate_prompt_demonstrations: { method: 'POST', path: '/v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations', location: "body", scopeMode: 'none', pathParameters: ['scope_id', 'prompt_key'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
 } as const
 
 export type OperationId = keyof typeof OPERATIONS

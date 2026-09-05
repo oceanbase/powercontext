@@ -23,6 +23,10 @@ from pydantic import ValidationError
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.handoff import HandoffCitation as RuntimeHandoffCitation
+from powercontext.builtin.artifacts.handoff.generation_metadata import (
+    HandoffGenerationEnvelope,
+    HandoffGenerationMetadata,
+)
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     Skill,
@@ -272,6 +276,8 @@ from powercontext.http import (
 from powercontext.http import (
     HandoffEvidenceCheck as TransportHandoffEvidenceCheck,
 )
+from powercontext.http import HandoffGenerationEnvelope as TransportHandoffGenerationEnvelope
+from powercontext.http import HandoffGenerationMetadata as TransportHandoffGenerationMetadata
 from powercontext.http import (
     HandoffMemoryCitation as TransportHandoffMemoryCitation,
 )
@@ -656,6 +662,9 @@ def prepare_handoff_request(value: PrepareHandoffRequest) -> PrepareHandoff:
 
 def runtime_handoff_draft(value: TransportHandoffDraft) -> HandoffDraft:
     return HandoffDraft(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=tuple(runtime_handoff_statement(statement) for statement in value.state),
         disposition=value.disposition.value,
@@ -666,6 +675,9 @@ def runtime_handoff_draft(value: TransportHandoffDraft) -> HandoffDraft:
 
 def runtime_prepared_handoff(value: TransportPreparedHandoff) -> PreparedHandoff:
     return PreparedHandoff(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         scope_id=value.scope_id,
         base=None if value.base is None else runtime_artifact_reference(value.base),
         content=runtime_handoff_content(value.content),
@@ -674,6 +686,9 @@ def runtime_prepared_handoff(value: TransportPreparedHandoff) -> PreparedHandoff
 
 def handoff_draft_response(value: HandoffDraft) -> TransportHandoffDraft:
     return TransportHandoffDraft(
+        generation=None
+        if value.generation is None
+        else TransportHandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=[handoff_statement(statement) for statement in value.state],
         disposition=HandoffDisposition(value.disposition),
@@ -684,6 +699,7 @@ def handoff_draft_response(value: HandoffDraft) -> TransportHandoffDraft:
 
 def prepared_handoff_response(value: PreparedHandoff) -> TransportPreparedHandoff:
     return TransportPreparedHandoff.model_validate({
+        "generation": None if value.generation is None else value.generation.model_dump(mode="json"),
         "schema": PreparedHandoffSchema(value.schema_version),
         "scope_id": value.scope_id,
         "base": None if value.base is None else artifact_reference(value.base),
@@ -1051,6 +1067,9 @@ def handoff_omission(value: HandoffOmission) -> TransportHandoffOmission:
 
 def runtime_handoff_content(value: TransportHandoffContent) -> HandoffContent:
     return HandoffContent(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationMetadata.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=tuple(runtime_handoff_statement(statement) for statement in value.state),
         disposition=value.disposition.value,
@@ -1061,6 +1080,9 @@ def runtime_handoff_content(value: TransportHandoffContent) -> HandoffContent:
 
 def handoff_content(value: HandoffContent) -> TransportHandoffContent:
     return TransportHandoffContent.model_validate({
+        "generation": None
+        if value.generation is None
+        else TransportHandoffGenerationMetadata.model_validate_json(value.generation.model_dump_json()),
         "schema": HandoffSchema(value.schema_version),
         "objective": value.objective,
         "state": [handoff_statement(statement) for statement in value.state],

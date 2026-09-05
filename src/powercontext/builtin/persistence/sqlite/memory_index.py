@@ -383,21 +383,19 @@ class SQLiteMemoryVectorIndex:
                 continue
             vector = validate_embedding(projection.embedding, dimension=self.profile.dimension)
             entry = projection.entry_version
-            vector_id = (
-                await connection.execute(
-                    insert(SQLITE_MEMORY_VECTOR_ENTRIES_TABLE)
-                    .values(
-                        scope_id=scope_id,
-                        memory_artifact_id=memory_ref.artifact_id,
-                        head_revision=memory_ref.revision,
-                        entry_id=entry.entry_id,
-                        entry_version_id=entry.entry_version_id,
-                        entry_content_hash=entry.entry_content_hash,
-                        embedding_content_hash=projection.embedding_content_hash,
-                    )
-                    .returning(SQLITE_MEMORY_VECTOR_ENTRIES_TABLE.c.vector_id)
+            inserted = await connection.execute(
+                insert(SQLITE_MEMORY_VECTOR_ENTRIES_TABLE).values(
+                    scope_id=scope_id,
+                    memory_artifact_id=memory_ref.artifact_id,
+                    head_revision=memory_ref.revision,
+                    entry_id=entry.entry_id,
+                    entry_version_id=entry.entry_version_id,
+                    entry_content_hash=entry.entry_content_hash,
+                    embedding_content_hash=projection.embedding_content_hash,
                 )
-            ).scalar_one()
+            )
+            # SQLite before 3.35 supports lastrowid, but not INSERT ... RETURNING.
+            vector_id = inserted.lastrowid
             await connection.execute(
                 _INSERT_VECTOR_SQL,
                 {"vector_id": vector_id, "embedding": _pack_vector(vector)},

@@ -46,7 +46,7 @@ class ContentSourceTarget(BaseModel):
     """Exact Artifact revision to which one system Source is bound."""
 
     scope_id: str
-    family: Literal["memory", "experience", "skill", "handoff"]
+    family: Literal["memory", "experience", "skill", "handoff", "prompt"]
     artifact_id: str
     revision: Annotated[int, Field(ge=1)] = 1
 

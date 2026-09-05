@@ -64,6 +64,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
 )
+from powercontext.builtin.artifacts.prompt import GeneratePromptDemonstrations, PromptError
 from powercontext.builtin.artifacts.skill import (
     AgentKind,
     AgentSkillTarget,
@@ -156,6 +157,9 @@ from powercontext.builtin.records import (
 )
 from powercontext.builtin.records import (
     ArtifactRecordPage as RuntimeArtifactRecordPage,
+)
+from powercontext.builtin.records import (
+    ArtifactRevisionPage as RuntimeArtifactRevisionPage,
 )
 from powercontext.builtin.records import (
     ArtifactWrite as RuntimeArtifactWrite,
@@ -268,6 +272,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
+from powercontext.builtin.runtime.application import PromptApplication
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingNotFoundError,
@@ -332,6 +337,7 @@ from powercontext.http import (
     ArtifactCreated,
     ArtifactPage,
     ArtifactRevision,
+    ArtifactRevisionPage,
     BaseArtifactFamily,
     Capabilities,
     CaptureContentSourceRequest,
@@ -344,6 +350,7 @@ from powercontext.http import (
     ConnectorCheckpointState,
     ContinueHandoffRequest,
     CreateArtifactRequest,
+    CreatePromptArtifactRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
     CreateSourceRequest,
@@ -359,6 +366,7 @@ from powercontext.http import (
     FlushMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
+    GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetConnectorCheckpointRequest,
@@ -375,6 +383,7 @@ from powercontext.http import (
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListArtifactRevisionsRequest,
     ListArtifactsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -392,6 +401,8 @@ from powercontext.http import (
     PreparedContext,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
+    PromptDemonstrationResult,
+    PromptKey,
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
     ProposeSkillRequest,
@@ -489,6 +500,7 @@ from powercontext.http._generated.operations import (
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
+    GENERATE_PROMPT_DEMONSTRATIONS,
     GENERATE_SKILL,
     GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
@@ -509,6 +521,7 @@ from powercontext.http._generated.operations import (
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_ARTIFACT_REVISIONS,
     LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
@@ -588,6 +601,10 @@ class _SourceApplication(Protocol):
 
 
 class _ScopedRecordApplication(Protocol):
+    async def list_artifact_revisions(
+        self, family: str, artifact_id: str, /, *, limit: int, cursor: str | None
+    ) -> RuntimeArtifactRevisionPage: ...
+
     async def create_source(
         self,
         source_type: str,
@@ -907,6 +924,7 @@ class _StatisticsApplication(Protocol):
 
 
 class ServerApplication(Protocol):
+    prompts: PromptApplication
     scopes: ScopeApplication | None
     publications: ArtifactPublicationApplication | None
     sources: _SourceApplication
@@ -1012,6 +1030,7 @@ def create_app(
     @app.exception_handler(_RuntimeNotReadyError)
     @app.exception_handler(_PreconditionRequiredError)
     @app.exception_handler(BaseAccessError)
+    @app.exception_handler(PromptError)
     @app.exception_handler(SourceNotEligibleError)
     @app.exception_handler(PowerContextError)
     @app.exception_handler(PersistenceError)
@@ -1057,6 +1076,8 @@ def create_app(
     _add_route(app, GET_ARTIFACT_REVISION, get_artifact_revision)
     _add_route(app, GET_ARTIFACT, get_artifact)
     _add_route(app, LIST_ARTIFACTS, list_artifacts)
+    _add_route(app, LIST_ARTIFACT_REVISIONS, list_artifact_revisions)
+    _add_route(app, GENERATE_PROMPT_DEMONSTRATIONS, generate_prompt_demonstrations)
     _add_route(app, REPLACE_ARTIFACT, replace_artifact)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
     _add_route(app, REGISTER_SOURCE_DEFINITION, register_source_definition)
@@ -1420,6 +1441,42 @@ async def list_artifacts(
     )
 
 
+def _list_artifact_revisions_query(
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
+) -> ListArtifactRevisionsRequest:
+    return ListArtifactRevisionsRequest(limit=limit, cursor=cursor)
+
+
+async def list_artifact_revisions(
+    scope_id: _ScopePathId,
+    family: Annotated[BaseArtifactFamily, Path()],
+    artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
+    request: Annotated[ListArtifactRevisionsRequest, Depends(_list_artifact_revisions_query)],
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ArtifactRevisionPage:
+    result = await application.records.for_scope(scope_id).list_artifact_revisions(
+        family.value, artifact_id, limit=request.limit, cursor=request.cursor
+    )
+    return ArtifactRevisionPage(
+        items=[_artifact_collection_item_response(item) for item in result.items],
+        next_cursor=result.next_cursor,
+    )
+
+
+async def generate_prompt_demonstrations(
+    scope_id: _ScopePathId,
+    prompt_key: Annotated[PromptKey, Path()],
+    request: GeneratePromptDemonstrationsRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> PromptDemonstrationResult:
+    result = await application.prompts.for_scope(scope_id).generate_demonstrations(
+        prompt_key.value,
+        GeneratePromptDemonstrations.model_validate_json(request.model_dump_json()),
+    )
+    return PromptDemonstrationResult.model_validate_json(result.model_dump_json())
+
+
 async def get_artifact(
     scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
     family: Annotated[BaseArtifactFamily, Path()],
@@ -1526,9 +1583,12 @@ def _artifact_write(value: CreateArtifactRequest | ReplaceArtifactRequest) -> Ru
     if isinstance(content, TransportHandoffContent):
         content = mapping.runtime_handoff_content(content)
     return RuntimeArtifactWrite(
+        prompt_key=value.root.prompt_key.value if isinstance(value.root, CreatePromptArtifactRequest) else None,
         content=cast(
             dict[str, JsonValue],
-            content.model_dump(mode="json", by_alias=True, exclude_none=True),
+            content.model_dump(
+                mode="json", by_alias=True, exclude_none=not isinstance(value.root.content, TransportHandoffContent)
+            ),
         ),
     )
 
@@ -2560,6 +2620,9 @@ def _validation_error_details(error: RequestValidationError | PydanticValidation
 
 
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:  # noqa: C901
+    if isinstance(error, PromptError):
+        code = 503 if error.during_inference else 500 if error.code == "invalid_prompt_demonstrations" else 422
+        return code, error.code, str(error), None
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
     base_access_error = _map_base_access_error(error)

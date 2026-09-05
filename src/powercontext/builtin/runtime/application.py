@@ -62,6 +62,8 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCitationError,
     MemoryEntryNotFoundError,
 )
+from powercontext.builtin.artifacts.prompt import GeneratePromptDemonstrations, PromptDemonstrationResult, PromptError
+from powercontext.builtin.artifacts.prompt.service import PromptService
 from powercontext.builtin.artifacts.skill import (
     AgentKind,
     AgentSkillTarget,
@@ -102,6 +104,7 @@ from powercontext.builtin.records import (
     ArtifactCreated,
     ArtifactRecord,
     ArtifactRecordPage,
+    ArtifactRevisionPage,
     ArtifactWrite,
     BaseValueConflictError,
     RecordService,
@@ -387,6 +390,20 @@ class ScopedRecordApplication:
                 revision,
             )
 
+    async def list_artifact_revisions(
+        self,
+        family: str,
+        artifact_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> ArtifactRevisionPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().list_artifact_revisions(
+                self.scope_id, family, artifact_id, limit=limit, cursor=cursor
+            )
+
     async def query_artifacts(
         self,
         family: str,
@@ -433,6 +450,31 @@ class RecordApplication:
     async def list_scopes(self, *, limit: int, cursor: str | None) -> ScopeSummaryPage:
         async with self._runtime._operation():
             return await self._runtime._records().list_scopes(limit=limit, cursor=cursor)
+
+
+class ScopedPromptApplication:
+    """Generate suggestions inside an existing Scope without durable side effects."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def generate_demonstrations(
+        self, key: str, request: GeneratePromptDemonstrations, /
+    ) -> PromptDemonstrationResult:
+        async with self._runtime._scope_operation(self.scope_id):
+            service = self._runtime._prompt_service
+            if service is None:
+                raise PromptError("prompt_customization_unavailable")
+            return await service.generate_demonstrations(key, request)
+
+
+class PromptApplication:
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedPromptApplication:
+        return ScopedPromptApplication(self._runtime, scope_id)
 
 
 class RemoteIngestionApplication:
@@ -1823,6 +1865,7 @@ class BuiltinRuntime:
         remote_skill_distribution: RemoteSkillDistributionService | None = None,
         statistics_service: StatisticsServiceFactory | None = None,
         record_service: RecordService | None = None,
+        prompt_service: PromptService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         publication_application: ArtifactPublicationApplication | None = None,
         scope_application: ScopeApplication | None = None,
@@ -1856,6 +1899,7 @@ class BuiltinRuntime:
         self._remote_skill_distribution = remote_skill_distribution
         self._statistics_service = statistics_service
         self._record_service = record_service
+        self._prompt_service = prompt_service
         self._recall_token_estimator = recall_token_estimator
         self.publications = publication_application
         self.scopes = scope_application
@@ -1886,6 +1930,7 @@ class BuiltinRuntime:
         self.work = WorkApplication(self)
         self.memory = MemoryApplication(self)
         self.records = RecordApplication(self)
+        self.prompts = PromptApplication(self)
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
         self.remote_skills = RemoteSkillApplication(self)

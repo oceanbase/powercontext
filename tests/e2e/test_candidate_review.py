@@ -230,7 +230,7 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
             )
             historical_skill = await client.get_skill(GetSkillRequest(scope_id=scope_id, artifact=first_skill.artifact))
 
-            assert capabilities.artifact_families == ["memory", "experience", "skill", "handoff"]
+            assert capabilities.artifact_families == ["memory", "experience", "skill", "handoff", "prompt"]
             assert inbox.candidates == [candidate]
             assert prepared.status == "empty"
             assert revised.version == 2

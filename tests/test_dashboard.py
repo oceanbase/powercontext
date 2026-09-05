@@ -56,11 +56,14 @@ def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_pa
         skills = client.get("/skills")
         review = client.get("/reviews")
         scopes = client.get("/dashboard/scopes")
+        prompts = client.get("/prompts")
 
     assert settings.dashboard.enabled is True
     assert home.status_code == 200
     assert skills.status_code == 200
     assert review.status_code == 200
+    assert prompts.status_code == 200
+    assert 'id="prompt-form"' in prompts.text
     assert scopes.status_code == 200
     assert scopes.json()[0]["display_name"] == "Default"
     assert scopes.json()[0]["summary"] == "Default context"
@@ -100,10 +103,12 @@ def test_dashboard_can_be_disabled_explicitly(tmp_path) -> None:
         skills = client.get("/skills")
         review = client.get("/reviews")
         health = client.get("/health/live")
+        prompts = client.get("/prompts")
 
     assert home.status_code == 404
     assert skills.status_code == 404
     assert review.status_code == 404
+    assert prompts.status_code == 404
     assert health.status_code == 200
 
 
@@ -160,12 +165,23 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
         removed_dashboard_alias = client.get("/dashboard", headers=_AUTH_HEADERS)
         missing_scopes = client.get("/dashboard/scopes")
         scopes = client.get("/dashboard/scopes", headers=_AUTH_HEADERS)
+        prompts = client.get("/prompts")
+        missing_prompts = client.get(f"/v1/scopes/{first_scope['scope_id']}/artifacts/prompt")
+        missing_generation = client.post(
+            f"/v1/scopes/{first_scope['scope_id']}/prompts/memory.extract/demonstrations",
+            json={"instructions": "Keep stable preferences.", "demonstration_count": 2},
+        )
 
     assert home.status_code == 200
     assert skills.status_code == 200
     assert review.status_code == 200
     assert removed_dashboard_alias.status_code == 404
     assert missing_scopes.status_code == 401
+    assert prompts.status_code == 200
+    assert 'data-server-auth-required="true"' in prompts.text
+    assert 'aria-current="page" data-i18n="promptsTitle"' in prompts.text
+    assert missing_prompts.status_code == 401
+    assert missing_generation.status_code == 401
     assert scopes.status_code == 200
     assert 'data-server-session="missing"' in home.text
     assert 'id="auth-shell"' in home.text

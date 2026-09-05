@@ -2117,7 +2117,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
                     },
                     {
                         "name": "limit",
@@ -2163,7 +2163,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
                     },
                     {
                         "name": "artifact_id",
@@ -2217,7 +2217,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
                     },
                     {
                         "name": "artifact_id",
@@ -2273,7 +2273,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
                     },
                     {
                         "name": "artifact_id",
@@ -2288,6 +2288,154 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "The exact immutable Artifact revision.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRevision"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions": {
+            "get": {
+                "tags": ["artifacts"],
+                "summary": "List immutable Artifact revisions",
+                "description": "Descending "
+                "history "
+                "with "
+                "an "
+                "opaque "
+                "cursor "
+                "bound "
+                "to "
+                "the "
+                "Scope, "
+                "Artifact, "
+                "and "
+                "initial "
+                "revision "
+                "snapshot.",
+                "operationId": "list_artifact_revisions",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[\\x21-\\x7E]+$"},
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 4096},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One snapshot-bounded page of immutable revisions without content.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/ArtifactRevisionPage"}}
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "410": {"$ref": "#/components/responses/CursorExpired"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
+        },
+        "/v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations": {
+            "post": {
+                "tags": ["prompts"],
+                "summary": "Generate editable Prompt demonstrations without saving",
+                "description": "Generate "
+                "exactly "
+                "the "
+                "requested "
+                "number "
+                "of "
+                "typed "
+                "input/output "
+                "suggestions "
+                "for "
+                "a "
+                "supported "
+                "built-in "
+                "operation. "
+                "The "
+                "caller "
+                "must "
+                "explicitly "
+                "create "
+                "or "
+                "replace "
+                "a "
+                "Prompt "
+                "Artifact "
+                "to "
+                "save "
+                "suggestions.",
+                "operationId": "generate_prompt_demonstrations",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "prompt_key",
+                        "in": "path",
+                        "required": True,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "memory.extract",
+                                "memory.rerank",
+                                "experience.incubate",
+                                "experience.generate",
+                                "skill.generate",
+                                "handoff.generate",
+                            ],
+                        },
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/GeneratePromptDemonstrationsRequest"}
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Validated suggestions; no Artifact or head was written.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/PromptDemonstrationResult"}}
+                        },
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "404": {"$ref": "#/components/responses/NotFound"},
@@ -2347,6 +2495,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "items": {"items": {"$ref": "#/components/schemas/ArtifactCollectionItem"}, "type": "array"},
                     "next_cursor": {"type": "string", "nullable": True},
                 },
+                "type": "object",
+                "required": ["items", "next_cursor"],
+            },
+            "ArtifactRevisionPage": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/ArtifactCollectionItem"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
                 "type": "object",
                 "required": ["items", "next_cursor"],
             },
@@ -2702,6 +2859,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "Capabilities": {
                 "properties": {
+                    "prompts": {
+                        "additionalProperties": {"$ref": "#/components/schemas/PromptCapability"},
+                        "type": "object",
+                        "default": {},
+                    },
                     "source_types": {"items": {"type": "string"}, "type": "array"},
                     "artifact_families": {"items": {"type": "string"}, "type": "array"},
                     "memory_extraction": {
@@ -3505,6 +3667,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "HandoffContent": {
                 "properties": {
+                    "generation": {"$ref": "#/components/schemas/HandoffGenerationMetadata", "nullable": True},
                     "schema": {"$ref": "#/components/schemas/HandoffSchema"},
                     "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
                     "state": {
@@ -3527,6 +3690,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "HandoffDraft": {
                 "properties": {
+                    "generation": {"$ref": "#/components/schemas/HandoffGenerationEnvelope", "nullable": True},
                     "objective": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
                     "state": {
                         "items": {"$ref": "#/components/schemas/HandoffStatement"},
@@ -3648,6 +3812,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "PreparedHandoff": {
                 "properties": {
+                    "generation": {"$ref": "#/components/schemas/HandoffGenerationEnvelope", "nullable": True},
                     "schema": {"$ref": "#/components/schemas/PreparedHandoffSchema"},
                     "scope_id": {"type": "string"},
                     "base": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
@@ -3657,6 +3822,56 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["schema", "scope_id", "base", "content"],
             },
+            "HandoffGenerationEnvelope": {
+                "properties": {"receipt": {"type": "string", "maxLength": 8192, "minLength": 1}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["receipt"],
+                "description": "Transient "
+                "Server-authenticated "
+                "generation receipt. "
+                "Preserve it across "
+                "finalize and commit. It "
+                "grants no additional "
+                "authority and is never "
+                "stored in the Artifact.",
+            },
+            "HandoffGenerationMetadata": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "prompt_key": {"$ref": "#/components/schemas/HandoffPromptKey"},
+                    "selection": {"type": "string", "enum": ["built_in", "artifact"]},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "definition_version": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "builtin_version": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "compiled_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "original_draft_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "edit_status": {"type": "string", "enum": ["unchanged", "edited"]},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "prompt_key",
+                    "selection",
+                    "artifact",
+                    "definition_version",
+                    "builtin_version",
+                    "compiled_digest",
+                    "original_draft_digest",
+                    "edit_status",
+                ],
+                "description": "Server-derived, "
+                "persisted generation "
+                "origin. Raw copied "
+                "metadata is not accepted "
+                "as verified input "
+                "without a valid receipt. "
+                "Prompt references are "
+                "configuration lineage, "
+                "not factual citations.",
+            },
+            "HandoffPromptKey": {"type": "string", "enum": ["handoff.generate"]},
             "PreparedContext": {
                 "properties": {
                     "schema": {"$ref": "#/components/schemas/PreparedContextSchema"},
@@ -5058,6 +5273,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     {"$ref": "#/components/schemas/CreateExperienceArtifactRequest"},
                     {"$ref": "#/components/schemas/CreateSkillArtifactRequest"},
                     {"$ref": "#/components/schemas/CreateHandoffArtifactRequest"},
+                    {"$ref": "#/components/schemas/CreatePromptArtifactRequest"},
                 ],
                 "discriminator": {
                     "propertyName": "family",
@@ -5066,8 +5282,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "experience": "#/components/schemas/CreateExperienceArtifactRequest",
                         "skill": "#/components/schemas/CreateSkillArtifactRequest",
                         "handoff": "#/components/schemas/CreateHandoffArtifactRequest",
+                        "prompt": "#/components/schemas/CreatePromptArtifactRequest",
                     },
                 },
+            },
+            "CreatePromptArtifactRequest": {
+                "properties": {
+                    "family": {"type": "string", "enum": ["prompt"]},
+                    "prompt_key": {"$ref": "#/components/schemas/PromptKey"},
+                    "content": {"$ref": "#/components/schemas/PromptContent"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["family", "prompt_key", "content"],
             },
             "CreateMemoryArtifactRequest": {
                 "properties": {
@@ -5201,7 +5428,106 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     {"$ref": "#/components/schemas/ReplaceExperienceArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceSkillArtifactRequest"},
                     {"$ref": "#/components/schemas/ReplaceHandoffArtifactRequest"},
+                    {"$ref": "#/components/schemas/ReplacePromptArtifactRequest"},
                 ]
+            },
+            "ReplacePromptArtifactRequest": {
+                "properties": {"content": {"$ref": "#/components/schemas/PromptContent"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["content"],
+            },
+            "ListArtifactRevisionsRequest": {
+                "properties": {
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "PromptKey": {
+                "type": "string",
+                "enum": [
+                    "memory.extract",
+                    "memory.rerank",
+                    "experience.incubate",
+                    "experience.generate",
+                    "skill.generate",
+                    "handoff.generate",
+                ],
+            },
+            "PromptContent": {
+                "properties": {
+                    "schema_version": {"type": "string", "enum": ["powercontext.prompt.v1"]},
+                    "mode": {"type": "string", "enum": ["auto", "custom"]},
+                    "instructions": {"type": "string", "maxLength": 32768},
+                    "demonstrations": {
+                        "items": {"$ref": "#/components/schemas/PromptDemonstration"},
+                        "type": "array",
+                        "maxItems": 50,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["schema_version", "mode", "instructions", "demonstrations"],
+                "description": "Canonical content is limited to 256 "
+                "KiB. Auto requires empty "
+                "instructions and demonstrations; "
+                "Custom requires non-blank trimmed "
+                "NFC instructions. Demonstrations "
+                "must match the registered operation "
+                "types.",
+            },
+            "PromptDemonstration": {
+                "properties": {
+                    "input": {"description": "Complete JSON input matching the registered Prompt Definition."},
+                    "expected_output": {
+                        "description": "Desired JSON output matching the registered Prompt Definition."
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["input", "expected_output"],
+                "description": "A typed input/output pair limited to 64 KiB of canonical JSON.",
+            },
+            "PromptCapability": {
+                "properties": {
+                    "status": {"type": "string", "enum": ["supported", "disabled", "unsupported"]},
+                    "reason": {
+                        "type": "string",
+                        "enum": ["operation_disabled", "provider_not_configured", "injected_component", None],
+                        "nullable": True,
+                    },
+                    "definition_version": {"type": "string"},
+                    "builtin_version": {"type": "string"},
+                    "builtin_profile": {"type": "string", "enum": ["coding", "conversation", None], "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status", "reason", "definition_version", "builtin_version", "builtin_profile"],
+            },
+            "GeneratePromptDemonstrationsRequest": {
+                "properties": {
+                    "instructions": {"type": "string", "maxLength": 32768, "minLength": 1, "pattern": ".*\\S.*"},
+                    "demonstration_count": {"type": "integer", "maximum": 20.0, "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["instructions", "demonstration_count"],
+            },
+            "PromptDemonstrationResult": {
+                "properties": {
+                    "prompt_key": {"$ref": "#/components/schemas/PromptKey"},
+                    "demonstrations": {
+                        "items": {"$ref": "#/components/schemas/PromptDemonstration"},
+                        "type": "array",
+                        "maxItems": 20,
+                        "minItems": 1,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["prompt_key", "demonstrations"],
             },
             "ReplaceMemoryArtifactRequest": {
                 "properties": {"content": {"$ref": "#/components/schemas/ReplaceMemoryArtifactContent"}},
@@ -5294,7 +5620,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
-            "BaseArtifactFamily": {"type": "string", "enum": ["memory", "experience", "skill", "handoff"]},
+            "BaseArtifactFamily": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {"type": "string", "enum": ["experience", "skill"]},
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},

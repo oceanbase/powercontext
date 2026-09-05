@@ -37,6 +37,7 @@ from powercontext.http import (
     ArtifactPage,
     ArtifactPublication,
     ArtifactRevision,
+    ArtifactRevisionPage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
@@ -62,6 +63,7 @@ from powercontext.http import (
     FlushMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
+    GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetConnectorCheckpointRequest,
@@ -80,6 +82,7 @@ from powercontext.http import (
     HealthResponse,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
+    ListArtifactRevisionsRequest,
     ListArtifactsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -98,6 +101,7 @@ from powercontext.http import (
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
+    PromptDemonstrationResult,
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
     ProposeSkillRequest,
@@ -169,6 +173,7 @@ from powercontext.http._generated.operations import (
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
+    GENERATE_PROMPT_DEMONSTRATIONS,
     GENERATE_SKILL,
     GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
@@ -189,6 +194,7 @@ from powercontext.http._generated.operations import (
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_ARTIFACT_REVISIONS,
     LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
@@ -486,6 +492,28 @@ class PowerContextClient:
             LIST_ARTIFACTS,
             request,
             path_parameters={"scope_id": scope_id, "family": family},
+        )
+
+    async def list_artifact_revisions(
+        self, scope_id: str, family: str, artifact_id: str, request: ListArtifactRevisionsRequest
+    ) -> ArtifactRevisionPage:
+        """List immutable revision metadata using a stable, scoped pagination snapshot."""
+
+        return await self._request(
+            LIST_ARTIFACT_REVISIONS,
+            request,
+            path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
+        )
+
+    async def generate_prompt_demonstrations(
+        self, scope_id: str, prompt_key: str, request: GeneratePromptDemonstrationsRequest
+    ) -> PromptDemonstrationResult:
+        """Suggest typed demonstrations without saving or changing a Prompt."""
+
+        return await self._request(
+            GENERATE_PROMPT_DEMONSTRATIONS,
+            request,
+            path_parameters={"scope_id": scope_id, "prompt_key": prompt_key},
         )
 
     async def replace_artifact(
