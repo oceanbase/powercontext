@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import multiprocessing
+import time
 import traceback as traceback_module
 from collections import deque
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -17,12 +18,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
 from multiprocessing.connection import Connection
+from multiprocessing.context import SpawnProcess
+from multiprocessing.popen_spawn_posix import Popen as SpawnPopen
 from multiprocessing.process import BaseProcess
 from random import SystemRandom
 from typing import Protocol
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncConnection
+from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
@@ -159,6 +163,41 @@ class ArtifactProcessingBinding:
             raise ValueError("artifact processing automatic interval must be positive")  # noqa: TRY003
 
 
+@dataclass(slots=True)
+class _SpawnStartOwner:
+    """Retain Popen ownership before BaseProcess can publish the handle."""
+
+    popen: SpawnPopen | None = None
+
+
+_spawn_start_owners: dict[int, _SpawnStartOwner] = {}
+
+
+class _OwnedSpawnPopen(SpawnPopen):
+    """Publish this Popen before its initializer can create a child or fail."""
+
+    def __new__(cls, process_obj: BaseProcess) -> _OwnedSpawnPopen:
+        popen = object.__new__(cls)
+        _spawn_start_owners[id(process_obj)].popen = popen
+        return popen
+
+
+class _OwnedSpawnProcess(SpawnProcess):
+    @staticmethod
+    @override
+    def _Popen(process_obj: BaseProcess) -> SpawnPopen:
+        return _OwnedSpawnPopen(process_obj)
+
+
+def _start_owned_spawn_process(process: _OwnedSpawnProcess, owner: _SpawnStartOwner) -> None:
+    process_id = id(process)
+    _spawn_start_owners[process_id] = owner
+    try:
+        process.start()
+    finally:
+        _spawn_start_owners.pop(process_id, None)
+
+
 class SpawnArtifactProcessingWorkerLauncher:
     """Launch a picklable Worker entrypoint in a fresh spawn child process."""
 
@@ -168,24 +207,24 @@ class SpawnArtifactProcessingWorkerLauncher:
     async def start(self, assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerHandle:
         context = multiprocessing.get_context("spawn")
         receiver, sender = context.Pipe(duplex=False)
-        process = context.Process(
+        process = _OwnedSpawnProcess(
             target=_run_spawned_worker,
             args=(sender, self._entrypoint, assignment),
             name=f"powercontext-artifact-worker-{assignment.worker_id}",
             daemon=False,
         )
+        owner = _SpawnStartOwner()
         start_task = asyncio.create_task(
-            asyncio.to_thread(process.start),
+            asyncio.to_thread(_start_owned_spawn_process, process, owner),
             name=f"powercontext-artifact-worker-start-{assignment.worker_id}",
         )
         try:
             await asyncio.shield(start_task)
         except asyncio.CancelledError:
-            await asyncio.shield(_cleanup_cancelled_spawn_start(start_task, process, receiver, sender))
+            await asyncio.shield(_cleanup_cancelled_spawn_start(start_task, process, owner, receiver, sender))
             raise
         except BaseException:
-            receiver.close()
-            sender.close()
+            await asyncio.shield(_cleanup_failed_spawn_start(owner, receiver, sender))
             raise
         sender.close()
         return _SpawnedWorkerHandle(process, receiver)
@@ -194,6 +233,7 @@ class SpawnArtifactProcessingWorkerLauncher:
 async def _cleanup_cancelled_spawn_start(
     start_task: asyncio.Task[None],
     process: BaseProcess,
+    owner: _SpawnStartOwner,
     receiver: Connection,
     sender: Connection,
 ) -> None:
@@ -202,11 +242,42 @@ async def _cleanup_cancelled_spawn_start(
     try:
         await start_task
     except BaseException:
-        receiver.close()
-        sender.close()
+        await _cleanup_failed_spawn_start(owner, receiver, sender)
         return
     sender.close()
     await _SpawnedWorkerHandle(process, receiver).terminate()
+
+
+async def _cleanup_failed_spawn_start(
+    owner: _SpawnStartOwner,
+    receiver: Connection,
+    sender: Connection,
+) -> None:
+    """Terminate a child whose Popen exists but was never published by BaseProcess."""
+
+    receiver.close()
+    sender.close()
+    popen = owner.popen
+    if popen is None:
+        return
+    try:
+        if hasattr(popen, "pid") and popen.poll() is None:
+            popen.terminate()
+            await asyncio.to_thread(_wait_for_spawn_popen_exit, popen, _SPAWN_SIGTERM_GRACE_SECONDS)
+        if hasattr(popen, "pid") and popen.poll() is None:
+            popen.kill()
+        if hasattr(popen, "pid"):
+            await asyncio.to_thread(popen.wait)
+    finally:
+        with suppress(AttributeError):
+            popen.close()
+        owner.popen = None
+
+
+def _wait_for_spawn_popen_exit(popen: SpawnPopen, timeout_seconds: float) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while popen.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.01)
 
 
 class _SpawnedWorkerHandle:

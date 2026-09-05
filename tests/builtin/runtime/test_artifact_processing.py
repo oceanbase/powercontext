@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import multiprocessing
 import os
 import signal
 import threading
@@ -35,6 +34,7 @@ from powercontext.builtin.persistence.supervision import (
     StoredArtifactProcessingLease,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_BINDING_STATES_TABLE, SHARED_TABLES
+from powercontext.builtin.runtime import artifact_processing as artifact_processing_module
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
@@ -1325,17 +1325,16 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
         spawned = threading.Event()
         release_start = threading.Event()
         child_pid: int | None = None
-        real_popen = multiprocessing.context.SpawnProcess._Popen
+        real_launch = cast(Any, artifact_processing_module._OwnedSpawnPopen)._launch
 
-        def stalled_popen(process):
+        def stalled_launch(popen, process):
             nonlocal child_pid
-            popen = real_popen(process)
+            real_launch(popen, process)
             child_pid = popen.pid
             spawned.set()
             release_start.wait(timeout=5)
-            return popen
 
-        monkeypatch.setattr(multiprocessing.context.SpawnProcess, "_Popen", staticmethod(stalled_popen))
+        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, "_launch", stalled_launch)
         async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
             await _raise_and_flush(profile.database, pending, "scope-a", 1)
             supervisor = ArtifactProcessingSupervisor(
@@ -1385,5 +1384,67 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
                 async with profile.database.transaction() as connection:
                     with pytest.raises(ArtifactProcessingLeadershipLostError):
                         await ArtifactProcessingLeaseRepository().require_fence(connection, old_fence)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("cancel_start", [False, True], ids=["ordinary-failure", "cancelled-failure"])
+def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_path, monkeypatch, cancel_start) -> None:
+    async def scenario() -> None:
+        ready = tmp_path / f"worker-ready-{cancel_start}"
+        launched = threading.Event()
+        release_failure = threading.Event()
+        child_pid: int | None = None
+        real_launch = cast(Any, artifact_processing_module._OwnedSpawnPopen)._launch
+
+        def failing_launch(popen, process):
+            nonlocal child_pid
+            real_launch(popen, process)
+            child_pid = popen.pid
+            deadline = time.monotonic() + 3
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert ready.exists()
+            launched.set()
+            if cancel_start:
+                release_failure.wait(timeout=5)
+            raise RuntimeError
+
+        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, "_launch", failing_launch)
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name=BINDING,
+            scope_id=str(ready),
+            source_after=0,
+            source_through=1,
+            wave_target=1,
+            claimed_flush_generation=1,
+            cursor_generation=None,
+            wave_kind=ArtifactProcessingWaveKind.EXPLICIT,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global",
+                holder_id="holder-a",
+                supervisor_generation=1,
+                lease_mode="single-process",
+            ),
+            worker_id="00000000-0000-4000-8000-000000000001",
+        )
+        start_task = asyncio.create_task(SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment))
+        assert await asyncio.to_thread(launched.wait, 3)
+        if cancel_start:
+            start_task.cancel()
+            await asyncio.sleep(0.05)
+            assert not start_task.done()
+            release_failure.set()
+            with pytest.raises(asyncio.CancelledError):
+                await start_task
+        else:
+            with pytest.raises(RuntimeError):
+                await start_task
+
+        assert child_pid is not None
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+        with pytest.raises(ChildProcessError):
+            await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
 
     asyncio.run(scenario())
