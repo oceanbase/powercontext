@@ -277,7 +277,9 @@ that do not use the `powercontext` command may omit the `cli` extra.
 
 Enabling tracing also produces spans for the generation and embedding calls that PowerContext constructs, without
 recording prompts, model responses, Memory content, or vectors. See
-[Trace with Phoenix](../how-to/trace-with-phoenix.md) for a working configuration.
+[Trace with Phoenix](../how-to/trace-with-phoenix.md) for a working configuration, and
+[Trace with Langfuse](../how-to/trace-with-langfuse.md) for a backend that authenticates the exporter through
+`OTEL_EXPORTER_OTLP_HEADERS`.
 
 To use OceanBase, provide its URL through your environment or secret manager:
 
