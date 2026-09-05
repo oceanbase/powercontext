@@ -1388,6 +1388,104 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
     asyncio.run(scenario())
 
 
+def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        pending = ArtifactProcessingPendingRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'spawn-timeout-close.db'}")
+        ready = tmp_path / "worker-ready"
+        spawned = threading.Event()
+        release_start = threading.Event()
+        child_pid: int | None = None
+        tracked_pipes = []
+        spawn_context = artifact_processing_module.multiprocessing.get_context("spawn")
+        real_pipe = type(spawn_context).Pipe
+        real_launch = cast(Any, artifact_processing_module._OwnedSpawnPopen)._launch
+
+        def tracking_pipe(context, duplex=True):
+            connections = real_pipe(context, duplex=duplex)
+            tracked_pipes.extend(connections)
+            return connections
+
+        def stalled_launch(popen, process):
+            nonlocal child_pid
+            real_launch(popen, process)
+            child_pid = popen.pid
+            deadline = time.monotonic() + 3
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert ready.exists()
+            spawned.set()
+            release_start.wait(timeout=5)
+
+        monkeypatch.setattr(type(spawn_context), "Pipe", tracking_pipe)
+        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, "_launch", stalled_launch)
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            await _raise_and_flush(profile.database, pending, str(ready), 1)
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        BINDING,
+                        1,
+                        SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm),
+                    ),
+                ),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=0.05,
+                holder_id="holder-a",
+            )
+            await supervisor.start()
+            assert await asyncio.to_thread(spawned.wait, 3)
+            old_fence = supervisor.fence
+            assert old_fence is not None
+            assert child_pid is not None
+
+            async def cleanup_started() -> bool:
+                return any(
+                    task.get_name().startswith("powercontext-artifact-worker-cleanup-")
+                    for task in asyncio.all_tasks()
+                    if not task.done()
+                )
+
+            await _wait_until(cleanup_started)
+            close_task = asyncio.create_task(supervisor.close())
+            await asyncio.sleep(0.05)
+            closed_before_handoff = close_task.done()
+            release_start.set()
+            await asyncio.wait_for(close_task, timeout=3)
+
+            assert not closed_before_handoff
+            assert all(connection.closed for connection in tracked_pipes)
+            assert not [
+                task
+                for task in asyncio.all_tasks()
+                if task is not asyncio.current_task()
+                and not task.done()
+                and task.get_name().startswith("powercontext-artifact-worker-")
+            ]
+            with pytest.raises(ProcessLookupError):
+                os.kill(child_pid, 0)
+            with pytest.raises(ChildProcessError):
+                await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
+
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                holder_id="holder-b",
+            ) as successor:
+                assert successor.fence is not None
+                assert successor.fence.supervisor_generation == old_fence.supervisor_generation + 1
+                async with profile.database.transaction() as connection:
+                    with pytest.raises(ArtifactProcessingLeadershipLostError):
+                        await ArtifactProcessingLeaseRepository().require_fence(connection, old_fence)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("cancel_start", [False, True], ids=["ordinary-failure", "cancelled-failure"])
 def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_path, monkeypatch, cancel_start) -> None:
     async def scenario() -> None:

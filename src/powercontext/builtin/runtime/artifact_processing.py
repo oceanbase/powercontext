@@ -221,10 +221,18 @@ class SpawnArtifactProcessingWorkerLauncher:
         try:
             await asyncio.shield(start_task)
         except asyncio.CancelledError:
-            await asyncio.shield(_cleanup_cancelled_spawn_start(start_task, process, owner, receiver, sender))
+            cleanup_task = asyncio.create_task(
+                _cleanup_cancelled_spawn_start(start_task, process, owner, receiver, sender),
+                name=f"powercontext-artifact-worker-cleanup-{assignment.worker_id}",
+            )
+            await _complete_spawn_cleanup(cleanup_task)
             raise
         except BaseException:
-            await asyncio.shield(_cleanup_failed_spawn_start(owner, receiver, sender))
+            cleanup_task = asyncio.create_task(
+                _cleanup_failed_spawn_start(owner, receiver, sender),
+                name=f"powercontext-artifact-worker-cleanup-{assignment.worker_id}",
+            )
+            await _complete_spawn_cleanup(cleanup_task)
             raise
         sender.close()
         return _SpawnedWorkerHandle(process, receiver)
@@ -246,6 +254,17 @@ async def _cleanup_cancelled_spawn_start(
         return
     sender.close()
     await _SpawnedWorkerHandle(process, receiver).terminate()
+
+
+async def _complete_spawn_cleanup(cleanup_task: asyncio.Task[None]) -> None:
+    """Keep ownership of spawn cleanup across repeated outer cancellation."""
+
+    while not cleanup_task.done():
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            continue
+    cleanup_task.result()
 
 
 async def _cleanup_failed_spawn_start(
