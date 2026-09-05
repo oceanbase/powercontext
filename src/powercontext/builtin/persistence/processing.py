@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from pydantic import BaseModel
-from sqlalchemy import case, delete, select, update
+from sqlalchemy import and_, case, delete, or_, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -82,18 +82,39 @@ class ArtifactProcessingPendingRepository:
         /,
         *,
         binding_name: str | None = None,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
         for_update: bool = False,
     ) -> tuple[StoredArtifactProcessingPending, ...]:
-        """Return the durable dirty set in a deterministic queue seed order."""
+        """Return one deterministic keyset page of the durable dirty set."""
 
         statement = select(ARTIFACT_PROCESSING_PENDING_TABLE)
         if binding_name is not None:
             _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
             statement = statement.where(ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == binding_name)
+        if after is not None:
+            if not isinstance(after, tuple) or len(after) != 2:
+                raise InvalidRepositoryArgumentError("after", "must be a binding_name/scope_id tuple")
+            after_binding_name, after_scope_id = after
+            _require_identifier("after.binding_name", after_binding_name, MAX_BINDING_NAME_LENGTH)
+            _require_identifier("after.scope_id", after_scope_id, MAX_SCOPE_ID_LENGTH)
+            statement = statement.where(
+                or_(
+                    ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name > after_binding_name,
+                    and_(
+                        ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == after_binding_name,
+                        ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id > after_scope_id,
+                    ),
+                )
+            )
         statement = statement.order_by(
             ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name,
             ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id,
         )
+        if limit is not None:
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+                raise InvalidRepositoryArgumentError("limit", "must be a positive integer")
+            statement = statement.limit(limit)
         if for_update:
             statement = statement.with_for_update()
         rows = (await connection.execute(statement)).mappings()

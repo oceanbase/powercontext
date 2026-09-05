@@ -12,6 +12,7 @@ import multiprocessing
 import traceback as traceback_module
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -47,6 +48,11 @@ _OCEANBASE_TICK_SECONDS = 1.0
 _OCEANBASE_LEASE_SECONDS = 15.0
 _RETRY_BASE_SECONDS = 30.0
 _RETRY_CAP_SECONDS = 30.0 * 60.0
+_DISCOVERY_PAGE_SIZE = 100
+_DISCOVERY_PAGE_DELAY_SECONDS = 0.01
+_WORKER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
+_spawn_cleanup_tasks: set[asyncio.Task[None]] = set()
 
 ProcessingKey = tuple[str, str]
 
@@ -118,7 +124,12 @@ class ArtifactProcessingWorkerHandle(Protocol):
 
 
 class ArtifactProcessingWorkerLauncher(Protocol):
-    """Spawn exactly one independently terminable Worker."""
+    """Spawn exactly one independently terminable Worker.
+
+    Implementations must release partially-created resources if ``start`` is
+    cancelled. The Supervisor bounds and cancels startup independently from a
+    Worker's execution timeout.
+    """
 
     async def start(self, assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerHandle: ...
 
@@ -159,14 +170,44 @@ class SpawnArtifactProcessingWorkerLauncher:
             name=f"powercontext-artifact-worker-{assignment.worker_id}",
             daemon=False,
         )
+        start_task = asyncio.create_task(
+            asyncio.to_thread(process.start),
+            name=f"powercontext-artifact-worker-start-{assignment.worker_id}",
+        )
         try:
-            process.start()
+            await asyncio.shield(start_task)
+        except asyncio.CancelledError:
+            cleanup_task = asyncio.create_task(
+                _cleanup_cancelled_spawn_start(start_task, process, receiver, sender),
+                name=f"powercontext-artifact-worker-start-cleanup-{assignment.worker_id}",
+            )
+            _spawn_cleanup_tasks.add(cleanup_task)
+            cleanup_task.add_done_callback(_spawn_cleanup_tasks.discard)
+            raise
         except BaseException:
             receiver.close()
             sender.close()
             raise
         sender.close()
         return _SpawnedWorkerHandle(process, receiver)
+
+
+async def _cleanup_cancelled_spawn_start(
+    start_task: asyncio.Task[None],
+    process: BaseProcess,
+    receiver: Connection,
+    sender: Connection,
+) -> None:
+    """Reap a spawn that completed after its supervising launch was cancelled."""
+
+    try:
+        await start_task
+    except BaseException:
+        receiver.close()
+        sender.close()
+        return
+    sender.close()
+    await _SpawnedWorkerHandle(process, receiver).terminate()
 
 
 class _SpawnedWorkerHandle:
@@ -239,6 +280,10 @@ class _WorkerExecutionError(RuntimeError):
         super().__init__(f"artifact Worker failed at {failure.stage}: {failure.error_code}")
 
 
+class _WorkerTerminationError(RuntimeError):
+    """The Supervisor could not confirm termination inside its fixed bound."""
+
+
 @dataclass(slots=True)
 class _WaveWork:
     key: ProcessingKey
@@ -266,6 +311,13 @@ class _RunningWorker:
     assignment: ArtifactProcessingWorkAssignment
     handle: ArtifactProcessingWorkerHandle
     task: asyncio.Task[ArtifactProcessingWorkerCompletion]
+
+
+@dataclass(slots=True)
+class _LaunchingWorker:
+    work: _WaveWork
+    assignment: ArtifactProcessingWorkAssignment
+    task: asyncio.Task[ArtifactProcessingWorkerHandle]
 
 
 class ArtifactProcessingSupervisor:
@@ -320,7 +372,10 @@ class ArtifactProcessingSupervisor:
         self._work: dict[ProcessingKey, _WaveWork] = {}
         self._automatic_waves: dict[str, _AutomaticWave] = {}
         self._next_automatic_wake_at: float | None = None
+        self._discovery_after: ProcessingKey | None = None
+        self._next_discovery_wake_at: float | None = None
         self._retries: dict[ProcessingKey, _RetryState] = {}
+        self._launching: dict[ProcessingKey, _LaunchingWorker] = {}
         self._running: dict[ProcessingKey, _RunningWorker] = {}
         self._wake = asyncio.Event()
         self._stop = asyncio.Event()
@@ -416,6 +471,7 @@ class ArtifactProcessingSupervisor:
         await self._establish_or_renew_leadership()
         if self._fence is None:
             return
+        await self._drain_launches()
         await self._drain_workers()
         if self._fence is None:
             return
@@ -447,22 +503,40 @@ class ArtifactProcessingSupervisor:
                     self._oceanbase_lease_seconds,
                 )
         if acquired is None:
-            self._status = ArtifactProcessingSupervisorStatus.STANDBY
+            if self._status is not ArtifactProcessingSupervisorStatus.DEGRADED:
+                self._status = ArtifactProcessingSupervisorStatus.STANDBY
             return
         self._fence = acquired.fence(self._lease_mode)
         self._renew_at = loop.time() + self._oceanbase_lease_seconds / 3.0
         self._status = ArtifactProcessingSupervisorStatus.LEADER
 
     async def _discover_waves(self) -> None:
+        automatic_targets = sum(len(wave.targets) for wave in self._automatic_waves.values())
+        explicit_work = sum(work.wave_kind is ArtifactProcessingWaveKind.EXPLICIT for work in self._work.values())
+        available = _DISCOVERY_PAGE_SIZE - automatic_targets - explicit_work
+        if available <= 0:
+            return
         async with self._database.transaction() as connection:
             await self._leases.require_fence(connection, self._require_current_fence())
-            pending_rows = await self._pending.scan(connection)
+            pending_rows = await self._pending.scan(
+                connection,
+                after=self._discovery_after,
+                limit=available,
+            )
             now = await database_utc_now(connection)
             binding_states = {
                 name: await self._binding_states.load(connection, name)
                 for name, binding in self._bindings.items()
                 if binding.automatic_processing_interval is not None
             }
+        if pending_rows:
+            last = pending_rows[-1]
+            self._discovery_after = (last.binding_name, last.scope_id)
+        if len(pending_rows) < available:
+            self._discovery_after = None
+            self._next_discovery_wake_at = None
+        else:
+            self._next_discovery_wake_at = asyncio.get_running_loop().time() + _DISCOVERY_PAGE_DELAY_SECONDS
         registered = tuple(row for row in pending_rows if row.binding_name in self._bindings)
         rows_by_binding: dict[str, list[StoredArtifactProcessingPending]] = {}
         for pending in registered:
@@ -540,12 +614,12 @@ class ArtifactProcessingSupervisor:
     async def _dispatch_workers(self) -> None:
         loop = asyncio.get_running_loop()
         attempts = len(self._queue)
-        while self._queue and len(self._running) < self._max_workers and attempts > 0:
+        while self._queue and len(self._launching) + len(self._running) < self._max_workers and attempts > 0:
             attempts -= 1
             key = self._queue.popleft()
             self._queued.discard(key)
             work = self._work.get(key)
-            if work is None or key in self._running:
+            if work is None or key in self._launching or key in self._running:
                 continue
             retry = self._retries.get(key)
             if retry is not None and retry.next_retry_at > loop.time():
@@ -555,25 +629,67 @@ class ArtifactProcessingSupervisor:
             if assignment is None:
                 await self._finish_covered_work(work)
                 continue
-            try:
-                handle = await self._bindings[work.key[0]].launcher.start(assignment)
-            except Exception as error:
-                failure = ArtifactProcessingWorkerFailure(
+            task = asyncio.create_task(
+                self._start_worker(self._bindings[work.key[0]].launcher, assignment),
+                name=f"powercontext-artifact-worker-launch-{assignment.worker_id}",
+            )
+            task.add_done_callback(lambda _task: self._wake.set())
+            self._launching[key] = _LaunchingWorker(
+                work=work,
+                assignment=assignment,
+                task=task,
+            )
+
+    async def _start_worker(
+        self,
+        launcher: ArtifactProcessingWorkerLauncher,
+        assignment: ArtifactProcessingWorkAssignment,
+    ) -> ArtifactProcessingWorkerHandle:
+        try:
+            async with asyncio.timeout(self._worker_timeout_seconds):
+                return await launcher.start(assignment)
+        except TimeoutError as error:
+            raise _WorkerExecutionError(
+                ArtifactProcessingWorkerFailure(
                     stage="worker_start",
-                    error_code="worker_start_failed",
+                    error_code="worker_start_timeout",
                     exception_type=type(error).__name__,
-                    traceback=_safe_traceback(error),
+                    traceback="",
                 )
-                self._record_failure(work, assignment, failure)
+            ) from None
+
+    async def _drain_launches(self) -> None:
+        for key, launching in tuple(self._launching.items()):
+            if not launching.task.done():
+                continue
+            del self._launching[key]
+            try:
+                handle = launching.task.result()
+            except asyncio.CancelledError:
+                raise
+            except _WorkerExecutionError as error:
+                self._record_failure(launching.work, launching.assignment, error.failure)
+                continue
+            except Exception as error:
+                self._record_failure(
+                    launching.work,
+                    launching.assignment,
+                    ArtifactProcessingWorkerFailure(
+                        stage="worker_start",
+                        error_code="worker_start_failed",
+                        exception_type=type(error).__name__,
+                        traceback=_safe_traceback(error),
+                    ),
+                )
                 continue
             task = asyncio.create_task(
                 self._wait_for_worker(handle),
-                name=f"powercontext-artifact-worker-wait-{assignment.worker_id}",
+                name=f"powercontext-artifact-worker-wait-{launching.assignment.worker_id}",
             )
             task.add_done_callback(lambda _task: self._wake.set())
             self._running[key] = _RunningWorker(
-                work=work,
-                assignment=assignment,
+                work=launching.work,
+                assignment=launching.assignment,
                 handle=handle,
                 task=task,
             )
@@ -614,7 +730,7 @@ class ArtifactProcessingSupervisor:
             async with asyncio.timeout(self._worker_timeout_seconds):
                 return await handle.wait()
         except TimeoutError as error:
-            await asyncio.shield(handle.terminate())
+            await asyncio.shield(self._terminate_worker(handle))
             raise _WorkerExecutionError(
                 ArtifactProcessingWorkerFailure(
                     stage="worker_process",
@@ -624,8 +740,27 @@ class ArtifactProcessingSupervisor:
                 )
             ) from None
         except asyncio.CancelledError:
-            await asyncio.shield(handle.terminate())
+            await asyncio.shield(self._terminate_worker(handle))
             raise
+
+    async def _terminate_worker(self, handle: ArtifactProcessingWorkerHandle) -> None:
+        try:
+            async with asyncio.timeout(_WORKER_SHUTDOWN_TIMEOUT_SECONDS):
+                await handle.terminate()
+        except TimeoutError:
+            log_safely(
+                logger,
+                logging.ERROR,
+                "Artifact processing Worker termination timed out",
+                extra={
+                    "event": "artifact_processing.worker.termination_timeout",
+                    "stage": "worker_termination",
+                    "error_code": "worker_termination_timeout",
+                    "outcome": "failure",
+                    "unit": "artifact_processing",
+                },
+            )
+            raise _WorkerTerminationError from None
 
     async def _drain_workers(self) -> None:
         for key, running in tuple(self._running.items()):
@@ -636,6 +771,9 @@ class ArtifactProcessingSupervisor:
                 completion = running.task.result()
             except asyncio.CancelledError:
                 raise
+            except _WorkerTerminationError:
+                await self._lose_leadership(ArtifactProcessingSupervisorStatus.DEGRADED)
+                return
             except _WorkerExecutionError as error:
                 self._record_failure(running.work, running.assignment, error.failure)
                 continue
@@ -780,24 +918,38 @@ class ArtifactProcessingSupervisor:
     async def _lose_leadership(self, status: ArtifactProcessingSupervisorStatus) -> None:
         self._fence = None
         self._status = status
+        launching = tuple(self._launching.values())
+        self._launching.clear()
         running = tuple(self._running.values())
         self._running.clear()
+        for item in launching:
+            item.task.cancel()
         for item in running:
             item.task.cancel()
-        await asyncio.gather(*(item.handle.terminate() for item in running), return_exceptions=True)
-        await asyncio.gather(*(item.task for item in running), return_exceptions=True)
+        tasks = tuple(item.task for item in (*launching, *running))
+        if tasks:
+            done, _pending = await asyncio.wait(tasks, timeout=_WORKER_SHUTDOWN_TIMEOUT_SECONDS)
+            await asyncio.gather(*done, return_exceptions=True)
+        late_handles: list[ArtifactProcessingWorkerHandle] = []
+        for item in launching:
+            if not item.task.done() or item.task.cancelled():
+                continue
+            with suppress(Exception):
+                late_handles.append(item.task.result())
+        await asyncio.gather(*(self._terminate_worker(handle) for handle in late_handles), return_exceptions=True)
         self._queue.clear()
         self._queued.clear()
         self._work.clear()
         self._automatic_waves.clear()
         self._next_automatic_wake_at = None
+        self._discovery_after = None
+        self._next_discovery_wake_at = None
         self._retries.clear()
 
     def _enqueue(self, key: ProcessingKey) -> None:
-        if key not in self._queued and key not in self._running and key in self._work:
+        if key not in self._queued and key not in self._launching and key not in self._running and key in self._work:
             self._queue.append(key)
             self._queued.add(key)
-        self._wake.set()
 
     def _require_current_fence(self) -> ArtifactProcessingFence:
         if self._fence is None:
@@ -817,7 +969,12 @@ class ArtifactProcessingSupervisor:
             if self._next_automatic_wake_at is None
             else (max(0.0, self._next_automatic_wake_at - asyncio.get_running_loop().time()),)
         )
-        candidates = (*automatic_delays, *retry_delays)
+        discovery_delays = (
+            ()
+            if self._next_discovery_wake_at is None
+            else (max(0.0, self._next_discovery_wake_at - asyncio.get_running_loop().time()),)
+        )
+        candidates = (*automatic_delays, *discovery_delays, *retry_delays)
         return None if not candidates else min(candidates)
 
 

@@ -17,6 +17,46 @@ from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource, repo
 BINDING = "topic-memory-source-window"
 
 
+def test_pending_scan_uses_bounded_stable_keyset_pages() -> None:
+    async def scenario() -> None:
+        async with (
+            repository_profile() as (profile, repositories),
+            profile.database.transaction() as connection,
+        ):
+            pending = repositories.processing_pending
+            for binding_name, scope_id in (
+                ("binding-b", "scope-b"),
+                ("binding-a", "scope-b"),
+                ("binding-b", "scope-a"),
+                ("binding-a", "scope-a"),
+            ):
+                await pending.raise_source(connection, scope_id, binding_name, 1)
+
+            first = await pending.scan(connection, limit=2)
+            second = await pending.scan(
+                connection,
+                after=(first[-1].binding_name, first[-1].scope_id),
+                limit=2,
+            )
+            exhausted = await pending.scan(
+                connection,
+                after=(second[-1].binding_name, second[-1].scope_id),
+                limit=2,
+            )
+
+            assert [(row.binding_name, row.scope_id) for row in first] == [
+                ("binding-a", "scope-a"),
+                ("binding-a", "scope-b"),
+            ]
+            assert [(row.binding_name, row.scope_id) for row in second] == [
+                ("binding-b", "scope-a"),
+                ("binding-b", "scope-b"),
+            ]
+            assert exhausted == ()
+
+    asyncio.run(scenario())
+
+
 def test_pending_watermarks_are_monotonic_and_keys_are_independent() -> None:
     async def scenario() -> None:
         async with (

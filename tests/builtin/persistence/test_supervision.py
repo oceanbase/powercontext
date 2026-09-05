@@ -9,12 +9,15 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.builtin.persistence import supervision as supervision_module
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingBindingStateRepository,
     ArtifactProcessingLeaseRepository,
+    StoredArtifactProcessingLease,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE, SHARED_TABLES
 
@@ -73,5 +76,78 @@ def test_expiring_lease_acquisition_renewal_and_database_time_binding_state() ->
             assert completed.last_auto_wave_completed_at is not None
             now = datetime.now(UTC).replace(tzinfo=None)
             assert now - completed.last_auto_wave_completed_at < timedelta(seconds=5)
+
+    asyncio.run(scenario())
+
+
+def test_renew_samples_database_time_after_waiting_for_the_lease_lock(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        waiting_for_lock = asyncio.Event()
+        lock_acquired = asyncio.Event()
+        release_lock = asyncio.Event()
+        clock = [datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None)]
+
+        class LockingLeaseRepository(ArtifactProcessingLeaseRepository):
+            async def load(
+                self,
+                connection: AsyncConnection,
+                supervisor_group: str = "global",
+                /,
+                *,
+                for_update: bool = False,
+            ) -> StoredArtifactProcessingLease | None:
+                if for_update:
+                    waiting_for_lock.set()
+                    await connection.execute(
+                        update(ARTIFACT_PROCESSING_LEASES_TABLE)
+                        .where(ARTIFACT_PROCESSING_LEASES_TABLE.c.supervisor_group == supervisor_group)
+                        .values(holder_id="holder-a")
+                    )
+                return await super().load(connection, supervisor_group, for_update=for_update)
+
+        url = f"sqlite+aiosqlite:///{tmp_path / 'lease-renew-lock.db'}"
+        config = SQLiteConfig(url=url, busy_timeout_ms=10_000)
+        repository = LockingLeaseRepository()
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as first_profile:
+            async with first_profile.database.transaction() as connection:
+                lease = await repository.try_acquire(connection, "holder-a", 60)
+                assert lease is not None
+                await connection.execute(
+                    update(ARTIFACT_PROCESSING_LEASES_TABLE)
+                    .where(ARTIFACT_PROCESSING_LEASES_TABLE.c.supervisor_group == "global")
+                    .values(lease_expires_at=clock[0] + timedelta(seconds=1))
+                )
+
+            async with SQLiteProfile.open(config, tables=SHARED_TABLES) as second_profile:
+
+                async def hold_lease_lock() -> None:
+                    async with first_profile.database.transaction() as connection:
+                        await connection.execute(
+                            update(ARTIFACT_PROCESSING_LEASES_TABLE)
+                            .where(ARTIFACT_PROCESSING_LEASES_TABLE.c.supervisor_group == "global")
+                            .values(holder_id="holder-a")
+                        )
+                        lock_acquired.set()
+                        await release_lock.wait()
+
+                async def fake_database_utc_now(connection: AsyncConnection) -> datetime:
+                    del connection
+                    return clock[0]
+
+                lock_task = asyncio.create_task(hold_lease_lock())
+                await asyncio.wait_for(lock_acquired.wait(), timeout=1)
+                monkeypatch.setattr(supervision_module, "database_utc_now", fake_database_utc_now)
+
+                async def renew() -> StoredArtifactProcessingLease:
+                    async with second_profile.database.transaction() as connection:
+                        return await repository.renew(connection, lease.fence("oceanbase"), 60)
+
+                renew_task = asyncio.create_task(renew())
+                await asyncio.wait_for(waiting_for_lock.wait(), timeout=1)
+                clock[0] += timedelta(seconds=2)
+                release_lock.set()
+                await lock_task
+                with pytest.raises(ArtifactProcessingLeadershipLostError):
+                    await renew_task
 
     asyncio.run(scenario())

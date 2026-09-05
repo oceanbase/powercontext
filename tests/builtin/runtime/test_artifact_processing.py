@@ -8,16 +8,21 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
-from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.processing import (
+    ArtifactProcessingPendingRepository,
+    StoredArtifactProcessingPending,
+)
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingBindingStateRepository,
     ArtifactProcessingFence,
     ArtifactProcessingLeaseRepository,
+    StoredArtifactProcessingLease,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_BINDING_STATES_TABLE, SHARED_TABLES
 from powercontext.builtin.runtime.artifact_processing import (
@@ -165,6 +170,129 @@ class _HangingHandle:
 
     async def terminate(self) -> None:
         self.terminated.set()
+
+
+class _HangingStartLauncher:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+        self.attempts = 0
+
+    async def start(self, assignment: ArtifactProcessingWorkAssignment):
+        del assignment
+        self.attempts += 1
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled.set()
+        raise AssertionError("unreachable")
+
+
+class _FailingStartLauncher:
+    def __init__(self) -> None:
+        self.attempts = 0
+        self.attempted = asyncio.Event()
+
+    async def start(self, assignment: ArtifactProcessingWorkAssignment):
+        del assignment
+        self.attempts += 1
+        self.attempted.set()
+        raise RuntimeError
+
+
+class _TrackingPendingRepository(ArtifactProcessingPendingRepository):
+    def __init__(self) -> None:
+        self.scan_calls = 0
+        self.scan_limits: list[int | None] = []
+
+    async def scan(
+        self,
+        connection: AsyncConnection,
+        /,
+        *,
+        binding_name: str | None = None,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
+        for_update: bool = False,
+    ) -> tuple[StoredArtifactProcessingPending, ...]:
+        self.scan_calls += 1
+        self.scan_limits.append(limit)
+        return await super().scan(
+            connection,
+            binding_name=binding_name,
+            after=after,
+            limit=limit,
+            for_update=for_update,
+        )
+
+
+class _FailingPendingRepository(ArtifactProcessingPendingRepository):
+    async def scan(
+        self,
+        connection: AsyncConnection,
+        /,
+        *,
+        binding_name: str | None = None,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
+        for_update: bool = False,
+    ) -> tuple[StoredArtifactProcessingPending, ...]:
+        del connection, binding_name, after, limit, for_update
+        raise RuntimeError
+
+
+class _RenewingLeaseRepository(ArtifactProcessingLeaseRepository):
+    def __init__(self) -> None:
+        self.lease = StoredArtifactProcessingLease(
+            supervisor_group="global",
+            holder_id="holder-a",
+            supervisor_generation=1,
+            lease_expires_at=datetime(3000, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+        )
+        self.acquired = False
+        self.renew_count = 0
+        self.renewed = asyncio.Event()
+
+    async def try_acquire(
+        self,
+        connection: AsyncConnection,
+        holder_id: str,
+        lease_seconds: float,
+        /,
+        *,
+        supervisor_group: str = "global",
+    ) -> StoredArtifactProcessingLease | None:
+        del connection, lease_seconds, supervisor_group
+        assert holder_id == self.lease.holder_id
+        if self.acquired:
+            return None
+        self.acquired = True
+        return self.lease
+
+    async def renew(
+        self,
+        connection: AsyncConnection,
+        fence: ArtifactProcessingFence,
+        lease_seconds: float,
+        /,
+    ) -> StoredArtifactProcessingLease:
+        del connection, lease_seconds
+        assert fence == self.lease.fence("oceanbase")
+        self.renew_count += 1
+        if self.renew_count >= 2:
+            self.renewed.set()
+        return self.lease
+
+    async def require_fence(
+        self,
+        connection: AsyncConnection,
+        fence: ArtifactProcessingFence,
+        /,
+    ) -> StoredArtifactProcessingLease:
+        del connection
+        assert fence == self.lease.fence("oceanbase")
+        return self.lease
 
 
 def _spawn_success(_assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion:
@@ -365,6 +493,141 @@ def test_worker_timeout_terminates_child_and_keeps_durable_work(tmp_path) -> Non
             async with profile.database.transaction() as connection:
                 assert await pending.load(connection, "scope-a", BINDING) is not None
                 assert await SourceCursorRepository().load(connection, "scope-a", BINDING) is None
+
+    asyncio.run(scenario())
+
+
+def test_retry_deadline_is_quiet_and_dispatches_once_when_due(tmp_path) -> None:
+    async def scenario() -> None:
+        pending = _TrackingPendingRepository()
+        launcher = _FailingStartLauncher()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'retry-deadline.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            await _raise_and_flush(profile.database, pending, "scope-a", 1)
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding(BINDING, 1, launcher),),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                pending=pending,
+                retry_base_seconds=0.2,
+                retry_cap_seconds=0.2,
+                retry_jitter=lambda: 1,
+            )
+            await supervisor.start()
+
+            async def failure_recorded() -> bool:
+                return bool(supervisor._retries)
+
+            await _wait_until(failure_recorded)
+            await asyncio.sleep(0.01)
+            scans_before_deadline = pending.scan_calls
+            launcher.attempted.clear()
+            await asyncio.sleep(0.05)
+            assert launcher.attempts == 1
+            assert pending.scan_calls == scans_before_deadline
+
+            await asyncio.wait_for(launcher.attempted.wait(), timeout=0.5)
+            assert launcher.attempts == 2
+            await supervisor.close()
+
+    asyncio.run(scenario())
+
+
+def test_hanging_launch_preserves_short_lease_and_bounds_discovery(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 4)
+        pending = _TrackingPendingRepository()
+        launcher = _HangingStartLauncher()
+        leases = _RenewingLeaseRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'bounded-discovery.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            async with profile.database.transaction() as connection:
+                for index in range(12):
+                    await pending.raise_source(connection, f"scope-{index:02d}", BINDING, 1)
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        BINDING,
+                        1,
+                        launcher,
+                        automatic_processing_interval=timedelta(seconds=60),
+                    ),
+                ),
+                lease_mode="oceanbase",
+                max_workers=1,
+                worker_timeout_seconds=0.08,
+                pending=pending,
+                leases=leases,
+                holder_id="holder-a",
+                oceanbase_tick_seconds=0.002,
+                oceanbase_lease_seconds=0.03,
+                retry_base_seconds=60,
+                retry_jitter=lambda: 1,
+            )
+            await supervisor.start()
+            await asyncio.wait_for(launcher.started.wait(), timeout=1)
+            await asyncio.wait_for(leases.renewed.wait(), timeout=1)
+            await asyncio.wait_for(launcher.cancelled.wait(), timeout=1)
+
+            async def launch_failure_recorded() -> bool:
+                return bool(supervisor._retries)
+
+            await _wait_until(launch_failure_recorded)
+            assert leases.renew_count >= 2
+            assert pending.scan_limits and set(pending.scan_limits) == {4}
+            assert len(supervisor._work) == 4
+            assert len(supervisor._queue) <= 4
+            assert len(supervisor._automatic_waves[BINDING].targets) == 4
+            await asyncio.wait_for(supervisor.close(), timeout=0.2)
+
+    asyncio.run(scenario())
+
+
+def test_close_cancels_a_worker_launch_with_a_bounded_wait(tmp_path) -> None:
+    async def scenario() -> None:
+        pending = ArtifactProcessingPendingRepository()
+        launcher = _HangingStartLauncher()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cancel-launch.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            await _raise_and_flush(profile.database, pending, "scope-a", 1)
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding(BINDING, 1, launcher),),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=60,
+            )
+            await supervisor.start()
+            await asyncio.wait_for(launcher.started.wait(), timeout=1)
+            await asyncio.wait_for(supervisor.close(), timeout=0.2)
+            assert launcher.cancelled.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_degraded_status_is_sticky_until_a_successful_control_cycle(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'sticky-degraded.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(),
+                lease_mode="oceanbase",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                pending=_FailingPendingRepository(),
+                holder_id="holder-a",
+                oceanbase_tick_seconds=0.005,
+                oceanbase_lease_seconds=60,
+            )
+            await supervisor.start()
+            assert supervisor.status is ArtifactProcessingSupervisorStatus.DEGRADED
+            await asyncio.sleep(0.03)
+            assert supervisor.status is ArtifactProcessingSupervisorStatus.DEGRADED
+            await supervisor.close()
 
     asyncio.run(scenario())
 

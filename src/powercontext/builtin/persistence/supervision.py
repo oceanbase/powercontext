@@ -136,9 +136,9 @@ class ArtifactProcessingLeaseRepository:
 
         _require_identifier("holder_id", holder_id, 36)
         _require_positive("lease_seconds", lease_seconds)
-        now = await database_utc_now(connection)
         current = await self.load(connection, supervisor_group, for_update=True)
         if current is None:
+            now = await database_utc_now(connection)
             lease = StoredArtifactProcessingLease(
                 supervisor_group=supervisor_group,
                 holder_id=holder_id,
@@ -154,6 +154,7 @@ class ArtifactProcessingLeaseRepository:
                     raise
             else:
                 return lease
+        now = await database_utc_now(connection)
         if current is None or current.lease_expires_at is None or current.lease_expires_at > now:
             return None
         generation = current.supervisor_generation + 1
@@ -193,7 +194,17 @@ class ArtifactProcessingLeaseRepository:
         if fence.lease_mode != "oceanbase":
             raise InvalidRepositoryArgumentError("lease_mode", "only OceanBase leases are renewable")
         _require_positive("lease_seconds", lease_seconds)
+        current = await self.load(connection, fence.supervisor_group, for_update=True)
+        if (
+            current is None
+            or current.holder_id != fence.holder_id
+            or current.supervisor_generation != fence.supervisor_generation
+            or current.lease_expires_at is None
+        ):
+            raise _leadership_lost(fence)
         now = await database_utc_now(connection)
+        if current.lease_expires_at <= now:
+            raise _leadership_lost(fence)
         expires_at = now + timedelta(seconds=lease_seconds)
         result = await connection.execute(
             update(ARTIFACT_PROCESSING_LEASES_TABLE)
@@ -201,8 +212,7 @@ class ArtifactProcessingLeaseRepository:
                 ARTIFACT_PROCESSING_LEASES_TABLE.c.supervisor_group == fence.supervisor_group,
                 ARTIFACT_PROCESSING_LEASES_TABLE.c.holder_id == fence.holder_id,
                 ARTIFACT_PROCESSING_LEASES_TABLE.c.supervisor_generation == fence.supervisor_generation,
-                ARTIFACT_PROCESSING_LEASES_TABLE.c.lease_expires_at.is_not(None),
-                ARTIFACT_PROCESSING_LEASES_TABLE.c.lease_expires_at > now,
+                ARTIFACT_PROCESSING_LEASES_TABLE.c.lease_expires_at == current.lease_expires_at,
             )
             .values(lease_expires_at=expires_at)
         )
