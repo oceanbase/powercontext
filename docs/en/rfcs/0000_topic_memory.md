@@ -390,13 +390,15 @@ Topic content, identity, Revision, Head, and lineage reuse the shared Artifact s
 - `pc_artifact_heads` stores the current Topic Head;
 - `pc_artifact_lineage_sources` stores direct Source evidence;
 - `pc_artifact_lineage_artifacts` stores the exact old Revision on which an UPDATE was based.
+- `pc_topic_memory_revision_publications` stores one immutable database-UTC `published_at` value for every published
+  Topic Revision. Historical exact reads retain that Revision's own publication time after the Head advances.
 
 Topic-specific retrieval storage maintains two kinds of active projection records:
 
-- Topic-level active record: exact ArtifactRef, title, summary, full-text field, and, in a vector-enabled deployment,
-  title/summary vector;
-- Detail-chunk active records: exact ArtifactRef, chunk ordinal, body position, snippet text, full-text field, and detail
-  vector in a vector-enabled deployment.
+- `pc_topic_memory_active_topics`: exact ArtifactRef, title, summary, full-text field, source count, and, in a
+  vector-enabled deployment, title/summary vector;
+- `pc_topic_memory_active_chunks`: exact ArtifactRef, chunk ordinal, body position, snippet text, full-text field, and
+  detail vector in a vector-enabled deployment.
 
 Database adapters may implement these logical records with the existing SQLite FTS/vector virtual table or OceanBase
 full-text/vector index patterns. Search, however, may query only the currently complete and searchable active records;
@@ -412,6 +414,7 @@ validate the Supervisor term
 -> Cursor CAS
 -> Artifact Head CAS for every UPDATE
 -> write all Topic Revisions and lineage
+-> record immutable database-UTC publication metadata
 -> write and switch all active projections
 -> advance the Cursor
 -> update Pending

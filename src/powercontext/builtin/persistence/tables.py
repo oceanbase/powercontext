@@ -330,6 +330,87 @@ ARTIFACT_PROCESSING_BINDING_STATES_TABLE = Table(
     Column("last_auto_wave_completed_at", DateTime(timezone=False)),
 )
 
+
+TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE = Table(
+    "pc_topic_memory_revision_publications",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, primary_key=True),
+    Column("published_at", DateTime(timezone=False), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision"),
+        (
+            "pc_artifacts.scope_id",
+            "pc_artifacts.family",
+            "pc_artifacts.artifact_id",
+            "pc_artifacts.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("family = 'topic-memory'", name="ck_pc_topic_memory_publications_family"),
+    CheckConstraint("revision > 0", name="ck_pc_topic_memory_publications_revision_positive"),
+)
+
+
+TOPIC_MEMORY_ACTIVE_TOPICS_TABLE = Table(
+    "pc_topic_memory_active_topics",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, nullable=False),
+    Column("title", _entry_text_type(), nullable=False),
+    Column("summary", _entry_text_type(), nullable=False),
+    Column("searchable_text", _entry_text_type(), nullable=False),
+    Column("source_count", Integer, nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision"),
+        (
+            "pc_topic_memory_revision_publications.scope_id",
+            "pc_topic_memory_revision_publications.family",
+            "pc_topic_memory_revision_publications.artifact_id",
+            "pc_topic_memory_revision_publications.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("family = 'topic-memory'", name="ck_pc_topic_memory_active_topics_family"),
+    CheckConstraint("revision > 0", name="ck_pc_topic_memory_active_topics_revision_positive"),
+    CheckConstraint("source_count >= 0", name="ck_pc_topic_memory_active_topics_sources_nonnegative"),
+)
+
+
+TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE = Table(
+    "pc_topic_memory_active_chunks",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, nullable=False),
+    Column("chunk_ordinal", Integer, primary_key=True),
+    Column("start_offset", Integer, nullable=False),
+    Column("end_offset", Integer, nullable=False),
+    Column("chunk_text", _entry_text_type(), nullable=False),
+    Column("searchable_text", _entry_text_type(), nullable=False),
+    Column("policy_version", identity_string(32), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision"),
+        (
+            "pc_topic_memory_revision_publications.scope_id",
+            "pc_topic_memory_revision_publications.family",
+            "pc_topic_memory_revision_publications.artifact_id",
+            "pc_topic_memory_revision_publications.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("family = 'topic-memory'", name="ck_pc_topic_memory_active_chunks_family"),
+    CheckConstraint("revision > 0", name="ck_pc_topic_memory_active_chunks_revision_positive"),
+    CheckConstraint("chunk_ordinal >= 0", name="ck_pc_topic_memory_active_chunks_ordinal_nonnegative"),
+    CheckConstraint("start_offset >= 0", name="ck_pc_topic_memory_active_chunks_start_nonnegative"),
+    CheckConstraint("end_offset > start_offset", name="ck_pc_topic_memory_active_chunks_offsets"),
+)
+
 EXTERNAL_SKILL_REGISTRATIONS_TABLE = Table(
     "pc_external_skill_registrations",
     SHARED_METADATA,
@@ -510,6 +591,12 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 
 MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
+TOPIC_MEMORY_TABLES = (
+    TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
+    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
+    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
+)
+
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
-BUILTIN_TABLES = SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES
+BUILTIN_TABLES = SHARED_TABLES + TOPIC_MEMORY_TABLES + MEMORY_TABLES + STATISTICS_TABLES

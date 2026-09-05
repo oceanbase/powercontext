@@ -197,7 +197,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     --table 'pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -205,7 +205,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads' \
+     --table 'pc_artifact_candidate_heads,pc_topic_memory_active_topics,pc_topic_memory_active_chunks,pc_memory_entry_heads' \
      -f <export-directory>
    ```
 

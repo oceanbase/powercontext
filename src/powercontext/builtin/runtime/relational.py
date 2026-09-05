@@ -25,7 +25,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import Artifact
+from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
     Experience,
@@ -46,6 +46,7 @@ from powercontext.builtin.artifacts.handoff import (
 )
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
+    EmbeddingProfile,
     Memory,
     MemoryReranker,
     MemoryService,
@@ -59,7 +60,15 @@ from powercontext.builtin.artifacts.skill import (
     SkillGenerator,
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
-from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING, TopicMemory
+from powercontext.builtin.artifacts.topic_memory import (
+    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+    PublishedTopicMemory,
+    TopicMemory,
+    TopicMemoryBrowseCursor,
+    TopicMemoryCurrentItem,
+    TopicMemorySearchMode,
+    TopicMemorySearchResult,
+)
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
@@ -83,6 +92,8 @@ from powercontext.builtin.persistence.supervision import (
     ArtifactProcessingLeaseRepository,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
@@ -143,6 +154,7 @@ class _Repositories:
     processing_pending: ArtifactProcessingPendingRepository
     processing_leases: ArtifactProcessingLeaseRepository
     processing_binding_states: ArtifactProcessingBindingStateRepository
+    topic_memories: TopicMemoryRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +311,7 @@ class RelationalContexts:
         *,
         database: AsyncDatabase,
         index: MemoryIndex | None = None,
+        topic_memory_index: TopicMemoryIndex | None = None,
         experience_index: ExperienceIndex | None = None,
         candidate_pipeline: CandidatePipeline | None = None,
         experience_pipeline: ExperienceCandidatePipeline | None = None,
@@ -316,10 +329,12 @@ class RelationalContexts:
     ) -> None:
         self.database = database
         self.index = NoMemoryIndex() if index is None else index
+        self.topic_memory_index = NoTopicMemoryIndex() if topic_memory_index is None else topic_memory_index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
+        artifacts = ArtifactRepository((Handoff, Memory, Experience, Skill, TopicMemory))
         self.repositories = _Repositories(
             sources=SourceRepository(_SOURCE_ADAPTERS),
-            artifacts=ArtifactRepository((Handoff, Memory, Experience, Skill, TopicMemory)),
+            artifacts=artifacts,
             candidates=CandidateRepository({
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,
@@ -330,6 +345,7 @@ class RelationalContexts:
             processing_pending=ArtifactProcessingPendingRepository(),
             processing_leases=ArtifactProcessingLeaseRepository(),
             processing_binding_states=ArtifactProcessingBindingStateRepository(),
+            topic_memories=TopicMemoryRepository(artifacts=artifacts, index=self.topic_memory_index),
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None
@@ -405,6 +421,62 @@ class RelationalContexts:
         scope = validate_scope_id(scope_id)
         async with self.database.transaction() as connection:
             return await self.experience_index.search(connection, scope, query, limit)
+
+    async def get_topic_memory(
+        self,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        /,
+    ) -> PublishedTopicMemory:
+        """Return one exact published Topic Revision in a single scope."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.topic_memories.get_exact(connection, scope, artifact_ref)
+
+    async def browse_topic_memories(
+        self,
+        scope_id: str,
+        /,
+        *,
+        limit: int,
+        after: TopicMemoryBrowseCursor | None = None,
+    ) -> tuple[TopicMemoryCurrentItem, ...]:
+        """Browse only current complete Topic heads with a stable keyset boundary."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.topic_memories.browse_current(
+                connection,
+                scope,
+                limit=limit,
+                after=after,
+            )
+
+    async def search_topic_memories(
+        self,
+        scope_id: str,
+        query: str,
+        /,
+        *,
+        limit: int,
+        mode: TopicMemorySearchMode = "auto",
+        query_vector: tuple[float, ...] | None = None,
+        embedding_profile: EmbeddingProfile | None = None,
+    ) -> TopicMemorySearchResult:
+        """Search current active Topic projections in this deployment."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.topic_memories.search(
+                connection,
+                scope,
+                query,
+                limit=limit,
+                mode=mode,
+                query_vector=query_vector,
+                embedding_profile=embedding_profile,
+            )
 
     def external_skills(self, scope_id: str, /) -> ExternalSkillRegistryService:
         """Return the host-local external Skill Registry bound to one scope."""

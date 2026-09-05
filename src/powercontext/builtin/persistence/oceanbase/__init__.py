@@ -20,10 +20,16 @@ from powercontext.builtin.persistence.oceanbase.profile import (
     OceanBaseProfile,
     UnsupportedOceanBaseTenantError,
 )
+from powercontext.builtin.persistence.oceanbase.topic_memory_index import (
+    OceanBaseTopicMemoryFTSIndex,
+    OceanBaseTopicMemoryVectorIndex,
+)
 
 __all__ = (
     "IncompatibleOceanBaseSchemaError",
     "OceanBaseConfig",
     "OceanBaseProfile",
+    "OceanBaseTopicMemoryFTSIndex",
+    "OceanBaseTopicMemoryVectorIndex",
     "UnsupportedOceanBaseTenantError",
 )

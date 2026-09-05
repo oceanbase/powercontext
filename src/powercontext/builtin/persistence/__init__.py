@@ -45,6 +45,12 @@ from powercontext.builtin.persistence.supervision import (
     StoredArtifactProcessingBindingState,
     StoredArtifactProcessingLease,
 )
+from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    NoTopicMemoryIndex,
+    TopicMemoryIndex,
+)
 
 __all__ = (
     "GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP",
@@ -55,6 +61,7 @@ __all__ = (
     "ArtifactProcessingWaveIncompleteError",
     "AsyncDatabase",
     "CandidateRepository",
+    "CompositeTopicMemoryIndex",
     "DatabaseClosedError",
     "ExternalSkillRepository",
     "GenerationConflictError",
@@ -62,6 +69,7 @@ __all__ = (
     "InvalidRepositoryArgumentError",
     "InvalidStoredColumnError",
     "InvalidStoredPayloadError",
+    "NoTopicMemoryIndex",
     "PersistenceError",
     "RepositoryError",
     "RepositoryNotFoundError",
@@ -72,4 +80,6 @@ __all__ = (
     "StoredModelUsage",
     "StoredPayloadConflictError",
     "StoredRecallTokenUsage",
+    "TopicMemoryIndex",
+    "TopicMemoryRepository",
 )

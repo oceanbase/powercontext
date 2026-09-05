@@ -54,11 +54,24 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryVectorIndex,
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.oceanbase.topic_memory_index import (
+    OceanBaseTopicMemoryFTSIndex,
+    OceanBaseTopicMemoryVectorIndex,
+)
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.sqlite.topic_memory_index import (
+    SQLiteTopicMemoryFTSIndex,
+    SQLiteTopicMemoryVectorIndex,
+)
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    TopicMemoryIndex,
+)
 from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.artifact_processing import (
@@ -379,17 +392,23 @@ async def open_builtin_contexts(
         if embedding_model is not None:
             indexes.append(SQLiteMemoryVectorIndex(embedding_model.profile))
         index = CompositeMemoryIndex(*indexes)
+        topic_indexes: list[TopicMemoryIndex] = [SQLiteTopicMemoryFTSIndex()]
+        if embedding_model is not None:
+            topic_indexes.append(SQLiteTopicMemoryVectorIndex(embedding_model.profile))
+        topic_index = CompositeTopicMemoryIndex(*topic_indexes)
         async with SQLiteProfile.open(
             database,
-            tables=BUILTIN_TABLES + report_tables + index.tables,
+            tables=BUILTIN_TABLES + report_tables + index.tables + topic_index.tables,
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
+                await TopicMemoryRepository(index=topic_index).initialize(connection)
             yield RelationalContexts(
                 database=profile.database,
                 index=index,
+                topic_memory_index=topic_index,
                 experience_index=experience_index,
                 candidate_pipeline=candidate_pipeline,
                 experience_pipeline=experience_pipeline,
@@ -408,7 +427,11 @@ async def open_builtin_contexts(
     if embedding_model is not None:
         indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
     index = CompositeMemoryIndex(*indexes)
-    tables = BUILTIN_TABLES + report_tables + index.tables
+    topic_indexes: list[TopicMemoryIndex] = [OceanBaseTopicMemoryFTSIndex()]
+    if embedding_model is not None:
+        topic_indexes.append(OceanBaseTopicMemoryVectorIndex(embedding_model.profile))
+    topic_index = CompositeTopicMemoryIndex(*topic_indexes)
+    tables = BUILTIN_TABLES + report_tables + index.tables + topic_index.tables
     if isinstance(database, OceanBaseConfig):
         profile_context = OceanBaseProfile.open(database, tables=tables)
     elif isinstance(database, SeekDBConfig):
@@ -419,9 +442,11 @@ async def open_builtin_contexts(
         async with profile.database.transaction() as connection:
             await index.initialize(connection)
             await experience_index.initialize(connection)
+            await TopicMemoryRepository(index=topic_index).initialize(connection)
         yield RelationalContexts(
             database=profile.database,
             index=index,
+            topic_memory_index=topic_index,
             experience_index=experience_index,
             candidate_pipeline=candidate_pipeline,
             experience_pipeline=experience_pipeline,

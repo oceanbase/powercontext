@@ -353,12 +353,15 @@ Topic 内容、identity、Revision、Head 和 lineage 复用共享 Artifact 存�
 - `pc_artifact_heads` 保存当前 Topic Head；
 - `pc_artifact_lineage_sources` 保存直接 Source evidence；
 - `pc_artifact_lineage_artifacts` 保存 UPDATE 所依据的精确旧 Revision。
+- `pc_topic_memory_revision_publications` 为每个已发布 Topic Revision 保存一份不可变的数据库 UTC
+  `published_at`；Head 推进后，历史精确读取仍返回该 Revision 自身的发布时间。
 
 Topic 专属检索存储维护两类 active projection records：
 
-- Topic-level active record：精确 ArtifactRef、title、summary、全文字段，以及向量部署中的 title/summary vector；
-- Detail-chunk active records：精确 ArtifactRef、chunk ordinal、正文位置、snippet 文本、全文字段，以及向量部署中的
-  detail vector。
+- `pc_topic_memory_active_topics`：精确 ArtifactRef、title、summary、全文字段、来源数量，以及向量部署中的
+  title/summary vector；
+- `pc_topic_memory_active_chunks`：精确 ArtifactRef、chunk ordinal、正文位置、snippet 文本、全文字段，以及
+  向量部署中的 detail vector。
 
 数据库适配器可以按 SQLite FTS/vector virtual table 或 OceanBase full-text/vector index 的现有模式实现这些
 逻辑记录，但搜索只能查询当前完整可检索的 active records，不能先读取所有 Revision 后构造大型 `IN` 查询。
@@ -371,6 +374,7 @@ Revision 继续服务；新建 Topic 在首个 Revision 完整前不可检索。
 -> Cursor CAS
 -> 对每个 UPDATE 执行 Artifact Head CAS
 -> 写入全部 Topic Revisions 与 lineage
+-> 记录不可变的数据库 UTC 发布时间
 -> 写入并切换全部 active projections
 -> 推进 Cursor
 -> 更新 Pending
