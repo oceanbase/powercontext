@@ -37,12 +37,13 @@ export async function resolveScopeId(
   client: PowerContextClient,
   cwd: string | undefined,
   configuredScopeId?: string,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   const workspace = sessionCwd(cwd)
   const response = await client.request('resolve_scope_binding', {
     explicit_scope_id: configuredScopeId,
     binding_keys: workspace ? [workspaceBindingKey(workspace)] : [],
-  })
+  }, signal)
   const value = response.value
   const scopeId = value && typeof value === 'object' ? (value as { scope_id?: unknown }).scope_id : undefined
   return typeof scopeId === 'string' && scopeId.trim() ? scopeId : undefined

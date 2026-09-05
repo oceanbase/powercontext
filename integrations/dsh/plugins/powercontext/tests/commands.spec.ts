@@ -33,13 +33,13 @@ function runtime(fetchImpl: typeof fetch): PluginRuntime {
 
 describe('handlePcCommand', () => {
   it('prints scope on bare /pc', async () => {
-    const result = await handlePcCommand('', runtime(async () => new Response('{}')), 'project:demo')
+    const result = await handlePcCommand('', runtime(async () => new Response('{}')), '/workspace')
     expect(result.kind).toBe('success')
     expect(result.text).toContain('scope=project:demo')
   })
 
   it('requires version arguments for review approve', async () => {
-    const result = await handlePcCommand('review approve only-id', runtime(async () => new Response('{}')), 'project:demo')
+    const result = await handlePcCommand('review approve only-id', runtime(async () => new Response('{}')), '/workspace')
     expect(result.kind).toBe('error')
     expect(result.text).toContain('Usage: /pc review approve')
   })

@@ -16,7 +16,9 @@
 
 import type { PowerContextClient, JsonObject } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
+import { failureEvent, isVersionMismatch, publicErrorCode } from './diagnostics.ts'
 import {
+  InvalidResponseError,
   SecretRejectedError,
   ServerResponseError,
   TransportError,
@@ -28,6 +30,7 @@ import { containsSecret } from './secrets.ts'
 export interface ToolResult {
   ok: boolean
   code?: string
+  error_code?: string
   message?: string
   status?: number
   request_id?: string
@@ -47,6 +50,7 @@ export function toolResultSchema(): Record<string, unknown> {
     properties: {
       ok: { type: 'boolean', required: true },
       code: { type: 'string' },
+      error_code: { type: 'string' },
       message: { type: 'string' },
       status: { type: 'number' },
       request_id: { type: 'string' },
@@ -60,24 +64,28 @@ export function renderToolResult(_args: unknown, value: ToolResult): Array<{ typ
 }
 
 function mapServerError(error: ServerResponseError): ToolResult {
+  const code = publicErrorCode(error.code)
   if (error.statusCode === 401) {
     return { ok: false, code: 'authentication_failed', message: 'PowerContext authentication failed. Check Authorization.', status: 401, request_id: error.requestId }
   }
   if (error.statusCode === 404) {
-    return { ok: false, code: 'not_found', message: error.serverMessage ?? 'PowerContext resource was not found.', status: 404, request_id: error.requestId }
+    if (isVersionMismatch(error)) {
+      return { ok: false, code: 'version_mismatch', message: 'A required PowerContext endpoint is unavailable. Check the Server endpoint and compatible plugin/Server versions.', status: 404, request_id: error.requestId }
+    }
+    return { ok: false, code: 'not_found', ...(code ? { error_code: code } : {}), message: code === 'scope_not_found' ? 'PowerContext could not resolve the requested Scope. Check its configuration.' : 'PowerContext resource was not found.', status: 404, request_id: error.requestId }
   }
   if (error.statusCode === 409) {
-    return { ok: false, code: error.code ?? 'conflict', message: error.serverMessage ?? 'citation conflict; refresh and retry once.', status: 409, request_id: error.requestId }
+    return { ok: false, code: code ?? 'conflict', message: 'PowerContext operation conflicts with the current state. Inspect the current reference before retrying.', status: 409, request_id: error.requestId }
   }
   if (error.statusCode === 422) {
-    return { ok: false, code: error.code ?? 'invalid_request', message: error.serverMessage ?? 'PowerContext rejected the request.', status: 422, request_id: error.requestId }
+    return { ok: false, code: code ?? 'invalid_request', message: 'PowerContext rejected the request.', status: 422, request_id: error.requestId }
   }
   if (error.statusCode === 503) {
     return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable, continue the task.', status: 503, request_id: error.requestId }
   }
   return {
     ok: false,
-    code: error.code ?? 'server_error',
+    code: code ?? 'server_error',
     message: 'PowerContext is unavailable, continue the task.',
     status: error.statusCode,
     request_id: error.requestId,
@@ -92,6 +100,9 @@ export function toToolResult(error: unknown): ToolResult {
     return { ok: false, code: 'unknown_operation', message: error.message }
   }
   if (error instanceof ServerResponseError) return mapServerError(error)
+  if (error instanceof InvalidResponseError) {
+    return { ok: false, code: 'invalid_response', message: 'PowerContext returned an invalid response.', request_id: error.requestId }
+  }
   if (error instanceof TransportError) {
     return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable, continue the task.' }
   }
@@ -126,6 +137,7 @@ export async function invokeOperation(
   payload: JsonObject | undefined,
   scopeId: string,
   signal?: AbortSignal,
+  onFailure?: (error: unknown) => unknown,
 ): Promise<ToolResult> {
   if (!(operationId in OPERATIONS)) return toToolResult(new UnknownOperationError(operationId))
   const id = operationId as OperationId
@@ -137,15 +149,31 @@ export async function invokeOperation(
     return toToolResult(new SecretRejectedError())
   }
   try {
+    if (signal?.aborted) throw new TransportError('', signal.reason)
     return encodeSuccess(await client.request(id, body, signal))
   } catch (error) {
+    try {
+      await onFailure?.(error)
+    } catch {
+      // Reporting must not turn an operation failure into a host exception.
+    }
     return toToolResult(error)
   }
+}
+
+export async function reportDirectFailure(runtime: PluginRuntime, event: string, error: unknown): Promise<ToolResult> {
+  try {
+    const diagnostic = failureEvent(event, error)
+    if (diagnostic) await runtime.log(diagnostic)
+  } catch {
+    // Diagnostics are best effort, including failures before operation dispatch.
+  }
+  return toToolResult(error)
 }
 
 export interface PluginRuntime {
   client: PowerContextClient
   config: ResolvedConfig
-  resolveScope: (cwd?: string) => Promise<string | undefined>
+  resolveScope: (cwd?: string, signal?: AbortSignal) => Promise<string | undefined>
   log: (event: Record<string, unknown>) => void
 }
