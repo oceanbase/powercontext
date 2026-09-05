@@ -3,7 +3,9 @@
 - RFC PR: [oceanbase/powercontext#1304](https://github.com/oceanbase/powercontext/pull/1304)
 - Related RFCs: [RFC 0050](0050_artifact_candidate_review_inbox.md)、
   [RFC 0051](0051_experience_skill_artifact_families.md)、
-  [RFC 0072](0072_scoped_statistics_and_usage.md)
+  [RFC 0072](0072_scoped_statistics_and_usage.md)、
+  [RFC 1345](1345_scope_organization_and_agent_integration.md) 和
+  [RFC 1396](1396_handoff_access_control.md)
 
 # Summary
 
@@ -11,10 +13,10 @@
 Candidate/Review 生命周期的用户界面投影，不会创建另一套审核模型、改变 Candidate 持久化，也不会绕过现有 HTTP
 operation。
 
-PowerContext 已经提供个人 Dashboard、配置好的 Dashboard scope、Bearer authentication，以及列出、读取、修改、批准和
+PowerContext 已经提供个人 Dashboard、经过 Access 过滤的持久 Scope discovery、authentication，以及列出、读取、修改、批准和
 拒绝 Candidate 的 Review operation。提议的 `/reviews` 页面把这些能力组合成一个 scoped Review Inbox。审核者可以：
 
-1. 选择一个已配置的 scope；
+1. 选择一个当前可见的持久 Scope；
 2. 按状态和 Family 筛选当前 Candidate head；
 3. 查看类型化 Experience 或 Skill proposal 及其精确证据引用；
 4. 在不改变证据的情况下修改 proposal；
@@ -23,9 +25,9 @@ PowerContext 已经提供个人 Dashboard、配置好的 Dashboard scope、Beare
 7. 当另一位审核者先修改 Candidate 时，显式处理并发冲突。
 
 页面默认显示 pending。approved 和 rejected Candidate 作为只读视图提供。Experience 和 Skill 共用一个页面，因为它们
-共享同一 Candidate 生命周期；每个 Family 仍保留自己的展示方式和编辑表单。首版不增加 Candidate generation、证据内容
-预览、审核者身份、RBAC、任务分派、通知、批量操作或 Skill 执行能力。发布是 approval 之后的独立显式操作，只能写入
-配置中明确允许的 host-local Agent target。
+共享同一 Candidate 生命周期；每个 Family 仍保留自己的展示方式和编辑表单。页面不增加 Candidate generation、证据内容
+预览、审核者身份、role editor、任务分派、通知、批量操作或 Skill 执行能力，而是复用 RFC 1396 的授权。发布是
+approval 之后的独立显式操作，只能写入配置中明确允许的 host-local Agent target。
 
 # Motivation
 
@@ -58,8 +60,8 @@ Dashboard pending count
 Dashboard 启用时，Server 主导航会在 Dashboard 和 Handoff Report 旁增加 **Review** 入口。打开后从同一个 Server
 origin 加载 `/reviews`。它复用 Dashboard 的登录方式和 Bearer token 行为，不会引入另一套凭据存储或认证流程。
 
-审核者首先从 `POWERCONTEXT_SERVER_DASHBOARD_SCOPES` 配置的 scope 中选择一个。如果没有配置 scope，页面会说明
-Review 至少需要一个 Dashboard scope，并且不会发出 Candidate 请求。
+审核者首先从 Server 返回的持久 Scope 中选择一个。如果没有 Scope，页面会说明 Review 至少需要一个 Scope，
+并且不会发出 Candidate 请求。
 
 切换 scope 时，页面会在加载新 scope 前清空当前列表、选中的 Candidate、pagination cursor、冲突状态和未保存的修改
 draft。来自前一个 scope 的延迟响应不能更新页面。
@@ -197,7 +199,7 @@ Reject 需要提供非空且不超过 2,000 个字符的原因。成功后不会
 首版目标如下：
 
 - 让现有 Experience 和 managed Skill Review 生命周期可以从 Server UI 使用；
-- 明确选择 scope，并将选择范围限制为配置好的 Dashboard scope；
+- 明确选择 scope，并将范围限制为当前 Principal 可见的持久 Scope；
 - 将每个 Family 展示为可审核的 domain object，而不是通用 JSON；
 - 保留精确 Candidate-version 和 target CAS 行为；
 - 让不受信任内容保持 inert，并把批准与执行权限分离；
@@ -212,7 +214,7 @@ Reject 需要提供非空且不超过 2,000 个字符的原因。成功后不会
 - 编辑 Candidate evidence、target、lineage 或 generation reason；
 - 渲染 Source 内容或任意 Artifact evidence preview；
 - 自动发布、任意路径导出、Skill 执行、运行时热加载或回滚；
-- reviewer identity、RBAC、SSO、分派、通知、服务级目标和批量操作；
+- reviewer identity、role editor、SSO、分派、通知、服务级目标和批量操作；
 - Candidate retention、reopen、delete、semantic diff 或 version-history 浏览；
 - 面向未来 Artifact Family 的 generic form renderer；
 - 新的前端框架或独立 Web application。
@@ -223,7 +225,7 @@ Reject 需要提供非空且不超过 2,000 个字符的原因。成功后不会
 
 | 现有 surface | Review 页面用途 |
 | --- | --- |
-| `GET /dashboard/scopes` | 列出 Server 配置显式暴露的 scope |
+| `GET /dashboard/scopes` | 列出经过 Access 过滤的持久 Scope；`enforced` mode 下只返回当前 Principal 拥有 `scope.read` 的 Scope |
 | `POST /v1/artifact-candidates/list` | 按 scope、状态、Family 和 cursor 分页读取当前 head |
 | `POST /v1/artifact-candidates/get` | 刷新一个当前 Candidate head |
 | `POST /v1/artifact-candidates/revise` | 追加一个完整 replacement proposal |
@@ -235,8 +237,8 @@ Reject 需要提供非空且不超过 2,000 个字符的原因。成功后不会
 | Dashboard authentication utilities | 将现有 Bearer token 附加到 same-origin request |
 | Dashboard page UI utilities | 复用 locale、theme、status 和 stale-request handling 模式 |
 
-本 RFC 不需要 OpenAPI 变更、generated client 变更、数据库 migration 或新的公开 persistence contract。两个
-`/dashboard/skill-projections/*` endpoint 与 `/dashboard/scopes` 一样，是 authenticated Server UI supporting surface：它们
+本 RFC 不需要 OpenAPI 变更、generated client 变更、数据库 migration 或新的公开 persistence contract。
+`/dashboard/skill-projections/*` route 与 `/dashboard/scopes` 一样，是 authenticated Server UI supporting surface：它们
 操作 Server host 上明确配置的本地 root，不是跨 host 的 PowerContext API，也不接受调用方提供的路径。可移植的 exact-read
 仍由公开 `get_skill` contract 提供，CLI export 保持可用。
 
@@ -246,16 +248,16 @@ Review 页面属于个人 Dashboard feature：
 
 - route：`GET /reviews`；
 - availability：仅在 `DashboardConfig.enabled` 为 true 时 mount；
-- scopes：使用 statistics Dashboard 的同一组有序 `DashboardConfig.scopes`；
+- scopes：使用 statistics Dashboard 的同一组经过 Access 过滤的有序持久 Scope descriptor；
 - authentication：使用相同 Server Bearer policy 和 same-origin request helper；
-- navigation order：三者都可用时依次为 Dashboard、Review、Handoff Report。
+- navigation order：三者都可用时依次为 Dashboard、Review、Handoff Report；
 - publication targets：只包含 `allow_managed_publish=true` 的显式 `AgentSkillTarget`；旧的 `CodexSkillRoot` 继续作为
   Codex-only 兼容格式，默认没有可写目标。
 
 禁用 Dashboard 会同时移除 Dashboard 和 Review route。Handoff Report 仍可按其现有配置独立使用。
 
-首版 Review 页面不接受 query parameter 中任意传入的 `scope_id`。它默认选择第一个已配置 scope，并允许审核者通过已配置的
-picker 切换。这可以避免把形似 scope 的输入表现成权限，也避免 deep link 暴露未配置的 scope。
+Review 页面不接受 query parameter 中任意传入的 `scope_id`。它默认选择第一个可见持久 Scope，并允许审核者通过经过
+Access 过滤的 picker 切换。Caller 提供的 `scope_id` 永远不视为授权；每个数据 request 仍由 Server PEP enforce。
 
 ## Page state and request ordering
 
@@ -263,7 +265,7 @@ picker 切换。这可以避免把形似 scope 的输入表现成权限，也避
 
 ```text
 authentication state
-configured scopes
+visible durable scopes
 selected scope
 selected family filter
 selected status filter
@@ -379,7 +381,7 @@ publication status request 使用精确 approved ArtifactRef：
 }
 ```
 
-Server 首先验证该 Artifact 是指定 approved Skill Candidate 的精确 `result_artifact`，随后只对配置好的 Dashboard scope 和允许
+Server 首先验证该 Artifact 是指定 approved Skill Candidate 的精确 `result_artifact`，随后只对当前选择的可见 Scope 和允许
 managed publish 的 Agent target 返回目标。每个目标携带 `target_id`、`agent_kind` 和 installation scope，并返回稳定 state：`unpublished`、
 `current`、`update_available`、`conflict`、`drifted` 或 `incompatible`，并独立返回 discovery 的 `available`、
 `unavailable` 或 `not_published`。
@@ -399,7 +401,7 @@ references 或 assets，因此检测到额外 package 文件也视为 drift，�
 
 | 状态 | 行为 |
 | --- | --- |
-| 没有配置 scope | 说明 Dashboard scope 配置要求，不发送 Candidate request |
+| 没有可见 Scope | 说明当前 Principal 没有可用持久 Scope，不发送 Candidate request |
 | filtered page 为空 | 说明哪个 scope、status 和 Family 没有 Candidate |
 | 正在加载 list | 保持 filter 可见，并将 list 标记为 busy |
 | 正在加载 detail | 保持 selected row 可见，并将 detail pane 标记为 busy |
@@ -452,7 +454,7 @@ Candidate、通过页面加载、执行决策，并验证最终 Candidate 与 Ar
 | Availability | `/reviews` 仅在 Dashboard 启用时存在，并出现在 primary navigation |
 | Authentication | 现有 optional Bearer flow 保护页面数据并处理 `401`，不增加 token store |
 | Scope isolation | 切换 scope 时在其他响应渲染前清除 rows、detail、cursor、conflicts 和 drafts |
-| Default Inbox | 首个请求列出第一个配置 scope 下 pending Experience 和 Skill current head |
+| Default Inbox | 首个请求列出第一个可见 Scope 下 pending Experience 和 Skill current head |
 | Filtering | Family 或 status 变化会重置 pagination，不混合不同 filter 的 row |
 | Pagination | Load more 沿用 `next_cursor`，保留 Server order，并按 Candidate ID 去重 |
 | Experience | 四个类型化字段、reason、target 和精确 evidence reference 可读 |
@@ -485,7 +487,8 @@ publication update、optional authentication、两种 locale 和窄屏 viewport�
 - 只有精确 reference 而没有 Source-body preview，限制了审核者在单个页面中查看证据的深度。
 - 统一 Inbox 虽共享生命周期，仍需要 Family-specific rendering 和 validation branch。
 - 首版 revision form 不允许修改 evidence，因此部分修正仍需要 CLI、MCP 或新的 Candidate。
-- 页面改善了治理入口，但不提供 reviewer attribution、authorization separation 或组织级 audit log。
+- 页面不增加 reviewer attribution 或组织级 audit UI；authorization 与 audit enforcement 来自共享 Access boundary，而非
+  page-local logic。
 - host-local publish 只对 Server 进程所在主机有效；远程浏览器操作的是 Server host，不是浏览器所在设备。
 
 # Rationale and alternatives
@@ -512,8 +515,8 @@ Experience 和 Skill 更可能堆积，或在没有符合 domain 的结构化查
   本 RFC 展示该 contract，不改变它。
 - RFC 0051 定义 Experience 和 managed Skill proposal shape、lineage，以及 Skill approval 与 execution authority 的边界。
   本 RFC 为这些 shape 提供独立 review view。
-- RFC 0072 和现有 Dashboard 建立 configured scope discovery、scoped pending count、authentication、localization、theme 和
-  Server-owned static delivery。
+- RFC 0072 和现有 Dashboard 建立 scoped pending count、localization、theme 和 Server-owned static delivery；RFC 1345
+  提供持久 Scope discovery，RFC 1396 提供 Principal-aware filtering 与 enforcement。
 - Handoff Report 页面证明：focused workflow 可以共享 Server navigation 和 page utility，而无需成为 statistics Dashboard
   的一部分。
 

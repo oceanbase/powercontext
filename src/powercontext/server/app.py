@@ -22,11 +22,12 @@ import binascii
 import ipaddress
 import json
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from copy import deepcopy
 from datetime import UTC, datetime
 from functools import wraps
+from hashlib import sha256
 from time import perf_counter
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeVar, cast
 from urllib.parse import quote, unquote
@@ -50,6 +51,7 @@ from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import (
+    HandoffCitation,
     HandoffEvidenceUnavailableError,
     HandoffGenerationUnavailableError,
     HandoffScopeMismatchError,
@@ -323,13 +325,32 @@ from powercontext.errors import (
     SourceDefinitionNotFoundError,
 )
 from powercontext.http import (
+    AccessAction as TransportAccessAction,
+)
+from powercontext.http import (
+    AccessArtifactIdentity as TransportAccessArtifactIdentity,
+)
+from powercontext.http import (
+    AccessAuditEvent as TransportAccessAuditEvent,
+)
+from powercontext.http import (
+    AccessAuditPage,
+    AccessBindingPage,
+    AccessCheckRequest,
+    AccessCheckResponse,
+    AccessMeResponse,
+    AccessProviderCapabilities,
+    AccessResourcePage,
+    AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
+    ArtifactAccessResource,
     ArtifactCandidate,
     ArtifactCandidatePage,
     ArtifactCollectionItem,
     ArtifactCreated,
+    ArtifactFamilyAccessCapability,
     ArtifactPage,
     ArtifactRevision,
     BaseArtifactFamily,
@@ -343,6 +364,7 @@ from powercontext.http import (
     CommittedHandoff,
     ConnectorCheckpointState,
     ContinueHandoffRequest,
+    CreateAccessBindingRequest,
     CreateArtifactRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
@@ -374,6 +396,10 @@ from powercontext.http import (
     HandoffSelection,
     HealthResponse,
     ImportExternalSkillRequest,
+    ListAccessAuditRequest,
+    ListAccessBindingsRequest,
+    ListAccessResourcesRequest,
+    ListAccessRolesRequest,
     ListArtifactCandidatesRequest,
     ListArtifactsRequest,
     ListExternalSkillsRequest,
@@ -387,6 +413,7 @@ from powercontext.http import (
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
     MemoryEntry,
+    MemoryEntryAccessSelector,
     MemoryMutationResponse,
     PrepareContextRequest,
     PreparedContext,
@@ -415,6 +442,7 @@ from powercontext.http import (
     RemoteSkillTargetEnrollment,
     RemoteSkillTargetStatus,
     RenameRemoteSkillTargetRequest,
+    ReplaceAccessBindingRequest,
     ReplaceArtifactRequest,
     ResolveExternalSkillRequest,
     ResolveScopeBindingRequest,
@@ -422,9 +450,11 @@ from powercontext.http import (
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
+    ScopeAccessResource,
     ScopeBinding,
     ScopeBindingKey,
     ScopeDescriptor,
@@ -433,6 +463,7 @@ from powercontext.http import (
     ScopeSelection,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    ServerAccessResource,
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
     SkillArtifact,
@@ -451,7 +482,46 @@ from powercontext.http import (
     WorkSourceReceipt,
 )
 from powercontext.http import (
+    AccessBinding as TransportAccessBinding,
+)
+from powercontext.http import (
+    AccessBindingReplacement as TransportAccessBindingReplacement,
+)
+from powercontext.http import (
+    AccessBindingState as TransportAccessBindingState,
+)
+from powercontext.http import (
+    AccessDecision as TransportAccessDecision,
+)
+from powercontext.http import (
+    AccessGroup as TransportAccessGroup,
+)
+from powercontext.http import (
+    AccessPrincipal as TransportAccessPrincipal,
+)
+from powercontext.http import (
+    AccessResource as TransportAccessResource,
+)
+from powercontext.http import (
+    AccessResourceType as TransportAccessResourceType,
+)
+from powercontext.http import (
+    AccessRole as TransportAccessRole,
+)
+from powercontext.http import (
+    AccessRoleCardinality as TransportAccessRoleCardinality,
+)
+from powercontext.http import (
+    AccessRoleDescriptor as TransportAccessRoleDescriptor,
+)
+from powercontext.http import (
+    AccessSubject as TransportAccessSubject,
+)
+from powercontext.http import (
     ArtifactPublication as TransportArtifactPublication,
+)
+from powercontext.http import (
+    AssignableSubjectType as TransportAssignableSubjectType,
 )
 from powercontext.http import (
     HandoffActivation as TransportHandoffActivation,
@@ -466,6 +536,16 @@ from powercontext.http import (
 from powercontext.http import (
     PreparedHandoff as TransportPreparedHandoff,
 )
+from powercontext.http._generated.models import (
+    AccessControlMode as TransportAccessControlMode,
+)
+from powercontext.http._generated.models import (
+    ArtifactFamily as TransportArtifactFamily,
+)
+from powercontext.http._generated.models import (
+    ShareUnit as TransportShareUnit,
+)
+from powercontext.http._generated.models import Type4 as TransportMemoryEntrySelectorType
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
@@ -474,10 +554,12 @@ from powercontext.http._generated.operations import (
     API_VERSION,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
+    CHECK_ACCESS,
     CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_ACCESS_BINDING,
     CREATE_ARTIFACT,
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SCOPE,
@@ -490,6 +572,7 @@ from powercontext.http._generated.operations import (
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
+    GET_ACCESS_PRINCIPAL,
     GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
@@ -508,6 +591,10 @@ from powercontext.http._generated.operations import (
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
+    LIST_ACCESS_AUDIT,
+    LIST_ACCESS_BINDINGS,
+    LIST_ACCESS_RESOURCES,
+    LIST_ACCESS_ROLES,
     LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
@@ -532,6 +619,7 @@ from powercontext.http._generated.operations import (
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
+    REPLACE_ACCESS_BINDING,
     REPLACE_ARTIFACT,
     RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
@@ -539,6 +627,7 @@ from powercontext.http._generated.operations import (
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
@@ -548,13 +637,49 @@ from powercontext.http._generated.operations import (
     UNPUBLISH_REMOTE_SKILL,
     UPDATE_SCOPE,
     UPDATE_SKILL_LIFECYCLE,
+    AccessRequirement,
     Operation,
 )
 from powercontext.http._generated.schema import OPENAPI_SCHEMA
 from powercontext.server import mapping
+from powercontext.server.authentication import AuthenticationProvider
+from powercontext.server.authz import (
+    AccessAction,
+    AccessAuditContext,
+    AccessAuditEvent,
+    AccessBinding,
+    AccessBindingNotFoundError,
+    AccessBindingState,
+    AccessConflictError,
+    AccessControlError,
+    AccessControlService,
+    AccessDecision,
+    AccessDeniedError,
+    AccessIdentityRequiredError,
+    AccessInvalidRequestError,
+    AccessResourceType,
+    AccessRole,
+    AccessSubjectRef,
+    AccessUnavailableError,
+    AuditSearchRequest,
+    AuthorizedResourceFilter,
+    BindingSearchRequest,
+    CreateBinding,
+    GroupRef,
+    MemoryEntrySelector,
+    PrincipalRef,
+    ReplaceBinding,
+    ResourceRef,
+    access_control_for_mode,
+)
+from powercontext.server.authz.models import ROLE_ACTIONS, ROLE_CARDINALITIES, ROLE_RESOURCE_TYPES, ROLE_SUBJECT_TYPES
+from powercontext.server.authz.profiles import ARTIFACT_FAMILY_PROFILES, artifact_family_profile
 from powercontext.server.context import (
     bind_request_id,
+    current_authentication,
+    current_principal,
     current_request_id,
+    is_internal_bridge,
     reset_request_id,
 )
 from powercontext.server.tracing import request_id_from_span
@@ -846,9 +971,23 @@ class _ScopedHandoffApplication(Protocol):
 
     async def commit(self, prepared: PreparedHandoff, /) -> Handoff: ...
 
-    async def continue_from(self, handoff: PreparedHandoff | ArtifactRef, /) -> HandoffResolution: ...
+    async def continue_from(
+        self,
+        handoff: PreparedHandoff | ArtifactRef,
+        /,
+        *,
+        evidence_authorizer: Callable[[HandoffCitation], Awaitable[bool]] | None = None,
+    ) -> HandoffResolution: ...
 
-    async def continue_latest(self) -> HandoffResolution: ...
+    async def continue_latest(
+        self,
+        *,
+        evidence_authorizer: Callable[[HandoffCitation], Awaitable[bool]] | None = None,
+    ) -> HandoffResolution: ...
+
+    async def revision(self, reference: ArtifactRef, /) -> Handoff: ...
+
+    async def revisions(self) -> tuple[Handoff, ...]: ...
 
 
 class _HandoffApplication(Protocol):
@@ -943,6 +1082,9 @@ def create_app(
     metrics: ServerMetrics | None = None,
     tracing: ServerTracing | None = None,
     handoff_report_enabled: bool = False,
+    access_control: AccessControlService | None = None,
+    access_mode: Literal["disabled", "enforced"] | None = None,
+    authentication_provider: AuthenticationProvider | None = None,
     allow_insecure_remote_http: bool = False,
 ) -> FastAPI:
     """Build the HTTP adapter around an optional Runtime application binding."""
@@ -960,6 +1102,11 @@ def create_app(
     app.state.application = application
     app.state.capability_provider = capability_provider
     app.state.readiness_probe = readiness_probe
+    app.state.access_control = access_control
+    app.state.authentication_provider = authentication_provider
+    app.state.access_mode = (
+        ("disabled" if access_control is None else access_control.mode) if access_mode is None else access_mode
+    )
     app.state.metrics = metrics
     app.state.tracing = tracing
     app.state.allow_insecure_remote_http = allow_insecure_remote_http
@@ -1049,6 +1196,15 @@ def create_app(
     _add_route(app, CLEAR_SCOPE_BINDING, clear_scope_binding)
     _add_route(app, PUBLISH_ARTIFACT, publish_artifact)
     _add_route(app, GET_STATS, get_stats)
+    _add_route(app, GET_ACCESS_PRINCIPAL, get_access_principal)
+    _add_route(app, CHECK_ACCESS, check_access)
+    _add_route(app, LIST_ACCESS_RESOURCES, list_access_resources)
+    _add_route(app, LIST_ACCESS_ROLES, list_access_roles)
+    _add_route(app, LIST_ACCESS_BINDINGS, list_access_bindings)
+    _add_route(app, CREATE_ACCESS_BINDING, create_access_binding)
+    _add_route(app, REVOKE_ACCESS_BINDING, revoke_access_binding)
+    _add_route(app, REPLACE_ACCESS_BINDING, replace_access_binding)
+    _add_route(app, LIST_ACCESS_AUDIT, list_access_audit)
     if handoff_report_enabled:
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, CREATE_SOURCE, create_source)
@@ -1157,10 +1313,43 @@ async def get_readiness(request: Request) -> JSONResponse:
     readiness = (
         await readiness_probe() if readiness_probe is not None else _runtime_readiness(request.app.state.application)
     )
-    response_status = (
-        status.HTTP_503_SERVICE_UNAVAILABLE if readiness.status is ReadinessStatus.NOT_READY else status.HTTP_200_OK
+    checks = {**readiness.checks, **await _access_readiness_checks(request)}
+    response_status = status.HTTP_200_OK
+    readiness_status = readiness.status
+    if readiness.status is ReadinessStatus.NOT_READY or any(
+        checks[name] == "not_ready" for name in ("authentication_provider", "access_provider")
+    ):
+        readiness_status = ReadinessStatus.NOT_READY
+        response_status = status.HTTP_503_SERVICE_UNAVAILABLE
+    response = ReadinessResponse(status=readiness_status, checks=checks)
+    return JSONResponse(content=response.model_dump(mode="json"), status_code=response_status)
+
+
+async def _access_readiness_checks(request: Request) -> dict[str, str]:
+    mode: str = request.app.state.access_mode
+    access: AccessControlService | None = request.app.state.access_control
+    provider = "ready" if access is not None else ("not_ready" if mode == "enforced" else "disabled")
+    authentication: AuthenticationProvider | None = request.app.state.authentication_provider
+    if mode == "disabled":
+        authentication_status = "disabled"
+    elif authentication is None:
+        authentication_status = "not_ready"
+    else:
+        try:
+            authentication_status = "ready" if (await authentication.readiness()).ready else "not_ready"
+        except Exception:
+            authentication_status = "not_ready"
+    family_capabilities = ",".join(
+        f"{profile.family}:{'enabled' if profile.enabled else 'disabled'}"
+        for profile in sorted(ARTIFACT_FAMILY_PROFILES.values(), key=lambda item: item.family)
     )
-    return JSONResponse(content=readiness.model_dump(mode="json"), status_code=response_status)
+    return {
+        "access_mode": mode,
+        "authentication_provider": authentication_status,
+        "access_provider": provider,
+        "access_resource_kinds": ",".join(resource_type.value for resource_type in AccessResourceType),
+        "access_artifact_families": family_capabilities,
+    }
 
 
 async def get_capabilities(request: Request) -> Capabilities:
@@ -1168,6 +1357,337 @@ async def get_capabilities(request: Request) -> Capabilities:
     if capability_provider is not None:
         return capability_provider()
     return request.app.state.capabilities
+
+
+async def get_access_principal(request: Request) -> AccessMeResponse:
+    access = _require_access_control(request)
+    provider = access.provider_capabilities
+    return AccessMeResponse(
+        principal=_access_principal_response(_require_principal()),
+        mode=TransportAccessControlMode(access.mode),
+        resource_kinds=[TransportAccessResourceType(resource_type.value) for resource_type in AccessResourceType],
+        provider_capabilities=AccessProviderCapabilities(
+            safe_resource_filtering=provider.safe_resource_filtering,
+            multi_requirement_check=provider.multi_requirement_check,
+            relationship_management=provider.relationship_management,
+            group_subjects=provider.group_subjects,
+            multi_principal=provider.multi_principal,
+            max_direct_resource_keys=provider.max_direct_resource_keys,
+        ),
+        artifact_families=[
+            ArtifactFamilyAccessCapability(
+                family=profile.family,
+                enabled=profile.enabled,
+                share_unit=TransportShareUnit(profile.share_unit),
+                actions=[TransportAccessAction(action.value) for action in sorted(profile.actions, key=str)],
+                grantable_roles=[TransportAccessRole(role.value) for role in sorted(profile.grantable_roles, key=str)],
+            )
+            for profile in ARTIFACT_FAMILY_PROFILES.values()
+        ],
+    )
+
+
+async def check_access(payload: AccessCheckRequest, request: Request) -> AccessCheckResponse:
+    access = _require_access_control(request)
+    requirements = tuple(
+        (AccessAction(requirement.action.value), _access_resource(requirement.resource))
+        for requirement in payload.requirements
+    )
+    decisions = await access.check_batch(
+        _require_principal(),
+        requirements,
+        context=_access_audit_context(CHECK_ACCESS.operation_id),
+    )
+    allowed = (
+        all(decision.allowed for decision in decisions)
+        if payload.match.value == "all"
+        else any(decision.allowed for decision in decisions)
+    )
+    return AccessCheckResponse(
+        allowed=allowed,
+        decisions=[_access_decision_response(decision) for decision in decisions],
+    )
+
+
+async def list_access_resources(payload: ListAccessResourcesRequest, request: Request) -> AccessResourcePage:
+    access = _require_access_control(request)
+    resource_type = AccessResourceType(payload.resource_type.value)
+    page = await access.list_resources(
+        _require_principal(),
+        action=AccessAction(payload.action.value),
+        resource_type=resource_type,
+        family=payload.family,
+        cursor=payload.cursor,
+        limit=payload.limit,
+        context=_access_audit_context(LIST_ACCESS_RESOURCES.operation_id),
+        query_resources=lambda authorized: _query_authorized_resources(
+            request,
+            authorized,
+            resource_type=resource_type,
+            family=payload.family,
+        ),
+    )
+    return AccessResourcePage(
+        items=[_access_resource_response(resource) for resource in page.items],
+        total=page.total,
+        next_cursor=page.next_cursor,
+    )
+
+
+async def _query_authorized_resources(
+    request: Request,
+    authorized: AuthorizedResourceFilter,
+    *,
+    resource_type: AccessResourceType,
+    family: str | None,
+) -> tuple[ResourceRef, ...]:
+    resources = {resource.key: resource for resource in authorized.exact_resources}
+    if not authorized.parent_constraints:
+        return tuple(resources.values())
+    if resource_type not in {AccessResourceType.SCOPE, AccessResourceType.ARTIFACT}:
+        raise AccessUnavailableError("safe_resource_filtering_unavailable")
+
+    application = _require_application(request)
+    access = _require_access_control(request)
+    scope_ids = await _authorized_scope_ids(request, authorized.parent_constraints)
+    families = (family,) if family is not None else ("handoff", "memory", "experience", "skill")
+    for scope_id in scope_ids:
+        if resource_type is AccessResourceType.SCOPE:
+            resource = ResourceRef.scope(scope_id)
+            resources[resource.key] = resource
+        else:
+            for selected_family in families:
+                discovered = await _discover_scope_artifact_resources(application, scope_id, selected_family)
+                for resource in discovered:
+                    if await access.artifact_owner(resource) is not None:
+                        resources[resource.key] = resource
+                    if len(resources) > authorized.max_direct_resource_keys:
+                        raise AccessUnavailableError("resource_filter_limit_exceeded")
+        if len(resources) > authorized.max_direct_resource_keys:
+            raise AccessUnavailableError("resource_filter_limit_exceeded")
+    return tuple(resources.values())
+
+
+async def _authorized_scope_ids(request: Request, parents: Sequence[ResourceRef]) -> tuple[str, ...]:
+    access = _require_access_control(request)
+    scope_ids: set[str] = set()
+    for parent in parents:
+        if parent.type is AccessResourceType.SERVER and parent.deployment_id == access.deployment_id:
+            scope_ids.update(scope.scope_id for scope in await _require_scope_application(request).list())
+        elif parent.type is AccessResourceType.SCOPE and parent.scope_id is not None:
+            scope_ids.add(parent.scope_id)
+        else:
+            raise AccessUnavailableError("safe_resource_filtering_unavailable")
+    return tuple(sorted(scope_ids))
+
+
+async def _discover_scope_artifact_resources(
+    application: ServerApplication,
+    scope_id: str,
+    family: str,
+) -> tuple[ResourceRef, ...]:
+    if family == "handoff":
+        if not await application.handoff.for_scope(scope_id).revisions():
+            return ()
+        return (ResourceRef.artifact(scope_id, family="handoff", artifact_id="handoff"),)
+    if family == "memory":
+        entries = await application.memory.for_scope(scope_id).list(include_inactive=True)
+        return tuple(
+            ResourceRef.artifact(
+                scope_id,
+                family="memory",
+                artifact_id=entry.citation.memory_ref.artifact_id,
+                selector=MemoryEntrySelector(entry_id=entry.citation.entry_id),
+            )
+            for entry in entries.entries
+        )
+    if family in {"experience", "skill"}:
+        return await _committed_artifact_resources(
+            application,
+            scope_id,
+            cast(Literal["experience", "skill"], family),
+        )
+    raise AccessInvalidRequestError("artifact-family")
+
+
+async def _committed_artifact_resources(
+    application: ServerApplication,
+    scope_id: str,
+    family: Literal["experience", "skill"],
+) -> tuple[ResourceRef, ...]:
+    resources: list[ResourceRef] = []
+    cursor: str | None = None
+    while True:
+        page = await application.records.for_scope(scope_id).query_artifacts(
+            family,
+            cursor=cursor,
+            limit=100,
+        )
+        resources.extend(
+            ResourceRef.artifact(scope_id, family=artifact.family, artifact_id=artifact.artifact_id)
+            for artifact in page.items
+        )
+        cursor = page.next_cursor
+        if cursor is None:
+            return tuple(resources)
+
+
+async def list_access_roles(payload: ListAccessRolesRequest, request: Request) -> AccessRolePage:
+    _require_access_control(request)
+    resource_type = None if payload.resource_type is None else AccessResourceType(payload.resource_type.value)
+    selected_profile = None
+    if payload.family is not None:
+        if resource_type not in {None, AccessResourceType.ARTIFACT}:
+            raise AccessInvalidRequestError("action-resource")
+        selected_profile = ARTIFACT_FAMILY_PROFILES.get(payload.family)
+        if selected_profile is None:
+            raise AccessInvalidRequestError("artifact-family")
+        if not selected_profile.enabled:
+            raise AccessInvalidRequestError("artifact-family-disabled")
+    roles = [
+        role
+        for role in AccessRole
+        if (resource_type is None or ROLE_RESOURCE_TYPES[role] is resource_type)
+        and (
+            ROLE_RESOURCE_TYPES[role] is not AccessResourceType.ARTIFACT
+            or role is AccessRole.ARTIFACT_OWNER
+            or (
+                role in selected_profile.grantable_roles
+                if selected_profile is not None
+                else any(
+                    profile.enabled and role in profile.grantable_roles for profile in ARTIFACT_FAMILY_PROFILES.values()
+                )
+            )
+        )
+    ]
+    return AccessRolePage(
+        items=[
+            TransportAccessRoleDescriptor(
+                role=TransportAccessRole(role.value),
+                resource_type=TransportAccessResourceType(ROLE_RESOURCE_TYPES[role].value),
+                cardinality=TransportAccessRoleCardinality(ROLE_CARDINALITIES[role].value),
+                actions=[
+                    TransportAccessAction(action.value)
+                    for action in sorted(ROLE_ACTIONS[role], key=str)
+                    if action is not AccessAction.ACCESS_SELF
+                ],
+                artifact_families=[
+                    TransportArtifactFamily(root=profile.family)
+                    for profile in ARTIFACT_FAMILY_PROFILES.values()
+                    if profile.enabled
+                    and (selected_profile is None or profile.family == selected_profile.family)
+                    and (role is AccessRole.ARTIFACT_OWNER or role in profile.grantable_roles)
+                ],
+                assignable_subject_types=[
+                    TransportAssignableSubjectType(subject_type)
+                    for subject_type in sorted(ROLE_SUBJECT_TYPES[role])
+                    if role is not AccessRole.ARTIFACT_OWNER
+                ],
+                system_managed=role is AccessRole.ARTIFACT_OWNER,
+            )
+            for role in roles
+        ]
+    )
+
+
+async def list_access_bindings(payload: ListAccessBindingsRequest, request: Request) -> AccessBindingPage:
+    access = _require_access_control(request)
+    page = await access.list_bindings(
+        _require_principal(),
+        BindingSearchRequest(
+            management_resource=_access_resource(payload.management_resource),
+            subject=None if payload.subject is None else _access_subject(payload.subject),
+            role=None if payload.role is None else AccessRole(payload.role.value),
+            state=None if payload.state is None else AccessBindingState(payload.state.value),
+            cursor=payload.cursor,
+            limit=payload.limit,
+        ),
+        context=_access_audit_context(LIST_ACCESS_BINDINGS.operation_id),
+    )
+    return AccessBindingPage(
+        items=[_access_binding_response(binding) for binding in page.items],
+        next_cursor=page.next_cursor,
+    )
+
+
+async def create_access_binding(payload: CreateAccessBindingRequest, request: Request) -> TransportAccessBinding:
+    access = _require_access_control(request)
+    binding = await access.create_binding(
+        _require_principal(),
+        CreateBinding(
+            subject=_access_subject(payload.subject),
+            resource=_access_resource(payload.resource),
+            role=AccessRole(payload.role.value),
+            idempotency_key=payload.idempotency_key,
+            reason=payload.reason,
+            expires_at=payload.expires_at,
+        ),
+        context=_access_audit_context(CREATE_ACCESS_BINDING.operation_id),
+        validate_resource=lambda resource: _validate_shareable_resource(request.app.state.application, resource),
+    )
+    return _access_binding_response(binding)
+
+
+async def revoke_access_binding(payload: RevokeAccessBindingRequest, request: Request) -> TransportAccessBinding:
+    access = _require_access_control(request)
+    binding = await access.revoke_binding(
+        _require_principal(),
+        payload.binding_id,
+        expected_version=payload.expected_version,
+        idempotency_key=payload.idempotency_key,
+        context=_access_audit_context(REVOKE_ACCESS_BINDING.operation_id),
+    )
+    return _access_binding_response(binding)
+
+
+async def replace_access_binding(
+    payload: ReplaceAccessBindingRequest,
+    request: Request,
+) -> TransportAccessBindingReplacement:
+    access = _require_access_control(request)
+    result = await access.replace_binding(
+        _require_principal(),
+        ReplaceBinding(
+            binding_id=payload.binding_id,
+            expected_version=payload.expected_version,
+            subject=_access_subject(payload.replacement.subject),
+            idempotency_key=payload.idempotency_key,
+            reason=payload.replacement.reason,
+            expires_at=payload.replacement.expires_at,
+        ),
+        context=_access_audit_context(REPLACE_ACCESS_BINDING.operation_id),
+    )
+    return TransportAccessBindingReplacement(
+        previous=_access_binding_response(result.previous),
+        current=_access_binding_response(result.current),
+    )
+
+
+async def list_access_audit(payload: ListAccessAuditRequest, request: Request) -> AccessAuditPage:
+    access = _require_access_control(request)
+    resource = (
+        ResourceRef.server(payload.resource.deployment_id)
+        if isinstance(payload.resource, ServerAccessResource)
+        else ResourceRef.scope(payload.resource.scope_id)
+    )
+    page = await access.list_audit(
+        _require_principal(),
+        AuditSearchRequest(
+            resource=resource,
+            action=None if payload.action is None else AccessAction(payload.action.value),
+            subject=None if payload.subject is None else _access_subject(payload.subject),
+            allowed=None if payload.result is None else payload.result.value == "allowed",
+            occurred_after=None if payload.time_range is None else payload.time_range.start,
+            occurred_before=None if payload.time_range is None else payload.time_range.end,
+            cursor=payload.cursor,
+            limit=payload.limit,
+        ),
+        context=_access_audit_context(LIST_ACCESS_AUDIT.operation_id),
+    )
+    return AccessAuditPage(
+        items=[_access_audit_response(event) for event in page.items],
+        next_cursor=page.next_cursor,
+    )
 
 
 async def list_scopes(
@@ -1281,6 +1801,7 @@ async def clear_scope_binding(
 async def publish_artifact(
     request: PublishArtifactRequest,
     publications: Annotated[ArtifactPublicationApplication, Depends(_require_publication_application)],
+    http_request: Request,
 ) -> TransportArtifactPublication:
     result = await publications.publish(
         DomainArtifactPublicationRequest(
@@ -1291,6 +1812,16 @@ async def publish_artifact(
             target_scope_id=request.target_scope_id,
             idempotency_key=request.idempotency_key,
         )
+    )
+    await _establish_created_owner(
+        http_request,
+        ResourceRef.artifact(
+            result.target.scope_id,
+            family=result.target.artifact.family,
+            artifact_id=result.target.artifact.artifact_id,
+        ),
+        idempotency_key=f"artifact-publication-owner:{result.target.artifact.artifact_id}",
+        operation=PUBLISH_ARTIFACT.operation_id,
     )
     return TransportArtifactPublication.model_validate(result.model_dump(mode="json"))
 
@@ -1385,11 +1916,17 @@ async def create_artifact(
     scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
     request: CreateArtifactRequest,
     response: Response,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactCreated:
     result = await application.records.for_scope(scope_id).create_artifact(
         request.root.family,
         _artifact_write(request),
+    )
+    await _establish_base_artifact_owners(
+        http_request,
+        application,
+        result,
     )
     response.headers["Location"] = _artifact_location(result)
     response.headers["ETag"] = _artifact_etag(result.revision)
@@ -1445,15 +1982,26 @@ async def replace_artifact(
     artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     request: ReplaceArtifactRequest,
     response: Response,
+    http_request: Request,
     application: Annotated[ServerApplication, Depends(_require_application)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ) -> ArtifactRevision:
     expected_etag = _require_artifact_etag(if_match)
+    previous_memory_entries: frozenset[str] = frozenset()
+    if family is BaseArtifactFamily.MEMORY:
+        current = await application.records.for_scope(scope_id).get_artifact(family.value, artifact_id)
+        previous_memory_entries = _memory_manifest_entry_ids(current)
     result = await application.records.for_scope(scope_id).replace_artifact(
         family.value,
         artifact_id,
         expected_etag,
         _artifact_write(request),
+    )
+    await _establish_new_memory_entry_owners(
+        http_request,
+        result,
+        previous_entry_ids=previous_memory_entries,
+        operation=REPLACE_ARTIFACT.operation_id,
     )
     response.headers["ETag"] = _artifact_etag(result.revision)
     return _artifact_revision_response(result)
@@ -1609,16 +2157,66 @@ async def commit_connector_checkpoint(
 async def flush_memory(
     request: FlushMemoryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> FlushMemoryResponse:
-    result = await application.memory.for_scope(request.scope_id).flush()
+    memory = application.memory.for_scope(request.scope_id)
+    access = access_control_for_mode(
+        http_request.app.state.access_control,
+        mode=http_request.app.state.access_mode,
+    )
+    principal = _require_principal() if access is not None else None
+    if access is not None:
+        current = await memory.list(include_inactive=True)
+        await access.require_all(
+            principal,
+            tuple(
+                (AccessAction.ARTIFACT_WRITE, _memory_entry_resource(request.scope_id, entry))
+                for entry in current.entries
+            ),
+            context=_access_audit_context(FLUSH_MEMORY.operation_id),
+        )
+    result = await memory.flush()
+    if access is not None and result.memory_ref is not None:
+        current = await memory.list(include_inactive=True)
+        for entry in current.entries:
+            resource = _memory_entry_resource(request.scope_id, entry)
+            if await access.artifact_owner(resource) is None:
+                await access.establish_artifact_owner(
+                    resource,
+                    cast(PrincipalRef, principal),
+                    idempotency_key=f"memory-owner:{request.scope_id}:{entry.entry.entry_id}",
+                    context=_access_audit_context(FLUSH_MEMORY.operation_id),
+                )
     return mapping.flush_response(result)
+
+
+def _memory_entry_resource(scope_id: str, entry: MemoryEntryRecord) -> ResourceRef:
+    return ResourceRef.artifact(
+        scope_id,
+        family="memory",
+        artifact_id=entry.memory_ref.artifact_id,
+        selector=MemoryEntrySelector(entry_id=entry.entry.entry_id),
+    )
 
 
 async def remember_memory(
     request: RememberMemoryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> MemoryMutationResponse:
     result = await application.memory.for_scope(request.scope_id).remember(mapping.remember_request(request))
+    if result.entry is not None:
+        await _establish_created_owner(
+            http_request,
+            ResourceRef.artifact(
+                request.scope_id,
+                family="memory",
+                artifact_id=result.memory_ref.artifact_id,
+                selector=MemoryEntrySelector(entry_id=result.entry.entry.entry_id),
+            ),
+            idempotency_key=f"memory-owner:{request.scope_id}:{result.entry.entry.entry_id}",
+            operation=REMEMBER_MEMORY.operation_id,
+        )
     return mapping.mutation_response(result)
 
 
@@ -1661,7 +2259,16 @@ async def handoff_current_work(
 async def acknowledge_handoff(
     request: AcknowledgeHandoffRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> HandoffAcknowledgement:
+    principal = current_principal()
+    if (
+        http_request.app.state.access_control is not None
+        and request.status.value == "accepted"
+        and principal is not None
+        and request.receiver != principal.id
+    ):
+        raise AccessInvalidRequestError("receiver-principal")
     result = await application.work.for_scope(request.scope_id).acknowledge(
         mapping.acknowledge_handoff_request(request)
     )
@@ -1707,10 +2314,22 @@ async def finalize_handoff(
 async def commit_handoff(
     request: CommitHandoffRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> CommittedHandoff:
     result = await application.handoff.for_scope(request.scope_id).commit(
         mapping.runtime_prepared_handoff(request.handoff)
     )
+    if result.revision == 1:
+        await _establish_created_owner(
+            http_request,
+            ResourceRef.artifact(
+                request.scope_id,
+                family="handoff",
+                artifact_id=result.artifact_id,
+            ),
+            idempotency_key=f"handoff-owner:{request.scope_id}:{result.artifact_id}",
+            operation=COMMIT_HANDOFF.operation_id,
+        )
     return mapping.committed_handoff_response(result)
 
 
@@ -1782,9 +2401,17 @@ async def list_memory_changes(
 async def propose_experience(
     request: ProposeExperienceRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ArtifactCandidate:
     result = await application.experience.for_scope(request.scope_id).propose(
         mapping.propose_experience_request(request)
+    )
+    await _attest_candidate_owner(
+        http_request,
+        scope_id=request.scope_id,
+        candidate_id=result.candidate_id,
+        family=result.family,
+        target=result.target,
     )
     return mapping.candidate_response(result)
 
@@ -1792,10 +2419,19 @@ async def propose_experience(
 async def generate_experience(
     request: GenerateExperienceRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> GeneratedCandidateResponse:
     result = await application.experience.for_scope(request.scope_id).generate(
         mapping.generate_experience_request(request)
     )
+    if result.candidate is not None:
+        await _attest_candidate_owner(
+            http_request,
+            scope_id=request.scope_id,
+            candidate_id=result.candidate.candidate_id,
+            family=result.candidate.family,
+            target=result.candidate.target,
+        )
     return mapping.generated_candidate_response(result)
 
 
@@ -1810,16 +2446,33 @@ async def get_experience(
 async def propose_skill(
     request: ProposeSkillRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ArtifactCandidate:
     result = await application.skill.for_scope(request.scope_id).propose(mapping.propose_skill_request(request))
+    await _attest_candidate_owner(
+        http_request,
+        scope_id=request.scope_id,
+        candidate_id=result.candidate_id,
+        family=result.family,
+        target=result.target,
+    )
     return mapping.candidate_response(result)
 
 
 async def generate_skill(
     request: GenerateSkillRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> GeneratedCandidateResponse:
     result = await application.skill.for_scope(request.scope_id).generate(mapping.generate_skill_request(request))
+    if result.candidate is not None:
+        await _attest_candidate_owner(
+            http_request,
+            scope_id=request.scope_id,
+            candidate_id=result.candidate.candidate_id,
+            family=result.candidate.family,
+            target=result.candidate.target,
+        )
     return mapping.generated_candidate_response(result)
 
 
@@ -1903,6 +2556,7 @@ async def download_skill_package(
 async def propose_skill_package(
     request: ProposeSkillPackageRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ArtifactCandidate:
     try:
         archive_bytes = base64.b64decode(request.archive_base64, validate=True)
@@ -1916,6 +2570,13 @@ async def propose_skill_package(
         )
     except ValueError as error:
         raise InvalidRuntimeRequestError("skill-package") from error
+    await _attest_candidate_owner(
+        http_request,
+        scope_id=request.scope_id,
+        candidate_id=candidate.candidate_id,
+        family=candidate.family,
+        target=candidate.target,
+    )
     return mapping.candidate_response(candidate)
 
 
@@ -2208,6 +2869,165 @@ def _skill_package_manifest(package: SkillPackageSnapshot) -> SkillPackageManife
     )
 
 
+async def _validate_shareable_resource(application: ServerApplication | None, resource: ResourceRef) -> None:
+    if resource.type is not AccessResourceType.ARTIFACT:
+        return
+    if application is None:
+        raise _RuntimeNotReadyError
+    profile = artifact_family_profile(resource)
+    identity = resource.identity
+    if identity is None or resource.scope_id is None:
+        raise AccessInvalidRequestError("artifact-identity")
+    artifact = ArtifactRef(
+        family=identity.family,
+        artifact_id=identity.artifact_id,
+        revision=1,
+    )
+    if profile.family == "handoff":
+        await application.handoff.for_scope(resource.scope_id).revision(artifact)
+        return
+    if profile.family == "memory":
+        selector = resource.selector
+        if selector is None:
+            raise AccessInvalidRequestError("memory-entry-selector")
+        page = await application.memory.for_scope(resource.scope_id).list(include_inactive=True)
+        if (
+            page.memory_ref is None
+            or page.memory_ref.artifact_id != identity.artifact_id
+            or all(entry.entry.entry_id != selector.entry_id for entry in page.entries)
+        ):
+            raise MemoryEntryNotFoundError(selector.entry_id)
+        return
+    if profile.family == "experience":
+        await application.experience.for_scope(resource.scope_id).get(RuntimeGetExperienceRequest(artifact=artifact))
+        return
+    if profile.family == "skill":
+        await application.skill.for_scope(resource.scope_id).get(RuntimeGetSkillRequest(artifact=artifact))
+        return
+    raise AccessInvalidRequestError("artifact-family-disabled")
+
+
+async def _establish_created_owner(
+    request: Request,
+    resource: ResourceRef,
+    *,
+    idempotency_key: str,
+    operation: str,
+) -> None:
+    access = access_control_for_mode(
+        request.app.state.access_control,
+        mode=request.app.state.access_mode,
+    )
+    if access is None:
+        return
+    await access.establish_artifact_owner(
+        resource,
+        _require_principal(),
+        idempotency_key=idempotency_key,
+        context=_access_audit_context(operation),
+    )
+
+
+async def _establish_base_artifact_owners(
+    request: Request,
+    application: ServerApplication,
+    result: RuntimeArtifactCreated,
+) -> None:
+    if access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode) is None:
+        return
+    resource = ResourceRef.artifact(result.scope_id, family=result.family, artifact_id=result.artifact_id)
+    if result.family != BaseArtifactFamily.MEMORY.value:
+        await _establish_created_owner(
+            request,
+            resource,
+            idempotency_key=_base_owner_idempotency_key(resource),
+            operation=CREATE_ARTIFACT.operation_id,
+        )
+        return
+    artifact = await application.records.for_scope(result.scope_id).get_artifact(result.family, result.artifact_id)
+    await _establish_new_memory_entry_owners(
+        request,
+        artifact,
+        previous_entry_ids=frozenset(),
+        operation=CREATE_ARTIFACT.operation_id,
+    )
+
+
+async def _establish_new_memory_entry_owners(
+    request: Request,
+    result: RuntimeArtifactRecord,
+    *,
+    previous_entry_ids: frozenset[str],
+    operation: str,
+) -> None:
+    if result.family != BaseArtifactFamily.MEMORY.value:
+        return
+    for entry_id in sorted(_memory_manifest_entry_ids(result) - previous_entry_ids):
+        resource = ResourceRef.artifact(
+            result.scope_id,
+            family=result.family,
+            artifact_id=result.artifact_id,
+            selector=MemoryEntrySelector(entry_id=entry_id),
+        )
+        await _establish_created_owner(
+            request,
+            resource,
+            idempotency_key=_base_owner_idempotency_key(resource),
+            operation=operation,
+        )
+
+
+def _memory_manifest_entry_ids(result: RuntimeArtifactRecord) -> frozenset[str]:
+    manifest = result.content.get("manifest")
+    entries = manifest.get("entries") if isinstance(manifest, Mapping) else None
+    if not isinstance(entries, list):
+        raise AccessUnavailableError
+    entry_ids: set[str] = set()
+    for entry in entries:
+        entry_id = entry.get("entry_id") if isinstance(entry, Mapping) else None
+        if not isinstance(entry_id, str) or not entry_id or entry_id in entry_ids:
+            raise AccessUnavailableError
+        entry_ids.add(entry_id)
+    return frozenset(entry_ids)
+
+
+def _base_owner_idempotency_key(resource: ResourceRef) -> str:
+    return f"base-artifact-owner:{sha256(resource.key.encode()).hexdigest()}"
+
+
+async def _attest_candidate_owner(
+    request: Request,
+    *,
+    scope_id: str,
+    candidate_id: str,
+    family: str,
+    target: ArtifactRef | None,
+) -> None:
+    access = access_control_for_mode(
+        request.app.state.access_control,
+        mode=request.app.state.access_mode,
+    )
+    if access is None:
+        return
+    logical_target = (
+        None
+        if target is None
+        else ResourceRef.artifact(
+            scope_id,
+            family=target.family,
+            artifact_id=target.artifact_id,
+        )
+    )
+    await access.attest_candidate_owner(
+        scope_id=scope_id,
+        candidate_id=candidate_id,
+        family=family,
+        proposed_owner=_require_principal(),
+        target=logical_target,
+        idempotency_key=f"candidate-owner:{scope_id}:{candidate_id}",
+    )
+
+
 async def scan_external_skills(
     request: ScanExternalSkillsRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -2239,10 +3059,19 @@ async def resolve_external_skill(
 async def import_external_skill(
     request: ImportExternalSkillRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> GeneratedCandidateResponse:
     result = await application.external_skills.for_scope(request.scope_id).import_managed(
         mapping.import_external_skill_request(request)
     )
+    if result.candidate is not None:
+        await _attest_candidate_owner(
+            http_request,
+            scope_id=request.scope_id,
+            candidate_id=result.candidate.candidate_id,
+            family=result.candidate.family,
+            target=result.candidate.target,
+        )
     return mapping.generated_candidate_response(result)
 
 
@@ -2257,16 +3086,47 @@ async def list_artifact_candidates(
 async def get_artifact_candidate(
     request: GetArtifactCandidateRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ArtifactCandidate:
     result = await application.review.for_scope(request.scope_id).get(mapping.get_candidate_request(request))
+    await _require_candidate_artifact_owner(http_request, request.scope_id, result)
     return mapping.candidate_response(result)
 
 
 async def approve_artifact_candidate(
     request: ApproveArtifactCandidateRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ArtifactCandidate:
-    result = await application.review.for_scope(request.scope_id).approve(mapping.approve_candidate_request(request))
+    review = application.review.for_scope(request.scope_id)
+    access = access_control_for_mode(
+        http_request.app.state.access_control,
+        mode=http_request.app.state.access_mode,
+    )
+    attestation = None if access is None else await access.candidate_owner(request.scope_id, request.candidate_id)
+    if access is not None and attestation is None:
+        raise AccessUnavailableError("artifact_owner_pending")
+    try:
+        result = await review.approve(mapping.approve_candidate_request(request))
+    except CandidateTerminalError:
+        current = await review.get(RuntimeGetArtifactCandidateRequest(candidate_id=request.candidate_id))
+        if current.status.value != "approved" or current.version != request.expected_version:
+            raise
+        result = current
+    if access is not None and attestation is not None and attestation.target is None:
+        artifact = result.result_artifact
+        if artifact is None:
+            raise AccessUnavailableError("artifact_owner_pending")
+        await access.establish_artifact_owner(
+            ResourceRef.artifact(
+                request.scope_id,
+                family=artifact.family,
+                artifact_id=artifact.artifact_id,
+            ),
+            attestation.proposed_owner,
+            idempotency_key=f"candidate-artifact-owner:{request.scope_id}:{request.candidate_id}",
+            context=_access_audit_context(APPROVE_ARTIFACT_CANDIDATE.operation_id),
+        )
     return mapping.candidate_response(result)
 
 
@@ -2281,9 +3141,38 @@ async def reject_artifact_candidate(
 async def revise_artifact_candidate(
     request: ReviseArtifactCandidateRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
 ) -> ArtifactCandidate:
+    access = access_control_for_mode(
+        http_request.app.state.access_control,
+        mode=http_request.app.state.access_mode,
+    )
+    if access is not None:
+        attestation = await access.candidate_owner(request.scope_id, request.candidate_id)
+        if attestation is None:
+            raise AccessUnavailableError("artifact_owner_pending")
+        if attestation.proposed_owner != _require_principal():
+            raise AccessDeniedError
     result = await application.review.for_scope(request.scope_id).revise(mapping.revise_candidate_request(request))
     return mapping.candidate_response(result)
+
+
+async def _require_candidate_artifact_owner(
+    request: Request,
+    scope_id: str,
+    candidate: ReviewedCandidate,
+) -> None:
+    if candidate.status.value != "approved" or candidate.result_artifact is None:
+        return
+    access = access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode)
+    if access is None:
+        return
+    artifact = candidate.result_artifact
+    owner = await access.artifact_owner(
+        ResourceRef.artifact(scope_id, family=artifact.family, artifact_id=artifact.artifact_id)
+    )
+    if owner is None:
+        raise AccessUnavailableError("artifact_owner_pending")
 
 
 def _require_handoff_selection(
@@ -2336,6 +3225,188 @@ def _require_handoff_report_application(request: Request) -> HandoffReportApplic
     return application.handoff_report
 
 
+def _require_access_control(request: Request) -> AccessControlService:
+    access = access_control_for_mode(
+        request.app.state.access_control,
+        mode=request.app.state.access_mode,
+    )
+    if access is None:
+        raise _RuntimeNotReadyError
+    return access
+
+
+def _require_principal() -> PrincipalRef:
+    principal = current_principal()
+    if principal is None:
+        raise AccessIdentityRequiredError
+    return principal
+
+
+def _access_audit_context(operation: str) -> AccessAuditContext:
+    authentication = current_authentication()
+    return AccessAuditContext(
+        transport="mcp" if is_internal_bridge() else "http",
+        operation=operation,
+        request_id=current_request_id(),
+        actor=None if authentication is None else authentication.actor,
+        subject_groups=() if authentication is None else authentication.subject_groups,
+    )
+
+
+def _access_principal(value: TransportAccessPrincipal) -> PrincipalRef:
+    # IDs are canonical. A description in an Access mutation payload is not a
+    # trusted directory assertion, so never persist it as identity metadata.
+    return PrincipalRef(type=value.type, id=value.id)
+
+
+def _access_subject(value: TransportAccessSubject) -> AccessSubjectRef:
+    subject = value.root
+    if isinstance(subject, TransportAccessGroup):
+        return GroupRef(type=subject.type, id=subject.id)
+    return _access_principal(subject)
+
+
+def _access_principal_response(value: PrincipalRef) -> TransportAccessPrincipal:
+    return TransportAccessPrincipal(
+        type=cast(Literal["user", "service"], value.type),
+        id=value.id,
+        description=value.description,
+    )
+
+
+def _access_subject_response(value: AccessSubjectRef) -> TransportAccessSubject:
+    if isinstance(value, GroupRef):
+        return TransportAccessSubject(
+            root=TransportAccessGroup(type="group", id=value.id, description=value.description)
+        )
+    return TransportAccessSubject(root=_access_principal_response(value))
+
+
+def _access_resource(value: TransportAccessResource) -> ResourceRef:
+    resource = value.root
+    if isinstance(resource, ServerAccessResource):
+        return ResourceRef.server(resource.deployment_id)
+    if isinstance(resource, ScopeAccessResource):
+        return ResourceRef.scope(resource.scope_id)
+    selector = (
+        None
+        if resource.selector is None
+        else MemoryEntrySelector(
+            entry_id=resource.selector.entry_id,
+        )
+    )
+    return ResourceRef.artifact(
+        resource.scope_id,
+        family=resource.identity.family,
+        artifact_id=resource.identity.artifact_id,
+        selector=selector,
+    )
+
+
+def _access_resource_response(value: ResourceRef) -> TransportAccessResource:
+    if value.type is AccessResourceType.SERVER:
+        return TransportAccessResource(
+            root=ServerAccessResource(type="server", deployment_id=value.deployment_id or "")
+        )
+    if value.type is AccessResourceType.SCOPE:
+        return TransportAccessResource(root=ScopeAccessResource(type="scope", scope_id=value.scope_id or ""))
+    if value.identity is None:
+        raise AccessUnavailableError
+    selector = value.selector
+    return TransportAccessResource(
+        root=ArtifactAccessResource(
+            type="artifact",
+            scope_id=value.scope_id or "",
+            identity=TransportAccessArtifactIdentity(
+                family=value.identity.family,
+                artifact_id=value.identity.artifact_id,
+            ),
+            selector=(
+                None
+                if selector is None
+                else MemoryEntryAccessSelector(
+                    type=TransportMemoryEntrySelectorType.MEMORY_ENTRY,
+                    entry_id=selector.entry_id,
+                )
+            ),
+        )
+    )
+
+
+def _access_decision_response(value: AccessDecision) -> TransportAccessDecision:
+    return TransportAccessDecision(
+        allowed=value.allowed,
+        reason_code=value.reason_code,
+    )
+
+
+def _access_binding_response(value: AccessBinding) -> TransportAccessBinding:
+    return TransportAccessBinding(
+        binding_id=value.binding_id,
+        subject=_access_subject_response(value.subject),
+        resource=_access_resource_response(value.resource),
+        role=TransportAccessRole(value.role.value),
+        granted_by=_access_principal_response(value.granted_by),
+        reason=value.reason,
+        created_at=value.created_at,
+        expires_at=value.expires_at,
+        state=TransportAccessBindingState(value.state.value),
+        version=value.version,
+        policy_revision=value.policy_revision,
+        idempotency_key=value.idempotency_key,
+        revoked_at=value.revoked_at,
+        revoked_by=None if value.revoked_by is None else _access_principal_response(value.revoked_by),
+    )
+
+
+def _access_audit_response(value: AccessAuditEvent) -> TransportAccessAuditEvent:
+    if value.cursor is None:
+        raise AccessUnavailableError
+    return TransportAccessAuditEvent(
+        cursor=value.cursor,
+        event_id=value.event_id,
+        occurred_at=value.occurred_at,
+        request_id=value.request_id,
+        transport=value.transport,
+        operation=value.operation,
+        principal=_access_principal_response(value.principal),
+        actor=None if value.actor is None else _access_principal_response(value.actor),
+        action=TransportAccessAction(value.action.value),
+        resource=_access_resource_response(value.resource),
+        allowed=value.allowed,
+        reason_code=value.reason_code,
+        policy_revision=value.policy_revision,
+        matched_subject=(None if value.matched_subject is None else _access_subject_response(value.matched_subject)),
+        binding_id=value.binding_id,
+        target=None if value.target is None else _access_subject_response(value.target),
+        role=None if value.role is None else TransportAccessRole(value.role.value),
+        expected_version=value.expected_version,
+        result_version=value.result_version,
+    )
+
+
+def _binding_administrative_check(
+    resource: ResourceRef | None,
+    *,
+    deployment_id: str,
+) -> tuple[AccessAction, ResourceRef]:
+    if resource is None or resource.type is AccessResourceType.SERVER:
+        if resource is not None and resource.deployment_id != deployment_id:
+            raise AccessInvalidRequestError("deployment")
+        return AccessAction.SERVER_ADMIN, ResourceRef.server(deployment_id)
+    if resource.type is AccessResourceType.SCOPE:
+        return AccessAction.SCOPE_ADMIN, resource
+    parent = resource.parent_scope
+    if parent is None:
+        raise AccessInvalidRequestError("artifact-reference")
+    action = (
+        AccessAction.SCOPE_DELEGATE
+        if artifact_family_profile(resource).family == "handoff"
+        else AccessAction.SCOPE_ADMIN
+    )
+    return action, parent
+
+
 def _scope_descriptor_response(value: DomainScopeDescriptor) -> ScopeDescriptor:
     return ScopeDescriptor.model_validate(value.model_dump(mode="json"))
 
@@ -2365,9 +3436,10 @@ def _add_route(
     operation: Operation[_RequestT, _ResponseT],
     endpoint: Callable[..., Awaitable[_ResponseT | Response]],
 ) -> None:
+    observed = _observe_application_operation(app, operation, endpoint)
     app.router.add_api_route(
         operation.path,
-        _observe_application_operation(app, operation, endpoint),
+        observed,
         methods=[operation.method],
         operation_id=operation.operation_id,
         response_model=operation.response_type,
@@ -2375,8 +3447,463 @@ def _add_route(
         responses=operation.responses,
         summary=operation.summary,
         tags=list(operation.tags),
+        dependencies=[] if operation.access is None else [Depends(_authorization_dependency(operation))],
         route_class_override=_EncodedPathAPIRoute if operation.path.startswith("/v1/scopes/") else None,
     )
+
+
+def _authorization_dependency(
+    operation: Operation[Any, Any],
+) -> Callable[[Request], Awaitable[None]]:
+    requirement = operation.access
+    if requirement is None:
+        raise AccessInvalidRequestError("resource")
+
+    async def authorize(request: Request) -> None:
+        access = access_control_for_mode(
+            request.app.state.access_control,
+            mode=request.app.state.access_mode,
+        )
+        if access is not None:
+            payload = await _authorization_payload(request, operation)
+            checks = _resolve_access_requirements(requirement, payload, deployment_id=access.deployment_id)
+            context = _access_audit_context(operation.operation_id)
+            for scope_id in sorted({resource.scope_id for _, resource in checks if resource.scope_id is not None}):
+                await access.bootstrap_static_scope(current_principal(), scope_id, context=context)
+            if len(checks) == 1:
+                action, resource = checks[0]
+                await access.require(current_principal(), action, resource, context=context)
+            else:
+                await access.require_all(current_principal(), checks, context=context)
+
+    return authorize
+
+
+async def _authorization_payload(request: Request, operation: Operation[Any, Any]) -> Mapping[str, Any]:
+    path_values = dict(request.path_params)
+    if operation.request_type is None:
+        return path_values
+    if operation.request_location == "query":
+        return {**path_values, **request.query_params}
+    try:
+        value = await request.json()
+    except (UnicodeDecodeError, ValueError) as error:
+        raise AccessInvalidRequestError("resource") from error
+    if not isinstance(value, dict):
+        raise AccessInvalidRequestError("resource")
+    request_type = operation.request_type
+    if request_type is None:
+        return value
+    try:
+        validated = request_type.model_validate(value)
+    except ValueError as error:
+        raise AccessInvalidRequestError("resource") from error
+    return {**path_values, **cast(Mapping[str, Any], validated.model_dump(mode="json"))}
+
+
+def _resolve_access_requirements(
+    requirement: AccessRequirement,
+    payload: Mapping[str, Any],
+    *,
+    deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    if requirement.resolver == "static":
+        if requirement.action is None:
+            raise AccessInvalidRequestError("resource")
+        return ((AccessAction(requirement.action), ResourceRef.server(deployment_id)),)
+    if requirement.resolver == "request":
+        if requirement.action is None:
+            raise AccessInvalidRequestError("resource")
+        scope_id = _nested_request_value(payload, requirement.scope_id_field)
+        return ((AccessAction(requirement.action), ResourceRef.scope(scope_id)),)
+    resolver = _NAMED_ACCESS_RESOLVERS.get(requirement.resolver)
+    if resolver is None:
+        raise AccessInvalidRequestError("resource")
+    return resolver(payload, deployment_id)
+
+
+def _continue_handoff_access(payload: Mapping[str, Any]) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    scope_id = _nested_request_value(payload, "scope_id")
+    selection = str(_nested_request_value(payload, "selection"))
+    if selection == "prepared":
+        return ((AccessAction.SCOPE_READ, ResourceRef.scope(scope_id)),)
+    resource = (
+        _artifact_resource(payload, "revision", family="handoff")
+        if selection == "exact"
+        else ResourceRef.artifact(scope_id, family="handoff", artifact_id="handoff")
+    )
+    return (
+        (AccessAction.ARTIFACT_READ, resource),
+        (AccessAction.HANDOFF_EVIDENCE_INSPECT, resource),
+    )
+
+
+def _acknowledge_handoff_access(payload: Mapping[str, Any]) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    scope_id = _nested_request_value(payload, "scope_id")
+    selection = str(_nested_request_value(payload, "selection"))
+    if selection != "exact":
+        return ((AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id)),)
+    return ((AccessAction.HANDOFF_ACKNOWLEDGE, _artifact_resource(payload, "revision", family="handoff")),)
+
+
+def _artifact_resource(payload: Mapping[str, Any], field: str, *, family: str) -> ResourceRef:
+    reference = payload.get(field)
+    if not isinstance(reference, Mapping) or _mapping_text(reference, "family") != family:
+        raise AccessInvalidRequestError("artifact-reference")
+    return ResourceRef.artifact(
+        _nested_request_value(payload, "scope_id"),
+        family=family,
+        artifact_id=_mapping_text(reference, "artifact_id"),
+    )
+
+
+def _memory_artifact_resource(payload: Mapping[str, Any]) -> ResourceRef:
+    citation = payload.get("citation")
+    if not isinstance(citation, Mapping):
+        raise AccessInvalidRequestError("memory-entry-selector")
+    reference = citation.get("memory_ref")
+    if not isinstance(reference, Mapping) or _mapping_text(reference, "family") != "memory":
+        raise AccessInvalidRequestError("artifact-reference")
+    return ResourceRef.artifact(
+        _nested_request_value(payload, "scope_id"),
+        family="memory",
+        artifact_id=_mapping_text(reference, "artifact_id"),
+        selector=MemoryEntrySelector(
+            entry_id=_mapping_text(citation, "entry_id"),
+        ),
+    )
+
+
+def _exact_memory_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return ((AccessAction.ARTIFACT_READ, _memory_artifact_resource(payload)),)
+
+
+def _exact_memory_write_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return ((AccessAction.ARTIFACT_WRITE, _memory_artifact_resource(payload)),)
+
+
+def _commit_handoff_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    scope_id = _nested_request_value(payload, "scope_id")
+    checks = [(AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id))]
+    handoff = payload.get("handoff")
+    base = handoff.get("base") if isinstance(handoff, Mapping) else None
+    if isinstance(base, Mapping):
+        checks.append((
+            AccessAction.ARTIFACT_WRITE,
+            ResourceRef.artifact(
+                scope_id,
+                family="handoff",
+                artifact_id=_mapping_text(base, "artifact_id"),
+            ),
+        ))
+    return tuple(checks)
+
+
+def _candidate_write_access(
+    payload: Mapping[str, Any],
+    *,
+    family: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    scope_id = _nested_request_value(payload, "scope_id")
+    checks = [(AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id))]
+    target = payload.get("target")
+    if isinstance(target, Mapping):
+        if _mapping_text(target, "family") != family:
+            raise AccessInvalidRequestError("artifact-family")
+        checks.append((
+            AccessAction.ARTIFACT_WRITE,
+            ResourceRef.artifact(
+                scope_id,
+                family=family,
+                artifact_id=_mapping_text(target, "artifact_id"),
+            ),
+        ))
+    return tuple(checks)
+
+
+def _experience_candidate_write_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return _candidate_write_access(payload, family="experience")
+
+
+def _skill_candidate_write_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return _candidate_write_access(payload, family="skill")
+
+
+def _exact_experience_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return ((AccessAction.ARTIFACT_READ, _artifact_resource(payload, "artifact", family="experience")),)
+
+
+def _exact_skill_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return ((AccessAction.ARTIFACT_READ, _artifact_resource(payload, "artifact", family="skill")),)
+
+
+def _skill_identity_write_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return (
+        (
+            AccessAction.ARTIFACT_WRITE,
+            ResourceRef.artifact(
+                _nested_request_value(payload, "scope_id"),
+                family="skill",
+                artifact_id=_nested_request_value(payload, "artifact_id"),
+            ),
+        ),
+    )
+
+
+def _skill_usage_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    scope_id = _nested_request_value(payload, "scope_id")
+    return (
+        (AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id)),
+        (AccessAction.ARTIFACT_READ, _artifact_resource(payload, "skill_ref", family="skill")),
+    )
+
+
+def _publish_remote_skill_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    scope_id = _nested_request_value(payload, "scope_id")
+    return (
+        (AccessAction.SCOPE_ADMIN, ResourceRef.scope(scope_id)),
+        (AccessAction.ARTIFACT_READ, _artifact_resource(payload, "artifact", family="skill")),
+    )
+
+
+def _path_scope_access(
+    payload: Mapping[str, Any],
+    *,
+    action: AccessAction,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return ((action, ResourceRef.scope(_nested_request_value(payload, "scope_id"))),)
+
+
+def _path_scope_read_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return _path_scope_access(payload, action=AccessAction.SCOPE_READ)
+
+
+def _path_scope_admin_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return _path_scope_access(payload, action=AccessAction.SCOPE_ADMIN)
+
+
+def _path_artifact_access(
+    payload: Mapping[str, Any],
+    *,
+    action: AccessAction,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    family = _path_artifact_family(payload)
+    return (
+        (
+            action,
+            ResourceRef.artifact(
+                _nested_request_value(payload, "scope_id"),
+                family=family,
+                artifact_id=_nested_request_value(payload, "artifact_id"),
+            ),
+        ),
+    )
+
+
+def _path_artifact_family(payload: Mapping[str, Any]) -> str:
+    try:
+        return BaseArtifactFamily(_nested_request_value(payload, "family")).value
+    except ValueError as error:
+        raise AccessInvalidRequestError("artifact-family") from error
+
+
+def _path_artifact_read_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    if _path_artifact_family(payload) == BaseArtifactFamily.MEMORY.value:
+        return _path_scope_access(payload, action=AccessAction.SCOPE_READ)
+    return _path_artifact_access(payload, action=AccessAction.ARTIFACT_READ)
+
+
+def _path_artifact_write_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    if _path_artifact_family(payload) == BaseArtifactFamily.MEMORY.value:
+        return _base_memory_write_access(payload)
+    return _path_artifact_access(payload, action=AccessAction.ARTIFACT_WRITE)
+
+
+def _base_memory_write_access(
+    payload: Mapping[str, Any],
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    content = payload.get("content")
+    entries = content.get("entries") if isinstance(content, Mapping) else None
+    if not isinstance(entries, list) or not entries:
+        raise AccessInvalidRequestError("resource")
+    scope_id = _nested_request_value(payload, "scope_id")
+    artifact_id = _nested_request_value(payload, "artifact_id")
+    checks: list[tuple[AccessAction, ResourceRef]] = []
+    if any(isinstance(entry, Mapping) and entry.get("entry_id") is None for entry in entries):
+        checks.append((AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id)))
+    seen_entry_ids: set[str] = set()
+    for entry in entries:
+        entry_id = entry.get("entry_id") if isinstance(entry, Mapping) else None
+        if entry_id is None:
+            continue
+        if not isinstance(entry_id, str) or not entry_id:
+            raise AccessInvalidRequestError("memory-entry-selector")
+        if entry_id in seen_entry_ids:
+            continue
+        seen_entry_ids.add(entry_id)
+        checks.append((
+            AccessAction.ARTIFACT_WRITE,
+            ResourceRef.artifact(
+                scope_id,
+                family=BaseArtifactFamily.MEMORY.value,
+                artifact_id=artifact_id,
+                selector=MemoryEntrySelector(entry_id=entry_id),
+            ),
+        ))
+    if not checks:
+        raise AccessInvalidRequestError("resource")
+    return tuple(checks)
+
+
+def _scope_selection_read_access(
+    payload: Mapping[str, Any],
+    deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    selection = payload.get("selection")
+    if not isinstance(selection, Mapping):
+        raise AccessInvalidRequestError("scope-selection")
+    mode = _mapping_text(selection, "mode")
+    if mode != "exact":
+        return ((AccessAction.SERVER_OBSERVE, ResourceRef.server(deployment_id)),)
+    scope_ids = selection.get("scope_ids")
+    if (
+        not isinstance(scope_ids, list)
+        or not scope_ids
+        or not all(isinstance(item, str) and item for item in scope_ids)
+    ):
+        raise AccessInvalidRequestError("scope-selection")
+    return tuple((AccessAction.SCOPE_READ, ResourceRef.scope(scope_id)) for scope_id in scope_ids)
+
+
+def _publish_artifact_access(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    source = payload.get("source")
+    if not isinstance(source, Mapping):
+        raise AccessInvalidRequestError("artifact-reference")
+    artifact = source.get("artifact")
+    if not isinstance(artifact, Mapping):
+        raise AccessInvalidRequestError("artifact-reference")
+    source_resource = ResourceRef.artifact(
+        _mapping_text(source, "scope_id"),
+        family=_mapping_text(artifact, "family"),
+        artifact_id=_mapping_text(artifact, "artifact_id"),
+    )
+    target_scope = ResourceRef.scope(_nested_request_value(payload, "target_scope_id"))
+    return (
+        (AccessAction.ARTIFACT_SHARE, source_resource),
+        (AccessAction.SCOPE_ADMIN, target_scope),
+    )
+
+
+def _continue_handoff_resolver(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return _continue_handoff_access(payload)
+
+
+def _acknowledge_handoff_resolver(
+    payload: Mapping[str, Any],
+    _deployment_id: str,
+) -> tuple[tuple[AccessAction, ResourceRef], ...]:
+    return _acknowledge_handoff_access(payload)
+
+
+_NAMED_ACCESS_RESOLVERS: dict[
+    str,
+    Callable[[Mapping[str, Any], str], tuple[tuple[AccessAction, ResourceRef], ...]],
+] = {
+    "acknowledge_handoff_access": _acknowledge_handoff_resolver,
+    "continue_handoff_access": _continue_handoff_resolver,
+    "commit_handoff_access": _commit_handoff_access,
+    "exact_memory_write_access": _exact_memory_write_access,
+    "experience_candidate_write_access": _experience_candidate_write_access,
+    "exact_experience_access": _exact_experience_access,
+    "exact_memory_access": _exact_memory_access,
+    "exact_skill_access": _exact_skill_access,
+    "path_scope_admin_access": _path_scope_admin_access,
+    "path_scope_read_access": _path_scope_read_access,
+    "path_artifact_read_access": _path_artifact_read_access,
+    "path_artifact_write_access": _path_artifact_write_access,
+    "publish_artifact_access": _publish_artifact_access,
+    "publish_remote_skill_access": _publish_remote_skill_access,
+    "scope_selection_read_access": _scope_selection_read_access,
+    "skill_candidate_write_access": _skill_candidate_write_access,
+    "skill_identity_write_access": _skill_identity_write_access,
+    "skill_usage_access": _skill_usage_access,
+}
+
+
+def _nested_request_value(payload: Mapping[str, Any], field: str | None) -> str:
+    if not field:
+        raise AccessInvalidRequestError("resource")
+    value = payload
+    for part in field.split("."):
+        value = value.get(part) if isinstance(value, Mapping) else None
+        if value is None:
+            raise AccessInvalidRequestError("resource")
+    text = str(value)
+    if not text:
+        raise AccessInvalidRequestError("resource")
+    return text
+
+
+def _mapping_text(value: Mapping[str, Any], field: str) -> str:
+    item = value.get(field)
+    if not isinstance(item, str) or not item:
+        raise AccessInvalidRequestError("artifact-reference")
+    return item
+
+
+def _mapping_revision(value: Mapping[str, Any]) -> int:
+    revision = value.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        raise AccessInvalidRequestError("artifact-reference")
+    return revision
 
 
 class _EncodedPathAPIRoute(APIRoute):
@@ -2431,17 +3958,17 @@ def _observe_application_operation(
         except Exception as error:
             _observe_application(app, operation, "failure", started_at)
             response_status, error_code, _, _ = _map_error(error)
-            traceback_error = None if isinstance(error, RemoteTargetAuthenticationError) else error
+            diagnostic_error = None if _sensitive_operation_error(error) else error
             _log_operation(
                 logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
                 "PowerContext application operation failed",
                 operation=operation.operation_id,
                 outcome="failure",
                 started_at=started_at,
-                error=traceback_error,
+                error=diagnostic_error,
                 error_code=error_code,
             )
-            _finish_span(span, "failure", error=error)
+            _finish_span(span, "failure", error=diagnostic_error)
             raise
         outcome = _application_outcome(result)
         _observe_application(app, operation, outcome, started_at)
@@ -2449,6 +3976,16 @@ def _observe_application_operation(
         return result
 
     return observed_endpoint
+
+
+def _sensitive_operation_error(error: Exception) -> bool:
+    return isinstance(
+        error,
+        (
+            AccessControlError,
+            RemoteSkillDistributionError,
+        ),
+    )
 
 
 async def _validate_current_scope(
@@ -2559,7 +4096,15 @@ def _validation_error_details(error: RequestValidationError | PydanticValidation
     return details
 
 
-def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:  # noqa: C901
+def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    access_error = _map_access_error(error)
+    if access_error is not None:
+        return access_error
+    service_error = _map_service_error(error)
+    return _map_domain_error(error) if service_error is None else service_error
+
+
+def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:  # noqa: C901
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
     base_access_error = _map_base_access_error(error)
@@ -2593,7 +4138,7 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     report_error = _map_report_error(error)
     if report_error is not None:
         return report_error
-    return _map_domain_error(error)
+    return None
 
 
 def _map_external_skill_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
@@ -2639,6 +4184,22 @@ def _map_governance_error(error: Exception) -> tuple[int, str, str, dict[str, An
         return status.HTTP_409_CONFLICT, "generation_conflict", "The requested state is stale.", None
     if isinstance(error, InvalidArtifactLifecycleError):
         return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_lifecycle", str(error), None
+    return None
+
+
+def _map_access_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, AccessIdentityRequiredError):
+        return status.HTTP_401_UNAUTHORIZED, "unauthorized", "An authenticated Principal is required.", None
+    if isinstance(error, AccessDeniedError):
+        return status.HTTP_403_FORBIDDEN, "forbidden", "The Principal is not authorized for this operation.", None
+    if isinstance(error, AccessBindingNotFoundError):
+        return status.HTTP_404_NOT_FOUND, "access_binding_not_found", "The Access Binding was not found.", None
+    if isinstance(error, AccessConflictError):
+        return status.HTTP_409_CONFLICT, error.code, "The Access Binding conflicts with current state.", None
+    if isinstance(error, AccessInvalidRequestError):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_access_request", "The Access request is invalid.", None
+    if isinstance(error, AccessUnavailableError):
+        return status.HTTP_503_SERVICE_UNAVAILABLE, error.code, "Access Control is unavailable.", None
     return None
 
 

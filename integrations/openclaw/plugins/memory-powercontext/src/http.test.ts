@@ -23,6 +23,36 @@ afterEach(() => {
 });
 
 describe("PowerContext HTTP errors", () => {
+  it("forwards the configured bearer token and preserves Access denial details", async () => {
+    const tokenEnv = "POWERCONTEXT_OPENCLAW_TEST_TOKEN";
+    process.env[tokenEnv] = "integration-token";
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url, init) => {
+          expect(new Headers(init?.headers).get("authorization")).toBe("Bearer integration-token");
+          return new Response(
+            JSON.stringify({ error: { code: "access_denied", message: "scope access denied" } }),
+            { status: 403, headers: { "content-type": "application/json" } },
+          );
+        }),
+      );
+      const config = resolvePowerContextConfig(undefined, {
+        endpoint: "http://powercontext.test",
+        tokenEnv,
+      });
+      const client = createPowerContextClient(() => config);
+
+      await expect(client.get("/v1/scopes/scope%3Afeature")).rejects.toMatchObject({
+        path: "/v1/scopes/scope%3Afeature",
+        status: 403,
+        code: "access_denied",
+      });
+    } finally {
+      delete process.env[tokenEnv];
+    }
+  });
+
   it("preserves the structured error code from an actual endpoint response", async () => {
     vi.stubGlobal(
       "fetch",

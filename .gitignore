@@ -175,6 +175,7 @@ venv.bak/
 .ropeproject
 
 # Generated outputs
+site/
 e2e/bub/results/
 
 # mypy

@@ -97,18 +97,29 @@ class ConnectorCheckpointRepository:
 
         payload = _dump_checkpoint(binding, checkpoint)
         if existing_row is None:
+            statement = insert(CONNECTOR_CHECKPOINTS_TABLE).values(
+                scope_id=binding.scope_id,
+                binding_id=binding.binding_id,
+                connector_name=binding.connector_name,
+                connector_version=binding.connector_version,
+                checkpoint=payload,
+            )
             try:
-                async with connection.begin_nested():
-                    await connection.execute(
-                        insert(CONNECTOR_CHECKPOINTS_TABLE).values(
-                            scope_id=binding.scope_id,
-                            binding_id=binding.binding_id,
-                            connector_name=binding.connector_name,
-                            connector_version=binding.connector_version,
-                            checkpoint=payload,
-                        )
+                if connection.dialect.name == "sqlite":
+                    async with connection.begin_nested():
+                        await connection.execute(statement)
+                elif connection.dialect.name == "mysql":
+                    await connection.execute(statement)
+                else:
+                    raise InvalidConnectorRunError(
+                        "unsupported-database",
+                        f"unsupported database dialect: {connection.dialect.name}",
                     )
             except IntegrityError:
+                # SQLite needs the nested transaction to keep the outer CAS
+                # transaction usable after an insert race. OceanBase is
+                # MySQL-compatible but may discard a write-path SAVEPOINT
+                # before SQLAlchemy releases it, so execute directly there.
                 raise _checkpoint_conflict(binding) from None
         else:
             result = await connection.execute(

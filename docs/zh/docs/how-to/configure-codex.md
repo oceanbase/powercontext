@@ -82,7 +82,7 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 从本地 secret manager 加载一个 token，然后启用鉴权并启动 Server：
 
 ```bash
-export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```

@@ -61,3 +61,51 @@ class ServerResponseError(ClientError):
         self.details = details
         suffix = "" if code is None else f" ({code})"
         super().__init__(f"PowerContext Server returned HTTP {status_code}{suffix}")
+
+
+class UnauthorizedResponseError(ServerResponseError):
+    """Raised when the Server cannot authenticate the request (HTTP 401)."""
+
+
+class ForbiddenResponseError(ServerResponseError):
+    """Raised when the authenticated Principal is not authorized (HTTP 403)."""
+
+
+class UnavailableResponseError(ServerResponseError):
+    """Raised when a required Server dependency is unavailable (HTTP 503)."""
+
+
+def server_response_error(
+    *,
+    status_code: int,
+    request_id: str | None,
+    code: str | None = None,
+    message: str | None = None,
+    details: dict[str, object] | None = None,
+) -> ServerResponseError:
+    """Build the stable status-specific Client failure for one error response."""
+
+    error_type = {
+        401: UnauthorizedResponseError,
+        403: ForbiddenResponseError,
+        503: UnavailableResponseError,
+    }.get(status_code, ServerResponseError)
+    return error_type(
+        status_code=status_code,
+        request_id=request_id,
+        code=code,
+        message=message,
+        details=details,
+    )
+
+
+__all__ = (
+    "ClientError",
+    "ForbiddenResponseError",
+    "InvalidResponseError",
+    "ServerResponseError",
+    "TransportError",
+    "UnauthorizedResponseError",
+    "UnavailableResponseError",
+    "server_response_error",
+)

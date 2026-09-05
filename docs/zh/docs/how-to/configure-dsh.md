@@ -56,7 +56,7 @@ export POWERCONTEXT_DSH_FLUSH_ON_CAPTURE=true
 ## 连接启用鉴权的本地 Server
 
 ```bash
-export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```

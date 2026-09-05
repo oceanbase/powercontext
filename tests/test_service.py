@@ -1418,7 +1418,7 @@ def test_service_launcher_hands_control_to_the_foreground_server_runner(
         "probe_server",
         lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
     )
-    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
 
     data_dir = tmp_path / "data"
     exit_code = service_launcher.main(["--endpoint", "http://127.0.0.1:8000", "--data-dir", str(data_dir)])
@@ -1445,8 +1445,7 @@ def test_service_launcher_pins_the_recorded_data_directory(
         lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
     )
     monkeypatch.setattr(
-        service_launcher.server_cli,
-        "_run_configured_server",
+        "powercontext.server.cli._run_configured_server",
         lambda _settings: observed_data.append(powercontext_data_dir()),
     )
 
@@ -1471,7 +1470,7 @@ def test_service_launcher_does_not_start_over_an_existing_powercontext_server(
         "probe_server",
         lambda endpoint: ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok"),
     )
-    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
 
     exit_code = service_launcher.main(["--endpoint", "http://127.0.0.1:8000", "--data-dir", str(tmp_path / "data")])
 
@@ -1495,7 +1494,7 @@ def test_service_launcher_can_redirect_server_output_to_owned_log_files(
         print("server output")
         print("server error", file=sys.stderr)
 
-    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
 
     exit_code = service_launcher.main([
         "--endpoint",

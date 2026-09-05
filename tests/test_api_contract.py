@@ -118,6 +118,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_EXPERIENCE,
     PROPOSE_SKILL,
     PROPOSE_SKILL_PACKAGE,
+    PUBLISH_ARTIFACT,
     PUBLISH_REMOTE_SKILL,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
@@ -159,7 +160,7 @@ def test_contract_declares_server_and_remote_target_bearer_boundaries() -> None:
     assert contract["components"]["securitySchemes"]["BearerAuth"] == {
         "type": "http",
         "scheme": "bearer",
-        "description": "Static bearer token used when local Server authentication is enabled.",
+        "description": "Bearer credential resolved to an opaque authenticated Principal by the Server deployment.",
     }
     assert contract["components"]["securitySchemes"]["TargetBearerAuth"] == {
         "type": "http",
@@ -176,10 +177,64 @@ def test_contract_declares_server_and_remote_target_bearer_boundaries() -> None:
         operation = next(iter(path_item.values()))
         if path in public_paths:
             assert operation["security"] == []
+        elif path in target_paths:
+            assert operation["responses"]["401"] == {"$ref": "#/components/responses/Unauthorized"}
+            assert operation["security"] == [{"TargetBearerAuth": []}]
         else:
             assert operation["responses"]["401"] == {"$ref": "#/components/responses/Unauthorized"}
-        if path in target_paths:
-            assert operation["security"] == [{"TargetBearerAuth": []}]
+            assert operation["responses"]["403"] == {"$ref": "#/components/responses/Forbidden"}
+            assert "x-powercontext-access" in operation
+
+
+def test_every_access_protected_operation_declares_the_unavailable_response() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+
+    for path_item in contract["paths"].values():
+        operation = next(iter(path_item.values()))
+        if "x-powercontext-access" in operation:
+            assert operation["responses"]["503"] == {"$ref": "#/components/responses/Unavailable"}
+
+
+def test_source_ingestion_operations_preserve_the_access_boundary() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    expected = {
+        "/v1/source-definitions/register": {
+            "action": "server.admin",
+            "resource": {"type": "server"},
+        },
+        "/v1/connector-checkpoints/get": {
+            "action": "scope.contribute",
+            "resource": {"type": "scope", "scope-id-from": "binding.scope_id"},
+        },
+        "/v1/source-observations": {
+            "action": "scope.contribute",
+            "resource": {"type": "scope", "scope-id-from": "scope_id"},
+        },
+        "/v1/connector-checkpoints/commit": {
+            "action": "scope.contribute",
+            "resource": {"type": "scope", "scope-id-from": "binding.scope_id"},
+        },
+    }
+
+    for path, requirement in expected.items():
+        operation = contract["paths"][path]["post"]
+        assert operation["x-powercontext-access"] == requirement
+
+
+def test_access_contract_uses_compound_checks_and_generic_binding_replacement() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    paths = contract["paths"]
+    schemas = contract["components"]["schemas"]
+
+    assert "/v1/access/check-batch" not in paths
+    assert "/v1/access/bindings/reassign-handoff-receiver" not in paths
+    assert paths["/v1/access/check"]["post"]["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/AccessCheckResponse"
+    }
+    assert schemas["AccessCheckRequest"]["required"] == ["match", "requirements"]
+    assert schemas["AccessRequirementMatch"]["enum"] == ["all", "any"]
+    assert paths["/v1/access/bindings/replace"]["post"]["operationId"] == "replace_access_binding"
+    assert schemas["AccessRoleCardinality"]["enum"] == ["many_per_resource", "one_per_resource"]
 
 
 def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
@@ -319,6 +374,45 @@ def test_memory_operations_use_family_prefixed_paths_and_typed_requests() -> Non
 
 def test_memory_search_declares_the_revision_conflict_response() -> None:
     assert SEARCH_MEMORY.responses[409] == {"$ref": "#/components/responses/Conflict"}
+
+
+def test_handoff_access_metadata_resolves_business_revision_to_logical_authorization() -> None:
+    assert CONTINUE_HANDOFF.access is not None
+    assert CONTINUE_HANDOFF.access.action is None
+    assert CONTINUE_HANDOFF.access.resolver == "continue_handoff_access"
+    assert ACKNOWLEDGE_HANDOFF.access is not None
+    assert ACKNOWLEDGE_HANDOFF.access.action is None
+    assert ACKNOWLEDGE_HANDOFF.access.resolver == "acknowledge_handoff_access"
+
+
+def test_access_contract_uses_logical_resources_and_generic_skill_read_access() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    schemas = contract["components"]["schemas"]
+
+    assert schemas["AccessResourceType"]["enum"] == ["server", "scope", "artifact"]
+    assert "access.self" not in schemas["AccessAction"]["enum"]
+    artifact = schemas["ArtifactAccessResource"]
+    assert artifact["required"] == ["type", "scope_id", "identity"]
+    assert set(artifact["properties"]) == {"type", "scope_id", "identity", "selector"}
+    selector = schemas["MemoryEntryAccessSelector"]
+    assert selector["required"] == ["type", "entry_id"]
+    assert set(selector["properties"]) == {"type", "entry_id"}
+    identity = schemas["AccessArtifactIdentity"]
+    assert identity["required"] == ["family", "artifact_id"]
+    assert set(identity["properties"]) == {"family", "artifact_id"}
+    assert set(schemas["AccessDecision"]["properties"]) == {"allowed", "reason_code"}
+    assert schemas["AccessBinding"]["properties"]["policy_revision"]["maxLength"] == 64
+    assert schemas["AccessAuditEvent"]["properties"]["policy_revision"]["maxLength"] == 64
+
+    assert GET_MEMORY_ENTRY.access is not None
+    assert GET_MEMORY_ENTRY.access.resolver == "exact_memory_access"
+    assert GET_EXPERIENCE.access is not None
+    assert GET_EXPERIENCE.access.resolver == "exact_experience_access"
+    assert GET_SKILL.access is not None
+    assert GET_SKILL.access.resolver == "exact_skill_access"
+    assert PUBLISH_ARTIFACT.path == "/v1/artifact-publications"
+    assert PUBLISH_ARTIFACT.access is not None
+    assert PUBLISH_ARTIFACT.access.resolver == "publish_artifact_access"
 
 
 def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_tools() -> None:

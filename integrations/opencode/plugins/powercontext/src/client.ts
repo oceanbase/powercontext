@@ -107,6 +107,15 @@ async function readLimitedBody(response: Response): Promise<Uint8Array> {
   return body
 }
 
+function queryString(payload: JsonObject | undefined): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(payload ?? {})) {
+    if (value !== undefined && value !== null) params.set(key, String(value))
+  }
+  const encoded = params.toString()
+  return encoded ? `?${encoded}` : ''
+}
+
 interface PreparedRequest {
   path: string
   query: string

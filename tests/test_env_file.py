@@ -151,18 +151,18 @@ def test_invalid_utf8_is_reported_as_an_environment_file_error(tmp_path) -> None
 
 
 def test_environment_context_can_clear_stale_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_ENABLED", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ACCESS_MODE", "enforced")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "192.0.2.10")
 
     with environment_context(
         {"POWERCONTEXT_SERVER_HTTP_HOST": "127.0.0.1"},
         override=True,
-        clear={"POWERCONTEXT_SERVER_AUTH_ENABLED", "POWERCONTEXT_SERVER_HTTP_HOST"},
+        clear={"POWERCONTEXT_SERVER_ACCESS_MODE", "POWERCONTEXT_SERVER_HTTP_HOST"},
     ):
-        assert "POWERCONTEXT_SERVER_AUTH_ENABLED" not in os.environ
+        assert "POWERCONTEXT_SERVER_ACCESS_MODE" not in os.environ
         assert os.environ["POWERCONTEXT_SERVER_HTTP_HOST"] == "127.0.0.1"
 
-    assert os.environ["POWERCONTEXT_SERVER_AUTH_ENABLED"] == "true"
+    assert os.environ["POWERCONTEXT_SERVER_ACCESS_MODE"] == "enforced"
     assert os.environ["POWERCONTEXT_SERVER_HTTP_HOST"] == "192.0.2.10"
 
 

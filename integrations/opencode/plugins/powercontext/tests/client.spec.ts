@@ -28,6 +28,28 @@ function clientFor(response: Response): PowerContextClient {
 }
 
 describe('PowerContextClient response limits', () => {
+  it('forwards authorization and preserves Access denial details', async () => {
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      authorization: 'Bearer integration-token',
+      requestTimeoutMs: 1000,
+      fetch: async (_url, init) => {
+        expect(new Headers(init.headers).get('Authorization')).toBe('Bearer integration-token')
+        return new Response(
+          JSON.stringify({ error: { code: 'access_denied', message: 'scope access denied' } }),
+          { status: 403, headers: { 'X-PowerContext-Request-ID': 'request-access-1' } },
+        )
+      },
+    })
+
+    await expect(client.request('get_scope', { scope_id: 'scope:feature' })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'access_denied',
+      serverMessage: 'scope access denied',
+      requestId: 'request-access-1',
+    })
+  })
+
   it('binds scope resource paths and omits path values from the request body', async () => {
     const requests: Array<{ url: string; init: RequestInit }> = []
     const client = new PowerContextClient({

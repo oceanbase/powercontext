@@ -67,6 +67,7 @@ paths:
       tags: [capabilities]
       summary: Get runtime capabilities
       operationId: get_capabilities
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
       responses:
         "200":
           description: Behavior enabled by the assembled runtime.
@@ -79,11 +80,16 @@ paths:
                 $ref: "#/components/schemas/Capabilities"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/scopes:
     get:
       tags: [scopes]
       summary: List observable Scopes
       operationId: list_scopes
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
       responses:
         "200":
           description: Durable Scope metadata in deterministic identity order.
@@ -93,12 +99,15 @@ paths:
                 $ref: "#/components/schemas/ScopePage"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/Unavailable"
     post:
       tags: [scopes]
       summary: Create an independent Scope boundary
       operationId: create_scope
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
       requestBody:
         required: true
         content:
@@ -118,6 +127,10 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/artifact-publications:
@@ -127,6 +140,7 @@ paths:
       description: >-
         Memory publication is rejected until its complete family-owned state can be created atomically in the target Scope.
       operationId: publish_artifact
+      x-powercontext-access: {resolver: publish_artifact_access}
       requestBody:
         required: true
         content:
@@ -146,6 +160,10 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/scopes/{scope_id}:
@@ -153,6 +171,7 @@ paths:
       tags: [scopes]
       summary: Get one Scope descriptor
       operationId: get_scope
+      x-powercontext-access: {resolver: path_scope_read_access}
       parameters:
         - name: scope_id
           in: path
@@ -173,10 +192,15 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     put:
       tags: [scopes]
       summary: Replace mutable Scope metadata and relationships
       operationId: update_scope
+      x-powercontext-access: {resolver: path_scope_admin_access}
       parameters:
         - name: scope_id
           in: path
@@ -205,6 +229,10 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/scopes/default:
@@ -212,6 +240,7 @@ paths:
       tags: [scopes]
       summary: Get the default Scope binding target
       operationId: get_default_scope
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
       responses:
         "200":
           description: The ordinary Scope selected by the host default pointer.
@@ -223,10 +252,15 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
     put:
       tags: [scopes]
       summary: Change the default Scope binding target
       operationId: set_default_scope
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
       requestBody:
         required: true
         content:
@@ -244,11 +278,16 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/scopes/selection/resolve:
     post:
       tags: [scopes]
       summary: Resolve an observation selection to a frozen Scope set
       operationId: resolve_scope_selection
+      x-powercontext-access: {resolver: scope_selection_read_access}
       requestBody:
         required: true
         content:
@@ -266,6 +305,10 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/scope-bindings/resolve:
@@ -273,6 +316,7 @@ paths:
       tags: [scope-bindings]
       summary: Resolve an explicit durable or default Scope binding
       operationId: resolve_scope_binding
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
       requestBody:
         required: true
         content:
@@ -290,6 +334,10 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/scope-bindings:
@@ -297,6 +345,7 @@ paths:
       tags: [scope-bindings]
       summary: Persist an external identity to Scope binding
       operationId: set_scope_binding
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
       requestBody:
         required: true
         content:
@@ -314,6 +363,10 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/scope-bindings/clear:
@@ -321,6 +374,7 @@ paths:
       tags: [scope-bindings]
       summary: Remove one durable external Scope binding
       operationId: clear_scope_binding
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
       requestBody:
         required: true
         content:
@@ -336,6 +390,10 @@ paths:
                 $ref: "#/components/schemas/ClearScopeBindingResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/sources/content:
@@ -344,6 +402,7 @@ paths:
       summary: Capture durable ContentSource evidence
       description: Accept raw content as an idempotent Source without synchronously deriving Artifacts.
       operationId: capture_content_source
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -365,6 +424,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -377,6 +438,7 @@ paths:
       summary: Register a worker-owned Source Definition manifest
       description: Registers an immutable declarative manifest without loading worker plugin code.
       operationId: register_source_definition
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
       requestBody:
         required: true
         content:
@@ -394,6 +456,10 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "422":
           $ref: "#/components/responses/InvalidRequest"
   /v1/connector-checkpoints/get:
@@ -401,6 +467,7 @@ paths:
       tags: [source-ingestion]
       summary: Read a Connector binding checkpoint
       operationId: get_connector_checkpoint
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: binding.scope_id}}
       requestBody:
         required: true
         content:
@@ -416,6 +483,10 @@ paths:
                 $ref: "#/components/schemas/ConnectorCheckpointState"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -426,6 +497,7 @@ paths:
       summary: Submit a worker-materialized Source observation
       description: Validates the observation against its registered manifest and durably appends it before receipt.
       operationId: submit_source_observation
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       requestBody:
         required: true
         content:
@@ -441,6 +513,10 @@ paths:
                 $ref: "#/components/schemas/SourceObservationReceipt"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "409":
           $ref: "#/components/responses/Conflict"
         "404":
@@ -453,6 +529,7 @@ paths:
       summary: Commit a Connector binding checkpoint
       description: Replaces the checkpoint only when its expected starting value still matches.
       operationId: commit_connector_checkpoint
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: binding.scope_id}}
       requestBody:
         required: true
         content:
@@ -468,6 +545,10 @@ paths:
                 $ref: "#/components/schemas/ConnectorCheckpointState"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -478,6 +559,7 @@ paths:
       summary: Prepare bounded context for an Agent turn
       description: Prepare final, ephemeral context from Runtime-owned sources without persisting or injecting it.
       operationId: prepare_context
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -497,6 +579,8 @@ paths:
                 $ref: "#/components/schemas/PreparedContext"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -509,6 +593,7 @@ paths:
       summary: Create a grounded Work Contract
       description: Persist an inspectable delegation baseline without granting execution authority.
       operationId: create_work_contract
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -532,6 +617,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -544,6 +631,7 @@ paths:
       summary: Hand off current work in one high-level operation
       description: Capture an inspected boundary and prepare a temporary evidence-bearing Handoff without committing it.
       operationId: handoff_current_work
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -567,6 +655,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -579,6 +669,7 @@ paths:
       summary: Resolve and acknowledge a Handoff
       description: Re-resolve one prepared or exact Handoff, check evidence, and capture the receiver's explicit live-state, capability, and authorization checks.
       operationId: acknowledge_handoff
+      x-powercontext-access: {resolver: acknowledge_handoff_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -602,6 +693,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -614,6 +707,7 @@ paths:
       summary: Record a completion-aware Task Outcome
       description: Preserve one attempt's status and checks, optionally linked to the exact accepted Handoff Receipt that the result covers.
       operationId: record_task_outcome
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -637,6 +731,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -649,6 +745,7 @@ paths:
       summary: Activate Handoff generation at a Source boundary
       description: Evaluate the standard Handoff Trigger and synchronously execute any emitted PrepareHandoff Action.
       operationId: activate_handoff
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -670,6 +767,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -681,6 +780,7 @@ paths:
       tags: [handoff]
       summary: Generate an inspectable Handoff Draft
       operationId: prepare_handoff
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -702,6 +802,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -713,6 +815,7 @@ paths:
       tags: [handoff]
       summary: Finalize an inspected Handoff Draft
       operationId: finalize_handoff
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -734,6 +837,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -745,6 +850,7 @@ paths:
       tags: [handoff]
       summary: Commit an explicit Handoff milestone
       operationId: commit_handoff
+      x-powercontext-access: {resolver: commit_handoff_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -768,6 +874,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -779,6 +887,7 @@ paths:
       tags: [handoff]
       summary: Resolve a Handoff as untrusted historical input
       operationId: continue_handoff
+      x-powercontext-access: {resolver: continue_handoff_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -800,6 +909,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -812,6 +923,7 @@ paths:
       summary: Process the pending Source window into Memory
       description: Run one bounded Source-to-Memory activation for operational control and testing.
       operationId: flush_memory
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -831,6 +943,8 @@ paths:
                 $ref: "#/components/schemas/FlushMemoryResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -843,6 +957,7 @@ paths:
       summary: Remember explicit Memory content
       description: Save one already-curated Memory entry without creating a Source or invoking extraction.
       operationId: remember_memory
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -864,6 +979,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -876,6 +993,7 @@ paths:
       summary: Search active Memory entries
       description: Retrieve relevant active Memory entries within one explicit application scope.
       operationId: search_memory
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -897,6 +1015,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -911,6 +1031,7 @@ paths:
         Read active entries from the current Memory head. Inactive entries are available only when explicitly
         requested for audit.
       operationId: list_memory_entries
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -932,6 +1053,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -944,6 +1067,7 @@ paths:
       summary: Get an exact Memory entry version
       description: Resolve an immutable entry citation within one Memory Revision.
       operationId: get_memory_entry
+      x-powercontext-access: {resolver: exact_memory_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -965,6 +1089,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -977,6 +1103,7 @@ paths:
       summary: Revise an exact Memory entry
       description: Replace active entry content against an explicit current Memory Revision.
       operationId: revise_memory_entry
+      x-powercontext-access: {resolver: exact_memory_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1000,6 +1127,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1012,6 +1141,7 @@ paths:
       summary: Retire an exact Memory entry
       description: Deactivate an entry against an explicit current Memory Revision without deleting history.
       operationId: retire_memory_entry
+      x-powercontext-access: {resolver: exact_memory_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1035,6 +1165,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1047,6 +1179,7 @@ paths:
       summary: List Memory Revision changes
       description: Read compact entry changes without expanding entry bodies.
       operationId: list_memory_changes
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1068,6 +1201,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1080,6 +1215,7 @@ paths:
       summary: Propose Experience content
       description: Persist a pending Experience Candidate without creating an Artifact Revision.
       operationId: propose_experience
+      x-powercontext-access: {resolver: experience_candidate_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1101,6 +1237,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1113,6 +1251,7 @@ paths:
       summary: Generate an Experience Candidate
       description: Use the configured model and caller-selected exact evidence; persist only a schema-valid pending Candidate.
       operationId: generate_experience
+      x-powercontext-access: {resolver: experience_candidate_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1134,6 +1273,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1146,6 +1287,7 @@ paths:
       summary: Get an exact Experience Revision
       description: Read approved Experience content and its exact direct evidence.
       operationId: get_experience
+      x-powercontext-access: {resolver: exact_experience_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1167,6 +1309,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1179,6 +1323,7 @@ paths:
       summary: Propose managed Skill content
       description: Persist a pending managed Skill Candidate without creating an Artifact Revision.
       operationId: propose_skill
+      x-powercontext-access: {resolver: skill_candidate_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1200,6 +1345,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1212,6 +1359,7 @@ paths:
       summary: Generate a managed Skill Candidate
       description: Use the configured model with an explicit provenance shape; persist only a schema-valid pending Candidate.
       operationId: generate_skill
+      x-powercontext-access: {resolver: skill_candidate_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1233,6 +1381,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1245,6 +1395,7 @@ paths:
       summary: Get an exact managed Skill Revision
       description: Read approved managed Skill content and its exact direct evidence.
       operationId: get_skill
+      x-powercontext-access: {resolver: exact_skill_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1266,6 +1417,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1278,6 +1431,7 @@ paths:
       summary: List or search current managed Skills
       description: Return current managed Skill heads with lifecycle governance; retired Skills remain exact-read only.
       operationId: list_managed_skills
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1297,6 +1451,8 @@ paths:
                 $ref: "#/components/schemas/ListManagedSkillsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1309,6 +1465,7 @@ paths:
       summary: Update managed Skill lifecycle
       description: Apply an explicit lifecycle transition using governance generation CAS without changing package bytes.
       operationId: update_skill_lifecycle
+      x-powercontext-access: {resolver: skill_identity_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1332,6 +1489,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1344,6 +1503,7 @@ paths:
       summary: Get an exact managed Skill package manifest
       description: Return verified metadata and file inventory without executing or returning file bodies.
       operationId: get_skill_package_manifest
+      x-powercontext-access: {resolver: exact_skill_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1362,6 +1522,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1374,6 +1536,7 @@ paths:
       summary: Download an exact managed Skill package
       description: Return canonical ZIP bytes as bounded base64 with their content-addressed reference.
       operationId: download_skill_package
+      x-powercontext-access: {resolver: exact_skill_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1392,6 +1555,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1404,6 +1569,7 @@ paths:
       summary: Propose an uploaded standard Skill package
       description: Canonicalize exact ZIP bytes, store them once, and create a pending Candidate without LLM rewriting.
       operationId: propose_skill_package
+      x-powercontext-access: {resolver: skill_candidate_write_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1422,6 +1588,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1434,6 +1602,7 @@ paths:
       summary: Record a bounded Skill usage observation
       description: Validate an exact managed Skill Revision and capture immutable bounded usage Source evidence.
       operationId: record_skill_usage
+      x-powercontext-access: {resolver: skill_usage_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1454,6 +1623,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1466,6 +1637,7 @@ paths:
       summary: List remote Agent Skill target status
       description: Return credential-free target metadata and desired/observed publication state for one scope.
       operationId: list_remote_skill_targets
+      x-powercontext-access: {action: scope.admin, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1482,6 +1654,8 @@ paths:
                 $ref: "#/components/schemas/ListRemoteSkillTargetsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1494,6 +1668,7 @@ paths:
       summary: Create a remote Agent Skill target enrollment
       description: Create a pending project target and return one short-lived enrollment code exactly once.
       operationId: create_remote_skill_target
+      x-powercontext-access: {action: scope.admin, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1512,6 +1687,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1550,6 +1727,7 @@ paths:
       summary: Rename a remote Agent Skill target
       description: Change the human-readable target name with target generation CAS while retaining its durable identity.
       operationId: rename_remote_skill_target
+      x-powercontext-access: {action: scope.admin, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1566,6 +1744,10 @@ paths:
                 $ref: "#/components/schemas/RemoteSkillTarget"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -1580,6 +1762,7 @@ paths:
       summary: Revoke a remote Agent Skill target
       description: Revoke the per-target credential with target generation CAS while retaining durable identity.
       operationId: revoke_remote_skill_target
+      x-powercontext-access: {action: scope.admin, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1596,6 +1779,10 @@ paths:
                 $ref: "#/components/schemas/RemoteSkillTarget"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -1610,6 +1797,7 @@ paths:
       summary: Set a remote target Skill desired Revision
       description: Advance only Server-owned desired state; delivery is confirmed later by an exact Receipt.
       operationId: publish_remote_skill
+      x-powercontext-access: {resolver: publish_remote_skill_access}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1626,6 +1814,10 @@ paths:
                 $ref: "#/components/schemas/RemoteSkillPublication"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -1640,6 +1832,7 @@ paths:
       summary: Set remote target Skill desired absence
       description: Advance desired state without claiming that any remote directory has already been removed.
       operationId: unpublish_remote_skill
+      x-powercontext-access: {action: scope.admin, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1656,6 +1849,10 @@ paths:
                 $ref: "#/components/schemas/RemoteSkillPublication"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -1761,6 +1958,7 @@ paths:
       summary: Scan configured external Skill roots
       description: Replace the current host-local Registry projection without copying or rewriting package content.
       operationId: scan_external_skills
+      x-powercontext-access: {action: server.admin, resource: {type: server}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1780,6 +1978,8 @@ paths:
                 $ref: "#/components/schemas/ScanExternalSkillsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1792,6 +1992,7 @@ paths:
       summary: List external Skills visible on this host
       description: Return live local resolutions; unavailable registrations are omitted unless explicitly requested.
       operationId: list_external_skills
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1811,6 +2012,8 @@ paths:
                 $ref: "#/components/schemas/ListExternalSkillsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1823,6 +2026,7 @@ paths:
       summary: Resolve an exact external Skill fingerprint
       description: Resolve only the registered local package version requested by the caller; never install or fall back.
       operationId: resolve_external_skill
+      x-powercontext-access: {action: server.observe, resource: {type: server}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1844,6 +2048,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1856,6 +2062,7 @@ paths:
       summary: Import or fork an external Skill into Review
       description: Capture one exact local snapshot and use the configured model to propose a new managed Skill Candidate.
       operationId: import_external_skill
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1879,6 +2086,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1891,6 +2100,7 @@ paths:
       summary: List Artifact Candidates
       description: Page current Candidate heads; pending is the default Review Inbox view.
       operationId: list_artifact_candidates
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1910,6 +2120,8 @@ paths:
                 $ref: "#/components/schemas/ArtifactCandidatePage"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1922,6 +2134,7 @@ paths:
       summary: Get an Artifact Candidate
       description: Read the current head and exact immutable proposal version.
       operationId: get_artifact_candidate
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1943,6 +2156,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1955,6 +2170,7 @@ paths:
       summary: Approve an Artifact Candidate
       description: Commit the reviewed proposal and mark the Candidate approved in one transaction.
       operationId: approve_artifact_candidate
+      x-powercontext-access: {action: scope.review, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -1978,6 +2194,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1990,6 +2208,7 @@ paths:
       summary: Reject an Artifact Candidate
       description: Move the exact pending version to its rejected terminal state without writing an Artifact.
       operationId: reject_artifact_candidate
+      x-powercontext-access: {action: scope.review, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -2013,6 +2232,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2025,6 +2246,7 @@ paths:
       summary: Revise an Artifact Candidate
       description: Append a complete replacement proposal as the next immutable pending version.
       operationId: revise_artifact_candidate
+      x-powercontext-access: {action: scope.review, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
         required: true
@@ -2048,6 +2270,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2059,6 +2283,7 @@ paths:
       tags: [stats]
       summary: Aggregate product statistics over a Scope selection
       operationId: get_stats
+      x-powercontext-access: {resolver: scope_selection_read_access}
       x-powercontext-scope-mode: selection
       requestBody:
         required: true
@@ -2083,6 +2308,8 @@ paths:
                 $ref: "#/components/schemas/ScopedStats"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2094,6 +2321,7 @@ paths:
       tags: [handoff-reports]
       summary: Generate a Handoff Report
       operationId: get_handoff_report
+      x-powercontext-access: {resolver: scope_selection_read_access}
       x-powercontext-scope-mode: selection
       requestBody:
         required: true
@@ -2137,6 +2365,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "413":
@@ -2151,6 +2381,7 @@ paths:
       summary: Create a durable Source
       description: Persist one Source without synchronously deriving Artifacts. The Server generates source_id.
       operationId: create_source
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       parameters:
         - name: scope_id
           in: path
@@ -2180,6 +2411,8 @@ paths:
                 $ref: "#/components/schemas/SourceRecord"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -2193,6 +2426,7 @@ paths:
       tags: [sources]
       summary: Get one exact Source
       operationId: get_source
+      x-powercontext-access: {resolver: path_scope_read_access}
       parameters:
         - name: scope_id
           in: path
@@ -2228,6 +2462,8 @@ paths:
                 $ref: "#/components/schemas/SourceRecord"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -2245,6 +2481,7 @@ paths:
         revision one, its derived Family state, and its system provenance Source. Handoff is the Scope singleton:
         Create returns 409 when it already exists and callers must use Replace to update it.
       operationId: create_artifact
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       parameters:
         - name: scope_id
           in: path
@@ -2276,6 +2513,8 @@ paths:
                 $ref: "#/components/schemas/ArtifactCreated"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
         "422":
@@ -2290,6 +2529,7 @@ paths:
       summary: List current Artifact heads
       description: List current heads for exactly one built-in Artifact family.
       operationId: list_artifacts
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       parameters:
         - name: scope_id
           in: path
@@ -2334,6 +2574,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "410":
           $ref: "#/components/responses/CursorExpired"
         "422":
@@ -2347,6 +2589,7 @@ paths:
       tags: [artifacts]
       summary: Get the current Artifact head
       operationId: get_artifact
+      x-powercontext-access: {resolver: path_artifact_read_access}
       parameters:
         - name: scope_id
           in: path
@@ -2397,6 +2640,8 @@ paths:
               $ref: "#/components/headers/RequestId"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -2410,6 +2655,7 @@ paths:
       summary: Replace the current Artifact head
       description: Commit a complete next revision when If-Match identifies the current head.
       operationId: replace_artifact
+      x-powercontext-access: {resolver: path_artifact_write_access}
       parameters:
         - name: scope_id
           in: path
@@ -2459,6 +2705,8 @@ paths:
                 $ref: "#/components/schemas/ArtifactRevision"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "412":
@@ -2476,6 +2724,7 @@ paths:
       tags: [artifacts]
       summary: Get one exact immutable Artifact revision
       operationId: get_artifact_revision
+      x-powercontext-access: {resolver: path_artifact_read_access}
       parameters:
         - name: scope_id
           in: path
@@ -2517,6 +2766,8 @@ paths:
                 $ref: "#/components/schemas/ArtifactRevision"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -2525,12 +2776,253 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/access/me:
+    get:
+      tags: [access]
+      summary: Get the authenticated Principal and Access capabilities
+      operationId: get_access_principal
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      responses:
+        "200":
+          description: The opaque Principal and enforceable deployment Access capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/check:
+    post:
+      tags: [access]
+      summary: Check one compound authorization requirement
+      operationId: check_access
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessCheckRequest"
+      responses:
+        "200":
+          description: The aggregate decision and ordered low-sensitivity requirement decisions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessCheckResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/resources/list:
+    post:
+      tags: [access]
+      summary: List only resources already visible to the Principal
+      operationId: list_access_resources
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListAccessResourcesRequest"
+      responses:
+        "200":
+          description: A non-discovering page derived from authorized relationships.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessResourcePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/roles/list:
+    post:
+      tags: [access]
+      summary: List stable built-in role definitions
+      operationId: list_access_roles
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListAccessRolesRequest"
+      responses:
+        "200":
+          description: Stable role names and the resource type accepted by each role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessRolePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/bindings/list:
+    post:
+      tags: [access]
+      summary: List Access Bindings under an administrative boundary
+      operationId: list_access_bindings
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListAccessBindingsRequest"
+      responses:
+        "200":
+          description: Matching immutable Access Bindings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessBindingPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/bindings/create:
+    post:
+      tags: [access]
+      summary: Create an idempotent Access Binding
+      operationId: create_access_binding
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccessBindingRequest"
+      responses:
+        "201":
+          description: The Access Binding was created or an identical idempotent result was returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessBinding"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/bindings/revoke:
+    post:
+      tags: [access]
+      summary: Revoke an Access Binding using compare-and-swap
+      operationId: revoke_access_binding
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeAccessBindingRequest"
+      responses:
+        "200":
+          description: The revoked Access Binding with its incremented version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessBinding"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/bindings/replace:
+    post:
+      tags: [access]
+      summary: Atomically replace an immutable Access Binding
+      operationId: replace_access_binding
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceAccessBindingRequest"
+      responses:
+        "200":
+          description: The revoked previous Binding and active replacement with the same resource and role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessBindingReplacement"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/access/audit/list:
+    post:
+      tags: [access]
+      summary: List data-minimized Access audit events
+      operationId: list_access_audit
+      x-powercontext-access: {action: access.self, resource: {type: server}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListAccessAuditRequest"
+      responses:
+        "200":
+          description: Ordered authorization and relationship audit events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessAuditPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
-      description: Static bearer token used when local Server authentication is enabled.
+      description: Bearer credential resolved to an opaque authenticated Principal by the Server deployment.
     TargetBearerAuth:
       type: http
       scheme: bearer
@@ -2649,6 +3141,15 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     InternalError:
       description: The Server failed without exposing internal details.
+      headers:
+        X-PowerContext-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: The authenticated Principal is not authorized for the requested action and resource.
       headers:
         X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
@@ -6515,3 +7016,526 @@ components:
     PreparedHandoffSchema:
       type: string
       enum: [powercontext.prepared-handoff.v1]
+    AccessPrincipal:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type: {type: string, enum: [user, service]}
+        id: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string, minLength: 1, maxLength: 255, nullable: true}
+    AccessGroup:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type: {type: string, enum: [group]}
+        id: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string, minLength: 1, maxLength: 255, nullable: true}
+    AccessSubject:
+      oneOf:
+        - $ref: "#/components/schemas/AccessPrincipal"
+        - $ref: "#/components/schemas/AccessGroup"
+      discriminator:
+        propertyName: type
+        mapping:
+          user: "#/components/schemas/AccessPrincipal"
+          service: "#/components/schemas/AccessPrincipal"
+          group: "#/components/schemas/AccessGroup"
+    AccessControlMode:
+      type: string
+      enum: [disabled, enforced]
+    AccessProviderCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - safe_resource_filtering
+        - multi_requirement_check
+        - relationship_management
+        - group_subjects
+        - multi_principal
+        - max_direct_resource_keys
+      properties:
+        safe_resource_filtering: {type: boolean}
+        multi_requirement_check: {type: boolean}
+        relationship_management: {type: boolean}
+        group_subjects: {type: boolean}
+        multi_principal: {type: boolean}
+        max_direct_resource_keys: {type: integer, minimum: 1, maximum: 10000}
+    ArtifactFamilyAccessCapability:
+      type: object
+      additionalProperties: false
+      required: [family, enabled, share_unit, actions, grantable_roles]
+      properties:
+        family: {type: string, minLength: 1, maxLength: 128}
+        enabled: {type: boolean}
+        share_unit:
+          type: string
+          enum: [artifact, memory_entry]
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessAction"
+        grantable_roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessRole"
+    AccessMeResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - principal
+        - mode
+        - resource_kinds
+        - provider_capabilities
+        - artifact_families
+      properties:
+        principal:
+          $ref: "#/components/schemas/AccessPrincipal"
+        mode:
+          $ref: "#/components/schemas/AccessControlMode"
+        resource_kinds:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessResourceType"
+        provider_capabilities:
+          $ref: "#/components/schemas/AccessProviderCapabilities"
+        artifact_families:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactFamilyAccessCapability"
+    AccessAction:
+      type: string
+      enum:
+        - server.observe
+        - server.admin
+        - scope.read
+        - scope.contribute
+        - scope.review
+        - scope.delegate
+        - scope.admin
+        - artifact.read
+        - artifact.write
+        - artifact.share
+        - handoff.evidence.inspect
+        - handoff.acknowledge
+        - prompt.use
+    AccessResourceType:
+      type: string
+      enum: [server, scope, artifact]
+    ServerAccessResource:
+      type: object
+      additionalProperties: false
+      required: [type, deployment_id]
+      properties:
+        type: {type: string, enum: [server]}
+        deployment_id: {type: string, minLength: 1, maxLength: 128, pattern: '^[\x21-\x7E]+$'}
+    ScopeAccessResource:
+      type: object
+      additionalProperties: false
+      required: [type, scope_id]
+      properties:
+        type: {type: string, enum: [scope]}
+        scope_id: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+    MemoryEntryAccessSelector:
+      type: object
+      additionalProperties: false
+      description: Logical Memory entry selector; the Binding covers the entry's existing and future versions.
+      required: [type, entry_id]
+      properties:
+        type: {type: string, enum: [memory_entry]}
+        entry_id: {type: string, minLength: 1, maxLength: 128, pattern: '^[\x21-\x7E]+$'}
+    AccessArtifactIdentity:
+      type: object
+      additionalProperties: false
+      description: Logical Artifact identity; the Binding covers existing and future Revisions of the same Artifact.
+      required: [family, artifact_id]
+      properties:
+        family: {type: string, minLength: 1, maxLength: 128, pattern: '^[\x21-\x7E]+$'}
+        artifact_id: {type: string, minLength: 1, maxLength: 128, pattern: '^[\x21-\x7E]+$'}
+    ArtifactAccessResource:
+      type: object
+      additionalProperties: false
+      required: [type, scope_id, identity]
+      properties:
+        type: {type: string, enum: [artifact]}
+        scope_id: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+        identity:
+          $ref: "#/components/schemas/AccessArtifactIdentity"
+        selector:
+          allOf:
+            - $ref: "#/components/schemas/MemoryEntryAccessSelector"
+          nullable: true
+    AccessResource:
+      oneOf:
+        - $ref: "#/components/schemas/ServerAccessResource"
+        - $ref: "#/components/schemas/ScopeAccessResource"
+        - $ref: "#/components/schemas/ArtifactAccessResource"
+      discriminator:
+        propertyName: type
+        mapping:
+          server: "#/components/schemas/ServerAccessResource"
+          scope: "#/components/schemas/ScopeAccessResource"
+          artifact: "#/components/schemas/ArtifactAccessResource"
+    AccessDecision:
+      type: object
+      additionalProperties: false
+      required: [allowed, reason_code]
+      properties:
+        allowed: {type: boolean}
+        reason_code: {type: string, minLength: 1, maxLength: 64}
+    AccessRequirementMatch:
+      type: string
+      enum: [all, any]
+    AccessCheckRequirement:
+      type: object
+      additionalProperties: false
+      required: [action, resource]
+      properties:
+        action:
+          $ref: "#/components/schemas/AccessAction"
+        resource:
+          $ref: "#/components/schemas/AccessResource"
+    AccessCheckRequest:
+      type: object
+      additionalProperties: false
+      required: [match, requirements]
+      properties:
+        match:
+          $ref: "#/components/schemas/AccessRequirementMatch"
+        requirements:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AccessCheckRequirement"
+    AccessCheckResponse:
+      type: object
+      additionalProperties: false
+      required: [allowed, decisions]
+      properties:
+        allowed: {type: boolean}
+        decisions:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AccessDecision"
+    ListAccessResourcesRequest:
+      type: object
+      additionalProperties: false
+      required: [action, resource_type]
+      properties:
+        action:
+          $ref: "#/components/schemas/AccessAction"
+        resource_type:
+          $ref: "#/components/schemas/AccessResourceType"
+        family: {type: string, minLength: 1, maxLength: 128, nullable: true}
+        cursor: {type: string, nullable: true}
+        limit: {type: integer, minimum: 1, maximum: 500, default: 100}
+    AccessResourcePage:
+      type: object
+      additionalProperties: false
+      required: [items, total, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/AccessResource"
+        total: {type: integer, minimum: 0}
+        next_cursor: {type: string, nullable: true}
+    AccessRole:
+      type: string
+      enum:
+        - handoff.viewer
+        - handoff.receiver
+        - artifact.viewer
+        - prompt.user
+        - artifact.owner
+        - scope.viewer
+        - scope.contributor
+        - scope.reviewer
+        - scope.delegator
+        - scope.admin
+        - server.observer
+        - server.admin
+    AccessRoleCardinality:
+      type: string
+      enum: [many_per_resource, one_per_resource]
+    ListAccessRolesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        resource_type:
+          allOf:
+            - $ref: "#/components/schemas/AccessResourceType"
+          nullable: true
+        family: {type: string, minLength: 1, maxLength: 128, nullable: true}
+    AccessRoleDescriptor:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+        - resource_type
+        - cardinality
+        - actions
+        - artifact_families
+        - assignable_subject_types
+        - system_managed
+      properties:
+        role:
+          $ref: "#/components/schemas/AccessRole"
+        resource_type:
+          $ref: "#/components/schemas/AccessResourceType"
+        cardinality:
+          $ref: "#/components/schemas/AccessRoleCardinality"
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessAction"
+        artifact_families:
+          type: array
+          items: {type: string, minLength: 1, maxLength: 128}
+        assignable_subject_types:
+          type: array
+          items: {type: string, enum: [user, service, group]}
+        system_managed: {type: boolean}
+    AccessRolePage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/AccessRoleDescriptor"
+    AccessBindingState:
+      type: string
+      enum: [active, revoked]
+    AccessBinding:
+      type: object
+      additionalProperties: false
+      required:
+        - binding_id
+        - subject
+        - resource
+        - role
+        - granted_by
+        - reason
+        - created_at
+        - expires_at
+        - state
+        - version
+        - policy_revision
+        - idempotency_key
+        - revoked_at
+        - revoked_by
+      properties:
+        binding_id: {type: string, minLength: 1, maxLength: 64}
+        subject:
+          $ref: "#/components/schemas/AccessSubject"
+        resource:
+          $ref: "#/components/schemas/AccessResource"
+        role:
+          $ref: "#/components/schemas/AccessRole"
+        granted_by:
+          $ref: "#/components/schemas/AccessPrincipal"
+        reason: {type: string, maxLength: 1024, nullable: true}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time, nullable: true}
+        state:
+          $ref: "#/components/schemas/AccessBindingState"
+        version: {type: integer, minimum: 1}
+        policy_revision: {type: string, minLength: 1, maxLength: 64}
+        idempotency_key: {type: string, minLength: 1, maxLength: 255}
+        revoked_at: {type: string, format: date-time, nullable: true}
+        revoked_by:
+          allOf:
+            - $ref: "#/components/schemas/AccessPrincipal"
+          nullable: true
+    ListAccessBindingsRequest:
+      type: object
+      additionalProperties: false
+      required: [management_resource]
+      properties:
+        management_resource:
+          $ref: "#/components/schemas/AccessResource"
+        subject:
+          allOf:
+            - $ref: "#/components/schemas/AccessSubject"
+          nullable: true
+        role:
+          allOf:
+            - $ref: "#/components/schemas/AccessRole"
+          nullable: true
+        state:
+          allOf:
+            - $ref: "#/components/schemas/AccessBindingState"
+          nullable: true
+        cursor: {type: string, maxLength: 2048, nullable: true}
+        limit: {type: integer, minimum: 1, maximum: 500, default: 100}
+    AccessBindingPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/AccessBinding"
+        next_cursor: {type: string, maxLength: 2048, nullable: true}
+    CreateAccessBindingRequest:
+      type: object
+      additionalProperties: false
+      required: [subject, resource, role, idempotency_key]
+      properties:
+        subject:
+          $ref: "#/components/schemas/AccessSubject"
+        resource:
+          $ref: "#/components/schemas/AccessResource"
+        role:
+          $ref: "#/components/schemas/AccessRole"
+        idempotency_key: {type: string, minLength: 1, maxLength: 255}
+        reason: {type: string, maxLength: 1024, nullable: true}
+        expires_at: {type: string, format: date-time, nullable: true}
+    RevokeAccessBindingRequest:
+      type: object
+      additionalProperties: false
+      required: [binding_id, expected_version, idempotency_key]
+      properties:
+        binding_id: {type: string, minLength: 1, maxLength: 64}
+        expected_version: {type: integer, minimum: 1}
+        idempotency_key: {type: string, minLength: 1, maxLength: 255}
+    AccessBindingReplacementInput:
+      type: object
+      additionalProperties: false
+      required: [subject]
+      properties:
+        subject:
+          $ref: "#/components/schemas/AccessSubject"
+        reason: {type: string, maxLength: 1024, nullable: true}
+        expires_at: {type: string, format: date-time, nullable: true}
+    ReplaceAccessBindingRequest:
+      type: object
+      additionalProperties: false
+      required: [binding_id, expected_version, replacement, idempotency_key]
+      properties:
+        binding_id: {type: string, minLength: 1, maxLength: 64}
+        expected_version: {type: integer, minimum: 1}
+        replacement:
+          $ref: "#/components/schemas/AccessBindingReplacementInput"
+        idempotency_key: {type: string, minLength: 1, maxLength: 255}
+    AccessBindingReplacement:
+      type: object
+      additionalProperties: false
+      required: [previous, current]
+      properties:
+        previous:
+          $ref: "#/components/schemas/AccessBinding"
+        current:
+          $ref: "#/components/schemas/AccessBinding"
+    ListAccessAuditRequest:
+      type: object
+      additionalProperties: false
+      required: [resource]
+      properties:
+        resource:
+          oneOf:
+            - $ref: "#/components/schemas/ServerAccessResource"
+            - $ref: "#/components/schemas/ScopeAccessResource"
+          discriminator:
+            propertyName: type
+        action:
+          allOf:
+            - $ref: "#/components/schemas/AccessAction"
+          nullable: true
+        subject:
+          allOf:
+            - $ref: "#/components/schemas/AccessSubject"
+          nullable: true
+        result: {type: string, enum: [allowed, denied], nullable: true}
+        time_range:
+          allOf:
+            - $ref: "#/components/schemas/AccessAuditTimeRange"
+          nullable: true
+        cursor: {type: string, maxLength: 2048, nullable: true}
+        limit: {type: integer, minimum: 1, maximum: 500, default: 100}
+    AccessAuditTimeRange:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
+    AccessAuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - cursor
+        - event_id
+        - occurred_at
+        - request_id
+        - transport
+        - operation
+        - principal
+        - actor
+        - action
+        - resource
+        - allowed
+        - reason_code
+        - policy_revision
+        - matched_subject
+        - binding_id
+        - target
+        - role
+        - expected_version
+        - result_version
+      properties:
+        cursor: {type: integer, minimum: 1}
+        event_id: {type: string, minLength: 1, maxLength: 64}
+        occurred_at: {type: string, format: date-time}
+        request_id: {type: string, maxLength: 128, nullable: true}
+        transport: {type: string, minLength: 1, maxLength: 16}
+        operation: {type: string, minLength: 1, maxLength: 128}
+        principal:
+          $ref: "#/components/schemas/AccessPrincipal"
+        actor:
+          allOf:
+            - $ref: "#/components/schemas/AccessPrincipal"
+          nullable: true
+        action:
+          $ref: "#/components/schemas/AccessAction"
+        resource:
+          $ref: "#/components/schemas/AccessResource"
+        allowed: {type: boolean}
+        reason_code: {type: string, minLength: 1, maxLength: 64}
+        policy_revision: {type: string, minLength: 1, maxLength: 64, nullable: true}
+        matched_subject:
+          allOf:
+            - $ref: "#/components/schemas/AccessSubject"
+          nullable: true
+        binding_id: {type: string, maxLength: 64, nullable: true}
+        target:
+          allOf:
+            - $ref: "#/components/schemas/AccessSubject"
+          nullable: true
+        role:
+          allOf:
+            - $ref: "#/components/schemas/AccessRole"
+          nullable: true
+        expected_version: {type: integer, minimum: 1, nullable: true}
+        result_version: {type: integer, minimum: 1, nullable: true}
+    AccessAuditPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/AccessAuditEvent"
+        next_cursor: {type: string, maxLength: 2048, nullable: true}

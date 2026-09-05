@@ -400,7 +400,6 @@ const publicationEmpty = document.getElementById("review-publication-empty");
 const publicationContent = document.getElementById("review-publication-content");
 const publicationTarget = document.getElementById("review-publication-target");
 const publishedRevision = document.getElementById("review-published-revision");
-const publicationDestination = document.getElementById("review-publication-destination");
 const publicationDiscovery = document.getElementById("review-publication-discovery");
 const createSkillRevisionButton = document.getElementById("review-create-skill-revision");
 const publishSkillButton = document.getElementById("review-publish-skill");
@@ -1673,7 +1672,6 @@ function renderPublication() {
   publishedRevision.textContent = target.published_revision === null
     ? translate("notProvided")
     : translate("version", {version: target.published_revision});
-  publicationDestination.textContent = target.destination;
   publicationDiscovery.textContent = translate(discoveryStateKey(target.discovery));
   publishSkillButton.textContent = translate(publicationActionKey(target));
   const canPublish = canPublishProjection(target);

@@ -744,8 +744,7 @@ def test_server_command_clears_stale_server_values_missing_from_env_file(
 ) -> None:
     environment = tmp_path / ".env"
     environment.write_text("POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1\n", encoding="utf-8")
-    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_ENABLED", "true")
-    monkeypatch.delenv("POWERCONTEXT_SERVER_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID", "stale-deployment")
     run_server = Mock()
     tracing = Mock()
     monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
@@ -759,7 +758,7 @@ def test_server_command_clears_stale_server_values_missing_from_env_file(
 
     assert result.exit_code == 0
     run_server.assert_called_once()
-    assert os.environ["POWERCONTEXT_SERVER_AUTH_ENABLED"] == "true"
+    assert os.environ["POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID"] == "stale-deployment"
 
 
 def test_server_command_reports_a_missing_env_file_without_starting(
@@ -865,7 +864,7 @@ def test_server_command_reports_a_friendly_error_when_auth_lacks_a_token(
     monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
     monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
     monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
-    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_ENABLED", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ACCESS_MODE", "enforced")
     monkeypatch.delenv("POWERCONTEXT_SERVER_AUTH_TOKEN", raising=False)
 
     result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
@@ -874,7 +873,7 @@ def test_server_command_reports_a_friendly_error_when_auth_lacks_a_token(
     run_server.assert_not_called()
     # The operator gets the concrete token / disable levers, not pydantic's internal dump.
     assert "POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
-    assert "POWERCONTEXT_SERVER_AUTH_ENABLED=false" in result.output
+    assert "POWERCONTEXT_SERVER_ACCESS_MODE=disabled" in result.output
     assert "pydantic" not in result.output
 
 
@@ -904,7 +903,7 @@ def test_server_command_does_not_load_client_settings(monkeypatch: pytest.Monkey
     run_server = Mock()
     tracing = Mock()
     monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "not-a-url")
-    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_ENABLED", "false")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ACCESS_MODE", "disabled")
     monkeypatch.setenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", "true")
     monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
     monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)

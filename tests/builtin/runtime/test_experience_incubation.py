@@ -113,6 +113,9 @@ def test_incubation_uses_an_independent_cursor_and_keeps_candidates_gated() -> N
             assert replay.processed is False
             assert len(inbox.candidates) == 1
             candidate = inbox.candidates[0]
+            assert incubated.candidate_ids == (candidate.candidate_id,)
+            assert ordinary.candidate_ids == ()
+            assert replay.candidate_ids == ()
             assert candidate.sources == (outcome.source_ref,)
             assert candidate.result_artifact is None
 

@@ -42,8 +42,12 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP 路径 |
-| `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | HTTP 和 MCP 是否要求一个静态 Bearer token |
-| `POWERCONTEXT_SERVER_AUTH_TOKEN` | 未设置 | 静态 Bearer token；启用鉴权时必须设置 |
+| `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | 旧静态 Bearer 兼容开关；`true` 自动映射为 `ACCESS_MODE=enforced`，并要求设置 `AUTH_TOKEN` |
+| `POWERCONTEXT_SERVER_AUTH_TOKEN` | 未设置 | 旧静态 Bearer token；未注入 Authentication Provider 时作为兼容认证并映射为内置管理员 |
+| `POWERCONTEXT_SERVER_ACCESS_MODE` | `disabled` | 唯一正式 Access 开关：`disabled` 或 `enforced` |
+| `POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID` | `powercontext` | `server` Access Resource 使用的稳定部署标识 |
+| `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID` | 未设置 | 多用户 enforced 部署中供定时任务使用的显式 service Principal |
+| `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_DESCRIPTION` | 未设置 | 定时 service Principal 的可选展示描述 |
 | `POWERCONTEXT_SERVER_PUBLIC_URL` | 未设置 | 远端技能注册引导使用的可达基础地址；默认要求 HTTPS |
 | `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | 显式允许远端技能接收端接口和注册引导使用明文 HTTP |
 | `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK` | `false` | 在鉴权关闭时显式允许绑定非 loopback 地址 |
@@ -93,12 +97,46 @@ PowerContext 用户数据目录创建密钥。内存 SQLite 使用进程内密�
 `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET`，这样重启或下一请求落到其他副本后，已签发 cursor 仍然有效。
 在已签发 cursor 仍需有效期间，不要泄漏或轮换该值。
 
-静态 Bearer 鉴权默认关闭。启用后，API 和 MCP 请求必须携带 `Authorization: Bearer <token>`；liveness 和
-readiness endpoint 仍然公开。明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意
+Access Control 默认关闭。在 `enforced` 模式下，API 和 MCP 请求必须通过所选 Authentication Provider 建立 Principal；
+liveness 和 readiness endpoint 仍然公开。内置 `static-bearer` Provider 接受
+`Authorization: Bearer <token>`。明文 HTTP 仅在 loopback 地址（`localhost`、`::1` 及 `127.0.0.0/8` 网段内的任意
 地址）上受信任。当 Server 绑定到非 loopback 地址且鉴权关闭时会拒绝启动；此时应启用鉴权、改回绑定 loopback，或在
 TLS 由上游终止或网络本身受控的场景下，
 显式设置 `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true` 主动选择接受。通过网络暴露启用鉴权的
 Server 前必须配置 TLS。
+
+`POWERCONTEXT_SERVER_ACCESS_MODE` 是唯一正式开关。`disabled` 在可信本地边界内跳过授权决策；`enforced` 启用统一策略执行点、
+Binding 和审计。Authorization 默认使用 builtin，实现替换通过 `create_server_app(access_control=...)` 注入；Authentication
+通过 `create_server_app(authentication_provider=...)` 注入。若没有注入 Authentication Provider，Server 只接受旧
+`AUTH_TOKEN` 作为静态 Bearer 兼容认证，并把固定的 `server-token` Principal 初始化为内置管理员。两者都没有时拒绝启动。
+旧 `AUTH_ENABLED=true + AUTH_TOKEN` 配置会自动映射为 `ACCESS_MODE=enforced`。
+
+Authentication 负责建立 Principal，Access Control 负责判断该 Principal 能做什么。Principal ID 是部署内全局唯一且不复用
+的标识；`description` 只用于展示，不参与身份判定。内置静态 token 始终只代表一个 service Principal，因此不能区分
+用户 A 和用户 B。兼容静态 token 会为这个 Principal 显式写入 Server 与各 scope 所需的 role。需要让不同用户或 group
+获得不同权限时，应注入部署侧 Authentication Provider 与相应的 AccessControlService。
+
+定时 Source 处理和 Experience 孵化使用固定静态 Principal，或 `ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的 service Principal。
+该 Principal 必须在每个被处理的 scope 上拥有 `scope.contribute`；新 Memory Entry 和 Candidate 会保留它作为直接 owner 或
+`proposed_owner`。多用户 enforced 部署配置了 schedule 却未显式指定该 Principal 时，Server 会拒绝启动。
+
+远程、多用户或共享 Dashboard 必须使用 `enforced`。此模式下，HTTP、MCP、Dashboard 数据路由和 metrics 共用同一个
+Server PEP；Dashboard 配置的 scope 会在返回前按当前 Principal 的 `scope.read` 判定过滤。`/v1/access/me` 返回
+`server`/`scope`/`artifact` Resource Kind、Provider 的 batch/list/relationship 能力与 Family profile。Managed Skill 的
+导出和安装不再引入单独的 Access action：接收者先获得逻辑 Skill identity 上的 `artifact.read`，再自行决定是否以及如何
+安装一个精确 Revision。
+
+内置 Access schema 使用配置好的 SQLite、seekDB 或 OceanBase，但由 Server 独立持有，不进入 Runtime 领域。自定义部署
+可以向 `create_server_app` 注入 `AccessControlService`。内置的可写外部 adapter `CasbinAuthorizationProvider` 使用
+embedded Casbin 判定固定 action vocabulary，并把 canonical Binding Store 作为持久化 adapter，因此在不维护第二份影子
+策略的前提下支持 point/batch check、safe resource filter、create/revoke、过期和 CAS。组装时将它同时作为 decision
+provider 与 `relationships`，relational repository 仍作为 audit store。
+
+`AuthZenAuthorizationProvider` 是对接 OpenID AuthZEN Authorization API 1.0 `evaluation`/`evaluations` endpoint 的
+decision-only adapter。其 capability 应配置为 `multi_requirement_check=true`、`relationship_management=false` 和
+`safe_resource_filtering=false`；此时 self-service Binding mutation 和授权资源列表会返回 503，而不会虚报不安全的能力。
+该 adapter 只接受 HTTPS endpoint 或 loopback HTTP，拒绝 URL 内嵌 credential，也不会把 PDP response body 或原始错误
+暴露出去。authentication middleware 仍必须绑定不透明的 `PrincipalRef`；`scope_id` 只用于资源分区，不能建立身份。
 
 Python Client 和 CLI 对一般出站请求应用相同规则：配置的明文 `http://` Server URL 仅接受 loopback 主机；远端 Skill
 Receiver 的内部 PoC 显式例外见下文。当代码的 `http://` base URL 只是路由标签、实际传输是安全的，例如进程内 ASGI
@@ -143,7 +181,7 @@ powercontext --server-url http://powercontext.internal.example:8765 \
 示例中的非 loopback opt-in 与 Receiver 传输例外彼此独立：它表示操作者接受该监听器上的所有 Server route 在没有
 Server 级 Bearer token 时可达。部署条件允许时，应优先启用鉴权，或在仅绑定 loopback 的 Server 前终止 TLS。
 
-启用 Bearer 鉴权后，`/`、`/skills`、`/reviews`、`/handoff-reports` 的 HTML 外壳及其静态资源仍保持公开，以便
+使用兼容静态 Bearer 且 `enforced` 时，`/`、`/skills`、`/reviews`、`/handoff-reports` 的 HTML 外壳及其静态资源仍保持公开，以便
 浏览器渲染登录表单；数据请求仍受鉴权保护。在表单中输入 Server token 后，浏览器只把它保存在当前标签页的 session
 storage 中。如果连这些登录页也不能暴露，应同时关闭 Dashboard 和 Handoff Report。
 

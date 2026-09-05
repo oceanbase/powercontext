@@ -25,9 +25,18 @@ from urllib.parse import quote
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.errors import InvalidResponseError, TransportError, server_response_error
 from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
+    AccessAuditPage,
+    AccessBinding,
+    AccessBindingPage,
+    AccessBindingReplacement,
+    AccessCheckRequest,
+    AccessCheckResponse,
+    AccessMeResponse,
+    AccessResourcePage,
+    AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
@@ -47,6 +56,7 @@ from powercontext.http import (
     CommittedHandoff,
     ConnectorCheckpointState,
     ContinueHandoffRequest,
+    CreateAccessBindingRequest,
     CreateArtifactRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
@@ -79,6 +89,10 @@ from powercontext.http import (
     HandoffResolution,
     HealthResponse,
     ImportExternalSkillRequest,
+    ListAccessAuditRequest,
+    ListAccessBindingsRequest,
+    ListAccessResourcesRequest,
+    ListAccessRolesRequest,
     ListArtifactCandidatesRequest,
     ListArtifactsRequest,
     ListExternalSkillsRequest,
@@ -118,6 +132,7 @@ from powercontext.http import (
     RemoteSkillTargetCredential,
     RemoteSkillTargetEnrollment,
     RenameRemoteSkillTargetRequest,
+    ReplaceAccessBindingRequest,
     ReplaceArtifactRequest,
     ResolveExternalSkillRequest,
     ResolveScopeBindingRequest,
@@ -125,6 +140,7 @@ from powercontext.http import (
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
     ReviseMemoryEntryRequest,
+    RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
@@ -154,10 +170,12 @@ from powercontext.http._generated.operations import (
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
+    CHECK_ACCESS,
     CLEAR_SCOPE_BINDING,
     COMMIT_CONNECTOR_CHECKPOINT,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
+    CREATE_ACCESS_BINDING,
     CREATE_ARTIFACT,
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SCOPE,
@@ -170,6 +188,7 @@ from powercontext.http._generated.operations import (
     FLUSH_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
+    GET_ACCESS_PRINCIPAL,
     GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
@@ -188,6 +207,10 @@ from powercontext.http._generated.operations import (
     GET_STATS,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
+    LIST_ACCESS_AUDIT,
+    LIST_ACCESS_BINDINGS,
+    LIST_ACCESS_RESOURCES,
+    LIST_ACCESS_ROLES,
     LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
@@ -211,6 +234,7 @@ from powercontext.http._generated.operations import (
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
+    REPLACE_ACCESS_BINDING,
     REPLACE_ARTIFACT,
     RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
@@ -218,6 +242,7 @@ from powercontext.http._generated.operations import (
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
+    REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
@@ -412,7 +437,7 @@ class PowerContextClient:
         )
         if response.status_code != GET_HANDOFF_REPORT.success_status:
             error = _decode_error(response.content)
-            raise ServerResponseError(
+            raise server_response_error(
                 status_code=response.status_code,
                 request_id=response.headers.get(REQUEST_ID_HEADER),
                 code=None if error is None else error.error.code,
@@ -425,6 +450,51 @@ class PowerContextClient:
         """Capture raw content as durable Source evidence."""
 
         return await self._request(CAPTURE_CONTENT_SOURCE, request)
+
+    async def get_access_principal(self) -> AccessMeResponse:
+        """Return the authenticated Principal and enforceable Access capabilities."""
+
+        return await self._request(GET_ACCESS_PRINCIPAL)
+
+    async def check_access(self, request: AccessCheckRequest) -> AccessCheckResponse:
+        """Evaluate one compound requirement for the current Principal."""
+
+        return await self._request(CHECK_ACCESS, request)
+
+    async def list_access_resources(self, request: ListAccessResourcesRequest) -> AccessResourcePage:
+        """List only relationships already visible to the current Principal."""
+
+        return await self._request(LIST_ACCESS_RESOURCES, request)
+
+    async def list_access_roles(self, request: ListAccessRolesRequest) -> AccessRolePage:
+        """List stable built-in role definitions."""
+
+        return await self._request(LIST_ACCESS_ROLES, request)
+
+    async def list_access_bindings(self, request: ListAccessBindingsRequest) -> AccessBindingPage:
+        """List bindings within an authorized administrative boundary."""
+
+        return await self._request(LIST_ACCESS_BINDINGS, request)
+
+    async def create_access_binding(self, request: CreateAccessBindingRequest) -> AccessBinding:
+        """Create or idempotently return one Access Binding."""
+
+        return await self._request(CREATE_ACCESS_BINDING, request)
+
+    async def revoke_access_binding(self, request: RevokeAccessBindingRequest) -> AccessBinding:
+        """Revoke one Access Binding using compare-and-swap."""
+
+        return await self._request(REVOKE_ACCESS_BINDING, request)
+
+    async def replace_access_binding(self, request: ReplaceAccessBindingRequest) -> AccessBindingReplacement:
+        """Atomically replace an immutable Access Binding."""
+
+        return await self._request(REPLACE_ACCESS_BINDING, request)
+
+    async def list_access_audit(self, request: ListAccessAuditRequest) -> AccessAuditPage:
+        """List data-minimized authorization and relationship audit events."""
+
+        return await self._request(LIST_ACCESS_AUDIT, request)
 
     async def create_source(self, scope_id: str, request: CreateSourceRequest) -> SourceRecord:
         """Create one durable Source without invoking generation."""
@@ -843,7 +913,7 @@ class PowerContextClient:
         request_id = response.headers.get(REQUEST_ID_HEADER)
         if not succeeded:
             error = _decode_error(response.content)
-            raise ServerResponseError(
+            raise server_response_error(
                 status_code=response.status_code,
                 request_id=request_id,
                 code=None if error is None else error.error.code,

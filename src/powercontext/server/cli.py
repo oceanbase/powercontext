@@ -26,6 +26,7 @@ from powercontext.server.configuration import ServerConfigurationError, server_s
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
 from powercontext.server.settings import (
+    MissingAuthenticationProviderError,
     MissingBearerTokenError,
     ServerSettings,
     UnauthenticatedNonLoopbackBindError,
@@ -47,8 +48,8 @@ _UNSAFE_BIND_CLI_MESSAGE = (
 # operator can set instead of surfacing pydantic's internal validation dump.
 _MISSING_BEARER_CLI_MESSAGE = (
     "authentication is enabled but no bearer token is configured; "
-    "set POWERCONTEXT_SERVER_AUTH_TOKEN=... or disable it with "
-    "POWERCONTEXT_SERVER_AUTH_ENABLED=false"
+    "set POWERCONTEXT_SERVER_AUTH_TOKEN=... or disable Access Control with "
+    "POWERCONTEXT_SERVER_ACCESS_MODE=disabled"
 )
 
 app = typer.Typer(
@@ -84,6 +85,8 @@ def run(
         hint = "Invalid value for --env-file" if env_file is not None else "Invalid Server configuration"
         typer.echo(f"{hint}: {error}", err=True)
         raise typer.Exit(code=2) from error
+    except MissingAuthenticationProviderError as error:
+        raise typer.BadParameter(_MISSING_BEARER_CLI_MESSAGE) from error
 
 
 def _run_configured_server(settings: ServerSettings) -> None:

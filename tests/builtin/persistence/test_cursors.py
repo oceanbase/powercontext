@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -112,5 +114,50 @@ def test_source_cursor_initial_creation_is_safe_across_connections(tmp_path: Pat
         assert created[0].generation == 1
         assert len(conflicts) == 1
         assert conflicts[0].actual == 1
+
+    asyncio.run(scenario())
+
+
+def test_source_cursor_initial_creation_avoids_savepoints_on_mysql_compatible_connections() -> None:
+    """OceanBase can discard this write-path SAVEPOINT before SQLAlchemy releases it."""
+
+    async def scenario() -> None:
+        class MissingCursorRepository(SourceCursorRepository):
+            async def load(
+                self,
+                connection: AsyncConnection,
+                scope_id: str,
+                binding_name: str,
+                /,
+                *,
+                for_update: bool = False,
+            ) -> StoredSourceCursor | None:
+                del connection, scope_id, binding_name, for_update
+                return None
+
+        class MySQLCompatibleConnection:
+            dialect = SimpleNamespace(name="mysql")
+
+            def __init__(self) -> None:
+                self.executions = 0
+
+            async def execute(self, _statement: object) -> SimpleNamespace:
+                self.executions += 1
+                return SimpleNamespace(rowcount=1)
+
+            def begin_nested(self) -> None:
+                raise AssertionError
+
+        connection = MySQLCompatibleConnection()
+        created = await MissingCursorRepository().save(
+            cast(AsyncConnection, connection),
+            "scope-a",
+            "handoff-boundary",
+            SourceCursor(sequence=1),
+            expected_generation=None,
+        )
+
+        assert created.generation == 1
+        assert connection.executions == 1
 
     asyncio.run(scenario())

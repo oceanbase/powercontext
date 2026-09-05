@@ -125,7 +125,7 @@ timeout 和 flush 控制项见[配置参考](../reference/configuration.md)。�
 从 secret manager 加载 token，再启动 Server：
 
 ```bash
-export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
