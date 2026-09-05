@@ -655,7 +655,8 @@ def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> N
             side_effect=[
                 _Response(200, {"status": "ok"}),
                 _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
-                _Response(200, [{"scope_id": "scp_default"}]),
+                _Response(200, {"status": "ok"}),
+                _Response(200, [{"scope_id": "scp_default", "display_name": "Default", "summary": ""}]),
             ]
         ),
     )
@@ -682,7 +683,8 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
         side_effect=[
             _Response(200, {"status": "ok"}),
             _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
-            _Response(200, [{"scope_id": "scp_default"}]),
+            _Response(200, {"status": "ok"}),
+            _Response(200, [{"scope_id": "scp_default", "display_name": "Default", "summary": ""}]),
         ]
     )
     monkeypatch.setattr(system_cli, "urlopen", urlopen)
@@ -695,6 +697,7 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
         "http://127.0.0.1:8888/health/live",
         "http://127.0.0.1:8888/health/ready",
+        "http://127.0.0.1:8888/",
         "http://127.0.0.1:8888/dashboard/scopes",
     ]
 
@@ -703,7 +706,8 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     urlopen.side_effect = [
         _Response(200, {"status": "ok"}),
         _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
-        _Response(200, [{"scope_id": "scp_default"}]),
+        _Response(200, {"status": "ok"}),
+        _Response(200, [{"scope_id": "scp_default", "display_name": "Default", "summary": ""}]),
     ]
     override = CliRunner().invoke(
         create_cli([doctor_app]),
@@ -714,9 +718,10 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert "server liveness: ok - http://127.0.0.1:9999 status=ok" in override.output
     assert "server readiness: ok - http://127.0.0.1:9999 status=ready" in override.output
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
-        "http://127.0.0.1:9999/health/live",
-        "http://127.0.0.1:9999/health/ready",
-        "http://127.0.0.1:9999/dashboard/scopes",
+            "http://127.0.0.1:9999/health/live",
+            "http://127.0.0.1:9999/health/ready",
+            "http://127.0.0.1:9999/",
+            "http://127.0.0.1:9999/dashboard/scopes",
     ]
 
 
@@ -800,8 +805,8 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
     def responses() -> list[_Response]:
         return [
             _Response(200, {"status": "ok"}),
-            _Response(
-                200,
+                _Response(
+                    200,
                 {
                     "status": "degraded",
                     "checks": {
@@ -809,8 +814,10 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
                         "database": "ready",
                         "inference.embedding": "misconfigured",
                     },
-                },
-            ),
+                    },
+                ),
+                _Response(200, {"status": "ok"}),
+                _Response(200, [{"scope_id": "default", "display_name": "Default", "summary": ""}]),
         ]
 
     monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
@@ -857,9 +864,9 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
                 },
             },
             "dashboard_scopes": {
-                "ok": False,
-                "status": "skipped",
-                "detail": "not checked because Server readiness is not healthy",
+                "ok": True,
+                "status": "ok",
+                "detail": "Dashboard exposes 1 Scope(s)",
             },
         },
     }
