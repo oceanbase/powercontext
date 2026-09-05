@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from pydantic import BaseModel
-from sqlalchemy import and_, case, delete, exists, insert, or_, select, update
+from sqlalchemy import and_, case, delete, exists, insert, literal, or_, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -33,6 +33,16 @@ class StoredArtifactProcessingPending(BaseModel):
     source_through: int
     flush_generation: int
     handled_flush_generation: int
+
+
+class StoredArtifactProcessingAutoWaveTarget(BaseModel):
+    """One immutable target captured at automatic-wave start."""
+
+    wave_id: str
+    binding_name: str
+    scope_id: str
+    source_through: int
+    completed: bool
 
 
 class ArtifactProcessingPendingRepository:
@@ -120,23 +130,6 @@ class ArtifactProcessingPendingRepository:
             statement = statement.with_for_update()
         rows = (await connection.execute(statement)).mappings()
         return tuple(_decode(row) for row in rows)
-
-    async def last_scope_id(
-        self,
-        connection: AsyncConnection,
-        binding_name: str,
-        /,
-    ) -> str | None:
-        """Return the current final key for a binding without materializing it."""
-
-        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
-        value = await connection.scalar(
-            select(ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id)
-            .where(ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == binding_name)
-            .order_by(ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id.desc())
-            .limit(1)
-        )
-        return None if value is None else str(value)
 
     async def has_unhandled_flush(
         self,
@@ -241,50 +234,73 @@ class ArtifactProcessingPendingRepository:
 
 
 class ArtifactProcessingAutoWaveTargetRepository:
-    """Stage a frozen automatic wave outside the bounded in-memory queue."""
+    """Persist an automatic-wave snapshot outside the bounded memory queue."""
 
     async def clear_all(self, connection: AsyncConnection, /) -> None:
         """Discard non-recoverable targets from an earlier Supervisor term."""
 
         await connection.execute(delete(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE))
 
-    async def clear_binding(
-        self,
-        connection: AsyncConnection,
-        binding_name: str,
-        /,
-    ) -> None:
-        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
-        await connection.execute(
-            delete(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE).where(
-                ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE.c.binding_name == binding_name
-            )
-        )
-
-    async def add_page(
+    async def freeze_pending(
         self,
         connection: AsyncConnection,
         wave_id: str,
         binding_name: str,
-        targets: Mapping[str, int],
         /,
     ) -> None:
+        """Freeze every current Pending member and watermark in one statement."""
+
         _require_identifier("wave_id", wave_id, 36)
         _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
-        if not targets:
-            return
-        values: list[dict[str, object]] = []
-        for scope_id, source_through in targets.items():
-            _require_identifier("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
-            _require_position("source_through", source_through)
-            values.append({
-                "wave_id": wave_id,
-                "binding_name": binding_name,
-                "scope_id": scope_id,
-                "source_through": source_through,
-                "completed": False,
-            })
-        await connection.execute(insert(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE), values)
+        pending = ARTIFACT_PROCESSING_PENDING_TABLE
+        targets = ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE
+        snapshot = select(
+            literal(wave_id),
+            pending.c.binding_name,
+            pending.c.scope_id,
+            pending.c.source_through,
+            literal(False),
+        ).where(pending.c.binding_name == binding_name)
+        await connection.execute(
+            insert(targets).from_select(
+                (
+                    targets.c.wave_id,
+                    targets.c.binding_name,
+                    targets.c.scope_id,
+                    targets.c.source_through,
+                    targets.c.completed,
+                ),
+                snapshot,
+            )
+        )
+
+    async def scan(
+        self,
+        connection: AsyncConnection,
+        wave_id: str,
+        binding_name: str,
+        /,
+        *,
+        after_scope_id: str | None = None,
+        limit: int,
+    ) -> tuple[StoredArtifactProcessingAutoWaveTarget, ...]:
+        """Read one bounded keyset page from the immutable wave snapshot."""
+
+        _require_identifier("wave_id", wave_id, 36)
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        if after_scope_id is not None:
+            _require_identifier("after_scope_id", after_scope_id, MAX_SCOPE_ID_LENGTH)
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise InvalidRepositoryArgumentError("limit", "must be a positive integer")
+        targets = ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE
+        statement = select(targets).where(
+            targets.c.wave_id == wave_id,
+            targets.c.binding_name == binding_name,
+        )
+        if after_scope_id is not None:
+            statement = statement.where(targets.c.scope_id > after_scope_id)
+        rows = (await connection.execute(statement.order_by(targets.c.scope_id).limit(limit))).mappings()
+        return tuple(_decode_auto_wave_target(row) for row in rows)
 
     async def mark_completed(
         self,
@@ -372,6 +388,16 @@ def _decode(row: Mapping[Any, Any]) -> StoredArtifactProcessingPending:
         source_through=int(row["source_through"]),
         flush_generation=int(row["flush_generation"]),
         handled_flush_generation=int(row["handled_flush_generation"]),
+    )
+
+
+def _decode_auto_wave_target(row: Mapping[Any, Any]) -> StoredArtifactProcessingAutoWaveTarget:
+    return StoredArtifactProcessingAutoWaveTarget(
+        wave_id=str(row["wave_id"]),
+        binding_name=str(row["binding_name"]),
+        scope_id=str(row["scope_id"]),
+        source_through=int(row["source_through"]),
+        completed=bool(row["completed"]),
     )
 
 

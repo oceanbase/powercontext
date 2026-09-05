@@ -582,6 +582,31 @@ family, automatic processing interval, and Window limit remain startup registrat
 routing table nor a task table. Bindings update their completion times independently, so activity in one Artifact
 Family cannot reset or postpone another binding's automatic wave.
 
+To avoid materializing a large Pending set in Leader memory, the current term persists each automatic wave's frozen
+targets in `pc_artifact_processing_auto_wave_targets`:
+
+~~~text
+wave_id            VARCHAR(36)
+binding_name       VARCHAR(128)
+scope_id           VARCHAR(256)
+source_through     BIGINT NOT NULL
+completed          BOOLEAN NOT NULL DEFAULT FALSE
+
+PRIMARY KEY (wave_id, binding_name, scope_id)
+~~~
+
+This table is bounded scheduling state for the current term, not a recoverable job queue; Pending, Cursors, and binding
+completion time remain authoritative after takeover. A new term clears stale targets and freezes again from Pending. At
+wave start, one set-based statement in the same fenced database transaction freezes every current Pending member and its
+`source_through` for that binding. Scheduling then reads bounded pages only from the target table and never adds live
+Pending rows to the old wave. Final cleanup is set-based, so ready/running memory and each scheduling scan stay bounded
+while the completion time and whole-wave cleanup still commit in one short transaction.
+
+Per-key single-flight still applies across explicit and automatic work. A frozen target already owned by an explicit
+attempt or retry is deferred while the Supervisor continues through later frozen pages; an automatic target that fails
+is deferred in the same way. Other Scopes can therefore make progress, but the binding completion time cannot advance
+until every deferred target is eventually covered.
+
 When a binding has automatic scheduling enabled and ordinary Pending exists, the Leader may start an automatic wave if
 `last_auto_wave_completed_at` is `NULL` or database time has reached
 `last_auto_wave_completed_at + automatic_processing_interval`. At wave start it freezes the current `source_through`

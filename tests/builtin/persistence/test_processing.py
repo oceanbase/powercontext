@@ -60,7 +60,7 @@ def test_pending_scan_uses_bounded_stable_keyset_pages() -> None:
     asyncio.run(scenario())
 
 
-def test_automatic_wave_targets_cleanup_only_unchanged_pending() -> None:
+def test_automatic_wave_targets_freeze_snapshot_and_cleanup_only_unchanged_pending() -> None:
     async def scenario() -> None:
         async with (
             repository_profile() as (profile, repositories),
@@ -70,12 +70,39 @@ def test_automatic_wave_targets_cleanup_only_unchanged_pending() -> None:
             targets = ArtifactProcessingAutoWaveTargetRepository()
             await pending.raise_source(connection, "scope-a", BINDING, 1)
             await pending.raise_source(connection, "scope-b", BINDING, 1)
-            await targets.add_page(
+            await targets.freeze_pending(
                 connection,
                 "00000000-0000-4000-8000-000000000001",
                 BINDING,
-                {"scope-a": 1, "scope-b": 1},
             )
+            await pending.raise_source(connection, "scope-a", BINDING, 2)
+            await pending.raise_source(connection, "scope-c", BINDING, 1)
+
+            first = await targets.scan(
+                connection,
+                "00000000-0000-4000-8000-000000000001",
+                BINDING,
+                limit=1,
+            )
+            second = await targets.scan(
+                connection,
+                "00000000-0000-4000-8000-000000000001",
+                BINDING,
+                after_scope_id=first[-1].scope_id,
+                limit=1,
+            )
+            exhausted = await targets.scan(
+                connection,
+                "00000000-0000-4000-8000-000000000001",
+                BINDING,
+                after_scope_id=second[-1].scope_id,
+                limit=1,
+            )
+            assert [(row.scope_id, row.source_through) for row in (*first, *second)] == [
+                ("scope-a", 1),
+                ("scope-b", 1),
+            ]
+            assert exhausted == ()
             assert await targets.mark_completed(
                 connection,
                 "00000000-0000-4000-8000-000000000001",
@@ -90,7 +117,6 @@ def test_automatic_wave_targets_cleanup_only_unchanged_pending() -> None:
                 "00000000-0000-4000-8000-000000000001",
                 "scope-b",
             )
-            await pending.raise_source(connection, "scope-a", BINDING, 2)
 
             assert (
                 await targets.delete_covered_pending(
@@ -102,6 +128,7 @@ def test_automatic_wave_targets_cleanup_only_unchanged_pending() -> None:
             )
             assert await pending.load(connection, "scope-a", BINDING) is not None
             assert await pending.load(connection, "scope-b", BINDING) is None
+            assert await pending.load(connection, "scope-c", BINDING) is not None
 
     asyncio.run(scenario())
 

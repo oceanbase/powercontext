@@ -5,13 +5,16 @@
 from __future__ import annotations
 
 import asyncio
+import multiprocessing
 import os
 import signal
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -57,12 +60,14 @@ class _PublishingLauncher:
         inject_successor_flush: bool = False,
         fail_scopes: set[str] | None = None,
         wait_for: asyncio.Event | None = None,
+        inject_wave_snapshot_changes: bool = False,
     ) -> None:
         self.database = database
         self.inject_new_source = inject_new_source
         self.inject_successor_flush = inject_successor_flush
         self.fail_scopes = set() if fail_scopes is None else fail_scopes
         self.wait_for = wait_for
+        self.inject_wave_snapshot_changes = inject_wave_snapshot_changes
         self.injected = False
         self.assignments: list[ArtifactProcessingWorkAssignment] = []
         self.active: set[tuple[str, str]] = set()
@@ -138,6 +143,14 @@ class _PublishingHandle:
                     assignment.binding_name,
                     assignment.wave_target + 1,
                 )
+                self.launcher.injected = True
+            if (
+                self.launcher.inject_wave_snapshot_changes
+                and not self.launcher.injected
+                and assignment.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC
+            ):
+                await pending.raise_source(connection, "scope-b", assignment.binding_name, 1)
+                await pending.raise_source(connection, "scope-c", assignment.binding_name, 2)
                 self.launcher.injected = True
             if (
                 assignment.wave_kind is ArtifactProcessingWaveKind.EXPLICIT
@@ -499,6 +512,58 @@ def test_automatic_wave_spans_pages_before_committing_binding_time(tmp_path, mon
     asyncio.run(scenario())
 
 
+def test_automatic_wave_pages_only_the_wave_start_snapshot(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 1)
+        pending = ArtifactProcessingPendingRepository()
+        states = ArtifactProcessingBindingStateRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'automatic-snapshot.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            async with profile.database.transaction() as connection:
+                await pending.raise_source(connection, "scope-a", BINDING, 1)
+                await pending.raise_source(connection, "scope-c", BINDING, 1)
+            launcher = _PublishingLauncher(
+                profile.database,
+                inject_wave_snapshot_changes=True,
+            )
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        BINDING,
+                        1,
+                        launcher,
+                        automatic_processing_interval=timedelta(seconds=60),
+                    ),
+                ),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+            ):
+
+                async def wave_completed() -> bool:
+                    async with profile.database.transaction() as connection:
+                        return await states.load(connection, BINDING) is not None
+
+                await _wait_until(wave_completed)
+
+            assert [(item.scope_id, item.wave_target) for item in launcher.assignments] == [
+                ("scope-a", 1),
+                ("scope-c", 1),
+            ]
+            async with profile.database.transaction() as connection:
+                remaining = await pending.scan(connection, binding_name=BINDING)
+                cursor = await SourceCursorRepository().load(connection, "scope-c", BINDING)
+            assert [(row.scope_id, row.source_through) for row in remaining] == [
+                ("scope-b", 1),
+                ("scope-c", 2),
+            ]
+            assert cursor is not None
+            assert cursor.cursor.sequence == 1
+
+    asyncio.run(scenario())
+
+
 def test_due_automatic_binding_without_pending_waits_for_the_next_interval(tmp_path) -> None:
     async def scenario() -> None:
         states = ArtifactProcessingBindingStateRepository()
@@ -672,6 +737,104 @@ def test_backoff_key_releases_discovery_budget_for_the_next_key(tmp_path, monkey
     asyncio.run(scenario())
 
 
+def test_failed_explicit_scope_does_not_starve_automatic_peer(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 1)
+        pending = ArtifactProcessingPendingRepository()
+        states = ArtifactProcessingBindingStateRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'explicit-auto-fairness.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            await _raise_and_flush(profile.database, pending, "scope-a", 1)
+            async with profile.database.transaction() as connection:
+                await pending.raise_source(connection, "scope-b", BINDING, 1)
+            launcher = _PublishingLauncher(profile.database, fail_scopes={"scope-a"})
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        BINDING,
+                        1,
+                        launcher,
+                        automatic_processing_interval=timedelta(seconds=60),
+                    ),
+                ),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                retry_base_seconds=60,
+                retry_jitter=lambda: 1,
+            )
+            await supervisor.start()
+
+            async def peer_completed() -> bool:
+                async with profile.database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(connection, "scope-b", BINDING)
+                    return cursor is not None and cursor.cursor.sequence == 1
+
+            await _wait_until(peer_completed)
+            await supervisor.close()
+
+            assert [(item.scope_id, item.wave_kind) for item in launcher.assignments] == [
+                ("scope-a", ArtifactProcessingWaveKind.EXPLICIT),
+                ("scope-b", ArtifactProcessingWaveKind.AUTOMATIC),
+            ]
+            async with profile.database.transaction() as connection:
+                assert await pending.load(connection, "scope-a", BINDING) is not None
+                assert await pending.load(connection, "scope-b", BINDING) is not None
+                assert await states.load(connection, BINDING) is None
+
+    asyncio.run(scenario())
+
+
+def test_failed_automatic_scope_does_not_starve_frozen_suffix(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 1)
+        pending = ArtifactProcessingPendingRepository()
+        states = ArtifactProcessingBindingStateRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'automatic-fairness.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            async with profile.database.transaction() as connection:
+                await pending.raise_source(connection, "scope-a", BINDING, 1)
+                await pending.raise_source(connection, "scope-b", BINDING, 1)
+            launcher = _PublishingLauncher(profile.database, fail_scopes={"scope-a"})
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        BINDING,
+                        1,
+                        launcher,
+                        automatic_processing_interval=timedelta(seconds=60),
+                    ),
+                ),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                retry_base_seconds=60,
+                retry_jitter=lambda: 1,
+            )
+            await supervisor.start()
+
+            async def suffix_completed() -> bool:
+                async with profile.database.transaction() as connection:
+                    cursor = await SourceCursorRepository().load(connection, "scope-b", BINDING)
+                    return cursor is not None and cursor.cursor.sequence == 1
+
+            await _wait_until(suffix_completed)
+            await supervisor.close()
+
+            assert [(item.scope_id, item.wave_kind) for item in launcher.assignments] == [
+                ("scope-a", ArtifactProcessingWaveKind.AUTOMATIC),
+                ("scope-b", ArtifactProcessingWaveKind.AUTOMATIC),
+            ]
+            async with profile.database.transaction() as connection:
+                assert await pending.load(connection, "scope-a", BINDING) is not None
+                assert await pending.load(connection, "scope-b", BINDING) is not None
+                assert await states.load(connection, BINDING) is None
+
+    asyncio.run(scenario())
+
+
 def test_hanging_launch_preserves_short_lease_and_bounds_discovery(tmp_path, monkeypatch) -> None:
     async def scenario() -> None:
         monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 4)
@@ -717,7 +880,8 @@ def test_hanging_launch_preserves_short_lease_and_bounds_discovery(tmp_path, mon
             assert pending.scan_limits and all(limit is not None and limit <= 4 for limit in pending.scan_limits)
             assert len(supervisor._work) <= 4
             assert len(supervisor._queue) <= 4
-            assert len(supervisor._automatic_waves[BINDING].targets) == 4
+            wave = supervisor._automatic_waves[BINDING]
+            assert len(wave.targets) + len(wave.deferred_targets) == 4
             await asyncio.wait_for(supervisor.close(), timeout=0.2)
 
     asyncio.run(scenario())
@@ -930,5 +1094,72 @@ def test_supervisor_close_kills_spawned_worker_and_stales_its_fence(tmp_path) ->
                     except ArtifactProcessingLeadershipLostError:
                         stale_fence_rejected = True
                     assert stale_fence_rejected
+
+    asyncio.run(scenario())
+
+
+def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        pending = ArtifactProcessingPendingRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'spawn-cancel-close.db'}")
+        spawned = threading.Event()
+        release_start = threading.Event()
+        child_pid: int | None = None
+        real_start = multiprocessing.context.SpawnProcess.start
+
+        def stalled_start(process) -> None:
+            nonlocal child_pid
+            real_start(process)
+            child_pid = process.pid
+            spawned.set()
+            release_start.wait(timeout=5)
+
+        monkeypatch.setattr(multiprocessing.context.SpawnProcess, "start", stalled_start)
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            await _raise_and_flush(profile.database, pending, "scope-a", 1)
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        BINDING,
+                        1,
+                        SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm),
+                    ),
+                ),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=60,
+                holder_id="holder-a",
+            )
+            await supervisor.start()
+            assert await asyncio.to_thread(spawned.wait, 3)
+            old_fence = supervisor.fence
+            assert old_fence is not None
+            assert child_pid is not None
+
+            try:
+                await asyncio.wait_for(supervisor.close(), timeout=3)
+            finally:
+                release_start.set()
+            child_reaped = False
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                child_reaped = True
+            assert child_reaped
+
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                holder_id="holder-b",
+            ) as successor:
+                assert successor.fence is not None
+                assert successor.fence.supervisor_generation == old_fence.supervisor_generation + 1
+                async with profile.database.transaction() as connection:
+                    with pytest.raises(ArtifactProcessingLeadershipLostError):
+                        await ArtifactProcessingLeaseRepository().require_fence(connection, old_fence)
 
     asyncio.run(scenario())

@@ -526,7 +526,7 @@ last_auto_wave_completed_at     TIMESTAMP NULL
 进程启动时的注册配置提供，它不是路由表或任务表。不同 binding 独立更新自己的完成时间，一个繁忙制品不能重置或推迟
 另一个制品的自动波次。
 
-为避免大量 Pending Scope 被一次性实体化到 Leader 内存，当前任期会把自动波次的冻结目标分页暂存到
+为避免大量 Pending Scope 被一次性实体化到 Leader 内存，当前任期会把自动波次的冻结目标持久化到
 `pc_artifact_processing_auto_wave_targets`：
 
 ~~~text
@@ -540,8 +540,14 @@ PRIMARY KEY (wave_id, binding_name, scope_id)
 ~~~
 
 这张表只是当前任期的有界调度暂存，不是可恢复 Job 队列；Pending、Cursor 与 binding 完成时间仍是接管后的权威输入。
-新任期在开始调度前清除旧目标并从 Pending 重新冻结。当前任期逐页填充和处理目标，最后用目标表完成一次集合式 Pending
-清理，因此 ready/running 内存与单轮扫描保持固定上限，同时 completion time 与整波清理仍在同一短事务提交。
+新任期在开始调度前清除旧目标并从 Pending 重新冻结。每个 binding 在 wave-start 的同一 fenced 数据库事务中，用一条
+集合式语句完整冻结当时全部 Pending 成员及其 `source_through`；之后只从目标表有界分页调度，不再读取 live Pending
+补充旧波次。最后用目标表完成一次集合式 Pending 清理，因此 ready/running 内存与单轮扫描保持固定上限，同时
+completion time 与整波清理仍在同一短事务提交。
+
+显式与自动处理之间仍保持 per-key single-flight。若冻结目标已由同 key 的显式尝试或 retry 占用，Supervisor 会暂缓
+该目标并继续发现后续冻结页；自动目标自身失败时也按同样方式暂缓。因此其他 Scope 可以继续推进，但只有所有暂缓
+目标最终都被 Cursor 覆盖后，binding completion time 才能更新。
 
 当 binding 启用了自动调度、存在普通 Pending，且 `last_auto_wave_completed_at` 为 `NULL` 或数据库当前时间已经达到
 `last_auto_wave_completed_at + automatic_processing_interval` 时，Leader 可以启动自动波次。波次启动时冻结该
