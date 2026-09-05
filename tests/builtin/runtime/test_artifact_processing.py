@@ -5,16 +5,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.processing import (
     ArtifactProcessingPendingRepository,
     StoredArtifactProcessingPending,
@@ -53,11 +56,13 @@ class _PublishingLauncher:
         inject_new_source: bool = False,
         inject_successor_flush: bool = False,
         fail_scopes: set[str] | None = None,
+        wait_for: asyncio.Event | None = None,
     ) -> None:
         self.database = database
         self.inject_new_source = inject_new_source
         self.inject_successor_flush = inject_successor_flush
         self.fail_scopes = set() if fail_scopes is None else fail_scopes
+        self.wait_for = wait_for
         self.injected = False
         self.assignments: list[ArtifactProcessingWorkAssignment] = []
         self.active: set[tuple[str, str]] = set()
@@ -78,6 +83,8 @@ class _PublishingHandle:
         self.assignment = assignment
 
     async def wait(self) -> ArtifactProcessingWorkerCompletion:
+        if self.launcher.wait_for is not None:
+            await self.launcher.wait_for.wait()
         await asyncio.sleep(0)
         assignment = self.assignment
         key = (assignment.binding_name, assignment.scope_id)
@@ -208,6 +215,21 @@ class _FailingStartLauncher:
         raise RuntimeError
 
 
+class _CapturingSpawnLauncher:
+    def __init__(self) -> None:
+        self._launcher = SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm)
+        self.assignment: ArtifactProcessingWorkAssignment | None = None
+        self.process_pid: int | None = None
+        self.started = asyncio.Event()
+
+    async def start(self, assignment: ArtifactProcessingWorkAssignment):
+        handle = await self._launcher.start(assignment)
+        self.assignment = assignment
+        self.process_pid = cast(Any, handle)._process.pid
+        self.started.set()
+        return handle
+
+
 class _TrackingPendingRepository(ArtifactProcessingPendingRepository):
     def __init__(self) -> None:
         self.scan_calls = 0
@@ -300,6 +322,16 @@ class _RenewingLeaseRepository(ArtifactProcessingLeaseRepository):
         del connection
         assert fence == self.lease.fence("oceanbase")
         return self.lease
+
+
+class _CycleCountingSupervisor(ArtifactProcessingSupervisor):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.cycle_count = 0
+
+    async def _cycle(self) -> None:
+        self.cycle_count += 1
+        await super()._cycle()
 
 
 def _spawn_success(_assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion:
@@ -691,6 +723,49 @@ def test_hanging_launch_preserves_short_lease_and_bounds_discovery(tmp_path, mon
     asyncio.run(scenario())
 
 
+def test_full_discovery_budget_waits_for_worker_callback_without_spinning(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 2)
+        release = asyncio.Event()
+        pending = ArtifactProcessingPendingRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'full-budget.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            for scope_id in ("scope-a", "scope-b"):
+                await _raise_and_flush(profile.database, pending, scope_id, 1)
+            launcher = _PublishingLauncher(profile.database, wait_for=release)
+            supervisor = _CycleCountingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding(BINDING, 1, launcher),),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=60,
+            )
+            await supervisor.start()
+
+            async def first_worker_started() -> bool:
+                return len(launcher.assignments) == 1
+
+            await _wait_until(first_worker_started)
+            await asyncio.sleep(0.03)
+            settled_cycle_count = supervisor.cycle_count
+            await asyncio.sleep(0.03)
+
+            assert supervisor.cycle_count - settled_cycle_count <= 1
+            assert supervisor._next_discovery_wake_at is None
+            assert supervisor._next_wake_seconds() is None
+            release.set()
+
+            async def all_work_completed() -> bool:
+                async with profile.database.transaction() as connection:
+                    return await pending.scan(connection, binding_name=BINDING) == ()
+
+            await _wait_until(all_work_completed)
+            assert supervisor.cycle_count > settled_cycle_count
+            await supervisor.close()
+
+    asyncio.run(scenario())
+
+
 def test_close_cancels_a_worker_launch_with_a_bounded_wait(tmp_path) -> None:
     async def scenario() -> None:
         pending = ArtifactProcessingPendingRepository()
@@ -802,32 +877,58 @@ def test_spawn_launcher_runs_a_real_child_process() -> None:
     asyncio.run(scenario())
 
 
-def test_spawn_launcher_escalates_to_kill_within_the_shutdown_bound(tmp_path) -> None:
+def test_supervisor_close_kills_spawned_worker_and_stales_its_fence(tmp_path) -> None:
     async def scenario() -> None:
         ready = tmp_path / "worker-ready"
-        assignment = ArtifactProcessingWorkAssignment(
-            binding_name=BINDING,
-            scope_id=str(ready),
-            source_after=0,
-            source_through=1,
-            wave_target=1,
-            claimed_flush_generation=1,
-            cursor_generation=None,
-            wave_kind=ArtifactProcessingWaveKind.EXPLICIT,
-            fence=ArtifactProcessingFence(
-                supervisor_group="global",
-                holder_id="holder-a",
-                supervisor_generation=1,
+        pending = ArtifactProcessingPendingRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'spawn-close.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            await _raise_and_flush(profile.database, pending, str(ready), 1)
+            launcher = _CapturingSpawnLauncher()
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding(BINDING, 1, launcher),),
                 lease_mode="single-process",
-            ),
-            worker_id="00000000-0000-4000-8000-000000000002",
-        )
-        handle = await SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment)
+                max_workers=1,
+                worker_timeout_seconds=60,
+                holder_id="holder-a",
+            )
+            await supervisor.start()
+            await asyncio.wait_for(launcher.started.wait(), timeout=3)
 
-        async def child_is_ready() -> bool:
-            return ready.exists()
+            async def child_is_ready() -> bool:
+                return ready.exists()
 
-        await _wait_until(child_is_ready)
-        await asyncio.wait_for(handle.terminate(), timeout=3)
+            await _wait_until(child_is_ready)
+            old_fence = launcher.assignment.fence if launcher.assignment is not None else None
+            child_pid = launcher.process_pid
+            assert old_fence is not None
+            assert child_pid is not None
+
+            await asyncio.wait_for(supervisor.close(), timeout=3)
+            child_reaped = False
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                child_reaped = True
+            assert child_reaped
+
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                holder_id="holder-b",
+            ) as successor:
+                assert successor.fence is not None
+                assert successor.fence.supervisor_generation == old_fence.supervisor_generation + 1
+                async with profile.database.transaction() as connection:
+                    stale_fence_rejected = False
+                    try:
+                        await ArtifactProcessingLeaseRepository().require_fence(connection, old_fence)
+                    except ArtifactProcessingLeadershipLostError:
+                        stale_fence_rejected = True
+                    assert stale_fence_rejected
 
     asyncio.run(scenario())

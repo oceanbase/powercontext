@@ -540,6 +540,11 @@ class ArtifactProcessingSupervisor:
         self._activate_due_retries()
         available = _DISCOVERY_PAGE_SIZE - len(self._work)
         if available <= 0:
+            # The frontier cannot advance until active work frees capacity. Its
+            # callbacks (or the OceanBase control tick) will wake us; retaining
+            # an already-due page deadline here would spin the control loop.
+            self._next_discovery_wake_at = None
+            self._next_automatic_wake_at = None
             return
         if self._automatic_discovery_queue and self._discover_automatic_next:
             await self._discover_automatic_page(available)
