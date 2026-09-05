@@ -1278,7 +1278,7 @@ def _server_readiness_diagnostic(server_url: str) -> Diagnostic:
     )
 
 
-def _dashboard_scopes_diagnostic(server_url: str) -> Diagnostic:
+def _dashboard_scopes_diagnostic(server_url: str) -> Diagnostic:  # noqa: C901 - endpoint diagnostics have distinct failure branches.
     """Confirm that the Dashboard can discover at least the automatic default Scope."""
 
     try:
