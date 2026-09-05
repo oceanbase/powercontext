@@ -37,6 +37,7 @@ from pydantic import ValidationError
 from powercontext.client.settings import normalize_server_url
 from powercontext.http import HealthResponse, ReadinessResponse, ReadinessStatus
 from powercontext.paths import powercontext_data_dir
+from powercontext.server.web import DashboardScope
 from powercontext.transport import canonical_loopback_endpoint, is_loopback_host
 
 HELP_OPTION_NAMES = ("-h", "--help")
@@ -1046,11 +1047,20 @@ def run_diagnostics(*, server_url: str) -> dict[str, Diagnostic]:
             detail="not checked because Server liveness failed",
         )
     )
+    dashboard_scopes = (
+        _dashboard_scopes_diagnostic(server_url)
+        if readiness.status in {DiagnosticStatus.OK, DiagnosticStatus.DEGRADED}
+        else Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because Server readiness is not healthy",
+        )
+    )
     return {
         "package": package,
         **service,
         "server_liveness": liveness,
         "server_readiness": readiness,
+        "dashboard_scopes": dashboard_scopes,
     }
 
 
@@ -1266,6 +1276,57 @@ def _server_readiness_diagnostic(server_url: str) -> Diagnostic:
         detail=f"{server_url} status={readiness.status.value}",
         checks=readiness.checks,
     )
+
+
+def _dashboard_scopes_diagnostic(server_url: str) -> Diagnostic:  # noqa: C901 - endpoint diagnostics have distinct failure branches.
+    """Confirm that the Dashboard can discover at least the automatic default Scope."""
+
+    try:
+        page_status, _ = _request_json(server_url, "/")
+    except OSError:
+        return Diagnostic(status=DiagnosticStatus.DEGRADED, detail="cannot query Dashboard page")
+    if page_status == 401:
+        return Diagnostic(
+            status=DiagnosticStatus.OK,
+            detail="Dashboard scope discovery requires authentication; verify the configured bearer token",
+        )
+    if page_status == 404:
+        return Diagnostic(
+            status=DiagnosticStatus.DEGRADED,
+            detail="Dashboard is disabled; enable it with POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true",
+        )
+    if page_status != 200:
+        return Diagnostic(status=DiagnosticStatus.FAILED, detail="Dashboard page returned an invalid response")
+
+    try:
+        status_code, payload = _request_json(server_url, "/dashboard/scopes")
+    except OSError:
+        return Diagnostic(status=DiagnosticStatus.DEGRADED, detail="cannot query Dashboard scopes")
+    if status_code == 401:
+        return Diagnostic(
+            status=DiagnosticStatus.OK,
+            detail="Dashboard scope discovery requires authentication; verify the configured bearer token",
+        )
+    if status_code != 200 or not isinstance(payload, list):
+        return Diagnostic(
+            status=DiagnosticStatus.FAILED, detail="Dashboard scope discovery returned an invalid response"
+        )
+    if not payload:
+        return Diagnostic(
+            status=DiagnosticStatus.DEGRADED,
+            detail=(
+                "no Dashboard scopes are available; restart the Server to bootstrap the Default Scope, "
+                "or create a Scope through the API"
+            ),
+        )
+    try:
+        for scope in payload:
+            DashboardScope.model_validate(scope)
+    except ValidationError:
+        return Diagnostic(
+            status=DiagnosticStatus.FAILED, detail="Dashboard scope discovery returned an invalid response"
+        )
+    return Diagnostic(status=DiagnosticStatus.OK, detail=f"Dashboard exposes {len(payload)} Scope(s)")
 
 
 def _request_json(server_url: str, path: str) -> tuple[int, object]:
