@@ -375,7 +375,9 @@ Chunk policy:
 6. Exact get always returns the complete Detail.
 
 The concrete chunk length, tail threshold, and overlap ratio are internal constants associated with a policy version,
-not public configuration. Changing the Chunk policy requires rebuilding the corresponding retrieval projections.
+not public configuration. The implementation also enforces a hard per-Topic chunk count so the vector channel's
+worst-case neighbor scan remains within the backend limit; adversarial Markdown falls back to bounded overlapping
+windows. Changing the Chunk policy requires rebuilding the corresponding retrieval projections.
 
 Each retrieval channel first collapses by Topic. When multiple Detail chunks from one Topic match, only the best
 position is retained for the snippet. The two or four channels enabled for the current deployment are fused by RRF
@@ -383,6 +385,9 @@ rather than by comparing raw full-text scores with raw vector distances. A Topic
 position, and `matched_by` records which channels matched it. The per-channel candidate limit applies only after this
 Topic collapse, so one Topic with many matching chunks cannot hide another Topic. FTS snippets center a bounded window
 on an Analyzer v1 query match; a vector-only detail hit uses a stable window from its matched chunk.
+The first-release search limit and historical candidate configuration are both bounded to 20. Search queries are
+bounded to 8,192 characters and 64 distinct Analyzer terms; repeated terms are deduplicated before constructing a
+backend full-text expression.
 
 ## Storage, Head, and atomic activation
 

@@ -95,10 +95,10 @@ def fts_query_requirements(value: str) -> tuple[tuple[str, ...], int]:
 def fts_match_query(value: str) -> str | None:
     """Build a MATCH expression solely from Analyzer v1 output tokens."""
 
-    analyzed = analyze_text(value)
-    if not analyzed:
+    terms = tuple(sorted(set(analyze_text(value).split())))
+    if not terms:
         return None
-    return " OR ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in analyzed.split())
+    return " OR ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in terms)
 
 
 def admits_fts_text(query: str, text: str, /) -> bool:

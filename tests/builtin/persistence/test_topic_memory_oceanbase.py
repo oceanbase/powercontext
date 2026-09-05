@@ -136,7 +136,7 @@ def test_oceanbase_detail_vector_collapses_topics_before_the_channel_limit() -> 
         assert "WHERE topic_rank = 1" in statements[1]
         assert statements[1].find("LIMIT :neighbor_limit") < statements[1].find("row_number() OVER")
         assert statements[1].rfind("LIMIT :candidate_limit") > statements[1].rfind("WHERE topic_rank = 1")
-        assert connection.execute.await_args_list[1].args[1]["neighbor_limit"] == 280
+        assert connection.execute.await_args_list[1].args[1]["neighbor_limit"] == 400
         assert result.topic_vector == ()
         assert result.detail_vector == ()
 

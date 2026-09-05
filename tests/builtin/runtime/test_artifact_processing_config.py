@@ -48,6 +48,8 @@ def test_artifact_processing_configuration_rejects_invalid_bounds() -> None:
         RuntimeConfig(topic_memory_schedule_seconds=0)
     with pytest.raises(ValidationError):
         RuntimeConfig(artifact_processing_worker_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        RuntimeConfig(topic_memory_history_max_candidates=21)
 
 
 @pytest.mark.parametrize(

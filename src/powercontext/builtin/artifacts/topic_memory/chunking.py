@@ -23,7 +23,6 @@ from itertools import pairwise
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory.models import (
-    MAX_TOPIC_MEMORY_DETAIL_LENGTH,
     TopicMemoryChunk,
     TopicMemoryContent,
     TopicMemoryProjection,
@@ -35,11 +34,11 @@ TOPIC_MEMORY_CHUNK_TARGET_CHARACTERS = 1_200
 TOPIC_MEMORY_CHUNK_MAX_CHARACTERS = 1_800
 TOPIC_MEMORY_CHUNK_MIN_TAIL_CHARACTERS = 300
 TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS = 160
-# Adjacent non-forced outputs together exceed the max size, while forced
-# windows advance farther; this is a conservative bound for valid Detail.
-TOPIC_MEMORY_CHUNK_MAX_COUNT = (
-    2 * MAX_TOPIC_MEMORY_DETAIL_LENGTH + TOPIC_MEMORY_CHUNK_MAX_CHARACTERS - 1
-) // TOPIC_MEMORY_CHUNK_MAX_CHARACTERS + 1
+# The first-release search contract admits at most 20 Topics per channel.
+# Keeping each Topic at or below 200 chunks therefore bounds sqlite-vec k at
+# 4,000, below its 4,096-neighbor ceiling. Pathological Markdown that would
+# exceed this limit uses the deterministic fixed-window fallback below.
+TOPIC_MEMORY_CHUNK_MAX_COUNT = 200
 
 _BLOCK_BOUNDARY = re.compile(r"(?:\n[ \t]*\n+)|(?=^#{1,6}[ \t]+)|(?=^[ \t]*(?:[-*+] |\d+[.)] ))", re.MULTILINE)
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])(?:[ \t]+|(?=\n))")  # noqa: RUF001
@@ -110,6 +109,9 @@ def chunk_topic_memory_detail(detail: str, /) -> tuple[TopicMemoryChunk, ...]:
         previous = assembled.pop()
         assembled.append(_Span(previous.start, tail.end))
 
+    if len(assembled) > TOPIC_MEMORY_CHUNK_MAX_COUNT:
+        assembled = list(_bounded_window_spans(detail))
+
     return tuple(
         TopicMemoryChunk(
             ordinal=ordinal,
@@ -164,6 +166,22 @@ def _trimmed_span(detail: str, start: int, end: int) -> _Span | None:
     while end > start and detail[end - 1].isspace():
         end -= 1
     return None if start == end else _Span(start, end)
+
+
+def _bounded_window_spans(detail: str) -> tuple[_Span, ...]:
+    """Keep adversarial Markdown within the vector retrieval work contract."""
+
+    spans: list[_Span] = []
+    position = 0
+    while position < len(detail):
+        window_end = min(position + TOPIC_MEMORY_CHUNK_MAX_CHARACTERS, len(detail))
+        span = _trimmed_span(detail, position, window_end)
+        if span is not None:
+            spans.append(_Span(span.start, span.end, forced=True))
+        if window_end == len(detail):
+            break
+        position = window_end - TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS
+    return tuple(spans)
 
 
 __all__ = [

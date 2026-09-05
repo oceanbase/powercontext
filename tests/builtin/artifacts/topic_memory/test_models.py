@@ -15,7 +15,14 @@
 import pytest
 from pydantic import ValidationError
 
-from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemoryContent, TopicMemoryDraft
+from powercontext.builtin.artifacts.topic_memory import (
+    MAX_TOPIC_MEMORY_QUERY_LENGTH,
+    MAX_TOPIC_MEMORY_SEARCH_LIMIT,
+    TopicMemory,
+    TopicMemoryContent,
+    TopicMemoryDraft,
+    TopicMemorySearchRequest,
+)
 
 
 def test_topic_memory_content_preserves_progressively_disclosed_sections() -> None:
@@ -50,3 +57,18 @@ def test_topic_memory_types_use_the_topic_memory_family() -> None:
 
     assert TopicMemory(artifact_id="topic-1", revision=1, content=content).as_ref().family == "topic-memory"
     assert TopicMemoryDraft(content=content).family == "topic-memory"
+
+
+def test_topic_memory_search_request_enforces_public_query_and_candidate_bounds() -> None:
+    with pytest.raises(ValidationError):
+        TopicMemorySearchRequest(
+            query="x" * (MAX_TOPIC_MEMORY_QUERY_LENGTH + 1),
+            candidate_limit=1,
+            mode="fts",
+        )
+    with pytest.raises(ValidationError):
+        TopicMemorySearchRequest(
+            query="bounded",
+            candidate_limit=MAX_TOPIC_MEMORY_SEARCH_LIMIT + 1,
+            mode="fts",
+        )

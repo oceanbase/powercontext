@@ -24,6 +24,7 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, JsonValue, Secret
 
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot
+from powercontext.builtin.artifacts.topic_memory import MAX_TOPIC_MEMORY_SEARCH_LIMIT
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -44,9 +45,9 @@ class RuntimeConfig(BaseModel):
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
     topic_memory_schedule_seconds: float | None = Field(default=None, gt=0)
     topic_memory_source_window_limit: int = Field(default=10, ge=1)
-    topic_memory_history_max_candidates: int = Field(default=20, ge=1)
+    topic_memory_history_max_candidates: int = Field(default=20, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
     topic_memory_history_rrf_threshold: int = Field(default=70, ge=0, le=100)
-    topic_memory_history_min_candidates: int = Field(default=5, ge=1)
+    topic_memory_history_min_candidates: int = Field(default=5, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
     artifact_processing_max_workers: int = Field(default=10, ge=1)
     artifact_processing_worker_timeout_seconds: float = Field(default=600, gt=0)
     artifact_processing_role: Literal["all", "api", "background"] = "all"

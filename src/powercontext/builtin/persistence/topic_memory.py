@@ -28,7 +28,9 @@ from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory import (
+    MAX_TOPIC_MEMORY_QUERY_LENGTH,
     MAX_TOPIC_MEMORY_QUERY_TERMS,
+    MAX_TOPIC_MEMORY_SEARCH_LIMIT,
     PublishedTopicMemory,
     TopicMemory,
     TopicMemoryBrowseCursor,
@@ -61,8 +63,6 @@ from powercontext.builtin.persistence.topic_memory_index import (
     TopicMemoryIndex,
     topic_memory_embedding_profile_fingerprint,
 )
-
-_MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES = 20
 
 
 class TopicMemoryRepository:
@@ -383,13 +383,22 @@ class TopicMemoryRepository:
     ) -> TopicMemorySearchResult:
         """Search current complete projections and fuse two or four logical channels."""
 
-        if not 1 <= limit <= 100:
-            raise InvalidRepositoryArgumentError("limit", "must be between 1 and 100")
+        if not 1 <= limit <= MAX_TOPIC_MEMORY_SEARCH_LIMIT:
+            raise InvalidRepositoryArgumentError(
+                "limit",
+                f"must be between 1 and {MAX_TOPIC_MEMORY_SEARCH_LIMIT}",
+            )
         if query != query.strip() or not query:
             raise InvalidRepositoryArgumentError("query", "must be a non-empty trimmed string")
+        if len(query) > MAX_TOPIC_MEMORY_QUERY_LENGTH:
+            raise InvalidRepositoryArgumentError(
+                "query",
+                f"must contain at most {MAX_TOPIC_MEMORY_QUERY_LENGTH} characters",
+            )
         analyzed = analyze_text(query)
         used_mode = self._select_mode(mode, query_vector, embedding_profile)
-        if used_mode in {"fts", "hybrid"} and len(set(analyzed.split())) > MAX_TOPIC_MEMORY_QUERY_TERMS:
+        query_terms = tuple(sorted(set(analyzed.split())))
+        if used_mode in {"fts", "hybrid"} and len(query_terms) > MAX_TOPIC_MEMORY_QUERY_TERMS:
             raise InvalidRepositoryArgumentError(
                 "query",
                 f"must contain at most {MAX_TOPIC_MEMORY_QUERY_TERMS} distinct Analyzer terms",
@@ -399,8 +408,8 @@ class TopicMemoryRepository:
             return TopicMemorySearchResult(mode=used_mode, hits=())
         request = TopicMemorySearchRequest(
             query=query,
-            analyzed_query=analyzed,
-            candidate_limit=min(_MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES, max(limit * 4, limit)),
+            analyzed_query=" ".join(query_terms),
+            candidate_limit=min(MAX_TOPIC_MEMORY_SEARCH_LIMIT, max(limit * 4, limit)),
             mode=used_mode,
             query_vector=query_vector,
             embedding_profile=embedding_profile,

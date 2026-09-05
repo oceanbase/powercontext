@@ -25,7 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.artifacts.search import fts_match_query
 from powercontext.builtin.artifacts.topic_memory import (
+    MAX_TOPIC_MEMORY_QUERY_LENGTH,
+    MAX_TOPIC_MEMORY_SEARCH_LIMIT,
     TOPIC_MEMORY_CHUNK_MAX_COUNT,
     TopicMemory,
     TopicMemoryBrowseCursor,
@@ -285,7 +288,7 @@ def test_fts_search_rejects_queries_above_the_distinct_analyzer_term_limit(term_
     async def scenario() -> None:
         index = _fts_index()
         repository = TopicMemoryRepository(index=index)
-        query = " ".join(f"term{position}" for position in range(term_count))
+        query = " ".join(f"t{position:x}" for position in range(term_count))
         async with (
             SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile,
             profile.database.transaction() as connection,
@@ -293,6 +296,90 @@ def test_fts_search_rejects_queries_above_the_distinct_analyzer_term_limit(term_
             await repository.initialize(connection)
             with pytest.raises(InvalidRepositoryArgumentError, match="at most 64 distinct Analyzer terms"):
                 await repository.search(connection, "scope-a", query, limit=10)
+
+    asyncio.run(scenario())
+
+
+def test_fts_search_bounds_query_length_and_deduplicates_repeated_terms() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            content = _content("Repeated", "needle")
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-repeated",
+                    _draft(content),
+                    prepare_topic_memory_projection(content),
+                )
+
+            async with profile.database.transaction() as connection:
+                repeated_query = ("needle " * 1_000).strip()
+                repeated = await repository.search(
+                    connection,
+                    "scope-a",
+                    repeated_query,
+                    limit=1,
+                )
+                for repetitions in (20_000, 100_000):
+                    with pytest.raises(InvalidRepositoryArgumentError, match="at most 8192 characters"):
+                        await repository.search(
+                            connection,
+                            "scope-a",
+                            ("needle " * repetitions).strip(),
+                            limit=1,
+                        )
+
+            assert tuple(hit.artifact_ref.artifact_id for hit in repeated.hits) == ("topic-repeated",)
+            assert len(repeated_query) <= MAX_TOPIC_MEMORY_QUERY_LENGTH
+            assert fts_match_query(repeated_query) == '"needle"'
+
+    asyncio.run(scenario())
+
+
+def test_search_returns_the_full_public_candidate_limit() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                for position in range(MAX_TOPIC_MEMORY_SEARCH_LIMIT):
+                    content = _content(f"Topic {position}", "needle")
+                    await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        f"topic-{position:02d}",
+                        _draft(content),
+                        prepare_topic_memory_projection(content),
+                    )
+
+            async with profile.database.transaction() as connection:
+                result = await repository.search(
+                    connection,
+                    "scope-a",
+                    "needle",
+                    limit=MAX_TOPIC_MEMORY_SEARCH_LIMIT,
+                )
+
+            assert len(result.hits) == MAX_TOPIC_MEMORY_SEARCH_LIMIT
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("limit", [21, 25, 30, 100])
+def test_search_rejects_limits_above_the_channel_candidate_contract(limit: int) -> None:
+    async def scenario() -> None:
+        repository = TopicMemoryRepository(index=_fts_index())
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile,
+            profile.database.transaction() as connection,
+        ):
+            with pytest.raises(InvalidRepositoryArgumentError, match="must be between 1 and 20"):
+                await repository.search(connection, "scope-a", "bounded", limit=limit)
 
     asyncio.run(scenario())
 
@@ -940,7 +1027,7 @@ def test_sqlite_vector_work_budget_is_partitioned_by_scope() -> None:
     asyncio.run(scenario())
 
 
-def test_detail_vector_collapses_topics_within_the_derived_chunk_bound() -> None:
+def test_detail_vector_collapses_topics_for_adversarial_maximum_detail() -> None:
     async def scenario() -> None:
         embedding_profile = EmbeddingProfile(
             profile_id="topic-test-v1",
@@ -954,14 +1041,14 @@ def test_detail_vector_collapses_topics_within_the_derived_chunk_bound() -> None
             SQLiteTopicMemoryVectorIndex(embedding_profile),
         )
         repository = TopicMemoryRepository(index=index)
-        dense_detail = "\n\n".join("x" if position % 2 == 0 else "y" * 1_800 for position in range(139))
+        dense_detail = (("x\n\n" + "y" * 1_801 + "\n\n") * 69).rstrip()
         dense_content = TopicMemoryContent(
             title="Dense vector topic",
             summary="Every canonical chunk is close to the query.",
             detail=dense_detail,
         )
         dense_base = prepare_topic_memory_projection(dense_content)
-        assert len(dense_base.chunks) == 139
+        assert len(dense_detail) == 124_612
         assert len(dense_base.chunks) <= TOPIC_MEMORY_CHUNK_MAX_COUNT
         async with SQLiteProfile.open(
             SQLiteConfig(),
@@ -970,7 +1057,7 @@ def test_detail_vector_collapses_topics_within_the_derived_chunk_bound() -> None
         ) as profile:
             async with profile.database.transaction() as connection:
                 await repository.initialize(connection)
-                for position in range(3):
+                for position in range(14):
                     content = dense_content.model_copy(update={"title": f"Dense vector topic {position}"})
                     base = prepare_topic_memory_projection(content)
                     projection = base.model_copy(
@@ -1011,7 +1098,7 @@ def test_detail_vector_collapses_topics_within_the_derived_chunk_bound() -> None
                     TopicMemorySearchRequest(
                         query="semantic",
                         analyzed_query="semantic",
-                        candidate_limit=4,
+                        candidate_limit=20,
                         mode="vector",
                         query_vector=(1.0, 0.0),
                         embedding_profile=embedding_profile,
@@ -1021,24 +1108,15 @@ def test_detail_vector_collapses_topics_within_the_derived_chunk_bound() -> None
                     connection,
                     "scope-a",
                     "semantic",
-                    limit=100,
+                    limit=MAX_TOPIC_MEMORY_SEARCH_LIMIT,
                     mode="vector",
                     query_vector=(1.0, 0.0),
                     embedding_profile=embedding_profile,
                 )
 
-            assert {hit.artifact_ref.artifact_id for hit in channels.detail_vector} == {
-                "topic-dense-0",
-                "topic-dense-1",
-                "topic-dense-2",
-                "topic-target",
-            }
-            assert {hit.artifact_ref.artifact_id for hit in public_result.hits} == {
-                "topic-dense-0",
-                "topic-dense-1",
-                "topic-dense-2",
-                "topic-target",
-            }
+            expected = {*(f"topic-dense-{position}" for position in range(14)), "topic-target"}
+            assert {hit.artifact_ref.artifact_id for hit in channels.detail_vector} == expected
+            assert {hit.artifact_ref.artifact_id for hit in public_result.hits} == expected
 
     asyncio.run(scenario())
 

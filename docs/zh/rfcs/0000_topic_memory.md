@@ -338,14 +338,17 @@ Chunk policy：
 5. 搜索命中后围绕最佳位置动态扩展 snippet；
 6. exact get 始终返回完整 Detail。
 
-具体 chunk 长度、尾块阈值和 overlap 比例是带 policy version 的内部常量，不是公共配置。Chunk 策略变化需要
-重建对应检索投影。
+具体 chunk 长度、尾块阈值和 overlap 比例是带 policy version 的内部常量，不是公共配置。实现还会强制每个 Topic
+的 chunk 数量上限，保证向量通道最坏情况下的近邻扫描不超过后端限制；对抗性 Markdown 会回退为有界重叠窗口。
+Chunk 策略变化需要重建对应检索投影。
 
 每个检索通道先按 Topic collapse，同一 Topic 的多个 detail 命中只保留最佳位置用于 snippet。当前部署启用的
 两个或四个通道通过 RRF 排名融合，不比较全文分数和向量距离的原始数值。最终一个 Topic 最多占一个结果位置，并保留
 `matched_by` 说明命中通道。每个通道都先按 Topic 折叠，再应用候选上限，因此单个 Topic 的大量命中 chunk 不会
 遮蔽其他 Topic。全文 snippet 以 Analyzer v1 查询命中为中心截取有界窗口；只有向量命中时，则稳定截取其命中 chunk
 内部的窗口。
+首版搜索 limit 与历史候选配置统一限制为 20。查询最多 8,192 个字符、64 个不同的 Analyzer term；构造后端
+全文检索表达式前会去除重复 term。
 
 ## 存储、Head 与原子激活
 

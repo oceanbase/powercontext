@@ -16,6 +16,7 @@ from itertools import pairwise
 
 from powercontext.builtin.artifacts.topic_memory import (
     TOPIC_MEMORY_CHUNK_MAX_CHARACTERS,
+    TOPIC_MEMORY_CHUNK_MAX_COUNT,
     TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS,
     TopicMemoryContent,
     chunk_topic_memory_detail,
@@ -74,3 +75,16 @@ def test_short_tail_is_merged_into_the_preceding_chunk() -> None:
 
     assert len(chunks) == 1
     assert chunks[0].text == detail.rstrip()
+
+
+def test_adversarial_markdown_falls_back_to_the_hard_chunk_count_bound() -> None:
+    detail = (("x\n\n" + "y" * 1_801 + "\n\n") * 69).rstrip()
+
+    chunks = chunk_topic_memory_detail(detail)
+
+    assert len(detail) == 124_612
+    assert len(chunks) <= TOPIC_MEMORY_CHUNK_MAX_COUNT
+    assert all(chunk.text == detail[chunk.start_offset : chunk.end_offset] for chunk in chunks)
+    assert all(len(chunk.text) <= TOPIC_MEMORY_CHUNK_MAX_CHARACTERS for chunk in chunks)
+    assert chunks[0].start_offset == 0
+    assert chunks[-1].end_offset == len(detail)
