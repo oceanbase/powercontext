@@ -57,6 +57,12 @@ class RuntimeConfig(BaseModel):
             raise ValueError(  # noqa: TRY003
                 "topic_memory_history_min_candidates must not exceed topic_memory_history_max_candidates"
             )
+        if self.artifact_processing_role != "all" and (
+            self.schedule_seconds is not None or self.experience_schedule_seconds is not None
+        ):
+            raise ValueError(  # noqa: TRY003
+                "schedule_seconds and experience_schedule_seconds require artifact_processing_role='all'"
+            )
         return self
 
 

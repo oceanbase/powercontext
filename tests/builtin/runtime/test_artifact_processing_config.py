@@ -51,6 +51,43 @@ def test_artifact_processing_configuration_rejects_invalid_bounds() -> None:
 
 
 @pytest.mark.parametrize(
+    "runtime_values",
+    [
+        pytest.param(
+            {"artifact_processing_role": "api", "schedule_seconds": 30},
+            id="api-memory",
+        ),
+        pytest.param(
+            {"artifact_processing_role": "api", "experience_schedule_seconds": 30},
+            id="api-experience",
+        ),
+        pytest.param(
+            {"artifact_processing_role": "background", "schedule_seconds": 30},
+            id="background-memory",
+        ),
+        pytest.param(
+            {"artifact_processing_role": "background", "experience_schedule_seconds": 30},
+            id="background-experience",
+        ),
+    ],
+)
+def test_split_roles_reject_legacy_scheduler_intervals(runtime_values: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="require artifact_processing_role='all'"):
+        RuntimeConfig.model_validate(runtime_values)
+
+
+def test_all_role_remains_the_legacy_scheduler_owner() -> None:
+    runtime = RuntimeConfig(
+        artifact_processing_role="all",
+        schedule_seconds=30,
+        experience_schedule_seconds=45,
+    )
+
+    assert runtime.schedule_seconds == 30
+    assert runtime.experience_schedule_seconds == 45
+
+
+@pytest.mark.parametrize(
     "database",
     [
         SQLiteConfig(),
@@ -106,3 +143,18 @@ def test_server_cli_routes_background_role_without_starting_http(monkeypatch) ->
     run_background.assert_called_once()
     assert run_background.call_args.args[0].runtime.artifact_processing_role == "background"
     tracing.shutdown.assert_called_once()
+
+
+def test_server_cli_rejects_split_role_with_a_legacy_scheduler(monkeypatch) -> None:
+    for name in tuple(os.environ):
+        if name.startswith("POWERCONTEXT_SERVER_"):
+            monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_KIND", "oceanbase")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_URL", OCEANBASE_URL)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS", "30")
+
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--role", "background"])
+
+    assert result.exit_code == 2
+    assert "schedule_seconds" in result.output
+    assert "artifact_processing_role" in result.output

@@ -125,7 +125,10 @@ The Artifact Processing Supervisor is enabled by the default `all` role. OceanBa
 `background` separately; `powercontext server run --role background` starts no HTTP, MCP, or Dashboard listener, and
 multiple background candidates use the database Lease to elect one active Leader. SQLite and embedded seekDB support
 only the single-process `all` role. Automatic Topic Memory waves remain disabled until a positive interval is set;
-explicit flush work remains recoverable regardless of that interval.
+explicit flush work remains recoverable regardless of that interval. The legacy Memory and Experience APScheduler
+jobs still belong exclusively to `all`: configuring `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` or
+`POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` with either split role is rejected at startup. Keep `all`
+when those jobs are required; assigning them to a separate process is outside the current split-role contract.
 
 Provider credentials, such as `OPENAI_API_KEY`, are read by the configured inference provider. Do not place secrets in
 command-line arguments, documentation, or Memory. Replace `provider:model-name` with a model identifier supported by
