@@ -296,6 +296,20 @@ ARTIFACT_PROCESSING_PENDING_TABLE = Table(
     ),
 )
 
+ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE = Table(
+    "pc_artifact_processing_auto_wave_targets",
+    SHARED_METADATA,
+    Column("wave_id", identity_string(36), primary_key=True),
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_through", BigInteger, nullable=False),
+    Column("completed", Boolean, nullable=False, server_default="0"),
+    CheckConstraint(
+        "source_through >= 1",
+        name="ck_pc_artifact_processing_auto_wave_target_source_positive",
+    ),
+)
+
 ARTIFACT_PROCESSING_LEASES_TABLE = Table(
     "pc_artifact_processing_leases",
     SHARED_METADATA,
@@ -402,6 +416,7 @@ SHARED_TABLES = (
     ARTIFACT_PROCESSING_LEASES_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     ARTIFACT_PROCESSING_PENDING_TABLE,
+    ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
 )
 

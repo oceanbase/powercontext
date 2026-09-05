@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import asyncio
 
-from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.processing import (
+    ArtifactProcessingAutoWaveTargetRepository,
+    ArtifactProcessingPendingRepository,
+)
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import SHARED_TABLES
@@ -53,6 +56,52 @@ def test_pending_scan_uses_bounded_stable_keyset_pages() -> None:
                 ("binding-b", "scope-b"),
             ]
             assert exhausted == ()
+
+    asyncio.run(scenario())
+
+
+def test_automatic_wave_targets_cleanup_only_unchanged_pending() -> None:
+    async def scenario() -> None:
+        async with (
+            repository_profile() as (profile, repositories),
+            profile.database.transaction() as connection,
+        ):
+            pending = repositories.processing_pending
+            targets = ArtifactProcessingAutoWaveTargetRepository()
+            await pending.raise_source(connection, "scope-a", BINDING, 1)
+            await pending.raise_source(connection, "scope-b", BINDING, 1)
+            await targets.add_page(
+                connection,
+                "00000000-0000-4000-8000-000000000001",
+                BINDING,
+                {"scope-a": 1, "scope-b": 1},
+            )
+            assert await targets.mark_completed(
+                connection,
+                "00000000-0000-4000-8000-000000000001",
+                "scope-a",
+            )
+            assert not await targets.all_completed(
+                connection,
+                "00000000-0000-4000-8000-000000000001",
+            )
+            assert await targets.mark_completed(
+                connection,
+                "00000000-0000-4000-8000-000000000001",
+                "scope-b",
+            )
+            await pending.raise_source(connection, "scope-a", BINDING, 2)
+
+            assert (
+                await targets.delete_covered_pending(
+                    connection,
+                    "00000000-0000-4000-8000-000000000001",
+                    BINDING,
+                )
+                == 1
+            )
+            assert await pending.load(connection, "scope-a", BINDING) is not None
+            assert await pending.load(connection, "scope-b", BINDING) is None
 
     asyncio.run(scenario())
 

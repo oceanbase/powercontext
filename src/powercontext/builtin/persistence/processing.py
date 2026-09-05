@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from pydantic import BaseModel
-from sqlalchemy import and_, case, delete, or_, select, update
+from sqlalchemy import and_, case, delete, exists, insert, or_, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
 from powercontext.builtin.persistence.tables import (
+    ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
     ARTIFACT_PROCESSING_PENDING_TABLE,
     SOURCE_JOURNAL_HEADS_TABLE,
 )
@@ -120,6 +121,46 @@ class ArtifactProcessingPendingRepository:
         rows = (await connection.execute(statement)).mappings()
         return tuple(_decode(row) for row in rows)
 
+    async def last_scope_id(
+        self,
+        connection: AsyncConnection,
+        binding_name: str,
+        /,
+    ) -> str | None:
+        """Return the current final key for a binding without materializing it."""
+
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        value = await connection.scalar(
+            select(ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id)
+            .where(ARTIFACT_PROCESSING_PENDING_TABLE.c.binding_name == binding_name)
+            .order_by(ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id.desc())
+            .limit(1)
+        )
+        return None if value is None else str(value)
+
+    async def has_unhandled_flush(
+        self,
+        connection: AsyncConnection,
+        binding_name: str,
+        /,
+    ) -> bool:
+        """Return whether a binding has an explicit flush awaiting a wave."""
+
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        pending = ARTIFACT_PROCESSING_PENDING_TABLE
+        return bool(
+            await connection.scalar(
+                select(
+                    exists(
+                        select(1).where(
+                            pending.c.binding_name == binding_name,
+                            pending.c.flush_generation > pending.c.handled_flush_generation,
+                        )
+                    )
+                )
+            )
+        )
+
     async def request_flush(
         self,
         connection: AsyncConnection,
@@ -197,6 +238,131 @@ class ArtifactProcessingPendingRepository:
             )
         )
         return result.rowcount == 1
+
+
+class ArtifactProcessingAutoWaveTargetRepository:
+    """Stage a frozen automatic wave outside the bounded in-memory queue."""
+
+    async def clear_all(self, connection: AsyncConnection, /) -> None:
+        """Discard non-recoverable targets from an earlier Supervisor term."""
+
+        await connection.execute(delete(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE))
+
+    async def clear_binding(
+        self,
+        connection: AsyncConnection,
+        binding_name: str,
+        /,
+    ) -> None:
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        await connection.execute(
+            delete(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE).where(
+                ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE.c.binding_name == binding_name
+            )
+        )
+
+    async def add_page(
+        self,
+        connection: AsyncConnection,
+        wave_id: str,
+        binding_name: str,
+        targets: Mapping[str, int],
+        /,
+    ) -> None:
+        _require_identifier("wave_id", wave_id, 36)
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        if not targets:
+            return
+        values: list[dict[str, object]] = []
+        for scope_id, source_through in targets.items():
+            _require_identifier("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
+            _require_position("source_through", source_through)
+            values.append({
+                "wave_id": wave_id,
+                "binding_name": binding_name,
+                "scope_id": scope_id,
+                "source_through": source_through,
+                "completed": False,
+            })
+        await connection.execute(insert(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE), values)
+
+    async def mark_completed(
+        self,
+        connection: AsyncConnection,
+        wave_id: str,
+        scope_id: str,
+        /,
+    ) -> bool:
+        _require_identifier("wave_id", wave_id, 36)
+        _require_identifier("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
+        result = await connection.execute(
+            update(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE)
+            .where(
+                ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE.c.wave_id == wave_id,
+                ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE.c.scope_id == scope_id,
+            )
+            .values(completed=True)
+        )
+        return result.rowcount == 1
+
+    async def all_completed(
+        self,
+        connection: AsyncConnection,
+        wave_id: str,
+        /,
+    ) -> bool:
+        _require_identifier("wave_id", wave_id, 36)
+        incomplete = exists(
+            select(1).where(
+                ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE.c.wave_id == wave_id,
+                ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE.c.completed.is_(False),
+            )
+        )
+        return not bool(await connection.scalar(select(incomplete)))
+
+    async def delete_covered_pending(
+        self,
+        connection: AsyncConnection,
+        wave_id: str,
+        binding_name: str,
+        /,
+    ) -> int:
+        """Delete only unchanged Pending rows represented by a completed wave."""
+
+        _require_identifier("wave_id", wave_id, 36)
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        target = ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE
+        pending = ARTIFACT_PROCESSING_PENDING_TABLE
+        covered = exists(
+            select(1).where(
+                target.c.wave_id == wave_id,
+                target.c.binding_name == pending.c.binding_name,
+                target.c.scope_id == pending.c.scope_id,
+                target.c.completed.is_(True),
+                pending.c.source_through <= target.c.source_through,
+            )
+        )
+        result = await connection.execute(
+            delete(pending).where(
+                pending.c.binding_name == binding_name,
+                pending.c.handled_flush_generation == pending.c.flush_generation,
+                covered,
+            )
+        )
+        return result.rowcount
+
+    async def clear_wave(
+        self,
+        connection: AsyncConnection,
+        wave_id: str,
+        /,
+    ) -> None:
+        _require_identifier("wave_id", wave_id, 36)
+        await connection.execute(
+            delete(ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE).where(
+                ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE.c.wave_id == wave_id
+            )
+        )
 
 
 def _decode(row: Mapping[Any, Any]) -> StoredArtifactProcessingPending:

@@ -5,7 +5,10 @@
 from __future__ import annotations
 
 import asyncio
+import signal
+import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -49,19 +52,23 @@ class _PublishingLauncher:
         *,
         inject_new_source: bool = False,
         inject_successor_flush: bool = False,
+        fail_scopes: set[str] | None = None,
     ) -> None:
         self.database = database
         self.inject_new_source = inject_new_source
         self.inject_successor_flush = inject_successor_flush
+        self.fail_scopes = set() if fail_scopes is None else fail_scopes
         self.injected = False
         self.assignments: list[ArtifactProcessingWorkAssignment] = []
         self.active: set[tuple[str, str]] = set()
 
     async def start(self, assignment: ArtifactProcessingWorkAssignment):
         key = (assignment.binding_name, assignment.scope_id)
+        self.assignments.append(assignment)
+        if assignment.scope_id in self.fail_scopes:
+            raise RuntimeError
         assert key not in self.active
         self.active.add(key)
-        self.assignments.append(assignment)
         return _PublishingHandle(self, assignment)
 
 
@@ -299,6 +306,13 @@ def _spawn_success(_assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
     return ArtifactProcessingWorkerCompletion(ArtifactProcessingWorkerOutcome.SUCCEEDED)
 
 
+def _ignore_sigterm(assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerCompletion:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    Path(assignment.scope_id).touch()
+    while True:
+        time.sleep(0.1)
+
+
 async def _wait_until(predicate, *, timeout_seconds: float = 3.0) -> None:
     async with asyncio.timeout(timeout_seconds):
         while not await predicate():  # noqa: ASYNC110 - bounded observation of committed database state
@@ -402,6 +416,53 @@ def test_automatic_wave_commits_binding_time_but_preserves_newer_sources(tmp_pat
             assert state is not None
             assert state.last_auto_wave_completed_at is not None
             assert [item.wave_target for item in launcher.assignments] == [2, 2]
+
+    asyncio.run(scenario())
+
+
+def test_automatic_wave_spans_pages_before_committing_binding_time(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 2)
+        pending = ArtifactProcessingPendingRepository()
+        states = ArtifactProcessingBindingStateRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'automatic-pages.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            async with profile.database.transaction() as connection:
+                for scope_id in ("scope-a", "scope-b", "scope-c"):
+                    await pending.raise_source(connection, scope_id, BINDING, 1)
+            launcher = _PublishingLauncher(profile.database)
+            async with ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(
+                    ArtifactProcessingBinding(
+                        BINDING,
+                        1,
+                        launcher,
+                        automatic_processing_interval=timedelta(seconds=60),
+                    ),
+                ),
+                lease_mode="single-process",
+                max_workers=2,
+                worker_timeout_seconds=1,
+            ):
+
+                async def wave_completed() -> bool:
+                    async with profile.database.transaction() as connection:
+                        return await states.load(connection, BINDING) is not None
+
+                await _wait_until(wave_completed)
+
+            assert [assignment.scope_id for assignment in launcher.assignments] == [
+                "scope-a",
+                "scope-b",
+                "scope-c",
+            ]
+            async with profile.database.transaction() as connection:
+                assert await pending.scan(connection, binding_name=BINDING) == ()
+                for scope_id in ("scope-a", "scope-b", "scope-c"):
+                    cursor = await SourceCursorRepository().load(connection, scope_id, BINDING)
+                    assert cursor is not None
+                    assert cursor.cursor.sequence == 1
 
     asyncio.run(scenario())
 
@@ -535,6 +596,50 @@ def test_retry_deadline_is_quiet_and_dispatches_once_when_due(tmp_path) -> None:
     asyncio.run(scenario())
 
 
+def test_backoff_key_releases_discovery_budget_for_the_next_key(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 1)
+        pending = ArtifactProcessingPendingRepository()
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'retry-fairness.db'}")
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            for scope_id in ("scope-a", "scope-b"):
+                await _raise_and_flush(profile.database, pending, scope_id, 1)
+            launcher = _PublishingLauncher(profile.database, fail_scopes={"scope-a"})
+            supervisor = ArtifactProcessingSupervisor(
+                database=profile.database,
+                bindings=(ArtifactProcessingBinding(BINDING, 1, launcher),),
+                lease_mode="single-process",
+                max_workers=1,
+                worker_timeout_seconds=1,
+                retry_base_seconds=0.05,
+                retry_cap_seconds=0.05,
+                retry_jitter=lambda: 1,
+            )
+            await supervisor.start()
+
+            async def second_key_completed() -> bool:
+                async with profile.database.transaction() as connection:
+                    return await pending.load(connection, "scope-b", BINDING) is None
+
+            await _wait_until(second_key_completed)
+
+            async def first_key_failed_multiple_times() -> bool:
+                return sum(assignment.scope_id == "scope-a" for assignment in launcher.assignments) >= 3
+
+            await _wait_until(first_key_failed_multiple_times)
+            await supervisor.close()
+
+            assert [assignment.scope_id for assignment in launcher.assignments[:2]] == [
+                "scope-a",
+                "scope-b",
+            ]
+            async with profile.database.transaction() as connection:
+                assert await pending.load(connection, "scope-a", BINDING) is not None
+                assert await pending.load(connection, "scope-b", BINDING) is None
+
+    asyncio.run(scenario())
+
+
 def test_hanging_launch_preserves_short_lease_and_bounds_discovery(tmp_path, monkeypatch) -> None:
     async def scenario() -> None:
         monkeypatch.setattr("powercontext.builtin.runtime.artifact_processing._DISCOVERY_PAGE_SIZE", 4)
@@ -577,8 +682,8 @@ def test_hanging_launch_preserves_short_lease_and_bounds_discovery(tmp_path, mon
 
             await _wait_until(launch_failure_recorded)
             assert leases.renew_count >= 2
-            assert pending.scan_limits and set(pending.scan_limits) == {4}
-            assert len(supervisor._work) == 4
+            assert pending.scan_limits and all(limit is not None and limit <= 4 for limit in pending.scan_limits)
+            assert len(supervisor._work) <= 4
             assert len(supervisor._queue) <= 4
             assert len(supervisor._automatic_waves[BINDING].targets) == 4
             await asyncio.wait_for(supervisor.close(), timeout=0.2)
@@ -693,5 +798,36 @@ def test_spawn_launcher_runs_a_real_child_process() -> None:
         )
         handle = await SpawnArtifactProcessingWorkerLauncher(_spawn_success).start(assignment)
         assert await asyncio.wait_for(handle.wait(), timeout=5) == ArtifactProcessingWorkerCompletion()
+
+    asyncio.run(scenario())
+
+
+def test_spawn_launcher_escalates_to_kill_within_the_shutdown_bound(tmp_path) -> None:
+    async def scenario() -> None:
+        ready = tmp_path / "worker-ready"
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name=BINDING,
+            scope_id=str(ready),
+            source_after=0,
+            source_through=1,
+            wave_target=1,
+            claimed_flush_generation=1,
+            cursor_generation=None,
+            wave_kind=ArtifactProcessingWaveKind.EXPLICIT,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global",
+                holder_id="holder-a",
+                supervisor_generation=1,
+                lease_mode="single-process",
+            ),
+            worker_id="00000000-0000-4000-8000-000000000002",
+        )
+        handle = await SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment)
+
+        async def child_is_ready() -> bool:
+            return ready.exists()
+
+        await _wait_until(child_is_ready)
+        await asyncio.wait_for(handle.terminate(), timeout=3)
 
     asyncio.run(scenario())

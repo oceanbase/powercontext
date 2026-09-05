@@ -526,6 +526,23 @@ last_auto_wave_completed_at     TIMESTAMP NULL
 进程启动时的注册配置提供，它不是路由表或任务表。不同 binding 独立更新自己的完成时间，一个繁忙制品不能重置或推迟
 另一个制品的自动波次。
 
+为避免大量 Pending Scope 被一次性实体化到 Leader 内存，当前任期会把自动波次的冻结目标分页暂存到
+`pc_artifact_processing_auto_wave_targets`：
+
+~~~text
+wave_id            VARCHAR(36)
+binding_name       VARCHAR(128)
+scope_id           VARCHAR(256)
+source_through     BIGINT NOT NULL
+completed          BOOLEAN NOT NULL DEFAULT FALSE
+
+PRIMARY KEY (wave_id, binding_name, scope_id)
+~~~
+
+这张表只是当前任期的有界调度暂存，不是可恢复 Job 队列；Pending、Cursor 与 binding 完成时间仍是接管后的权威输入。
+新任期在开始调度前清除旧目标并从 Pending 重新冻结。当前任期逐页填充和处理目标，最后用目标表完成一次集合式 Pending
+清理，因此 ready/running 内存与单轮扫描保持固定上限，同时 completion time 与整波清理仍在同一短事务提交。
+
 当 binding 启用了自动调度、存在普通 Pending，且 `last_auto_wave_completed_at` 为 `NULL` 或数据库当前时间已经达到
 `last_auto_wave_completed_at + automatic_processing_interval` 时，Leader 可以启动自动波次。波次启动时冻结该
 binding 当前各 Pending Scope 的 `source_through`，用多个 Window 处理到这些目标；波次期间新增 Source 留给下一波。

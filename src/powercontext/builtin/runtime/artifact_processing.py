@@ -30,6 +30,7 @@ from powercontext.builtin.persistence.errors import (
     ArtifactProcessingWaveIncompleteError,
 )
 from powercontext.builtin.persistence.processing import (
+    ArtifactProcessingAutoWaveTargetRepository,
     ArtifactProcessingPendingRepository,
     StoredArtifactProcessingPending,
 )
@@ -50,6 +51,8 @@ _RETRY_BASE_SECONDS = 30.0
 _RETRY_CAP_SECONDS = 30.0 * 60.0
 _DISCOVERY_PAGE_SIZE = 100
 _DISCOVERY_PAGE_DELAY_SECONDS = 0.01
+_RETRY_STATE_LIMIT = 1000
+_SPAWN_SIGTERM_GRACE_SECONDS = 1.0
 _WORKER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 _spawn_cleanup_tasks: set[asyncio.Task[None]] = set()
@@ -257,7 +260,7 @@ class _SpawnedWorkerHandle:
                 return
             if self._process.is_alive():
                 self._process.terminate()
-                await asyncio.to_thread(self._process.join, 5.0)
+                await asyncio.to_thread(self._process.join, _SPAWN_SIGTERM_GRACE_SECONDS)
             if self._process.is_alive():
                 self._process.kill()
                 await asyncio.to_thread(self._process.join)
@@ -284,6 +287,15 @@ class _WorkerTerminationError(RuntimeError):
     """The Supervisor could not confirm termination inside its fixed bound."""
 
 
+class _RetryCapacityError(RuntimeError):
+    """An automatic target cannot be safely evicted from the retry frontier."""
+
+
+class _AutomaticWaveStateError(RuntimeError):
+    def __init__(self, wave_id: str, detail: str) -> None:
+        super().__init__(f"automatic wave {wave_id} has inconsistent target state: {detail}")
+
+
 @dataclass(slots=True)
 class _WaveWork:
     key: ProcessingKey
@@ -294,13 +306,18 @@ class _WaveWork:
 
 @dataclass(slots=True)
 class _AutomaticWave:
+    wave_id: str
     binding_name: str
+    end_scope_id: str
     targets: dict[ProcessingKey, int]
+    discovery_after_scope_id: str | None = None
+    discovery_complete: bool = False
     completed: set[ProcessingKey] = field(default_factory=set)
 
 
 @dataclass(slots=True)
 class _RetryState:
+    work: _WaveWork
     consecutive_failures: int
     next_retry_at: float
 
@@ -332,6 +349,7 @@ class ArtifactProcessingSupervisor:
         max_workers: int,
         worker_timeout_seconds: float,
         pending: ArtifactProcessingPendingRepository | None = None,
+        auto_wave_targets: ArtifactProcessingAutoWaveTargetRepository | None = None,
         cursors: SourceCursorRepository | None = None,
         leases: ArtifactProcessingLeaseRepository | None = None,
         binding_states: ArtifactProcessingBindingStateRepository | None = None,
@@ -355,6 +373,9 @@ class ArtifactProcessingSupervisor:
         self._max_workers = max_workers
         self._worker_timeout_seconds = worker_timeout_seconds
         self._pending = ArtifactProcessingPendingRepository() if pending is None else pending
+        self._auto_wave_targets = (
+            ArtifactProcessingAutoWaveTargetRepository() if auto_wave_targets is None else auto_wave_targets
+        )
         self._cursors = SourceCursorRepository() if cursors is None else cursors
         self._leases = ArtifactProcessingLeaseRepository() if leases is None else leases
         self._binding_states = ArtifactProcessingBindingStateRepository() if binding_states is None else binding_states
@@ -371,6 +392,9 @@ class ArtifactProcessingSupervisor:
         self._queued: set[ProcessingKey] = set()
         self._work: dict[ProcessingKey, _WaveWork] = {}
         self._automatic_waves: dict[str, _AutomaticWave] = {}
+        self._automatic_discovery_queue: deque[str] = deque()
+        self._automatic_discovery_queued: set[str] = set()
+        self._discover_automatic_next = False
         self._next_automatic_wake_at: float | None = None
         self._discovery_after: ProcessingKey | None = None
         self._next_discovery_wake_at: float | None = None
@@ -502,6 +526,8 @@ class ArtifactProcessingSupervisor:
                     self.holder_id,
                     self._oceanbase_lease_seconds,
                 )
+            if acquired is not None:
+                await self._auto_wave_targets.clear_all(connection)
         if acquired is None:
             if self._status is not ArtifactProcessingSupervisorStatus.DEGRADED:
                 self._status = ArtifactProcessingSupervisorStatus.STANDBY
@@ -511,11 +537,28 @@ class ArtifactProcessingSupervisor:
         self._status = ArtifactProcessingSupervisorStatus.LEADER
 
     async def _discover_waves(self) -> None:
-        automatic_targets = sum(len(wave.targets) for wave in self._automatic_waves.values())
-        explicit_work = sum(work.wave_kind is ArtifactProcessingWaveKind.EXPLICIT for work in self._work.values())
-        available = _DISCOVERY_PAGE_SIZE - automatic_targets - explicit_work
+        self._activate_due_retries()
+        available = _DISCOVERY_PAGE_SIZE - len(self._work)
         if available <= 0:
             return
+        if self._automatic_discovery_queue and self._discover_automatic_next:
+            await self._discover_automatic_page(available)
+            self._discover_automatic_next = False
+            return
+        await self._discover_pending_page(available)
+        self._discover_automatic_next = bool(self._automatic_discovery_queue)
+
+    def _activate_due_retries(self) -> None:
+        now = asyncio.get_running_loop().time()
+        for key, retry in sorted(self._retries.items(), key=lambda item: item[1].next_retry_at):
+            if len(self._work) >= _DISCOVERY_PAGE_SIZE:
+                return
+            if key in self._work or retry.next_retry_at > now:
+                continue
+            self._work[key] = retry.work
+            self._enqueue(key)
+
+    async def _discover_pending_page(self, available: int) -> None:
         async with self._database.transaction() as connection:
             await self._leases.require_fence(connection, self._require_current_fence())
             pending_rows = await self._pending.scan(
@@ -529,6 +572,13 @@ class ArtifactProcessingSupervisor:
                 for name, binding in self._bindings.items()
                 if binding.automatic_processing_interval is not None
             }
+            automatic_page_bindings = {row.binding_name for row in pending_rows if row.binding_name in binding_states}
+            end_scope_ids = {
+                name: await self._pending.last_scope_id(connection, name) for name in automatic_page_bindings
+            }
+            unhandled_flushes = {
+                name: await self._pending.has_unhandled_flush(connection, name) for name in automatic_page_bindings
+            }
         if pending_rows:
             last = pending_rows[-1]
             self._discovery_after = (last.binding_name, last.scope_id)
@@ -541,11 +591,66 @@ class ArtifactProcessingSupervisor:
         rows_by_binding: dict[str, list[StoredArtifactProcessingPending]] = {}
         for pending in registered:
             key = (pending.binding_name, pending.scope_id)
-            if key not in self._work and pending.flush_generation > pending.handled_flush_generation:
+            if (
+                pending.binding_name not in self._automatic_waves
+                and key not in self._work
+                and key not in self._retries
+                and pending.flush_generation > pending.handled_flush_generation
+            ):
                 self._register_work(pending, ArtifactProcessingWaveKind.EXPLICIT)
             rows_by_binding.setdefault(pending.binding_name, []).append(pending)
         self._refresh_automatic_timer(rows_by_binding, binding_states, now)
-        self._register_automatic_waves(rows_by_binding, binding_states, now)
+        self._register_automatic_waves(
+            rows_by_binding,
+            binding_states,
+            end_scope_ids,
+            unhandled_flushes,
+            now,
+        )
+
+    async def _discover_automatic_page(self, available: int) -> None:
+        wave: _AutomaticWave | None = None
+        while self._automatic_discovery_queue:
+            binding_name = self._automatic_discovery_queue.popleft()
+            self._automatic_discovery_queued.discard(binding_name)
+            candidate = self._automatic_waves.get(binding_name)
+            if candidate is not None and not candidate.targets and not candidate.discovery_complete:
+                wave = candidate
+                break
+        if wave is None:
+            self._wake.set()
+            return
+        after = None if wave.discovery_after_scope_id is None else (wave.binding_name, wave.discovery_after_scope_id)
+        async with self._database.transaction() as connection:
+            await self._leases.require_fence(connection, self._require_current_fence())
+            scanned = await self._pending.scan(
+                connection,
+                binding_name=wave.binding_name,
+                after=after,
+                limit=available,
+            )
+            pending_rows = tuple(row for row in scanned if row.scope_id <= wave.end_scope_id)
+            targets = {row.scope_id: row.source_through for row in pending_rows}
+            await self._auto_wave_targets.add_page(
+                connection,
+                wave.wave_id,
+                wave.binding_name,
+                targets,
+            )
+        if pending_rows:
+            wave.discovery_after_scope_id = pending_rows[-1].scope_id
+        if (
+            not pending_rows
+            or len(pending_rows) < len(scanned)
+            or len(scanned) < available
+            or pending_rows[-1].scope_id == wave.end_scope_id
+        ):
+            wave.discovery_complete = True
+        wave.targets = {(wave.binding_name, row.scope_id): row.source_through for row in pending_rows}
+        for pending in pending_rows:
+            self._register_work(pending, ArtifactProcessingWaveKind.AUTOMATIC)
+        if not wave.targets:
+            self._wake.set()
 
     def _refresh_automatic_timer(
         self,
@@ -567,7 +672,11 @@ class ArtifactProcessingSupervisor:
                 remaining = max(0.0, (state.last_auto_wave_completed_at + interval - now).total_seconds())
             if not rows and remaining <= 0:
                 remaining = interval.total_seconds()
-            binding_busy = binding_name in self._automatic_waves or any(key[0] == binding_name for key in self._work)
+            binding_busy = (
+                binding_name in self._automatic_waves
+                or any(key[0] == binding_name for key in self._work)
+                or any(retry.work.key[0] == binding_name for retry in self._retries.values())
+            )
             if remaining > 0 or not binding_busy:
                 automatic_delays.append(max(remaining, 0.001))
         self._next_automatic_wake_at = None if not automatic_delays else loop_time + min(automatic_delays)
@@ -576,14 +685,22 @@ class ArtifactProcessingSupervisor:
         self,
         rows_by_binding: Mapping[str, Sequence[StoredArtifactProcessingPending]],
         binding_states: Mapping[str, StoredArtifactProcessingBindingState | None],
+        end_scope_ids: Mapping[str, str | None],
+        unhandled_flushes: Mapping[str, bool],
         now: datetime,
     ) -> None:
-        for binding_name, rows in rows_by_binding.items():
+        for binding_name in rows_by_binding:
             binding = self._bindings[binding_name]
             interval = binding.automatic_processing_interval
             if interval is None or binding_name in self._automatic_waves:
                 continue
-            if any(key[0] == binding_name for key in self._work):
+            if unhandled_flushes[binding_name]:
+                continue
+            if len(self._automatic_waves) >= _DISCOVERY_PAGE_SIZE:
+                continue
+            if any(key[0] == binding_name for key in self._work) or any(
+                retry.work.key[0] == binding_name for retry in self._retries.values()
+            ):
                 continue
             state = binding_states[binding_name]
             if (
@@ -592,10 +709,29 @@ class ArtifactProcessingSupervisor:
                 and now < state.last_auto_wave_completed_at + interval
             ):
                 continue
-            targets = {(row.binding_name, row.scope_id): row.source_through for row in rows}
-            self._automatic_waves[binding_name] = _AutomaticWave(binding_name=binding_name, targets=targets)
-            for pending in rows:
-                self._register_work(pending, ArtifactProcessingWaveKind.AUTOMATIC)
+            end_scope_id = end_scope_ids[binding_name]
+            if end_scope_id is None:
+                continue
+            wave = _AutomaticWave(
+                wave_id=str(uuid4()),
+                binding_name=binding_name,
+                end_scope_id=end_scope_id,
+                targets={},
+            )
+            self._automatic_waves[binding_name] = wave
+            self._enqueue_automatic_discovery(binding_name)
+
+    def _enqueue_automatic_discovery(self, binding_name: str) -> None:
+        wave = self._automatic_waves.get(binding_name)
+        if (
+            wave is not None
+            and not wave.targets
+            and not wave.discovery_complete
+            and binding_name not in self._automatic_discovery_queued
+        ):
+            self._automatic_discovery_queue.append(binding_name)
+            self._automatic_discovery_queued.add(binding_name)
+            self._wake.set()
 
     def _register_work(
         self,
@@ -603,6 +739,8 @@ class ArtifactProcessingSupervisor:
         wave_kind: ArtifactProcessingWaveKind,
     ) -> None:
         key = (pending.binding_name, pending.scope_id)
+        if key in self._work or key in self._retries:
+            return
         self._work[key] = _WaveWork(
             key=key,
             wave_kind=wave_kind,
@@ -801,7 +939,7 @@ class ArtifactProcessingSupervisor:
                 continue
             assignment = await self._prepare_assignment(running.work)
             if assignment is None:
-                self._finish_completed_work(running.work)
+                await self._finish_completed_work(running.work)
             else:
                 self._enqueue(key)
 
@@ -832,14 +970,36 @@ class ArtifactProcessingSupervisor:
                     cursor=cursor_position,
                     source_through_limit=work.wave_target,
                 )
-        self._finish_completed_work(work)
+        await self._finish_completed_work(work)
 
-    def _finish_completed_work(self, work: _WaveWork) -> None:
+    async def _finish_completed_work(self, work: _WaveWork) -> None:
+        wave = self._automatic_waves.get(work.key[0])
+        if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
+            if wave is None or work.key not in wave.targets:
+                raise _AutomaticWaveStateError("unknown", "completed target is not active")
+            binding_name, scope_id = work.key
+            async with self._database.transaction() as connection:
+                await self._leases.require_fence(connection, self._require_current_fence())
+                cursor = await self._cursors.load(connection, scope_id, binding_name)
+                cursor_position = 0 if cursor is None else cursor.cursor.sequence
+                if cursor_position < work.wave_target:
+                    raise ArtifactProcessingWaveIncompleteError(
+                        binding_name,
+                        scope_id,
+                        work.wave_target,
+                        cursor_position,
+                    )
+                marked = await self._auto_wave_targets.mark_completed(
+                    connection,
+                    wave.wave_id,
+                    scope_id,
+                )
+                if not marked:
+                    raise _AutomaticWaveStateError(wave.wave_id, "completed target row is missing")
         self._work.pop(work.key, None)
         self._queued.discard(work.key)
         self._retries.pop(work.key, None)
-        if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
-            wave = self._automatic_waves[work.key[0]]
+        if wave is not None and work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
             wave.completed.add(work.key)
             if wave.completed == set(wave.targets):
                 self._wake.set()
@@ -847,29 +1007,17 @@ class ArtifactProcessingSupervisor:
     async def _complete_automatic_wave(self, wave: _AutomaticWave) -> None:
         async with self._database.transaction() as connection:
             await self._leases.require_fence(connection, self._require_current_fence())
-            cursor_positions: dict[ProcessingKey, int] = {}
-            for (binding_name, scope_id), target in wave.targets.items():
-                cursor = await self._cursors.load(connection, scope_id, binding_name)
-                cursor_position = 0 if cursor is None else cursor.cursor.sequence
-                if cursor_position < target:
-                    raise ArtifactProcessingWaveIncompleteError(
-                        binding_name,
-                        scope_id,
-                        target,
-                        cursor_position,
-                    )
-                cursor_positions[(binding_name, scope_id)] = cursor_position
+            if not await self._auto_wave_targets.all_completed(connection, wave.wave_id):
+                raise _AutomaticWaveStateError(wave.wave_id, "incomplete target rows remain")
             await self._binding_states.mark_auto_wave_completed(connection, wave.binding_name)
-            for key, target in wave.targets.items():
-                binding_name, scope_id = key
-                await self._pending.delete_if_covered(
-                    connection,
-                    scope_id,
-                    binding_name,
-                    cursor=cursor_positions[key],
-                    source_through_limit=target,
-                )
+            await self._auto_wave_targets.delete_covered_pending(
+                connection,
+                wave.wave_id,
+                wave.binding_name,
+            )
+            await self._auto_wave_targets.clear_wave(connection, wave.wave_id)
         self._automatic_waves.pop(wave.binding_name, None)
+        self._automatic_discovery_queued.discard(wave.binding_name)
 
     def _record_failure(
         self,
@@ -882,11 +1030,31 @@ class ArtifactProcessingSupervisor:
         failures = 1 if previous is None else previous.consecutive_failures + 1
         base_delay = min(self._retry_base_seconds * (2 ** (failures - 1)), self._retry_cap_seconds)
         retry_delay = base_delay * self._retry_jitter()
-        self._retries[work.key] = _RetryState(
-            consecutive_failures=failures,
-            next_retry_at=loop.time() + retry_delay,
-        )
-        self._enqueue(work.key)
+        self._work.pop(work.key, None)
+        self._queued.discard(work.key)
+        with suppress(ValueError):
+            self._queue.remove(work.key)
+        if previous is None and len(self._retries) >= _RETRY_STATE_LIMIT:
+            evicted = next(
+                (
+                    key
+                    for key, retry in self._retries.items()
+                    if retry.work.wave_kind is ArtifactProcessingWaveKind.EXPLICIT and key not in self._work
+                ),
+                None,
+            )
+            if evicted is None:
+                if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
+                    raise _RetryCapacityError
+                self._next_discovery_wake_at = loop.time() + retry_delay
+            else:
+                self._retries.pop(evicted)
+        if previous is not None or len(self._retries) < _RETRY_STATE_LIMIT:
+            self._retries[work.key] = _RetryState(
+                work=work,
+                consecutive_failures=failures,
+                next_retry_at=loop.time() + retry_delay,
+            )
         log_safely(
             logger,
             logging.ERROR,
@@ -912,8 +1080,14 @@ class ArtifactProcessingSupervisor:
 
     async def _finish_ready_automatic_waves(self) -> None:
         for wave in tuple(self._automatic_waves.values()):
-            if wave.completed == set(wave.targets):
+            if wave.completed != set(wave.targets):
+                continue
+            if wave.discovery_complete:
                 await self._complete_automatic_wave(wave)
+                continue
+            wave.targets.clear()
+            wave.completed.clear()
+            self._enqueue_automatic_discovery(wave.binding_name)
 
     async def _lose_leadership(self, status: ArtifactProcessingSupervisorStatus) -> None:
         self._fence = None
@@ -941,6 +1115,9 @@ class ArtifactProcessingSupervisor:
         self._queued.clear()
         self._work.clear()
         self._automatic_waves.clear()
+        self._automatic_discovery_queue.clear()
+        self._automatic_discovery_queued.clear()
+        self._discover_automatic_next = False
         self._next_automatic_wake_at = None
         self._discovery_after = None
         self._next_discovery_wake_at = None
@@ -962,7 +1139,9 @@ class ArtifactProcessingSupervisor:
         if self._lease_mode == "oceanbase":
             return self._oceanbase_tick_seconds
         retry_delays = tuple(
-            max(0.0, retry.next_retry_at - asyncio.get_running_loop().time()) for retry in self._retries.values()
+            max(0.0, retry.next_retry_at - asyncio.get_running_loop().time())
+            for key, retry in self._retries.items()
+            if key not in self._work
         )
         automatic_delays = (
             ()
