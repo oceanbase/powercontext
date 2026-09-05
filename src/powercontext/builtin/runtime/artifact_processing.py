@@ -142,6 +142,12 @@ class ArtifactProcessingWorkerLauncher(Protocol):
     async def start(self, assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerHandle: ...
 
 
+class ArtifactProcessingWindowSelector(Protocol):
+    """Choose a bounded contiguous Source window outside the control transaction."""
+
+    async def select(self, scope_id: str, source_after: int, source_ceiling: int, /) -> int: ...
+
+
 WorkerEntrypoint = Callable[[ArtifactProcessingWorkAssignment], ArtifactProcessingWorkerCompletion | None]
 
 
@@ -153,6 +159,7 @@ class ArtifactProcessingBinding:
     source_window_limit: int
     launcher: ArtifactProcessingWorkerLauncher
     automatic_processing_interval: timedelta | None = None
+    window_selector: ArtifactProcessingWindowSelector | None = None
 
     def __post_init__(self) -> None:
         if not self.binding_name.strip() or self.binding_name != self.binding_name.strip():
@@ -978,10 +985,20 @@ class ArtifactProcessingSupervisor:
         source_after = 0 if cursor is None else cursor.cursor.sequence
         if source_after >= work.wave_target:
             return None
-        source_through = min(
+        source_ceiling = min(
             source_after + self._bindings[binding_name].source_window_limit,
             work.wave_target,
         )
+        selector = self._bindings[binding_name].window_selector
+        source_through = (
+            source_ceiling if selector is None else await selector.select(scope_id, source_after, source_ceiling)
+        )
+        if (
+            not isinstance(source_through, int)
+            or isinstance(source_through, bool)
+            or not source_after < source_through <= source_ceiling
+        ):
+            raise ValueError("artifact processing selector returned an invalid Source boundary")  # noqa: TRY003
         return ArtifactProcessingWorkAssignment(
             binding_name=binding_name,
             scope_id=scope_id,

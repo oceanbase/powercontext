@@ -374,6 +374,14 @@ class RelationalContexts:
         self._activation_locks: dict[str, asyncio.Lock] = {}
         self._experience_locks: dict[str, asyncio.Lock] = {}
 
+    @property
+    def token_estimator(self) -> TokenEstimator:
+        """Return the deployment-fixed estimator used by internal processors."""
+
+        if self._token_estimator is None:
+            raise RuntimeError("Token estimator is unavailable")  # noqa: TRY003
+        return self._token_estimator
+
     def evict(self, scope_id: str, /) -> None:
         """Discard inactive scope-local compositions and serialization locks."""
 

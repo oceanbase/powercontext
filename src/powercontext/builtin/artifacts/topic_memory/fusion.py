@@ -108,11 +108,13 @@ def _admit_fts(query: str, hits: Sequence[TopicMemoryChannelHit]) -> tuple[Topic
 
 
 def _admit_vector(hits: Sequence[TopicMemoryChannelHit]) -> tuple[TopicMemoryChannelHit, ...]:
-    return tuple(
-        hit
-        for hit in hits
-        if hit.distance is not None and max(-1.0, min(1.0, 1.0 - hit.distance**2 / 2.0)) >= _MIN_SEMANTIC_SIMILARITY
-    )
+    return tuple(hit for hit in hits if hit.distance is not None and admits_topic_memory_vector_distance(hit.distance))
+
+
+def admits_topic_memory_vector_distance(distance: float, /) -> bool:
+    """Apply the shared semantic admission rule to a unit-vector distance."""
+
+    return max(-1.0, min(1.0, 1.0 - distance**2 / 2.0)) >= _MIN_SEMANTIC_SIMILARITY
 
 
 def _snippet(query: str, value: str, *, lexical: bool) -> str:
@@ -190,4 +192,4 @@ def _normalized_spans(value: str) -> tuple[str, tuple[tuple[int, int], ...]]:
     return normalized, tuple(spans)
 
 
-__all__ = ["fuse_topic_memory_rankings"]
+__all__ = ["admits_topic_memory_vector_distance", "fuse_topic_memory_rankings"]

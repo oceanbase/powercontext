@@ -49,6 +49,9 @@ class ModelUsagePurpose(StrEnum):
     EXPERIENCE_GENERATION = "experience_generation"
     SKILL_GENERATION = "skill_generation"
     HANDOFF_GENERATION = "handoff_generation"
+    TOPIC_MEMORY_GENERATION = "topic_memory_generation"
+    TOPIC_MEMORY_RECALL = "topic_memory_recall"
+    TOPIC_MEMORY_INDEXING = "topic_memory_indexing"
 
 
 class FamilyCount(BaseModel):

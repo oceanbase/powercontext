@@ -172,6 +172,11 @@ class InferenceConfig(BaseModel):
             and (self.rerank_headers or self.rerank_model_settings)
         ):
             raise ValueError("rerank overrides require rerank_model or generation_model")  # noqa: TRY003
+        max_tokens = self.generation_model_settings.get("max_tokens")
+        if max_tokens is not None and (
+            not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 1
+        ):
+            raise ValueError("generation_model_settings.max_tokens must be a positive integer")  # noqa: TRY003
         return self
 
 

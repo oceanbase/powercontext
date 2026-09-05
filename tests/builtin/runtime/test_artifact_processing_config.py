@@ -50,6 +50,8 @@ def test_artifact_processing_configuration_rejects_invalid_bounds() -> None:
         RuntimeConfig(artifact_processing_worker_timeout_seconds=0)
     with pytest.raises(ValidationError):
         RuntimeConfig(topic_memory_history_max_candidates=21)
+    with pytest.raises(ValidationError, match="max_tokens"):
+        InferenceConfig(generation_model="test", generation_model_settings={"max_tokens": True})
 
 
 @pytest.mark.parametrize(

@@ -98,6 +98,8 @@ class InferenceLimits(BaseModel):
 
     timeout_seconds: float = Field(default=30.0, gt=0)
     max_requests: int = Field(default=2, ge=1)
+    max_output_tokens_per_request: int | None = Field(default=None, ge=1)
+    output_tokens_limit: int | None = Field(default=None, ge=1)
 
 
 class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
@@ -122,11 +124,17 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
         self._input_type = input_type
         try:
             self._input_adapter = TypeAdapter(input_type)
+            bounded_settings = model_settings
+            if self._limits.max_output_tokens_per_request is not None:
+                bounded_settings = merge_model_settings(
+                    model_settings,
+                    ModelSettings(max_tokens=self._limits.max_output_tokens_per_request),
+                )
             self._agent = Agent(
                 model,
                 output_type=PromptedOutput(output_type),
                 instructions=instructions,
-                model_settings=model_settings,
+                model_settings=bounded_settings,
                 retries=self._limits.max_requests - 1,
                 name=name,
             )
@@ -147,7 +155,10 @@ class PydanticAIStructuredGenerator(Generic[InputT, OutputT]):
             result = await asyncio.wait_for(
                 self._agent.run(
                     prompt,
-                    usage_limits=UsageLimits(request_limit=self._limits.max_requests),
+                    usage_limits=UsageLimits(
+                        request_limit=self._limits.max_requests,
+                        output_tokens_limit=self._limits.output_tokens_limit,
+                    ),
                 ),
                 timeout=self._limits.timeout_seconds,
             )

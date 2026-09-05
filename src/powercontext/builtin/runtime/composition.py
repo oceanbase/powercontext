@@ -19,6 +19,8 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
@@ -39,6 +41,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryReranker,
 )
 from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
+from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter, RuntimeWorkContinuityReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.handoff_report.sqlite import HANDOFF_REPORT_TABLES
@@ -77,6 +80,7 @@ from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
+    SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
@@ -90,6 +94,11 @@ from powercontext.builtin.runtime.readiness import (
     dependency_readiness_probe,
 )
 from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.runtime.topic_memory_processing import (
+    TopicMemoryWindowSelector,
+    TopicMemoryWorkerSpec,
+    run_topic_memory_worker,
+)
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME, ContentSource
 from powercontext.sources import Source
 
@@ -114,6 +123,10 @@ class BuiltinConfigurationError(RuntimeError):
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
+            "topic-memory-child-resources": (
+                "Topic Memory processing requires child-reconstructible inference resources"
+            ),
+            "topic-memory-generation": "Topic Memory processing requires a configured generation model",
             "database": "unsupported built-in database",
         }
         super().__init__(messages[issue])
@@ -309,8 +322,15 @@ async def open_builtin_runtime(
                 tracing=tracing,
             )
         )
+        processing_bindings = _topic_memory_processing_bindings(
+            config,
+            contexts,
+            artifact_processing_bindings,
+            injected_embedding_model=embedding_model,
+            injected_token_estimator=token_estimator,
+        )
         runtime.artifact_processing_supervisor = await resources.enter_async_context(
-            _open_artifact_processing_supervisor(config, contexts, artifact_processing_bindings)
+            _open_artifact_processing_supervisor(config, contexts, processing_bindings)
         )
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
@@ -342,6 +362,46 @@ async def open_builtin_runtime(
                 experience_schedule_seconds=config.runtime.experience_schedule_seconds,
             )
         yield runtime
+
+
+def _topic_memory_processing_bindings(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    bindings: Sequence[ArtifactProcessingBinding],
+    *,
+    injected_embedding_model: EmbeddingModel | None = None,
+    injected_token_estimator: TokenEstimator | None = None,
+) -> tuple[ArtifactProcessingBinding, ...]:
+    configured = tuple(bindings)
+    if config.runtime.artifact_processing_role == "api":
+        return configured
+    if any(binding.binding_name == TOPIC_MEMORY_SOURCE_WINDOW_BINDING for binding in configured):
+        return configured
+    if config.inference.generation_model is None:
+        if config.runtime.topic_memory_schedule_seconds is not None:
+            raise BuiltinConfigurationError("topic-memory-generation")
+        return configured
+    if injected_embedding_model is not None or injected_token_estimator is not None:
+        raise BuiltinConfigurationError("topic-memory-child-resources")
+    spec = TopicMemoryWorkerSpec(config=config)
+    entrypoint = partial(run_topic_memory_worker, spec)
+    selector = TopicMemoryWindowSelector(
+        contexts.database,
+        contexts.repositories.sources,
+        contexts.token_estimator,
+        context_window_tokens=config.inference.generation_model_context_window_tokens,
+    )
+    automatic = config.runtime.topic_memory_schedule_seconds
+    return (
+        *configured,
+        ArtifactProcessingBinding(
+            binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+            source_window_limit=config.runtime.topic_memory_source_window_limit,
+            launcher=SpawnArtifactProcessingWorkerLauncher(entrypoint),
+            automatic_processing_interval=None if automatic is None else timedelta(seconds=automatic),
+            window_selector=selector,
+        ),
+    )
 
 
 @asynccontextmanager
