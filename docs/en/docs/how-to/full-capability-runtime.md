@@ -143,3 +143,5 @@ ID remain stable because they are persisted in the database.
 | Existing data is missing | Restore the previous database URL or `POWERCONTEXT_HOME` |
 
 See [Troubleshooting](troubleshoot.md) and [Configuration](../reference/configuration.md) for details.
+
+To organize saved Artifacts and individual Memory entries, see [Custom tags](manage-artifact-tags.md).

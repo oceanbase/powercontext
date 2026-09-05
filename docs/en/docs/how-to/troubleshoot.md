@@ -206,7 +206,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads' \
+     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads,pc_artifact_tags' \
      -f <export-directory>
    ```
 

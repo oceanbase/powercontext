@@ -27,9 +27,11 @@ from powercontext.client.skill_receiver import (
     SkillReceiverStateError,
     require_remote_skill_server_url,
 )
+from powercontext.client.tags import ArtifactTagSetResponse
 
 __all__ = [
     "RECEIVER_VERSION",
+    "ArtifactTagSetResponse",
     "ClientError",
     "InvalidResponseError",
     "PowerContextClient",

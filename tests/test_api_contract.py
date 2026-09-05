@@ -595,11 +595,21 @@ def test_generated_transport_rejects_values_outside_openapi(
         model.model_validate(value)
 
 
-def test_base_access_contract_uses_only_the_seven_scoped_operations() -> None:
+def test_base_access_and_tag_contract_use_scoped_operations() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     expected_operations = {
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "get"): "get_artifact_tags",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "put"): "replace_artifact_tags",
+        (
+            "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+            "get",
+        ): "get_memory_entry_tags",
+        (
+            "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+            "put",
+        ): "replace_memory_entry_tags",
         ("/v1/scopes/{scope_id}/sources", "post"): "create_source",
         ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}", "get"): "get_source",
         ("/v1/scopes/{scope_id}/artifacts", "post"): "create_artifact",
@@ -681,14 +691,19 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
             model.model_validate(payload)
 
 
-def test_artifact_collection_only_accepts_pagination() -> None:
+def test_artifact_collection_accepts_pagination_and_exact_tag_filters() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     assert "/v1/scopes/{scope_id}/sources/{source_type}" not in paths
     parameters = paths["/v1/scopes/{scope_id}/artifacts/{family}"]["get"]["parameters"]
-    assert [parameter["name"] for parameter in parameters if parameter["in"] == "query"] == ["limit", "cursor"]
-    assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None}
+    assert {parameter["name"] for parameter in parameters if parameter["in"] == "query"} == {
+        "limit",
+        "cursor",
+        "tag",
+        "tag_match",
+    }
+    assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None, "tag": None, "tag_match": None}
 
 
 def test_base_access_uses_a_dedicated_source_type_reference() -> None:

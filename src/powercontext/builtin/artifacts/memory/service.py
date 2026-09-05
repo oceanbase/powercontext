@@ -84,6 +84,7 @@ from powercontext.builtin.inference import (
     InferenceTimeoutError,
     InferenceUnavailableError,
 )
+from powercontext.builtin.tags import TagFilter
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import Source, SourceRef
 
@@ -134,6 +135,11 @@ class _InvalidMemoryOperationError(ValueError):
             "search-mode": "unsupported memory search mode",
         }
         super().__init__(messages[code])
+
+
+def _require_tag_filter(capabilities: MemoryCapabilities, tag_filter: TagFilter | None) -> None:
+    if tag_filter is not None and not capabilities.tag_filter:
+        raise CapabilityNotSupportedError("tag-filter")
 
 
 class MemoryService:
@@ -380,6 +386,7 @@ class MemoryService:
         memories: Sequence[Memory],
         limit: int = 10,
         mode: MemorySearchMode = "auto",
+        tag_filter: TagFilter | None = None,
     ) -> MemorySearchResult:
         """Search explicit current Memory heads with capability-safe fallback."""
 
@@ -397,6 +404,7 @@ class MemoryService:
         selected_memories = tuple(memory.as_ref() for memory in selected)
         await self._validate_search_heads(selected)
         capabilities = await self._backend.capabilities()
+        _require_tag_filter(capabilities, tag_filter)
         selected_mode = await self._select_search_mode(
             mode,
             memories=selected_memories,
@@ -434,6 +442,7 @@ class MemoryService:
             mode=selected_mode,
             query_vector=query_vector,
             embedding_profile=profile,
+            tag_filter=tag_filter,
         )
         channels = await self._backend.search(request)
         admitted_fts = admit_fts_candidates(normalized_query, channels.fts)
@@ -505,11 +514,18 @@ class MemoryService:
             )
         return versions
 
-    async def entries(self, memory: Memory, /) -> tuple[MemoryEntryVersion, ...]:
+    async def entries(
+        self, memory: Memory, /, *, tag_filter: TagFilter | None = None
+    ) -> tuple[MemoryEntryVersion, ...]:
         """Return the entry objects referenced by one exact current Memory head."""
 
         canonical = await self._canonical_memory(memory)
-        return await self._validated_entries(canonical)
+        entries = await self._validated_entries(canonical)
+        if tag_filter is None:
+            return entries
+        _require_tag_filter(await self._backend.capabilities(), tag_filter)
+        matching = await self._backend.tagged_entry_ids(canonical.as_ref(), tag_filter)
+        return tuple(entry for entry in entries if entry.entry_id in matching)
 
     async def rebuild_projections(self, embedding_model: EmbeddingModel | None = None, /) -> None:
         """Rebuild current-head search projections from authoritative Memory revisions."""

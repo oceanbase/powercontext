@@ -47,6 +47,7 @@ class MemoryCapabilities(BaseModel):
     fts: bool
     vector: bool = False
     hybrid: bool = False
+    tag_filter: bool = False
     embedding_profile: EmbeddingProfile | None = None
 
 

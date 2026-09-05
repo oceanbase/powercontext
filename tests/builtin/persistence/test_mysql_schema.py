@@ -15,7 +15,7 @@
 import re
 from pathlib import Path
 
-from sqlalchemy import BigInteger, Date, Integer, String, Table
+from sqlalchemy import BigInteger, Date, Integer, LargeBinary, String, Table
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
@@ -44,6 +44,9 @@ def _column_budget(column) -> int:
         return column.type.length * UTF8MB4_MAX_BYTES_PER_CHARACTER
     if isinstance(column.type, BigInteger):
         return 8
+    if isinstance(column.type, LargeBinary):
+        assert column.type.length is not None
+        return column.type.length
     if isinstance(column.type, Integer):
         return 4
     if isinstance(column.type, Date):
@@ -147,5 +150,5 @@ def test_every_mysql_utf8mb4_key_stays_below_the_innodb_limit() -> None:
             budgets[name] = sum(_column_budget(column) for column in index.columns)
 
     assert budgets
-    assert max(budgets.values()) == 2560
+    assert max(budgets.values()) == 2640
     assert all(budget < INNODB_MAX_INDEX_BYTES for budget in budgets.values())

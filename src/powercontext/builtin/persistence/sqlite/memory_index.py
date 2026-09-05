@@ -29,6 +29,7 @@ from sqlalchemy import (
     Integer,
     Table,
     UniqueConstraint,
+    bindparam,
     delete,
     func,
     insert,
@@ -60,6 +61,7 @@ from powercontext.builtin.persistence.tables import (
     SHARED_METADATA,
     identity_string,
 )
+from powercontext.builtin.persistence.tags import memory_tag_parameters, memory_tag_sql
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 SQLITE_MEMORY_FTS_MARKER_TABLE = Table(
@@ -151,6 +153,10 @@ _INSERT_FTS_SQL = text(
     )
     """
 )
+_TAGGED_FTS_SQL = text(str(_SEARCH_FTS_SQL).replace("ORDER BY", memory_tag_sql("f") + "ORDER BY")).bindparams(
+    bindparam("tag_keys", expanding=True),
+    bindparam("tag_hashes", expanding=True),
+)
 _DELETE_VECTOR_SQL = text("DELETE FROM pc_memory_entry_vec WHERE rowid = :vector_id")
 _DELETE_ORPHAN_VECTORS_SQL = (
     "DELETE FROM pc_memory_entry_vec WHERE rowid NOT IN (SELECT vector_id FROM pc_memory_vector_entries)"
@@ -181,11 +187,31 @@ _VECTOR_SEARCH_SQL = text(
     """
 )
 
+# Exact distance evaluation over the eligible set avoids global KNN followed by
+# post-filtering. The unfiltered path keeps its existing behavior.
+_TAGGED_VECTOR_SEARCH_SQL = text(
+    """
+    SELECT m.memory_artifact_id, m.head_revision, m.entry_id, m.entry_version_id, v.text,
+           vec_distance_L2(vec.embedding, :query_vector) AS distance
+    FROM pc_memory_vector_entries AS m
+    JOIN pc_memory_entry_vec AS vec ON vec.rowid = m.vector_id
+    JOIN pc_memory_entry_versions AS v
+      ON v.scope_id = m.scope_id
+     AND v.memory_artifact_id = m.memory_artifact_id
+     AND v.entry_version_id = m.entry_version_id
+    WHERE m.scope_id = :scope_id
+      AND m.memory_artifact_id IN (SELECT value FROM json_each(:memory_artifact_ids))
+    /* tag-filter */
+    ORDER BY distance, m.memory_artifact_id, m.entry_id, m.entry_version_id
+    LIMIT :candidate_limit
+""".replace("/* tag-filter */", memory_tag_sql("m"))
+).bindparams(bindparam("tag_keys", expanding=True), bindparam("tag_hashes", expanding=True))
+
 
 class SQLiteMemoryFTSIndex:
     """SQLite FTS5 strategy over rebuildable active-head projections."""
 
-    capabilities = MemoryCapabilities(fts=True)
+    capabilities = MemoryCapabilities(fts=True, tag_filter=True)
     tables: tuple[Table, ...] = SQLITE_MEMORY_FTS_TABLES
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
@@ -253,7 +279,7 @@ class SQLiteMemoryFTSIndex:
             return MemorySearchChannels()
         rows = (
             await connection.execute(
-                _SEARCH_FTS_SQL,
+                _SEARCH_FTS_SQL if request.tag_filter is None else _TAGGED_FTS_SQL,
                 {
                     "query": query,
                     "scope_id": scope_id,
@@ -262,6 +288,7 @@ class SQLiteMemoryFTSIndex:
                         separators=(",", ":"),
                     ),
                     "candidate_limit": request.candidate_limit,
+                    **memory_tag_parameters(request.tag_filter),
                 },
             )
         ).mappings()
@@ -319,7 +346,7 @@ class SQLiteMemoryVectorIndex:
                 "sqlite-vec requires a positive unit-normalized L2 embedding profile",
             )
         self.profile = profile
-        self.capabilities = MemoryCapabilities(vector=True, embedding_profile=profile, fts=False)
+        self.capabilities = MemoryCapabilities(vector=True, embedding_profile=profile, fts=False, tag_filter=True)
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "sqlite":
@@ -422,10 +449,11 @@ class SQLiteMemoryVectorIndex:
             return MemorySearchChannels()
         rows = (
             await connection.execute(
-                _VECTOR_SEARCH_SQL,
+                _VECTOR_SEARCH_SQL if request.tag_filter is None else _TAGGED_VECTOR_SEARCH_SQL,
                 {
                     "query_vector": query_vector,
                     "neighbor_limit": total,
+                    **memory_tag_parameters(request.tag_filter),
                     "scope_id": scope_id,
                     "memory_artifact_ids": json.dumps(
                         tuple(ref.artifact_id for ref in request.memories),

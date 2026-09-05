@@ -26,6 +26,7 @@ import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from powercontext.client.errors import InvalidResponseError, ServerResponseError, TransportError
+from powercontext.client.tags import ArtifactTagSetResponse
 from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
     AcknowledgeHandoffRequest,
@@ -149,6 +150,12 @@ from powercontext.http import (
     UpdateSkillLifecycleRequest,
     WorkSourceReceipt,
 )
+from powercontext.http._generated.models import (
+    ArtifactTagPage,
+    ArtifactTagSet,
+    QueryArtifactTagsRequest,
+    ReplaceArtifactTagsRequest,
+)
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
@@ -173,6 +180,7 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
+    GET_ARTIFACT_TAGS,
     GET_CAPABILITIES,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
@@ -180,6 +188,7 @@ from powercontext.http._generated.operations import (
     GET_HANDOFF_REPORT,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
+    GET_MEMORY_ENTRY_TAGS,
     GET_READINESS,
     GET_SCOPE,
     GET_SKILL,
@@ -203,6 +212,7 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL_PACKAGE,
     PUBLISH_ARTIFACT,
     PUBLISH_REMOTE_SKILL,
+    QUERY_ARTIFACT_TAGS,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -212,6 +222,8 @@ from powercontext.http._generated.operations import (
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
     REPLACE_ARTIFACT,
+    REPLACE_ARTIFACT_TAGS,
+    REPLACE_MEMORY_ENTRY_TAGS,
     RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
@@ -459,6 +471,105 @@ class PowerContextClient:
             path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
             extra_headers=None if if_none_match is None else {"If-None-Match": if_none_match},
         )
+
+    async def get_artifact_tags(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        *,
+        if_none_match: str | None = None,
+    ) -> ArtifactTagSetResponse | None:
+        """Read scope-local labels with the server-issued ETag; None means 304."""
+        return await self._tag_request(
+            GET_ARTIFACT_TAGS,
+            None,
+            {"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
+            headers={} if if_none_match is None else {"If-None-Match": if_none_match},
+        )
+
+    async def replace_artifact_tags(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        request: ReplaceArtifactTagsRequest,
+        *,
+        expected_etag: str,
+    ) -> ArtifactTagSetResponse:
+        """Replace labels without revising content; use the ETag from a prior read."""
+        result = await self._tag_request(
+            REPLACE_ARTIFACT_TAGS,
+            request,
+            {"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
+            headers={"If-Match": expected_etag},
+        )
+        if result is None:
+            raise InvalidResponseError(REPLACE_ARTIFACT_TAGS.path, request_id=None)
+        return result
+
+    async def get_memory_entry_tags(
+        self,
+        scope_id: str,
+        artifact_id: str,
+        entry_id: str,
+        *,
+        if_none_match: str | None = None,
+    ) -> ArtifactTagSetResponse | None:
+        """Read one logical entry's labels, including an inactive manifest entry."""
+        return await self._tag_request(
+            GET_MEMORY_ENTRY_TAGS,
+            None,
+            {"scope_id": scope_id, "artifact_id": artifact_id, "entry_id": entry_id},
+            headers={} if if_none_match is None else {"If-None-Match": if_none_match},
+        )
+
+    async def replace_memory_entry_tags(
+        self,
+        scope_id: str,
+        artifact_id: str,
+        entry_id: str,
+        request: ReplaceArtifactTagsRequest,
+        *,
+        expected_etag: str,
+    ) -> ArtifactTagSetResponse:
+        """Replace one logical entry's labels without changing its version."""
+        result = await self._tag_request(
+            REPLACE_MEMORY_ENTRY_TAGS,
+            request,
+            {"scope_id": scope_id, "artifact_id": artifact_id, "entry_id": entry_id},
+            headers={"If-Match": expected_etag},
+        )
+        if result is None:
+            raise InvalidResponseError(REPLACE_MEMORY_ENTRY_TAGS.path, request_id=None)
+        return result
+
+    async def query_artifact_tags(self, scope_id: str, request: QueryArtifactTagsRequest) -> ArtifactTagPage:
+        """Find visible targets by exact tags within a Scope."""
+        return await self._request(QUERY_ARTIFACT_TAGS, request, path_parameters={"scope_id": scope_id})
+
+    async def _tag_request(
+        self,
+        operation: Operation[Any, ArtifactTagSet],
+        request: ReplaceArtifactTagsRequest | None,
+        path_parameters: dict[str, str],
+        *,
+        headers: dict[str, str],
+    ) -> ArtifactTagSetResponse | None:
+        response_headers: dict[str, str] = {}
+        result = await self._request(
+            operation,
+            request,
+            path_parameters=path_parameters,
+            extra_headers=headers,
+            response_headers=response_headers,
+        )
+        if result is None:
+            return None
+        etag = response_headers.get("etag")
+        if etag is None:
+            raise InvalidResponseError(operation.path, request_id=response_headers.get(REQUEST_ID_HEADER.lower()))
+        return ArtifactTagSetResponse(tag_set=result, etag=etag)
 
     async def get_artifact_revision(
         self,
@@ -806,6 +917,7 @@ class PowerContextClient:
         path_parameters: Mapping[str, str | int] | None = None,
         query_parameters: Mapping[str, Any] | None = None,
         extra_headers: Mapping[str, str] | None = None,
+        response_headers: dict[str, str] | None = None,
     ) -> _ResponseT:
         path, json_payload, request_query = _prepare_request(
             operation,
@@ -841,6 +953,8 @@ class PowerContextClient:
         span.finish("success" if succeeded else "failure", status_code=response.status_code)
 
         request_id = response.headers.get(REQUEST_ID_HEADER)
+        if response_headers is not None:
+            response_headers.update(response.headers)
         if not succeeded:
             error = _decode_error(response.content)
             raise ServerResponseError(

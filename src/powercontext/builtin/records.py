@@ -17,12 +17,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.sources import SourceRef
+
+if TYPE_CHECKING:
+    from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 
 BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff"]
 
@@ -233,7 +236,16 @@ class RecordService(Protocol):
         *,
         limit: int,
         cursor: str | None,
+        tag_filter: TagFilter | None = None,
     ) -> ArtifactRecordPage: ...
+
+    async def get_tags(self, scope_id: str, target: TagTarget) -> ArtifactTagSet: ...
+
+    async def replace_tags(
+        self, scope_id: str, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str
+    ) -> ArtifactTagSet: ...
+
+    async def query_tags(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage: ...
 
     async def replace_artifact(
         self,

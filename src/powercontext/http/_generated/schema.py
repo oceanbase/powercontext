@@ -2108,6 +2108,25 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "operationId": "list_artifacts",
                 "parameters": [
                     {
+                        "name": "tag",
+                        "in": "query",
+                        "required": False,
+                        "style": "form",
+                        "explode": True,
+                        "schema": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 16,
+                            "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                        },
+                    },
+                    {
+                        "name": "tag_match",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"$ref": "#/components/schemas/TagMatch"},
+                    },
+                    {
                         "name": "scope_id",
                         "in": "path",
                         "required": True,
@@ -2256,6 +2275,344 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
             },
+        },
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags": {
+            "get": {
+                "tags": ["artifact-tags"],
+                "summary": "Read Artifact tags",
+                "description": "Scope-local "
+                "labels "
+                "follow "
+                "logical "
+                "identity "
+                "without "
+                "changing "
+                "content "
+                "revisions. "
+                "Inactive "
+                "manifest "
+                "entries "
+                "remain "
+                "valid "
+                "targets.",
+                "operationId": "get_artifact_tags",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                    {
+                        "name": "If-None-Match",
+                        "in": "header",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Complete current target-local tag set.",
+                        "headers": {
+                            "ETag": {
+                                "schema": {"type": "string"},
+                                "description": "Opaque target-bound tag state validator.",
+                            }
+                        },
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactTagSet"}}},
+                    },
+                    "304": {
+                        "description": "The target tag set has not changed.",
+                        "headers": {"ETag": {"schema": {"type": "string"}}},
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            },
+            "put": {
+                "tags": ["artifact-tags"],
+                "summary": "Replace Artifact tags",
+                "description": "Scope-local "
+                "labels "
+                "follow "
+                "logical "
+                "identity "
+                "without "
+                "changing "
+                "content "
+                "revisions. "
+                "Inactive "
+                "manifest "
+                "entries "
+                "remain "
+                "valid "
+                "targets.",
+                "operationId": "replace_artifact_tags",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    },
+                    {
+                        "name": "family",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                    {
+                        "name": "If-Match",
+                        "in": "header",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReplaceArtifactTagsRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Complete current target-local tag set.",
+                        "headers": {
+                            "ETag": {
+                                "schema": {"type": "string"},
+                                "description": "Opaque target-bound tag state validator.",
+                            }
+                        },
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactTagSet"}}},
+                    },
+                    "412": {"$ref": "#/components/responses/PreconditionFailed"},
+                    "428": {"$ref": "#/components/responses/PreconditionRequired"},
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            },
+        },
+        "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags": {
+            "get": {
+                "tags": ["artifact-tags"],
+                "summary": "Read Memory entry tags",
+                "description": "Scope-local "
+                "labels "
+                "follow "
+                "logical "
+                "identity "
+                "without "
+                "changing "
+                "content "
+                "revisions. "
+                "Inactive "
+                "manifest "
+                "entries "
+                "remain "
+                "valid "
+                "targets.",
+                "operationId": "get_memory_entry_tags",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                    {
+                        "name": "entry_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                    {
+                        "name": "If-None-Match",
+                        "in": "header",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Complete current target-local tag set.",
+                        "headers": {
+                            "ETag": {
+                                "schema": {"type": "string"},
+                                "description": "Opaque target-bound tag state validator.",
+                            }
+                        },
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactTagSet"}}},
+                    },
+                    "304": {
+                        "description": "The target tag set has not changed.",
+                        "headers": {"ETag": {"schema": {"type": "string"}}},
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            },
+            "put": {
+                "tags": ["artifact-tags"],
+                "summary": "Replace Memory entry tags",
+                "description": "Scope-local "
+                "labels "
+                "follow "
+                "logical "
+                "identity "
+                "without "
+                "changing "
+                "content "
+                "revisions. "
+                "Inactive "
+                "manifest "
+                "entries "
+                "remain "
+                "valid "
+                "targets.",
+                "operationId": "replace_memory_entry_tags",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    },
+                    {
+                        "name": "artifact_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                    {
+                        "name": "entry_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+                    },
+                    {
+                        "name": "If-Match",
+                        "in": "header",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1},
+                    },
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReplaceArtifactTagsRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Complete current target-local tag set.",
+                        "headers": {
+                            "ETag": {
+                                "schema": {"type": "string"},
+                                "description": "Opaque target-bound tag state validator.",
+                            }
+                        },
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactTagSet"}}},
+                    },
+                    "412": {"$ref": "#/components/responses/PreconditionFailed"},
+                    "428": {"$ref": "#/components/responses/PreconditionRequired"},
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            },
+        },
+        "/v1/scopes/{scope_id}/artifact-tags/query": {
+            "post": {
+                "tags": ["artifact-tags"],
+                "summary": "Query targets by exact custom tags",
+                "description": "Match all or any "
+                "normalized "
+                "labels within "
+                "one Scope before "
+                "pagination. Tags "
+                "never grant "
+                "visibility or "
+                "enter model "
+                "prompts.",
+                "operationId": "query_artifact_tags",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/QueryArtifactTagsRequest"}}
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "Current "
+                        "visible "
+                        "matches "
+                        "in "
+                        "family, "
+                        "target "
+                        "type, "
+                        "Artifact "
+                        "ID, "
+                        "and "
+                        "target "
+                        "ID "
+                        "order.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactTagPage"}}},
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "410": {"$ref": "#/components/responses/CursorExpired"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            }
         },
         "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}": {
             "get": {
@@ -4553,6 +4910,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ListMemoryEntriesRequest": {
                 "properties": {
+                    "tag_filter": {"$ref": "#/components/schemas/TagFilter"},
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "include_inactive": {
                         "type": "boolean",
@@ -4990,6 +5348,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SearchMemoryRequest": {
                 "properties": {
+                    "tag_filter": {"$ref": "#/components/schemas/TagFilter"},
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "query": {"type": "string", "maxLength": 8192, "minLength": 1},
                     "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 10},
@@ -5187,8 +5546,191 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["content"],
             },
+            "TagMatch": {"type": "string", "enum": ["all", "any"]},
+            "TagTargetType": {"type": "string", "enum": ["artifact", "memory_entry"]},
+            "ArtifactTagTarget": {
+                "properties": {
+                    "type": {"type": "string", "enum": ["artifact"]},
+                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["type", "family", "artifact_id"],
+            },
+            "MemoryEntryTagTarget": {
+                "properties": {
+                    "type": {"type": "string", "enum": ["memory_entry"]},
+                    "family": {"type": "string", "enum": ["memory"]},
+                    "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "entry_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["type", "family", "artifact_id", "entry_id"],
+            },
+            "TagTarget": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/ArtifactTagTarget"},
+                    {"$ref": "#/components/schemas/MemoryEntryTagTarget"},
+                ],
+                "discriminator": {
+                    "propertyName": "type",
+                    "mapping": {
+                        "artifact": "#/components/schemas/ArtifactTagTarget",
+                        "memory_entry": "#/components/schemas/MemoryEntryTagTarget",
+                    },
+                },
+            },
+            "TagFilter": {
+                "properties": {
+                    "tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 16,
+                        "minItems": 1,
+                    },
+                    "match": {"$ref": "#/components/schemas/TagMatch", "default": "all"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["tags"],
+            },
+            "ReplaceArtifactTagsRequest": {
+                "properties": {
+                    "tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 0,
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["tags"],
+                "description": "Replace all labels "
+                "atomically. Empty "
+                "clears the set. Labels "
+                "preserve display text, "
+                "use NFC then casefold "
+                "for exact matching, and "
+                "reject normalized "
+                "duplicates, outer "
+                "whitespace, and Unicode "
+                "control, surrogate or "
+                "unassigned characters.",
+            },
+            "QueryArtifactTagsRequest": {
+                "properties": {
+                    "tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 16,
+                        "minItems": 1,
+                    },
+                    "match": {"$ref": "#/components/schemas/TagMatch", "default": "all"},
+                    "families": {
+                        "items": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                        "type": "array",
+                        "maxItems": 4,
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
+                    "target_types": {
+                        "items": {"$ref": "#/components/schemas/TagTargetType"},
+                        "type": "array",
+                        "maxItems": 2,
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
+                    "include_inactive": {"type": "boolean", "default": False},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["tags"],
+            },
+            "ArtifactTagSet": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 0,
+                    },
+                    "tag_digest": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "description": "Digest "
+                        "of "
+                        "canonical "
+                        "display "
+                        "labels; "
+                        "informational, "
+                        "not a "
+                        "mutation "
+                        "precondition.",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target", "tags", "tag_digest"],
+            },
+            "TaggedTarget": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 0,
+                    },
+                    "tag_digest": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "description": "Digest "
+                        "of "
+                        "canonical "
+                        "display "
+                        "labels; "
+                        "informational, "
+                        "not a "
+                        "mutation "
+                        "precondition.",
+                    },
+                    "reference": {
+                        "oneOf": [
+                            {"$ref": "#/components/schemas/ArtifactReference"},
+                            {"$ref": "#/components/schemas/MemoryCitation"},
+                        ]
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target", "tags", "tag_digest", "reference"],
+            },
+            "ArtifactTagPage": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/TaggedTarget"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items", "next_cursor"],
+            },
             "ListArtifactsRequest": {
                 "properties": {
+                    "tag": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 16,
+                        "minItems": 1,
+                    },
+                    "tag_match": {"$ref": "#/components/schemas/TagMatch"},
                     "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
                     "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
                 },

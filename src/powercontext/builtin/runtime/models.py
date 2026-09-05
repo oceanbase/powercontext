@@ -49,6 +49,7 @@ from powercontext.builtin.review import (
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
 from powercontext.builtin.sources import ExternalSkillImportMode
+from powercontext.builtin.tags import TagFilter
 from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
@@ -152,6 +153,7 @@ class SearchMemoryRequest(BaseModel):
     query: str
     limit: int = 10
     mode: MemorySearchMode = "auto"
+    tag_filter: TagFilter | None = None
 
 
 class MemorySearchPage(BaseModel):

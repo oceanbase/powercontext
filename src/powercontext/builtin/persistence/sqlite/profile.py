@@ -93,7 +93,7 @@ class SQLiteProfile:
             engine_options["poolclass"] = StaticPool
         engine = create_async_engine(config.url, **engine_options)
         _configure_sqlite(engine, config, load_vector_extension=load_vector_extension)
-        database = AsyncDatabase.own(engine)
+        database = AsyncDatabase.own(engine, shared_connection=config.is_in_memory)
         profile = cls(database=database, tables=tables)
         try:
             await _warm_sqlite(engine, config)

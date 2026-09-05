@@ -136,3 +136,5 @@ Codex 启动后发送普通 prompt。插件从绑定 Scope 召回内容，并把
 | 已有数据消失 | 恢复原数据库 URL 或 `POWERCONTEXT_HOME` |
 
 更多信息见[故障排查](troubleshoot.md)和[配置](../reference/configuration.md)。
+
+需要分类和检索制品或单条记忆时，参见[自定义标签](manage-artifact-tags.md)。

@@ -16,6 +16,8 @@ from powercontext.http._generated.models import (
     ArtifactPage,
     ArtifactPublication,
     ArtifactRevision,
+    ArtifactTagPage,
+    ArtifactTagSet,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
@@ -81,6 +83,7 @@ from powercontext.http._generated.models import (
     ProposeSkillRequest,
     PublishArtifactRequest,
     PublishRemoteSkillRequest,
+    QueryArtifactTagsRequest,
     ReadinessResponse,
     ReconcileRemoteSkillsRequest,
     ReconcileRemoteSkillsResponse,
@@ -97,6 +100,7 @@ from powercontext.http._generated.models import (
     RemoteSkillTargetEnrollment,
     RenameRemoteSkillTargetRequest,
     ReplaceArtifactRequest,
+    ReplaceArtifactTagsRequest,
     ResolveExternalSkillRequest,
     ResolveScopeBindingRequest,
     ResolveScopeSelectionRequest,
@@ -1970,6 +1974,153 @@ REPLACE_ARTIFACT = Operation[ReplaceArtifactRequest, ArtifactRevision](
         412: {"$ref": "#/components/responses/PreconditionFailed"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         428: {"$ref": "#/components/responses/PreconditionRequired"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_ARTIFACT_TAGS = Operation[None, ArtifactTagSet](
+    method="GET",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags",
+    operation_id="get_artifact_tags",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "family", "artifact_id"),
+    response_type=ArtifactTagSet,
+    success_status=200,
+    summary="Read Artifact tags",
+    tags=("artifact-tags",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Complete current target-local tag set.",
+            "headers": {
+                "ETag": {"description": "Opaque target-bound tag state validator.", "schema": {"type": "string"}}
+            },
+        },
+        304: {
+            "description": "The target tag set has not changed.",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+REPLACE_ARTIFACT_TAGS = Operation[ReplaceArtifactTagsRequest, ArtifactTagSet](
+    method="PUT",
+    path="/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags",
+    operation_id="replace_artifact_tags",
+    request_type=ReplaceArtifactTagsRequest,
+    request_location="body",
+    path_parameters=("scope_id", "family", "artifact_id"),
+    response_type=ArtifactTagSet,
+    success_status=200,
+    summary="Replace Artifact tags",
+    tags=("artifact-tags",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Complete current target-local tag set.",
+            "headers": {
+                "ETag": {"description": "Opaque target-bound tag state validator.", "schema": {"type": "string"}}
+            },
+        },
+        412: {"$ref": "#/components/responses/PreconditionFailed"},
+        428: {"$ref": "#/components/responses/PreconditionRequired"},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+GET_MEMORY_ENTRY_TAGS = Operation[None, ArtifactTagSet](
+    method="GET",
+    path="/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+    operation_id="get_memory_entry_tags",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id", "artifact_id", "entry_id"),
+    response_type=ArtifactTagSet,
+    success_status=200,
+    summary="Read Memory entry tags",
+    tags=("artifact-tags",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Complete current target-local tag set.",
+            "headers": {
+                "ETag": {"description": "Opaque target-bound tag state validator.", "schema": {"type": "string"}}
+            },
+        },
+        304: {
+            "description": "The target tag set has not changed.",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+REPLACE_MEMORY_ENTRY_TAGS = Operation[ReplaceArtifactTagsRequest, ArtifactTagSet](
+    method="PUT",
+    path="/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+    operation_id="replace_memory_entry_tags",
+    request_type=ReplaceArtifactTagsRequest,
+    request_location="body",
+    path_parameters=("scope_id", "artifact_id", "entry_id"),
+    response_type=ArtifactTagSet,
+    success_status=200,
+    summary="Replace Memory entry tags",
+    tags=("artifact-tags",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Complete current target-local tag set.",
+            "headers": {
+                "ETag": {"description": "Opaque target-bound tag state validator.", "schema": {"type": "string"}}
+            },
+        },
+        412: {"$ref": "#/components/responses/PreconditionFailed"},
+        428: {"$ref": "#/components/responses/PreconditionRequired"},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+)
+
+QUERY_ARTIFACT_TAGS = Operation[QueryArtifactTagsRequest, ArtifactTagPage](
+    method="POST",
+    path="/v1/scopes/{scope_id}/artifact-tags/query",
+    operation_id="query_artifact_tags",
+    request_type=QueryArtifactTagsRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=ArtifactTagPage,
+    success_status=200,
+    summary="Query targets by exact custom tags",
+    tags=("artifact-tags",),
+    scope_mode="none",
+    responses={
+        200: {"description": "Current visible matches in family, target type, Artifact ID, and target ID order."},
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
     },

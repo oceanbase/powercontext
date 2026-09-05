@@ -22,6 +22,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKeyConstraint,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -30,7 +31,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import MEDIUMBLOB, MEDIUMTEXT, VARCHAR
+from sqlalchemy.dialects.mysql import BINARY, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
@@ -729,6 +730,44 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 
 MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
+# OceanBase requires FK column lengths to match the parent. A normalized-key
+# fingerprint keeps composite indexes within 3072 bytes without narrowing any
+# Unicode identity or label. Queries also compare the full key, not just its hash.
+ARTIFACT_TAGS_TABLE = Table(
+    "pc_artifact_tags",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("target_type", identity_string(12), primary_key=True),
+    Column("target_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("tag_key_hash", LargeBinary(32).with_variant(BINARY(32), "mysql"), primary_key=True),
+    Column("tag_key", identity_string(128), nullable=False),
+    Column("tag", String(64), nullable=False),
+    Column("assigned_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id"),
+        ("pc_artifact_heads.scope_id", "pc_artifact_heads.family", "pc_artifact_heads.artifact_id"),
+        ondelete="CASCADE",
+    ),
+    CheckConstraint("family IN ('memory', 'experience', 'skill', 'handoff')", name="ck_pc_artifact_tags_family"),
+    CheckConstraint(
+        "(target_type = 'artifact' AND target_id = artifact_id) OR "
+        "(target_type = 'memory_entry' AND family = 'memory')",
+        name="ck_pc_artifact_tags_target",
+    ),
+    Index(
+        "ix_pc_artifact_tags_family_key",
+        "scope_id",
+        "family",
+        "tag_key_hash",
+        "target_type",
+        "artifact_id",
+        "target_id",
+    ),
+    Index("ix_pc_artifact_tags_key", "scope_id", "tag_key_hash", "family", "target_type", "artifact_id", "target_id"),
+)
+
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
-BUILTIN_TABLES = SCOPE_TABLES + SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES
+BUILTIN_TABLES = SCOPE_TABLES + SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES + (ARTIFACT_TAGS_TABLE,)

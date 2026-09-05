@@ -161,6 +161,7 @@ class CompositeMemoryIndex:
             vector=bool(vector_indexes),
             hybrid=fts and bool(vector_indexes),
             embedding_profile=profile,
+            tag_filter=all(index.capabilities.tag_filter for index in indexes),
         )
         self.tables = tuple(table for index in indexes for table in index.tables)
 

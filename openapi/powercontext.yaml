@@ -2291,6 +2291,20 @@ paths:
       description: List current heads for exactly one built-in Artifact family.
       operationId: list_artifacts
       parameters:
+        - name: tag
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 16
+            items: {type: string, minLength: 1, maxLength: 64}
+        - name: tag_match
+          in: query
+          required: false
+          schema: {$ref: '#/components/schemas/TagMatch'}
         - name: scope_id
           in: path
           required: true
@@ -2467,6 +2481,236 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags:
+    get:
+      tags: [artifact-tags]
+      summary: Read Artifact tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: get_artifact_tags
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: family
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: {type: string, minLength: 1}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "304":
+          description: The target tag set has not changed.
+          headers:
+            ETag: {schema: {type: string}}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      tags: [artifact-tags]
+      summary: Replace Artifact tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: replace_artifact_tags
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: family
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string, minLength: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplaceArtifactTagsRequest'}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags:
+    get:
+      tags: [artifact-tags]
+      summary: Read Memory entry tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: get_memory_entry_tags
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: entry_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: {type: string, minLength: 1}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "304":
+          description: The target tag set has not changed.
+          headers:
+            ETag: {schema: {type: string}}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      tags: [artifact-tags]
+      summary: Replace Memory entry tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: replace_memory_entry_tags
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: entry_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string, minLength: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplaceArtifactTagsRequest'}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifact-tags/query:
+    post:
+      tags: [artifact-tags]
+      summary: Query targets by exact custom tags
+      description: Match all or any normalized labels within one Scope before pagination. Tags never grant visibility or enter model prompts.
+      operationId: query_artifact_tags
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/QueryArtifactTagsRequest'}
+      responses:
+        "200":
+          description: Current visible matches in family, target type, Artifact ID, and target ID order.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagPage'}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
         "503":
           $ref: "#/components/responses/Unavailable"
         "500":
@@ -5674,6 +5918,8 @@ components:
       additionalProperties: false
       required: [scope_id]
       properties:
+        tag_filter:
+          $ref: '#/components/schemas/TagFilter'
         scope_id:
           type: string
           minLength: 1
@@ -6133,6 +6379,8 @@ components:
       additionalProperties: false
       required: [scope_id, query]
       properties:
+        tag_filter:
+          $ref: '#/components/schemas/TagFilter'
         scope_id:
           type: string
           minLength: 1
@@ -6316,10 +6564,146 @@ components:
           default: content
         content:
           description: JSON value persisted by the built-in content Source adapter.
+    TagMatch:
+      type: string
+      enum: [all, any]
+    TagTargetType:
+      type: string
+      enum: [artifact, memory_entry]
+    ArtifactTagTarget:
+      type: object
+      additionalProperties: false
+      required: [type, family, artifact_id]
+      properties:
+        type: {type: string, enum: [artifact]}
+        family: {$ref: '#/components/schemas/BaseArtifactFamily'}
+        artifact_id: {type: string, minLength: 1, maxLength: 128}
+    MemoryEntryTagTarget:
+      type: object
+      additionalProperties: false
+      required: [type, family, artifact_id, entry_id]
+      properties:
+        type: {type: string, enum: [memory_entry]}
+        family: {type: string, enum: [memory]}
+        artifact_id: {type: string, minLength: 1, maxLength: 128}
+        entry_id: {type: string, minLength: 1, maxLength: 128}
+    TagTarget:
+      oneOf:
+        - $ref: '#/components/schemas/ArtifactTagTarget'
+        - $ref: '#/components/schemas/MemoryEntryTagTarget'
+      discriminator:
+        propertyName: type
+        mapping:
+          artifact: '#/components/schemas/ArtifactTagTarget'
+          memory_entry: '#/components/schemas/MemoryEntryTagTarget'
+    TagFilter:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {type: string, minLength: 1, maxLength: 64}
+        match:
+          $ref: '#/components/schemas/TagMatch'
+          default: all
+    ReplaceArtifactTagsRequest:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      description: Replace all labels atomically. Empty clears the set. Labels preserve display text, use NFC then casefold for exact matching, and reject normalized duplicates, outer whitespace, and Unicode control, surrogate or unassigned characters.
+      properties:
+        tags:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 64}
+    QueryArtifactTagsRequest:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {type: string, minLength: 1, maxLength: 64}
+        match:
+          $ref: '#/components/schemas/TagMatch'
+          default: all
+        families:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/BaseArtifactFamily'}
+        target_types:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TagTargetType'}
+        include_inactive: {type: boolean, default: false}
+        limit: {type: integer, minimum: 1, maximum: 100, default: 50}
+        cursor: {type: string, minLength: 1, maxLength: 4096, nullable: true}
+    ArtifactTagSet:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target, tags, tag_digest]
+      properties:
+        scope_id: {type: string}
+        target: {$ref: '#/components/schemas/TagTarget'}
+        tags:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 64}
+        tag_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Digest of canonical display labels; informational, not a mutation precondition.
+    TaggedTarget:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target, tags, tag_digest, reference]
+      properties:
+        scope_id: {type: string}
+        target: {$ref: '#/components/schemas/TagTarget'}
+        tags:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 64}
+        tag_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Digest of canonical display labels; informational, not a mutation precondition.
+        reference:
+          oneOf:
+            - $ref: '#/components/schemas/ArtifactReference'
+            - $ref: '#/components/schemas/MemoryCitation'
+    ArtifactTagPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/TaggedTarget'}
+        next_cursor: {type: string, nullable: true}
     ListArtifactsRequest:
       type: object
       additionalProperties: false
       properties:
+        tag:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {type: string, minLength: 1, maxLength: 64}
+        tag_match:
+          $ref: '#/components/schemas/TagMatch'
         limit:
           type: integer
           minimum: 1

@@ -46,6 +46,7 @@ from powercontext.builtin.persistence.tables import (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
 )
+from powercontext.builtin.persistence.tags import RelationalTagService, tag_predicate
 from powercontext.builtin.records import (
     ArtifactCollectionItem,
     ArtifactCreated,
@@ -70,6 +71,7 @@ from powercontext.builtin.sources import (
     ContentSourceInternal,
     ContentSourceTarget,
 )
+from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization, SourceRef
 
@@ -109,6 +111,24 @@ class RelationalRecordService:
         self._id_factory = _resource_id if id_factory is None else id_factory
         self._cursor_secret = secrets.token_bytes(32) if cursor_secret is None else cursor_secret
         self._cursor_ttl = timedelta(seconds=cursor_ttl_seconds)
+        self._tags = RelationalTagService(
+            database,
+            artifacts,
+            cursor_secret=self._cursor_secret,
+            clock=self._clock,
+            cursor_ttl_seconds=cursor_ttl_seconds,
+        )
+
+    async def get_tags(self, scope_id: str, target: TagTarget) -> ArtifactTagSet:
+        return await self._tags.get(scope_id, target)
+
+    async def replace_tags(
+        self, scope_id: str, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str
+    ) -> ArtifactTagSet:
+        return await self._tags.replace(scope_id, target, tags, expected_etag=expected_etag)
+
+    async def query_tags(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
+        return await self._tags.query(scope_id, query, caller=caller)
 
     async def create_source(
         self,
@@ -244,6 +264,7 @@ class RelationalRecordService:
         *,
         limit: int,
         cursor: str | None,
+        tag_filter: TagFilter | None = None,
     ) -> ArtifactRecordPage:
         self._require_family(family)
         _require_limit(limit)
@@ -254,6 +275,13 @@ class RelationalRecordService:
             "family": family,
             "order": "artifact_id:asc",
         }
+        if tag_filter is not None:
+            expected_cursor["tag_filter"] = sha256(
+                rfc8785.dumps({
+                    "keys": list(tag_filter.keys),
+                    "match": tag_filter.match,
+                })
+            ).hexdigest()
         after = self._cursor_after_text(cursor, expected_cursor)
         async with self._database.transaction() as connection:
             statement = (
@@ -269,6 +297,17 @@ class RelationalRecordService:
                 .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
                 .limit(limit + 1)
             )
+            if tag_filter is not None:
+                statement = statement.where(
+                    tag_predicate(
+                        scope_id,
+                        family,
+                        ARTIFACT_HEADS_TABLE.c.artifact_id,
+                        "artifact",
+                        ARTIFACT_HEADS_TABLE.c.artifact_id,
+                        tag_filter,
+                    )
+                )
             rows = (await connection.execute(statement)).all()
             selected_rows = rows[:limit]
             artifacts = await self._artifacts.get_many(

@@ -85,6 +85,7 @@ def test_toolset_exposes_exact_schemas_instructions_request_mapping_and_full_res
     client = RecordingClient.instances[0]
     assert [request.explicit_scope_id for request in client.resolve_scope_requests] == ["project:tools"]
     assert client.search_requests[0].model_dump(mode="json") == {
+        "tag_filter": None,
         "scope_id": "project:tools",
         "query": "public response",
         "limit": 4,

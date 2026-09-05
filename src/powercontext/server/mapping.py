@@ -139,6 +139,7 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
+from powercontext.builtin.tags import TagFilter
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
 )
@@ -620,7 +621,14 @@ def revise_candidate_request(value: ReviseArtifactCandidateRequest) -> RuntimeRe
 
 
 def search_request(value: SearchMemoryRequest) -> RuntimeSearchMemoryRequest:
-    return RuntimeSearchMemoryRequest(query=value.query, limit=value.limit, mode=value.mode.value)
+    return RuntimeSearchMemoryRequest(
+        query=value.query,
+        limit=value.limit,
+        mode=value.mode.value,
+        tag_filter=None
+        if value.tag_filter is None
+        else TagFilter.model_validate_json(value.tag_filter.model_dump_json()),
+    )
 
 
 def prepare_context_request(value: TransportPrepareContextRequest) -> PrepareContextRequest:

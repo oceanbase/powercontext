@@ -4671,6 +4671,52 @@ button:disabled {
   }
 }
 
+.tag-fields,
+.tag-workspace {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin-block: 20px;
+}
+
+.tag-fields label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+#artifact-tag-panel select,
+#artifact-tag-panel textarea {
+  max-width: 100%;
+  border: 1px solid var(--pc-rule);
+  border-radius: var(--pc-radius-control);
+  background: var(--pc-surface);
+  color: var(--pc-ink);
+  padding: 10px;
+}
+
+#artifact-tag-panel textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.tag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+#tag-results {
+  padding-left: 20px;
+}
+
+#tag-results button {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 360px) {
   .primary-nav a {
     padding-inline: 4px;

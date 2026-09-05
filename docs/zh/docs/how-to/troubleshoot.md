@@ -199,7 +199,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads' \
+     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads,pc_artifact_tags' \
      -f <export-directory>
    ```
 

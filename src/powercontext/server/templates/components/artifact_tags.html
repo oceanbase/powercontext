@@ -1,0 +1,51 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+<section class="data-section" id="artifact-tag-panel" aria-labelledby="tag-title">
+  <h2 id="tag-title" data-i18n="tagTitle">Custom tags</h2>
+  <p data-i18n="tagIntro">Choose one Scope and a logical target. Tags do not change content versions.</p>
+  <div class="tag-fields">
+    <label><span data-i18n="tagScope">Scope</span><select id="tag-scope"></select></label>
+    <label><span data-i18n="tagTargetType">Target</span><select id="tag-target-type"><option value="artifact" data-i18n="tagArtifact">Artifact</option><option value="memory_entry" data-i18n="tagEntry">Memory entry</option></select></label>
+    <label><span data-i18n="family">Type</span><select id="tag-family"><option value="memory" data-i18n="memory">Memory</option><option value="experience" data-i18n="experience">Experience</option><option value="skill" data-i18n="skill">Skill</option><option value="handoff" data-i18n="handoff">Handoff</option></select></label>
+    <label><span data-i18n="tagArtifact">Artifact</span><select id="tag-artifact"></select></label>
+    <label id="tag-entry-field" hidden><span data-i18n="tagEntry">Memory entry</span><select id="tag-entry"></select></label>
+  </div>
+  <button id="tag-more-artifacts" class="secondary-button" type="button" hidden data-i18n="tagMore">Load more</button>
+  <div class="tag-workspace">
+    <div>
+      <label class="field-label" for="tag-labels" data-i18n="tagLabels">Labels, one per line (up to 32)</label>
+      <textarea id="tag-labels" rows="4" spellcheck="false" disabled></textarea>
+      <div class="tag-actions">
+        <button id="tag-save" class="primary-button" type="button" disabled data-i18n="tagSave">Save tags</button>
+        <button id="tag-reload" class="secondary-button" type="button" data-i18n="tagReload">Reload tags</button>
+      </div>
+      <p data-i18n="tagClearHint">Save an empty field to clear all labels for this target.</p>
+    </div>
+    <div>
+      <label class="field-label" for="tag-query" data-i18n="tagQuery">Find by exact labels, one per line (up to 16)</label>
+      <textarea id="tag-query" rows="4" spellcheck="false"></textarea>
+      <div class="tag-actions">
+        <label><span data-i18n="tagMatch">Match</span> <select id="tag-match"><option value="all" data-i18n="tagAll">All</option><option value="any" data-i18n="tagAny">Any</option></select></label>
+        <label><input id="tag-inactive" type="checkbox"> <span data-i18n="tagInactive">Include inactive</span></label>
+        <button id="tag-search" class="secondary-button" type="button" data-i18n="tagSearch">Find targets</button>
+      </div>
+      <ul id="tag-results"></ul>
+      <button id="tag-next" class="secondary-button" type="button" hidden data-i18n="tagMore">Load more</button>
+    </div>
+  </div>
+  <p id="tag-status" role="status" aria-live="polite"></p>
+</section>

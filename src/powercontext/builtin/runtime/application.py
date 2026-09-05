@@ -197,6 +197,7 @@ from powercontext.builtin.statistics import (
     StatisticsPeriod,
 )
 from powercontext.builtin.statistics.aggregation import aggregate_statistics
+from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 from powercontext.builtin.work import (
     HANDOFF_BOUNDARY_SOURCE_KIND,
     HANDOFF_RECEIPT_SOURCE_KIND,
@@ -394,14 +395,29 @@ class ScopedRecordApplication:
         *,
         limit: int,
         cursor: str | None,
+        tag_filter: TagFilter | None = None,
     ) -> ArtifactRecordPage:
         async with self._runtime._scope_operation(self.scope_id):
+            filters = {} if tag_filter is None else {"tag_filter": tag_filter}
             return await self._runtime._records().query_artifacts(
                 self.scope_id,
                 family,
                 limit=limit,
                 cursor=cursor,
+                **filters,
             )
+
+    async def get_tags(self, target: TagTarget) -> ArtifactTagSet:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().get_tags(self.scope_id, target)
+
+    async def replace_tags(self, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str) -> ArtifactTagSet:
+        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await self._runtime._records().replace_tags(self.scope_id, target, tags, expected_etag=expected_etag)
+
+    async def query_tags(self, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().query_tags(self.scope_id, query, caller=caller)
 
     async def replace_artifact(
         self,
@@ -1517,6 +1533,7 @@ class ScopedMemoryApplication:
                             memories=(current,),
                             limit=request.limit,
                             mode=request.mode,
+                            **({} if request.tag_filter is None else {"tag_filter": request.tag_filter}),
                         )
                     except (CapabilityNotSupportedError, InvalidMemoryCitationError) as error:
                         latest = await _head_or_none(service, context.artifacts.memory_artifact_id)
@@ -1539,13 +1556,15 @@ class ScopedMemoryApplication:
                         rerank=result.rerank,
                     )
 
-    async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
+    async def list(self, *, include_inactive: bool = False, tag_filter: TagFilter | None = None) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
             current = await _head_or_none(service, context.artifacts.memory_artifact_id)
             if current is None:
                 return MemoryEntriesPage(memory_ref=None)
-            entries = tuple(_entry_record(current, entry) for entry in await service.entries(current))
+            entries = tuple(
+                _entry_record(current, entry) for entry in await service.entries(current, tag_filter=tag_filter)
+            )
             if not include_inactive:
                 entries = tuple(entry for entry in entries if entry.state == "active")
             return MemoryEntriesPage(

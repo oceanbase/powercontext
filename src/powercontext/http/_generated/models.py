@@ -1071,16 +1071,6 @@ class ListMemoryChangesRequest(BaseModel):
     ] = None
 
 
-class ListMemoryEntriesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    include_inactive: Annotated[
-        StrictBool, Field(description="Include inactive entries from the current Memory head for explicit audit.")
-    ] = False
-
-
 class ListExternalSkillsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1260,10 +1250,67 @@ class CreateSourceRequest(BaseModel):
     content: Annotated[Any, Field(description="JSON value persisted by the built-in content Source adapter.")]
 
 
+class TagMatch(StrEnum):
+    ALL = "all"
+    ANY = "any"
+
+
+class TagTargetType(StrEnum):
+    ARTIFACT = "artifact"
+    MEMORY_ENTRY = "memory_entry"
+
+
+class Type(StrEnum):
+    ARTIFACT = "artifact"
+
+
+class Type1(StrEnum):
+    MEMORY_ENTRY = "memory_entry"
+
+
+class Family4(StrEnum):
+    MEMORY = "memory"
+
+
+class MemoryEntryTagTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["memory_entry"]
+    family: Family4
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+
+
+class Tag(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
+class TagFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tags: Annotated[list[Tag], Field(max_length=16, min_length=1)]
+    match: TagMatch = TagMatch.ALL
+
+
+class ReplaceArtifactTagsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tags: Annotated[list[Tag], Field(max_length=32, min_length=0)]
+
+
+class TagItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
 class ListArtifactsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    tag: Annotated[list[TagItem] | None, Field(max_length=16, min_length=1)] = None
+    tag_match: TagMatch | None = None
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
     cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
 
@@ -1811,6 +1858,17 @@ class HandoffReportResponse(BaseModel):
     report_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
 
 
+class ListMemoryEntriesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tag_filter: TagFilter | None = None
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    include_inactive: Annotated[
+        StrictBool, Field(description="Include inactive entries from the current Memory head for explicit audit.")
+    ] = False
+
+
 class ListArtifactCandidatesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2034,6 +2092,7 @@ class SearchMemoryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    tag_filter: TagFilter | None = None
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
     limit: Annotated[StrictInt, Field(ge=1, le=50)] = 10
@@ -2062,6 +2121,73 @@ class CreateMemoryArtifactContent(BaseModel):
         extra="forbid",
     )
     entries: Annotated[list[CreateMemoryArtifactEntry], Field(max_length=100, min_length=1)]
+
+
+class ArtifactTagTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["artifact"]
+    family: BaseArtifactFamily
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+
+
+class TagTarget(RootModel[ArtifactTagTarget | MemoryEntryTagTarget]):
+    root: Annotated[ArtifactTagTarget | MemoryEntryTagTarget, Field(discriminator="type")]
+
+
+class QueryArtifactTagsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tags: Annotated[list[Tag], Field(max_length=16, min_length=1)]
+    match: TagMatch = TagMatch.ALL
+    families: Annotated[list[BaseArtifactFamily] | None, Field(max_length=4, min_length=1)] = None
+    target_types: Annotated[list[TagTargetType] | None, Field(max_length=2, min_length=1)] = None
+    include_inactive: StrictBool = False
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ArtifactTagSet(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target: TagTarget
+    tags: Annotated[list[Tag], Field(max_length=32, min_length=0)]
+    tag_digest: Annotated[
+        StrictStr,
+        Field(
+            description="Digest of canonical display labels; informational, not a mutation precondition.",
+            pattern="^sha256:[0-9a-f]{64}$",
+        ),
+    ]
+
+
+class TaggedTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target: TagTarget
+    tags: Annotated[list[Tag], Field(max_length=32, min_length=0)]
+    tag_digest: Annotated[
+        StrictStr,
+        Field(
+            description="Digest of canonical display labels; informational, not a mutation precondition.",
+            pattern="^sha256:[0-9a-f]{64}$",
+        ),
+    ]
+    reference: ArtifactReference | MemoryCitation
+
+
+class ArtifactTagPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[TaggedTarget]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
 class ReplaceMemoryArtifactContent(BaseModel):
