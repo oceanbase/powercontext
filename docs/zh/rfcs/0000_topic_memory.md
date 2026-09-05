@@ -343,7 +343,9 @@ Chunk policy：
 
 每个检索通道先按 Topic collapse，同一 Topic 的多个 detail 命中只保留最佳位置用于 snippet。当前部署启用的
 两个或四个通道通过 RRF 排名融合，不比较全文分数和向量距离的原始数值。最终一个 Topic 最多占一个结果位置，并保留
-`matched_by` 说明命中通道。
+`matched_by` 说明命中通道。每个通道都先按 Topic 折叠，再应用候选上限，因此单个 Topic 的大量命中 chunk 不会
+遮蔽其他 Topic。全文 snippet 以 Analyzer v1 查询命中为中心截取有界窗口；只有向量命中时，则稳定截取其命中 chunk
+内部的窗口。
 
 ## 存储、Head 与原子激活
 
@@ -353,6 +355,9 @@ Topic 内容、identity、Revision、Head 和 lineage 复用共享 Artifact 存�
 - `pc_artifact_heads` 保存当前 Topic Head；
 - `pc_artifact_lineage_sources` 保存直接 Source evidence；
 - `pc_artifact_lineage_artifacts` 保存 UPDATE 所依据的精确旧 Revision。
+- `pc_topic_memory_retrieval_shape` 保存部署级不可变检索形态（`fts` 或 `hybrid`）以及 hybrid 部署所需的
+  embedding-profile 指纹。启动时若形态缺失或不匹配必须拒绝，不能把向量数据库静默降级为 FTS-only，也不能静默
+  更换 profile。
 - `pc_topic_memory_revision_publications` 为每个已发布 Topic Revision 保存一份不可变的数据库 UTC
   `published_at`；Head 推进后，历史精确读取仍返回该 Revision 自身的发布时间。
 
@@ -366,8 +371,10 @@ Topic 专属检索存储维护两类 active projection records：
 数据库适配器可以按 SQLite FTS/vector virtual table 或 OceanBase full-text/vector index 的现有模式实现这些
 逻辑记录，但搜索只能查询当前完整可检索的 active records，不能先读取所有 Revision 后构造大型 `IN` 查询。
 
-Topic Content、chunks、全文字段，以及向量部署中的所有 Embeddings 都在事务外准备。更新已有 Topic 时，旧 active
-Revision 继续服务；新建 Topic 在首个 Revision 完整前不可检索。只有当前部署启用的全部通道就绪后，Worker 才在一个短事务中：
+Topic Content、chunks、全文字段，以及向量部署中的所有 Embeddings 都在事务外准备。仓储在写入边界重新计算版本化
+chunk 序列和 Analyzer v1 title/summary 文本，任何不完整或伪造的 projection 都会在 Artifact 写入前被拒绝。更新已有
+Topic 时，旧 active Revision 继续服务；新建 Topic 在首个 Revision 完整前不可检索。只有当前部署启用的全部通道就绪后，
+Worker 才在一个短事务中：
 
 ~~~text
 验证 Supervisor 任期

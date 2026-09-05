@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import unicodedata
+from collections import Counter
 from collections.abc import Sequence
 
-from powercontext.builtin.artifacts.search import admits_fts_text
+from powercontext.builtin.artifacts.search import admits_fts_text, analyze_text
 from powercontext.builtin.artifacts.topic_memory.models import (
     TopicMemoryChannelHit,
     TopicMemoryMatchedBy,
@@ -64,7 +66,7 @@ def fuse_topic_memory_rankings(
             seen.add(identity)
             candidates.setdefault(identity, candidate)
             if candidate.chunk_text is not None:
-                snippets.setdefault(identity, _snippet(candidate.chunk_text))
+                snippets.setdefault(identity, _snippet(query, candidate.chunk_text, lexical=channel == "detail_fts"))
             scores[identity] = scores.get(identity, 0.0) + 1.0 / (_RRF_CONSTANT + rank)
             matched.setdefault(identity, set()).add(channel)
 
@@ -101,9 +103,72 @@ def _admit_vector(hits: Sequence[TopicMemoryChannelHit]) -> tuple[TopicMemoryCha
     )
 
 
-def _snippet(value: str) -> str:
+def _snippet(query: str, value: str, *, lexical: bool) -> str:
     compact = " ".join(value.split())
-    return compact if len(compact) <= _SNIPPET_MAX_CHARACTERS else f"{compact[: _SNIPPET_MAX_CHARACTERS - 1]}…"
+    if len(compact) <= _SNIPPET_MAX_CHARACTERS:
+        return compact
+    focus = _lexical_focus(query, compact) if lexical else len(compact) // 2
+    prefix = focus > _SNIPPET_MAX_CHARACTERS // 2
+    suffix = len(compact) - focus > _SNIPPET_MAX_CHARACTERS // 2
+    budget = _SNIPPET_MAX_CHARACTERS - int(prefix) - int(suffix)
+    start = max(0, min(focus - budget // 2, len(compact) - budget))
+    end = start + budget
+    prefix = start > 0
+    suffix = end < len(compact)
+    if int(prefix) + int(suffix) != _SNIPPET_MAX_CHARACTERS - budget:
+        budget = _SNIPPET_MAX_CHARACTERS - int(prefix) - int(suffix)
+        start = max(0, min(focus - budget // 2, len(compact) - budget))
+        end = start + budget
+    return f"{'…' if start else ''}{compact[start:end]}{'…' if end < len(compact) else ''}"
+
+
+def _lexical_focus(query: str, value: str) -> int:
+    normalized = unicodedata.normalize("NFC", value).casefold()
+    occurrences = sorted(
+        occurrence for needle in _query_needles(query) for occurrence in _needle_occurrences(normalized, needle)
+    )
+    if not occurrences:
+        return len(value) // 2
+    counts: Counter[str] = Counter()
+    left = 0
+    best = (0, 0, occurrences[0][0])
+    best_focus = occurrences[0][0]
+    window = _SNIPPET_MAX_CHARACTERS - 2
+    for position, length, needle in occurrences:
+        counts[needle] += 1
+        while position + length - occurrences[left][0] > window:
+            counts[occurrences[left][2]] -= 1
+            if counts[occurrences[left][2]] == 0:
+                del counts[occurrences[left][2]]
+            left += 1
+        start = occurrences[left][0]
+        candidate = (len(counts), -(position + length - start), -start)
+        if candidate > best:
+            best = candidate
+            best_focus = (start + position + length) // 2
+    return best_focus
+
+
+def _needle_occurrences(value: str, needle: str) -> tuple[tuple[int, int, str], ...]:
+    occurrences: list[tuple[int, int, str]] = []
+    start = 0
+    while (position := value.find(needle, start)) >= 0:
+        occurrences.append((position, len(needle), needle))
+        start = position + 1
+    return tuple(occurrences)
+
+
+def _query_needles(query: str) -> tuple[str, ...]:
+    needles: set[str] = set()
+    for term in analyze_text(query).split():
+        if term.startswith("u_"):
+            needles.add(chr(int(term[2:], 16)))
+        elif term.startswith("b_"):
+            left, right = term[2:].split("_", maxsplit=1)
+            needles.add(f"{chr(int(left, 16))}{chr(int(right, 16))}")
+        else:
+            needles.add(term)
+    return tuple(sorted(needles, key=lambda needle: (-len(needle), needle)))
 
 
 __all__ = ["fuse_topic_memory_rankings"]

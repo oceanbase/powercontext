@@ -148,7 +148,7 @@ class TopicMemoryChannelHit(BaseModel):
 
 
 class TopicMemorySearchChannels(BaseModel):
-    """Backend-ordered rankings before Topic collapse and RRF."""
+    """Backend-ordered per-Topic rankings after channel-local collapse."""
 
     topic_fts: tuple[TopicMemoryChannelHit, ...] = ()
     topic_vector: tuple[TopicMemoryChannelHit, ...] = ()

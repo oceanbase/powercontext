@@ -31,6 +31,7 @@ from powercontext.builtin.persistence.oceanbase.topic_memory_index import (
 from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
+    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,
     TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
 )
 
@@ -48,6 +49,7 @@ def _embedding_profile() -> EmbeddingProfile:
 def test_oceanbase_topic_schema_compiles_native_text_and_vector_storage() -> None:
     dialect = mysql.dialect()
     publication = str(CreateTable(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE).compile(dialect=dialect))
+    retrieval_shape = str(CreateTable(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE).compile(dialect=dialect))
     active_topic = str(CreateTable(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE).compile(dialect=dialect))
     active_chunks = str(CreateTable(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE).compile(dialect=dialect))
     vector_index = OceanBaseTopicMemoryVectorIndex(_embedding_profile())
@@ -56,6 +58,8 @@ def test_oceanbase_topic_schema_compiles_native_text_and_vector_storage() -> Non
 
     assert "published_at DATETIME NOT NULL" in publication
     assert "FOREIGN KEY(scope_id, family, artifact_id, revision)" in publication
+    assert "shape VARCHAR(16)" in retrieval_shape
+    assert "profile_fingerprint VARCHAR(64)" in retrieval_shape
     assert "title MEDIUMTEXT NOT NULL" in active_topic
     assert "summary MEDIUMTEXT NOT NULL" in active_topic
     assert "chunk_text MEDIUMTEXT NOT NULL" in active_chunks
@@ -98,7 +102,38 @@ def test_oceanbase_fts_initializes_and_queries_both_current_projection_channels(
         assert "pc_topic_memory_active_topics.scope_id" in query_statements[0]
         assert "MATCH (pc_topic_memory_active_chunks.searchable_text) AGAINST" in query_statements[1]
         assert "pc_topic_memory_active_chunks.scope_id" in query_statements[1]
+        assert "row_number() OVER" in query_statements[1]
+        assert "anon_1.topic_rank" in query_statements[1]
         assert result.topic_fts == ()
         assert result.detail_fts == ()
+
+    asyncio.run(scenario())
+
+
+def test_oceanbase_detail_vector_collapses_topics_before_the_channel_limit() -> None:
+    async def scenario() -> None:
+        connection = AsyncMock(spec=AsyncConnection)
+        connection.execute.return_value.mappings = MagicMock(return_value=())
+        index = OceanBaseTopicMemoryVectorIndex(_embedding_profile())
+
+        result = await index.search(
+            cast(AsyncConnection, connection),
+            "scope-a",
+            TopicMemorySearchRequest(
+                query="semantic evidence",
+                analyzed_query="semantic evidence",
+                candidate_limit=2,
+                mode="vector",
+                query_vector=(1.0, 0.0, 0.0),
+                embedding_profile=_embedding_profile(),
+            ),
+        )
+
+        statements = [str(call.args[0]) for call in connection.execute.await_args_list]
+        assert "row_number() OVER" in statements[1]
+        assert "WHERE topic_rank = 1" in statements[1]
+        assert statements[1].rfind("LIMIT :candidate_limit") > statements[1].rfind("WHERE topic_rank = 1")
+        assert result.topic_vector == ()
+        assert result.detail_vector == ()
 
     asyncio.run(scenario())

@@ -19,6 +19,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import and_, delete, func, insert, or_, select
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
@@ -39,6 +41,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchResult,
     TopicMemoryStorageInvariantError,
     TopicMemoryUsedSearchMode,
+    chunk_topic_memory_detail,
     fuse_topic_memory_rankings,
 )
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
@@ -49,9 +52,14 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACTS_TABLE,
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
+    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,
     TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
 )
-from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
+from powercontext.builtin.persistence.topic_memory_index import (
+    NoTopicMemoryIndex,
+    TopicMemoryIndex,
+    topic_memory_embedding_profile_fingerprint,
+)
 
 
 class TopicMemoryRepository:
@@ -69,7 +77,6 @@ class TopicMemoryRepository:
     async def initialize(self, connection: AsyncConnection, /) -> None:
         """Initialize indexes and reject incomplete historical Topic projections."""
 
-        await self.index.initialize(connection)
         missing_publication = (
             await connection.execute(
                 select(
@@ -93,6 +100,9 @@ class TopicMemoryRepository:
         ).one_or_none()
         if missing_publication is not None:
             raise TopicMemoryStorageInvariantError("missing-publication", tuple(missing_publication))
+
+        await self._ensure_retrieval_shape(connection)
+        await self.index.initialize(connection)
 
         orphan_active = (
             await connection.execute(
@@ -455,9 +465,17 @@ class TopicMemoryRepository:
     def _validate_projection(self, draft: TopicMemoryDraft, projection: TopicMemoryProjection) -> None:
         if projection.content != draft.content:
             raise TopicMemoryProjectionError("content")
+        if projection.chunks != chunk_topic_memory_detail(draft.content.detail):
+            raise TopicMemoryProjectionError("chunks")
+        if projection.topic_searchable_text != analyze_text(f"{draft.content.title}\n{draft.content.summary}"):
+            raise TopicMemoryProjectionError("lexical")
         capabilities = self.index.capabilities
         if not capabilities.fts:
             raise TopicMemoryProjectionError("fts")
+        self._validate_vector_projection(projection)
+
+    def _validate_vector_projection(self, projection: TopicMemoryProjection) -> None:
+        capabilities = self.index.capabilities
         has_vectors = projection.topic_embedding is not None or bool(projection.chunk_embeddings)
         if not capabilities.vector:
             if has_vectors or projection.embedding_profile is not None:
@@ -476,6 +494,64 @@ class TopicMemoryRepository:
                 validate_embedding(embedding, dimension=profile.dimension)
         except ValueError:
             raise TopicMemoryProjectionError("embedding-values") from None
+
+    async def _ensure_retrieval_shape(self, connection: AsyncConnection) -> None:
+        capabilities = self.index.capabilities
+        if not capabilities.fts:
+            return
+        shape = "hybrid" if capabilities.vector else "fts"
+        profile = capabilities.embedding_profile
+        fingerprint = None if profile is None else topic_memory_embedding_profile_fingerprint(profile)
+        stored = (
+            await connection.execute(
+                select(
+                    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.shape,
+                    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.profile_fingerprint,
+                ).where(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.singleton == 1)
+            )
+        ).one_or_none()
+        if stored is None:
+            existing = int(
+                await connection.scalar(
+                    select(func.count())
+                    .select_from(ARTIFACTS_TABLE)
+                    .where(ARTIFACTS_TABLE.c.family == TopicMemory.family)
+                )
+                or 0
+            )
+            if existing:
+                raise TopicMemoryStorageInvariantError("missing-retrieval-shape", existing)
+            values = {
+                "singleton": 1,
+                "shape": shape,
+                "profile_fingerprint": fingerprint,
+            }
+            if connection.dialect.name == "sqlite":
+                statement = sqlite_insert(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE).values(**values).on_conflict_do_nothing()
+            elif connection.dialect.name == "mysql":
+                statement = mysql_insert(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE).values(**values).prefix_with("IGNORE")
+            else:
+                statement = insert(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE).values(**values)
+            await connection.execute(statement)
+            stored = (
+                await connection.execute(
+                    select(
+                        TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.shape,
+                        TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.profile_fingerprint,
+                    ).where(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.singleton == 1)
+                )
+            ).one_or_none()
+            if stored is None:
+                raise TopicMemoryStorageInvariantError("missing-retrieval-shape", 1)
+        stored_shape = str(stored[0])
+        stored_fingerprint = None if stored[1] is None else str(stored[1])
+        if (stored_shape, stored_fingerprint) != (shape, fingerprint):
+            stored_label = stored_shape if stored_fingerprint is None else f"{stored_shape}:{stored_fingerprint[:12]}"
+            configured_label = shape if fingerprint is None else f"{shape}:{fingerprint[:12]}"
+            raise TopicMemoryCapabilityError(
+                "retrieval-shape",
+                f"database requires {stored_label}; runtime configured {configured_label}",
+            )
 
     def _select_mode(
         self,

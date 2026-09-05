@@ -354,6 +354,21 @@ TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE = Table(
 )
 
 
+TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE = Table(
+    "pc_topic_memory_retrieval_shape",
+    SHARED_METADATA,
+    Column("singleton", Integer, primary_key=True),
+    Column("shape", identity_string(16), nullable=False),
+    Column("profile_fingerprint", identity_string(64)),
+    CheckConstraint("singleton = 1", name="ck_pc_topic_memory_retrieval_shape_singleton"),
+    CheckConstraint("shape IN ('fts', 'hybrid')", name="ck_pc_topic_memory_retrieval_shape_value"),
+    CheckConstraint(
+        "(shape = 'fts' AND profile_fingerprint IS NULL) OR (shape = 'hybrid' AND profile_fingerprint IS NOT NULL)",
+        name="ck_pc_topic_memory_retrieval_shape_profile",
+    ),
+)
+
+
 TOPIC_MEMORY_ACTIVE_TOPICS_TABLE = Table(
     "pc_topic_memory_active_topics",
     SHARED_METADATA,
@@ -592,6 +607,7 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
 TOPIC_MEMORY_TABLES = (
+    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,
     TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
     TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,

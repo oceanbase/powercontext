@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Protocol
 
 from sqlalchemy import Table
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryCapabilities,
     TopicMemoryProjection,
@@ -169,4 +171,18 @@ class CompositeTopicMemoryIndex:
         return True
 
 
-__all__ = ["CompositeTopicMemoryIndex", "NoTopicMemoryIndex", "TopicMemoryIndex"]
+def topic_memory_embedding_profile_fingerprint(profile: EmbeddingProfile, /) -> str:
+    """Return the backend-independent identity of one immutable retrieval profile."""
+
+    payload = (
+        f"{profile.profile_id}\0{profile.model}\0{profile.dimension}\0{profile.distance}\0{profile.normalization}"
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+__all__ = [
+    "CompositeTopicMemoryIndex",
+    "NoTopicMemoryIndex",
+    "TopicMemoryIndex",
+    "topic_memory_embedding_profile_fingerprint",
+]

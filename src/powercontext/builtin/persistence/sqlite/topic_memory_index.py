@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import struct
 from collections.abc import Mapping
 from typing import Any
@@ -56,6 +55,7 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
     identity_string,
 )
+from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE = Table(
@@ -151,10 +151,23 @@ _SEARCH_TOPIC_FTS_SQL = text(
 )
 _SEARCH_CHUNK_FTS_SQL = text(
     """
+    WITH scored AS (
+        SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text,
+               bm25(pc_topic_memory_chunk_fts) AS score
+        FROM pc_topic_memory_chunk_fts
+        WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
+    ), ranked AS (
+        SELECT scored.*,
+               row_number() OVER (
+                   PARTITION BY artifact_id, revision
+                   ORDER BY score, chunk_ordinal
+               ) AS topic_rank
+        FROM scored
+    )
     SELECT artifact_id, revision, title, summary, chunk_ordinal, start_offset, chunk_text
-    FROM pc_topic_memory_chunk_fts
-    WHERE pc_topic_memory_chunk_fts MATCH :query AND scope_id = :scope_id
-    ORDER BY bm25(pc_topic_memory_chunk_fts), artifact_id, revision DESC, chunk_ordinal
+    FROM ranked
+    WHERE topic_rank = 1
+    ORDER BY score, artifact_id, revision DESC, chunk_ordinal
     LIMIT :candidate_limit
     """
 )
@@ -190,18 +203,27 @@ _CHUNK_VECTOR_SEARCH_SQL = text(
     WITH nearest AS (
         SELECT rowid, distance FROM pc_topic_memory_chunk_vec
         WHERE embedding MATCH :query_vector AND k = :neighbor_limit
+    ), ranked AS (
+        SELECT a.artifact_id, a.revision, a.title, a.summary,
+               c.chunk_ordinal, c.start_offset, c.chunk_text, nearest.distance,
+               row_number() OVER (
+                   PARTITION BY a.artifact_id, a.revision
+                   ORDER BY nearest.distance, c.chunk_ordinal
+               ) AS topic_rank
+        FROM nearest
+        JOIN pc_topic_memory_vector_chunks AS v ON v.vector_id = nearest.rowid
+        JOIN pc_topic_memory_active_topics AS a
+          ON a.scope_id = v.scope_id AND a.artifact_id = v.artifact_id AND a.revision = v.revision
+        JOIN pc_topic_memory_active_chunks AS c
+          ON c.scope_id = v.scope_id AND c.artifact_id = v.artifact_id
+         AND c.revision = v.revision AND c.chunk_ordinal = v.chunk_ordinal
+        WHERE v.scope_id = :scope_id
     )
-    SELECT a.artifact_id, a.revision, a.title, a.summary,
-           c.chunk_ordinal, c.start_offset, c.chunk_text, nearest.distance
-    FROM nearest
-    JOIN pc_topic_memory_vector_chunks AS v ON v.vector_id = nearest.rowid
-    JOIN pc_topic_memory_active_topics AS a
-      ON a.scope_id = v.scope_id AND a.artifact_id = v.artifact_id AND a.revision = v.revision
-    JOIN pc_topic_memory_active_chunks AS c
-      ON c.scope_id = v.scope_id AND c.artifact_id = v.artifact_id
-     AND c.revision = v.revision AND c.chunk_ordinal = v.chunk_ordinal
-    WHERE v.scope_id = :scope_id
-    ORDER BY nearest.distance, a.artifact_id, a.revision DESC, c.chunk_ordinal
+    SELECT artifact_id, revision, title, summary,
+           chunk_ordinal, start_offset, chunk_text, distance
+    FROM ranked
+    WHERE topic_rank = 1
+    ORDER BY distance, artifact_id, revision DESC, chunk_ordinal
     LIMIT :candidate_limit
     """
 )
@@ -324,7 +346,7 @@ class SQLiteTopicMemoryVectorIndex:
             )
         self.profile = profile
         self.capabilities = TopicMemoryCapabilities(fts=False, vector=True, embedding_profile=profile)
-        self._fingerprint = _profile_fingerprint(profile)
+        self._fingerprint = topic_memory_embedding_profile_fingerprint(profile)
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "sqlite":
@@ -486,23 +508,23 @@ class SQLiteTopicMemoryVectorIndex:
         ).one_or_none()
         if topic is None or str(topic[1]) != self._fingerprint:
             return False
-        expected_chunks = int(
-            await connection.scalar(
-                select(func.count())
-                .select_from(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE)
-                .where(
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == topic_ref.artifact_id,
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == topic_ref.revision,
+        expected_ordinals = set(
+            (
+                await connection.execute(
+                    select(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal).where(
+                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
+                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == topic_ref.artifact_id,
+                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == topic_ref.revision,
+                    )
                 )
-            )
-            or 0
+            ).scalars()
         )
         chunks = (
             await connection.execute(
                 select(
                     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.vector_id,
                     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.profile_fingerprint,
+                    SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.chunk_ordinal,
                 ).where(
                     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.scope_id == scope_id,
                     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE.c.artifact_id == topic_ref.artifact_id,
@@ -510,7 +532,7 @@ class SQLiteTopicMemoryVectorIndex:
                 )
             )
         ).all()
-        if expected_chunks == 0 or len(chunks) != expected_chunks:
+        if not expected_ordinals or {int(row[2]) for row in chunks} != expected_ordinals:
             return False
         if str(topic[1]) != self._fingerprint or any(str(row[1]) != self._fingerprint for row in chunks):
             return False
@@ -602,13 +624,6 @@ def _channel_hit(row: Mapping[Any, Any], channel: TopicMemoryMatchedBy) -> Topic
         chunk_text=None if row.get("chunk_text") is None else str(row["chunk_text"]),
         distance=None if row.get("distance") is None else float(row["distance"]),
     )
-
-
-def _profile_fingerprint(profile: EmbeddingProfile) -> str:
-    payload = (
-        f"{profile.profile_id}\0{profile.model}\0{profile.dimension}\0{profile.distance}\0{profile.normalization}"
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
 
 
 def _pack_vector(vector: tuple[float, ...]) -> bytes:

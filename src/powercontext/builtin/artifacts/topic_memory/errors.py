@@ -36,6 +36,8 @@ class TopicMemoryProjectionError(TopicMemoryError, ValueError):
         self.code = code
         messages = {
             "content": "Topic Memory projection content does not match the draft",
+            "chunks": "Topic Memory projection chunks do not match the canonical chunk policy",
+            "lexical": "Topic Memory projection lexical text does not match Analyzer v1",
             "fts": "Topic Memory publication requires both FTS channels",
             "vector-incomplete": "Topic Memory vector publication requires the topic and every detail chunk",
             "vector-unconfigured": "Topic Memory projection includes vectors but the deployment is FTS-only",

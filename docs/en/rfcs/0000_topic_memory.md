@@ -380,7 +380,9 @@ not public configuration. Changing the Chunk policy requires rebuilding the corr
 Each retrieval channel first collapses by Topic. When multiple Detail chunks from one Topic match, only the best
 position is retained for the snippet. The two or four channels enabled for the current deployment are fused by RRF
 rather than by comparing raw full-text scores with raw vector distances. A Topic occupies at most one final result
-position, and `matched_by` records which channels matched it.
+position, and `matched_by` records which channels matched it. The per-channel candidate limit applies only after this
+Topic collapse, so one Topic with many matching chunks cannot hide another Topic. FTS snippets center a bounded window
+on an Analyzer v1 query match; a vector-only detail hit uses a stable window from its matched chunk.
 
 ## Storage, Head, and atomic activation
 
@@ -390,6 +392,9 @@ Topic content, identity, Revision, Head, and lineage reuse the shared Artifact s
 - `pc_artifact_heads` stores the current Topic Head;
 - `pc_artifact_lineage_sources` stores direct Source evidence;
 - `pc_artifact_lineage_artifacts` stores the exact old Revision on which an UPDATE was based.
+- `pc_topic_memory_retrieval_shape` stores the immutable deployment-wide retrieval shape (`fts` or `hybrid`) and the
+  embedding-profile fingerprint required by a hybrid deployment. Startup rejects a missing or mismatched shape rather
+  than silently opening a vector database as FTS-only or changing profiles.
 - `pc_topic_memory_revision_publications` stores one immutable database-UTC `published_at` value for every published
   Topic Revision. Historical exact reads retain that Revision's own publication time after the Head advances.
 
@@ -405,7 +410,9 @@ full-text/vector index patterns. Search, however, may query only the currently c
 it must not first read every Revision and construct a large `IN` query.
 
 Topic Content, chunks, full-text fields, and all Embeddings required by a vector-enabled deployment are prepared outside
-the transaction. When an existing Topic is updated, the old active Revision continues serving requests; a new Topic
+the transaction. The repository recomputes the versioned chunk sequence and Analyzer v1 title/summary text at its write
+boundary and rejects any incomplete or forged projection before writing the Artifact. When an existing Topic is
+updated, the old active Revision continues serving requests; a new Topic
 remains unsearchable until its first Revision is complete. Only after all channels enabled for the deployment are ready
 does the Worker execute one short transaction:
 

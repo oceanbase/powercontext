@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping
 from typing import Any
 
@@ -55,6 +54,7 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
     identity_string,
 )
+from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 _TOPIC_FTS_INDEX = "ix_pc_topic_memory_active_topics_fts"
@@ -87,18 +87,30 @@ ORDER BY l2_distance(v.embedding, :query_vector) APPROXIMATE, a.artifact_id, a.r
 LIMIT :candidate_limit
 """
 _CHUNK_VECTOR_SEARCH = """
-SELECT a.artifact_id, a.revision, a.title, a.summary,
-       c.chunk_ordinal, c.start_offset, c.chunk_text,
-       l2_distance(v.embedding, :query_vector) AS distance
-FROM pc_topic_memory_vector_chunks AS v
-JOIN pc_topic_memory_active_topics AS a
-  ON a.scope_id = v.scope_id AND a.artifact_id = v.artifact_id AND a.revision = v.revision
-JOIN pc_topic_memory_active_chunks AS c
-  ON c.scope_id = v.scope_id AND c.artifact_id = v.artifact_id
- AND c.revision = v.revision AND c.chunk_ordinal = v.chunk_ordinal
-WHERE v.scope_id = :scope_id
-ORDER BY l2_distance(v.embedding, :query_vector) APPROXIMATE,
-         a.artifact_id, a.revision DESC, c.chunk_ordinal
+WITH scored AS (
+    SELECT a.artifact_id, a.revision, a.title, a.summary,
+           c.chunk_ordinal, c.start_offset, c.chunk_text,
+           l2_distance(v.embedding, :query_vector) AS distance
+    FROM pc_topic_memory_vector_chunks AS v
+    JOIN pc_topic_memory_active_topics AS a
+      ON a.scope_id = v.scope_id AND a.artifact_id = v.artifact_id AND a.revision = v.revision
+    JOIN pc_topic_memory_active_chunks AS c
+      ON c.scope_id = v.scope_id AND c.artifact_id = v.artifact_id
+     AND c.revision = v.revision AND c.chunk_ordinal = v.chunk_ordinal
+    WHERE v.scope_id = :scope_id
+), ranked AS (
+    SELECT scored.*,
+           row_number() OVER (
+               PARTITION BY artifact_id, revision
+               ORDER BY distance, chunk_ordinal
+           ) AS topic_rank
+    FROM scored
+)
+SELECT artifact_id, revision, title, summary,
+       chunk_ordinal, start_offset, chunk_text, distance
+FROM ranked
+WHERE topic_rank = 1
+ORDER BY distance, artifact_id, revision DESC, chunk_ordinal
 LIMIT :candidate_limit
 """
 
@@ -161,32 +173,56 @@ class OceanBaseTopicMemoryFTSIndex:
             )
         ).mappings()
         chunk_score = match(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.searchable_text, against=request.analyzed_query)
+        chunk_candidates = (
+            select(
+                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id.label("artifact_id"),
+                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision.label("revision"),
+                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.title.label("title"),
+                TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.summary.label("summary"),
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal.label("chunk_ordinal"),
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.start_offset.label("start_offset"),
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_text.label("chunk_text"),
+                chunk_score.label("score"),
+                func
+                .row_number()
+                .over(
+                    partition_by=(
+                        TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id,
+                        TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision,
+                    ),
+                    order_by=(chunk_score.desc(), TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal),
+                )
+                .label("topic_rank"),
+            )
+            .join(
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
+                (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id)
+                & (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id)
+                & (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision),
+            )
+            .where(
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
+                chunk_score,
+            )
+            .subquery()
+        )
         chunk_rows = (
             await connection.execute(
                 select(
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id,
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision,
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.title,
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.summary,
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal,
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.start_offset,
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_text,
+                    chunk_candidates.c.artifact_id,
+                    chunk_candidates.c.revision,
+                    chunk_candidates.c.title,
+                    chunk_candidates.c.summary,
+                    chunk_candidates.c.chunk_ordinal,
+                    chunk_candidates.c.start_offset,
+                    chunk_candidates.c.chunk_text,
                 )
-                .join(
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
-                    (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id)
-                    & (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id)
-                    & (TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision),
-                )
-                .where(
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
-                    chunk_score,
-                )
+                .where(chunk_candidates.c.topic_rank == 1)
                 .order_by(
-                    chunk_score.desc(),
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id,
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision.desc(),
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal,
+                    chunk_candidates.c.score.desc(),
+                    chunk_candidates.c.artifact_id,
+                    chunk_candidates.c.revision.desc(),
+                    chunk_candidates.c.chunk_ordinal,
                 )
                 .limit(request.candidate_limit)
             )
@@ -228,7 +264,7 @@ class OceanBaseTopicMemoryVectorIndex:
             )
         self.profile = profile
         self.capabilities = TopicMemoryCapabilities(fts=False, vector=True, embedding_profile=profile)
-        self._fingerprint = _profile_fingerprint(profile)
+        self._fingerprint = topic_memory_embedding_profile_fingerprint(profile)
         metadata = MetaData()
         self.topic_table = Table(
             _TOPIC_VECTOR_TABLE,
@@ -376,32 +412,30 @@ class OceanBaseTopicMemoryVectorIndex:
             )
             or 0
         )
-        expected_chunks = int(
-            await connection.scalar(
-                select(func.count())
-                .select_from(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE)
-                .where(
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == topic_ref.artifact_id,
-                    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == topic_ref.revision,
+        expected_ordinals = set(
+            (
+                await connection.execute(
+                    select(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.chunk_ordinal).where(
+                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == scope_id,
+                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == topic_ref.artifact_id,
+                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == topic_ref.revision,
+                    )
                 )
-            )
-            or 0
+            ).scalars()
         )
-        chunk_count = int(
-            await connection.scalar(
-                select(func.count())
-                .select_from(self.chunk_table)
-                .where(
-                    self.chunk_table.c.scope_id == scope_id,
-                    self.chunk_table.c.artifact_id == topic_ref.artifact_id,
-                    self.chunk_table.c.revision == topic_ref.revision,
-                    self.chunk_table.c.profile_fingerprint == self._fingerprint,
+        stored_ordinals = set(
+            (
+                await connection.execute(
+                    select(self.chunk_table.c.chunk_ordinal).where(
+                        self.chunk_table.c.scope_id == scope_id,
+                        self.chunk_table.c.artifact_id == topic_ref.artifact_id,
+                        self.chunk_table.c.revision == topic_ref.revision,
+                        self.chunk_table.c.profile_fingerprint == self._fingerprint,
+                    )
                 )
-            )
-            or 0
+            ).scalars()
         )
-        return topic_count == 1 and expected_chunks > 0 and chunk_count == expected_chunks
+        return topic_count == 1 and bool(expected_ordinals) and stored_ordinals == expected_ordinals
 
 
 def _channel_hit(row: Mapping[Any, Any], channel: TopicMemoryMatchedBy) -> TopicMemoryChannelHit:
@@ -419,13 +453,6 @@ def _channel_hit(row: Mapping[Any, Any], channel: TopicMemoryMatchedBy) -> Topic
         chunk_text=None if row.get("chunk_text") is None else str(row["chunk_text"]),
         distance=None if row.get("distance") is None else float(row["distance"]),
     )
-
-
-def _profile_fingerprint(profile: EmbeddingProfile) -> str:
-    payload = (
-        f"{profile.profile_id}\0{profile.model}\0{profile.dimension}\0{profile.distance}\0{profile.normalization}"
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
 
 
 __all__ = ["OceanBaseTopicMemoryFTSIndex", "OceanBaseTopicMemoryVectorIndex"]
