@@ -15,7 +15,8 @@
  */
 
 import { createServer } from 'node:net'
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { promisify } from 'node:util'
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -60,10 +61,11 @@ export function unusedPort() {
   })
 }
 
-export async function waitForUrl(url, timeoutMs = 30000) {
+export async function waitForUrl(url, timeoutMs = 30000, checkProcess = () => {}) {
   const deadline = Date.now() + timeoutMs
   let lastError
   while (Date.now() < deadline) {
+    checkProcess()
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1000) })
       if (response.ok || response.status === 503) return
@@ -76,16 +78,35 @@ export async function waitForUrl(url, timeoutMs = 30000) {
   throw new Error(`Server at ${url} did not become ready: ${lastError}`)
 }
 
+async function stopServer(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  const exited = new Promise((resolve) => child.once('exit', resolve))
+  if (process.platform === 'win32') {
+    // uv's Python descendants otherwise survive killing only the launcher.
+    await promisify(execFile)('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
+  } else {
+    child.kill('SIGTERM')
+  }
+  let timer
+  try {
+    await Promise.race([exited, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('e2e Server did not exit')), 5000)
+    })])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function spawnServer(root, env) {
   const uv = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  return spawn(uv, ['run', 'powercontext', 'server', 'run'], {
+  return spawn(uv, ['run', '--no-sync', 'powercontext', 'server', 'run'], {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 }
 
-export async function startPowerContextServer() {
+export async function startPowerContextServer(options = {}) {
   const root = defaultPowerContextRoot()
   if (!root) {
     throw new Error('Set POWERCONTEXT_ROOT to a PowerContext checkout that contains pyproject.toml')
@@ -94,6 +115,7 @@ export async function startPowerContextServer() {
   const home = mkdtempSync(join(tmpdir(), 'pc-dsh-e2e-'))
   const env = {
     ...process.env,
+    ...options.env,
     POWERCONTEXT_HOME: home,
     POWERCONTEXT_SERVER_HTTP_HOST: '127.0.0.1',
     POWERCONTEXT_SERVER_HTTP_PORT: String(port),
@@ -104,25 +126,17 @@ export async function startPowerContextServer() {
   child.stderr?.on('data', (chunk) => logs.push(String(chunk)))
   const baseUrl = `http://127.0.0.1:${port}`
   try {
-    await waitForUrl(`${baseUrl}/health/live`)
+    await waitForUrl(`${baseUrl}/health/live`, 30000, () => {
+      if (child.exitCode !== null) throw new Error(`Server exited with code ${child.exitCode}`)
+    })
   } catch (error) {
-    child.kill()
+    await stopServer(child)
     throw new Error(`${error.message}\n${logs.join('')}`)
   }
   return {
     baseUrl,
     home,
     root,
-    async stop() {
-      if (!child.killed) child.kill()
-      await new Promise((resolve) => {
-        if (child.exitCode !== null) {
-          resolve()
-          return
-        }
-        child.once('exit', resolve)
-        setTimeout(resolve, 3000)
-      })
-    },
+    stop: () => stopServer(child),
   }
 }

@@ -122,6 +122,11 @@ js-test: ## Install, build, and test the DeepSeek Harness plugin.
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e
 
+.PHONY: dsh-runtime-test
+dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.
+	@pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
+	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
+
 .PHONY: openclaw-plugin-build
 openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build

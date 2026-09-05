@@ -65,6 +65,7 @@ describe('registerCommands', () => {
         : undefined,
     }, runtime())
     expect(registered.map((item) => item.name)).toEqual(['pc'])
+    expect(registered[0]).toHaveProperty('input.hint', expect.any(String))
   })
 })
 

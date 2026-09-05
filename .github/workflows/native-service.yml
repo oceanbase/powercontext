@@ -116,6 +116,13 @@ jobs:
           uv venv .native-venv
           uv pip install --python .native-venv\Scripts\python.exe "powercontext[cli,server] @ $wheelUri" pytest
 
+      - name: Verify binary cursor persistence and restart compatibility
+        shell: pwsh
+        run: >-
+          .native-venv\Scripts\python.exe -m pytest -q
+          tests/test_cursor_secret.py
+          tests/test_server.py::test_server_reuses_file_backed_cursor_secret_across_restarts
+
       - name: Exercise the real Task Scheduler lifecycle
         shell: pwsh
         run: >-
@@ -127,6 +134,13 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
+          Get-ChildItem -LiteralPath "$env:RUNNER_TEMP\powercontext-native-tests" -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @('server.stdout.log', 'server.stderr.log') } |
+            ForEach-Object {
+              Write-Output "::group::$($_.FullName)"
+              Get-Content -LiteralPath $_.FullName -Tail 100
+              Write-Output "::endgroup::"
+            }
           schtasks.exe /Query /TN "$env:POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER" /XML /HRESULT
           if ($LASTEXITCODE -ne 0) { exit 0 }
           schtasks.exe /Query /TN "$env:POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER" /FO LIST /V /HRESULT

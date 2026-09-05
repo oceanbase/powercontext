@@ -67,6 +67,9 @@ jobs:
       - name: Test DSH package
         run: make js-test
 
+      - name: Test built plugin in the real DSH runtime
+        run: make dsh-runtime-test
+
   pi-package:
     runs-on: ubuntu-latest
     steps:

@@ -71,17 +71,17 @@ export class SecretRejectedError extends ClientError {
 export class ServerResponseError extends ClientError {
   readonly statusCode: number
   readonly path: string
-  readonly code: string | undefined
+  readonly code: unknown
   readonly serverMessage: string | undefined
 
   constructor(options: {
     statusCode: number
     path?: string
     requestId?: string
-    code?: string
+    code?: unknown
     message?: string
   }) {
-    const suffix = options.code ? ` (${options.code})` : ''
+    const suffix = typeof options.code === 'string' ? ` (${options.code})` : ''
     super(`PowerContext Server returned HTTP ${options.statusCode}${suffix}`, options.requestId)
     this.statusCode = options.statusCode
     this.path = options.path ?? ''
