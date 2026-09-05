@@ -549,6 +549,10 @@ completion time 与整波清理仍在同一短事务提交。
 该目标并继续发现后续冻结页；自动目标自身失败时也按同样方式暂缓。因此其他 Scope 可以继续推进，但只有所有暂缓
 目标最终都被 Cursor 覆盖后，binding completion time 才能更新。
 
+若暂缓目标让旧波次长期未结束，冻结目标表中不存在的后到 Scope 仍可在不加入旧波次的前提下推进：显式 flush
+保持显式语义；普通 Pending 可执行一次只推进 Cursor、保留 Pending 的 automatic catch-up。两条路径都不会改变
+旧波次的不可变成员或 completion time。
+
 当 binding 启用了自动调度、存在普通 Pending，且 `last_auto_wave_completed_at` 为 `NULL` 或数据库当前时间已经达到
 `last_auto_wave_completed_at + automatic_processing_interval` 时，Leader 可以启动自动波次。波次启动时冻结该
 binding 当前各 Pending Scope 的 `source_through`，用多个 Window 处理到这些目标；波次期间新增 Source 留给下一波。
@@ -587,6 +591,8 @@ Source。主备切换或进程重启会丢失退避状态，并允许立即额�
 模型调用、输出校验、检索、启用后的 Embedding、数据库提交、Worker crash 和 timeout 等实际错误采用同一退避策略，
 但必须按 `stage` 和 `error_code` 写结构化日志。Cursor/Head CAS 冲突与 leadership lost 是控制信号，不增加
 普通失败次数。
+Cursor 与 Head conflict 使用固定的短 retry deadline，而不是立即重新派发；冲突目标在延后期间释放当前页，使冻结
+尾页继续推进且不会形成热循环。
 
 日志至少包含 binding、scope、Window 范围、stage、error code、异常类型、失败次数、重试延迟、Supervisor
 generation、worker ID 和 traceback；不得记录 Source 原文、Prompt、模型完整输出或密钥。

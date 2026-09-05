@@ -51,11 +51,11 @@ _OCEANBASE_TICK_SECONDS = 1.0
 _OCEANBASE_LEASE_SECONDS = 15.0
 _RETRY_BASE_SECONDS = 30.0
 _RETRY_CAP_SECONDS = 30.0 * 60.0
+_CONTROL_CONFLICT_RETRY_SECONDS = 0.1
 _DISCOVERY_PAGE_SIZE = 100
 _DISCOVERY_PAGE_DELAY_SECONDS = 0.01
 _RETRY_STATE_LIMIT = 1000
 _SPAWN_SIGTERM_GRACE_SECONDS = 1.0
-_SPAWN_START_CLEANUP_WAIT_SECONDS = 1.0
 _WORKER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 ProcessingKey = tuple[str, str]
@@ -199,20 +199,12 @@ async def _cleanup_cancelled_spawn_start(
 ) -> None:
     """Own and reap a partially-started child before cancellation returns."""
 
-    if not start_task.done() and process.pid is None:
-        with suppress(TimeoutError):
-            async with asyncio.timeout(_SPAWN_START_CLEANUP_WAIT_SECONDS):
-                await asyncio.shield(start_task)
-    if process.pid is None:
-        if start_task.done():
-            with suppress(BaseException):
-                start_task.result()
-        else:
-            start_task.cancel()
+    try:
+        await start_task
+    except BaseException:
         receiver.close()
         sender.close()
         return
-    start_task.cancel()
     sender.close()
     await _SpawnedWorkerHandle(process, receiver).terminate()
 
@@ -306,6 +298,7 @@ class _WaveWork:
     wave_kind: ArtifactProcessingWaveKind
     wave_target: int
     claimed_flush_generation: int
+    automatic_wave_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -564,7 +557,7 @@ class ArtifactProcessingSupervisor:
                 return
             if key in self._work or retry.next_retry_at > now:
                 continue
-            if retry.work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
+            if retry.work.automatic_wave_id is not None:
                 wave = self._automatic_waves.get(key[0])
                 if wave is not None and key in wave.deferred_targets:
                     wave.targets[key] = wave.deferred_targets.pop(key)
@@ -592,6 +585,22 @@ class ArtifactProcessingSupervisor:
                 binding_states,
                 now,
             )
+            new_wave_bindings = {wave.binding_name for wave in frozen_waves}
+            frozen_pending_keys = {
+                (row.binding_name, row.scope_id) for row in pending_rows if row.binding_name in new_wave_bindings
+            }
+            for binding_name in automatic_page_bindings - new_wave_bindings:
+                wave = self._automatic_waves.get(binding_name)
+                if wave is None:
+                    continue
+                scope_ids = tuple(row.scope_id for row in pending_rows if row.binding_name == binding_name)
+                frozen_scope_ids = await self._auto_wave_targets.existing_scope_ids(
+                    connection,
+                    wave.wave_id,
+                    binding_name,
+                    scope_ids,
+                )
+                frozen_pending_keys.update((binding_name, scope_id) for scope_id in frozen_scope_ids)
         if pending_rows:
             last = pending_rows[-1]
             self._discovery_after = (last.binding_name, last.scope_id)
@@ -602,15 +611,23 @@ class ArtifactProcessingSupervisor:
             self._next_discovery_wake_at = asyncio.get_running_loop().time() + _DISCOVERY_PAGE_DELAY_SECONDS
         registered = tuple(row for row in pending_rows if row.binding_name in self._bindings)
         rows_by_binding: dict[str, list[StoredArtifactProcessingPending]] = {}
+        backing_off_bindings = {retry.work.key[0] for retry in self._retries.values()}
         for pending in registered:
             key = (pending.binding_name, pending.scope_id)
             if (
-                pending.binding_name not in self._automatic_waves
-                and key not in self._work
+                key not in self._work
                 and key not in self._retries
                 and pending.flush_generation > pending.handled_flush_generation
             ):
                 self._register_work(pending, ArtifactProcessingWaveKind.EXPLICIT)
+            elif (
+                pending.binding_name in self._automatic_waves
+                and pending.binding_name in backing_off_bindings
+                and key not in frozen_pending_keys
+                and key not in self._work
+                and key not in self._retries
+            ):
+                self._register_untracked_automatic_work(pending)
             rows_by_binding.setdefault(pending.binding_name, []).append(pending)
         for wave in frozen_waves:
             self._automatic_waves[wave.binding_name] = wave
@@ -649,7 +666,12 @@ class ArtifactProcessingSupervisor:
                 wave.deferred_targets[key] = target.source_through
                 continue
             page_targets[key] = target.source_through
-            self._register_automatic_work(target.binding_name, target.scope_id, target.source_through)
+            self._register_automatic_work(
+                target.binding_name,
+                target.scope_id,
+                target.source_through,
+                wave_id=wave.wave_id,
+            )
         wave.targets = page_targets
         if not wave.targets:
             self._wake.set()
@@ -742,7 +764,14 @@ class ArtifactProcessingSupervisor:
         )
         self._enqueue(key)
 
-    def _register_automatic_work(self, binding_name: str, scope_id: str, source_through: int) -> None:
+    def _register_automatic_work(
+        self,
+        binding_name: str,
+        scope_id: str,
+        source_through: int,
+        *,
+        wave_id: str,
+    ) -> None:
         key = (binding_name, scope_id)
         if key in self._work or key in self._retries:
             return
@@ -750,6 +779,17 @@ class ArtifactProcessingSupervisor:
             key=key,
             wave_kind=ArtifactProcessingWaveKind.AUTOMATIC,
             wave_target=source_through,
+            claimed_flush_generation=0,
+            automatic_wave_id=wave_id,
+        )
+        self._enqueue(key)
+
+    def _register_untracked_automatic_work(self, pending: StoredArtifactProcessingPending) -> None:
+        key = (pending.binding_name, pending.scope_id)
+        self._work[key] = _WaveWork(
+            key=key,
+            wave_kind=ArtifactProcessingWaveKind.AUTOMATIC,
+            wave_target=pending.source_through,
             claimed_flush_generation=0,
         )
         self._enqueue(key)
@@ -932,7 +972,6 @@ class ArtifactProcessingSupervisor:
                     ),
                 )
                 continue
-            self._retries.pop(key, None)
             if completion.outcome is ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST:
                 await self._lose_leadership(ArtifactProcessingSupervisorStatus.STANDBY)
                 return
@@ -940,8 +979,9 @@ class ArtifactProcessingSupervisor:
                 ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT,
                 ArtifactProcessingWorkerOutcome.HEAD_CONFLICT,
             }:
-                self._enqueue(key)
+                self._defer_control_conflict(running.work)
                 continue
+            self._retries.pop(key, None)
             assignment = await self._prepare_assignment(running.work)
             if assignment is None:
                 await self._finish_completed_work(running.work)
@@ -978,9 +1018,12 @@ class ArtifactProcessingSupervisor:
         await self._finish_completed_work(work)
 
     async def _finish_completed_work(self, work: _WaveWork) -> None:
-        wave = self._automatic_waves.get(work.key[0])
+        binding_wave = self._automatic_waves.get(work.key[0])
+        wave = binding_wave if work.automatic_wave_id is not None else None
         if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
-            if wave is None or work.key not in wave.targets:
+            if work.automatic_wave_id is not None and (
+                wave is None or wave.wave_id != work.automatic_wave_id or work.key not in wave.targets
+            ):
                 raise _AutomaticWaveStateError("unknown", "completed target is not active")
             binding_name, scope_id = work.key
             async with self._database.transaction() as connection:
@@ -994,20 +1037,23 @@ class ArtifactProcessingSupervisor:
                         work.wave_target,
                         cursor_position,
                     )
-                marked = await self._auto_wave_targets.mark_completed(
-                    connection,
-                    wave.wave_id,
-                    scope_id,
-                )
-                if not marked:
-                    raise _AutomaticWaveStateError(wave.wave_id, "completed target row is missing")
+                if wave is not None:
+                    marked = await self._auto_wave_targets.mark_completed(
+                        connection,
+                        wave.wave_id,
+                        scope_id,
+                    )
+                    if not marked:
+                        raise _AutomaticWaveStateError(wave.wave_id, "completed target row is missing")
         self._work.pop(work.key, None)
         self._queued.discard(work.key)
         self._retries.pop(work.key, None)
-        if wave is not None and work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
+        if wave is not None:
             wave.completed.add(work.key)
             if wave.completed == set(wave.targets):
                 self._wake.set()
+        elif binding_wave is not None:
+            self._wake.set()
 
     async def _complete_automatic_wave(self, wave: _AutomaticWave) -> None:
         async with self._database.transaction() as connection:
@@ -1035,36 +1081,11 @@ class ArtifactProcessingSupervisor:
         failures = 1 if previous is None else previous.consecutive_failures + 1
         base_delay = min(self._retry_base_seconds * (2 ** (failures - 1)), self._retry_cap_seconds)
         retry_delay = base_delay * self._retry_jitter()
-        self._work.pop(work.key, None)
-        self._queued.discard(work.key)
-        with suppress(ValueError):
-            self._queue.remove(work.key)
-        if previous is None and len(self._retries) >= _RETRY_STATE_LIMIT:
-            evicted = next(
-                (
-                    key
-                    for key, retry in self._retries.items()
-                    if retry.work.wave_kind is ArtifactProcessingWaveKind.EXPLICIT and key not in self._work
-                ),
-                None,
-            )
-            if evicted is None:
-                if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
-                    raise _RetryCapacityError
-                self._next_discovery_wake_at = loop.time() + retry_delay
-            else:
-                self._retries.pop(evicted)
-        if previous is not None or len(self._retries) < _RETRY_STATE_LIMIT:
-            self._retries[work.key] = _RetryState(
-                work=work,
-                consecutive_failures=failures,
-                next_retry_at=loop.time() + retry_delay,
-            )
-        if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
-            wave = self._automatic_waves.get(work.key[0])
-            if wave is not None and work.key in wave.targets:
-                wave.deferred_targets[work.key] = wave.targets.pop(work.key)
-                wave.completed.discard(work.key)
+        self._defer_work(
+            work,
+            consecutive_failures=failures,
+            next_retry_at=loop.time() + retry_delay,
+        )
         log_safely(
             logger,
             logging.ERROR,
@@ -1088,6 +1109,53 @@ class ArtifactProcessingSupervisor:
             },
         )
 
+    def _defer_control_conflict(self, work: _WaveWork) -> None:
+        previous = self._retries.get(work.key)
+        self._defer_work(
+            work,
+            consecutive_failures=0 if previous is None else previous.consecutive_failures,
+            next_retry_at=asyncio.get_running_loop().time() + _CONTROL_CONFLICT_RETRY_SECONDS,
+        )
+
+    def _defer_work(
+        self,
+        work: _WaveWork,
+        *,
+        consecutive_failures: int,
+        next_retry_at: float,
+    ) -> None:
+        self._work.pop(work.key, None)
+        self._queued.discard(work.key)
+        with suppress(ValueError):
+            self._queue.remove(work.key)
+        previous = self._retries.get(work.key)
+        if previous is None and len(self._retries) >= _RETRY_STATE_LIMIT:
+            evicted = next(
+                (
+                    key
+                    for key, retry in self._retries.items()
+                    if retry.work.wave_kind is ArtifactProcessingWaveKind.EXPLICIT and key not in self._work
+                ),
+                None,
+            )
+            if evicted is None:
+                if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
+                    raise _RetryCapacityError
+                self._next_discovery_wake_at = next_retry_at
+            else:
+                self._retries.pop(evicted)
+        if previous is not None or len(self._retries) < _RETRY_STATE_LIMIT:
+            self._retries[work.key] = _RetryState(
+                work=work,
+                consecutive_failures=consecutive_failures,
+                next_retry_at=next_retry_at,
+            )
+        if work.automatic_wave_id is not None:
+            wave = self._automatic_waves.get(work.key[0])
+            if wave is not None and work.key in wave.targets:
+                wave.deferred_targets[work.key] = wave.targets.pop(work.key)
+                wave.completed.discard(work.key)
+
     async def _finish_ready_automatic_waves(self) -> None:
         for wave in tuple(self._automatic_waves.values()):
             if wave.completed != set(wave.targets):
@@ -1105,7 +1173,7 @@ class ArtifactProcessingSupervisor:
                     continue
                 wave.deferred_targets.pop(key)
                 wave.targets[key] = source_through
-                self._register_automatic_work(*key, source_through)
+                self._register_automatic_work(*key, source_through, wave_id=wave.wave_id)
                 available -= 1
             if wave.targets or wave.deferred_targets:
                 continue
@@ -1124,8 +1192,7 @@ class ArtifactProcessingSupervisor:
             item.task.cancel()
         tasks = tuple(item.task for item in (*launching, *running))
         if tasks:
-            done, _pending = await asyncio.wait(tasks, timeout=_WORKER_SHUTDOWN_TIMEOUT_SECONDS)
-            await asyncio.gather(*done, return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=True)
         late_handles: list[ArtifactProcessingWorkerHandle] = []
         for item in launching:
             if not item.task.done() or item.task.cancelled():

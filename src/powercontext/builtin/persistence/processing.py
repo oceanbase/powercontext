@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any, cast
 
 from pydantic import BaseModel
@@ -301,6 +301,33 @@ class ArtifactProcessingAutoWaveTargetRepository:
             statement = statement.where(targets.c.scope_id > after_scope_id)
         rows = (await connection.execute(statement.order_by(targets.c.scope_id).limit(limit))).mappings()
         return tuple(_decode_auto_wave_target(row) for row in rows)
+
+    async def existing_scope_ids(
+        self,
+        connection: AsyncConnection,
+        wave_id: str,
+        binding_name: str,
+        scope_ids: Collection[str],
+        /,
+    ) -> frozenset[str]:
+        """Return the bounded subset already frozen into one wave."""
+
+        _require_identifier("wave_id", wave_id, 36)
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        validated = tuple(scope_ids)
+        for scope_id in validated:
+            _require_identifier("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
+        if not validated:
+            return frozenset()
+        targets = ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE
+        rows = await connection.scalars(
+            select(targets.c.scope_id).where(
+                targets.c.wave_id == wave_id,
+                targets.c.binding_name == binding_name,
+                targets.c.scope_id.in_(validated),
+            )
+        )
+        return frozenset(str(scope_id) for scope_id in rows)
 
     async def mark_completed(
         self,

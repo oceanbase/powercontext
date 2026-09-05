@@ -607,6 +607,11 @@ attempt or retry is deferred while the Supervisor continues through later frozen
 is deferred in the same way. Other Scopes can therefore make progress, but the binding completion time cannot advance
 until every deferred target is eventually covered.
 
+If a deferred target keeps an old wave open, a newly arriving Scope that is absent from the frozen target table may
+still run without joining that wave: explicit flushes retain their explicit semantics, while ordinary Pending may make
+an automatic catch-up attempt that advances only its Cursor and leaves Pending in place. Neither path changes the old
+wave's immutable membership or completion time.
+
 When a binding has automatic scheduling enabled and ordinary Pending exists, the Leader may start an automatic wave if
 `last_auto_wave_completed_at` is `NULL` or database time has reached
 `last_auto_wave_completed_at + automatic_processing_interval`. At wave start it freezes the current `source_through`
@@ -655,6 +660,8 @@ restart loses the backoff state and permits one immediate extra retry.
 Actual errors—including model calls, output validation, retrieval, enabled Embedding, database commit, Worker crash, and
 timeout—use the same backoff strategy but must produce structured logs by `stage` and `error_code`. Cursor/Head CAS
 conflicts and leadership loss are control signals and do not increase the ordinary failure count.
+Cursor and Head conflicts use a fixed short retry deadline rather than immediate redispatch. The conflicting target
+releases its current page while delayed, so frozen suffix targets continue to make progress without a hot loop.
 
 Logs include at least the binding, Scope, Window range, stage, error code, exception type, failure count, retry delay,
 Supervisor generation, Worker ID, and traceback. They must not contain original Source content, Prompts, complete model
