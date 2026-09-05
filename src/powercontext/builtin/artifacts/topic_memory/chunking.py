@@ -23,6 +23,7 @@ from itertools import pairwise
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory.models import (
+    MAX_TOPIC_MEMORY_DETAIL_LENGTH,
     TopicMemoryChunk,
     TopicMemoryContent,
     TopicMemoryProjection,
@@ -34,6 +35,11 @@ TOPIC_MEMORY_CHUNK_TARGET_CHARACTERS = 1_200
 TOPIC_MEMORY_CHUNK_MAX_CHARACTERS = 1_800
 TOPIC_MEMORY_CHUNK_MIN_TAIL_CHARACTERS = 300
 TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS = 160
+# Adjacent non-forced outputs together exceed the max size, while forced
+# windows advance farther; this is a conservative bound for valid Detail.
+TOPIC_MEMORY_CHUNK_MAX_COUNT = (
+    2 * MAX_TOPIC_MEMORY_DETAIL_LENGTH + TOPIC_MEMORY_CHUNK_MAX_CHARACTERS - 1
+) // TOPIC_MEMORY_CHUNK_MAX_CHARACTERS + 1
 
 _BLOCK_BOUNDARY = re.compile(r"(?:\n[ \t]*\n+)|(?=^#{1,6}[ \t]+)|(?=^[ \t]*(?:[-*+] |\d+[.)] ))", re.MULTILINE)
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])(?:[ \t]+|(?=\n))")  # noqa: RUF001
@@ -162,6 +168,7 @@ def _trimmed_span(detail: str, start: int, end: int) -> _Span | None:
 
 __all__ = [
     "TOPIC_MEMORY_CHUNK_MAX_CHARACTERS",
+    "TOPIC_MEMORY_CHUNK_MAX_COUNT",
     "TOPIC_MEMORY_CHUNK_MIN_TAIL_CHARACTERS",
     "TOPIC_MEMORY_CHUNK_OVERLAP_CHARACTERS",
     "TOPIC_MEMORY_CHUNK_POLICY_VERSION",

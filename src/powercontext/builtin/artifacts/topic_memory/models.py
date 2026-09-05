@@ -28,6 +28,7 @@ from powercontext.builtin.inference import EmbeddingVector
 MAX_TOPIC_MEMORY_TITLE_LENGTH = 512
 MAX_TOPIC_MEMORY_SUMMARY_LENGTH = 8_000
 MAX_TOPIC_MEMORY_DETAIL_LENGTH = 125_000
+MAX_TOPIC_MEMORY_QUERY_TERMS = 64
 
 TopicMemoryTitle = Annotated[str, Field(min_length=1, max_length=MAX_TOPIC_MEMORY_TITLE_LENGTH)]
 TopicMemorySummary = Annotated[str, Field(min_length=1, max_length=MAX_TOPIC_MEMORY_SUMMARY_LENGTH)]

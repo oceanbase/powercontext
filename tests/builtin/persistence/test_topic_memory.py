@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import (
+    TOPIC_MEMORY_CHUNK_MAX_COUNT,
     TopicMemory,
     TopicMemoryBrowseCursor,
     TopicMemoryCapabilityError,
@@ -40,6 +41,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     prepare_topic_memory_projection,
 )
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
+from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.topic_memory_index import (
@@ -274,6 +276,23 @@ def test_current_browse_uses_stable_exclusive_keyset_order() -> None:
 
             assert [item.artifact_ref.artifact_id for item in first_page] == ["topic-a", "topic-b"]
             assert [item.artifact_ref.artifact_id for item in second_page] == ["topic-c"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("term_count", [1_001, 1_100])
+def test_fts_search_rejects_queries_above_the_distinct_analyzer_term_limit(term_count: int) -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        query = " ".join(f"term{position}" for position in range(term_count))
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile,
+            profile.database.transaction() as connection,
+        ):
+            await repository.initialize(connection)
+            with pytest.raises(InvalidRepositoryArgumentError, match="at most 64 distinct Analyzer terms"):
+                await repository.search(connection, "scope-a", query, limit=10)
 
     asyncio.run(scenario())
 
@@ -917,6 +936,109 @@ def test_sqlite_vector_work_budget_is_partitioned_by_scope() -> None:
                 )
 
             assert tuple(hit.artifact_ref.artifact_id for hit in result.hits) == ("topic-local",)
+
+    asyncio.run(scenario())
+
+
+def test_detail_vector_collapses_topics_within_the_derived_chunk_bound() -> None:
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="topic-test-v1",
+            model="test",
+            dimension=2,
+            distance="l2",
+            normalization="unit",
+        )
+        index = CompositeTopicMemoryIndex(
+            SQLiteTopicMemoryFTSIndex(),
+            SQLiteTopicMemoryVectorIndex(embedding_profile),
+        )
+        repository = TopicMemoryRepository(index=index)
+        dense_detail = "\n\n".join("x" if position % 2 == 0 else "y" * 1_800 for position in range(139))
+        dense_content = TopicMemoryContent(
+            title="Dense vector topic",
+            summary="Every canonical chunk is close to the query.",
+            detail=dense_detail,
+        )
+        dense_base = prepare_topic_memory_projection(dense_content)
+        assert len(dense_base.chunks) == 139
+        assert len(dense_base.chunks) <= TOPIC_MEMORY_CHUNK_MAX_COUNT
+        async with SQLiteProfile.open(
+            SQLiteConfig(),
+            tables=BUILTIN_TABLES + index.tables,
+            load_vector_extension=True,
+        ) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                for position in range(3):
+                    content = dense_content.model_copy(update={"title": f"Dense vector topic {position}"})
+                    base = prepare_topic_memory_projection(content)
+                    projection = base.model_copy(
+                        update={
+                            "topic_embedding": (0.0, 1.0),
+                            "chunk_embeddings": tuple((1.0, 0.0) for _chunk in base.chunks),
+                            "embedding_profile": embedding_profile,
+                        }
+                    )
+                    await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        f"topic-dense-{position}",
+                        _draft(content),
+                        projection,
+                    )
+                target_content = _content("Target", "semantic")
+                target_base = prepare_topic_memory_projection(target_content)
+                target_projection = target_base.model_copy(
+                    update={
+                        "topic_embedding": (0.0, 1.0),
+                        "chunk_embeddings": tuple((0.99, 0.141) for _chunk in target_base.chunks),
+                        "embedding_profile": embedding_profile,
+                    }
+                )
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-target",
+                    _draft(target_content),
+                    target_projection,
+                )
+
+            async with profile.database.transaction() as connection:
+                channels = await index.search(
+                    connection,
+                    "scope-a",
+                    TopicMemorySearchRequest(
+                        query="semantic",
+                        analyzed_query="semantic",
+                        candidate_limit=4,
+                        mode="vector",
+                        query_vector=(1.0, 0.0),
+                        embedding_profile=embedding_profile,
+                    ),
+                )
+                public_result = await repository.search(
+                    connection,
+                    "scope-a",
+                    "semantic",
+                    limit=100,
+                    mode="vector",
+                    query_vector=(1.0, 0.0),
+                    embedding_profile=embedding_profile,
+                )
+
+            assert {hit.artifact_ref.artifact_id for hit in channels.detail_vector} == {
+                "topic-dense-0",
+                "topic-dense-1",
+                "topic-dense-2",
+                "topic-target",
+            }
+            assert {hit.artifact_ref.artifact_id for hit in public_result.hits} == {
+                "topic-dense-0",
+                "topic-dense-1",
+                "topic-dense-2",
+                "topic-target",
+            }
 
     asyncio.run(scenario())
 

@@ -26,6 +26,7 @@ from powercontext.builtin.artifacts.topic_memory.models import (
     TopicMemoryMatchedBy,
     TopicMemorySearchChannels,
     TopicMemorySearchHit,
+    TopicMemoryUsedSearchMode,
 )
 
 _RRF_CONSTANT = 60
@@ -37,7 +38,11 @@ _CHANNEL_ORDER: tuple[TopicMemoryMatchedBy, ...] = (
     "detail_fts",
     "detail_vector",
 )
-_MAX_RRF_SCORE = len(_CHANNEL_ORDER) / (_RRF_CONSTANT + 1)
+_MODE_CHANNELS: dict[TopicMemoryUsedSearchMode, tuple[TopicMemoryMatchedBy, ...]] = {
+    "fts": ("topic_fts", "detail_fts"),
+    "vector": ("topic_vector", "detail_vector"),
+    "hybrid": _CHANNEL_ORDER,
+}
 
 
 def fuse_topic_memory_rankings(
@@ -45,6 +50,8 @@ def fuse_topic_memory_rankings(
     channels: TopicMemorySearchChannels,
     limit: int,
     /,
+    *,
+    mode: TopicMemoryUsedSearchMode = "hybrid",
 ) -> tuple[TopicMemorySearchHit, ...]:
     """Collapse each channel by Topic and fuse ranks without comparing raw scores."""
 
@@ -58,7 +65,11 @@ def fuse_topic_memory_rankings(
         ("detail_fts", _admit_fts(query, channels.detail_fts)),
         ("detail_vector", _admit_vector(channels.detail_vector)),
     )
+    enabled_channels = _MODE_CHANNELS[mode]
+    max_score = len(enabled_channels) / (_RRF_CONSTANT + 1)
     for channel, ranking in rankings:
+        if channel not in enabled_channels:
+            continue
         seen: set[tuple[str, int]] = set()
         for rank, candidate in enumerate(ranking, start=1):
             identity = (candidate.artifact_ref.artifact_id, candidate.artifact_ref.revision)
@@ -81,7 +92,7 @@ def fuse_topic_memory_rankings(
             title=candidates[identity].title,
             summary=candidates[identity].summary,
             snippet=snippets.get(identity),
-            score=min(100.0, scores[identity] / _MAX_RRF_SCORE * 100.0),
+            score=min(100.0, scores[identity] / max_score * 100.0),
             matched_by=tuple(channel for channel in _CHANNEL_ORDER if channel in matched[identity]),
         )
         for identity in ordered

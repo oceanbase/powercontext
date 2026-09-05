@@ -28,6 +28,7 @@ from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory import (
+    MAX_TOPIC_MEMORY_QUERY_TERMS,
     PublishedTopicMemory,
     TopicMemory,
     TopicMemoryBrowseCursor,
@@ -60,6 +61,8 @@ from powercontext.builtin.persistence.topic_memory_index import (
     TopicMemoryIndex,
     topic_memory_embedding_profile_fingerprint,
 )
+
+_MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES = 20
 
 
 class TopicMemoryRepository:
@@ -386,13 +389,18 @@ class TopicMemoryRepository:
             raise InvalidRepositoryArgumentError("query", "must be a non-empty trimmed string")
         analyzed = analyze_text(query)
         used_mode = self._select_mode(mode, query_vector, embedding_profile)
+        if used_mode in {"fts", "hybrid"} and len(set(analyzed.split())) > MAX_TOPIC_MEMORY_QUERY_TERMS:
+            raise InvalidRepositoryArgumentError(
+                "query",
+                f"must contain at most {MAX_TOPIC_MEMORY_QUERY_TERMS} distinct Analyzer terms",
+            )
         query_vector = self._canonical_query_vector(used_mode, query_vector)
         if not analyzed and used_mode == "fts":
             return TopicMemorySearchResult(mode=used_mode, hits=())
         request = TopicMemorySearchRequest(
             query=query,
             analyzed_query=analyzed,
-            candidate_limit=min(100, max(limit * 4, limit)),
+            candidate_limit=min(_MAX_TOPIC_MEMORY_CHANNEL_CANDIDATES, max(limit * 4, limit)),
             mode=used_mode,
             query_vector=query_vector,
             embedding_profile=embedding_profile,
@@ -400,7 +408,7 @@ class TopicMemoryRepository:
         channels = await self.index.search(connection, scope_id, request)
         return TopicMemorySearchResult(
             mode=used_mode,
-            hits=fuse_topic_memory_rankings(query, channels, limit),
+            hits=fuse_topic_memory_rankings(query, channels, limit, mode=used_mode),
         )
 
     async def _activate(

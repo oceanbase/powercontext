@@ -140,7 +140,7 @@ def test_fts_snippet_uses_analyzer_token_boundaries() -> None:
     assert "party" not in result[0].snippet
 
 
-def test_rrf_scores_are_normalized_against_four_first_place_channels() -> None:
+def test_rrf_scores_are_normalized_against_the_enabled_first_place_channels() -> None:
     base = TopicMemoryChannelHit(
         artifact_ref=ArtifactRef(family="topic-memory", artifact_id="topic-1", revision=1),
         title="Normalized score",
@@ -161,6 +161,12 @@ def test_rrf_scores_are_normalized_against_four_first_place_channels() -> None:
         TopicMemorySearchChannels(topic_fts=(base,)),
         1,
     )
+    fts_only = fuse_topic_memory_rankings(
+        "needle",
+        TopicMemorySearchChannels(topic_fts=(base,), detail_fts=(detail,)),
+        1,
+        mode="fts",
+    )
     all_channels = fuse_topic_memory_rankings(
         "needle",
         TopicMemorySearchChannels(
@@ -173,4 +179,5 @@ def test_rrf_scores_are_normalized_against_four_first_place_channels() -> None:
     )
 
     assert single[0].score == pytest.approx(25.0)
+    assert fts_only[0].score == pytest.approx(100.0)
     assert all_channels[0].score == pytest.approx(100.0)

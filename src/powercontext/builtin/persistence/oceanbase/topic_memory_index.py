@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.search import fts_query_requirements
 from powercontext.builtin.artifacts.topic_memory import (
+    TOPIC_MEMORY_CHUNK_MAX_COUNT,
     TopicMemoryCapabilities,
     TopicMemoryCapabilityError,
     TopicMemoryChannelHit,
@@ -59,8 +60,6 @@ from powercontext.builtin.persistence.tables import (
 )
 from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
-
-_VECTOR_OVERSAMPLE_FACTOR = 64
 
 _TOPIC_FTS_INDEX = "ix_pc_topic_memory_active_topics_fts"
 _CHUNK_FTS_INDEX = "ix_pc_topic_memory_active_chunks_fts"
@@ -417,7 +416,7 @@ class OceanBaseTopicMemoryVectorIndex:
                 normalization=self.profile.normalization,
             ),
             "candidate_limit": request.candidate_limit,
-            "neighbor_limit": request.candidate_limit * _VECTOR_OVERSAMPLE_FACTOR,
+            "neighbor_limit": request.candidate_limit * TOPIC_MEMORY_CHUNK_MAX_COUNT,
         }
         topic_rows = (await connection.execute(self._topic_search, parameters)).mappings()
         chunk_rows = (await connection.execute(self._chunk_search, parameters)).mappings()

@@ -40,6 +40,7 @@ from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.search import analyze_text, fts_match_query, fts_query_requirements
 from powercontext.builtin.artifacts.topic_memory import (
+    TOPIC_MEMORY_CHUNK_MAX_COUNT,
     TopicMemoryCapabilities,
     TopicMemoryCapabilityError,
     TopicMemoryChannelHit,
@@ -56,8 +57,6 @@ from powercontext.builtin.persistence.tables import (
 )
 from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
-
-_VECTOR_OVERSAMPLE_FACTOR = 64
 
 SQLITE_TOPIC_MEMORY_FTS_MARKER_TABLE = Table(
     "pc_topic_memory_fts_index",
@@ -512,7 +511,7 @@ class SQLiteTopicMemoryVectorIndex:
                 _CHUNK_VECTOR_SEARCH_SQL,
                 {
                     **parameters,
-                    "neighbor_limit": request.candidate_limit * _VECTOR_OVERSAMPLE_FACTOR,
+                    "neighbor_limit": request.candidate_limit * TOPIC_MEMORY_CHUNK_MAX_COUNT,
                 },
             )
         ).mappings()
@@ -571,16 +570,18 @@ class SQLiteTopicMemoryVectorIndex:
         if str(topic[1]) != self._fingerprint or any(str(row[1]) != self._fingerprint for row in chunks):
             return False
         topic_vector = await connection.scalar(
-            text("SELECT rowid FROM pc_topic_memory_topic_vec WHERE rowid = :vector_id"),
-            {"vector_id": int(topic[0])},
+            text("SELECT rowid FROM pc_topic_memory_topic_vec WHERE rowid = :vector_id AND scope_id = :scope_id"),
+            {"vector_id": int(topic[0]), "scope_id": scope_id},
         )
         if topic_vector is None:
             return False
         for row in chunks:
             if (
                 await connection.scalar(
-                    text("SELECT rowid FROM pc_topic_memory_chunk_vec WHERE rowid = :vector_id"),
-                    {"vector_id": int(row[0])},
+                    text(
+                        "SELECT rowid FROM pc_topic_memory_chunk_vec WHERE rowid = :vector_id AND scope_id = :scope_id"
+                    ),
+                    {"vector_id": int(row[0]), "scope_id": scope_id},
                 )
                 is None
             ):
