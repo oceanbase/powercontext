@@ -32,6 +32,8 @@ from urllib.request import Request, urlopen
 import typer
 from pydantic import ValidationError
 
+from powercontext_eval.benchmarks.longmemeval_v2.catalog import LongMemEvalV2CatalogError
+from powercontext_eval.benchmarks.longmemeval_v2.smoke import prepare_smoke_run
 from powercontext_eval.benchmarks.swebench_pro.catalog import PUBLIC_V2_TASK_SET, SweBenchProCatalog, TaskSet
 from powercontext_eval.codex import DEFAULT_CODEX_MODEL, DEFAULT_REASONING_EFFORT
 from powercontext_eval.models import TreatmentMode
@@ -44,7 +46,9 @@ if TYPE_CHECKING:
 
 app = typer.Typer(no_args_is_help=True, help="PowerContext evaluation runner.")
 swebench_pro_app = typer.Typer(no_args_is_help=True, help="Pinned SWE-bench Pro evaluation.")
+longmemeval_v2_app = typer.Typer(no_args_is_help=True, help="Pinned LongMemEval-V2 evaluation.")
 app.add_typer(swebench_pro_app, name="swebench-pro")
+app.add_typer(longmemeval_v2_app, name="longmemeval-v2")
 
 
 @app.callback()
@@ -167,6 +171,39 @@ def codex_contract_smoke(
         prompt=prompt,
     )
     typer.echo(json.dumps(outcome, ensure_ascii=False, sort_keys=True))
+
+
+@longmemeval_v2_app.command("smoke")
+def longmemeval_v2_smoke(
+    data_root: Path = typer.Option(..., "--data-root"),
+    dataset_lock: Path = typer.Option(..., "--dataset-lock"),
+    harness_root: Path = typer.Option(..., "--harness-root"),
+    smoke_manifest: Path = typer.Option(..., "--smoke-manifest"),
+    output_dir: Path = typer.Option(..., "--output-dir"),
+) -> None:
+    """Validate fixed LongMemEval-V2 inputs and write smoke artifacts without calling a model."""
+
+    try:
+        prepared = prepare_smoke_run(
+            data_root=data_root,
+            dataset_lock=dataset_lock,
+            harness_root=harness_root,
+            smoke_manifest=smoke_manifest,
+            output_dir=output_dir,
+        )
+    except LongMemEvalV2CatalogError as error:
+        raise typer.BadParameter(str(error)) from None
+    typer.echo(
+        json.dumps(
+            {
+                "classification": "smoke-subset",
+                "manifest": str(prepared.manifest_path),
+                "subset": str(prepared.subset_path),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
 
 
 @swebench_pro_app.command("run")
