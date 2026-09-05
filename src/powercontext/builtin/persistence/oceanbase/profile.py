@@ -30,8 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import PersistenceError
+from powercontext.builtin.persistence.memory_schema import ensure_memory_entry_version_scope_identity
 from powercontext.builtin.persistence.schema import create_tables
-from powercontext.builtin.persistence.tables import MYSQL_IDENTITY_COLLATION
+from powercontext.builtin.persistence.tables import MEMORY_ENTRY_VERSIONS_TABLE, MYSQL_IDENTITY_COLLATION
 
 _DIALECT_DRIVER = "mysql+aoceanbase"
 _DIALECT_REGISTRY_NAME = "mysql.aoceanbase"
@@ -157,6 +158,8 @@ async def _initialized_profile(profile: OceanBaseProfile) -> AsyncIterator[Ocean
             await _require_mysql_tenant(connection)
             await _require_compatible_identity_collations(connection, profile.tables)
             await create_tables(connection, profile.tables)
+            if any(table is MEMORY_ENTRY_VERSIONS_TABLE for table in profile.tables):
+                await ensure_memory_entry_version_scope_identity(connection)
         yield profile
     finally:
         await profile.database.close()

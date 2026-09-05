@@ -22,6 +22,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKeyConstraint,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -643,6 +644,7 @@ SHARED_TABLES = (
 MAX_MEMORY_ENTRY_ID_LENGTH = 128
 MAX_MEMORY_ENTRY_KIND_LENGTH = 128
 MAX_MEMORY_HASH_LENGTH = 64
+MEMORY_ENTRY_VERSION_SCOPE_INDEX_NAME = "uq_pc_memory_entry_versions_scope_version"
 
 
 MEMORY_ENTRY_VERSIONS_TABLE = Table(
@@ -690,6 +692,13 @@ MEMORY_ENTRY_VERSIONS_TABLE = Table(
         "created_in_revision > 0",
         name="ck_pc_memory_entry_versions_revision_positive",
     ),
+)
+
+MEMORY_ENTRY_VERSION_SCOPE_INDEX = Index(
+    MEMORY_ENTRY_VERSION_SCOPE_INDEX_NAME,
+    MEMORY_ENTRY_VERSIONS_TABLE.c.scope_id,
+    MEMORY_ENTRY_VERSIONS_TABLE.c.entry_version_id,
+    unique=True,
 )
 
 MEMORY_ENTRY_HEADS_TABLE = Table(

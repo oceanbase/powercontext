@@ -27,22 +27,35 @@ from pydantic import SecretStr
 
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
+    Memory,
+    MemoryChange,
+    MemoryCommit,
+    MemoryContent,
     MemoryEntryInput,
+    MemoryEntryVersion,
     MemoryHit,
+    MemoryManifest,
+    MemoryManifestEntry,
+    MemoryProjection,
     MemoryRerankDecision,
     MemorySearchMode,
 )
+from powercontext.builtin.artifacts.memory.canonical import entry_content_hash, memory_content_hash
+from powercontext.builtin.artifacts.memory.errors import MemoryBackendConfigurationError
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import EmbeddingResult, InferenceUsage
+from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     RememberMemoryRequest,
     SearchMemoryRequest,
+    open_builtin_contexts,
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
-from powercontext.errors import RevisionConflictError
+from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 
 DatabaseKind = Literal["sqlite", "oceanbase"]
 TIMEOUT_SECONDS = 15
@@ -58,6 +71,7 @@ EXPECTED_CHANNELS = {
     "vector": ("vector",),
     "hybrid": ("fts", "vector"),
 }
+OCEANBASE_URL = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
 
 
 class _KeywordEmbeddingModel:
@@ -248,6 +262,128 @@ def test_memory_search_reports_revision_conflict_when_every_attempt_starts_from_
                 service.search = original_search
 
     asyncio.run(scenario())
+
+
+@pytest.mark.skipif(
+    not OCEANBASE_URL,
+    reason="set POWERCONTEXT_TEST_OCEANBASE_URL to a dedicated OceanBase MySQL-mode test database",
+)
+def test_oceanbase_memory_version_identity_race_is_database_enforced() -> None:
+    async def scenario() -> None:
+        assert OCEANBASE_URL is not None
+        scope_id = f"concurrent-version-identity-{uuid4()}"
+        async with open_builtin_contexts(
+            BuiltinConfig(database=OceanBaseConfig(url=SecretStr(OCEANBASE_URL)))
+        ) as contexts:
+            backend = RelationalMemoryBackend(
+                database=contexts.database,
+                scope_id=scope_id,
+                artifacts=contexts.repositories.artifacts,
+                index=contexts.index,
+            )
+            mutable_backend: Any = backend
+            original = mutable_backend._commit_versions
+            both_checked = asyncio.Event()
+            release = asyncio.Event()
+            arrivals = 0
+            arrival_lock = asyncio.Lock()
+
+            async def pause_after_identity_read(
+                _self: RelationalMemoryBackend,
+                connection: Any,
+                value: MemoryCommit,
+            ) -> dict[str, MemoryEntryVersion]:
+                nonlocal arrivals
+                versions = await original(connection, value)
+                async with arrival_lock:
+                    arrivals += 1
+                    if arrivals == 2:
+                        both_checked.set()
+                await release.wait()
+                return versions
+
+            mutable_backend._commit_versions = MethodType(pause_after_identity_read, backend)
+            commits = (
+                _colliding_initial_commit("memory-a", "entry-a"),
+                _colliding_initial_commit("memory-b", "entry-b"),
+            )
+            pending = tuple(asyncio.create_task(_commit_memory(backend, commit)) for commit in commits)
+            results: list[Memory | BaseException] = []
+            try:
+                await asyncio.wait_for(both_checked.wait(), timeout=TIMEOUT_SECONDS)
+                release.set()
+                results = await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=TIMEOUT_SECONDS,
+                )
+            finally:
+                release.set()
+                for task in pending:
+                    if not task.done():
+                        task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await task
+
+            assert len(tuple(result for result in results if isinstance(result, Memory))) == 1
+            failures = tuple(result for result in results if isinstance(result, BaseException))
+            assert len(failures) == 1
+            assert isinstance(failures[0], MemoryBackendConfigurationError)
+            stored = []
+            for artifact_id in ("memory-a", "memory-b"):
+                with suppress(ArtifactNotFoundError):
+                    stored.append(await backend.latest(artifact_id))
+            assert len(stored) == 1
+
+    asyncio.run(scenario())
+
+
+def _colliding_initial_commit(memory_id: str, entry_id: str) -> MemoryCommit:
+    text = f"Concurrent identity for {memory_id}."
+    content_hash = entry_content_hash(kind="fact", text=text, source_refs=(), artifact_refs=())
+    version = MemoryEntryVersion(
+        memory_artifact_id=memory_id,
+        entry_id=entry_id,
+        entry_version_id="shared-concurrent-version",
+        version=1,
+        previous_version_id=None,
+        kind="fact",
+        text=text,
+        entry_content_hash=content_hash,
+        created_in_revision=1,
+    )
+    content = MemoryContent(
+        manifest=MemoryManifest(
+            entries=(
+                MemoryManifestEntry(
+                    entry_id=entry_id,
+                    entry_version_id=version.entry_version_id,
+                    entry_content_hash=content_hash,
+                    state="active",
+                ),
+            )
+        ),
+        changes=(
+            MemoryChange(
+                op="add",
+                entry_id=entry_id,
+                from_entry_version_id=None,
+                to_entry_version_id=version.entry_version_id,
+            ),
+        ),
+    )
+    memory = Memory(artifact_id=memory_id, revision=1, content=content)
+    return MemoryCommit(
+        base=None,
+        memory=memory,
+        content_hash=memory_content_hash(content),
+        entry_versions=(version,),
+        projections=(MemoryProjection(entry_version=version, searchable_text=analyze_text(text)),),
+    )
+
+
+async def _commit_memory(backend: RelationalMemoryBackend, commit: MemoryCommit) -> Memory:
+    async with backend.begin() as unit_of_work:
+        return await unit_of_work.commit(commit)
 
 
 def _database_config(
