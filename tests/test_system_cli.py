@@ -718,10 +718,10 @@ def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> 
     assert "server liveness: ok - http://127.0.0.1:9999 status=ok" in override.output
     assert "server readiness: ok - http://127.0.0.1:9999 status=ready" in override.output
     assert [call.args[0].full_url for call in urlopen.call_args_list] == [
-            "http://127.0.0.1:9999/health/live",
-            "http://127.0.0.1:9999/health/ready",
-            "http://127.0.0.1:9999/",
-            "http://127.0.0.1:9999/dashboard/scopes",
+        "http://127.0.0.1:9999/health/live",
+        "http://127.0.0.1:9999/health/ready",
+        "http://127.0.0.1:9999/",
+        "http://127.0.0.1:9999/dashboard/scopes",
     ]
 
 
@@ -805,8 +805,8 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
     def responses() -> list[_Response]:
         return [
             _Response(200, {"status": "ok"}),
-                _Response(
-                    200,
+            _Response(
+                200,
                 {
                     "status": "degraded",
                     "checks": {
@@ -814,10 +814,10 @@ def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monke
                         "database": "ready",
                         "inference.embedding": "misconfigured",
                     },
-                    },
-                ),
-                _Response(200, {"status": "ok"}),
-                _Response(200, [{"scope_id": "default", "display_name": "Default", "summary": ""}]),
+                },
+            ),
+            _Response(200, {"status": "ok"}),
+            _Response(200, [{"scope_id": "default", "display_name": "Default", "summary": ""}]),
         ]
 
     monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
