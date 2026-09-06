@@ -27,12 +27,31 @@ function getDocumentationTree(lang: string): Root {
   const documentation = tree.children.find(
     (node) => node.type === 'folder' && node.index?.url.replace(/\/$/, '') === `/${lang}/docs`,
   );
+  const rfcs = tree.children.find(
+    (node) => node.type === 'folder' && (
+      node.index?.url.replace(/\/$/, '') === `/${lang}/rfcs`
+      || node.children.some(
+        (child) => child.type === 'page' && child.url.startsWith(`/${lang}/rfcs/`),
+      )
+    ),
+  );
 
   if (!documentation || documentation.type !== 'folder') return tree;
+  if (!rfcs || rfcs.type !== 'folder') {
+    return { ...tree, children: documentation.children };
+  }
+
+  const referenceIndex = documentation.children.findIndex(
+    (node) => node.type === 'folder' && node.children.some(
+      (child) => child.type === 'page' && child.url.startsWith(`/${lang}/docs/reference/`),
+    ),
+  );
+  const children = [...documentation.children];
+  children.splice(referenceIndex === -1 ? children.length : referenceIndex, 0, rfcs);
 
   return {
     ...tree,
-    children: documentation.children,
+    children,
   };
 }
 
