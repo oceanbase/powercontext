@@ -18,6 +18,10 @@ import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { Provider } from '@/components/provider';
 import { isLanguage, languages } from '@/lib/i18n';
+import { siteMetadata } from '@/lib/metadata';
+import '../../global.css';
+
+export const metadata = siteMetadata;
 
 export function generateStaticParams() {
   return languages.map((lang) => ({ lang }));
@@ -33,5 +37,11 @@ export default async function LanguageLayout({
   const { lang } = await params;
   if (!isLanguage(lang)) notFound();
 
-  return <Provider lang={lang}>{children}</Provider>;
+  return (
+    <html lang={lang} suppressHydrationWarning>
+      <body>
+        <Provider lang={lang}>{children}</Provider>
+      </body>
+    </html>
+  );
 }

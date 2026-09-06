@@ -15,21 +15,16 @@
  */
 
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
-import './global.css';
+import { HomePage } from '@/components/home-page';
+import { defaultLanguage } from '@/lib/i18n';
 
 export const metadata: Metadata = {
-  title: {
-    default: 'PowerContext',
-    template: '%s · PowerContext',
+  alternates: {
+    canonical: '/',
+    languages: { en: '/', zh: '/zh/', 'x-default': '/' },
   },
-  description: 'Continue work in a new session without restating decisions, constraints, and progress.',
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <body>{children}</body>
-    </html>
-  );
+export default function EnglishHomePage() {
+  return <HomePage lang={defaultLanguage} />;
 }

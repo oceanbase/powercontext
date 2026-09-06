@@ -14,7 +14,7 @@ PowerContext keeps context with the work across conversations. When you return, 
 
 ![You and agents hand work off and continue with stored context](docs/assets/readme-workflow.svg)
 
-[Website](https://powercontext.oceanbase.io/en/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
+[Website](https://powercontext.oceanbase.io/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
 
 ## Pick up where the work left off
 

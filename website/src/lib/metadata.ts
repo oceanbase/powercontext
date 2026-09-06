@@ -14,18 +14,13 @@
  * limitations under the License.
  */
 
-import type { ReactNode } from 'react';
-import { DocsLayout } from 'fumadocs-ui/layouts/docs';
-import { Provider } from '@/components/provider';
-import { apiSource } from '@/lib/openapi-source';
-import { baseOptions } from '@/lib/site';
+import type { Metadata } from 'next';
 
-export default function ApiLayout({ children }: { children: ReactNode }) {
-  return (
-    <Provider lang="en">
-      <DocsLayout tree={apiSource.getPageTree()} {...baseOptions('en')}>
-        {children}
-      </DocsLayout>
-    </Provider>
-  );
-}
+export const siteMetadata: Metadata = {
+  metadataBase: new URL('https://powercontext.oceanbase.io'),
+  title: {
+    default: 'PowerContext',
+    template: '%s · PowerContext',
+  },
+  description: 'Continue work in a new session without restating decisions, constraints, and progress.',
+};

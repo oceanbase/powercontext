@@ -19,9 +19,10 @@ import { defineI18nUI } from 'fumadocs-ui/i18n';
 
 export const languages = ['en', 'zh'] as const;
 export type Language = (typeof languages)[number];
+export const defaultLanguage: Language = 'en';
 
 export const i18n = defineI18n({
-  defaultLanguage: 'en',
+  defaultLanguage,
   languages: [...languages],
   parser: 'dir',
   hideLocale: 'never',

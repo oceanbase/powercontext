@@ -56,23 +56,22 @@ export default async function ChangelogPage({ params }: { params: Promise<{ lang
           <Cards className="grid-cols-1">
             {releases.map((release) => (
               <Card
-                description={(
-                  <div className="space-y-3">
-                    <time className="block text-xs text-fd-muted-foreground" dateTime={release.date}>{release.date}</time>
-                    <p>{release.summary[lang]}</p>
-                    <div className="flex flex-wrap gap-4 text-sm text-fd-primary">
-                      <Link className="inline-flex items-center gap-1 hover:underline" href={`/${lang}/changelog/${release.version}`}>
-                        {text.read} <ArrowRight aria-hidden="true" className="size-4" />
-                      </Link>
-                      <Link className="inline-flex items-center gap-1 hover:underline" href={release.githubUrl}>
-                        {text.github} <ExternalLink aria-hidden="true" className="size-4" />
-                      </Link>
-                    </div>
-                  </div>
-                )}
                 key={release.version}
                 title={`${release.version} · ${release.title[lang]}`}
-              />
+              >
+                <div className="space-y-3">
+                  <time className="block text-xs text-fd-muted-foreground" dateTime={release.date}>{release.date}</time>
+                  <p>{release.summary[lang]}</p>
+                  <div className="flex flex-wrap gap-4 text-sm text-fd-primary">
+                    <Link className="inline-flex items-center gap-1 hover:underline" href={`/${lang}/changelog/${release.version}`}>
+                      {text.read} <ArrowRight aria-hidden="true" className="size-4" />
+                    </Link>
+                    <Link className="inline-flex items-center gap-1 hover:underline" href={release.githubUrl}>
+                      {text.github} <ExternalLink aria-hidden="true" className="size-4" />
+                    </Link>
+                  </div>
+                </div>
+              </Card>
             ))}
           </Cards>
         </div>

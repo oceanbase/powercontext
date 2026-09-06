@@ -18,11 +18,28 @@
 
 import type { ReactNode } from 'react';
 import { RootProvider } from 'fumadocs-ui/provider/next';
-import { i18nUI, type Language } from '@/lib/i18n';
+import { usePathname, useRouter } from 'next/navigation';
+import { defaultLanguage, i18nUI, type Language } from '@/lib/i18n';
 
 export function Provider({ children, lang }: { children: ReactNode; lang: Language }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const provider = i18nUI.provider(lang);
+
+  function onLocaleChange(nextLanguage: string) {
+    const segments = pathname.split('/').filter(Boolean);
+    if (segments[0] === lang) segments.shift();
+
+    if (segments.length === 0 && nextLanguage === defaultLanguage) {
+      router.push('/');
+      return;
+    }
+
+    router.push(`/${[nextLanguage, ...segments].join('/')}`);
+  }
+
   return (
-    <RootProvider i18n={i18nUI.provider(lang)} search={{ enabled: false }}>
+    <RootProvider i18n={{ ...provider, onLocaleChange }} search={{ enabled: false }}>
       {children}
     </RootProvider>
   );

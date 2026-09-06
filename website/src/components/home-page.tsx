@@ -16,7 +16,6 @@
 
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
 import { buttonVariants } from 'fumadocs-ui/components/ui/button';
 import { DocsDescription, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
@@ -24,17 +23,15 @@ import { AgentArtifactFlow } from '@/components/agent-artifact-flow';
 import { ContextFlow } from '@/components/context-flow';
 import { SiteFooter } from '@/components/site-footer';
 import { SpiralVisual } from '@/components/spiral-visual';
-import { baseOptions } from '@/lib/site';
 import { getHomeContent } from '@/lib/home-content';
-import { isLanguage } from '@/lib/i18n';
+import type { Language } from '@/lib/i18n';
+import { baseOptions } from '@/lib/site';
 
 function normalizeHref(href: string) {
   return `/${href.replace(/^\/+/, '').replace(/\/$/, '')}`;
 }
 
-export default async function HomePage({ params }: { params: Promise<{ lang: string }> }) {
-  const { lang } = await params;
-  if (!isLanguage(lang)) notFound();
+export async function HomePage({ lang }: { lang: Language }) {
   const home = await getHomeContent(lang);
 
   return (
