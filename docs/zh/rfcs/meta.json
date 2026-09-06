@@ -2,5 +2,8 @@
   "title": "RFCs",
   "collapsible": true,
   "defaultOpen": false,
-  "pages": ["index", "..."]
+  "pages": [
+    "index",
+    "..."
+  ]
 }
