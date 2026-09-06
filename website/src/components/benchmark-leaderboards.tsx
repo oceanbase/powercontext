@@ -43,11 +43,11 @@ function percentage(score: string) {
   return Number.parseFloat(score.replace('%', ''));
 }
 
-function ResultAxis({ label, metric, rank }: { label: string; metric: string; rank: string }) {
+function ResultAxis({ metric, system }: { metric: string; system: string }) {
   return (
     <div aria-hidden="true" className="grid grid-cols-12 items-end gap-1.5 py-3 text-xs text-fd-muted-foreground sm:gap-2">
-      <span className="col-span-5">{rank} · {label}</span>
-      <span className="col-span-5 flex justify-between">
+      <span className="col-span-4 col-start-2">{system}</span>
+      <span className="col-span-5 col-start-6 flex justify-between">
         <span>0</span>
         <span>{metric}</span>
         <span>100%</span>
@@ -74,7 +74,7 @@ function LocomoResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang:
     <div aria-labelledby="locomo-results-tab" id="locomo-results-panel" role="tabpanel">
       <p className="text-sm text-fd-muted-foreground">{board.count} · {copy[lang].completeScope}</p>
       <figure aria-label={board.table_label}>
-        <ResultAxis label={`${board.columns.system} · ${board.columns.evidence}`} metric={board.columns.score} rank={board.columns.rank} />
+        <ResultAxis metric={board.columns.score} system={board.columns.system} />
         <ol className="grid">
           {board.rows.map((row) => (
             <li
@@ -156,11 +156,7 @@ function SweResults({ benchmark, lang }: { benchmark: BenchmarkContent; lang: 'e
       </div>
       <p className="mt-1 text-xs text-fd-muted-foreground">{board.rank_note}</p>
       <figure aria-label={board.table_label}>
-        <ResultAxis
-          label={`${board.columns.system} · ${board.columns.provider} / ${board.columns.harness}`}
-          metric={board.columns.score}
-          rank={board.columns.rank}
-        />
+        <ResultAxis metric={board.columns.score} system={board.columns.system} />
         <ol className="grid">
           {board.rows.map((row) => {
             const harness = row.star ? board.harness_star : board.harness_default;
