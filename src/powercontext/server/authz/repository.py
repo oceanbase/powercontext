@@ -471,8 +471,8 @@ class RelationalAccessRepository:
         REPEATABLE READ transaction both provide it); callers without this
         capability fall back to bounded revision-check-and-retry.
         """
-        binding_rows: Sequence[Mapping[str, Any]] = ()
-        owned_rows: Sequence[Mapping[str, Any]] = ()
+        binding_rows: Sequence[Mapping[Any, Any]] = ()
+        owned_rows: Sequence[Mapping[Any, Any]] = ()
         artifact_owners: dict[str, ArtifactOwnerRelation] = {}
         async with self._database.transaction() as connection:
             revision = await connection.scalar(
