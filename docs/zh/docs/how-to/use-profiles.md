@@ -42,10 +42,12 @@ PUT /v1/scopes/S_GROUP/profile-policy
 {"generation_enabled":true,"activation_mode":"review_required","expected_version":0}
 ```
 
-默认模式是 automatic。生成需要配置 generation model；配置模型后，调度器默认每天北京时间 02:00 扫描，
-启动时也扫描未消费的 Source。可通过环境变量调整：
+默认模式是 automatic。生成需要配置 generation model；后台调度由独立开关控制，默认关闭，
+仅配置模型不会自动启用。开启后默认每天北京时间 02:00 扫描，启动时也扫描未消费的 Source。
+配置模型后，通过环境变量启用和调整调度：
 
 ```bash
+export POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_CRON="0 2 * * *"
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_TIMEZONE="Asia/Shanghai"
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_CONCURRENCY=4
@@ -55,7 +57,8 @@ export POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_SOURCES_PER_WINDOW=32
 启用权限的后台任务使用已有 `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID` 配置；
 该服务 Principal 必须获得相关 Scope 和已有 Artifact 的写权限。静态本地管理员部署可复用原有后台身份。
 
-`POST /v1/profile/flush`，body 为 `{"scope_id":"S_GROUP"}`，立即处理一个窗口，
+`POST /v1/profile/flush`，body 为 `{"scope_id":"S_GROUP"}`，立即处理一个窗口；
+后台调度关闭时仍可调用，使用调用方权限，不要求配置后台 Principal。
 返回 updated、noop、review_pending、disabled 或 conflict。模型请求遵守现有 generation timeout 和请求上限。
 失败不消费窗口；lineage_only Source 被过滤；正文没变化只推进 Cursor，不新增自动 Revision。
 

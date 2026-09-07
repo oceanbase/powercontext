@@ -32,6 +32,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from powercontext.builtin.artifacts.profile.models import (
     PROFILE_ARTIFACT_ID,
     PROFILE_SOURCE_WINDOW_BINDING,
+    Profile,
     ProfileActivationMode,
     ProfileCandidateProposal,
     ProfileContent,
@@ -143,11 +144,27 @@ class RelationalProfileService:
         except RepositoryNotFoundError:
             return None
 
-    async def flush(self, scope_id: str, *, high_watermark: int | None = None, on_commit=None) -> ProfileFlushResult:
+    async def flush(
+        self,
+        scope_id: str,
+        *,
+        high_watermark: int | None = None,
+        authorize_snapshot: Callable[[Profile | None], Awaitable[None]] | None = None,
+        on_commit=None,
+    ) -> ProfileFlushResult:
         async with self.operation_context():
-            return await self._flush(scope_id, high_watermark=high_watermark, on_commit=on_commit)
+            return await self._flush(
+                scope_id, high_watermark=high_watermark, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+            )
 
-    async def _flush(self, scope_id: str, *, high_watermark: int | None = None, on_commit=None) -> ProfileFlushResult:  # noqa: C901
+    async def _flush(  # noqa: C901
+        self,
+        scope_id: str,
+        *,
+        high_watermark: int | None = None,
+        authorize_snapshot: Callable[[Profile | None], Awaitable[None]] | None = None,
+        on_commit=None,
+    ) -> ProfileFlushResult:
         async with self.database.transaction() as connection:
             policy = await self.policies.get(connection, scope_id)
             cursor = await self.cursors.load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
@@ -168,6 +185,10 @@ class RelationalProfileService:
             )
         if not window:
             return ProfileFlushResult(status="noop", **base)
+        # Authorize the exact Head used by generation. The commit CAS below also
+        # rejects a Head created or changed after this snapshot was authorized.
+        if authorize_snapshot is not None:
+            await authorize_snapshot(current)
         through = window[-1].journal_position
         evidence = tuple(item for item in window if is_generation_eligible(item.value))
         markdown = None

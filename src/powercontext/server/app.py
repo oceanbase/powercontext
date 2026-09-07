@@ -2085,10 +2085,9 @@ async def flush_profile(
     resource = ResourceRef.artifact(request.scope_id, family="profile", artifact_id="profile")
     context = _access_audit_context(FLUSH_PROFILE.operation_id)
     principal = _require_principal() if access is not None else None
-    if access is not None:
-        async with application.profiles.database.transaction() as connection:
-            current = await application.profiles.latest(connection, request.scope_id)
-        if current is not None:
+
+    async def authorize_snapshot(current):
+        if access is not None and current is not None:
             await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
 
     async def on_commit(connection, artifact, candidate):
@@ -2112,7 +2111,9 @@ async def flush_profile(
                 idempotency_key=f"candidate-owner:{request.scope_id}:{candidate.candidate_id}",
             )
 
-    result = await application.profiles.flush(request.scope_id, on_commit=on_commit)
+    result = await application.profiles.flush(
+        request.scope_id, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+    )
     return FlushProfileResponse.model_validate(result.model_dump(mode="json"))
 
 

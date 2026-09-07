@@ -388,13 +388,15 @@ async def open_builtin_runtime(  # noqa: C901
         if (
             config.runtime.schedule_seconds is not None
             or config.runtime.experience_schedule_seconds is not None
-            or contexts.profiles.generator is not None
+            or (config.runtime.profile_schedule_enabled and contexts.profiles.generator is not None)
         ):
             runtime.start_scheduler(
                 scheduler_path,
                 config.runtime.schedule_seconds,
                 experience_schedule_seconds=config.runtime.experience_schedule_seconds,
-                profile_cron=config.runtime.profile_cron if contexts.profiles.generator is not None else None,
+                profile_cron=config.runtime.profile_cron
+                if config.runtime.profile_schedule_enabled and contexts.profiles.generator is not None
+                else None,
                 profile_timezone=config.runtime.profile_timezone,
                 profile_max_concurrency=config.runtime.profile_max_concurrency,
             )

@@ -315,6 +315,31 @@ def test_subject_second_source_failure_rolls_back_new_scope_and_binding(monkeypa
     asyncio.run(run())
 
 
+def test_profile_created_after_authorization_cannot_be_overwritten():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "User")
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            await ctx.records.create_source(sid, "content", "Chinese")
+            ctx.profiles.generator = Generator()
+
+            async def authorize_snapshot(current):
+                assert current is None
+                await ctx.records.create_artifact(
+                    sid, "profile", ArtifactWrite(content={"content": "# Concurrent owner"})
+                )
+
+            result = await ctx.profiles.flush(sid, authorize_snapshot=authorize_snapshot)
+            assert result.status == "conflict"
+            assert result.current_cursor == 0
+            saved = await ctx.records.get_artifact(sid, "profile", "profile")
+            assert saved.revision == 1
+            assert saved.content["content"] == "# Concurrent owner\n"
+
+    asyncio.run(run())
+
+
 def test_failed_generation_owner_write_preserves_window():
     async def run():
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:

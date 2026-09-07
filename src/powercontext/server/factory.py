@@ -190,7 +190,8 @@ def create_server_app(
                     scheduled_profile_runner=_scheduled_profile_runner(
                         resolved,
                         active_access_control,
-                        enabled=profile_generator is not None or config.inference.generation_model is not None,
+                        enabled=config.runtime.profile_schedule_enabled
+                        and (profile_generator is not None or config.inference.generation_model is not None),
                         legacy_static_principal=static_principal if legacy_static_admin else None,
                     ),
                     cursor_secret=cursor_secret,
@@ -384,10 +385,10 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
         await access.bootstrap_static_scope(principal, scope_id, context=context)
         await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id), context=context)
         resource = ResourceRef.artifact(scope_id, family="profile", artifact_id="profile")
-        async with profiles.database.transaction() as connection:
-            current = await profiles.latest(connection, scope_id)
-        if current is not None:
-            await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
+
+        async def authorize_snapshot(current):
+            if current is not None:
+                await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
 
         async def on_commit(connection, artifact, candidate):
             bound = access.with_connection(connection)
@@ -408,7 +409,9 @@ def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_princi
                     idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
                 )
 
-        return await profiles.flush(scope_id, high_watermark=high, on_commit=on_commit)
+        return await profiles.flush(
+            scope_id, high_watermark=high, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+        )
 
     return run
 

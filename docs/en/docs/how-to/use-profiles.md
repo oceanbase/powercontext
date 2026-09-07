@@ -45,10 +45,12 @@ PUT /v1/scopes/S_GROUP/profile-policy
 {"generation_enabled":true,"activation_mode":"review_required","expected_version":0}
 ```
 
-The default activation mode is automatic. With a generation model configured, scheduling defaults to 02:00
-Asia/Shanghai daily, with an immediate startup catch-up scan. Configure it with:
+The default activation mode is automatic. Background scheduling is independently opt-in; configuring a generation
+model alone does not enable it. When enabled, it runs at 02:00 Asia/Shanghai daily, with an immediate startup
+catch-up scan. Configure a generation model and enable scheduling with:
 
 ```bash
+export POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_CRON="0 2 * * *"
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_TIMEZONE="Asia/Shanghai"
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_CONCURRENCY=4
@@ -59,7 +61,8 @@ Enforced deployments use the existing `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRI
 which must have contribution access and write access to existing Profile Artifacts. Local static-administrator
 deployments can reuse their existing background identity.
 
-POST `/v1/profile/flush` with `{"scope_id":"S_GROUP"}` processes one bounded window. Results are updated, noop,
+POST `/v1/profile/flush` with `{"scope_id":"S_GROUP"}` processes one bounded window even when scheduling is disabled.
+Manual Flush uses the caller's permissions and does not require a background principal. Results are updated, noop,
 review_pending, disabled, or conflict. Existing generation timeouts and request limits apply.
 Failures retain the cursor; lineage-only Sources are filtered. Unchanged Markdown advances the cursor without
 creating an automatic Revision. No new Source means no regeneration.
