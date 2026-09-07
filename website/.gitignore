@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+.generated
+content/docs
+!src/lib/
+!src/lib/**
+public/powercontext-color.png
+public/powercontext-reverse.png
+next-env.d.ts
+*.tsbuildinfo

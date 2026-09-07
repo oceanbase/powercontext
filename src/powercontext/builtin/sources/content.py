@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, JsonValue, field_validator
 
@@ -42,11 +42,31 @@ class ContentCapture(BaseModel):
         return value
 
 
+class ContentSourceTarget(BaseModel):
+    """Exact Artifact revision to which one system Source is bound."""
+
+    scope_id: str
+    family: Literal["memory", "experience", "skill", "handoff"]
+    artifact_id: str
+    revision: Annotated[int, Field(ge=1)] = 1
+
+
+class ContentSourceInternal(BaseModel):
+    """Server-owned Source purpose data never exposed by the base REST API."""
+
+    role: Literal["lineage_only"]
+    operation: Literal["artifact_create", "artifact_replace"]
+    target: ContentSourceTarget
+
+
 class ContentSource(Source):
-    """Captured text that can be used as Artifact evidence."""
+    """Captured content that can be used as Artifact evidence."""
 
     content: str
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    wire_content: JsonValue | None = None
+    wire_content_present: bool = False
+    internal: ContentSourceInternal | None = None
 
 
 class ContentSourceAdapter:
@@ -65,6 +85,8 @@ class ContentSourceAdapter:
         )
 
     async def read(self, source: ContentSource, /) -> ContentCapture:
+        if not isinstance(source.content, str):
+            raise TypeError("system Content Sources cannot be read as integration captures")  # noqa: TRY003
         return ContentCapture(
             source_id=source.name,
             content=source.content,

@@ -27,7 +27,7 @@ PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，�
 安装最新发布的 [PowerContext](https://pypi.org/project/powercontext/)：
 
 ```bash
-uv tool install "powercontext[cli,server]==0.1.0"
+uv tool install "powercontext[cli,server]==0.2.0"
 ```
 
 在单独的终端中启动本地 Server：
@@ -36,15 +36,12 @@ uv tool install "powercontext[cli,server]==0.1.0"
 powercontext server run
 ```
 
-`0.1.0` 发布版不包含 `powercontext service` 命令。使用 PowerContext 时，请保持 `powercontext server run`
-进程运行；如需使用原生个人服务，请改用下文尚未发布的 `master` 版本。
-
 Server 默认将上下文保存到本地 SQLite 数据库。
 
 然后从同一个发布版本配置 Agent 集成。例如：
 
 ```bash
-powercontext setup codex --ref powercontext-v0.1.0
+powercontext setup codex --ref powercontext-v0.2.0
 ```
 
 PowerContext 工具与 Agent 集成应始终使用同一个 Git ref。如需试用最新但尚未发布的 `master`，请同时从
@@ -55,7 +52,7 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 
-当前 `master` 还提供可选的持久个人 Server，它可以在终端关闭后继续运行，并在下次登录后再次启动：
+如需让个人 Server 在终端关闭后继续运行，并在下次登录后再次启动，请先停止前台 Server，再安装可选的原生服务：
 
 ```bash
 powercontext service install # 卸载请运行 `powercontext service uninstall`

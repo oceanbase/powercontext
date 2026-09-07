@@ -575,12 +575,22 @@ def test_service_install_requires_persistent_config_for_shell_server_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "8123")
+    monkeypatch.setenv("POWERCONTEXT_HOME", "private-data-directory")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_API_KEY", "secret-test-token")
     adapter = FakeAdapter(tmp_path)
 
     with pytest.raises(ServiceError, match="do not copy shell environment variables") as raised:
         ServiceController(adapter).install()
 
     assert raised.value.exit_code == 2
+    message = str(raised.value)
+    assert "POWERCONTEXT_SERVER_HTTP_PORT" in message
+    assert "POWERCONTEXT_HOME" in message
+    assert "POWERCONTEXT_SERVER_HTTP_PORT=8123" in message
+    assert "POWERCONTEXT_HOME=private-data-directory" in message
+    assert "POWERCONTEXT_SERVER_API_KEY=<your-current-value>" in message
+    assert "secret-test-token" not in message
+    assert "powercontext service install --env-file" in message
     assert adapter.events == []
 
 
@@ -1086,6 +1096,27 @@ def test_launchd_stop_waits_until_bootout_removes_the_loaded_job(
     run.assert_called_once_with("bootout", "gui/501/com.oceanbase.powercontext")
 
 
+def test_launchd_start_kickstarts_a_newly_bootstrapped_job(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = LaunchdUserAdapter(home=tmp_path, uid=501)
+    monkeypatch.setattr(
+        adapter,
+        "loaded_registration",
+        lambda: ManagerRegistration(ManagerOwnershipState.NOT_LOADED),
+    )
+    run = Mock()
+    monkeypatch.setattr(adapter, "_run", run)
+
+    adapter.start(reload_definition=False)
+
+    assert run.call_args_list == [
+        (("bootstrap", "gui/501", str(adapter.artifact_path)), {}),
+        (("kickstart", "gui/501/com.oceanbase.powercontext"), {}),
+    ]
+
+
 @pytest.mark.parametrize("corruption", ["fragment", "path", "arguments", "marker", "metadata"])
 def test_systemd_loaded_registration_requires_matching_fragment_command_and_metadata(
     tmp_path: Path,
@@ -1418,7 +1449,7 @@ def test_service_launcher_hands_control_to_the_foreground_server_runner(
         "probe_server",
         lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
     )
-    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
 
     data_dir = tmp_path / "data"
     exit_code = service_launcher.main(["--endpoint", "http://127.0.0.1:8000", "--data-dir", str(data_dir)])
@@ -1445,8 +1476,7 @@ def test_service_launcher_pins_the_recorded_data_directory(
         lambda _endpoint: ProbeResult(ProbeState.UNREACHABLE, "not listening"),
     )
     monkeypatch.setattr(
-        service_launcher.server_cli,
-        "_run_configured_server",
+        "powercontext.server.cli._run_configured_server",
         lambda _settings: observed_data.append(powercontext_data_dir()),
     )
 
@@ -1471,7 +1501,7 @@ def test_service_launcher_does_not_start_over_an_existing_powercontext_server(
         "probe_server",
         lambda endpoint: ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok"),
     )
-    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
 
     exit_code = service_launcher.main(["--endpoint", "http://127.0.0.1:8000", "--data-dir", str(tmp_path / "data")])
 
@@ -1495,7 +1525,7 @@ def test_service_launcher_can_redirect_server_output_to_owned_log_files(
         print("server output")
         print("server error", file=sys.stderr)
 
-    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", run_server)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
 
     exit_code = service_launcher.main([
         "--endpoint",

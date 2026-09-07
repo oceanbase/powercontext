@@ -127,7 +127,8 @@ powercontext capabilities
 `capabilities` 能返回当前启用能力。没有配置推理 provider 时，模型抽取或向量能力可以未启用，这不会阻止后续的
 显式 Memory 与 Handoff 步骤。
 
-也可以在浏览器打开 `http://127.0.0.1:8000/`。刚启动且尚未写入项目数据时，Dashboard 显示空状态是正常现象。
+也可以在浏览器打开 `http://127.0.0.1:8000/`。首次启动时，PowerContext 会自动创建持久化的 `Default` Scope。
+Dashboard 默认展示所有可用 Scope；在尚未写入项目数据前，统计指标仍可能为空。
 
 ## 4. 创建一个安全的示例项目
 

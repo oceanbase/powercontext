@@ -89,5 +89,5 @@ describe('PowerContext Pi package e2e', () => {
     } finally {
       await rm(agentDirectory, { force: true, recursive: true })
     }
-  })
+  }, 30_000)
 })

@@ -19,6 +19,9 @@ import re
 import shlex
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -38,7 +41,13 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig, MemoryExtractionProfile, RuntimeConfig
+from powercontext.builtin.runtime import (
+    BuiltinRuntime,
+    ExperienceIncubationResult,
+    InferenceConfig,
+    MemoryExtractionProfile,
+    RuntimeConfig,
+)
 from powercontext.builtin.runtime.readiness import READINESS_PROBE_TIMEOUT_SECONDS
 from powercontext.http import (
     Capabilities,
@@ -46,9 +55,33 @@ from powercontext.http import (
     ReadinessStatus,
 )
 from powercontext.server.app import create_app
-from powercontext.server.factory import create_server_app
-from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
+from powercontext.server.authz import AccessControlService, PrincipalRef
+from powercontext.server.factory import _scheduled_access_runners, create_server_app
+from powercontext.server.settings import (
+    AccessControlConfig,
+    BearerAuthConfig,
+    DashboardConfig,
+    McpConfig,
+    ServerSettings,
+)
 from powercontext.sources import Source
+
+_ACCESS_FAMILIES = "experience:enabled,handoff:enabled,memory:enabled,prompt:disabled,skill:enabled"
+
+
+def _access_readiness_checks(
+    *,
+    mode: str = "disabled",
+    provider: str = "disabled",
+    authentication: str = "disabled",
+) -> dict[str, str]:
+    return {
+        "access_mode": mode,
+        "authentication_provider": authentication,
+        "access_provider": provider,
+        "access_resource_kinds": "server,scope,artifact",
+        "access_artifact_families": _ACCESS_FAMILIES,
+    }
 
 
 class _NoopExperiencePipeline:
@@ -104,6 +137,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED", "true")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT", "40")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS", "45")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET", "cursor-secret-with-at-least-thirty-two-bytes")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
     monkeypatch.setenv(
         "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS",
@@ -140,6 +174,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.runtime.memory_rerank_enabled is True
     assert settings.runtime.memory_rerank_candidate_limit == 40
     assert settings.runtime.experience_schedule_seconds == 45
+    assert settings.cursor_signing_secret == SecretStr("cursor-secret-with-at-least-thirty-two-bytes")
     assert settings.inference.generation_model == "test"
     assert settings.inference.generation_model_settings == {
         "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}
@@ -176,6 +211,40 @@ def test_server_settings_configure_default_project_skill_targets(tmp_path, monke
     ]
     assert all(target.installation_scope == "project" for target in settings.external_skills.targets)
     assert all(target.allow_managed_publish for target in settings.external_skills.targets)
+
+
+def test_server_reuses_file_backed_cursor_secret_across_restarts(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("powercontext.server.cursor_secret.secrets.token_bytes", lambda size: b"\n" * size)
+    database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
+    settings = ServerSettings(
+        database=database,
+        auth=BearerAuthConfig(enabled=False),
+        mcp=McpConfig(enabled=False),
+    )
+    first_app = create_server_app(settings=settings)
+    with TestClient(first_app) as client:
+        scope_id = client.get("/v1/scopes/default").json()["scope_id"]
+        content = {"entries": [{"kind": "working_note", "text": "Verify cursor reuse after restart"}]}
+        for _ in range(2):
+            response = client.post(
+                f"/v1/scopes/{scope_id}/artifacts",
+                json={"family": "memory", "content": content},
+            )
+            assert response.status_code == 201
+        first_page = client.get(f"/v1/scopes/{scope_id}/artifacts/memory", params={"limit": 1})
+        assert first_page.status_code == 200
+        cursor = first_page.json()["next_cursor"]
+        assert cursor is not None
+
+    second_app = create_server_app(settings=settings)
+    with TestClient(second_app) as client:
+        second_page = client.get(
+            f"/v1/scopes/{scope_id}/artifacts/memory",
+            params={"limit": 1, "cursor": cursor},
+        )
+
+    assert second_page.status_code == 200
+    assert len(second_page.json()["items"]) == 1
 
 
 def test_server_settings_use_configured_workspace_for_default_skill_targets(tmp_path, monkeypatch) -> None:
@@ -345,16 +414,92 @@ def test_server_scheduler_uses_the_powercontext_data_directory(tmp_path, monkeyp
         assert (data_dir / "scheduler.db").is_file()
 
 
+def test_scheduled_experience_owns_only_candidates_created_by_its_incubation() -> None:
+    async def scenario() -> None:
+        result = ExperienceIncubationResult(
+            previous_cursor=0,
+            high_watermark=2,
+            current_cursor=2,
+            source_count=1,
+            candidate_count=1,
+            candidate_ids=("scheduled-candidate",),
+        )
+        incubate = AsyncMock(return_value=result)
+        runtime = SimpleNamespace(
+            experience=SimpleNamespace(for_scope=lambda _scope_id: SimpleNamespace(incubate=incubate))
+        )
+        access = AsyncMock(spec=AccessControlService)
+        settings = ServerSettings(
+            runtime=RuntimeConfig(experience_schedule_seconds=1),
+            access=AccessControlConfig(
+                mode="enforced",
+                background_principal_id="scheduled-experience",
+            ),
+            mcp=McpConfig(enabled=False),
+        )
+        source_runner, experience_runner = _scheduled_access_runners(
+            settings,
+            access,
+            legacy_static_principal=None,
+        )
+
+        assert source_runner is None
+        assert experience_runner is not None
+        assert await experience_runner("scope-1", cast(BuiltinRuntime, runtime)) == result
+        access.attest_candidate_owner.assert_awaited_once_with(
+            scope_id="scope-1",
+            candidate_id="scheduled-candidate",
+            family="experience",
+            proposed_owner=PrincipalRef(type="service", id="scheduled-experience"),
+            target=None,
+            idempotency_key="background-candidate-owner:scope-1:scheduled-candidate",
+        )
+
+    asyncio.run(scenario())
+
+
 def test_settings_load_bearer_authentication_without_exposing_token(monkeypatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_ENABLED", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_ACCESS_MODE", "enforced")
     monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_TOKEN", "server-secret")
 
     settings = ServerSettings()
 
-    assert settings.auth.enabled is True
+    assert settings.access.mode == "enforced"
     assert settings.auth.token is not None
     assert settings.auth.token.get_secret_value() == "server-secret"
     assert "server-secret" not in repr(settings)
+
+
+def test_legacy_auth_token_cannot_silently_enable_access(monkeypatch) -> None:
+    monkeypatch.delenv("POWERCONTEXT_SERVER_ACCESS_MODE", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_TOKEN", "orphaned-server-secret")
+
+    with pytest.raises(ValidationError, match="AUTH_TOKEN requires ACCESS_MODE=enforced"):
+        ServerSettings()
+
+
+def test_legacy_static_bearer_environment_maps_to_server_admin(monkeypatch) -> None:
+    monkeypatch.delenv("POWERCONTEXT_SERVER_ACCESS_MODE", raising=False)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_ENABLED", "true")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_AUTH_TOKEN", "legacy-server-secret")
+
+    settings = ServerSettings(database=SQLiteConfig(), mcp=McpConfig(enabled=False))
+
+    assert settings.access.mode == "enforced"
+    assert "legacy-server-secret" not in repr(settings)
+
+    with TestClient(create_server_app(settings=settings)) as client:
+        missing = client.get("/v1/capabilities")
+        principal = client.get(
+            "/v1/access/me",
+            headers={"Authorization": "Bearer legacy-server-secret"},
+        )
+
+    assert missing.status_code == 401
+    assert principal.status_code == 200
+    assert principal.json()["mode"] == "enforced"
+    assert principal.json()["principal"]["id"] == "server-token"
 
 
 def test_enabled_bearer_authentication_requires_a_token() -> None:
@@ -397,19 +542,20 @@ def test_scalar_reference_embeds_the_canonical_openapi_contract() -> None:
 def test_server_factory_optionally_requires_bearer_authentication() -> None:
     app = create_server_app(
         settings=ServerSettings(
-            auth=BearerAuthConfig(enabled=True, token=SecretStr("server-secret")),
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            access=AccessControlConfig(mode="enforced"),
+            database=SQLiteConfig(),
             mcp=McpConfig(enabled=False),
         )
     )
-    client = TestClient(app)
-
-    missing = client.get("/v1/capabilities")
-    invalid = client.get("/v1/capabilities", headers={"Authorization": "Bearer wrong"})
-    accepted = client.get("/v1/capabilities", headers={"Authorization": "Bearer server-secret"})
-    protected_metrics = client.get("/metrics")
-    accepted_metrics = client.get("/metrics", headers={"Authorization": "Bearer server-secret"})
-    liveness = client.get("/health/live")
-    scalar_reference = client.get("/docs")
+    with TestClient(app) as client:
+        missing = client.get("/v1/capabilities")
+        invalid = client.get("/v1/capabilities", headers={"Authorization": "Bearer wrong"})
+        accepted = client.get("/v1/capabilities", headers={"Authorization": "Bearer server-secret"})
+        protected_metrics = client.get("/metrics")
+        accepted_metrics = client.get("/metrics", headers={"Authorization": "Bearer server-secret"})
+        liveness = client.get("/health/live")
+        scalar_reference = client.get("/docs")
 
     assert missing.status_code == 401
     assert missing.headers["WWW-Authenticate"] == "Bearer"
@@ -417,7 +563,7 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     assert missing.json() == {
         "error": {
             "code": "unauthorized",
-            "message": "A valid bearer token is required.",
+            "message": "A valid credential is required.",
             "details": None,
         }
     }
@@ -427,6 +573,75 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     assert accepted_metrics.status_code == 200
     assert liveness.status_code == 200
     assert scalar_reference.status_code == 200
+
+
+def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            access=AccessControlConfig(mode="enforced"),
+            dashboard=DashboardConfig(enabled=True),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            mcp=McpConfig(enabled=False),
+        ),
+        access_control=cast(AccessControlService, object()),
+    )
+    headers = {"Authorization": "Bearer server-secret"}
+
+    with TestClient(app) as client:
+        app.state.access_control = None
+        readiness = client.get("/health/ready")
+        protected = (
+            client.get("/v1/capabilities", headers=headers),
+            client.get("/metrics", headers=headers),
+            client.get("/dashboard/scopes", headers=headers),
+            client.post(
+                "/dashboard/skill-projections/status",
+                headers=headers,
+                json={
+                    "scope_id": "scope-a",
+                    "candidate_id": "candidate-a",
+                    "artifact": {"family": "skill", "artifact_id": "skill-a", "revision": 1},
+                },
+            ),
+        )
+
+    assert readiness.status_code == 503
+    assert readiness.json()["checks"]["access_provider"] == "not_ready"
+    assert all(response.status_code == 503 for response in protected)
+    assert all(response.json()["error"]["code"] == "access_unavailable" for response in protected)
+
+
+def test_server_factory_maps_static_token_to_bootstrap_principal() -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            auth=BearerAuthConfig(token=SecretStr("server-secret")),
+            access=AccessControlConfig(mode="enforced"),
+            database=SQLiteConfig(),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/v1/access/me", headers={"Authorization": "Bearer server-secret"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["principal"] == {
+        "type": "service",
+        "id": "server-token",
+        "description": "PowerContext static bearer",
+    }
+    assert payload["mode"] == "enforced"
+    assert payload["resource_kinds"] == ["server", "scope", "artifact"]
+    assert payload["provider_capabilities"] == {
+        "safe_resource_filtering": True,
+        "multi_requirement_check": True,
+        "relationship_management": True,
+        "group_subjects": False,
+        "multi_principal": False,
+        "max_direct_resource_keys": 10000,
+    }
 
 
 def test_readiness_reports_unavailable_bindings() -> None:
@@ -441,7 +656,7 @@ def test_readiness_reports_unavailable_bindings() -> None:
     assert response.status_code == 503
     assert response.json() == {
         "status": "not_ready",
-        "checks": {"database": "unavailable"},
+        "checks": {"database": "unavailable", **_access_readiness_checks(mode="disabled")},
     }
     assert response.headers["X-PowerContext-Request-ID"]
 
@@ -458,7 +673,7 @@ def test_readiness_keeps_degraded_bindings_in_traffic() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "degraded",
-        "checks": {"inference.embedding": "unavailable"},
+        "checks": {"inference.embedding": "unavailable", **_access_readiness_checks(mode="disabled")},
     }
 
 
@@ -484,6 +699,7 @@ def test_server_factory_reports_database_failure_as_not_ready(monkeypatch, tmp_p
         "checks": {
             "runtime": "ready",
             "database": "unavailable",
+            **_access_readiness_checks(),
         },
     }
     assert "powercontext_server_runtime_ready 0.0" in metrics.text
@@ -526,6 +742,7 @@ def test_server_factory_reports_database_and_configured_generation_readiness(mon
             "runtime": "ready",
             "database": "ready",
             "inference.generation": "ready",
+            **_access_readiness_checks(),
         },
     }
     assert probe_timeouts == [12.5]
@@ -588,6 +805,7 @@ def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_
             "runtime": "ready",
             "database": "ready",
             "inference.generation": "unavailable",
+            **_access_readiness_checks(),
         },
     }
     assert "provider response" not in response.text
@@ -618,6 +836,7 @@ def test_server_factory_caches_and_redacts_degraded_embedding_readiness(caplog, 
                 "runtime": "ready",
                 "database": "ready",
                 "inference.embedding": "misconfigured",
+                **_access_readiness_checks(),
             },
         }
     )
@@ -646,6 +865,7 @@ def test_server_factory_reports_a_rejected_embedding_request_with_a_redacted_rea
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": "misconfigured: provider-rejected (HTTP 400)",
+            **_access_readiness_checks(),
         },
     }
 
@@ -680,6 +900,7 @@ def test_server_factory_reports_transient_embedding_failures_as_degraded(
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": expected_status,
+            **_access_readiness_checks(),
         },
     }
     assert "secret" not in response.text
@@ -784,6 +1005,7 @@ def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog,
                 "runtime": "ready",
                 "database": "ready",
                 "inference.embedding": "misconfigured: provider-rejected (HTTP 404)",
+                **_access_readiness_checks(),
             },
         }
     )

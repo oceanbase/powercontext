@@ -33,12 +33,14 @@ import pytest
 import uvicorn
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.client import PowerContextClient
 from powercontext.http import (
+    CreateScopeRequest,
     ListMemoryEntriesRequest,
 )
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import McpConfig, ServerSettings
+from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, HttpConfig, McpConfig, ServerSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex"
@@ -61,9 +63,15 @@ class _RunningServer:
         self.base_url = f"http://{host}:{port}"
         app = create_server_app(
             settings=ServerSettings(
+                http=HttpConfig(host=host, port=port),
+                runtime=RuntimeConfig(),
+                inference=InferenceConfig(),
+                auth=BearerAuthConfig(),
+                access=AccessControlConfig(mode="disabled"),
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'memory-routing.db'}"),
                 mcp=McpConfig(enabled=True),
-            )
+            ),
+            scheduler_path=tmp_path / "scheduler.db",
         )
         self._server = uvicorn.Server(uvicorn.Config(app, log_level="critical", lifespan="on"))
         self._thread = threading.Thread(
@@ -165,6 +173,7 @@ def _run_codex(arguments: list[str], *, environment: dict[str, str], timeout: in
 def _run_prompt(
     home: Path,
     repository: Path,
+    scope_id: str,
     prompt: str,
     output_path: Path,
     *,
@@ -173,7 +182,7 @@ def _run_prompt(
     environment = {
         **os.environ,
         "CODEX_HOME": str(home),
-        "POWERCONTEXT_CODEX_SCOPE_ID": SCOPE_ID,
+        "POWERCONTEXT_CODEX_SCOPE_ID": scope_id,
         "NO_COLOR": "1",
     }
     result = _run_codex(
@@ -226,10 +235,25 @@ def _has_tool_name(events: list[dict[str, Any]], tool_name: str) -> bool:
     return bool(_tool_calls(events, tool_name))
 
 
-def _list_entries(server_url: str) -> list[Any]:
+def _create_scope(server_url: str) -> str:
+    async def create() -> str:
+        async with PowerContextClient(server_url) as client:
+            scope = await client.create_scope(
+                CreateScopeRequest(
+                    title="Codex Memory routing",
+                    summary="Explicit Memory save and search routing acceptance.",
+                    idempotency_key=SCOPE_ID,
+                )
+            )
+            return scope.scope_id
+
+    return asyncio.run(create())
+
+
+def _list_entries(server_url: str, scope_id: str) -> list[Any]:
     async def read() -> list[Any]:
         async with PowerContextClient(server_url) as client:
-            result = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=SCOPE_ID))
+            result = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
             return result.entries
 
     return asyncio.run(read())
@@ -241,8 +265,9 @@ def test_real_codex_routes_explicit_save_and_search_without_handoff_selector(
     _codex_executable()  # Resolve and validate the executable before allocating server state.
     timeout = pytestconfig.getoption("real_codex_timeout")
     server = _RunningServer(tmp_path)
-    server.start()
     try:
+        server.start()
+        scope_id = _create_scope(server.base_url)
         with tempfile.TemporaryDirectory(prefix="codex-memory-routing-") as root_name:
             root = Path(root_name)
             home = _prepare_codex_home(root, mcp_url=f"{server.base_url}/mcp", timeout=timeout)
@@ -252,6 +277,7 @@ def test_real_codex_routes_explicit_save_and_search_without_handoff_selector(
             save_events, save_message = _run_prompt(
                 home,
                 repository,
+                scope_id,
                 "remember I prefer uv for Python",
                 root / "save.last.json",
                 timeout=timeout,
@@ -259,7 +285,7 @@ def test_real_codex_routes_explicit_save_and_search_without_handoff_selector(
             save_calls = _tool_calls(save_events, "remember_memory")
             assert save_calls, save_message
             assert not _has_tool_name(save_events, "select_handoff_workstream")
-            entries = _list_entries(server.base_url)
+            entries = _list_entries(server.base_url, scope_id)
             assert any("uv" in entry.text and "Python" in entry.text for entry in entries)
             assert any(entry.kind == "preference" for entry in entries)
             lowered_save_message = save_message.lower()
@@ -268,7 +294,8 @@ def test_real_codex_routes_explicit_save_and_search_without_handoff_selector(
             search_events, search_message = _run_prompt(
                 home,
                 repository,
-                "What do you remember about Python tooling?",
+                scope_id,
+                "Search my memories for Python tooling.",
                 root / "search.last.json",
                 timeout=timeout,
             )
@@ -298,6 +325,7 @@ def test_real_codex_does_not_claim_save_success_when_mcp_is_unavailable(
         events, message = _run_prompt(
             home,
             repository,
+            SCOPE_ID,
             "remember I prefer uv for Python",
             root / "unavailable.last.json",
             timeout=timeout,
@@ -308,4 +336,4 @@ def test_real_codex_does_not_claim_save_success_when_mcp_is_unavailable(
             token in lowered
             for token in ("memory was saved", "memory saved", "successfully saved", "记忆已保存", "已成功保存")
         )
-        assert any(token in lowered for token in ("unavailable", "could not", "failed", "not saved", "未保存"))
+        assert any(token in lowered for token in ("unavailable", "could not", "failed", "not saved", "未保存")), message

@@ -136,7 +136,7 @@ client remains managed by Claude Code.
 Start the Server with its token loaded from your secret manager:
 
 ```bash
-export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```

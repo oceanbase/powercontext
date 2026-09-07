@@ -1,25 +1,22 @@
 ---
-template: benchmark.html
-page_type: benchmark
 title: Benchmarks
-description: How PowerContext performs on long-term conversational memory and repository-level software engineering evaluations.
-hide:
-  - navigation
-  - toc
+description: Results showing how PowerContext retrieves long-term context and whether it helps Codex resolve repository issues.
 benchmark:
   hero:
-    label: Benchmark evidence
+    label: Product benchmarks
     title:
-      - Context,
-      - under pressure.
-    lead: Two public evaluations test long-term recall and repository-level software engineering with measurable outcomes.
+      - Measure the effect
+      - of context.
+    lead: LoCoMo measures whether PowerContext retrieves the right evidence from long conversations. SWE-bench Pro measures whether project context helps Codex resolve more repository issues.
     actions_label: Jump to a benchmark
     actions:
-      - label: See LoCoMo
+      - label: LoCoMo results
         target: locomo
-      - label: See SWE-bench
+      - label: SWE-bench Pro results
         target: swe-bench
-    visual_label: Key results from the LoCoMo and SWE-bench Pro evaluations
+      - label: Methods and sources
+        target: methods
+    visual_label: LoCoMo accuracy plotted against search p95 latency
     results:
       - name: LoCoMo
         value: 90.78
@@ -50,8 +47,8 @@ benchmark:
         target: swe-bench
         link: Explore the coding test
   locomo:
-    title: LoCoMo tests long-term recall.
-    lead: The public dataset contains long, multi-session conversations. PowerContext is evaluated on the answerable question set, where facts can be separated by many sessions.
+    title: "LoCoMo: retrieve the right context"
+    lead: LoCoMo asks questions about long conversations split across sessions. PowerContext must find the relevant conversation evidence before producing an answer. This run covers 1,540 scored questions in categories 1 through 4.
     facts:
       - label: Conversations
         value: "10"
@@ -73,8 +70,8 @@ benchmark:
       - name: Open-domain
         count: "96"
         description: Combine conversation evidence with general knowledge.
-    results_title: One run, three ways to carry context.
-    results_lead: Switch metrics to compare PowerContext, PowerMem, and placing the entire conversation in the prompt.
+    results_title: Accuracy and retrieval cost
+    results_lead: We report answer accuracy, search p95 latency, and answer tokens for PowerContext, PowerMem, and full-context prompting.
     tabs_label: LoCoMo result metric
     metrics:
       - id: accuracy
@@ -87,12 +84,15 @@ benchmark:
           - name: PowerContext
             display: 90.78%
             scale: 90.78
+            value: 90.78
           - name: PowerMem
             display: 87.79%
             scale: 87.79
+            value: 87.79
           - name: Full context
             display: 52.9%
             scale: 52.9
+            value: 52.9
       - id: latency
         label: Search p95
         callout: 12.4x
@@ -103,12 +103,15 @@ benchmark:
           - name: PowerContext
             display: 1.38 s
             scale: 8.06
+            value: 1.38
           - name: PowerMem
             display: 1.44 s
             scale: 8.41
+            value: 1.44
           - name: Full context
             display: 17.12 s
             scale: 100
+            value: 17.12
       - id: tokens
         label: Answer tokens
         callout: 93.7% fewer
@@ -119,17 +122,21 @@ benchmark:
           - name: PowerContext
             display: about 1.65k
             scale: 6.35
+            value: 1650
           - name: PowerMem
             display: about 0.9k
             scale: 3.46
+            value: 900
           - name: Full context
             display: 26k
             scale: 100
+            value: 26000
     scope_title: What this result covers
     scope: The 90.78% result is 1,398 correct answers from 1,540 questions in categories 1-4. It does not claim results for LoCoMo event summarization or multimodal dialogue generation.
   swe:
-    title: Does context improve the patch?
-    lead: Each task starts from a real codebase and issue. Codex edits the repository, and the official task tests decide whether the patch resolves the problem.
+    title: "SWE-bench Pro: turn context into working patches"
+    lead: To measure the effect of PowerContext, we ran the same Codex configuration twice on all 731 public v2 tasks. The two arms differed only in whether PowerContext was enabled.
+    task_count: 731
     method:
       - title: Same task set
         description: 731 public v2 repository issues in both arms.
@@ -151,21 +158,21 @@ benchmark:
     delta: "+32"
     delta_label: more tasks resolved
     delta_accessible: PowerContext on resolved 32 more tasks
-    caption: In the reported paired run, PowerContext ON improved task resolution by 4.38 percentage points.
-    scope_title: How to read this result
-    scope: This is a PowerContext paired evaluation on a pinned SWE-bench Pro public v2 dataset, not an official leaderboard submission. Agent runs are stochastic, so the numbers describe this run rather than a universal guarantee.
+    caption: The ON run resolves 634 tasks and the OFF run resolves 602. The difference is 32 tasks, or 4.38 percentage points.
+    scope_title: Scope
+    scope: This is a paired run on a pinned task set, not an official SWE-bench Pro submission. Agent runs are stochastic, so the scores describe these two runs only.
   leaderboards:
-    title: The public score index.
-    lead: Put the published field next to PowerContext, while keeping the test rig visible.
+    title: Comparison with published results
+    lead: LoCoMo results use different readers, judges, and answer-matching rules. SWE-bench Pro results come from the official Public leaderboard, so the two tabs require different interpretations.
     tabs_label: Select a benchmark leaderboard
     updated: Data checked August 31, 2026
     source_label: View source
     locomo:
       id: locomo-rankings
-      tab: LoCoMo public claims
+      tab: LoCoMo
       count: 15 systems
-      title: LoCoMo scores on all 1,540 questions
-      lead: Only results that explicitly disclose the complete 1,540-question scope are included. Reader, judge, and answer-policy differences remain visible.
+      title: Reported LoCoMo scores
+      lead: The selected systems report scores on all 1,540 questions. Reader, judge, and answer-matching choices still differ.
       table_label: LoCoMo public score index with 15 systems evaluated on 1,540 questions
       columns:
         rank: Rank
@@ -173,8 +180,8 @@ benchmark:
         score: Score
         protocol: Published protocol
         evidence: Evidence
-      note_title: One dataset scope, visible test rigs
-      note: Every row explicitly reports all 1,540 scored questions. Results with an undisclosed or different question count are excluded. The remaining scores still use different readers, judges, and answer policies, so the rank is a public evidence index rather than an official LoCoMo leaderboard.
+      note_title: Comparison limits
+      note: Each cited result reports all 1,540 scored questions. The readers, judges, and answer policies are not standardized, so this list is not an official LoCoMo leaderboard.
       rows:
         - rank: 1
           name: Zep
@@ -269,25 +276,26 @@ benchmark:
           source: https://github.com/buildingjoshbetter/TrueMemory/blob/main/benchmarks/locomo/BENCHMARK_RESULTS.md
     swe:
       id: swe-rankings
-      tab: SWE-bench Pro official
+      tab: SWE-bench Pro
       count: 25 official entries
-      title: Every official public entry
-      lead: Scale currently publishes 25 model runs, not 30 memory products. Official Rank (UB), resolve rate, confidence interval, and harness marker are preserved below.
+      title: SWE-bench Pro Public leaderboard
+      lead: The chart shows five official entries with their reported confidence intervals. PowerContext appears separately because its result uses a different run protocol.
       table_label: SWE-bench Pro official public leaderboard with 25 entries
       source: https://labs.scale.com/leaderboard/swe_bench_pro_public
-      note_title: Why PowerContext is not ranked here
-      note: Scale defines Rank (UB) as one plus the number of models whose lower confidence bound exceeds that run's upper bound; an asterisk marks mini-swe-agent. PowerContext reports a separate Codex paired A/B on the same 731-task public set. Its 86.73% is not an official submission and cannot be inserted into this ranking.
+      note_title: PowerContext is not an official entry
+      note: Scale ranks official submissions using confidence bounds. PowerContext reports a separate Codex paired run on the same 731-task public set. Its 86.73% result is not an official submission and is not assigned a rank here.
       spotlight:
         label: PowerContext paired run
         value: 86.73%
         detail: 634 of 731 resolved with PowerContext ON
-        status: Separate protocol, not officially ranked
+        status: Not an official leaderboard entry
       columns:
-        rank: Official rank
+        rank: Rank (UB)
         system: Model
         score: Resolve rate
         provider: Provider
         harness: Harness
+      rank_note: Rank (UB) is calculated from confidence intervals; overlaps produce ties and skipped positions.
       harness_default: Scale run
       harness_star: mini-swe-agent
       rows:
@@ -442,32 +450,30 @@ benchmark:
         locomo: Judge-rated answer accuracy
         swe: Official executable tests passed
   sources:
-    title: Evidence and methodology
-    lead: Follow the dataset, paper, harness, and published PowerContext figures from the original sources.
-    items:
-      - type: Paper
-        label: Evaluating Very Long-Term Conversational Memory of LLM Agents
-        href: https://aclanthology.org/2024.acl-long.747/
-        description: The ACL 2024 paper that defines LoCoMo and its long-term memory tasks.
-      - type: Dataset
-        label: snap-research/locomo
-        href: https://github.com/snap-research/locomo
-        description: The public ten-conversation dataset and annotations.
-      - type: Benchmark
-        label: scaleapi/SWE-bench_Pro-os
-        href: https://github.com/scaleapi/SWE-bench_Pro-os
-        description: The public benchmark repository and official evaluation path.
-      - type: Harness
-        label: PowerContext evaluation console
-        href: https://github.com/oceanbase/powercontext/tree/master/evaluation
-        description: The pinned dataset, OFF and ON arms, isolated runner, and reporting contracts.
-      - type: Results
-        label: Published PowerContext benchmark figures
-        href: https://github.com/oceanbase/powercontext#benchmarks
-        description: The current project README values used on this page.
+    title: Evaluation methods and sources
+    lead: Method references and reproducibility resources for both evaluations.
+    groups:
+      - id: locomo
+        title: LoCoMo
+        items:
+          - type: Paper and task definition
+            label: Evaluating Very Long-Term Conversational Memory of LLM Agents
+            href: https://aclanthology.org/2024.acl-long.747/
+          - type: Dataset
+            label: snap-research/locomo
+            href: https://github.com/snap-research/locomo
+      - id: swe
+        title: SWE-bench Pro
+        items:
+          - type: Task set and grader
+            label: scaleapi/SWE-bench_Pro-os
+            href: https://github.com/scaleapi/SWE-bench_Pro-os
+          - type: Run configuration
+            label: PowerContext evaluation console
+            href: https://github.com/oceanbase/powercontext/tree/master/evaluation
   cta:
-    title: Inspect the system behind the scores.
-    lead: PowerContext is open source. Review the implementation, evaluation harness, and contracts directly.
-    label: View on GitHub
+    title: Use PowerContext in your workflow
+    lead: Start with a supported agent or connect an application through the HTTP API. The repository contains the runtime, integrations, and evaluation tools.
+    label: Open the GitHub repository
     href: https://github.com/oceanbase/powercontext
 ---

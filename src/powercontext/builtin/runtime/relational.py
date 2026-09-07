@@ -89,12 +89,20 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError, StoredPayloadConflictError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
 from powercontext.builtin.persistence.external_skills import ExternalSkillRepository
+from powercontext.builtin.persistence.family_management import (
+    ExperienceManagementWriter,
+    FamilyManagementWriterRegistry,
+    HandoffManagementWriter,
+    MemoryManagementWriter,
+    SkillManagementWriter,
+)
 from powercontext.builtin.persistence.handoff import (
     RelationalHandoffBackend,
     RelationalHandoffEvidenceResolver,
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.skill_publications import SkillPublicationRepository
 from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
@@ -123,6 +131,7 @@ from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.scope import ScopeApplication
+from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -378,15 +387,21 @@ class RelationalContexts:
         handoff_artifact_id: str = "handoff",
         memory_artifact_id: str = "memory",
         source_registry: SourceDefinitionRegistry | None = None,
+        cursor_secret: bytes | None = None,
     ) -> None:
         self.database = database
         self.scopes = ScopeApplication(database)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         self.index = NoMemoryIndex() if index is None else index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
+        source_repository = SourceRepository(self.source_registry)
+        artifact_repository = ArtifactRepository(
+            (Handoff, Memory, Experience, Skill),
+            sources=source_repository,
+        )
         self.repositories = _Repositories(
-            sources=SourceRepository(self.source_registry),
-            artifacts=ArtifactRepository((Handoff, Memory, Experience, Skill)),
+            sources=source_repository,
+            artifacts=artifact_repository,
             governance=ArtifactGovernanceRepository(),
             candidates=CandidateRepository({
                 Experience.family: ExperienceContent,
@@ -400,6 +415,39 @@ class RelationalContexts:
             agent_skill_targets=RemoteAgentSkillTargetRepository(),
             skill_publications=SkillPublicationRepository(),
             statistics=StatisticsRepository(),
+        )
+        self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
+        family_writers = FamilyManagementWriterRegistry((
+            MemoryManagementWriter(
+                database=database,
+                artifacts=self.repositories.artifacts,
+                index=self.index,
+                embedding_model=embedding_model,
+                id_factory=self._id_factory,
+            ),
+            ExperienceManagementWriter(self.repositories.artifacts, self.experience_index),
+            SkillManagementWriter(
+                self.repositories.artifacts,
+                self.experience_index,
+                self.repositories.skill_packages,
+            ),
+            HandoffManagementWriter(
+                database=database,
+                artifacts=self.repositories.artifacts,
+                sources=self.repositories.sources,
+                memory_index=self.index,
+                id_factory=self._id_factory,
+                memory_artifact_id=memory_artifact_id,
+                handoff_artifact_id=handoff_artifact_id,
+            ),
+        ))
+        self.records = RelationalRecordService(
+            database,
+            self.repositories.sources,
+            self.repositories.artifacts,
+            family_writers,
+            id_factory=id_factory,
+            cursor_secret=cursor_secret,
         )
         self.publications = ArtifactPublicationApplication(
             database,
@@ -423,7 +471,6 @@ class RelationalContexts:
         self._token_estimator = token_estimator
         self._memory_reranker = memory_reranker
         self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
-        self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
         self._contexts: dict[
@@ -988,7 +1035,9 @@ class _RelationalSources:
         ref = self._as_ref(source)
         try:
             async with self._database.connection(self._bound_connection) as connection:
-                return (await self._repository.get(connection, self._scope_id, ref)).value
+                value = (await self._repository.get(connection, self._scope_id, ref)).value
+                require_source_eligible(ref, value)
+                return value
         except RepositoryNotFoundError:
             raise SourceNotFoundError(source) from None
 
@@ -1074,6 +1123,7 @@ class _RelationalTriggers:
                     raise HandoffEvidenceUnavailableError(
                         HandoffSourceCitation(source_ref=request.boundary_source)
                     ) from None
+                require_source_eligible(request.boundary_source, source.value)
                 state_row = await self._services.repositories.cursors.load(
                     connection,
                     self._services.scope_id,
@@ -1149,6 +1199,22 @@ class _RelationalTriggers:
                 )
 
             action = transition.actions[0]
+            if not sources:
+                async with self._services.database.transaction() as connection:
+                    await self._services.repositories.cursors.save(
+                        connection,
+                        self._services.scope_id,
+                        SOURCE_WINDOW_TRIGGER_NAME,
+                        transition.state,
+                        expected_generation=None if state_row is None else state_row.generation,
+                    )
+                return MemoryFlushResult(
+                    previous_cursor=action.after,
+                    high_watermark=high_watermark,
+                    current_cursor=action.through,
+                    source_count=0,
+                    memory_ref=None,
+                )
             prepared = await self._prepare_memory(sources)
             async with self._services.database.transaction() as connection:
                 _, source_catalog = self._services.sources(connection)
@@ -1178,7 +1244,9 @@ class _RelationalTriggers:
             self._services.scope_id,
             after=action.after,
         )
-        return tuple(row.value for row in rows if row.journal_position <= action.through)
+        return tuple(
+            row.value for row in rows if row.journal_position <= action.through and is_generation_eligible(row.value)
+        )
 
     async def _prepare_memory(self, sources: tuple[Source, ...]) -> MemoryWritePlan:
         _, source_catalog = self._services.sources()
@@ -1233,19 +1301,38 @@ class _RelationalExperienceIncubator:
             pipeline = self._services.experience_pipeline
             if pipeline is None:
                 raise RuntimeError("Experience incubation pipeline is not configured")  # noqa: TRY003
-            plans = await pipeline.incubate(tuple(row.value for row in rows))
-            _validate_experience_plans(plans, rows)
             action = transition.actions[0]
+            eligible_rows = tuple(row for row in rows if is_generation_eligible(row.value))
+            if not eligible_rows:
+                async with self._services.database.transaction() as connection:
+                    await self._services.repositories.cursors.save(
+                        connection,
+                        self._services.scope_id,
+                        EXPERIENCE_INCUBATION_CURSOR_NAME,
+                        transition.state,
+                        expected_generation=None if state_row is None else state_row.generation,
+                    )
+                return ExperienceIncubationResult(
+                    previous_cursor=action.after,
+                    high_watermark=high_watermark,
+                    current_cursor=action.through,
+                    source_count=0,
+                    candidate_count=0,
+                )
+            plans = await pipeline.incubate(tuple(row.value for row in eligible_rows))
+            _validate_experience_plans(plans, eligible_rows)
+            candidate_ids: list[str] = []
             async with self._services.database.transaction() as connection:
                 review = self._services.review(connection)
                 for plan in plans:
-                    await review.propose_experience(
+                    candidate = await review.propose_experience(
                         plan.proposal,
                         sources=plan.sources,
                         artifacts=(),
                         target=None,
                         reason=plan.reason,
                     )
+                    candidate_ids.append(candidate.candidate_id)
                 await self._services.repositories.cursors.save(
                     connection,
                     self._services.scope_id,
@@ -1257,8 +1344,9 @@ class _RelationalExperienceIncubator:
                 previous_cursor=action.after,
                 high_watermark=high_watermark,
                 current_cursor=action.through,
-                source_count=len(rows),
+                source_count=len(eligible_rows),
                 candidate_count=len(plans),
+                candidate_ids=tuple(candidate_ids),
             )
 
     async def _sources(

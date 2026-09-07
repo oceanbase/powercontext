@@ -4681,3 +4681,20 @@ button:disabled {
     width: 116px;
   }
 }
+
+/* Shared context uses the same panels and controls as the scope dashboards. */
+.shared-layout { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr); gap: 24px; align-items: start; }
+.shared-layout .panel { padding: 24px; min-width: 0; }
+.shared-resource { display: block; width: 100%; text-align: left; margin: 12px 0; overflow-wrap: anywhere; }
+.shared-resource small { display: block; font-weight: normal; }
+.shared-body { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; padding: 16px; border: 1px solid var(--pc-rule); border-radius: 8px; }
+.shared-address { overflow-wrap: anywhere; }
+#shared-detail form { display: grid; gap: 16px; margin: 20px 0; }
+#shared-detail label { display: grid; gap: 6px; }
+#shared-checks label { display: flex; gap: 8px; margin: 12px 0; }
+#shared-checks input { width: auto; }
+#shared-detail textarea { min-height: 80px; }
+#shared-page[aria-busy="true"] .shared-layout { opacity: .7; pointer-events: none; }
+@media (max-width: 800px) { .shared-layout { grid-template-columns: 1fr; } }
+
+.shared-summary p { white-space: pre-wrap; overflow-wrap: anywhere; }

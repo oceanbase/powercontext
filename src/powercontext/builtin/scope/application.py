@@ -119,8 +119,10 @@ class ScopeApplication:
         async with self._database.transaction() as connection:
             return await self._required(connection, scope_id)
 
-    async def list(self) -> tuple[ScopeDescriptor, ...]:
+    async def list(self, *, scope_ids: Sequence[str] | None = None) -> tuple[ScopeDescriptor, ...]:
         async with self._database.transaction() as connection:
+            if scope_ids is not None:
+                return await self._repository.get_many(connection, tuple(scope_ids))
             return await self._repository.list(connection)
 
     async def update(self, scope_id: str, mutation: ScopeMutation, /) -> ScopeDescriptor:

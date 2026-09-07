@@ -18,11 +18,12 @@ from __future__ import annotations
 
 from typing import TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 
 from powercontext.builtin.persistence.errors import InvalidStoredColumnError, InvalidStoredPayloadError
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+_JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
 
 def stored_bytes(value: object, /, *, column: str) -> bytes:
@@ -38,6 +39,12 @@ def dump_model(value: BaseModel, /, *, kind: str, name: str) -> bytes:
         return value.model_dump_json(by_alias=True).encode()
     except (TypeError, ValueError) as error:
         raise InvalidStoredPayloadError(kind, name, "value is not JSON serializable") from error
+
+
+def validate_json_model(model: type[ModelT], value: JsonValue, /) -> ModelT:
+    """Validate an already decoded JSON value with JSON-aware strict semantics."""
+
+    return model.model_validate_json(_JSON_VALUE_ADAPTER.dump_json(value), strict=True)
 
 
 def load_model(model: type[ModelT], payload: object, /, *, kind: str, name: str) -> ModelT:

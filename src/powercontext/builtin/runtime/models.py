@@ -133,6 +133,7 @@ class ExperienceIncubationResult(BaseModel):
     current_cursor: int = Field(ge=0)
     source_count: int = Field(ge=0)
     candidate_count: int = Field(ge=0)
+    candidate_ids: tuple[str, ...] = ()
 
     @property
     def processed(self) -> bool:

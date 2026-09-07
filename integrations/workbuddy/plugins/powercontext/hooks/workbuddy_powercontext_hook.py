@@ -42,8 +42,10 @@ else:
 
 _HOOKS_ROOT = Path(__file__).resolve().parent
 _PLUGIN_ROOT = _HOOKS_ROOT.parent
+_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_HOOKS_ROOT))
+sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 import prepared_context as _prepared_context  # noqa: E402
 from workbuddy_settings import WorkBuddyPluginSettings  # noqa: E402
@@ -51,7 +53,7 @@ from workbuddy_settings import WorkBuddyPluginSettings  # noqa: E402
 if (_HOOKS_ROOT / "powercontext_scope_binding.py").is_file():
     from powercontext_scope_binding import resolve_scope_id
 else:
-    from scripts.workspace_scope import resolve_scope_id
+    from workspace_scope import resolve_scope_id
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse

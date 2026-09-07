@@ -16,6 +16,12 @@
 
 const tokenKey = "powercontext.server.token";
 
+export function createRequestId() {
+  // getRandomValues also works on LAN HTTP origins, unlike randomUUID.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function setSessionState(state) {
   document.documentElement.dataset.serverSession = state;
 }

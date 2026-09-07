@@ -104,7 +104,7 @@ jobs:
       release_tag: ${{ github.event.release.tag_name }}
       release_package: powercontext
 
-  deploy-docs:
+  deploy-website:
     needs: pypi-publish
     permissions:
       contents: read
@@ -121,13 +121,19 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
-      - name: Build documentation
+      - name: Set up website tools
+        uses: jdx/mise-action@v2
+
+      - name: Build website
         run: make docs-build
 
-      - name: Upload artifact
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload website artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: site
+          path: website/out
 
       - name: Deploy to GitHub Pages
         id: deployment

@@ -83,7 +83,9 @@ class StatisticsRepository:
         artifact_rows = (
             await connection.execute(
                 select(ARTIFACT_HEADS_TABLE.c.family, func.count())
-                .where(ARTIFACT_HEADS_TABLE.c.scope_id == scope)
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == scope,
+                )
                 .group_by(ARTIFACT_HEADS_TABLE.c.family)
                 .order_by(ARTIFACT_HEADS_TABLE.c.family)
             )

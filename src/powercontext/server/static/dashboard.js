@@ -29,6 +29,7 @@ const translations = {
   en: {
     pageTitle: "PowerContext Overview",
     dashboardTitle: "Overview",
+    sharedTitle: "Shared with me",
     skillsTitle: "Skills",
     reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
@@ -99,6 +100,7 @@ const translations = {
   zh: {
     pageTitle: "PowerContext 概览",
     dashboardTitle: "概览",
+    sharedTitle: "与我共享",
     skillsTitle: "技能",
     reviewTitle: "审核",
     handoffReportTitle: "交接报告",

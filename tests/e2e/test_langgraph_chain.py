@@ -48,7 +48,7 @@ from powercontext.builtin.runtime import InferenceConfig
 from powercontext.client import PowerContextClient
 from powercontext.http import ResolveScopeBindingRequest
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
+from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
 pytest.importorskip("powercontext_langgraph")
 
@@ -100,9 +100,9 @@ def test_langgraph_write_then_recall_over_real_http(tmp_path: Path, authenticati
     app = create_server_app(
         settings=ServerSettings(
             auth=BearerAuthConfig(
-                enabled=authentication_enabled,
                 token=SecretStr(AUTH_TOKEN) if authentication_enabled else None,
             ),
+            access=AccessControlConfig(mode="enforced" if authentication_enabled else "disabled"),
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),

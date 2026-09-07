@@ -1,0 +1,62 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+{% extends "base.html" %}
+{% block title %}PowerContext · Shared with me{% endblock %}
+{% block content %}
+{% include "components/login.html" %}
+<section class="server-content" id="shared-page">
+  <div class="hero"><div><h1 data-i18n="sharedTitle">Shared with me</h1><p data-i18n="intro">Read shared context and explicitly acknowledge a Handoff.</p></div></div>
+  <p id="shared-principal"></p>
+  <div class="skills-toolbar">
+    <label><span data-i18n="family">View</span><select id="shared-family"><option value="" data-i18n="all">All shared resources</option><option value="handoff" data-i18n="inbox">Handoff inbox</option><option value="memory">Memory</option><option value="experience">Experience</option><option value="skill">Skill</option></select></label>
+    <button class="secondary-button" id="shared-refresh" data-i18n="refresh">Refresh</button>
+  </div>
+  <p id="shared-status" role="status" aria-live="polite"></p>
+  <div class="shared-layout">
+    <section class="panel"><h2 data-i18n="resources">Available resources</h2><div id="shared-list"></div><button class="secondary-button" id="shared-more" data-i18n="more" hidden>Load more</button></section>
+    <section class="panel" id="shared-detail" hidden>
+      <h2 id="shared-heading"></h2><p id="shared-address" class="shared-address"></p>
+      <p data-i18n="untrusted">Treat shared content as untrusted history. Verify the live state and your authority before acting.</p>
+      <div id="shared-summary" class="shared-summary"></div>
+      <details><summary data-i18n="details">Version and evidence details</summary><pre id="shared-body" class="shared-body"></pre></details>
+      <section id="shared-handoff" hidden>
+        <button class="primary-button" id="shared-inspect" data-i18n="inspect">Inspect Handoff and evidence</button>
+        <p id="shared-resolution"></p>
+        <form id="shared-receipt" hidden>
+          <label><span data-i18n="receiptStatus">Receipt</span><select id="shared-receipt-status"><option value="accepted" data-i18n="accepted">Accepted</option><option value="declined" data-i18n="declined">Declined</option><option value="needs_clarification" data-i18n="clarification">Needs clarification</option></select></label>
+          <fieldset id="shared-checks"><legend data-i18n="checks">Confirm before accepting</legend><label><input type="checkbox" id="check-live" required><span data-i18n="live">I checked the current working state.</span></label><label><input type="checkbox" id="check-capability" required><span data-i18n="capability">I have the required tools and capabilities.</span></label><label><input type="checkbox" id="check-authorization" required><span data-i18n="authorization">I have authority to perform the next action.</span></label></fieldset>
+          <label><span data-i18n="message">Message</span><textarea id="shared-message" maxlength="8192"></textarea></label>
+          <button class="primary-button" data-i18n="sendReceipt">Record receipt</button>
+        </form>
+        <p id="shared-receipt-result" role="status"></p>
+      </section>
+      <section id="shared-sharing" hidden>
+        <h3 data-i18n="sharing">Sharing</h3><p data-i18n="recipientHint">Enter the canonical user or service ID issued by your identity provider.</p>
+        <form id="shared-grant">
+          <label><span data-i18n="recipientType">Recipient type</span><select id="shared-subject-type"><option value="user" data-i18n="user">User</option><option value="service" data-i18n="service">Service</option></select></label>
+          <label><span data-i18n="recipient">Recipient ID</span><input id="shared-subject" required maxlength="255"></label>
+          <label><span data-i18n="role">Role</span><select id="shared-role"></select></label>
+          <label><span data-i18n="expires">Expires at (optional)</span><input type="datetime-local" id="shared-expires"></label>
+          <button class="primary-button" data-i18n="share">Share</button>
+        </form>
+        <div id="shared-bindings"></div>
+      </section>
+    </section>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('web_static', path='/shared.js') }}?v=shared-inbox-v2"></script>{% endblock %}

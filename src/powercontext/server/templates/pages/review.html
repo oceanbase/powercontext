@@ -182,10 +182,6 @@
                 </div>
               </dl>
             </div>
-            <div class="review-publication-path">
-              <span data-i18n="destination">Destination</span>
-              <code id="review-publication-destination"></code>
-            </div>
           </div>
           <div class="review-publication-actions">
             <button class="secondary-button" id="review-create-skill-revision" type="button" data-i18n="createSkillRevision">Create revision</button>
@@ -255,5 +251,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="{{ url_for('web_static', path='/review.js') }}?v=standard-packages-v1"></script>
+<script type="module" src="{{ url_for('web_static', path='/review.js') }}?v=standard-packages-v2"></script>
 {% endblock %}

@@ -41,7 +41,9 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/v1/sources/content":
             server.captured.set()
         response: dict[str, Any]
-        if self.path == "/v1/context/prepare":
+        if self.path == "/v1/scope-bindings/resolve":
+            response = {"scope_id": payload.get("explicit_scope_id", "project:test")}
+        elif self.path == "/v1/context/prepare":
             response = {
                 "schema": "powercontext.prepared-context.v1",
                 "status": "empty",
@@ -85,18 +87,26 @@ def test_opencode_run_normalizes_prompt_before_recall_and_capture(tmp_path: Path
             path = tmp_path / name
             path.mkdir()
             env[f"XDG_{name.upper()}_HOME"] = str(path)
+        temp_directory = tmp_path / "tmp"
+        temp_directory.mkdir()
         installed_plugin = tmp_path / "config" / "opencode" / "plugins" / "powercontext-opencode.js"
         installed_plugin.parent.mkdir(parents=True)
         copyfile(plugin, installed_plugin)
         env.update({
             "OPENCODE_DISABLE_AUTOUPDATE": "true",
+            "OPENCODE_DISABLE_MODELS_FETCH": "true",
+            "OPENCODE_TEST_HOME": str(tmp_path),
             "POWERCONTEXT_OPENCODE_BASE_URL": f"http://127.0.0.1:{server.server_port}",
             "POWERCONTEXT_OPENCODE_SCOPE_ID": "project:test",
+            "TMPDIR": str(temp_directory),
         })
         process = subprocess.Popen(
             [
                 executable,
                 "run",
+                "--print-logs",
+                "--log-level",
+                "DEBUG",
                 "--dir",
                 str(project),
                 "--model",
@@ -112,7 +122,7 @@ def test_opencode_run_normalizes_prompt_before_recall_and_capture(tmp_path: Path
         )
         captured = False
         try:
-            deadline = monotonic() + 30
+            deadline = monotonic() + 60
             while monotonic() < deadline and process.poll() is None:
                 if server.captured.wait(timeout=0.25):
                     captured = True

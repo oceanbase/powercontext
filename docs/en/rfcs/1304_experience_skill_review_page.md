@@ -3,7 +3,9 @@
 - RFC PR: [oceanbase/powercontext#1304](https://github.com/oceanbase/powercontext/pull/1304)
 - Related RFCs: [RFC 0050](0050_artifact_candidate_review_inbox.md),
   [RFC 0051](0051_experience_skill_artifact_families.md),
-  [RFC 0072](0072_scoped_statistics_and_usage.md)
+  [RFC 0072](0072_scoped_statistics_and_usage.md),
+  [RFC 1345](1345_scope_organization_and_agent_integration.md), and
+  [RFC 1396](1396_handoff_access_control.md)
 
 # Summary
 
@@ -11,11 +13,11 @@ This RFC adds a Server-owned Review page for Experience and PowerContext-managed
 user-facing projection of the existing Candidate and Review lifecycle. It does not create another review model,
 change Candidate persistence, or bypass the existing HTTP operations.
 
-PowerContext already exposes a personal Dashboard, configured Dashboard scopes, Bearer authentication, and Review
+PowerContext already exposes a personal Dashboard, durable Access-filtered Scope discovery, authentication, and Review
 operations for listing, reading, revising, approving, and rejecting Candidates. The proposed `/reviews` page combines
 those capabilities into one scoped Review Inbox. A reviewer can:
 
-1. select one configured scope;
+1. select one visible durable Scope;
 2. filter current Candidate heads by status and Family;
 3. inspect the typed Experience or Skill proposal and its exact evidence references;
 4. revise the proposal without changing its evidence;
@@ -25,9 +27,10 @@ those capabilities into one scoped Review Inbox. A reviewer can:
 
 Pending remains the default view. Approved and rejected Candidates are available as read-only views. Experience and
 Skill share one page because they share one Candidate lifecycle, while each Family retains its own rendering and edit
-form. The first version adds no Candidate generation, evidence-content preview, reviewer identity, RBAC, assignment,
-notification, bulk action, or Skill execution capability. Publication is a separate explicit action after approval and
-can write only to a host-local Agent target that configuration marks as writable.
+form. The page adds no Candidate generation, evidence-content preview, reviewer identity, role editor, assignment,
+notification, bulk action, or Skill execution capability. It relies on RFC 1396 for authorization. Publication is a
+separate explicit action after approval and can write only to a host-local Agent target that configuration marks as
+writable.
 
 # Motivation
 
@@ -66,8 +69,8 @@ When the Dashboard is enabled, the Server navigation contains a **Review** entry
 Opening it loads `/reviews` from the same Server origin. It reuses the Dashboard login and Bearer token behavior; the
 page does not introduce another credential store or authentication flow.
 
-The reviewer first selects one of the scopes configured by `POWERCONTEXT_SERVER_DASHBOARD_SCOPES`. If no scopes are
-configured, the page explains that Review requires at least one Dashboard scope and performs no Candidate request.
+The reviewer first selects one of the durable Scopes returned by the Server. If no Scopes exist, the page explains
+that Review requires at least one Scope and performs no Candidate request.
 
 Changing the scope clears the current list, selected Candidate, pagination cursor, conflict state, and unsaved revision
 draft before loading the new scope. A delayed response from the previous scope must not update the page.
@@ -216,7 +219,7 @@ the reviewer either discards it or manually applies it to the new current propos
 The first version has these goals:
 
 - make the existing Experience and managed Skill Review lifecycle usable from the Server UI;
-- keep scope selection explicit and limited to configured Dashboard scopes;
+- keep scope selection explicit and limited to durable Scopes visible to the current Principal;
 - render each Family as a reviewable domain object rather than generic JSON;
 - preserve exact Candidate-version and target CAS behavior;
 - keep untrusted content inert and keep approval separate from execution authority;
@@ -231,7 +234,7 @@ The following are out of scope:
 - editing Candidate evidence, target, lineage, or generation reason;
 - rendering Source content or arbitrary Artifact evidence previews;
 - automatic publication, arbitrary-path export, Skill execution, runtime hot loading, or rollback;
-- reviewer identity, RBAC, SSO, assignment, notifications, service-level targets, and bulk actions;
+- reviewer identity, a role editor, SSO, assignment, notifications, service-level targets, and bulk actions;
 - Candidate retention, reopening, deletion, semantic diff, or version-history browsing;
 - a generic form renderer for future Artifact Families; and
 - a new frontend framework or standalone web application.
@@ -242,7 +245,7 @@ The design reuses current Server behavior:
 
 | Existing surface | Use on the Review page |
 | --- | --- |
-| `GET /dashboard/scopes` | List the scopes deliberately exposed by Server configuration |
+| `GET /dashboard/scopes` | List durable Scopes after Access filtering; in `enforced` mode, only Scopes for which the current Principal has `scope.read` are returned |
 | `POST /v1/artifact-candidates/list` | Page current heads by scope, status, Family, and cursor |
 | `POST /v1/artifact-candidates/get` | Refresh one current Candidate head |
 | `POST /v1/artifact-candidates/revise` | Append one complete replacement proposal |
@@ -255,7 +258,7 @@ The design reuses current Server behavior:
 | Dashboard page UI utilities | Reuse locale, theme, status, and stale-request handling patterns |
 
 No OpenAPI change, generated client change, database migration, or new public persistence contract is required. Like
-`/dashboard/scopes`, the two `/dashboard/skill-projections/*` endpoints are authenticated Server UI supporting surfaces.
+`/dashboard/scopes`, the `/dashboard/skill-projections/*` routes are authenticated Server UI supporting surfaces.
 They operate on explicitly configured roots on the Server host, are not a cross-host PowerContext API, and never accept
 a caller-provided path. Portable exact reads remain on the public `get_skill` contract, and CLI export remains available.
 
@@ -265,18 +268,18 @@ The Review page is part of the personal Dashboard feature:
 
 - route: `GET /reviews`;
 - availability: mounted only when `DashboardConfig.enabled` is true;
-- scopes: the same ordered `DashboardConfig.scopes` used by the statistics Dashboard;
-- authentication: the same Server Bearer policy and same-origin request helper; and
-- navigation order: Dashboard, Review, Handoff Report when all three are available.
+- scopes: the same ordered, Access-filtered durable Scope descriptors used by the statistics Dashboard;
+- authentication: the same Server Bearer policy and same-origin request helper;
+- navigation order: Dashboard, Review, Handoff Report when all three are available; and
 - publication targets: only explicit `AgentSkillTarget` entries with `allow_managed_publish=true`; legacy
   `CodexSkillRoot` entries remain a Codex-only compatibility form, and no target is writable by default.
 
 Disabling the Dashboard removes both the Dashboard and Review routes. Handoff Report may remain independently
 available under its existing configuration.
 
-The Review page does not accept an arbitrary `scope_id` from a query parameter in the first version. It selects the
-first configured scope initially and lets the reviewer switch through the configured picker. This avoids presenting
-scope-shaped input as authorization and avoids a deep link that may expose an unconfigured scope.
+The Review page does not accept an arbitrary `scope_id` from a query parameter. It selects the first visible durable
+Scope initially and lets the reviewer switch through the Access-filtered picker. A caller-supplied `scope_id` is never
+treated as authorization; each data request is still enforced by the Server PEP.
 
 ## Page state and request ordering
 
@@ -284,7 +287,7 @@ The page maintains these client-side values:
 
 ```text
 authentication state
-configured scopes
+visible durable scopes
 selected scope
 selected family filter
 selected status filter
@@ -405,7 +408,7 @@ A publication status request selects an exact approved ArtifactRef:
 ```
 
 The Server first verifies that the Artifact is the exact `result_artifact` of the identified approved Skill Candidate.
-It then returns targets only for configured Dashboard scopes and Agent targets that allow managed publication. Each
+It then returns targets only for the selected visible Scope and Agent targets that allow managed publication. Each
 target carries `target_id`, `agent_kind`, and installation scope, plus a stable package state: `unpublished`, `current`,
 `update_available`, `conflict`, `drifted`, or `incompatible`.
 Discovery is reported independently as `available`, `unavailable`, or `not_published`.
@@ -426,7 +429,7 @@ The page distinguishes:
 
 | State | Behavior |
 | --- | --- |
-| No configured scopes | Explain the Dashboard scope configuration requirement; send no Candidate request |
+| No visible Scopes | Explain that no durable Scope is available to the current Principal; send no Candidate request |
 | Empty filtered page | Explain which scope, status, and Family have no Candidates |
 | Loading list | Keep filters visible and mark the list busy |
 | Loading detail | Keep the selected row visible and mark the detail pane busy |
@@ -482,7 +485,7 @@ resulting Candidate and Artifact state.
 | Availability | `/reviews` exists only when the Dashboard is enabled and appears in primary navigation |
 | Authentication | The existing optional Bearer flow protects page data and handles `401` without another token store |
 | Scope isolation | Switching scopes clears rows, detail, cursor, conflicts, and drafts before another response renders |
-| Default Inbox | The first request lists pending Experience and Skill current heads for the first configured scope |
+| Default Inbox | The first request lists pending Experience and Skill current heads for the first visible Scope |
 | Filtering | Family or status changes restart pagination and never mix rows from different filters |
 | Pagination | Load more follows `next_cursor`, preserves server order, and deduplicates by Candidate ID |
 | Experience | The four typed fields, reason, target, and exact evidence references are readable |
@@ -516,8 +519,8 @@ approved Skill successor Revision and publication update, optional authenticatio
 - A unified Inbox needs Family-specific rendering and validation branches even though the lifecycle is shared.
 - Keeping evidence immutable in the first revision form means some corrections still require CLI, MCP, or a new
   Candidate.
-- The page improves access to governance but does not provide reviewer attribution, authorization separation, or an
-  organizational audit log.
+- The page does not add reviewer attribution or an organization-level audit UI; authorization and audit enforcement
+  come from the shared Access boundary rather than page-local logic.
 - Host-local publication affects the Server process host; a remote browser does not publish to its own device.
 
 # Rationale and alternatives
@@ -545,8 +548,8 @@ without an ergonomic structured inspection flow.
   query model. This RFC presents that contract without changing it.
 - RFC 0051 defines Experience and managed Skill proposal shapes, lineage, and the boundary between Skill approval and
   execution authority. This RFC gives those shapes separate review views.
-- RFC 0072 and the existing Dashboard establish configured scope discovery, scoped pending counts, authentication,
-  localization, theme, and Server-owned static delivery.
+- RFC 0072 and the existing Dashboard establish scoped pending counts, localization, theme, and Server-owned static
+  delivery. RFC 1345 supplies durable Scope discovery, and RFC 1396 supplies Principal-aware filtering and enforcement.
 - The Handoff Report page demonstrates that a focused workflow can share Server navigation and page utilities without
   becoming part of the statistics Dashboard itself.
 

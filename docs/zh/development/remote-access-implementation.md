@@ -22,7 +22,7 @@ uv run powercontext server run
 
 ```bash
 # 推荐：先为 Server 启用认证，再绑定可路由地址（生产环境在前面加 TLS）。
-POWERCONTEXT_SERVER_AUTH_ENABLED=true \
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced \
 POWERCONTEXT_SERVER_AUTH_TOKEN="replace-with-a-strong-token" \
   uv run powercontext server run --host 0.0.0.0 --port 8080
 ```

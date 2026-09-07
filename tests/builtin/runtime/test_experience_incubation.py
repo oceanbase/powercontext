@@ -21,6 +21,7 @@ import pytest
 from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
 from powercontext.builtin.inference import InferenceUnavailableError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
@@ -112,6 +113,9 @@ def test_incubation_uses_an_independent_cursor_and_keeps_candidates_gated() -> N
             assert replay.processed is False
             assert len(inbox.candidates) == 1
             candidate = inbox.candidates[0]
+            assert incubated.candidate_ids == (candidate.candidate_id,)
+            assert ordinary.candidate_ids == ()
+            assert replay.candidate_ids == ()
             assert candidate.sources == (outcome.source_ref,)
             assert candidate.result_artifact is None
 
@@ -184,6 +188,29 @@ def test_incubation_uses_the_fixed_source_window_budget() -> None:
             assert first.current_cursor == 32
             assert second.source_count == 1
             assert second.current_cursor == 33
+
+    asyncio.run(scenario())
+
+
+def test_incubation_skips_lineage_only_sources_but_advances_the_full_window() -> None:
+    async def scenario() -> None:
+        pipeline = _TaskOutcomePipeline()
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()),
+            experience_pipeline=pipeline,
+        ) as runtime:
+            scope = await _create_scope(runtime, "lineage-only")
+            created = await runtime.records.for_scope(scope).create_artifact(
+                "memory",
+                ArtifactWrite(content={"entries": [{"kind": "working_note", "text": "Do not incubate direct writes"}]}),
+            )
+            result = await runtime.experience.for_scope(scope).incubate()
+
+            assert created.revision == 1
+            assert result.current_cursor == 1
+            assert result.source_count == 0
+            assert result.candidate_count == 0
+            assert pipeline.calls == []
 
     asyncio.run(scenario())
 

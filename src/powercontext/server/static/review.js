@@ -18,16 +18,18 @@
 
 import {
   clearServerToken,
+  createRequestId,
   fetchWithBearer,
   readServerToken,
   storeServerToken
-} from "./auth.js?v=optional-auth";
+} from "./auth.js?v=request-id-v1";
 import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 
 const translations = {
   en: {
     pageTitle: "PowerContext Review",
     dashboardTitle: "Overview",
+    sharedTitle: "Shared with me",
     skillsTitle: "Skills",
     reviewTitle: "Review",
     handoffReportTitle: "Handoff Report",
@@ -144,6 +146,8 @@ const translations = {
     packageBinary: "Binary file preview is unavailable.",
     packageLoadFailed: "The exact package could not be loaded.",
     revise: "Revise",
+    revisePermission: "Only the original proposer with review permission can revise.",
+    reviewPermission: "Review permission is required for this action.",
     approve: "Approve",
     reject: "Reject",
     reviseProposal: "Revise proposal",
@@ -186,6 +190,7 @@ const translations = {
   zh: {
     pageTitle: "PowerContext 审核",
     dashboardTitle: "概览",
+    sharedTitle: "与我共享",
     skillsTitle: "技能",
     reviewTitle: "审核",
     handoffReportTitle: "交接报告",
@@ -302,6 +307,8 @@ const translations = {
     packageBinary: "二进制文件不提供预览。",
     packageLoadFailed: "无法加载精确技能包。",
     revise: "修订",
+    revisePermission: "仅拥有 review 权限的原提议者可以修改。",
+    reviewPermission: "此操作需要 review 权限。",
     approve: "批准",
     reject: "拒绝",
     reviseProposal: "修订提案",
@@ -400,7 +407,6 @@ const publicationEmpty = document.getElementById("review-publication-empty");
 const publicationContent = document.getElementById("review-publication-content");
 const publicationTarget = document.getElementById("review-publication-target");
 const publishedRevision = document.getElementById("review-published-revision");
-const publicationDestination = document.getElementById("review-publication-destination");
 const publicationDiscovery = document.getElementById("review-publication-discovery");
 const createSkillRevisionButton = document.getElementById("review-create-skill-revision");
 const publishSkillButton = document.getElementById("review-publish-skill");
@@ -978,7 +984,7 @@ async function createSkillRevisionCandidate(proposal, changeEvidence) {
     if (!source) {
       const captured = await requestJson("/v1/sources/content", {
         scope_id: currentScopeId,
-        source_id: `review-skill-revision-${crypto.randomUUID()}`,
+        source_id: `review-skill-revision-${createRequestId()}`,
         content: changeEvidence
       });
       if (!request.isCurrent()) {
@@ -1448,13 +1454,21 @@ function renderDetail() {
   const decisionEnabled = canDecide(candidate);
   reviewActions.hidden = !decisionEnabled || !revisionForm.hidden;
   editButton.hidden = !isEditableCandidate(candidate);
-  editButton.disabled = busy;
-  approveButton.disabled = busy;
-  rejectButton.disabled = busy;
+  renderActionPermissions(busy);
   if (!isSupportedCandidate(candidate) && !currentNotice) {
     currentNotice = {key: "unsupportedCandidate", values: {}, tone: "error"};
   }
   renderNotice();
+}
+
+function renderActionPermissions(busy) {
+  const permissions = selectedCandidate?.permissions;
+  editButton.disabled = busy || permissions?.can_revise === false;
+  approveButton.disabled = busy || permissions?.can_approve === false;
+  rejectButton.disabled = busy || permissions?.can_reject === false;
+  editButton.title = permissions?.can_revise === false ? translate("revisePermission") : "";
+  approveButton.title = permissions?.can_approve === false ? translate("reviewPermission") : "";
+  rejectButton.title = permissions?.can_reject === false ? translate("reviewPermission") : "";
 }
 
 function clearDetail() {
@@ -1673,7 +1687,6 @@ function renderPublication() {
   publishedRevision.textContent = target.published_revision === null
     ? translate("notProvided")
     : translate("version", {version: target.published_revision});
-  publicationDestination.textContent = target.destination;
   publicationDiscovery.textContent = translate(discoveryStateKey(target.discovery));
   publishSkillButton.textContent = translate(publicationActionKey(target));
   const canPublish = canPublishProjection(target);
@@ -1961,9 +1974,7 @@ function setBusy(value, statusKey = "") {
   refreshButton.disabled = value;
   loadMoreButton.disabled = value;
   saveRevisionButton.disabled = value;
-  editButton.disabled = value;
-  approveButton.disabled = value;
-  rejectButton.disabled = value;
+  renderActionPermissions(value);
   createSkillRevisionButton.disabled = value;
   publishSkillButton.disabled = value;
   renderQueue();

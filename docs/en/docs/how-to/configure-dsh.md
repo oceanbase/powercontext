@@ -36,6 +36,35 @@ workspace therefore uses the Server default instead of the Harness process direc
 
 The plugin calls `POST /v1/context/prepare` once before the model analyzes the prompt. Explicit `remember_memory` calls do not require a model.
 
+## Diagnose direct tool and command failures
+
+Named tools and Scope-dependent `/pc` commands return a controlled failure if Scope resolution fails. They stop before
+the requested operation, without creating a binding or retrying with another Scope. Cancellation and the existing
+per-request timeout also apply to Scope resolution.
+
+Inside DeepSeek Harness:
+
+- `/pc doctor` checks liveness and readiness independently of Scope resolution and reports both results.
+- `/pc capabilities` queries the Server capabilities without resolving a Scope.
+- Unknown subcommands and missing arguments return local usage help without contacting the Server.
+- Bare `/pc` shows the resolved Scope and Server origin. If resolution fails, it returns an error while still showing
+  `scope=unresolved`, a controlled error, and the `/pc doctor` recovery hint. Configured Scope IDs are not reported as
+  resolved. The displayed origin omits credentials, paths, query strings, and fragments.
+- `search`, `remember`, `flush`, `review`, `skills scan`, and `stats` require a resolved Scope. `stats` queries that Scope.
+
+| Result code | Meaning |
+| --- | --- |
+| `not_found` | A business 404. The optional `error_code` preserves a recognized public reason, such as `scope_not_found` or `memory_not_found`. |
+| `version_mismatch` | A required endpoint returned 404 without a business code. Check the Server endpoint and plugin/Server compatibility; this does not establish a particular deployment cause. |
+| `authentication_failed` | The Server returned 401. Check the configured Authorization header. |
+| `unavailable` | Connection failure, timeout, cancellation, or HTTP 503. Native diagnostics use `server_unavailable`. |
+| `unscoped` | The resolver completed without a Scope. |
+| `invalid_response` | The client detected an invalid Server response. |
+
+Existing conflict and validation codes, such as `revision_conflict` and `invalid_request`, retain their meaning. Failure
+results preserve available HTTP status and request ID, but use fixed messages instead of Server-provided text. Unknown
+error codes are omitted from `error_code` and diagnostics; their presence alone does not imply a version mismatch.
+
 ## Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting DeepSeek Harness when the current work must not be recorded:
@@ -56,7 +85,7 @@ This adds inference latency to each prompt and is not the normal interactive set
 ## Connect to an authenticated local Server
 
 ```bash
-export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```

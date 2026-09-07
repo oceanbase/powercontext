@@ -39,6 +39,7 @@ from powercontext.builtin.review.models import (
     ArtifactCandidatePage,
     CandidateStatus,
 )
+from powercontext.builtin.source_eligibility import require_source_eligible
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 from powercontext.sources import SourceRef
 
@@ -353,7 +354,8 @@ class ReviewService:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
         try:
             for source in sources:
-                await self._sources.get(connection, self._scope_id, source)
+                stored = await self._sources.get(connection, self._scope_id, source)
+                require_source_eligible(source, stored.value)
             for artifact in artifacts:
                 await self._artifacts.get(connection, self._scope_id, artifact)
         except RepositoryNotFoundError as error:

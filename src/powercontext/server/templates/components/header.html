@@ -38,6 +38,9 @@
       {% if dashboard_enabled %}
       <a href="{{ url_for('dashboard_home') }}"{% if active_page == "dashboard" %} aria-current="page"{% endif %} data-i18n="dashboardTitle">Overview</a>
       {% endif %}
+      {% if dashboard_enabled %}
+      <a href="{{ url_for('shared_inbox') }}"{% if active_page == "shared" %} aria-current="page"{% endif %} data-i18n="sharedTitle">Shared with me</a>
+      {% endif %}
       {% if skills_enabled %}
       <a href="{{ url_for('skills_library') }}"{% if active_page == "skills" %} aria-current="page"{% endif %} data-i18n="skillsTitle">Skills</a>
       {% endif %}

@@ -245,6 +245,8 @@ from powercontext.http import (
     SourceDefinitionManifest,
     SourceObservationReceipt,
     SourceReference,
+    SourceType,
+    SourceTypeReference,
     SubmitSourceObservationRequest,
     TaskCheck,
     WorkClaim,
@@ -957,6 +959,14 @@ def source_reference(value: SourceRef) -> SourceReference:
 
 def runtime_source_reference(value: SourceReference) -> SourceRef:
     return SourceRef(source_type=value.name, source_id=value.source_id)
+
+
+def source_type_reference(value: SourceRef) -> SourceTypeReference:
+    return SourceTypeReference(source_type=SourceType(value.source_type), source_id=value.source_id)
+
+
+def runtime_source_type_reference(value: SourceTypeReference) -> SourceRef:
+    return SourceRef(source_type=value.source_type, source_id=value.source_id)
 
 
 def runtime_citation(value: TransportMemoryCitation) -> RuntimeMemoryCitation:

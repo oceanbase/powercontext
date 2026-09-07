@@ -37,6 +37,7 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.review.errors import InvalidCandidateError
 from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
+from powercontext.builtin.source_eligibility import require_source_eligible
 from powercontext.errors import PowerContextError
 from powercontext.sources import Source, SourceRef
 
@@ -152,6 +153,7 @@ class ReviewedGenerationService:
             async with self._database.transaction() as connection:
                 for ref in sources:
                     row = await self._sources.get(connection, self._scope_id, ref)
+                    require_source_eligible(ref, row.value)
                     evidence.append(_source_evidence(ref, row.value))
                 for ref in artifacts:
                     artifact = await self._artifacts.get(connection, self._scope_id, ref)

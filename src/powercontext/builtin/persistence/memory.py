@@ -469,6 +469,10 @@ class RelationalMemoryBackend:
                 insert(MEMORY_ENTRY_VERSIONS_TABLE),
                 [_entry_values(self._scope_id, entry) for entry in value.entry_versions],
             )
+        # Clear the index before the heads go, as rebuild_projections does: index
+        # metadata may cascade from the heads, and an index can only find its
+        # rows through that metadata.
+        await self._index.replace(connection, self._scope_id, value.memory.as_ref(), ())
         await connection.execute(
             delete(MEMORY_ENTRY_HEADS_TABLE).where(
                 MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,

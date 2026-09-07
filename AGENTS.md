@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`powercontext` is a Python package built with `uv` and Hatchling. Runtime code lives in `src/powercontext/`; keep public package exports in `src/powercontext/__init__.py` and place new modules beside related code. Tests live in `tests/`; organize focused tests around observable behavior and keep cross-component acceptance scenarios in `tests/e2e/`. Documentation is split by locale under `docs/en/` and `docs/zh/`, with RFC material in each locale's `rfcs/` directory. Site configuration is in `zensical.toml`; generated output in `site/` is not source material.
+`powercontext` is a Python package built with `uv` and Hatchling. Runtime code lives in `src/powercontext/`; keep public package exports in `src/powercontext/__init__.py` and place new modules beside related code. Tests live in `tests/`; organize focused tests around observable behavior and keep cross-component acceptance scenarios in `tests/e2e/`. Documentation is split by locale under `docs/en/` and `docs/zh/`, with RFC material in each locale's `rfcs/` directory. The Fumadocs site lives in `website/`; its generated `content/docs/`, `.generated/`, and `out/` directories are not source material.
 
 ## Build, Test, and Development Commands
 
@@ -12,8 +12,8 @@
 - `make test`: run `pytest` with doctest support.
 - `tox`: run tests and type checks across Python 3.11, 3.12, 3.13, and 3.14.
 - `make build`: clean `dist/` and build the wheel.
-- `make docs-test`: build documentation strictly.
-- `make docs`: serve documentation locally with Zensical.
+- `make docs-test`: lint and build the static website, including API references.
+- `make docs`: serve the Fumadocs website locally.
 
 ## Agent Skills
 
@@ -59,10 +59,10 @@ process unless the user explicitly requests a changelog, history, or decision re
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses short Conventional Commit-style subjects, such as `feat: init powercontext`, `docs: init zensical i18n`, and `chore(github): add more templates for PRs and issues`. Keep the subject concise and scoped.
+Recent history uses short Conventional Commit-style subjects, such as `feat: init powercontext`, `feat(website): establish new site style and structure`, and `chore(github): add more templates for PRs and issues`. Keep the subject concise and scoped.
 
 Pull requests should link the relevant issue or RFC, explain the rationale, summarize behavior/API/docs/test changes, call out user-facing or breaking changes, list validation commands, and include the AI usage statement requested by `.github/pull_request_template.md`.
 
 ## Security & Configuration Tips
 
-Do not commit secrets, local virtual environments, caches, `.powercontext/`, `dist/`, or `site/`. Keep dependency changes reflected in `uv.lock`, and use `make check` to catch lock drift before review.
+Do not commit secrets, local virtual environments, caches, `.powercontext/`, `dist/`, or generated website output. Keep dependency changes reflected in `uv.lock`, and use `make check` to catch lock drift before review.

@@ -92,16 +92,79 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
+## Grant one logical Handoff to a receiver
+
+`scope_id` never grants access by itself. The Handoff owner or an authorized delegator assigns one logical committed Handoff by creating a
+Binding for the receiver's authenticated Principal:
+
+```bash
+curl --fail \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --header "$POWERCONTEXT_AUTH_HEADER" \
+  --data '{
+    "subject": {"type": "user", "id": "idp:user-b", "description": "User B"},
+    "resource": {
+      "type": "artifact",
+      "scope_id": "project:example",
+      "identity": {"family": "handoff", "artifact_id": "handoff-42"},
+      "selector": null
+    },
+    "role": "handoff.receiver",
+    "idempotency_key": "handoff-42-to-user-b"
+  }' \
+  "$POWERCONTEXT_URL/v1/access/bindings/create"
+```
+
+The receiver can read and acknowledge the Handoff's history, current Revision, and future Revisions. Continue exposes
+the citations in the selected Revision's immutable manifest and checks those cited resources without requiring a
+second Binding for each citation. This manifest-scoped inspection does not authorize generic Source, Memory, or
+Artifact endpoints: the receiver still cannot discover another Handoff or read the parent scope unless a separate
+scope or Artifact role allows it. It may request `latest` only for the bound logical Handoff. Use `/v1/access/me` to
+verify which Principal the deployment established, `/v1/access/check` for one compound `all` or `any` requirement, and
+`/v1/access/resources/list` for a non-discovering list of already visible resources. Creation is idempotent per
+grantor and key; revocation uses `binding_id` plus `expected_version`. An atomic `/v1/access/bindings/replace`
+revokes one immutable Binding and creates its successor with the same Resource and role. Role descriptors expose
+whether they allow `many_per_resource` or `one_per_resource` active Bindings. Relationship and decision events are
+available to Server administrators through `/v1/access/audit/list`. When authentication establishes delegated execution,
+each audit event keeps the effective `principal` and the trusted `actor` as separate opaque identities.
+
+The Access wire contract has only three Resource Kinds: `server`, `scope`, and `artifact`. An Artifact Resource uses
+the logical identity `{family, artifact_id}` and deliberately contains no Revision. Memory can narrow a grant with a
+`memory_entry` selector containing only `entry_id`. Unknown Families, `prompt` when no Prompt lifecycle is implemented,
+and mismatched selectors or roles never create a Binding. `/v1/access/me` reports the current mode, Provider
+capabilities, and each Artifact Family's enabled state.
+
+Cross-Scope Artifact publication uses `POST /v1/artifact-publications`. The request selects an exact source Revision,
+but authorization checks `artifact.share` on its logical `{family, artifact_id}` identity and `scope.admin` on the
+target Scope. Consequently, one logical sharing grant covers earlier and later source Revisions while every
+publication still records the exact copied Revision and its provenance. Host-local Dashboard projection remains an
+operational surface protected by the corresponding Scope and Artifact checks.
+
+The standard Skill lifecycle uses the same Access boundary. Library listing requires `scope.read`; lifecycle changes
+require `artifact.write`; package manifest/download requires `artifact.read`; package proposals require
+`scope.contribute` and, when replacing an existing Skill, `artifact.write`; usage capture requires both
+`scope.contribute` and `artifact.read`. Remote target administration requires `scope.admin`, while publishing an exact
+Revision also requires `artifact.read` for that Skill. The enrollment endpoint is protected by its one-time code, and
+Receiver reconcile/download/receipt endpoints use the separately issued `TargetBearerAuth` credential instead of a
+user Principal. Dashboard data routes apply the corresponding Access checks before scope lookup, package inspection,
+target lookup, or filesystem work.
+
+The built-in static token represents one local administrator and cannot model different A/B users. A real multi-user
+deployment must authenticate each caller to a different Principal and inject an Authorization Provider. HTTP and MCP
+use the same policy enforcement point; MCP tool visibility is not permission.
+
 ## Find an operation
 
 | Area | Main paths | Purpose |
 | --- | --- | --- |
 | Health and capabilities | `/health/*`, `/v1/capabilities` | Probe the deployment and discover enabled runtime behavior |
+| Access Control | `/v1/access/*` | Inspect identity, check decisions, and administer roles, Bindings, and audit events |
 | Source and context | `/v1/sources/content`, `/v1/context/prepare` | Capture evidence and prepare bounded context |
 | Work continuity | `/v1/work/*` | Create work contracts, prepare or acknowledge Handoffs, and record outcomes |
 | Low-level Handoff | `/v1/handoff/*` | Activate, prepare, finalize, commit, or continue a Handoff |
 | Memory | `/v1/memory/*` | Flush, remember, search, list, get, revise, retire, and inspect changes |
-| Experience and Skill | `/v1/experience/*`, `/v1/skill/*` | Propose, generate, and read Artifact revisions |
+| Experience and Skill | `/v1/experience/*`, `/v1/skill/*`, `/v1/skills/*` | Propose, review, package, govern, distribute, and read managed Skill revisions |
 | Review | `/v1/artifact-candidates/*` | List, inspect, revise, approve, or reject pending Candidates |
 | External Skills | `/v1/external-skills/*` | Scan configured targets and resolve or import packages |
 | Handoff Reports | `/v1/handoff-reports/*` | Generate a read-only report for a Scope selection |
@@ -129,6 +192,7 @@ Common statuses are:
 | Status | Meaning |
 | --- | --- |
 | `401` | The Server requires a valid bearer token |
+| `403` | The authenticated Principal is not authorized for the requested action and resource |
 | `404` | The requested immutable value does not exist |
 | `409` | The request conflicts with current immutable state or an expected version |
 | `413` | A selected Handoff Report exceeds its output limit |

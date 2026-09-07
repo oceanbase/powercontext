@@ -67,7 +67,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
   return {
     client,
     config: resolved,
-    resolveScope: (cwd) => resolveScopeId(client, cwd, resolved.scopeId),
+    resolveScope: (cwd, signal) => resolveScopeId(client, cwd, resolved.scopeId, signal),
     log: (event) => {
       const line = JSON.stringify({ component: 'powercontext.dsh', ...event })
       const quiet = event.outcome === 'ready' || event.outcome === 'ok' || event.outcome === 'empty'

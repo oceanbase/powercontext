@@ -36,6 +36,33 @@ Server 管理的 Scope。workspace 路径只会哈希为外部 binding key。缺
 
 插件在模型分析提示词前只调用一次 `POST /v1/context/prepare`。显式 `remember_memory` 不需要模型。
 
+## 排查工具和命令的直接调用失败
+
+Scope 解析失败时，具名工具和依赖 Scope 的 `/pc` 命令会返回受控失败，并在执行请求的操作前停止。
+插件不会因此创建 binding 或换用其他 Scope 重试。取消信号和现有的单请求超时也适用于 Scope 解析。
+
+在 DeepSeek Harness 内：
+
+- `/pc doctor` 不依赖 Scope 解析，继续检查 liveness 和 readiness，并保留两个检查结果。
+- `/pc capabilities` 直接查询 Server 能力，无需解析 Scope。
+- 未知子命令或缺少参数时，在本地返回用法说明，不访问 Server。
+- 裸 `/pc` 显示已解析的 Scope 和 Server origin。解析失败时返回错误，但仍显示 `scope=unresolved`、受控错误信息
+  和 `/pc doctor` 恢复提示。配置中的 Scope ID 不会被当作已解析成功；显示的 origin 不包含凭据、路径、查询参数和 fragment。
+- `search`、`remember`、`flush`、`review`、`skills scan` 和 `stats` 必须成功解析 Scope；`stats` 仅查询当前 Scope。
+
+| 结果 code | 含义 |
+| --- | --- |
+| `not_found` | 业务 404。可选的 `error_code` 保留已识别的公开原因，例如 `scope_not_found` 或 `memory_not_found`。 |
+| `version_mismatch` | 必需端点返回了没有业务码的 404。应检查 Server 端点和插件、Server 的兼容性；该结果不能证明具体的部署原因。 |
+| `authentication_failed` | Server 返回 401，应检查 Authorization 配置。 |
+| `unavailable` | 连接失败、超时、取消或 HTTP 503。原生诊断使用 `server_unavailable`。 |
+| `unscoped` | resolver 执行完成，但没有返回 Scope。 |
+| `invalid_response` | 客户端识别到无效的 Server 响应。 |
+
+已有冲突和校验错误码（如 `revision_conflict`、`invalid_request`）保持原有含义。失败结果保留可用的 HTTP status 和
+request ID，提示文字使用固定内容，不透传 Server message。未知错误码不会出现在 `error_code` 或诊断中，
+也不会仅因无法识别就被判为版本不匹配。
+
 ## 控制提示词采集
 
 默认开启提示词采集。如果当前工作不应被记录，请在启动 DeepSeek Harness 前关闭：
@@ -56,7 +83,7 @@ export POWERCONTEXT_DSH_FLUSH_ON_CAPTURE=true
 ## 连接启用鉴权的本地 Server
 
 ```bash
-export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```

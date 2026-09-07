@@ -1,0 +1,107 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+@import 'fumadocs-openapi/css/preset.css';
+@import 'fumadocs-python/preset.css';
+
+:root {
+  --color-fd-primary: #0b6ff4;
+}
+
+.dark {
+  --color-fd-primary: #68adff;
+}
+
+.pc-kv {
+  background: color-mix(in srgb, var(--color-fd-primary) 3%, var(--color-fd-background));
+}
+
+.pc-spiral {
+  --spiral-accent: var(--color-fd-primary);
+  --spiral-accent-deep: color-mix(in srgb, var(--color-fd-primary) 75%, black);
+  --spiral-fill: color-mix(in srgb, var(--color-fd-primary) 48%, var(--color-fd-background));
+  --spiral-fill-muted: color-mix(in srgb, var(--color-fd-muted-foreground) 18%, var(--color-fd-background));
+  --spiral-muted: var(--color-fd-muted-foreground);
+  --spiral-surface: var(--color-fd-background);
+}
+
+@keyframes pc-context-breathe {
+  0%,
+  100% {
+    opacity: 0.94;
+    transform: scale(0.99);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.pc-context-breathe {
+  animation: pc-context-breathe 6s ease-in-out infinite;
+}
+
+@keyframes pc-context-arc-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes pc-session-cursor {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  46%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.pc-context-arc-flow {
+  animation: pc-context-arc-flow 7s linear infinite;
+  stroke-dasharray: 8 92;
+}
+
+.pc-session-cursor {
+  animation: pc-session-cursor 1.2s steps(1, end) infinite;
+}
+
+.pc-session-entry {
+  animation: pc-context-breathe 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-context-breathe,
+  .pc-context-arc-flow,
+  .pc-session-cursor,
+  .pc-session-entry {
+    animation: none;
+  }
+
+  .pc-context-arc-flow {
+    stroke-dashoffset: -46;
+  }
+}

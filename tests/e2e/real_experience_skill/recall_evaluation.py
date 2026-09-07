@@ -42,6 +42,7 @@ from powercontext.builtin.runtime import (
     ProposeExperienceRequest,
     open_builtin_runtime,
 )
+from powercontext.builtin.scope import ScopeDraft
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_ROOT = Path(tempfile.gettempdir()) / "powercontext-experience-recall-evaluation"
@@ -138,8 +139,17 @@ async def _approved_contexts(database: Path) -> dict[str, PreparedContext]:
     config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"))
     prepared: dict[str, PreparedContext] = {}
     async with open_builtin_runtime(config) as runtime:
+        if runtime.scopes is None:
+            _fail("Experience recall evaluation requires the Scope registry")
         for task in _tasks():
-            scope_id = f"experience-recall-eval:{task.name}"
+            scope = await runtime.scopes.create(
+                ScopeDraft(
+                    title=task.name,
+                    summary="Isolated approved Experience recall evaluation.",
+                    idempotency_key=f"experience-recall-eval:{task.name}",
+                )
+            )
+            scope_id = scope.scope_id
             source = await runtime.sources.for_scope(scope_id).capture(
                 CaptureSource(
                     source_id="prior-task-outcome",

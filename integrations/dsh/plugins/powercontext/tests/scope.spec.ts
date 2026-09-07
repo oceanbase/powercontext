@@ -36,9 +36,9 @@ describe('Scope binding', () => {
   it('uses the Server default when cwd is absent', async () => {
     const request = vi.fn().mockResolvedValue({ value: { scope_id: 'default-scope' } })
     await expect(resolveScopeId({ request } as never, undefined)).resolves.toBe('default-scope')
-    expect(request).toHaveBeenCalledWith('resolve_scope_binding', {
+    expect(request.mock.calls[0].slice(0, 2)).toEqual(['resolve_scope_binding', {
       explicit_scope_id: undefined,
       binding_keys: [],
-    })
+    }])
   })
 })

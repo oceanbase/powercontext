@@ -90,4 +90,56 @@ describe('PowerContext Pi HTTP client', () => {
 
     await expect(client.request('get_liveness')).rejects.toThrow('request to /health/live failed')
   })
+
+  it('encodes scoped paths and separates path, query, header, and PUT body fields', async () => {
+    let call = 0
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      call += 1
+      const headers = new Headers(init?.headers)
+      if (call === 1) {
+        expect(url).toBe(
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/memory?limit=5',
+        )
+        expect(init?.method).toBe('GET')
+        expect(init?.body).toBeUndefined()
+        return new Response(JSON.stringify({ items: [] }), { status: 200 })
+      }
+      if (call === 2) {
+        expect(url).toBe(
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/memory/artifact%2F1',
+        )
+        expect(init?.method).toBe('PUT')
+        expect(headers.get('If-Match')).toBe('"revision:1"')
+        expect(JSON.parse(String(init?.body))).toEqual({ content: { title: 'kept' } })
+        return new Response(JSON.stringify({ revision: 2 }), { status: 200 })
+      }
+      if (call === 3) {
+        expect(init?.method).toBe('GET')
+        expect(headers.get('If-None-Match')).toBe('"revision:2"')
+        expect(init?.body).toBeUndefined()
+        return new Response(null, { status: 304 })
+      }
+      throw new Error('unexpected request')
+    })
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000/',
+      requestTimeoutMs: 1000,
+      fetch,
+    })
+    const path = { scope_id: 'scope/team', family: 'memory' }
+
+    await client.request('list_artifacts', { ...path, limit: 5, ignored: 'value' })
+    await client.request('replace_artifact', {
+      ...path,
+      artifact_id: 'artifact/1',
+      if_match: '"revision:1"',
+      content: { title: 'kept' },
+    })
+    await expect(client.request('get_artifact', {
+      ...path,
+      artifact_id: 'artifact/1',
+      if_none_match: '"revision:2"',
+    })).resolves.toMatchObject({ kind: 'json', value: null, status: 304 })
+    expect(fetch).toHaveBeenCalledTimes(3)
+  })
 })

@@ -25,7 +25,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
@@ -42,6 +42,7 @@ from powercontext.builtin.artifacts.handoff import (
     HandoffAudience,
     HandoffCitation,
     HandoffDraft,
+    HandoffEvidenceAuthorizer,
     HandoffOmission,
     HandoffResolution,
     HandoffService,
@@ -98,6 +99,17 @@ from powercontext.builtin.persistence.artifact_governance import (
 )
 from powercontext.builtin.persistence.skill_publications import SkillPublication
 from powercontext.builtin.publication import ArtifactPublicationApplication
+from powercontext.builtin.records import (
+    ArtifactCreated,
+    ArtifactRecord,
+    ArtifactRecordPage,
+    ArtifactWrite,
+    BaseValueConflictError,
+    LogicalArtifactRecord,
+    RecordService,
+    ScopeSummaryPage,
+    SourceRecord,
+)
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime._scope_cache import (
@@ -171,6 +183,7 @@ from powercontext.builtin.runtime.readiness import (
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
 from powercontext.builtin.sources import (
+    CONTENT_SOURCE_NAME,
     ContentCapture,
     ContentSource,
     ExternalSkillImportMode,
@@ -208,7 +221,7 @@ from powercontext.builtin.work import (
     project_work_continuity,
 )
 from powercontext.context import PowerContext
-from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
+from powercontext.errors import ArtifactNotFoundError, RevisionConflictError, SourceConflictError
 from powercontext.sources import ConnectorBinding, SourceDefinitionManifest, SourceRef
 
 if TYPE_CHECKING:
@@ -248,6 +261,8 @@ SkillUsageRecorder = Callable[[str, SkillUsageCapture], Awaitable[SourceReceipt]
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
 RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
 Clock = Callable[[], datetime]
+ScheduledSourceRunner = Callable[[str, "BuiltinRuntime"], Awaitable[MemoryFlushResult]]
+ScheduledExperienceRunner = Callable[[str, "BuiltinRuntime"], Awaitable[ExperienceIncubationResult]]
 _MEMORY_SEARCH_ATTEMPTS = 3
 
 
@@ -265,6 +280,7 @@ class _RuntimeStateError(RuntimeError):
             "external-skill-registry": "External Skill Registry is not configured",
             "remote-ingestion": "Remote Source ingestion is not configured",
             "review": "Candidate Review services are not configured",
+            "records": "Base Source and Artifact access is not configured",
             "remote-skill-distribution": "Remote Skill distribution services are not configured",
             "scheduler": "Built-in Runtime scheduler is already started",
             "scope": "Scope services are not configured",
@@ -286,6 +302,22 @@ class ScopedSourceApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def capture(self, value: CaptureSource, /) -> SourceReceipt:
+        if self._runtime._record_service is not None:
+            try:
+                async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+                    record = await self._runtime._records().capture_source(
+                        self.scope_id,
+                        CONTENT_SOURCE_NAME,
+                        value.source_id,
+                        value.content,
+                        value.metadata,
+                    )
+            except BaseValueConflictError as error:
+                raise SourceConflictError("identity", error.identity) from None
+            return SourceReceipt(
+                source_ref=SourceRef(source_type=record.source_type, source_id=record.source_id),
+                sequence=record.position,
+            )
         async with self._runtime._context(self.scope_id) as context:
             source, sequence = await context.sources.capture(
                 ContentCapture(
@@ -305,6 +337,114 @@ class SourceApplication:
 
     def for_scope(self, scope_id: str, /) -> ScopedSourceApplication:
         return ScopedSourceApplication(self._runtime, scope_id)
+
+
+class ScopedRecordApplication:
+    """Run base Source and Artifact operations in one Scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def create_source(
+        self,
+        source_type: str,
+        content: JsonValue,
+        /,
+    ) -> SourceRecord:
+        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await self._runtime._records().create_source(
+                self.scope_id,
+                source_type,
+                content,
+            )
+
+    async def get_source(self, source_type: str, source_id: str, /) -> SourceRecord:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().get_source(self.scope_id, source_type, source_id)
+
+    async def create_artifact(
+        self,
+        family: str,
+        write: ArtifactWrite,
+        /,
+    ) -> ArtifactCreated:
+        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await self._runtime._records().create_artifact(self.scope_id, family, write)
+
+    async def get_artifact(self, family: str, artifact_id: str, /) -> ArtifactRecord:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().get_artifact(self.scope_id, family, artifact_id)
+
+    async def get_artifact_revision(
+        self,
+        family: str,
+        artifact_id: str,
+        revision: int,
+        /,
+    ) -> ArtifactRecord:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().get_artifact_revision(
+                self.scope_id,
+                family,
+                artifact_id,
+                revision,
+            )
+
+    async def current_memory_entry(self, artifact_id: str, entry_id: str, /) -> MemoryEntryVersion:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().current_memory_entry(self.scope_id, artifact_id, entry_id)
+
+    async def logical_artifacts(self) -> tuple[LogicalArtifactRecord, ...]:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().logical_artifacts(self.scope_id)
+
+    async def query_artifacts(
+        self,
+        family: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> ArtifactRecordPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().query_artifacts(
+                self.scope_id,
+                family,
+                limit=limit,
+                cursor=cursor,
+            )
+
+    async def replace_artifact(
+        self,
+        family: str,
+        artifact_id: str,
+        expected_etag: str,
+        write: ArtifactWrite,
+        /,
+    ) -> ArtifactRecord:
+        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await self._runtime._records().replace_artifact(
+                self.scope_id,
+                family,
+                artifact_id,
+                expected_etag,
+                write,
+            )
+
+
+class RecordApplication:
+    """Select scoped base access and list observable Scopes."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedRecordApplication:
+        return ScopedRecordApplication(self._runtime, scope_id)
+
+    async def list_scopes(self, *, limit: int, cursor: str | None) -> ScopeSummaryPage:
+        async with self._runtime._operation():
+            return await self._runtime._records().list_scopes(limit=limit, cursor=cursor)
 
 
 class RemoteIngestionApplication:
@@ -1052,13 +1192,22 @@ class ScopedHandoffApplication:
         self,
         handoff: PreparedHandoff | ArtifactRef,
         /,
+        *,
+        evidence_authorizer: HandoffEvidenceAuthorizer | None = None,
     ) -> HandoffResolution:
         async with self._runtime._context(self.scope_id) as context:
-            return await context.artifacts.handoff.continue_from(handoff)
+            return await context.artifacts.handoff.continue_from(
+                handoff,
+                evidence_authorizer=evidence_authorizer,
+            )
 
-    async def continue_latest(self) -> HandoffResolution:
+    async def continue_latest(
+        self,
+        *,
+        evidence_authorizer: HandoffEvidenceAuthorizer | None = None,
+    ) -> HandoffResolution:
         async with self._runtime._context(self.scope_id) as context:
-            return await context.artifacts.handoff.continue_latest()
+            return await context.artifacts.handoff.continue_latest(evidence_authorizer=evidence_authorizer)
 
     async def latest(self) -> Handoff | None:
         async with self._runtime._context(self.scope_id) as context:
@@ -1549,7 +1698,12 @@ class ScheduledSourceProcessor:
                     operation="process_source_window",
                 ) as span:
                     try:
-                        result = await self._runtime.memory.for_scope(scope_id).flush()
+                        runner = self._runtime._scheduled_source_runner
+                        result = (
+                            await self._runtime.memory.for_scope(scope_id).flush()
+                            if runner is None
+                            else await runner(scope_id, self._runtime)
+                        )
                     except asyncio.CancelledError:
                         _log_scheduled_processing(
                             "cancelled",
@@ -1599,7 +1753,12 @@ class ScheduledExperienceProcessor:
                     operation="incubate_experience_candidates",
                 ) as span:
                     try:
-                        result = await self._runtime.experience.for_scope(scope_id).incubate()
+                        runner = self._runtime._scheduled_experience_runner
+                        result = (
+                            await self._runtime.experience.for_scope(scope_id).incubate()
+                            if runner is None
+                            else await runner(scope_id, self._runtime)
+                        )
                     except asyncio.CancelledError:
                         _log_scheduled_processing(
                             "cancelled",
@@ -1694,12 +1853,15 @@ class BuiltinRuntime:
         skill_publication_service: SkillPublicationServiceFactory | None = None,
         remote_skill_distribution: RemoteSkillDistributionService | None = None,
         statistics_service: StatisticsServiceFactory | None = None,
+        record_service: RecordService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         publication_application: ArtifactPublicationApplication | None = None,
         scope_application: ScopeApplication | None = None,
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
         tracing: RuntimeTracing | None = None,
+        scheduled_source_runner: ScheduledSourceRunner | None = None,
+        scheduled_experience_runner: ScheduledExperienceRunner | None = None,
         remote_ingestion: RemoteIngestion | None = None,
     ) -> None:
         if source_window_limit < 1:
@@ -1726,12 +1888,15 @@ class BuiltinRuntime:
         self._skill_publication_service = skill_publication_service
         self._remote_skill_distribution = remote_skill_distribution
         self._statistics_service = statistics_service
+        self._record_service = record_service
         self._recall_token_estimator = recall_token_estimator
         self.publications = publication_application
         self.scopes = scope_application
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
         self._tracing = tracing
+        self._scheduled_source_runner = scheduled_source_runner
+        self._scheduled_experience_runner = scheduled_experience_runner
         self.source_window_limit = source_window_limit
         self._scope_cache = ScopeCache(
             scope_cache_size,
@@ -1755,6 +1920,7 @@ class BuiltinRuntime:
         self.handoff = HandoffApplication(self)
         self.work = WorkApplication(self)
         self.memory = MemoryApplication(self)
+        self.records = RecordApplication(self)
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
         self.remote_skills = RemoteSkillApplication(self)
@@ -1990,6 +2156,11 @@ class BuiltinRuntime:
         if self._review_service is None:
             raise _RuntimeStateError("review")
         return self._review_service(validate_scope_id(scope_id))
+
+    def _records(self) -> RecordService:
+        if self._record_service is None:
+            raise _RuntimeStateError("records")
+        return self._record_service
 
     def _generation(self, scope_id: str) -> ReviewedGenerationService:
         if self._generation_service is None:

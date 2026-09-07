@@ -16,11 +16,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from pydantic import BaseModel
-from sqlalchemy import insert, select, update
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
+from sqlalchemy import insert, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -31,7 +31,7 @@ from powercontext.artifacts import (
     ArtifactLineage,
     ArtifactRef,
 )
-from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
+from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes, validate_json_model
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
     InvalidPublicationLineageError,
@@ -45,6 +45,7 @@ from powercontext.builtin.persistence.tables import (
     ARTIFACT_PUBLICATIONS_TABLE,
     ARTIFACTS_TABLE,
 )
+from powercontext.builtin.source_eligibility import ArtifactLineageTarget, require_source_eligible
 from powercontext.errors import (
     ArtifactFamilyMismatchError,
     RevisionConflictError,
@@ -53,10 +54,27 @@ from powercontext.limits import MAX_SCOPE_ID_LENGTH
 from powercontext.sources import SourceRef
 
 
+class RepositoryArtifactDraft(BaseModel):
+    """A family-validated draft accepted by the shared Artifact repository."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    family: str
+    content: BaseModel
+    sources: tuple[SourceRef, ...] = ()
+    artifacts: tuple[ArtifactRef, ...] = ()
+
+
 class ArtifactRepository:
     """Store composed Artifact types in the shared revision schema."""
 
-    def __init__(self, artifact_types: Iterable[type[Artifact[Any]]], /) -> None:
+    def __init__(
+        self,
+        artifact_types: Iterable[type[Artifact[Any]]],
+        /,
+        *,
+        sources: Any | None = None,
+    ) -> None:
         self._by_family = {artifact_type.family: artifact_type for artifact_type in artifact_types}
         self._content_types: dict[str, type[BaseModel]] = {}
         for family, artifact_type in self._by_family.items():
@@ -64,13 +82,20 @@ class ArtifactRepository:
             if not isinstance(content_type, type) or not issubclass(content_type, BaseModel):
                 raise TypeError(f"{artifact_type.__name__}.content must be a BaseModel")  # noqa: TRY003
             self._content_types[family] = content_type
+        self._sources = sources
+
+    @property
+    def families(self) -> frozenset[str]:
+        """Return the registered domain Families whose writes require their owning service."""
+
+        return frozenset(self._by_family)
 
     async def create(
         self,
         connection: AsyncConnection,
         scope_id: str,
         artifact_id: str,
-        draft: ArtifactDraft[Any],
+        draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
         /,
     ) -> Artifact[Any]:
         """Create revision one, rejecting an already existing lifecycle."""
@@ -79,6 +104,7 @@ class ArtifactRepository:
         artifact_type = self._artifact_type(draft.family)
         self._require_content(draft.family, draft.content)
         ref = ArtifactRef(family=draft.family, artifact_id=artifact_id, revision=1)
+        await self._validate_lineage_sources(connection, scope_id, ref, draft.sources)
         conflict = await self._head_conflict(connection, scope_id, ref, draft)
         if conflict is not None:
             raise conflict
@@ -114,7 +140,7 @@ class ArtifactRepository:
         connection: AsyncConnection,
         scope_id: str,
         artifact: Artifact[Any],
-        draft: ArtifactDraft[Any],
+        draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
         /,
     ) -> Artifact[Any]:
         """Commit a next revision only when ``artifact`` remains the head."""
@@ -124,6 +150,12 @@ class ArtifactRepository:
         if type(artifact) is not artifact_type or draft.family != artifact.family:
             raise ArtifactFamilyMismatchError(artifact, draft)
         self._require_content(draft.family, draft.content)
+        target = ArtifactRef(
+            family=artifact.family,
+            artifact_id=artifact.artifact_id,
+            revision=artifact.revision + 1,
+        )
+        await self._validate_lineage_sources(connection, scope_id, target, draft.sources)
 
         locked = await connection.execute(
             update(ARTIFACT_HEADS_TABLE)
@@ -193,6 +225,50 @@ class ArtifactRepository:
         if row is None:
             raise RepositoryNotFoundError("artifact", (scope_id, ref))
         return await self._decode_row(connection, row)
+
+    async def get_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        refs: Sequence[ArtifactRef],
+        /,
+    ) -> tuple[Artifact[Any], ...]:
+        """Load exact Revisions and ordered lineage with bounded batch queries."""
+
+        _require_scope(scope_id)
+        requested = tuple(refs)
+        if not requested:
+            return ()
+        keys = tuple(dict.fromkeys((ref.family, ref.artifact_id, ref.revision) for ref in requested))
+        for family, _, _ in keys:
+            self._artifact_type(family)
+        identity = tuple_(
+            ARTIFACTS_TABLE.c.family,
+            ARTIFACTS_TABLE.c.artifact_id,
+            ARTIFACTS_TABLE.c.revision,
+        )
+        rows = (
+            await connection.execute(
+                select(ARTIFACTS_TABLE).where(
+                    ARTIFACTS_TABLE.c.scope_id == scope_id,
+                    identity.in_(keys),
+                )
+            )
+        ).mappings()
+        by_key = {(str(row["family"]), str(row["artifact_id"]), int(row["revision"])): row for row in rows}
+        for ref in requested:
+            key = (ref.family, ref.artifact_id, ref.revision)
+            if key not in by_key:
+                raise RepositoryNotFoundError("artifact", (scope_id, ref))
+
+        lineage = await self._load_lineage_many(connection, scope_id, keys)
+        return tuple(
+            self._decode_artifact(
+                by_key[(ref.family, ref.artifact_id, ref.revision)],
+                lineage[(ref.family, ref.artifact_id, ref.revision)],
+            )
+            for ref in requested
+        )
 
     async def latest(
         self,
@@ -349,6 +425,20 @@ class ArtifactRepository:
         row: Mapping[Any, Any],
     ) -> Artifact[Any]:
         family = str(row["family"])
+        ref = ArtifactRef(
+            family=family,
+            artifact_id=str(row["artifact_id"]),
+            revision=int(row["revision"]),
+        )
+        lineage = await self._load_lineage(connection, str(row["scope_id"]), ref)
+        return self._decode_artifact(row, lineage)
+
+    def _decode_artifact(
+        self,
+        row: Mapping[Any, Any],
+        lineage: ArtifactLineage,
+    ) -> Artifact[Any]:
+        family = str(row["family"])
         artifact_type = self._artifact_type(family)
         content = load_model(
             self._content_types[family],
@@ -361,7 +451,6 @@ class ArtifactRepository:
             artifact_id=str(row["artifact_id"]),
             revision=int(row["revision"]),
         )
-        lineage = await self._load_lineage(connection, str(row["scope_id"]), ref)
         artifact = artifact_type(
             artifact_id=ref.artifact_id,
             revision=ref.revision,
@@ -371,6 +460,68 @@ class ArtifactRepository:
         if artifact.as_ref() != ref:
             raise IdentityMismatchError("artifact", ref, artifact.as_ref())
         return artifact
+
+    async def _load_lineage_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        keys: Sequence[tuple[str, str, int]],
+    ) -> dict[tuple[str, str, int], ArtifactLineage]:
+        source_identity = tuple_(
+            ARTIFACT_LINEAGE_SOURCES_TABLE.c.family,
+            ARTIFACT_LINEAGE_SOURCES_TABLE.c.artifact_id,
+            ARTIFACT_LINEAGE_SOURCES_TABLE.c.revision,
+        )
+        source_rows = (
+            await connection.execute(
+                select(ARTIFACT_LINEAGE_SOURCES_TABLE)
+                .where(
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.scope_id == scope_id,
+                    source_identity.in_(keys),
+                )
+                .order_by(
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.family,
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.artifact_id,
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.revision,
+                    ARTIFACT_LINEAGE_SOURCES_TABLE.c.ordinal,
+                )
+            )
+        ).mappings()
+        artifact_identity = tuple_(
+            ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.family,
+            ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.artifact_id,
+            ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.revision,
+        )
+        artifact_rows = (
+            await connection.execute(
+                select(ARTIFACT_LINEAGE_ARTIFACTS_TABLE)
+                .where(
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.scope_id == scope_id,
+                    artifact_identity.in_(keys),
+                )
+                .order_by(
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.family,
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.artifact_id,
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.revision,
+                    ARTIFACT_LINEAGE_ARTIFACTS_TABLE.c.ordinal,
+                )
+            )
+        ).mappings()
+        sources: dict[tuple[str, str, int], list[SourceRef]] = {key: [] for key in keys}
+        artifacts: dict[tuple[str, str, int], list[ArtifactRef]] = {key: [] for key in keys}
+        for row in source_rows:
+            key = (str(row["family"]), str(row["artifact_id"]), int(row["revision"]))
+            sources[key].append(SourceRef(source_type=str(row["source_type"]), source_id=str(row["source_id"])))
+        for row in artifact_rows:
+            key = (str(row["family"]), str(row["artifact_id"]), int(row["revision"]))
+            artifacts[key].append(
+                ArtifactRef(
+                    family=str(row["upstream_family"]),
+                    artifact_id=str(row["upstream_artifact_id"]),
+                    revision=int(row["upstream_revision"]),
+                )
+            )
+        return {key: ArtifactLineage(sources=tuple(sources[key]), artifacts=tuple(artifacts[key])) for key in keys}
 
     async def _load_lineage(
         self,
@@ -484,7 +635,7 @@ class ArtifactRepository:
         connection: AsyncConnection,
         scope_id: str,
         ref: ArtifactRef,
-        draft: ArtifactDraft[Any],
+        draft: ArtifactDraft[Any] | RepositoryArtifactDraft,
     ) -> RevisionConflictError | None:
         """Return the conflict raised by an already committed lifecycle."""
 
@@ -505,13 +656,12 @@ class ArtifactRepository:
         family: str,
         artifact_id: str,
     ) -> int | None:
-        value = await connection.scalar(
-            select(ARTIFACT_HEADS_TABLE.c.revision).where(
-                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                ARTIFACT_HEADS_TABLE.c.family == family,
-                ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
-            )
+        statement = select(ARTIFACT_HEADS_TABLE.c.revision).where(
+            ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+            ARTIFACT_HEADS_TABLE.c.family == family,
+            ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
         )
+        value = await connection.scalar(statement)
         return None if value is None else int(value)
 
     def _artifact_type(self, family: str) -> type[Artifact[Any]]:
@@ -524,6 +674,53 @@ class ArtifactRepository:
         expected = self._content_types.get(family)
         if expected is None or type(content) is not expected:
             raise ArtifactFamilyMismatchError(family, content)
+
+    def draft(
+        self,
+        family: str,
+        content: dict[str, JsonValue],
+        /,
+        *,
+        sources: tuple[SourceRef, ...] = (),
+        artifacts: tuple[ArtifactRef, ...] = (),
+    ) -> RepositoryArtifactDraft:
+        """Validate untrusted JSON with the registered family model."""
+
+        content_type = self._content_types.get(family)
+        if content_type is None:
+            raise RepositoryNotFoundError("artifact-family", family)
+        try:
+            validated = validate_json_model(content_type, content)
+        except ValidationError as error:
+            raise InvalidRepositoryArgumentError("content", "does not match the Artifact family") from error
+        return RepositoryArtifactDraft(
+            family=family,
+            content=validated,
+            sources=sources,
+            artifacts=artifacts,
+        )
+
+    async def _validate_lineage_sources(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        target: ArtifactRef,
+        sources: tuple[SourceRef, ...],
+    ) -> None:
+        if self._sources is None:
+            return
+        for source_ref in sources:
+            stored = await self._sources.get(connection, scope_id, source_ref)
+            require_source_eligible(
+                source_ref,
+                stored.value,
+                target=ArtifactLineageTarget(
+                    scope_id=scope_id,
+                    family=target.family,
+                    artifact_id=target.artifact_id,
+                    revision=target.revision,
+                ),
+            )
 
 
 def _require_scope(scope_id: object) -> None:

@@ -14,6 +14,12 @@
 
 """Expose the Server Scope resolver under its installed WorkBuddy module name."""
 
-from scripts.workspace_scope import resolve_scope_id
+import sys
+from pathlib import Path
+
+_SCRIPTS_ROOT = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from workspace_scope import resolve_scope_id  # noqa: E402
 
 __all__ = ["resolve_scope_id"]

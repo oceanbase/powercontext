@@ -270,7 +270,7 @@ def test_launcher_rejects_env_drift_without_starting_server(
     else:
         environment.chmod(0o640)
     runner = Mock()
-    monkeypatch.setattr(service_launcher.server_cli, "_run_configured_server", runner)
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", runner)
 
     exit_code = service_launcher.main(definition.launcher_arguments()[3:])
 

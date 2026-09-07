@@ -51,17 +51,43 @@ def test_js_operations_record_method_path_location_and_scope() -> None:
     generator = _load_generator()
     doc = yaml.safe_load(generator.CONTRACT_PATH.read_text(encoding="utf-8"))
     by_id = {row["operationId"]: row for row in generator.parse_operations(doc)}
-    assert {key: by_id["get_liveness"][key] for key in ("operationId", "method", "path", "location", "scopeMode")} == {
+    expected_keys = (
+        "operationId",
+        "method",
+        "path",
+        "location",
+        "scopeMode",
+        "pathParameters",
+        "queryParams",
+        "headerParams",
+        "successStatuses",
+        "emptyStatuses",
+    )
+    assert {key: by_id["get_liveness"][key] for key in expected_keys} == {
         "operationId": "get_liveness",
         "method": "GET",
         "path": "/health/live",
         "location": None,
         "scopeMode": "none",
+        "pathParameters": [],
+        "queryParams": [],
+        "headerParams": [],
+        "successStatuses": [200],
+        "emptyStatuses": [],
     }
     assert by_id["get_stats"]["location"] == "body"
     assert by_id["get_stats"]["scopeMode"] == "selection"
     assert by_id["remember_memory"]["location"] == "body"
     assert by_id["remember_memory"]["scopeMode"] == "current"
+    assert by_id["create_source"]["location"] == "body"
+    assert by_id["get_artifact"]["location"] is None
+    assert by_id["get_artifact"]["pathParameters"] == ["scope_id", "family", "artifact_id"]
+    assert by_id["get_artifact"]["headerParams"] == ["If-None-Match"]
+    assert by_id["get_artifact"]["successStatuses"] == [200, 304]
+    assert by_id["get_artifact"]["emptyStatuses"] == [304]
+    assert by_id["replace_artifact"]["headerParams"] == ["If-Match"]
+    assert "delete_artifact" not in by_id
+    assert "list_sources" not in by_id
     assert by_id["set_scope_binding"]["scopeMode"] == "none"
 
 

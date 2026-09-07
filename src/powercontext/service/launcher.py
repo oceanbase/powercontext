@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import TextIO
 from urllib.parse import urlsplit
 
-from powercontext.server import cli as server_cli
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
 from powercontext.service.model import EnvironmentFileIdentity, ProbeState
@@ -87,6 +86,9 @@ def main(arguments: list[str] | None = None) -> int:
                 if probe.state is ProbeState.CONFLICT:
                     logger.error("Personal service endpoint conflict: %s", probe.detail)
                     return 1
+                # Help and preflight exits do not need the Server runtime dependencies.
+                from powercontext.server import cli as server_cli
+
                 server_cli._run_configured_server(settings)
                 return 0
     except (ProtectedEnvironmentFileError, ServerConfigurationError) as error:

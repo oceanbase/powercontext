@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { PowerContextClient } from '../src/client.ts'
 import { MAX_RESPONSE_BYTES } from '../src/errors.ts'
@@ -28,6 +28,28 @@ function clientFor(response: Response): PowerContextClient {
 }
 
 describe('PowerContextClient response limits', () => {
+  it('forwards authorization and preserves Access denial details', async () => {
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      authorization: 'Bearer integration-token',
+      requestTimeoutMs: 1000,
+      fetch: async (_url, init) => {
+        expect(new Headers(init.headers).get('Authorization')).toBe('Bearer integration-token')
+        return new Response(
+          JSON.stringify({ error: { code: 'access_denied', message: 'scope access denied' } }),
+          { status: 403, headers: { 'X-PowerContext-Request-ID': 'request-access-1' } },
+        )
+      },
+    })
+
+    await expect(client.request('get_scope', { scope_id: 'scope:feature' })).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'access_denied',
+      serverMessage: 'scope access denied',
+      requestId: 'request-access-1',
+    })
+  })
+
   it('binds scope resource paths and omits path values from the request body', async () => {
     const requests: Array<{ url: string; init: RequestInit }> = []
     const client = new PowerContextClient({
@@ -103,5 +125,69 @@ describe('PowerContextClient response limits', () => {
     const result = await clientFor(response).request('get_liveness')
 
     expect(result.value).toBe('x'.repeat(MAX_RESPONSE_BYTES - 2))
+  })
+})
+
+describe('PowerContextClient generated operation requests', () => {
+  it('encodes scoped paths and separates path, query, header, and PUT body fields', async () => {
+    let call = 0
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      call += 1
+      const headers = new Headers(init?.headers)
+      if (call === 1) {
+        expect(url).toBe(
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/memory?limit=5',
+        )
+        expect(init?.method).toBe('GET')
+        expect(init?.body).toBeUndefined()
+        return new Response(JSON.stringify({ items: [] }), { status: 200 })
+      }
+      if (call === 2) {
+        expect(url).toBe(
+          'http://127.0.0.1:8000/v1/scopes/scope%2Fteam/artifacts/memory/artifact%2F1',
+        )
+        expect(init?.method).toBe('PUT')
+        expect(headers.get('If-Match')).toBe('"revision:1"')
+        expect(JSON.parse(String(init?.body))).toEqual({ content: { title: 'kept' } })
+        return new Response(JSON.stringify({ revision: 2 }), { status: 200 })
+      }
+      if (call === 3) {
+        expect(init?.method).toBe('GET')
+        expect(headers.get('If-None-Match')).toBe('"revision:2"')
+        expect(init?.body).toBeUndefined()
+        return new Response(null, { status: 304 })
+      }
+      throw new Error('unexpected request')
+    })
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000/',
+      requestTimeoutMs: 1000,
+      fetch: fetchImpl,
+    })
+    const path = { scope_id: 'scope/team', family: 'memory' }
+
+    await client.request('list_artifacts', { ...path, limit: 5, ignored: 'value' })
+    await client.request('replace_artifact', {
+      ...path,
+      artifact_id: 'artifact/1',
+      if_match: '"revision:1"',
+      content: { title: 'kept' },
+    })
+    await expect(client.request('get_artifact', {
+      ...path,
+      artifact_id: 'artifact/1',
+      if_none_match: '"revision:2"',
+    })).resolves.toMatchObject({ kind: 'json', value: null, status: 304 })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects an undeclared redirect response', async () => {
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 1000,
+      fetch: async () => new Response(null, { status: 302, headers: { Location: 'https://example.invalid' } }),
+    })
+
+    await expect(client.request('get_liveness')).rejects.toThrow('violated the API schema')
   })
 })

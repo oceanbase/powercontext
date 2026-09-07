@@ -24,9 +24,11 @@ from time import monotonic
 from typing import Any, cast
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
+sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from scripts.scope_binding import ScopeBindingError, resolve_scope_id  # noqa: E402
+from scope_binding import ScopeBindingError, resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 

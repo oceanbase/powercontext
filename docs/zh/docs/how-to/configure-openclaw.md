@@ -74,7 +74,7 @@ Server 默认 Scope。OpenClaw 当前没有 Scope 选择契约，因此插件不
 在受保护环境中启动启用鉴权的 Server：
 
 ```bash
-export POWERCONTEXT_SERVER_AUTH_ENABLED=true
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
 export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```

@@ -1272,3 +1272,31 @@ def test_http_client_preserves_domain_error_details(hermes_modules):
     assert caught.value.path == "/v1/memory/entries/get"
     assert caught.value.code == "memory_not_found"
     assert caught.value.server_message == "entry missing"
+
+
+def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_modules):
+    provider_module, _cli_module = hermes_modules
+    client_module = importlib.import_module("plugins.powercontext.client")
+
+    class Response:
+        status = 403
+
+        def read(self, _limit):
+            return b'{"error":{"code":"access_denied","message":"scope access denied"}}'
+
+    def transport(request, _timeout):
+        assert request.get_header("Authorization") == "Bearer integration-token"
+        return Response()
+
+    client = provider_module.PowerContextClient(
+        "http://powercontext.test:8000",
+        authorization="Bearer integration-token",
+        transport=transport,
+    )
+
+    with pytest.raises(client_module.PowerContextHTTPError) as caught:
+        client.get_memory_entry("project:test", {"entry_id": "forbidden"})
+
+    assert caught.value.status == 403
+    assert caught.value.code == "access_denied"
+    assert caught.value.server_message == "scope access denied"

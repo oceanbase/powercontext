@@ -90,7 +90,7 @@ function createPluginRuntime(
     runtime: {
       client,
       config,
-      resolveScope: (cwd) => resolveScopeId(client, cwd, config.scopeId),
+      resolveScope: (cwd, signal) => resolveScopeId(client, cwd, config.scopeId, signal),
       log: (event) => {
         events.push(event)
       },
@@ -218,5 +218,30 @@ describe('plugin runtime with header.cwd === undefined', () => {
     })
     expect((capture?.body?.metadata as { cwd?: string } | undefined)?.cwd).toBeUndefined()
     expect(calls.every((call) => !String(call.body?.scope_id ?? '').startsWith('local:'))).toBe(true)
+  })
+
+  it('keeps diagnostics usable when an explicit Scope does not exist', async () => {
+    const { fetchImpl, calls } = trackingFetch()
+    const { runtime } = createPluginRuntime(server.baseUrl, 'scp_00000000000000000000000000', fetchImpl)
+    const command = pcHandler(runtime)
+    const invocation = () => ({ signal: AbortSignal.timeout(5000), agent: sessionWithoutCwd() })
+
+    const remembered = await toolNamed(runtime, 'pc_remember').execute({ kind: 'agent-note', text: TEXT }, invocation())
+    expect(remembered).toMatchObject({ ok: false, code: 'not_found', error_code: 'scope_not_found', status: 404 })
+    const searched = await command({ ...invocation(), rawInput: 'search optional cwd' })
+    expect(searched.kind).toBe('error')
+    expect(JSON.parse(searched.text)).toMatchObject({ code: 'not_found', error_code: 'scope_not_found' })
+
+    const status = await command({ ...invocation(), rawInput: '' })
+    expect(status.kind).toBe('error')
+    expect(status.text).toContain('scope=unresolved')
+    const doctor = await command({ ...invocation(), rawInput: 'doctor' })
+    expect(doctor.kind).toBe('success')
+    expect(JSON.parse(doctor.text).data).toMatchObject({ live: { ok: true }, ready: { ok: true } })
+    expect((await command({ ...invocation(), rawInput: 'capabilities' })).kind).toBe('success')
+    expect(calls.map(call => call.path)).toEqual([
+      '/v1/scope-bindings/resolve', '/v1/scope-bindings/resolve', '/v1/scope-bindings/resolve',
+      '/health/live', '/health/ready', '/v1/capabilities',
+    ])
   })
 })

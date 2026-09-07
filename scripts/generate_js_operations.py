@@ -84,6 +84,7 @@ def parse_operations(doc: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             parameters = _operation_parameters(doc, path_item, operation)
             body_schema = _json_body_schema(doc, operation)
+            success_statuses, empty_statuses = _response_statuses(doc, operation)
             rows.append({
                 "operationId": operation["operationId"],
                 "method": method.upper(),
@@ -91,6 +92,10 @@ def parse_operations(doc: dict[str, Any]) -> list[dict[str, Any]]:
                 "location": _request_location(body_schema, parameters),
                 "scopeMode": _scope_mode(operation),
                 "pathParameters": _path_parameters(parameters),
+                "queryParams": _parameter_names(parameters, "query"),
+                "headerParams": _parameter_names(parameters, "header"),
+                "successStatuses": success_statuses,
+                "emptyStatuses": empty_statuses,
             })
     return rows
 
@@ -116,8 +121,15 @@ def _render_row(row: dict[str, Any]) -> str:
     path_parameters = ", ".join(f"'{name}'" for name in row["pathParameters"])
     return (
         f"  {row['operationId']}: {{ method: '{row['method']}', path: '{row['path']}', "
-        f"location: {location}, scopeMode: '{row['scopeMode']}', pathParameters: [{path_parameters}] }},"
+        f"location: {location}, scopeMode: '{row['scopeMode']}', pathParameters: [{path_parameters}], "
+        f"queryParams: {_render_array(row['queryParams'])}, headerParams: {_render_array(row['headerParams'])}, "
+        f"successStatuses: {_render_array(row['successStatuses'])}, "
+        f"emptyStatuses: {_render_array(row['emptyStatuses'])} }},"
     )
+
+
+def _render_array(values: list[str] | list[int]) -> str:
+    return f"[{','.join(repr(value) for value in values)}]"
 
 
 def _resolve_ref(doc: dict[str, Any], ref: str, seen: set[str]) -> Any:
@@ -172,6 +184,30 @@ def _request_location(body_schema: Any, parameters: list[dict[str, Any]]) -> str
     if any(parameter.get("in") == "query" for parameter in parameters):
         return "query"
     return None
+
+
+def _parameter_names(parameters: list[dict[str, Any]], location: str) -> list[str]:
+    return [
+        str(parameter["name"])
+        for parameter in parameters
+        if parameter.get("in") == location and isinstance(parameter.get("name"), str)
+    ]
+
+
+def _response_statuses(doc: dict[str, Any], operation: dict[str, Any]) -> tuple[list[int], list[int]]:
+    success: list[int] = []
+    empty: list[int] = []
+    for raw_status, response in (operation.get("responses") or {}).items():
+        if not isinstance(raw_status, str) or not raw_status.isdecimal():
+            continue
+        status = int(raw_status)
+        if not (200 <= status < 300 or status == 304):
+            continue
+        success.append(status)
+        resolved = _deref(doc, response)
+        if not isinstance(resolved, dict) or not resolved.get("content"):
+            empty.append(status)
+    return success, empty
 
 
 def _scope_mode(operation: dict[str, Any]) -> str:
