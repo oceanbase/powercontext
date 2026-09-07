@@ -14,18 +14,48 @@
  * limitations under the License.
  */
 
+import Script from 'next/script';
 import type { ReactNode } from 'react';
 import { Provider } from '@/components/provider';
-import { defaultLanguage } from '@/lib/i18n';
+import { defaultLanguage, languagePreferenceKey } from '@/lib/i18n';
 import { siteMetadata } from '@/lib/metadata';
 import '../global.css';
 
 export const metadata = siteMetadata;
 
+const languageRedirectScript = `
+(() => {
+  if (location.pathname !== '/') return;
+
+  let savedLanguage;
+  try {
+    savedLanguage = localStorage.getItem(${JSON.stringify(languagePreferenceKey)});
+  } catch {}
+
+  const requestedLanguages = savedLanguage
+    ? [savedLanguage]
+    : navigator.languages?.length
+      ? navigator.languages
+      : [navigator.language];
+  const preferredLanguage = requestedLanguages
+    .map((language) => language.toLowerCase().split('-')[0])
+    .find((language) => language === 'en' || language === 'zh');
+
+  if (preferredLanguage === 'zh') {
+    location.replace('/zh/' + location.search + location.hash);
+  }
+})();
+`;
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
+        <Script
+          dangerouslySetInnerHTML={{ __html: languageRedirectScript }}
+          id="language-redirect"
+          strategy="beforeInteractive"
+        />
         <Provider lang={defaultLanguage}>{children}</Provider>
       </body>
     </html>

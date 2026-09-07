@@ -19,7 +19,13 @@
 import type { ReactNode } from 'react';
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import { usePathname, useRouter } from 'next/navigation';
-import { defaultLanguage, i18nUI, type Language } from '@/lib/i18n';
+import {
+  defaultLanguage,
+  i18nUI,
+  isLanguage,
+  languagePreferenceKey,
+  type Language,
+} from '@/lib/i18n';
 
 export function Provider({ children, lang }: { children: ReactNode; lang: Language }) {
   const pathname = usePathname();
@@ -27,6 +33,14 @@ export function Provider({ children, lang }: { children: ReactNode; lang: Langua
   const provider = i18nUI.provider(lang);
 
   function onLocaleChange(nextLanguage: string) {
+    if (!isLanguage(nextLanguage)) return;
+
+    try {
+      localStorage.setItem(languagePreferenceKey, nextLanguage);
+    } catch {
+      // Language selection still works when browser storage is unavailable.
+    }
+
     const segments = pathname.split('/').filter(Boolean);
     if (segments[0] === lang) segments.shift();
 
