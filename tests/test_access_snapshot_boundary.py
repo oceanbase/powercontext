@@ -29,10 +29,14 @@ and the decision providers:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.server.authz import (
     AccessAction,
@@ -61,24 +65,33 @@ AUDIT = AccessAuditContext(transport="http", operation="snapshot-boundary", requ
 NOW = datetime.now(UTC)
 
 
-class _CountingDatabase:
+class _CountingDatabase(AsyncDatabase):
     """Counts transaction openings so tests can pin the read boundary size."""
 
-    def __init__(self, inner: object) -> None:
+    def __init__(self, inner: AsyncDatabase) -> None:
+        super().__init__(inner.engine, owns_engine=False)
         self._inner = inner
         self.transactions = 0
 
-    def transaction(self):
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[AsyncConnection]:
         self.transactions += 1
-        return self._inner.transaction()
+        async with self._inner.transaction() as connection:
+            yield connection
 
 
-class _InterleavingRepository:
-    """Delegates to a real repository and injects one mutation after the
-    first revision read, reproducing the controlled interleaving from the
-    RFC thread (mutation committed between the decision reads)."""
+class _InterleavingRepository(RelationalAccessRepository):
+    """Injects one mutation after the first revision read, reproducing the
+    controlled interleaving from the RFC thread (mutation committed between
+    the decision reads)."""
 
-    def __init__(self, inner: RelationalAccessRepository, mutate) -> None:
+    def __init__(
+        self,
+        inner: RelationalAccessRepository,
+        database: AsyncDatabase,
+        mutate,
+    ) -> None:
+        super().__init__(database)
         self._inner = inner
         self._mutate = mutate
         self.revision_reads = 0
@@ -92,18 +105,19 @@ class _InterleavingRepository:
             await self._mutate()
         return revision
 
-    def __getattr__(self, name: str):
+    def __getattribute__(self, name: str):
         if name == "decision_snapshot":
             # Hide the snapshot capability so the bounded-retry path runs.
             raise AttributeError(name)
-        return getattr(self._inner, name)
+        return super().__getattribute__(name)
 
 
-class _UnstableRepository:
-    """Delegates reads but reports a fresh revision on every call, so no
-    stable snapshot can ever be established."""
+class _UnstableRepository(RelationalAccessRepository):
+    """Reports a fresh revision on every call, so no stable snapshot can
+    ever be established."""
 
-    def __init__(self, inner: RelationalAccessRepository) -> None:
+    def __init__(self, inner: RelationalAccessRepository, database: AsyncDatabase) -> None:
+        super().__init__(database)
         self._inner = inner
         self.calls = 0
 
@@ -112,10 +126,10 @@ class _UnstableRepository:
         await self._inner.policy_revision()
         return str(self.calls)
 
-    def __getattr__(self, name: str):
+    def __getattribute__(self, name: str):
         if name == "decision_snapshot":
             raise AttributeError(name)
-        return getattr(self._inner, name)
+        return super().__getattribute__(name)
 
 
 async def _seed_handoff(repository: RelationalAccessRepository) -> ResourceRef:
@@ -228,7 +242,7 @@ def test_interleaved_mutation_cannot_label_decision_with_stale_revision() -> Non
                     )
                 )
 
-            interleaved = _InterleavingRepository(repository, mutate)
+            interleaved = _InterleavingRepository(repository, profile.database, mutate)
             for provider in (
                 BuiltinAuthorizationProvider(interleaved),
                 CasbinAuthorizationProvider(interleaved),
@@ -241,6 +255,7 @@ def test_interleaved_mutation_cannot_label_decision_with_stale_revision() -> Non
                 # allow that only exists post-mutation.
                 assert not (decision.allowed and decision.policy_revision == pre_mutation_revision)
                 if decision.allowed:
+                    assert decision.policy_revision is not None
                     assert int(decision.policy_revision) > int(pre_mutation_revision)
 
     asyncio.run(scenario())
@@ -254,7 +269,7 @@ def test_unstable_revision_fails_closed() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
             repository = RelationalAccessRepository(profile.database)
             handoff = await _seed_handoff(repository)
-            unstable = _UnstableRepository(repository)
+            unstable = _UnstableRepository(repository, profile.database)
             for provider in (
                 BuiltinAuthorizationProvider(unstable),
                 CasbinAuthorizationProvider(unstable),
