@@ -66,7 +66,7 @@ from powercontext.server.settings import (
 )
 from powercontext.sources import Source
 
-_ACCESS_FAMILIES = "experience:enabled,handoff:enabled,memory:enabled,prompt:enabled,skill:enabled"
+_ACCESS_FAMILIES = "experience:enabled,handoff:enabled,memory:enabled,profile:enabled,prompt:enabled,skill:enabled"
 
 
 def _access_readiness_checks(

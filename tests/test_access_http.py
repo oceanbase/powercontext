@@ -631,6 +631,7 @@ def test_access_api_and_handoff_pep_enforce_exact_receiver_visibility() -> None:
                     "handoff",
                     "memory",
                     "experience",
+                    "profile",
                     "skill",
                     "prompt",
                 }

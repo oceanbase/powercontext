@@ -94,7 +94,9 @@ _ACCESS_READINESS_CHECKS = {
     "authentication_provider": "disabled",
     "access_provider": "disabled",
     "access_resource_kinds": "server,scope,artifact",
-    "access_artifact_families": "experience:enabled,handoff:enabled,memory:enabled,prompt:enabled,skill:enabled",
+    "access_artifact_families": (
+        "experience:enabled,handoff:enabled,memory:enabled,profile:enabled,prompt:enabled,skill:enabled"
+    ),
 }
 EMBEDDING_PROFILE = EmbeddingProfile(
     profile_id="database-e2e-v1",
@@ -489,7 +491,9 @@ def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path
                 )
             )
 
-            assert capabilities.artifact_families == ["memory", "experience", "skill", "handoff", "prompt"]
+            assert capabilities.artifact_families == [
+                "memory", "experience", "skill", "handoff", "profile", "prompt"
+            ]
         assert capabilities.handoff_generation is True
         assert activation.status == "generated"
         assert repeated.status == "ignored"
