@@ -500,10 +500,12 @@ from powercontext.http import (
     SkillPackageDownload,
     SkillPackageFile,
     SkillPackageManifest,
+    SourceAddress,
     SourceDefinitionManifest,
     SourceObservationReceipt,
     SourceRecord,
     SourceType,
+    SubjectProjectionReceipt,
     SubmitSourceObservationRequest,
     UnpublishRemoteSkillRequest,
     UpdateScopeRequest,
@@ -585,7 +587,8 @@ from powercontext.http._generated.models import (
 from powercontext.http._generated.models import (
     ShareUnit as TransportShareUnit,
 )
-from powercontext.http._generated.models import Type6 as TransportMemoryEntrySelectorType
+from powercontext.http._generated.models import Status as SubjectProjectionStatus
+from powercontext.http._generated.models import Type4 as TransportMemoryEntrySelectorType
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
@@ -784,6 +787,8 @@ class _ScopedRecordApplication(Protocol):
         source_type: str,
         content: JsonValue,
         /,
+        *,
+        subject_key: str | None = None,
     ) -> RuntimeSourceRecord: ...
 
     async def get_source(self, source_type: str, source_id: str, /) -> RuntimeSourceRecord: ...
@@ -1985,6 +1990,7 @@ async def create_source(
     result = await application.records.for_scope(scope_id).create_source(
         request.source_type.value,
         request.content,
+        subject_key=request.subject_key,
     )
     response.headers["Location"] = _source_location(result)
     return _source_record_response(result)
@@ -2287,6 +2293,7 @@ async def get_artifact_revision(
 
 
 def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
+    projection = value.subject_projection
     return SourceRecord(
         scope_id=value.scope_id,
         source_type=SourceType(value.source_type),
@@ -2294,6 +2301,17 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
         content=value.content,
         position=value.position,
         content_digest=value.content_digest,
+        subject_projection=(
+            None
+            if projection is None
+            else SubjectProjectionReceipt(
+                subject_key=projection.subject_key,
+                root_scope_id=projection.root_scope_id,
+                origin_source=SourceAddress(**projection.origin_source.model_dump()),
+                root_source=SourceAddress(**projection.root_source.model_dump()),
+                status=SubjectProjectionStatus(projection.status),
+            )
+        ),
     )
 
 

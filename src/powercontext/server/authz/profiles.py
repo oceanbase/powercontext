@@ -102,6 +102,17 @@ ARTIFACT_FAMILY_PROFILES: dict[str, ArtifactFamilyAccessProfile] = {
         selector="forbidden",
         mutation_semantics=frozenset({AccessAction.ARTIFACT_WRITE}),
     ),
+    "profile": ArtifactFamilyAccessProfile(
+        family="profile",
+        enabled=True,
+        share_unit="artifact",
+        shareable_states=frozenset({"committed"}),
+        base_action=AccessAction.ARTIFACT_READ,
+        additional_actions=frozenset(),
+        grantable_roles=frozenset({AccessRole.ARTIFACT_VIEWER}),
+        selector="forbidden",
+        mutation_semantics=frozenset({AccessAction.ARTIFACT_WRITE}),
+    ),
     # Operational Prompts inherit Scope access and retain immutable revisions.
     # Direct Prompt sharing has no public grantable roles.
     "prompt": ArtifactFamilyAccessProfile(

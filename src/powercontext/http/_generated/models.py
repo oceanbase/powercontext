@@ -1282,6 +1282,15 @@ class CreateSourceRequest(BaseModel):
     )
     source_type: SourceType = SourceType.CONTENT
     content: Annotated[Any, Field(description="JSON value persisted by the built-in content Source adapter.")]
+    subject_key: Annotated[
+        StrictStr | None,
+        Field(
+            description="Caller-provided business user ID used to atomically project this Source into its Subject Root.",
+            max_length=256,
+            min_length=1,
+            pattern=".*\\S.*",
+        ),
+    ] = None
 
 
 class TaggableArtifactFamily(StrEnum):
@@ -1599,6 +1608,31 @@ class ReplaceExperienceArtifactRequest(BaseModel):
     content: ExperienceProposal
 
 
+class SourceAddress(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    source_type: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern=".*\\S.*")]
+    source_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+
+
+class Status(StrEnum):
+    COMMITTED = "committed"
+    ALREADY_IN_ROOT = "already_in_root"
+
+
+class SubjectProjectionReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    subject_key: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    root_scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    origin_source: SourceAddress
+    root_source: SourceAddress
+    status: Status
+
+
 class SourceTypeReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1624,6 +1658,7 @@ class BaseArtifactFamily(StrEnum):
     EXPERIENCE = "experience"
     SKILL = "skill"
     HANDOFF = "handoff"
+    PROFILE = "profile"
     PROMPT = "prompt"
 
 
@@ -2827,6 +2862,10 @@ class SourceRecord(BaseModel):
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
     position: Annotated[StrictInt, Field(ge=1)]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    subject_projection: Annotated[
+        SubjectProjectionReceipt | None,
+        Field(description="Exact Origin and Subject Root addresses when this Source was written with subject_key."),
+    ] = None
 
 
 class ArtifactFamilyAccessCapability(BaseModel):

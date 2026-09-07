@@ -168,7 +168,7 @@ collation，但不会包含数据库 URL 或凭据。
 4. 新建一个空的 OceanBase MySQL-mode 数据库，将 `POWERCONTEXT_SERVER_DATABASE_URL` 指向它。启动一次当前
    PowerContext，使其创建使用 `utf8mb4_bin` 的表；恢复数据前再次停止 Server。
 5. 使用 OceanBase `obloader` 只把导出的数据导入已经存在的新表，同样**不要使用 `--ddl`**。保持外键检查开启，
-   并分别运行下面三层命令。示例使用 CSV；如果导出的是 SQL 数据，请把三个命令中的 `--csv` 全部替换为
+   并分别运行下面四层命令。示例使用 CSV；如果导出的是 SQL 数据，请把四个命令中的 `--csv` 全部替换为
    `--sql`。通过获批的 secret 管理流程填写 `<connection-options>`，并让 `<new-database>` 指向第 4 步创建的
    数据库。
 
@@ -177,13 +177,13 @@ collation，但不会包含数据库 URL 或凭据。
    删除它。由于 `pc_scopes.parent_scope_id` 自引用 `pc_scopes`，导出的 `pc_scopes` 数据必须让祖先 Scope 记录排在
    后代记录之前。
    源数据库早于三张 Skill 生命周期表（`pc_skill_packages`、`pc_agent_skill_targets` 和
-   `pc_skill_publications`）时，应从第 1 层删除缺失的表。
+   `pc_skill_publications`）或 Profile 表时，应从对应层删除缺失的表。
 
    第 1 层包含父表和无外键的表：
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_artifact_processing_leases' \
      -f <export-directory>
    ```
 
@@ -191,7 +191,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions,pc_subject_roots,pc_profile_revision_metadata,pc_artifact_processing_pending' \
      -f <export-directory>
    ```
 

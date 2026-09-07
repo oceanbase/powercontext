@@ -68,6 +68,8 @@ from powercontext.builtin.artifacts.prompt.service import (
     current_prompt,
     prompt_operation,
 )
+from powercontext.builtin.artifacts.profile import Profile
+from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProvider,
     ExternalSkillRegistryUnavailableError,
@@ -427,7 +429,7 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            (Handoff, Memory, Experience, Skill, Prompt),
+            (Handoff, Memory, Experience, Skill, Profile, Prompt),
             sources=source_repository,
         )
         self.repositories = _Repositories(
@@ -493,6 +495,12 @@ class RelationalContexts:
                 handoff_artifact_id=handoff_artifact_id,
             ),
         ))
+        self.profiles = RelationalProfileService(
+            database,
+            self.repositories.sources,
+            self.repositories.artifacts,
+            id_factory=id_factory,
+        )
         self.records = RelationalRecordService(
             database,
             self.repositories.sources,
@@ -500,6 +508,7 @@ class RelationalContexts:
             family_writers,
             id_factory=id_factory,
             cursor_secret=cursor_secret,
+            subject_router=self.profiles,
         )
         self.publications = ArtifactPublicationApplication(
             database,

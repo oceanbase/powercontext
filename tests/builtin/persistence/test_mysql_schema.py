@@ -126,7 +126,7 @@ def test_documented_obloader_restore_layers_are_parent_first() -> None:
         )
         for guide in restore_guides
     )
-    assert all(len(restore_layers) == 3 for restore_layers in restore_plans)
+    assert all(len(restore_layers) == 4 for restore_layers in restore_plans)
     assert len(set(restore_plans)) == 1
 
     restore_layers = restore_plans[0]

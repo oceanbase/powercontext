@@ -23,7 +23,7 @@ import secrets
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from uuid import uuid4
 
 import rfc8785
@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.builtin.artifacts.memory import MemoryCitation, MemoryEntryVersion, MemoryService
+from powercontext.builtin.artifacts.profile import SourceAddress
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
@@ -67,6 +68,7 @@ from powercontext.builtin.records import (
     ScopeSummary,
     ScopeSummaryPage,
     SourceRecord,
+    SubjectProjectionReceipt,
 )
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
@@ -82,6 +84,11 @@ from powercontext.sources import SourceMaterialization, SourceRef
 
 Clock = Callable[[], datetime]
 IdFactory = Callable[[str], str]
+
+
+class SubjectSourceRouter(Protocol):
+    async def route_source(self, origin_scope_id: str, subject_key: str, source: Any, /) -> Any: ...
+
 
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
 _JSON_VALUE = TypeAdapter(JsonValue)
@@ -103,6 +110,7 @@ class RelationalRecordService:
         id_factory: IdFactory | None = None,
         cursor_secret: bytes | None = None,
         cursor_ttl_seconds: int = _DEFAULT_CURSOR_TTL_SECONDS,
+        subject_router: SubjectSourceRouter | None = None,
     ) -> None:
         if isinstance(cursor_ttl_seconds, bool) or cursor_ttl_seconds < 1:
             raise ValueError("cursor_ttl_seconds must be a positive integer")  # noqa: TRY003
@@ -134,6 +142,7 @@ class RelationalRecordService:
 
     async def query_tags(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
         return await self._tags.query(scope_id, query, caller=caller)
+        self._subject_router = subject_router
 
     async def create_source(
         self,
@@ -141,6 +150,8 @@ class RelationalRecordService:
         source_type: str,
         content: JsonValue,
         /,
+        *,
+        subject_key: str | None = None,
     ) -> SourceRecord:
         self._require_content_source(source_type)
         source = ContentSource(
@@ -150,7 +161,7 @@ class RelationalRecordService:
             wire_content=_JSON_VALUE.validate_python(content, strict=True),
             wire_content_present=True,
         )
-        return await self._store_source(scope_id, source_type, source)
+        return await self._store_source(scope_id, source_type, source, subject_key=subject_key)
 
     async def capture_source(
         self,
@@ -160,6 +171,8 @@ class RelationalRecordService:
         content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
+        *,
+        subject_key: str | None = None,
     ) -> SourceRecord:
         """Preserve the caller-stable identity used by the existing capture API."""
 
@@ -171,14 +184,47 @@ class RelationalRecordService:
             )
         except ValidationError as error:
             raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
-        return await self._store_source(scope_id, source_type, await CONTENT_SOURCE_ADAPTER.resolve(capture))
+        return await self._store_source(
+            scope_id,
+            source_type,
+            await CONTENT_SOURCE_ADAPTER.resolve(capture),
+            subject_key=subject_key,
+        )
 
     async def _store_source(
         self,
         scope_id: str,
         source_type: str,
         source: ContentSource,
+        *,
+        subject_key: str | None = None,
     ) -> SourceRecord:
+        if subject_key is not None:
+            if self._subject_router is None:
+                raise InvalidBaseAccessRequestError("subject_key", "routing is not configured")
+            result = await self._subject_router.route_source(scope_id, subject_key, source)
+            async with self._database.transaction() as connection:
+                stored = await self._sources.get(connection, scope_id, result.origin_ref)
+            record = _source_record(scope_id, stored)
+            return record.model_copy(
+                update={
+                    "subject_projection": SubjectProjectionReceipt(
+                        subject_key=result.subject.subject_key,
+                        root_scope_id=result.subject.root_scope_id,
+                        origin_source=SourceAddress(
+                            scope_id=scope_id,
+                            source_type=result.origin_ref.source_type,
+                            source_id=result.origin_ref.source_id,
+                        ),
+                        root_source=SourceAddress(
+                            scope_id=result.subject.root_scope_id,
+                            source_type=result.root_ref.source_type,
+                            source_id=result.root_ref.source_id,
+                        ),
+                        status=result.status,
+                    )
+                }
+            )
         try:
             async with self._database.transaction() as connection:
                 stored = await self._sources.add(connection, scope_id, source)

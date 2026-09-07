@@ -737,7 +737,7 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
 
     source = schemas["CreateSourceRequest"]
     assert source["required"] == ["content"]
-    assert set(source["properties"]) == {"source_type", "content"}
+    assert set(source["properties"]) == {"source_type", "content", "subject_key"}
     assert source["properties"]["source_type"]["enum"] == ["content"]
     assert source["properties"]["source_type"]["default"] == "content"
 

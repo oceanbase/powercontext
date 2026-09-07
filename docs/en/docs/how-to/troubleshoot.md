@@ -174,8 +174,8 @@ so the previous database remains available for recovery:
 4. Create a new empty OceanBase MySQL-mode database and point `POWERCONTEXT_SERVER_DATABASE_URL` at it. Start the
    current PowerContext version once to create tables with `utf8mb4_bin`, then stop it before restoring data.
 5. Import only the exported row data into the existing new tables with OceanBase `obloader`, again **without
-   `--ddl`**. Keep foreign-key enforcement enabled and run these three layers separately. The examples use CSV; if
-   you exported SQL data, replace `--csv` with `--sql` in all three commands. Fill in `<connection-options>` through
+   `--ddl`**. Keep foreign-key enforcement enabled and run these four layers separately. The examples use CSV; if
+   you exported SQL data, replace `--csv` with `--sql` in all four commands. Fill in `<connection-options>` through
    your approved secret-handling process and make `<new-database>` select the database created in step 4.
 
    Before running the commands, compare the exported table files with `SHOW TABLES` in the target database. Every
@@ -184,13 +184,13 @@ so the previous database remains available for recovery:
    Because `pc_scopes.parent_scope_id` is self-referential, keep ancestor Scope rows before their descendants in the
    exported `pc_scopes` data.
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
-   `pc_skill_publications`), remove the absent tables from Layer 1.
+   `pc_skill_publications`) or the Profile tables, remove the absent tables from their respective layers.
 
    Layer 1 contains parents and tables without foreign keys:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_artifact_processing_leases' \
      -f <export-directory>
    ```
 
@@ -198,7 +198,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions' \
+     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions,pc_subject_roots,pc_profile_revision_metadata,pc_artifact_processing_pending' \
      -f <export-directory>
    ```
 

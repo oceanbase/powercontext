@@ -272,6 +272,7 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
                 "content",
                 "position",
                 "content_digest",
+                "subject_projection",
             }
             with pytest.raises(InvalidBaseAccessRequestError):
                 await records.create_source("scope-a", "private", "not public")

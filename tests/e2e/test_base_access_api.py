@@ -97,6 +97,7 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 "position",
                 "content_digest",
                 "receipt_identity",
+                "subject_projection",
             }
             null_source = await client.create_source(scope_id, CreateSourceRequest(content=None))
             assert null_source.content is None
@@ -185,6 +186,46 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 )
             assert stale.value.status_code == 412
             assert stale.value.code == "revision_conflict"
+
+    asyncio.run(scenario())
+
+
+def test_subject_key_projects_one_source_into_a_stable_user_root(tmp_path: Path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'subject-source.db'}"),
+            auth=BearerAuthConfig(enabled=False),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            origin_scope_id = (await client.get_default_scope()).scope_id
+
+            created = await client.create_source(
+                origin_scope_id,
+                CreateSourceRequest(content="我偏好中文简洁回答。", subject_key="user-10086"),
+            )
+
+            projection = created.subject_projection
+            assert projection is not None
+            assert projection.subject_key == "user-10086"
+            assert projection.origin_source.scope_id == origin_scope_id
+            assert projection.root_source.scope_id == projection.root_scope_id
+            assert projection.root_source.source_id == created.source_id
+            assert projection.root_scope_id != origin_scope_id
+            root_source = await client.get_source(
+                projection.root_scope_id,
+                projection.root_source.source_type,
+                projection.root_source.source_id,
+            )
+            assert root_source.content == created.content
+            assert root_source.position == created.position == 1
 
     asyncio.run(scenario())
 

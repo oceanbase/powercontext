@@ -22,17 +22,28 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, JsonValue
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.profile import SourceAddress
 from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
     from powercontext.builtin.artifacts.memory import MemoryEntryVersion
     from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 
-BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "prompt"]
+BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt"]
 
 
 class _RecordModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class SubjectProjectionReceipt(_RecordModel):
+    """Addresses committed by one subject-keyed Source write."""
+
+    subject_key: str
+    root_scope_id: str
+    origin_source: SourceAddress
+    root_source: SourceAddress
+    status: Literal["committed", "already_in_root"]
 
 
 class SourceRecord(_RecordModel):
@@ -44,6 +55,7 @@ class SourceRecord(_RecordModel):
     content: JsonValue
     position: int
     content_digest: str
+    subject_projection: SubjectProjectionReceipt | None = None
 
 
 class ArtifactWrite(_RecordModel):
@@ -212,6 +224,8 @@ class RecordService(Protocol):
         source_type: str,
         content: JsonValue,
         /,
+        *,
+        subject_key: str | None = None,
     ) -> SourceRecord: ...
 
     async def capture_source(
@@ -222,6 +236,8 @@ class RecordService(Protocol):
         content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
+        *,
+        subject_key: str | None = None,
     ) -> SourceRecord: ...
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord: ...

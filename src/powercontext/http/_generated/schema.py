@@ -6434,6 +6434,27 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "source_type": {"type": "string", "enum": ["content"], "default": "content"},
                     "content": {"description": "JSON value persisted by the built-in content Source adapter."},
+                    "subject_key": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "description": "Caller-provided "
+                        "business "
+                        "user "
+                        "ID "
+                        "used "
+                        "to "
+                        "atomically "
+                        "project "
+                        "this "
+                        "Source "
+                        "into "
+                        "its "
+                        "Subject "
+                        "Root.",
+                        "nullable": True,
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -6901,9 +6922,48 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "content": {"description": "Persisted canonical JSON content."},
                     "position": {"type": "integer", "minimum": 1.0},
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "subject_projection": {
+                        "$ref": "#/components/schemas/SubjectProjectionReceipt",
+                        "description": "Exact "
+                        "Origin "
+                        "and "
+                        "Subject "
+                        "Root "
+                        "addresses "
+                        "when "
+                        "this "
+                        "Source "
+                        "was "
+                        "written "
+                        "with "
+                        "subject_key.",
+                        "nullable": True,
+                    },
                 },
                 "type": "object",
                 "required": ["scope_id", "source_type", "source_id", "content", "position", "content_digest"],
+            },
+            "SourceAddress": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "source_type", "source_id"],
+            },
+            "SubjectProjectionReceipt": {
+                "properties": {
+                    "subject_key": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "root_scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "origin_source": {"$ref": "#/components/schemas/SourceAddress"},
+                    "root_source": {"$ref": "#/components/schemas/SourceAddress"},
+                    "status": {"type": "string", "enum": ["committed", "already_in_root"]},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["subject_key", "root_scope_id", "origin_source", "root_source", "status"],
             },
             "SourceTypeReference": {
                 "properties": {
@@ -6924,7 +6984,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["name", "source_id"],
             },
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
-            "BaseArtifactFamily": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+            "BaseArtifactFamily": {
+                "type": "string",
+                "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt"],
+            },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {"type": "string", "enum": ["experience", "skill"]},
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},

@@ -360,12 +360,15 @@ class ScopedRecordApplication:
         source_type: str,
         content: JsonValue,
         /,
+        *,
+        subject_key: str | None = None,
     ) -> SourceRecord:
         async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
             return await self._runtime._records().create_source(
                 self.scope_id,
                 source_type,
                 content,
+                subject_key=subject_key,
             )
 
     async def get_source(self, source_type: str, source_id: str, /) -> SourceRecord:
