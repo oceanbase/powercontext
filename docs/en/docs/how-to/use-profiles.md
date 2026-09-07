@@ -103,6 +103,11 @@ not writable input.
 To read by subject_key, resolve the exact existing Binding with `allow_default=false`, then use ordinary Scope APIs.
 No implicit group traversal or cross-Scope Artifact aggregation occurs. Other Families retain their own generation flows.
 
+Profiles cannot be copied to another Scope using `POST /v1/artifact-publications` or the SDK publication operation.
+These requests return HTTP 422 (`artifact_publication_unsupported`, `details.family=profile`), regardless of whether
+the target already has a Profile. No target state is created or changed. Generate a Profile from the target Scope's
+own Sources, or use its existing Create/Replace API instead. Other supported Artifact Families remain publishable.
+
 ## Storage and deployment
 
 Only `pc_profile_policies` is new. Profile content and generation metadata use the existing Artifact BLOB;

@@ -255,7 +255,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "description": "Memory publication is rejected "
                 "until its complete family-owned "
                 "state can be created atomically "
-                "in the target Scope.",
+                "in the target Scope. Profile "
+                "artifacts cannot be copied or "
+                "published across Scopes, whether "
+                "or not the target already has a "
+                "Profile. Requests for these "
+                "families return HTTP 422 with "
+                "code "
+                "artifact_publication_unsupported "
+                "and details.family. Rejection "
+                "creates no target Artifact or "
+                "publication record; other "
+                "supported families retain their "
+                "existing behavior.",
                 "operationId": "publish_artifact",
                 "requestBody": {
                     "content": {

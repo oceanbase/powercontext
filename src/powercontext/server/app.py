@@ -4887,7 +4887,9 @@ def _map_scope_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | 
         return (
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "artifact_publication_unsupported",
-            "The Artifact family cannot be published as complete target state.",
+            "Profile artifacts cannot be copied or published across Scopes."
+            if error.family == "profile"
+            else "The Artifact family cannot be published as complete target state.",
             {"family": error.family},
         )
     if isinstance(error, ArtifactPublicationConflictError):

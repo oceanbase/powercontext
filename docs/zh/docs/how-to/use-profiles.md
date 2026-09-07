@@ -97,6 +97,11 @@ POST /v1/scopes/S_GROUP/artifacts
 按用户查询时，先通过现有 Binding Resolve 传入精确 key 和 `allow_default=false`，再调用普通 Scope API。
 不自动遍历群聊或聚合其他 Scope 的所有制品。其他 Artifact Family 继续使用原有的生成与读取方式。
 
+画像不能通过 `POST /v1/artifact-publications` 或 SDK 发布操作复制到其他 Scope。
+无论目标是否已有画像，请求都返回 HTTP 422（`artifact_publication_unsupported`，`details.family=profile`），
+不创建或修改目标状态。应基于目标 Scope 自身的 Source 生成画像，或使用其已有 Create/Replace 接口。
+其他支持发布的制品保持原行为。
+
 ## 存储与升级边界
 
 仅新增 `pc_profile_policies`；正文和生成信息进入 Artifact BLOB，审核上下文进入 Candidate BLOB。

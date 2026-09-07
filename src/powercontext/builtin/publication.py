@@ -125,7 +125,7 @@ class ArtifactPublicationApplication:
         request: ArtifactPublicationRequest,
     ) -> ArtifactPublication:
         source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
-        if source.family == "memory":
+        if source.family in {"memory", "profile"}:
             raise ArtifactPublicationUnsupportedError(source.family)
         existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
         if existing is not None:
