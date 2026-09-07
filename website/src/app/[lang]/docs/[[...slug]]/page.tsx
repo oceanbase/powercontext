@@ -18,6 +18,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
+import type { AnchorHTMLAttributes } from 'react';
 import { getMDXComponents } from '@/components/mdx';
 import { isLanguage, languages } from '@/lib/i18n';
 import { source } from '@/lib/source';
@@ -30,6 +31,22 @@ function getDocumentationPage(lang: string, slug: string[] = []) {
   return source.getPage(['docs', ...slug], lang);
 }
 
+function createDocumentationLink(page: NonNullable<ReturnType<typeof getDocumentationPage>>) {
+  // Fumadocs removes the locale from its lookup keys but keeps it in page.path.
+  const localePrefix = page.locale ? `${page.locale}/` : '';
+  const sourcePage = {
+    ...page,
+    path: page.path.startsWith(localePrefix) ? page.path.slice(localePrefix.length) : page.path,
+  };
+  const RelativeLink = createRelativeLink(source, sourcePage);
+
+  return function DocumentationLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+    // Fumadocs resolves explicit relative paths only; Markdown also permits a bare sibling filename.
+    const sourceHref = href && /^[^./#][^:]*\.(?:md|mdx)(?:[?#].*)?$/.test(href) ? `./${href}` : href;
+    return <RelativeLink href={sourceHref} {...props} />;
+  };
+}
+
 export default async function DocumentationPage({ params }: PageProps) {
   const { lang, slug } = await params;
   if (!isLanguage(lang)) notFound();
@@ -38,6 +55,7 @@ export default async function DocumentationPage({ params }: PageProps) {
 
   const MDX = page.data.body;
   const isOverview = !slug?.length;
+  const DocumentationLink = createDocumentationLink(page);
   return (
     <DocsPage full={page.data.full} toc={page.data.toc}>
       {isOverview ? (
@@ -47,7 +65,7 @@ export default async function DocumentationPage({ params }: PageProps) {
         </>
       ) : null}
       <DocsBody>
-        <MDX components={getMDXComponents({ a: createRelativeLink(source, page) })} />
+        <MDX components={getMDXComponents({ a: DocumentationLink })} />
       </DocsBody>
     </DocsPage>
   );

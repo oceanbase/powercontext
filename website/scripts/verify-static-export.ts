@@ -25,6 +25,7 @@ const prerenderManifestPath = path.join(websiteDirectory, '.next', 'prerender-ma
 const pythonDirectory = path.join(websiteDirectory, '.generated', 'python');
 const locales = ['en', 'zh'] as const;
 const httpMethods = ['get', 'put', 'post', 'delete', 'patch', 'head', 'options', 'trace'] as const;
+const documentationLinkCheckRoutes = locales.map((locale) => `/${locale}/docs/tutorials/codex-quickstart`);
 
 type PythonModule = {
   path?: string;
@@ -35,6 +36,32 @@ type PythonModule = {
 function outputPage(route: string) {
   const segments = route.split('/').filter(Boolean);
   return path.join(outputDirectory, ...segments, 'index.html');
+}
+
+function extractAnchorHrefs(html: string) {
+  return Array.from(html.matchAll(/<a\b[^>]*\bhref=(['"])(.*?)\1/gi), (match) => match[2]);
+}
+
+async function findBrokenDocumentationLinks(route: string) {
+  const html = await readFile(outputPage(route), 'utf8');
+  const broken: string[] = [];
+
+  for (const href of extractAnchorHrefs(html)) {
+    if (/^(?:[a-z][a-z\d+.-]*:|#)/i.test(href)) continue;
+    if (/\.mdx?(?:[?#]|$)/i.test(href)) {
+      broken.push(`${href} (unresolved Markdown path)`);
+      continue;
+    }
+
+    const target = new URL(href, `https://powercontext.invalid${route}/`);
+    try {
+      await access(outputPage(decodeURIComponent(target.pathname)));
+    } catch {
+      broken.push(`${href} (missing ${target.pathname})`);
+    }
+  }
+
+  return broken;
 }
 
 function collectPythonPaths(module: PythonModule, paths: Set<string>) {
@@ -86,6 +113,7 @@ const prerenderedRoutes = new Set(Object.keys(prerenderManifest.routes));
 const expectedRoutes = [...httpRoutes, ...pythonRoutes];
 const missingFromManifest = expectedRoutes.filter((route) => !prerenderedRoutes.has(route));
 const missingFromOutput: string[] = [];
+const brokenDocumentationLinks = new Map<string, string[]>();
 
 await Promise.all(
   expectedRoutes.map(async (route) => {
@@ -97,7 +125,14 @@ await Promise.all(
   }),
 );
 
-if (missingFromManifest.length > 0 || missingFromOutput.length > 0) {
+await Promise.all(
+  documentationLinkCheckRoutes.map(async (route) => {
+    const broken = await findBrokenDocumentationLinks(route);
+    if (broken.length > 0) brokenDocumentationLinks.set(route, broken);
+  }),
+);
+
+if (missingFromManifest.length > 0 || missingFromOutput.length > 0 || brokenDocumentationLinks.size > 0) {
   const details = [
     missingFromManifest.length > 0
       ? `Missing from Next prerender manifest:\n${missingFromManifest.sort().join('\n')}`
@@ -105,11 +140,17 @@ if (missingFromManifest.length > 0 || missingFromOutput.length > 0) {
     missingFromOutput.length > 0
       ? `Missing from static output:\n${missingFromOutput.sort().join('\n')}`
       : undefined,
+    brokenDocumentationLinks.size > 0
+      ? `Broken Codex tutorial links:\n${Array.from(brokenDocumentationLinks, ([route, links]) =>
+          `${route}:\n${links.map((link) => `  ${link}`).join('\n')}`,
+        ).join('\n')}`
+      : undefined,
   ].filter(Boolean);
 
-  throw new Error(`Static API export is incomplete.\n\n${details.join('\n\n')}`);
+  throw new Error(`Static export verification failed.\n\n${details.join('\n\n')}`);
 }
 
 console.log(
-  `Verified ${httpRoutes.size} HTTP API pages and ${pythonRoutes.size} Python API pages in the static export.`,
+  `Verified ${httpRoutes.size} HTTP API pages, ${pythonRoutes.size} Python API pages, and ` +
+    `${documentationLinkCheckRoutes.length} Codex tutorial pages in the static export.`,
 );
