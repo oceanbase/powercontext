@@ -190,7 +190,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_artifact_processing_leases' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
      -f <export-directory>
    ```
 
@@ -198,7 +198,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions,pc_subject_roots,pc_profile_revision_metadata,pc_artifact_processing_pending' \
+     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -207,6 +207,14 @@ so the previous database remains available for recovery:
    ```bash
    obloader <connection-options> -D <new-database> --csv \
      --table 'pc_artifact_candidate_heads,pc_memory_entry_heads,pc_artifact_tags' \
+     -f <export-directory>
+   ```
+
+   After Layer 3 completes successfully, import Profile policy in Layer 4:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_profile_policies' \
      -f <export-directory>
    ```
 

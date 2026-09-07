@@ -402,52 +402,6 @@ ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
     ),
 )
 
-SUBJECT_ROOTS_TABLE = Table(
-    "pc_subject_roots",
-    SHARED_METADATA,
-    Column("subject_key", identity_string(MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH), primary_key=True),
-    Column("root_scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False, unique=True),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    ForeignKeyConstraint(("root_scope_id",), ("pc_scopes.scope_id",), ondelete="RESTRICT"),
-    UniqueConstraint("subject_key", "root_scope_id", name="uq_pc_subject_roots_pair"),
-)
-
-SUBJECT_SOURCE_PROJECTIONS_TABLE = Table(
-    "pc_subject_source_projections",
-    SHARED_METADATA,
-    Column("origin_scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("origin_source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), primary_key=True),
-    Column("origin_source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
-    Column("subject_key", identity_string(MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH), nullable=False),
-    Column("root_scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
-    Column("projected_source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
-    Column("projected_source_id", identity_string(MAX_SOURCE_ID_LENGTH), nullable=False),
-    Column("content_digest", identity_string(71), nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    ForeignKeyConstraint(
-        ("origin_scope_id", "origin_source_type", "origin_source_id"),
-        ("pc_sources.scope_id", "pc_sources.source_type", "pc_sources.source_id"),
-        ondelete="RESTRICT",
-    ),
-    ForeignKeyConstraint(
-        ("root_scope_id", "projected_source_type", "projected_source_id"),
-        ("pc_sources.scope_id", "pc_sources.source_type", "pc_sources.source_id"),
-        ondelete="RESTRICT",
-    ),
-    ForeignKeyConstraint(
-        ("subject_key", "root_scope_id"),
-        ("pc_subject_roots.subject_key", "pc_subject_roots.root_scope_id"),
-        ondelete="RESTRICT",
-    ),
-    UniqueConstraint(
-        "root_scope_id",
-        "projected_source_type",
-        "projected_source_id",
-        name="uq_pc_subject_source_projections_root_source",
-    ),
-    CheckConstraint("origin_scope_id <> root_scope_id", name="ck_pc_subject_source_projections_distinct_scopes"),
-)
-
 PROFILE_POLICIES_TABLE = Table(
     "pc_profile_policies",
     SHARED_METADATA,
@@ -468,109 +422,6 @@ PROFILE_POLICIES_TABLE = Table(
         name="ck_pc_profile_policies_activation_mode",
     ),
     CheckConstraint("version > 0", name="ck_pc_profile_policies_version_positive"),
-)
-
-PROFILE_REVISION_METADATA_TABLE = Table(
-    "pc_profile_revision_metadata",
-    SHARED_METADATA,
-    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
-    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
-    Column("revision", Integer, primary_key=True),
-    Column("generation_mode", identity_string(32), nullable=False),
-    Column("generator_id", identity_string(128)),
-    Column("generator_version", identity_string(128)),
-    Column("source_after", BigInteger),
-    Column("source_through", BigInteger),
-    Column("restored_from_revision", Integer),
-    Column("operation_reason", _entry_text_type()),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    ForeignKeyConstraint(
-        ("scope_id", "family", "artifact_id", "revision"),
-        ("pc_artifacts.scope_id", "pc_artifacts.family", "pc_artifacts.artifact_id", "pc_artifacts.revision"),
-        ondelete="CASCADE",
-    ),
-    ForeignKeyConstraint(
-        ("scope_id", "family", "artifact_id", "restored_from_revision"),
-        ("pc_artifacts.scope_id", "pc_artifacts.family", "pc_artifacts.artifact_id", "pc_artifacts.revision"),
-        ondelete="RESTRICT",
-    ),
-    CheckConstraint("family = 'profile'", name="ck_pc_profile_revision_metadata_family"),
-    CheckConstraint(
-        "generation_mode IN ('automatic', 'manual_create', 'manual_replace', 'review_approved', 'rollback')",
-        name="ck_pc_profile_revision_metadata_generation_mode",
-    ),
-    CheckConstraint(
-        "(source_after IS NULL AND source_through IS NULL) OR (source_after >= 0 AND source_through >= source_after)",
-        name="ck_pc_profile_revision_metadata_source_window",
-    ),
-    CheckConstraint(
-        "(generation_mode IN ('automatic', 'review_approved') AND source_after IS NOT NULL) OR "
-        "(generation_mode IN ('manual_create', 'manual_replace', 'rollback') AND source_after IS NULL)",
-        name="ck_pc_profile_revision_metadata_mode_window",
-    ),
-    CheckConstraint(
-        "(generation_mode = 'rollback' AND restored_from_revision > 0) OR "
-        "(generation_mode <> 'rollback' AND restored_from_revision IS NULL)",
-        name="ck_pc_profile_revision_metadata_rollback",
-    ),
-)
-
-PROFILE_CANDIDATE_METADATA_TABLE = Table(
-    "pc_profile_candidate_metadata",
-    SHARED_METADATA,
-    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("candidate_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
-    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), nullable=False),
-    Column("source_after", BigInteger, nullable=False),
-    Column("source_through", BigInteger, nullable=False),
-    Column("claimed_flush_generation", BigInteger, nullable=False),
-    Column("rejection_disposition", identity_string(32)),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    ForeignKeyConstraint(
-        ("scope_id", "candidate_id"),
-        ("pc_artifact_candidate_heads.scope_id", "pc_artifact_candidate_heads.candidate_id"),
-        ondelete="CASCADE",
-    ),
-    CheckConstraint("binding_name = 'profile-source-window'", name="ck_pc_profile_candidate_metadata_binding"),
-    CheckConstraint(
-        "source_after >= 0 AND source_through >= source_after",
-        name="ck_pc_profile_candidate_metadata_source_window",
-    ),
-    CheckConstraint(
-        "claimed_flush_generation >= 0",
-        name="ck_pc_profile_candidate_metadata_flush_generation",
-    ),
-    CheckConstraint(
-        "rejection_disposition IS NULL OR rejection_disposition IN ('reject_and_consume', 'reject_and_retry')",
-        name="ck_pc_profile_candidate_metadata_rejection_disposition",
-    ),
-)
-
-ARTIFACT_PROCESSING_PENDING_TABLE = Table(
-    "pc_artifact_processing_pending",
-    SHARED_METADATA,
-    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
-    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
-    Column("source_through", BigInteger, nullable=False),
-    Column("flush_generation", BigInteger, nullable=False, server_default="0"),
-    Column("handled_flush_generation", BigInteger, nullable=False, server_default="0"),
-    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
-    CheckConstraint("source_through >= 1", name="ck_pc_artifact_processing_pending_source_through"),
-    CheckConstraint(
-        "flush_generation >= 0 AND handled_flush_generation BETWEEN 0 AND flush_generation",
-        name="ck_pc_artifact_processing_pending_generations",
-    ),
-)
-
-ARTIFACT_PROCESSING_LEASES_TABLE = Table(
-    "pc_artifact_processing_leases",
-    SHARED_METADATA,
-    Column("supervisor_group", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
-    Column("holder_id", identity_string(128), nullable=False),
-    Column("supervisor_generation", BigInteger, nullable=False),
-    Column("lease_expires_at", DateTime(timezone=True)),
-    CheckConstraint("supervisor_generation > 0", name="ck_pc_artifact_processing_leases_generation"),
 )
 
 SOURCE_CURSORS_TABLE = Table(
@@ -802,13 +653,7 @@ SHARED_TABLES = (
     ARTIFACT_PUBLICATIONS_TABLE,
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
-    SUBJECT_ROOTS_TABLE,
-    SUBJECT_SOURCE_PROJECTIONS_TABLE,
     PROFILE_POLICIES_TABLE,
-    PROFILE_REVISION_METADATA_TABLE,
-    PROFILE_CANDIDATE_METADATA_TABLE,
-    ARTIFACT_PROCESSING_PENDING_TABLE,
-    ARTIFACT_PROCESSING_LEASES_TABLE,
     SOURCE_CURSORS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,

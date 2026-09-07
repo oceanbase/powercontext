@@ -15,16 +15,15 @@
 import pytest
 from pydantic import ValidationError
 
-from powercontext.builtin.artifacts.profile import ProfileContent, normalize_profile_markdown
+from powercontext.builtin.artifacts.profile.models import ProfileWriteContent, normalize_profile_markdown
 
 
 def test_profile_markdown_is_canonicalized() -> None:
-    content = ProfileContent(content="\ufeff# 用户画像\r\n\r\ne\u0301\r\n\r\n")
+    content = ProfileWriteContent(content="\ufeff# 用户画像\r\n\r\ne\u0301\r\n\r\n")
 
     assert content.content == "# 用户画像\n\né\n"
     assert content.model_dump(by_alias=True) == {
-        "schema": "powercontext.profile.v1",
-        "media_type": "text/markdown",
+        "restored_from_revision": None,
         "content": "# 用户画像\n\né\n",
     }
 
@@ -32,7 +31,7 @@ def test_profile_markdown_is_canonicalized() -> None:
 @pytest.mark.parametrize("value", ["", "\n\r\n", "\ufeff\n"])
 def test_profile_markdown_rejects_blank_documents(value: str) -> None:
     with pytest.raises(ValidationError, match="must not be blank"):
-        ProfileContent(content=value)
+        ProfileWriteContent(content=value)
 
 
 def test_profile_markdown_enforces_the_encoded_byte_limit() -> None:

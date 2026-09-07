@@ -12,48 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Typed content and metadata for the built-in Profile Artifact Family."""
+
+"""Scope Profile snapshots and server-owned processing metadata."""
 
 from __future__ import annotations
 
 import unicodedata
-from datetime import datetime
-from typing import Annotated, ClassVar, Literal, TypeAlias
+from datetime import UTC, datetime
+from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactDraft, ArtifactRef
-from powercontext.builtin.sources import validate_scope_id
-from powercontext.limits import MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH
-from powercontext.sources import SourceRef
 
 MAX_PROFILE_CONTENT_BYTES = 262_144
 PROFILE_FAMILY = "profile"
-USER_PROFILE_ARTIFACT_ID = "profile:user"
-LOCAL_PROFILE_ARTIFACT_ID = "profile:local"
+PROFILE_ARTIFACT_ID = "profile"
 PROFILE_SOURCE_WINDOW_BINDING = "profile-source-window"
-
-SubjectKey: TypeAlias = Annotated[
-    str,
-    Field(min_length=1, max_length=MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH, pattern=r".*\S.*"),
-]
-ProfileActivationMode: TypeAlias = Literal["automatic", "review_required"]
-ProfileGenerationMode: TypeAlias = Literal[
-    "automatic",
-    "manual_create",
-    "manual_replace",
-    "review_approved",
-    "rollback",
-]
+ProfileActivationMode = Literal["automatic", "review_required"]
+ProfileGenerationMode = Literal["automatic", "manual_create", "manual_replace", "review_approved", "rollback"]
 
 
 class _ProfileValue(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
 
 def normalize_profile_markdown(value: str) -> str:
-    """Return the canonical Markdown representation used for equality and storage."""
-
     normalized = unicodedata.normalize("NFC", value.removeprefix("\ufeff")).replace("\r\n", "\n").replace("\r", "\n")
     normalized = normalized.rstrip("\n") + "\n"
     if not normalized.strip():
@@ -63,12 +47,9 @@ def normalize_profile_markdown(value: str) -> str:
     return normalized
 
 
-class ProfileContent(_ProfileValue):
-    """One complete, normalized Markdown Profile snapshot."""
-
-    schema_: Literal["powercontext.profile.v1"] = Field(default="powercontext.profile.v1", alias="schema")
-    media_type: Literal["text/markdown"] = "text/markdown"
+class ProfileWriteContent(_ProfileValue):
     content: str
+    restored_from_revision: int | None = Field(default=None, ge=1)
 
     @field_validator("content")
     @classmethod
@@ -76,171 +57,101 @@ class ProfileContent(_ProfileValue):
         return normalize_profile_markdown(value)
 
 
-class Profile(Artifact[ProfileContent]):
-    """An immutable Profile revision."""
+class SourceWindow(_ProfileValue):
+    after: int = Field(ge=0)
+    through: int = Field(ge=0)
 
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.through < self.after:
+            raise ValueError("through must be >= after")  # noqa: TRY003
+        return self
+
+
+class ProfileGeneration(_ProfileValue):
+    mode: ProfileGenerationMode
+    created_at: datetime
+    generator_id: str | None = None
+    generator_version: str | None = None
+    source_window: SourceWindow | None = None
+    restored_from_revision: int | None = Field(default=None, ge=1)
+
+    @field_validator("created_at")
+    @classmethod
+    def utc_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("created_at must include a timezone")  # noqa: TRY003
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def valid_generation(self):
+        generated = self.mode in {"automatic", "review_approved"}
+        if generated != (self.source_window is not None):
+            raise ValueError("only generated profiles require a Source window")  # noqa: TRY003
+        if generated and (not self.generator_id or not self.generator_version):
+            raise ValueError("generated profiles require generator identity")  # noqa: TRY003
+        if not generated and (self.generator_id is not None or self.generator_version is not None):
+            raise ValueError("manual writes cannot set generator identity")  # noqa: TRY003
+        if (self.mode == "rollback") != (self.restored_from_revision is not None):
+            raise ValueError("only rollback names a restored revision")  # noqa: TRY003
+        return self
+
+
+class ProfileContent(_ProfileValue):
+    schema_: Literal["powercontext.profile.v1"] = Field(default="powercontext.profile.v1", alias="schema")
+    media_type: Literal["text/markdown"] = "text/markdown"
+    content: str
+    generation: ProfileGeneration
+
+    @field_validator("content")
+    @classmethod
+    def validate_markdown(cls, value: str) -> str:
+        return normalize_profile_markdown(value)
+
+
+class ProfileCandidateProposal(_ProfileValue):
+    schema_: Literal["powercontext.profile-candidate.v1"] = Field(
+        default="powercontext.profile-candidate.v1", alias="schema"
+    )
+    content: str
+    source_window: SourceWindow
+    generator_id: str = Field(min_length=1)
+    generator_version: str = Field(min_length=1)
+    created_at: datetime
+
+    @field_validator("content")
+    @classmethod
+    def validate_markdown(cls, value: str) -> str:
+        return normalize_profile_markdown(value)
+
+    @field_validator("created_at")
+    @classmethod
+    def utc_timestamp(cls, value: datetime) -> datetime:
+        return ProfileGeneration.utc_timestamp(value)
+
+
+class Profile(Artifact[ProfileContent]):
     family: ClassVar[str] = PROFILE_FAMILY
 
 
 class ProfileDraft(ArtifactDraft[ProfileContent]):
-    """Complete Profile content and exact evidence ready for commit."""
-
     family: ClassVar[str] = PROFILE_FAMILY
-
-
-class SubjectRoot(_ProfileValue):
-    """Stable one-to-one mapping from caller-owned user identity to one Root Scope."""
-
-    subject_key: SubjectKey
-    root_scope_id: str
-    created_at: datetime
-
-    @field_validator("root_scope_id")
-    @classmethod
-    def validate_root_scope_id(cls, value: str) -> str:
-        return validate_scope_id(value)
-
-
-class SourceAddress(_ProfileValue):
-    scope_id: str
-    source_type: str
-    source_id: str
-
-    @field_validator("scope_id")
-    @classmethod
-    def validate_address_scope_id(cls, value: str) -> str:
-        return validate_scope_id(value)
-
-
-class SubjectSourceProjection(_ProfileValue):
-    """Exact relation between an Origin Source and its Root-local copy."""
-
-    subject_key: SubjectKey
-    origin: SourceAddress
-    projected: SourceAddress
-    content_digest: str
-    created_at: datetime
-
-    @model_validator(mode="after")
-    def require_distinct_scopes_and_stable_identity(self) -> SubjectSourceProjection:
-        if self.origin.scope_id == self.projected.scope_id:
-            raise ValueError("origin and projected Source scopes must differ")  # noqa: TRY003
-        if (self.origin.source_type, self.origin.source_id) != (
-            self.projected.source_type,
-            self.projected.source_id,
-        ):
-            raise ValueError("the initial projection must preserve Source identity")  # noqa: TRY003
-        return self
-
-
-class SubjectSourceWrite(_ProfileValue):
-    """Result of one atomic subject-keyed Source write."""
-
-    subject: SubjectRoot
-    origin_ref: SourceRef
-    root_ref: SourceRef
-    origin_position: StrictInt = Field(ge=1)
-    root_position: StrictInt = Field(ge=1)
-    status: Literal["committed", "already_in_root"]
 
 
 class ProfilePolicy(_ProfileValue):
     scope_id: str
-    generation_enabled: bool = True
+    generation_enabled: bool
     activation_mode: ProfileActivationMode = "automatic"
     pending_candidate_id: str | None = None
-    version: StrictInt = Field(ge=1)
+    version: int = Field(ge=1)
     updated_at: datetime
 
-    @field_validator("scope_id")
-    @classmethod
-    def validate_policy_scope_id(cls, value: str) -> str:
-        return validate_scope_id(value)
 
-
-class ProfileRevisionMetadata(_ProfileValue):
-    scope_id: str
-    artifact_ref: ArtifactRef
-    generation_mode: ProfileGenerationMode
-    generator_id: str | None = None
-    generator_version: str | None = None
-    source_after: int | None = None
-    source_through: int | None = None
-    restored_from_revision: int | None = None
-    operation_reason: str | None = None
-    created_at: datetime
-
-    @field_validator("scope_id")
-    @classmethod
-    def validate_metadata_scope_id(cls, value: str) -> str:
-        return validate_scope_id(value)
-
-    @model_validator(mode="after")
-    def validate_generation_window(self) -> ProfileRevisionMetadata:
-        if self.artifact_ref.family != PROFILE_FAMILY:
-            raise ValueError("Profile revision metadata must reference the profile family")  # noqa: TRY003
-        generated = self.generation_mode in {"automatic", "review_approved"}
-        if generated != (self.source_after is not None and self.source_through is not None):
-            raise ValueError("generated Profile revisions require a complete Source window")  # noqa: TRY003
-        if self.source_after is not None and (
-            self.source_after < 0 or self.source_through is None or self.source_through < self.source_after
-        ):
-            raise ValueError("Profile Source window is invalid")  # noqa: TRY003
-        rollback = self.generation_mode == "rollback"
-        if rollback != (self.restored_from_revision is not None):
-            raise ValueError("only rollback metadata may name a restored revision")  # noqa: TRY003
-        return self
-
-
-class ResolvedProfileTarget(_ProfileValue):
-    """Canonical Profile address after resolving either a Subject or a Scope."""
-
-    scope_id: str
-    artifact_id: Literal["profile:user", "profile:local"]
-    subject_key: SubjectKey | None = None
-    root_scope_id: str | None = None
-
-    @field_validator("scope_id")
-    @classmethod
-    def validate_target_scope_id(cls, value: str) -> str:
-        return validate_scope_id(value)
-
-    @model_validator(mode="after")
-    def require_consistent_subject_target(self) -> ResolvedProfileTarget:
-        subject_target = self.artifact_id == USER_PROFILE_ARTIFACT_ID
-        if subject_target != (self.subject_key is not None and self.root_scope_id == self.scope_id):
-            raise ValueError("Profile target identity is inconsistent")  # noqa: TRY003
-        return self
-
-
-class ProfileRecord(_ProfileValue):
-    """A resolved Profile revision with generation metadata and its ETag."""
-
-    target: ResolvedProfileTarget
-    profile: Profile
-    generation: ProfileRevisionMetadata
-    etag: str
-
-
-__all__ = [
-    "LOCAL_PROFILE_ARTIFACT_ID",
-    "MAX_PROFILE_CONTENT_BYTES",
-    "PROFILE_FAMILY",
-    "PROFILE_SOURCE_WINDOW_BINDING",
-    "USER_PROFILE_ARTIFACT_ID",
-    "Profile",
-    "ProfileActivationMode",
-    "ProfileContent",
-    "ProfileDraft",
-    "ProfileGenerationMode",
-    "ProfilePolicy",
-    "ProfileRecord",
-    "ProfileRevisionMetadata",
-    "ResolvedProfileTarget",
-    "SourceAddress",
-    "SubjectKey",
-    "SubjectRoot",
-    "SubjectSourceProjection",
-    "SubjectSourceWrite",
-    "normalize_profile_markdown",
-]
+class ProfileFlushResult(_ProfileValue):
+    status: Literal["updated", "noop", "review_pending", "disabled", "conflict"]
+    previous_cursor: int = Field(ge=0)
+    current_cursor: int = Field(ge=0)
+    high_watermark: int = Field(ge=0)
+    processed_source_count: int = Field(default=0, ge=0)
+    artifact: ArtifactRef | None = None
+    candidate_id: str | None = None

@@ -20,6 +20,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from powercontext.builtin.persistence.errors import DatabaseClosedError
@@ -134,3 +135,12 @@ class AsyncDatabase:
                 self._closed = True
                 self._closing = False
                 self._state_changed.notify_all()
+
+
+def is_transaction_contention(error: OperationalError) -> bool:
+    """Recognize only rollback-safe SQLite busy and MySQL transaction conflicts."""
+    original = error.orig
+    sqlite_code = getattr(original, "sqlite_errorcode", None)
+    if isinstance(sqlite_code, int) and sqlite_code & 0xFF in {5, 6}:
+        return True
+    return bool(original is not None and original.args and original.args[0] in {1205, 1213})

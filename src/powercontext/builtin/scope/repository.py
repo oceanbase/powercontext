@@ -230,6 +230,18 @@ class ScopeRepository:
         ).scalar_one_or_none()
         return None if value is None else ScopeBinding(key=key, scope_id=str(value))
 
+    async def ensure_binding(self, connection: AsyncConnection, key: ScopeBindingKey, scope_id: str, /) -> ScopeBinding:
+        """Insert only; the caller rolls back and retries a concurrent binding race."""
+        await connection.execute(
+            insert(SCOPE_BINDINGS_TABLE).values(
+                integration=key.integration,
+                kind=key.kind,
+                external_id=key.external_id,
+                scope_id=scope_id,
+            )
+        )
+        return ScopeBinding(key=key, scope_id=scope_id)
+
     async def set_binding(
         self,
         connection: AsyncConnection,

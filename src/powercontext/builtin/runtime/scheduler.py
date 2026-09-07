@@ -17,13 +17,16 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import URL
 
+PROFILE_JOB_ID = "powercontext.profile.source-window.v1"
 SOURCE_WINDOW_JOB_ID = "powercontext.memory.source-window.v1"
 EXPERIENCE_INCUBATION_JOB_ID = "powercontext.experience.incubation.v1"
 SCHEDULER_TABLE = "powercontext_scheduler_jobs"
@@ -71,6 +74,7 @@ def register_processors(
     *,
     source_window: Processor | None,
     experience_incubation: Processor | None,
+    profile: Processor | None = None,
 ) -> None:
     """Register live processors referenced by persisted jobs."""
 
@@ -79,6 +83,7 @@ def register_processors(
     registered = {
         name: processor
         for name, processor in (
+            ("profile", profile),
             (_SOURCE_WINDOW_PROCESSOR, source_window),
             (_EXPERIENCE_INCUBATION_PROCESSOR, experience_incubation),
         )
@@ -205,3 +210,26 @@ def _configure_interval_job(
             trigger="interval",
             seconds=schedule_seconds,
         )
+
+
+async def dispatch_profile_windows(runtime_key: str) -> None:
+    await _processor(runtime_key, "profile")()
+
+
+def configure_profile_job(scheduler, *, runtime_key: str, cron: str | None, timezone: str) -> None:
+    if cron is None:
+        if scheduler.get_job(PROFILE_JOB_ID) is not None:
+            scheduler.remove_job(PROFILE_JOB_ID)
+        return
+    # Immediate first run catches up missed windows; subsequent runs use the cron.
+    scheduler.add_job(
+        dispatch_profile_windows,
+        trigger=CronTrigger.from_crontab(cron, timezone=timezone),
+        id=PROFILE_JOB_ID,
+        replace_existing=True,
+        args=(runtime_key,),
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=86400,
+        next_run_time=datetime.now(UTC),
+    )

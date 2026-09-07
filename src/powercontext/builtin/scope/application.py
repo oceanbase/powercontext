@@ -203,6 +203,7 @@ class ScopeApplication:
         *,
         explicit_scope_id: str | None = None,
         binding_keys: Sequence[ScopeBindingKey] = (),
+        allow_default: bool = True,
     ) -> ScopeDescriptor:
         async with self._database.transaction() as connection:
             if explicit_scope_id is not None:
@@ -211,6 +212,8 @@ class ScopeApplication:
                 binding = await self._repository.binding(connection, key)
                 if binding is not None:
                     return await self._required(connection, binding.scope_id)
+            if not allow_default:
+                raise ScopeBindingNotFoundError
             default_scope_id = await self._repository.default_scope_id(connection)
             if default_scope_id is None:
                 raise ScopeBindingNotFoundError

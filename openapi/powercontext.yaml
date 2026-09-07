@@ -21,6 +21,186 @@ security:
   - BearerAuth: []
   - {}
 paths:
+  /v1/scopes/{scope_id}/subject-sources:
+    post:
+      tags: ["profile"]
+      summary: "Atomically write Source to business and subject scopes"
+      operationId: "create_subject_source"
+      x-powercontext-access:
+        action: "scope.contribute"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 256
+            pattern: ".*\\S.*"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/CreateSubjectSourceRequest"
+      responses:
+        "201":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/CreateSubjectSourceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/scopes/{scope_id}/profile-policy:
+    get:
+      tags: ["profile"]
+      summary: "Read Profile policy"
+      operationId: "get_profile_policy"
+      x-powercontext-access:
+        action: "scope.read"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 256
+            pattern: ".*\\S.*"
+      responses:
+        "200":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ProfilePolicyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    put:
+      tags: ["profile"]
+      summary: "Configure Profile policy"
+      operationId: "put_profile_policy"
+      x-powercontext-access:
+        action: "scope.admin"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 256
+            pattern: ".*\\S.*"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/PutProfilePolicyRequest"
+      responses:
+        "200":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ProfilePolicyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/profile/flush:
+    post:
+      tags: ["profile"]
+      summary: "Process one Profile source window"
+      operationId: "flush_profile"
+      x-powercontext-access:
+        action: "scope.contribute"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/FlushProfileRequest"
+      responses:
+        "200":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/FlushProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /health/live:
     get:
       security: []
@@ -3593,6 +3773,192 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    CreateSubjectSourceRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["subject_key","content"]
+      properties:
+        subject_key:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        subject_type:
+          type: "string"
+          enum: ["user"]
+          default: "user"
+        subject_scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+          nullable: true
+        source_type:
+          type: "string"
+          enum: ["content"]
+          default: "content"
+        content:
+          description: "JSON value stored identically in both scopes."
+    CreateSubjectSourceResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["subject_key","subject_type","subject_scope_id","sources"]
+      properties:
+        subject_key:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        subject_type:
+          type: "string"
+          enum: ["user"]
+        subject_scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        sources:
+          type: "array"
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/SourceRecord"
+    PutProfilePolicyRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["generation_enabled","expected_version"]
+      properties:
+        generation_enabled:
+          type: "boolean"
+        activation_mode:
+          type: "string"
+          enum: ["automatic","review_required"]
+          default: "automatic"
+        expected_version:
+          type: "integer"
+          minimum: 0
+    ProfilePolicyResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["scope_id","generation_enabled","activation_mode","pending_candidate_id","version","updated_at"]
+      properties:
+        scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        generation_enabled:
+          type: "boolean"
+        activation_mode:
+          type: "string"
+          enum: ["automatic","review_required"]
+        pending_candidate_id:
+          type: "string"
+          nullable: true
+        version:
+          type: "integer"
+          minimum: 1
+        updated_at:
+          type: "string"
+          format: "date-time"
+    FlushProfileRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["scope_id"]
+      properties:
+        scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+    FlushProfileResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["status","previous_cursor","current_cursor","high_watermark","processed_source_count"]
+      properties:
+        status:
+          type: "string"
+          enum: ["updated","noop","review_pending","disabled","conflict"]
+        previous_cursor:
+          type: "integer"
+          minimum: 0
+        current_cursor:
+          type: "integer"
+          minimum: 0
+        high_watermark:
+          type: "integer"
+          minimum: 0
+        processed_source_count:
+          type: "integer"
+          minimum: 0
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        candidate_id:
+          type: "string"
+          nullable: true
+    ProfileWriteContent:
+      type: "object"
+      additionalProperties: false
+      required: ["content"]
+      properties:
+        content:
+          type: "string"
+          minLength: 1
+        restored_from_revision:
+          type: "integer"
+          minimum: 1
+          nullable: true
+    ProfileSourceWindow:
+      type: "object"
+      additionalProperties: false
+      required: ["after","through"]
+      properties:
+        after:
+          type: "integer"
+          minimum: 0
+        through:
+          type: "integer"
+          minimum: 0
+    ProfileCandidateProposal:
+      type: "object"
+      additionalProperties: false
+      required: ["schema","content","source_window","generator_id","generator_version","created_at"]
+      properties:
+        schema:
+          type: "string"
+          enum: ["powercontext.profile-candidate.v1"]
+        content:
+          type: "string"
+          minLength: 1
+        source_window:
+          $ref: "#/components/schemas/ProfileSourceWindow"
+        generator_id:
+          type: "string"
+          minLength: 1
+        generator_version:
+          type: "string"
+          minLength: 1
+        created_at:
+          type: "string"
+          format: "date-time"
+    CreateProfileArtifactRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["family","content"]
+      properties:
+        family:
+          type: "string"
+          enum: ["profile"]
+        content:
+          $ref: "#/components/schemas/ProfileWriteContent"
+    ReplaceProfileArtifactRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["content"]
+      properties:
+        content:
+          $ref: "#/components/schemas/ProfileWriteContent"
     ActivateHandoffRequest:
       type: object
       additionalProperties: false
@@ -4053,6 +4419,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        allow_default: {type: boolean, default: true}
         explicit_scope_id:
           type: string
           minLength: 1
@@ -4118,6 +4485,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ExperienceProposal"
             - $ref: "#/components/schemas/SkillProposal"
+            - $ref: "#/components/schemas/ProfileCandidateProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -7108,6 +7476,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ExperienceProposal"
             - $ref: "#/components/schemas/SkillProposal"
+            - $ref: "#/components/schemas/ProfileWriteContent"
         source_refs:
           type: array
           maxItems: 32
@@ -7272,6 +7641,7 @@ components:
         - $ref: "#/components/schemas/CreateSkillArtifactRequest"
         - $ref: "#/components/schemas/CreateHandoffArtifactRequest"
         - $ref: "#/components/schemas/CreatePromptArtifactRequest"
+        - $ref: "#/components/schemas/CreateProfileArtifactRequest"
       discriminator:
         propertyName: family
         mapping:
@@ -7280,6 +7650,7 @@ components:
           skill: "#/components/schemas/CreateSkillArtifactRequest"
           handoff: "#/components/schemas/CreateHandoffArtifactRequest"
           prompt: "#/components/schemas/CreatePromptArtifactRequest"
+          profile: "#/components/schemas/CreateProfileArtifactRequest"
     CreatePromptArtifactRequest:
       type: object
       additionalProperties: false
@@ -7534,6 +7905,7 @@ components:
         - $ref: "#/components/schemas/ReplaceSkillArtifactRequest"
         - $ref: "#/components/schemas/ReplaceHandoffArtifactRequest"
         - $ref: "#/components/schemas/ReplacePromptArtifactRequest"
+        - $ref: "#/components/schemas/ReplaceProfileArtifactRequest"
     ReplacePromptArtifactRequest:
       type: object
       additionalProperties: false
@@ -7789,52 +8161,6 @@ components:
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
-        subject_projection:
-          $ref: "#/components/schemas/SubjectProjectionReceipt"
-          nullable: true
-          description: Exact Origin and Subject Root addresses when this Source was written with subject_key.
-    SourceAddress:
-      type: object
-      additionalProperties: false
-      required: [scope_id, source_type, source_id]
-      properties:
-        scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '.*\S.*'
-        source_type:
-          type: string
-          minLength: 1
-          maxLength: 128
-          pattern: '.*\S.*'
-        source_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '^[\x21-\x7E]+$'
-    SubjectProjectionReceipt:
-      type: object
-      additionalProperties: false
-      required: [subject_key, root_scope_id, origin_source, root_source, status]
-      properties:
-        subject_key:
-          type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '.*\S.*'
-        root_scope_id:
-          type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '.*\S.*'
-        origin_source:
-          $ref: "#/components/schemas/SourceAddress"
-        root_source:
-          $ref: "#/components/schemas/SourceAddress"
-        status:
-          type: string
-          enum: [committed, already_in_root]
     SourceTypeReference:
       type: object
       additionalProperties: false
@@ -7869,7 +8195,7 @@ components:
       enum: [today, 7d, 30d]
     CandidateFamily:
       type: string
-      enum: [experience, skill]
+      enum: [experience, skill, profile]
     ExternalSkillInstallationScope:
       type: string
       enum: [user, project, plugin]

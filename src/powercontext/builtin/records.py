@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, JsonValue
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.profile import SourceAddress
+from powercontext.builtin.artifacts.memory import MemoryEntryVersion
 from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
@@ -36,16 +36,6 @@ class _RecordModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
-class SubjectProjectionReceipt(_RecordModel):
-    """Addresses committed by one subject-keyed Source write."""
-
-    subject_key: str
-    root_scope_id: str
-    origin_source: SourceAddress
-    root_source: SourceAddress
-    status: Literal["committed", "already_in_root"]
-
-
 class SourceRecord(_RecordModel):
     """One durable Source and its journal position."""
 
@@ -55,7 +45,6 @@ class SourceRecord(_RecordModel):
     content: JsonValue
     position: int
     content_digest: str
-    subject_projection: SubjectProjectionReceipt | None = None
 
 
 class ArtifactWrite(_RecordModel):
@@ -151,7 +140,7 @@ class BaseAccessError(Exception):
 class BaseValueNotFoundError(BaseAccessError):
     """Report an absent or non-visible Source or Artifact."""
 
-    def __init__(self, kind: Literal["source", "artifact"], identity: object) -> None:
+    def __init__(self, kind: str, identity: object) -> None:
         self.kind = kind
         self.identity = identity
         super().__init__(f"{kind} was not found")
@@ -160,7 +149,7 @@ class BaseValueNotFoundError(BaseAccessError):
 class BaseValueConflictError(BaseAccessError):
     """Report an identity that already names different durable state."""
 
-    def __init__(self, kind: Literal["source", "artifact"], identity: object) -> None:
+    def __init__(self, kind: str, identity: object) -> None:
         self.kind = kind
         self.identity = identity
         super().__init__(f"{kind} identity conflicts with durable state")
@@ -224,8 +213,6 @@ class RecordService(Protocol):
         source_type: str,
         content: JsonValue,
         /,
-        *,
-        subject_key: str | None = None,
     ) -> SourceRecord: ...
 
     async def capture_source(
@@ -236,8 +223,6 @@ class RecordService(Protocol):
         content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
-        *,
-        subject_key: str | None = None,
     ) -> SourceRecord: ...
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord: ...

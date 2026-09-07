@@ -12,169 +12,325 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import asyncio
-from itertools import count
 
 import pytest
 from sqlalchemy import func, select
 
-from powercontext.builtin.artifacts.profile import (
-    PROFILE_SOURCE_WINDOW_BINDING,
-    Profile,
-)
-from powercontext.builtin.artifacts.profile.service import RelationalProfileService
-from powercontext.builtin.persistence.artifacts import ArtifactRepository
-from powercontext.builtin.persistence.sources import SourceRepository
+from powercontext.builtin.artifacts.profile.models import ProfileContent, ProfileWriteContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import (
-    ARTIFACT_PROCESSING_PENDING_TABLE,
-    ARTIFACTS_TABLE,
-    BUILTIN_TABLES,
-    PROFILE_POLICIES_TABLE,
-    PROFILE_REVISION_METADATA_TABLE,
-    SOURCES_TABLE,
-    SUBJECT_ROOTS_TABLE,
-    SUBJECT_SOURCE_PROJECTIONS_TABLE,
-)
-from powercontext.builtin.records import ArtifactRevisionPreconditionError
-from powercontext.builtin.scope import ScopeApplication, ScopeDraft
-from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, ContentSource
-from powercontext.sources import SourceMaterialization
+from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SCOPES_TABLE, SOURCES_TABLE
+from powercontext.builtin.records import ArtifactWrite, BaseValueConflictError, InvalidBaseAccessRequestError
+from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.scope import ScopeBindingKey, ScopeDraft
+from powercontext.builtin.scope.errors import ScopeBindingNotFoundError
 
 
-def _service(profile: SQLiteProfile) -> RelationalProfileService:
-    sequence = count(1)
-    sources = SourceRepository(BUILTIN_SOURCE_REGISTRY)
-    artifacts = ArtifactRepository((Profile,), sources=sources)
-    return RelationalProfileService(
-        profile.database,
-        sources,
-        artifacts,
-        id_factory=lambda prefix: f"{prefix}-{next(sequence)}",
-    )
+class Generator:
+    def __init__(self, text="# Profile\n\n- Prefers Chinese."):
+        self.text = text
+        self.inputs = []
+
+    async def generate(self, value):
+        self.inputs.append(value)
+        return self.text
 
 
-def test_subject_root_resolution_is_stable_and_creates_default_policy() -> None:
-    async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            service = _service(profile)
-
-            first, first_created = await service.resolve_subject("user-10086")
-            second, second_created = await service.resolve_subject("user-10086")
-
-            assert first == second
-            assert first_created is True
-            assert second_created is False
-            async with profile.database.transaction() as connection:
-                assert await connection.scalar(select(func.count()).select_from(SUBJECT_ROOTS_TABLE)) == 1
-                policy = (
-                    (
-                        await connection.execute(
-                            select(PROFILE_POLICIES_TABLE).where(
-                                PROFILE_POLICIES_TABLE.c.scope_id == first.root_scope_id
-                            )
-                        )
-                    )
-                    .mappings()
-                    .one()
-                )
-                assert policy["generation_enabled"] is True
-                assert policy["activation_mode"] == "automatic"
-                scope = await ScopeApplication(profile.database).get(first.root_scope_id)
-                assert scope.parent_scope_id is None
-
-    asyncio.run(scenario())
+async def scope(contexts, name):
+    return (await contexts.scopes.create(ScopeDraft(title=name, summary=name, idempotency_key=name))).scope_id
 
 
-def test_subject_source_is_committed_once_per_origin_and_root() -> None:
-    async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            scopes = ScopeApplication(profile.database)
-            origin = await scopes.create(
-                ScopeDraft(title="Group", summary="Shared group chat", idempotency_key="group")
+def test_subject_binding_dual_write_and_management():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            group = await scope(ctx, "Group")
+            target, pair = await ctx.subject_sources.create(group, "U1", {"speaker": "U1", "text": "Chinese"})
+            assert target != group
+            assert pair[0].source_id == pair[1].source_id
+            assert pair[0].content == pair[1].content
+            assert (await ctx.scopes.get(target)).parent_scope_id is None
+            assert (await ctx.profiles.get_policy(target)).generation_enabled
+            again, _ = await ctx.subject_sources.create(group, "U1", "Second")
+            assert again == target
+            other = await scope(ctx, "Other")
+            with pytest.raises(BaseValueConflictError):
+                await ctx.subject_sources.create(group, "U1", "Conflict", subject_scope_id=other)
+            with pytest.raises(InvalidBaseAccessRequestError):
+                await ctx.subject_sources.create(target, "U1", "Same")
+            key = ScopeBindingKey(integration="subject", kind="user", external_id="U1")
+            await ctx.scopes.bind(key, other)
+            rebound, _ = await ctx.subject_sources.create(group, "U1", "Third")
+            assert rebound == other
+            await ctx.scopes.clear_binding(key)
+            await ctx.scopes.set_default(group)
+            with pytest.raises(ScopeBindingNotFoundError):
+                await ctx.scopes.resolve_binding(binding_keys=(key,), allow_default=False)
+            assert (await ctx.scopes.resolve_binding(binding_keys=(key,))).scope_id == group
+            async with db.database.transaction() as connection:
+                assert await connection.scalar(select(func.count()).select_from(SOURCES_TABLE)) == 6
+
+    asyncio.run(run())
+
+
+def test_subject_failure_rolls_back_scope_binding_and_both_sources():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            group = await scope(ctx, "Group")
+
+            async def denied(*args):
+                raise PermissionError
+
+            with pytest.raises(PermissionError):
+                await ctx.subject_sources.create(group, "U1", "Private", authorize=denied)
+            async with db.database.transaction() as connection:
+                assert await connection.scalar(select(func.count()).select_from(SCOPES_TABLE)) == 1
+                assert await connection.scalar(select(func.count()).select_from(SOURCES_TABLE)) == 0
+
+    asyncio.run(run())
+
+
+def test_profile_generic_crud_generation_and_no_change():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "User")
+            assert (await ctx.profiles.flush(sid)).status == "disabled"
+            created = await ctx.records.create_artifact(sid, "profile", ArtifactWrite(content={"content": "# Manual"}))
+            assert created.artifact_id == "profile"
+            assert not (await ctx.profiles.get_policy(sid)).generation_enabled
+            policy = await ctx.profiles.get_policy(sid)
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=policy.version)
+            generator = Generator()
+            ctx.profiles.generator = generator
+            assert (await ctx.profiles.flush(sid)).status == "noop"
+            assert not generator.inputs  # lineage-only Source consumed without generation
+            await ctx.records.create_source(sid, "content", "Prefers Chinese")
+            result = await ctx.profiles.flush(sid)
+            assert result.status == "updated"
+            assert result.artifact is not None
+            assert result.artifact.revision == 2
+            saved = await ctx.records.get_artifact(sid, "profile", "profile")
+            source_window = ProfileContent.model_validate(saved.content).generation.source_window
+            assert source_window is not None and source_window.through == result.current_cursor
+            await ctx.records.create_source(sid, "content", "Prefers Chinese")
+            assert (await ctx.profiles.flush(sid)).status == "noop"
+            assert (await ctx.records.get_artifact(sid, "profile", "profile")).revision == 2
+            count = len(generator.inputs)
+            assert (await ctx.profiles.flush(sid)).status == "noop"
+            assert len(generator.inputs) == count
+
+    asyncio.run(run())
+
+
+def test_review_revise_approve_reject_and_resume():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "User")
+            await ctx.profiles.put_policy(
+                sid, generation_enabled=True, activation_mode="review_required", expected_version=0
             )
-            service = _service(profile)
-            source = ContentSource(
-                name="message-1",
-                materialization=SourceMaterialization.CAPTURED,
-                content="我偏好中文简洁回答。",
+            ctx.profiles.generator = Generator()
+            await ctx.records.create_source(sid, "content", "Prefers Chinese")
+            first = await ctx.profiles.flush(sid)
+            assert first.status == "review_pending" and first.current_cursor == 0
+            review = ctx.review(sid)
+            assert first.candidate_id is not None
+            pending = await review.get_candidate(first.candidate_id)
+            assert (await ctx.profiles.flush(sid)).candidate_id == pending.candidate_id
+            revised = await review.revise(
+                pending.candidate_id,
+                pending.version,
+                ProfileWriteContent(content="# Reviewed"),
+                sources=pending.sources,
+                artifacts=pending.artifacts,
+                target=pending.target,
+                reason=pending.reason,
             )
+            approved = await review.approve(revised.candidate_id, revised.version)
+            assert approved.result_artifact is not None
+            assert approved.result_artifact.artifact_id == "profile"
+            assert (await ctx.profiles.get_policy(sid)).pending_candidate_id is None
+            assert (await ctx.profiles.flush(sid)).status == "noop"
+            await ctx.records.create_source(sid, "content", "New evidence")
+            second = await ctx.profiles.flush(sid)
+            assert second.candidate_id is not None
+            rejected = await review.reject(second.candidate_id, 1, "Temporary request")
+            assert rejected.status.value == "rejected"
+            calls = len(ctx.profiles.generator.inputs)
+            assert (await ctx.profiles.flush(sid)).status == "noop"
+            assert len(ctx.profiles.generator.inputs) == calls
+            # Restarting the service reconstructs all state from shared tables.
+            reopened = RelationalContexts(database=db.database)
+            assert (await reopened.profiles.flush(sid)).status == "noop"
 
-            first = await service.route_source(origin.scope_id, "user-10086", source)
-            second = await service.route_source(origin.scope_id, "user-10086", source)
-
-            assert second == first
-            assert first.origin_ref == first.root_ref
-            assert first.origin_position == first.root_position == 1
-            assert first.subject.root_scope_id != origin.scope_id
-            async with profile.database.transaction() as connection:
-                assert await connection.scalar(select(func.count()).select_from(SOURCES_TABLE)) == 2
-                assert await connection.scalar(select(func.count()).select_from(SUBJECT_SOURCE_PROJECTIONS_TABLE)) == 1
-                pending = (
-                    (
-                        await connection.execute(
-                            select(ARTIFACT_PROCESSING_PENDING_TABLE).where(
-                                ARTIFACT_PROCESSING_PENDING_TABLE.c.scope_id == first.subject.root_scope_id
-                            )
-                        )
-                    )
-                    .mappings()
-                    .one()
-                )
-                assert pending["binding_name"] == PROFILE_SOURCE_WINDOW_BINDING
-                assert pending["source_through"] == 1
-
-    asyncio.run(scenario())
+    asyncio.run(run())
 
 
-def test_manual_profile_create_replace_and_rollback_append_revisions() -> None:
-    async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            service = _service(profile)
-            await service.resolve_subject("user-10086")
-            target = await service.resolve_target(subject_key="user-10086")
-
-            created = await service.create_profile(target, "# 用户画像\n\n偏好中文。", reason="initial profile")
-            replaced = await service.replace_profile(
-                target,
-                "# 用户画像\n\n偏好简洁中文。",
-                created.etag,
-                reason="user correction",
+def test_pending_review_survives_manual_replace_and_rejects_stale_approval():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "Review")
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            generator = Generator()
+            ctx.profiles.generator = generator
+            await ctx.records.create_source(sid, "content", "First evidence")
+            await ctx.profiles.flush(sid)
+            policy = await ctx.profiles.get_policy(sid)
+            await ctx.profiles.put_policy(
+                sid, generation_enabled=True, activation_mode="review_required", expected_version=policy.version
             )
-            rolled_back = await service.rollback_profile(
-                target,
-                1,
-                replaced.etag,
-                reason="restore the initial wording",
+            generator.text = "# New"
+            await ctx.records.create_source(sid, "content", "Second evidence")
+            pending = await ctx.profiles.flush(sid)
+            assert pending.candidate_id is not None
+            record = await ctx.records.get_artifact(sid, "profile", "profile")
+            await ctx.records.replace_artifact(
+                sid,
+                "profile",
+                "profile",
+                f'"revision:{record.revision}"',
+                ArtifactWrite(content={"content": "# Human"}),
             )
+            with pytest.raises(BaseValueConflictError):
+                await ctx.review(sid).approve(pending.candidate_id, 1)
+            assert (await ctx.profiles.get_policy(sid)).pending_candidate_id == pending.candidate_id
+            await ctx.review(sid).reject(pending.candidate_id, 1, "Superseded by manual edit")
+            assert (await ctx.profiles.flush(sid)).status == "noop"
 
-            assert (created.profile.revision, replaced.profile.revision, rolled_back.profile.revision) == (1, 2, 3)
-            assert rolled_back.profile.content == created.profile.content
-            assert rolled_back.generation.generation_mode == "rollback"
-            assert rolled_back.generation.restored_from_revision == 1
-            assert rolled_back.profile.lineage.artifacts == (replaced.profile.as_ref(),)
-            assert all(len(record.profile.lineage.sources) == 1 for record in (created, replaced, rolled_back))
-
-            loaded = await service.get_profile(target)
-            assert loaded == rolled_back
-            with pytest.raises(ArtifactRevisionPreconditionError):
-                await service.replace_profile(target, "stale", created.etag, reason="stale write")
-            async with profile.database.transaction() as connection:
-                assert await connection.scalar(select(func.count()).select_from(ARTIFACTS_TABLE)) == 3
-                assert await connection.scalar(select(func.count()).select_from(PROFILE_REVISION_METADATA_TABLE)) == 3
-
-    asyncio.run(scenario())
+    asyncio.run(run())
 
 
-def test_root_scope_selector_resolves_to_the_same_user_profile() -> None:
-    async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
-            service = _service(profile)
-            root, _ = await service.resolve_subject("user-10086")
+def test_generation_cas_discards_stale_result_after_policy_change(tmp_path):
+    async def run():
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'cas.db'}"), tables=BUILTIN_TABLES
+        ) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "User")
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            await ctx.records.create_source(sid, "content", "Chinese")
+            entered, release = asyncio.Event(), asyncio.Event()
 
-            by_subject = await service.resolve_target(subject_key="user-10086")
-            by_scope = await service.resolve_target(scope_id=root.root_scope_id)
+            class PausedGenerator:
+                async def generate(self, value):
+                    entered.set()
+                    await release.wait()
+                    return "# Stale"
 
-            assert by_scope == by_subject
+            ctx.profiles.generator = PausedGenerator()
+            task = asyncio.create_task(ctx.profiles.flush(sid))
+            await entered.wait()
+            policy = await ctx.profiles.get_policy(sid)
+            await ctx.profiles.put_policy(sid, generation_enabled=False, expected_version=policy.version)
+            release.set()
+            result = await task
+            assert result.status == "conflict"
+            assert result.current_cursor == 0
+            ctx.profiles.generator = Generator()
+            policy = await ctx.profiles.get_policy(sid)
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=policy.version)
+            assert (await ctx.profiles.flush(sid)).status == "updated"
 
-    asyncio.run(scenario())
+    asyncio.run(run())
+
+
+def test_concurrent_subject_initialization_has_no_orphan_scope(tmp_path):
+    async def run():
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'bindings.db'}"), tables=BUILTIN_TABLES
+        ) as db:
+            first, second = RelationalContexts(database=db.database), RelationalContexts(database=db.database)
+            group = await scope(first, "Group")
+            a, b = await asyncio.gather(
+                first.subject_sources.create(group, "U1", "One"),
+                second.subject_sources.create(group, "U1", "Two"),
+            )
+            assert a[0] == b[0]
+            async with db.database.transaction() as connection:
+                assert await connection.scalar(select(func.count()).select_from(SCOPES_TABLE)) == 2
+                assert await connection.scalar(select(func.count()).select_from(SOURCES_TABLE)) == 4
+
+    asyncio.run(run())
+
+
+def test_concurrent_generators_commit_only_one_profile(tmp_path):
+    async def run():
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'generation.db'}"), tables=BUILTIN_TABLES
+        ) as db:
+            a, b = RelationalContexts(database=db.database), RelationalContexts(database=db.database)
+            sid = await scope(a, "User")
+            await a.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            await a.records.create_source(sid, "content", "Chinese")
+            both = asyncio.Event()
+
+            class BarrierGenerator:
+                arrived = 0
+
+                async def generate(self, value):
+                    self.arrived += 1
+                    if self.arrived == 2:
+                        both.set()
+                    await both.wait()
+                    return "# Profile"
+
+            a.profiles.generator = b.profiles.generator = BarrierGenerator()
+            results = await asyncio.gather(a.profiles.flush(sid), b.profiles.flush(sid))
+            assert sorted(r.status for r in results) == ["conflict", "updated"]
+            assert (await a.records.get_artifact(sid, "profile", "profile")).revision == 1
+            assert (await a.profiles.flush(sid)).status == "noop"
+
+    asyncio.run(run())
+
+
+def test_subject_second_source_failure_rolls_back_new_scope_and_binding(monkeypatch):
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            group = await scope(ctx, "Group")
+            original = ctx.repositories.sources.add
+            writes = 0
+
+            async def fail_second(connection, scope_id, source):
+                nonlocal writes
+                writes += 1
+                if writes == 2:
+                    raise OSError("simulated storage failure")  # noqa: TRY003
+                return await original(connection, scope_id, source)
+
+            monkeypatch.setattr(ctx.repositories.sources, "add", fail_second)
+            with pytest.raises(OSError):
+                await ctx.subject_sources.create(group, "U1", "Chinese")
+            key = ScopeBindingKey(integration="subject", kind="user", external_id="U1")
+            assert await ctx.scopes.binding(key) is None
+            async with db.database.transaction() as connection:
+                assert await connection.scalar(select(func.count()).select_from(SCOPES_TABLE)) == 1
+                assert await connection.scalar(select(func.count()).select_from(SOURCES_TABLE)) == 0
+
+    asyncio.run(run())
+
+
+def test_failed_generation_owner_write_preserves_window():
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            ctx = RelationalContexts(database=db.database)
+            sid = await scope(ctx, "User")
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            await ctx.records.create_source(sid, "content", "Chinese")
+            ctx.profiles.generator = Generator()
+
+            async def failed_owner(*args):
+                raise OSError("simulated owner persistence failure")  # noqa: TRY003
+
+            with pytest.raises(OSError):
+                await ctx.profiles.flush(sid, on_commit=failed_owner)
+            result = await ctx.profiles.flush(sid)
+            assert result.status == "updated" and result.previous_cursor == 0
+            assert result.artifact is not None and result.artifact.revision == 1
+
+    asyncio.run(run())

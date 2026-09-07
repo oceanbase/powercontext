@@ -35,6 +35,7 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryUsedSearchMode,
 )
 from powercontext.builtin.artifacts.prompt import PromptCapability
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     ExternalSkillResolution,
@@ -55,7 +56,7 @@ from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
-ReviewedProposal: TypeAlias = ExperienceContent | SkillContent
+ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal
 
 PREPARED_CONTEXT_SCHEMA: PreparedContextSchema = "powercontext.prepared-context.v1"
 
@@ -344,7 +345,7 @@ class ListArtifactCandidatesRequest(BaseModel):
     """Filter and page the current Review Inbox."""
 
     status: CandidateStatus = CandidateStatus.PENDING
-    family: Literal["experience", "skill"] | None = None
+    family: Literal["experience", "skill", "profile"] | None = None
     cursor: str | None = None
     limit: Annotated[int, Field(ge=1, le=MAX_CANDIDATE_PAGE_SIZE)] = DEFAULT_CANDIDATE_PAGE_SIZE
 
@@ -363,7 +364,7 @@ class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
 
 
 class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
-    proposal: ReviewedProposal
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
     target: ArtifactRef | None = None

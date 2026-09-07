@@ -183,7 +183,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_artifact_processing_leases' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
      -f <export-directory>
    ```
 
@@ -191,7 +191,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions,pc_subject_roots,pc_profile_revision_metadata,pc_artifact_processing_pending' \
+     --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -200,6 +200,14 @@ collation，但不会包含数据库 URL 或凭据。
    ```bash
    obloader <connection-options> -D <new-database> --csv \
      --table 'pc_artifact_candidate_heads,pc_memory_entry_heads,pc_artifact_tags' \
+     -f <export-directory>
+   ```
+
+   第 3 层成功完成后，导入第 4 层中的 Profile Policy：
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_profile_policies' \
      -f <export-directory>
    ```
 

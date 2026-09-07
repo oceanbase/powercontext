@@ -393,6 +393,8 @@ from powercontext.http import (
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
     CreateSourceRequest,
+    CreateSubjectSourceRequest,
+    CreateSubjectSourceResponse,
     CreateWorkContractRequest,
     DownloadRemoteSkillPackageRequest,
     EnrollRemoteSkillTargetRequest,
@@ -403,6 +405,8 @@ from powercontext.http import (
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    FlushProfileRequest,
+    FlushProfileResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
@@ -448,11 +452,13 @@ from powercontext.http import (
     PromptConfiguration,
     PromptDemonstrationResult,
     PromptKey,
+    ProfilePolicyResponse,
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
     ProposeSkillRequest,
     PublishArtifactRequest,
     PublishRemoteSkillRequest,
+    PutProfilePolicyRequest,
     ReadinessResponse,
     ReadinessStatus,
     ReconcileRemoteSkillsRequest,
@@ -500,12 +506,10 @@ from powercontext.http import (
     SkillPackageDownload,
     SkillPackageFile,
     SkillPackageManifest,
-    SourceAddress,
     SourceDefinitionManifest,
     SourceObservationReceipt,
     SourceRecord,
     SourceType,
-    SubjectProjectionReceipt,
     SubmitSourceObservationRequest,
     UnpublishRemoteSkillRequest,
     UpdateScopeRequest,
@@ -587,7 +591,6 @@ from powercontext.http._generated.models import (
 from powercontext.http._generated.models import (
     ShareUnit as TransportShareUnit,
 )
-from powercontext.http._generated.models import Status as SubjectProjectionStatus
 from powercontext.http._generated.models import Type4 as TransportMemoryEntrySelectorType
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
@@ -607,12 +610,14 @@ from powercontext.http._generated.operations import (
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SCOPE,
     CREATE_SOURCE,
+    CREATE_SUBJECT_SOURCE,
     CREATE_WORK_CONTRACT,
     DOWNLOAD_REMOTE_SKILL_PACKAGE,
     DOWNLOAD_SKILL_PACKAGE,
     ENROLL_REMOTE_SKILL_TARGET,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
+    FLUSH_PROFILE,
     GENERATE_EXPERIENCE,
     GENERATE_PROMPT_DEMONSTRATIONS,
     GENERATE_SKILL,
@@ -630,6 +635,7 @@ from powercontext.http._generated.operations import (
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
     GET_PROMPT_CONFIGURATION,
+    GET_PROFILE_POLICY,
     GET_READINESS,
     GET_SCOPE,
     GET_SKILL,
@@ -660,6 +666,7 @@ from powercontext.http._generated.operations import (
     PUBLISH_ARTIFACT,
     PUBLISH_REMOTE_SKILL,
     QUERY_ARTIFACT_TAGS,
+    PUT_PROFILE_POLICY,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -787,8 +794,6 @@ class _ScopedRecordApplication(Protocol):
         source_type: str,
         content: JsonValue,
         /,
-        *,
-        subject_key: str | None = None,
     ) -> RuntimeSourceRecord: ...
 
     async def get_source(self, source_type: str, source_id: str, /) -> RuntimeSourceRecord: ...
@@ -1122,6 +1127,8 @@ class _StatisticsApplication(Protocol):
 
 class ServerApplication(Protocol):
     prompts: PromptApplication
+    profiles: Any
+    subject_sources: Any
     scopes: ScopeApplication | None
     publications: ArtifactPublicationApplication | None
     sources: _SourceApplication
@@ -1285,6 +1292,10 @@ def create_app(
     if handoff_report_enabled:
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
     _add_route(app, CREATE_SOURCE, create_source)
+    _add_route(app, CREATE_SUBJECT_SOURCE, create_subject_source)
+    _add_route(app, GET_PROFILE_POLICY, get_profile_policy)
+    _add_route(app, PUT_PROFILE_POLICY, put_profile_policy)
+    _add_route(app, FLUSH_PROFILE, flush_profile)
     _add_route(app, GET_SOURCE, get_source)
     _add_route(app, CREATE_ARTIFACT, create_artifact)
     _add_route(app, GET_MEMORY_ENTRY_TAGS, get_memory_entry_tags)
@@ -1865,6 +1876,7 @@ async def resolve_scope_binding(
     resolved = await scopes.resolve_binding(
         explicit_scope_id=request.explicit_scope_id,
         binding_keys=tuple(_domain_binding_key(key) for key in request.binding_keys),
+        allow_default=request.allow_default,
     )
     return _scope_descriptor_response(resolved)
 
@@ -1990,10 +2002,118 @@ async def create_source(
     result = await application.records.for_scope(scope_id).create_source(
         request.source_type.value,
         request.content,
-        subject_key=request.subject_key,
     )
     response.headers["Location"] = _source_location(result)
     return _source_record_response(result)
+
+
+async def create_subject_source(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: CreateSubjectSourceRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> CreateSubjectSourceResponse:
+    if application.subject_sources is None:
+        raise _RuntimeNotReadyError
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+
+    async def authorize(connection, target, new_binding, new_scope):
+        if access is None:
+            return
+        principal = _require_principal()
+        context = _access_audit_context(CREATE_SUBJECT_SOURCE.operation_id)
+        if new_binding:
+            await access.require(
+                principal, AccessAction.SERVER_ADMIN, ResourceRef.server(access.deployment_id), context=context
+            )
+        if new_scope:
+            await access.bootstrap_subject_scope(connection, principal, target, context=context)
+        else:
+            await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(target), context=context)
+
+    target, sources = await application.subject_sources.create(
+        scope_id,
+        request.subject_key,
+        request.content,
+        subject_type=request.subject_type.value,
+        subject_scope_id=request.subject_scope_id,
+        authorize=authorize,
+    )
+    return CreateSubjectSourceResponse.model_validate({
+        "subject_key": request.subject_key,
+        "subject_type": "user",
+        "subject_scope_id": target,
+        "sources": [source.model_dump(mode="json") for source in sources],
+    })
+
+
+async def get_profile_policy(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ProfilePolicyResponse:
+    if application.profiles is None:
+        raise _RuntimeNotReadyError
+    return ProfilePolicyResponse.model_validate(
+        (await application.profiles.get_policy(scope_id)).model_dump(mode="json")
+    )
+
+
+async def put_profile_policy(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: PutProfilePolicyRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> ProfilePolicyResponse:
+    if application.profiles is None:
+        raise _RuntimeNotReadyError
+    policy = await application.profiles.put_policy(
+        scope_id,
+        generation_enabled=request.generation_enabled,
+        activation_mode=request.activation_mode.value,
+        expected_version=request.expected_version,
+    )
+    return ProfilePolicyResponse.model_validate(policy.model_dump(mode="json"))
+
+
+async def flush_profile(
+    request: FlushProfileRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> FlushProfileResponse:
+    if application.profiles is None:
+        raise _RuntimeNotReadyError
+    access = access_control_for_mode(http_request.app.state.access_control, mode=http_request.app.state.access_mode)
+    resource = ResourceRef.artifact(request.scope_id, family="profile", artifact_id="profile")
+    context = _access_audit_context(FLUSH_PROFILE.operation_id)
+    principal = _require_principal() if access is not None else None
+    if access is not None:
+        async with application.profiles.database.transaction() as connection:
+            current = await application.profiles.latest(connection, request.scope_id)
+        if current is not None:
+            await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
+
+    async def on_commit(connection, artifact, candidate):
+        if access is None:
+            return
+        bound = access.with_connection(connection)
+        if artifact is not None and await bound.artifact_owner(resource) is None:
+            await bound.establish_artifact_owner(
+                resource,
+                principal,
+                idempotency_key=f"profile-owner:{request.scope_id}",
+                context=context,
+            )
+        if candidate is not None:
+            await bound.attest_candidate_owner(
+                scope_id=request.scope_id,
+                candidate_id=candidate.candidate_id,
+                family="profile",
+                proposed_owner=principal,
+                target=None if candidate.target is None else resource,
+                idempotency_key=f"candidate-owner:{request.scope_id}:{candidate.candidate_id}",
+            )
+
+    result = await application.profiles.flush(request.scope_id, on_commit=on_commit)
+    return FlushProfileResponse.model_validate(result.model_dump(mode="json"))
 
 
 async def get_source(
@@ -2293,7 +2413,6 @@ async def get_artifact_revision(
 
 
 def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
-    projection = value.subject_projection
     return SourceRecord(
         scope_id=value.scope_id,
         source_type=SourceType(value.source_type),
@@ -2301,17 +2420,6 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
         content=value.content,
         position=value.position,
         content_digest=value.content_digest,
-        subject_projection=(
-            None
-            if projection is None
-            else SubjectProjectionReceipt(
-                subject_key=projection.subject_key,
-                root_scope_id=projection.root_scope_id,
-                origin_source=SourceAddress(**projection.origin_source.model_dump()),
-                root_source=SourceAddress(**projection.root_source.model_dump()),
-                status=SubjectProjectionStatus(projection.status),
-            )
-        ),
     )
 
 
@@ -4729,7 +4837,7 @@ def _map_base_access_error(error: Exception) -> tuple[int, str, str, dict[str, A
     if isinstance(error, BaseValueConflictError):
         return (
             status.HTTP_409_CONFLICT,
-            "idempotency_conflict",
+            "subject_scope_conflict" if error.kind == "subject_scope" else "idempotency_conflict",
             "The stable identity already names different durable state.",
             {"kind": error.kind},
         )
@@ -4766,7 +4874,7 @@ def _map_base_access_error(error: Exception) -> tuple[int, str, str, dict[str, A
         )
         return (
             response_status,
-            "invalid_request",
+            "distinct_scopes_required" if error.reason == "distinct_scopes_required" else "invalid_request",
             "The request is invalid.",
             {"field": error.field, "reason": error.reason},
         )

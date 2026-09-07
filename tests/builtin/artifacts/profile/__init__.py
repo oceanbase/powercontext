@@ -13,8 +13,4 @@
 # limitations under the License.
 
 
-"""Built-in Scope Profile Artifact."""
-
-from powercontext.builtin.artifacts.profile.models import Profile, ProfileContent, ProfileDraft
-
-__all__ = ["Profile", "ProfileContent", "ProfileDraft"]
+"""Behavior tests for Scope Profile artifacts."""

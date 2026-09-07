@@ -28,6 +28,7 @@ from powercontext.http import (
     ContinueHandoffRequest,
     CreateArtifactRequest,
     CreateSourceRequest,
+    CreateSubjectSourceRequest,
     GetExperienceRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -97,7 +98,6 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 "position",
                 "content_digest",
                 "receipt_identity",
-                "subject_projection",
             }
             null_source = await client.create_source(scope_id, CreateSourceRequest(content=None))
             assert null_source.content is None
@@ -207,25 +207,18 @@ def test_subject_key_projects_one_source_into_a_stable_user_root(tmp_path: Path)
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
             origin_scope_id = (await client.get_default_scope()).scope_id
 
-            created = await client.create_source(
+            created = await client.create_subject_source(
                 origin_scope_id,
-                CreateSourceRequest(content="我偏好中文简洁回答。", subject_key="user-10086"),
+                CreateSubjectSourceRequest(content="我偏好中文简洁回答。", subject_key="user-10086"),
             )
 
-            projection = created.subject_projection
-            assert projection is not None
-            assert projection.subject_key == "user-10086"
-            assert projection.origin_source.scope_id == origin_scope_id
-            assert projection.root_source.scope_id == projection.root_scope_id
-            assert projection.root_source.source_id == created.source_id
-            assert projection.root_scope_id != origin_scope_id
-            root_source = await client.get_source(
-                projection.root_scope_id,
-                projection.root_source.source_type,
-                projection.root_source.source_id,
-            )
-            assert root_source.content == created.content
-            assert root_source.position == created.position == 1
+            assert created.subject_key == "user-10086"
+            first, second = created.sources
+            assert first.scope_id == origin_scope_id
+            assert second.scope_id == created.subject_scope_id != origin_scope_id
+            assert first.source_id == second.source_id
+            assert first.content == second.content == "我偏好中文简洁回答。"
+            assert await client.get_source(second.scope_id, "content", second.source_id) == second
 
     asyncio.run(scenario())
 

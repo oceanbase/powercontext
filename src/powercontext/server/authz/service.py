@@ -462,6 +462,47 @@ class AccessControlService:
         self._cursor_secret = cursor_secret or secrets.token_bytes(32)
         self._static_scope_principal = static_scope_principal
 
+    def with_connection(self, connection):
+        """Bind internal relationship and audit writes to an existing transaction."""
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        if not isinstance(self.relationships, RelationalAccessRepository) or self.audit is not self.relationships:
+            raise AccessUnavailableError("transactional_relationships_unavailable")
+        repository = self.relationships.with_connection(connection)
+        return AccessControlService(
+            self.provider,
+            relationships=repository,
+            audit=repository,
+            deployment_id=self.deployment_id,
+            provider_capabilities=self.provider_capabilities,
+            clock=self._clock,
+        )
+
+    async def bootstrap_subject_scope(self, connection, principal, scope_id, *, context):
+        """Grant only a newly created ordinary Scope, in the Source transaction."""
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        if not isinstance(self.relationships, RelationalAccessRepository):
+            raise AccessUnavailableError("transactional_relationships_unavailable")
+        actor = _required_principal(principal)
+        repository = self.relationships.with_connection(connection)
+        binding = AccessBinding(
+            binding_id=str(uuid4()),
+            subject=actor,
+            resource=ResourceRef.scope(scope_id),
+            role=AccessRole.SCOPE_CONTRIBUTOR,
+            granted_by=actor,
+            reason="Subject scope bootstrap",
+            created_at=self._clock(),
+            expires_at=None,
+            state=AccessBindingState.ACTIVE,
+            version=1,
+            policy_revision="pending",
+            idempotency_key=f"subject-scope:{scope_id}",
+        )
+        created = await repository.create_binding(binding)
+        await self._record_relationship(created, principal=actor, context=context, audit=repository)
+
     async def readiness(self) -> bool:
         """Probe decisions and required stores without granting or caching authority."""
 
@@ -1047,8 +1088,9 @@ class AccessControlService:
         principal: PrincipalRef,
         context: AccessAuditContext,
         expected_version: int | None = None,
+        audit: AccessAuditStore | None = None,
     ) -> None:
-        await self.audit.append_audit(
+        await (self.audit if audit is None else audit).append_audit(
             AccessAuditEvent(
                 cursor=None,
                 event_id=str(uuid4()),

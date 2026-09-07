@@ -69,6 +69,8 @@ from powercontext.builtin.artifacts.prompt.service import (
     prompt_operation,
 )
 from powercontext.builtin.artifacts.profile import Profile
+from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal
 from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProvider,
@@ -146,6 +148,7 @@ from powercontext.builtin.runtime.protocols import BuiltinTriggers
 from powercontext.builtin.runtime.recall import RelationalRecallTokenEstimator
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.scope import ScopeApplication
+from powercontext.builtin.scope.subject_sources import SubjectSourceService
 from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
@@ -439,6 +442,7 @@ class RelationalContexts:
             candidates=CandidateRepository({
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,
+                Profile.family: ProfileCandidateProposal,
             }),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),
@@ -472,6 +476,7 @@ class RelationalContexts:
         )
         family_writers = FamilyManagementWriterRegistry((
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
+            ProfileManagementWriter(self.repositories.artifacts),
             MemoryManagementWriter(
                 database=database,
                 artifacts=self.repositories.artifacts,
@@ -499,8 +504,10 @@ class RelationalContexts:
             database,
             self.repositories.sources,
             self.repositories.artifacts,
+            self.repositories.candidates,
             id_factory=id_factory,
         )
+        self.subject_sources = SubjectSourceService(database, self.repositories.sources)
         self.records = RelationalRecordService(
             database,
             self.repositories.sources,
@@ -508,7 +515,6 @@ class RelationalContexts:
             family_writers,
             id_factory=id_factory,
             cursor_secret=cursor_secret,
-            subject_router=self.profiles,
         )
         self.publications = ArtifactPublicationApplication(
             database,

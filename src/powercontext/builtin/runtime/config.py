@@ -40,6 +40,24 @@ class RuntimeConfig(BaseModel):
     memory_extraction_profile: MemoryExtractionProfile = MemoryExtractionProfile.CODING
     memory_rerank_enabled: bool = False
     memory_rerank_candidate_limit: int = Field(default=30, ge=1, le=100)
+    profile_cron: str = "0 2 * * *"
+    profile_timezone: str = "Asia/Shanghai"
+    profile_max_concurrency: int = Field(default=4, ge=1)
+    profile_max_sources_per_window: int = Field(default=32, ge=1, le=32)
+
+    @model_validator(mode="after")
+    def validate_profile_schedule(self):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        from apscheduler.triggers.cron import CronTrigger
+
+        try:
+            timezone = ZoneInfo(self.profile_timezone)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("invalid Profile schedule timezone") from error  # noqa: TRY003
+        CronTrigger.from_crontab(self.profile_cron, timezone=timezone)
+        return self
+
     schedule_seconds: float | None = Field(default=None, gt=0)
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
 

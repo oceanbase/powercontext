@@ -43,6 +43,8 @@ from powercontext.http._generated.models import (
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
     CreateSourceRequest,
+    CreateSubjectSourceRequest,
+    CreateSubjectSourceResponse,
     CreateWorkContractRequest,
     DownloadRemoteSkillPackageRequest,
     EnrollRemoteSkillTargetRequest,
@@ -51,6 +53,8 @@ from powercontext.http._generated.models import (
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    FlushProfileRequest,
+    FlushProfileResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
@@ -95,6 +99,7 @@ from powercontext.http._generated.models import (
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
+    ProfilePolicyResponse,
     PromptConfiguration,
     PromptDemonstrationResult,
     ProposeExperienceRequest,
@@ -102,6 +107,7 @@ from powercontext.http._generated.models import (
     ProposeSkillRequest,
     PublishArtifactRequest,
     PublishRemoteSkillRequest,
+    PutProfilePolicyRequest,
     QueryArtifactTagsRequest,
     ReadinessResponse,
     ReconcileRemoteSkillsRequest,
@@ -184,6 +190,122 @@ class AccessRequirement(BaseModel):
     scope_id_field: str | None
     resolver: str
 
+
+CREATE_SUBJECT_SOURCE = Operation[CreateSubjectSourceRequest, CreateSubjectSourceResponse](
+    method="POST",
+    path="/v1/scopes/{scope_id}/subject-sources",
+    operation_id="create_subject_source",
+    request_type=CreateSubjectSourceRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=CreateSubjectSourceResponse,
+    success_status=201,
+    summary="Atomically write Source to business and subject scopes",
+    tags=("profile",),
+    scope_mode="none",
+    responses={
+        201: {
+            "description": "Operation completed.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
+)
+
+GET_PROFILE_POLICY = Operation[None, ProfilePolicyResponse](
+    method="GET",
+    path="/v1/scopes/{scope_id}/profile-policy",
+    operation_id="get_profile_policy",
+    request_type=None,
+    request_location=None,
+    path_parameters=("scope_id",),
+    response_type=ProfilePolicyResponse,
+    success_status=200,
+    summary="Read Profile policy",
+    tags=("profile",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Operation completed.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+PUT_PROFILE_POLICY = Operation[PutProfilePolicyRequest, ProfilePolicyResponse](
+    method="PUT",
+    path="/v1/scopes/{scope_id}/profile-policy",
+    operation_id="put_profile_policy",
+    request_type=PutProfilePolicyRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=ProfilePolicyResponse,
+    success_status=200,
+    summary="Configure Profile policy",
+    tags=("profile",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Operation completed.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(action="scope.admin", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+FLUSH_PROFILE = Operation[FlushProfileRequest, FlushProfileResponse](
+    method="POST",
+    path="/v1/profile/flush",
+    operation_id="flush_profile",
+    request_type=FlushProfileRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=FlushProfileResponse,
+    success_status=200,
+    summary="Process one Profile source window",
+    tags=("profile",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "Operation completed.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
+)
 
 GET_LIVENESS = Operation[None, HealthResponse](
     method="GET",

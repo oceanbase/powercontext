@@ -30,6 +30,7 @@ from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
 from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
+from powercontext.builtin.artifacts.profile.service import ProfileGenerator
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -110,6 +111,7 @@ def create_server_app(
     candidate_pipeline: CandidatePipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
+    profile_generator: ProfileGenerator | None = None,
     skill_generator: SkillGenerator | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
@@ -175,6 +177,7 @@ def create_server_app(
                     candidate_pipeline=candidate_pipeline,
                     experience_pipeline=experience_pipeline,
                     experience_generator=experience_generator,
+                    profile_generator=profile_generator,
                     skill_generator=skill_generator,
                     external_skill_provider=external_skill_provider,
                     handoff_pipeline=handoff_pipeline,
@@ -184,6 +187,12 @@ def create_server_app(
                     tracing=resolved_tracing,
                     scheduled_source_runner=scheduled_source_runner,
                     scheduled_experience_runner=scheduled_experience_runner,
+                    scheduled_profile_runner=_scheduled_profile_runner(
+                        resolved,
+                        active_access_control,
+                        enabled=profile_generator is not None or config.inference.generation_model is not None,
+                        legacy_static_principal=static_principal if legacy_static_admin else None,
+                    ),
                     cursor_secret=cursor_secret,
                     handoff_verification_keys=tuple(
                         secret.get_secret_value().encode()
@@ -361,6 +370,47 @@ def _scheduled_access_runners(
         process_sources if source_scheduled else None,
         incubate_experience if experience_scheduled else None,
     )
+
+
+def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_principal):
+    if settings.access.mode == "disabled" or not enabled:
+        return None
+    if access is None:
+        raise ValueError("Profile scheduling requires an Authorization Provider")  # noqa: TRY003
+    principal = _scheduled_principal(settings, legacy_static_principal=legacy_static_principal)
+
+    async def run(scope_id, high, profiles):
+        context = AccessAuditContext(transport="background", operation="flush_profile")
+        await access.bootstrap_static_scope(principal, scope_id, context=context)
+        await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id), context=context)
+        resource = ResourceRef.artifact(scope_id, family="profile", artifact_id="profile")
+        async with profiles.database.transaction() as connection:
+            current = await profiles.latest(connection, scope_id)
+        if current is not None:
+            await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
+
+        async def on_commit(connection, artifact, candidate):
+            bound = access.with_connection(connection)
+            if artifact is not None and await bound.artifact_owner(resource) is None:
+                await bound.establish_artifact_owner(
+                    resource,
+                    principal,
+                    idempotency_key=f"profile-owner:{scope_id}",
+                    context=context,
+                )
+            if candidate is not None:
+                await bound.attest_candidate_owner(
+                    scope_id=scope_id,
+                    candidate_id=candidate.candidate_id,
+                    family="profile",
+                    proposed_owner=principal,
+                    target=None if candidate.target is None else resource,
+                    idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+                )
+
+        return await profiles.flush(scope_id, high_watermark=high, on_commit=on_commit)
+
+    return run
 
 
 def _scheduled_principal(
