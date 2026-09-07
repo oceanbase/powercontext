@@ -22,7 +22,7 @@ import hmac
 import json
 import secrets
 from base64 import b64decode, urlsafe_b64encode
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol, TypeVar
@@ -326,6 +326,123 @@ class AccessRepository(RelationshipReader, RelationshipWriter, AccessAuditStore,
     async def list_owned_resources(self, owner: PrincipalRef, /) -> tuple[ResourceRef, ...]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionState:
+    """One consistent read of the canonical state a decision derives from.
+
+    ``policy_revision``, ``bindings``, ``artifact_owners`` and
+    ``owned_resources`` are captured from the same committed snapshot, so a
+    decision can never pair a policy revision with bindings from a different
+    policy state.
+    """
+
+    policy_revision: str
+    bindings: tuple[AccessBinding, ...]
+    artifact_owners: Mapping[str, ArtifactOwnerRelation]
+    owned_resources: tuple[ResourceRef, ...]
+
+
+class SnapshotDecisionRepository(Protocol):
+    """Optional repository capability: one consistent read for decision inputs.
+
+    Implementations must read the revision, active bindings, artifact owners
+    and owned resources inside a single transaction (or single statement where
+    the backend allows), so the backend isolation supplies snapshot
+    consistency. Repositories that cannot offer this fall back to the bounded
+    revision-check-and-retry in :func:`read_decision_state`.
+    """
+
+    async def decision_snapshot(
+        self,
+        subjects: Sequence[AccessSubjectRef],
+        *,
+        now: datetime,
+        artifact_resources: Sequence[ResourceRef] = (),
+        owned_by: PrincipalRef | None = None,
+    ) -> DecisionState: ...
+
+
+_SNAPSHOT_RETRY_LIMIT = 3
+
+
+async def read_decision_state(
+    repository: AccessRepository,
+    subjects: Sequence[AccessSubjectRef],
+    *,
+    now: datetime,
+    artifact_resources: Sequence[ResourceRef] = (),
+    owned_by: PrincipalRef | None = None,
+) -> DecisionState:
+    """Read decision inputs from one snapshot when the repository offers one.
+
+    Falls back to bounded revision-check-and-retry across the separate read
+    methods, and fails closed when no stable read can be obtained. The
+    evaluation time is captured once by the caller and used for every expiry
+    comparison in the decision.
+    """
+
+    snapshot_reader = getattr(repository, "decision_snapshot", None)
+    if callable(snapshot_reader):
+        return await snapshot_reader(subjects, now=now, artifact_resources=artifact_resources, owned_by=owned_by)
+    for _ in range(_SNAPSHOT_RETRY_LIMIT):
+        revision = await repository.policy_revision()
+        bindings = await repository.active_bindings(subjects, now=now)
+        artifact_owners: dict[str, ArtifactOwnerRelation] = {}
+        for resource in artifact_resources:
+            owner = await repository.get_artifact_owner(resource)
+            if owner is not None:
+                artifact_owners[resource.key] = owner
+        owned_resources = await repository.list_owned_resources(owned_by) if owned_by is not None else ()
+        if await repository.policy_revision() == revision:
+            return DecisionState(revision, bindings, artifact_owners, owned_resources)
+    raise AccessUnavailableError("policy-snapshot-unstable")
+
+
+def _derive_authorized_resource_filter(
+    *,
+    bindings: Sequence[AccessBinding],
+    owned_resources: Sequence[ResourceRef],
+    request: ResourceSearchRequest,
+    policy_revision: str,
+) -> AuthorizedResourceFilter:
+    """Derive the authorized resource filter shared by both providers.
+
+    Single derivation for exact grants, inherited parent constraints and
+    formal artifact ownership so the built-in and Casbin providers cannot
+    drift. Callers fetch ``bindings`` and ``owned_resources`` through their
+    own read boundary.
+    """
+
+    exact: dict[str, ResourceRef] = {}
+    parents: dict[str, ResourceRef] = {}
+    for binding in bindings:
+        resource = binding.resource
+        if (
+            resource.type is request.resource_type
+            and request.action in ROLE_ACTIONS[binding.role]
+            and (request.family is None or resource.family == request.family)
+        ):
+            exact[resource.key] = resource
+        elif _resource_is_parent(resource, request.resource_type) and _parent_binding_grants(
+            binding, request.action, request.resource_type
+        ):
+            parents[resource.key] = resource
+    if (
+        request.resource_type is AccessResourceType.ARTIFACT
+        and request.action in ROLE_ACTIONS[AccessRole.ARTIFACT_OWNER]
+    ):
+        for resource in owned_resources:
+            if request.family is None or resource.family == request.family:
+                exact[resource.key] = resource
+    return AuthorizedResourceFilter(
+        exact_resources=tuple(exact[key] for key in sorted(exact)),
+        parent_constraints=tuple(parents[key] for key in sorted(parents)),
+        complete=True,
+        policy_revision=policy_revision,
+        max_direct_resource_keys=_MAX_AUTHORIZED_FILTER_IDENTITIES,
+    )
+
+
 class BuiltinAuthorizationProvider:
     """Hierarchical RBAC profile backed by canonical immutable relationships."""
 
@@ -349,22 +466,28 @@ class BuiltinAuthorizationProvider:
         requests: Sequence[AccessRequest],
         /,
     ) -> tuple[AccessDecision, ...]:
-        revision = await self._repository.policy_revision()
         if not requests:
             return ()
         principal = requests[0].subject
         if any(request.subject != principal for request in requests):
             raise AccessInvalidRequestError("batch-subject")
-        revision = contextual_policy_revision(revision, requests[0].context.subject_groups)
-        subjects: tuple[AccessSubjectRef, ...] = (principal, *requests[0].context.subject_groups)
-        bindings = await self._repository.active_bindings(subjects, now=self._clock())
+        state = await read_decision_state(
+            self._repository,
+            (principal, *requests[0].context.subject_groups),
+            now=self._clock(),
+            artifact_resources=tuple(
+                request.resource for request in requests if request.resource.type is AccessResourceType.ARTIFACT
+            ),
+        )
+        revision = contextual_policy_revision(state.policy_revision, requests[0].context.subject_groups)
+        bindings = state.bindings
         decisions: list[AccessDecision] = []
         for request in requests:
             if request.action is AccessAction.ACCESS_SELF:
                 decisions.append(AccessDecision(True, "authenticated", revision))
                 continue
             owner = (
-                await self._repository.get_artifact_owner(request.resource)
+                state.artifact_owners.get(request.resource.key)
                 if request.resource.type is AccessResourceType.ARTIFACT
                 else None
             )
@@ -397,39 +520,24 @@ class BuiltinAuthorizationProvider:
         request: ResourceSearchRequest,
         /,
     ) -> AuthorizedResourceFilter:
-        revision = contextual_policy_revision(
-            await self._repository.policy_revision(),
-            request.context.subject_groups,
-        )
-        subjects: tuple[AccessSubjectRef, ...] = (request.subject, *request.context.subject_groups)
-        bindings = await self._repository.active_bindings(subjects, now=self._clock())
-        exact: dict[str, ResourceRef] = {}
-        parents: dict[str, ResourceRef] = {}
-        for binding in bindings:
-            resource = binding.resource
-            if (
-                resource.type is request.resource_type
-                and request.action in ROLE_ACTIONS[binding.role]
-                and (request.family is None or resource.family == request.family)
-            ):
-                exact[resource.key] = resource
-            elif _resource_is_parent(resource, request.resource_type) and _parent_binding_grants(
-                binding, request.action, request.resource_type
-            ):
-                parents[resource.key] = resource
-        if (
-            request.resource_type is AccessResourceType.ARTIFACT
+        owned_by = (
+            request.subject
+            if request.resource_type is AccessResourceType.ARTIFACT
             and request.action in ROLE_ACTIONS[AccessRole.ARTIFACT_OWNER]
-        ):
-            for resource in await self._repository.list_owned_resources(request.subject):
-                if request.family is None or resource.family == request.family:
-                    exact[resource.key] = resource
-        return AuthorizedResourceFilter(
-            exact_resources=tuple(exact[key] for key in sorted(exact)),
-            parent_constraints=tuple(parents[key] for key in sorted(parents)),
-            complete=True,
+            else None
+        )
+        state = await read_decision_state(
+            self._repository,
+            (request.subject, *request.context.subject_groups),
+            now=self._clock(),
+            owned_by=owned_by,
+        )
+        revision = contextual_policy_revision(state.policy_revision, request.context.subject_groups)
+        return _derive_authorized_resource_filter(
+            bindings=state.bindings,
+            owned_resources=state.owned_resources,
+            request=request,
             policy_revision=revision,
-            max_direct_resource_keys=_MAX_AUTHORIZED_FILTER_IDENTITIES,
         )
 
 
