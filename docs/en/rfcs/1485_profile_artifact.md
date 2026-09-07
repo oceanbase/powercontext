@@ -1,6 +1,6 @@
 - Proposal Name: `profile_artifact`
 - Start Date: 2026-09-07
-- RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
+- RFC PR: [oceanbase/powercontext#1485](https://github.com/oceanbase/powercontext/pull/1485)
 - Related RFCs: [RFC 0014](0014_memory_layer_design.md), [RFC 0019](0019_local_source_memory_runtime.md),
   [RFC 0050](0050_artifact_candidate_review_inbox.md), [Topic Memory RFC](0000_topic_memory.md),
   [RFC 1345](1345_scope_organization_and_agent_integration.md),
