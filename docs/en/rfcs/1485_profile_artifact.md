@@ -316,8 +316,20 @@ create an automatic Revision. Base manual Replace retains its existing behavior 
 successful call. Human confirmation is a whole-Revision generation signal; it does not establish paragraph-level
 confirmation. Later explicit Source evidence may still update the corresponding content.
 
+## Cross-Scope publication
+
+Profiles cannot be copied or published across Scopes. Existing `POST /v1/artifact-publications` requests whose source
+family is `profile` return HTTP 422, code `artifact_publication_unsupported`, and `details.family=profile`, whether
+or not the target Scope already has a Profile. Rejected requests and retries create no target Artifact, publication,
+or Profile policy and do not change existing Profiles. Python/SDK publication uses the same rule. Other supported
+Families retain their behavior; no new copy endpoint is introduced. Target Profiles are maintained through their own
+Scope's generation flow or existing Create/Replace operations.
+
 ## Daily scheduling and source consumption
 
+Background scheduling is independently controlled by `RuntimeConfig.profile_schedule_enabled`, defaulting to false.
+Configuring a generation model does not implicitly enable scheduling. When enabled, use the default time and startup
+catch-up scan below. Manual Flush remains available without scheduling or a background principal.
 Reuse the APScheduler sidecar table and add a Cron job. Add no durable pending, lease, or business job tables.
 Page enabled Scopes in `pc_profile_policies` and compare `pc_source_journal_heads.position` with the
 `profile-source-window` Cursor in `pc_source_cursors`. A missing Cursor means sequence=0.
@@ -709,6 +721,7 @@ and no artifact/candidate_id from the discarded result. Other numeric response f
 | Scope Create/Get/List and Binding Set/Clear | Unchanged contract; the new endpoint uses internal insert-only ensure |
 | Scope Binding Resolve | Add allow_default=true; subject queries pass false to prohibit fallback on a miss |
 | Artifact Create/Get/Get Revision/List/Replace | Add profile to Family enums, input unions, and Family writer; reuse paths |
+| Artifact publication / copy | Keep the existing path and request shape; source family profile returns 422 artifact_publication_unsupported with no target writes; other Families retain their behavior |
 | Candidate Get/List/Revise/Approve/Reject | Add Profile proposal and committer; coordinate Profile Policy/Cursor |
 | Artifact Access Profile, capabilities/readiness, internal authorization repository | Register/report profile and support transactional permission bootstrap without new actions or public management changes |
 | RuntimeConfig and scheduler registration/configuration | Add Profile Cron configuration and scan callback using existing sidecar |

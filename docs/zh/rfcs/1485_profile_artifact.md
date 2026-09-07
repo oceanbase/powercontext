@@ -282,8 +282,18 @@ Candidate 的窗口及生成器字段是服务端只读字段，Revise 请求使
 基础人工 Replace 仍保持每次成功创建 Revision 的既有语义。人工确认优先仅是整篇 Revision 的生成参考，
 不声称能识别某段文字曾被人工确认；后续明确的新 Source 仍可更新相应内容。
 
+## Cross-Scope publication
+
+画像不支持跨 Scope 复制或发布。现有 `POST /v1/artifact-publications` 在源制品的 family 为 `profile` 时，
+无论目标 Scope 是否已有画像，均返回 HTTP 422，错误码 `artifact_publication_unsupported`，
+`details.family` 为 `profile`。请求及其重试均不创建目标 Artifact、发布记录或画像策略，也不改变已有画像。
+Python/SDK 的发布入口复用同一规则。其他支持复制的制品保持原行为；不新增复制接口。
+目标 Scope 的画像只能通过本 Scope 的生成流程或既有 Create/Replace 接口维护。
+
 ## Daily scheduling and source consumption
 
+后台调度由 `RuntimeConfig.profile_schedule_enabled` 独立控制，默认关闭；配置生成模型不隐式启用调度。
+开启后采用下述默认时间和启动补偿扫描；手动 Flush 不受此开关影响，也不要求后台 Principal。
 复用现有 APScheduler sidecar 表，增加 Cron job；不引入 durable pending、lease 或 job 业务表。
 任务分页扫描 `pc_profile_policies` 中启用的 Scope，比较 `pc_source_journal_heads.position` 与该 Scope
 在 `pc_source_cursors` 的 `profile-source-window` Cursor。缺失 Cursor 视为 sequence=0。
@@ -648,6 +658,7 @@ Flush 的 processed_source_count 为本次读取窗口中的 eligible Source 数
 | Scope Create/Get/List、Binding Set/Clear | 契约不变；新入口内部使用 insert-only ensure，不改管理行为 |
 | Scope Binding Resolve | 增加 allow_default=true；主体查询传 false，禁止未命中时使用默认 Scope |
 | Artifact Create/Get/Get Revision/List/Replace | Family enum、输入联合类型、Family writer 增加 profile；仍使用现有路径 |
+| Artifact publication / 复制 | 原路径和请求结构不变；源 Family 为 profile 时返回 422 artifact_publication_unsupported，无目标写入；其他制品保持原行为 |
 | Candidate Get/List/Revise/Approve/Reject | 增加 Profile proposal 和 committer；Profile 分支联动 Policy/Cursor |
 | Artifact Access Profile、capabilities/readiness、内部权限 repository | 注册并报告 profile；支持事务内授权初始化，不增加权限动作或改变公开管理语义 |
 | RuntimeConfig、scheduler register/configure | 增加 Profile Cron 配置和扫描回调，沿用现有 sidecar |
