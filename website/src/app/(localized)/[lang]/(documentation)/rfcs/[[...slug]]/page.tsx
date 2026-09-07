@@ -16,9 +16,8 @@
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { createRelativeLink } from 'fumadocs-ui/mdx';
 import { DocsBody, DocsPage, DocsTitle } from 'fumadocs-ui/layouts/docs/page';
-import { getMDXComponents } from '@/components/mdx';
+import { createPageLink, getMDXComponents } from '@/components/mdx';
 import { isLanguage, languages } from '@/lib/i18n';
 import { source } from '@/lib/source';
 
@@ -41,7 +40,7 @@ export default async function RfcPage({ params }: PageProps) {
     <DocsPage full={page.data.full} toc={page.data.toc}>
       {slug?.length ? <DocsTitle>{page.data.title}</DocsTitle> : null}
       <DocsBody>
-        <MDX components={getMDXComponents({ a: createRelativeLink(source, page) })} />
+        <MDX components={getMDXComponents({ a: createPageLink(page) })} />
       </DocsBody>
     </DocsPage>
   );

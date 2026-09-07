@@ -16,7 +16,7 @@
 
 import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
-import type { Root } from 'fumadocs-core/page-tree';
+import type { Folder, Root } from 'fumadocs-core/page-tree';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { isLanguage } from '@/lib/i18n';
 import { baseOptions } from '@/lib/site';
@@ -35,19 +35,27 @@ function getDocumentationTree(lang: string): Root {
       )
     ),
   );
-
-  if (!documentation || documentation.type !== 'folder') return tree;
-  if (!rfcs || rfcs.type !== 'folder') {
-    return { ...tree, children: documentation.children };
-  }
-
-  const referenceIndex = documentation.children.findIndex(
+  const development = tree.children.find(
     (node) => node.type === 'folder' && node.children.some(
-      (child) => child.type === 'page' && child.url.startsWith(`/${lang}/docs/reference/`),
+      (child) => child.type === 'page' && child.url.startsWith(`/${lang}/development/`),
     ),
   );
-  const children = [...documentation.children];
-  children.splice(referenceIndex === -1 ? children.length : referenceIndex, 0, rfcs);
+
+  if (!documentation || documentation.type !== 'folder') return tree;
+  const children = [
+    { type: 'separator' as const, name: lang === 'zh' ? '产品' : 'Product' },
+    ...documentation.children,
+  ];
+  const developerChildren = [rfcs, development].filter((node): node is Folder => node?.type === 'folder');
+  if (developerChildren.length > 0) {
+    const apiReferenceIndex = children.findIndex((node, index) => index > 0 && node.type === 'separator');
+    children.splice(
+      apiReferenceIndex === -1 ? children.length : apiReferenceIndex,
+      0,
+      { type: 'separator', name: lang === 'zh' ? '开发者' : 'Developer' },
+      ...developerChildren,
+    );
+  }
 
   return {
     ...tree,

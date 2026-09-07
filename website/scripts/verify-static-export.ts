@@ -51,13 +51,19 @@ function renderedMarkup(document: string) {
 }
 
 const rfcRoutes = new Set<string>();
+const developmentRoutes = new Set<string>();
 for (const locale of locales) {
   const rfcDirectory = path.join(docsDirectory, locale, 'rfcs');
   const rfcFiles = (await readdir(rfcDirectory)).filter((file) => file.endsWith('.md'));
+  const developmentDirectory = path.join(docsDirectory, locale, 'development');
+  const developmentFiles = (await readdir(developmentDirectory)).filter((file) => file.endsWith('.md'));
 
   for (const file of rfcFiles) {
     const slug = file === 'README.md' ? '' : `/${file.slice(0, -'.md'.length)}`;
     rfcRoutes.add(`/${locale}/rfcs${slug}`);
+  }
+  for (const file of developmentFiles) {
+    developmentRoutes.add(`/${locale}/development/${file.slice(0, -'.md'.length)}`);
   }
 }
 
@@ -70,9 +76,10 @@ const exportedDocuments = new Map(
 const requiredRoutes = ['/', '/en', '/zh', '/en/docs', '/zh/docs', '/api', '/en/modules', '/zh/modules'];
 const missingRequiredRoutes = requiredRoutes.filter((route) => !exportedDocuments.has(route));
 const missingRfcRoutes = [...rfcRoutes].filter((route) => !exportedDocuments.has(route));
+const missingDevelopmentRoutes = [...developmentRoutes].filter((route) => !exportedDocuments.has(route));
 
-if (missingRequiredRoutes.length > 0 || missingRfcRoutes.length > 0) {
-  const missingRoutes = [...missingRequiredRoutes, ...missingRfcRoutes].sort();
+if (missingRequiredRoutes.length > 0 || missingRfcRoutes.length > 0 || missingDevelopmentRoutes.length > 0) {
+  const missingRoutes = [...missingRequiredRoutes, ...missingRfcRoutes, ...missingDevelopmentRoutes].sort();
   throw new Error(`Public pages are missing from the static site:\n${missingRoutes.join('\n')}`);
 }
 
@@ -85,9 +92,6 @@ for (const [route, document] of exportedDocuments) {
     const href = match[1].replaceAll('&amp;', '&');
     const target = new URL(href, pageUrl);
     if (target.origin !== pageUrl.origin) continue;
-
-    const fileName = path.posix.basename(target.pathname);
-    if (fileName.includes('.')) continue;
 
     const targetRoute = normalizeRoute(decodeURIComponent(target.pathname));
     if (!exportedDocuments.has(targetRoute)) brokenLinks.add(`${route} -> ${targetRoute}`);
@@ -145,18 +149,42 @@ if (rootDocument.includes('href="/en/"')) {
 for (const [locale, document] of Object.entries(docsDocuments)) {
   const markup = renderedMarkup(document);
   const apiReferenceLabel = locale === 'en' ? 'API Reference' : 'API 参考';
+  const developerLabel = locale === 'en' ? 'Developer' : '开发者';
+  const productLabel = locale === 'en' ? 'Product' : '产品';
+  const tutorialsLabel = locale === 'en' ? 'Tutorials' : '教程';
+  const howToLabel = locale === 'en' ? 'How to' : '操作指南';
+  const explanationLabel = locale === 'en' ? 'Explanation' : '概念说明';
+  const referenceLabel = locale === 'en' ? 'Reference' : '参考';
+  const developmentLabel = locale === 'en' ? 'Development' : '开发';
+  const productIndex = markup.indexOf(`>${productLabel}</p>`);
+  const tutorialsIndex = markup.indexOf(`>${tutorialsLabel}<`, productIndex);
+  const howToIndex = markup.indexOf(`>${howToLabel}<`, tutorialsIndex);
+  const explanationIndex = markup.indexOf(`>${explanationLabel}<`, howToIndex);
   const apiReferenceIndex = markup.indexOf(`>${apiReferenceLabel}</p>`);
-  const referenceIndex = markup.indexOf('>Reference<');
+  const referenceIndex = markup.indexOf(`>${referenceLabel}<`);
   const pythonApiIndex = markup.indexOf('>Python API</a>');
-  const rfcIndex = markup.indexOf('>RFCs<');
+  const developerIndex = markup.indexOf(`>${developerLabel}</p>`);
+  const rfcIndex = markup.indexOf('>RFCs<', developerIndex);
+  const developmentIndex = markup.indexOf(`>${developmentLabel}<`, rfcIndex);
+  const developerSection = markup.slice(developerIndex, apiReferenceIndex);
+  const collapsedFolders = developerSection.match(/aria-expanded="false"/g)?.length ?? 0;
 
   if (
-    rfcIndex === -1
-    || referenceIndex < rfcIndex
-    || apiReferenceIndex < referenceIndex
+    productIndex === -1
+    || tutorialsIndex < productIndex
+    || howToIndex < tutorialsIndex
+    || explanationIndex < howToIndex
+    || referenceIndex < explanationIndex
+    || developerIndex < referenceIndex
+    || rfcIndex < developerIndex
+    || developmentIndex < rfcIndex
+    || apiReferenceIndex < developmentIndex
     || pythonApiIndex < apiReferenceIndex
+    || collapsedFolders < 2
   ) {
-    throw new Error(`Static ${locale} documentation does not show RFCs before Reference.`);
+    throw new Error(
+      `Static ${locale} documentation does not show the expected Product, Developer, and API Reference sections.`,
+    );
   }
 }
 
@@ -164,8 +192,12 @@ const exportedRoutes = [...exportedDocuments.keys()];
 const httpApiPageCount = exportedRoutes.filter((route) => route === '/api' || route.startsWith('/api/')).length;
 const pythonApiPageCount = exportedRoutes.filter((route) => /^\/(en|zh)\/modules(?:\/|$)/.test(route)).length;
 const rfcPageCount = exportedRoutes.filter((route) => /^\/(en|zh)\/rfcs(?:\/|$)/.test(route)).length;
+const developmentPageCount = exportedRoutes.filter(
+  (route) => /^\/(en|zh)\/development(?:\/|$)/.test(route),
+).length;
 
 console.log(
   `Verified ${exportedDocuments.size} public pages and their internal links `
-  + `(${httpApiPageCount} HTTP API, ${pythonApiPageCount} Python API, ${rfcPageCount} RFC).`,
+  + `(${httpApiPageCount} HTTP API, ${pythonApiPageCount} Python API, ${rfcPageCount} RFC, `
+  + `${developmentPageCount} development).`,
 );

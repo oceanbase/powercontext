@@ -72,6 +72,25 @@ async function prepareRfcContent(locale: string) {
   );
 }
 
+async function prepareDevelopmentContent(locale: string) {
+  const developmentDir = path.join(generatedDocsDir, locale, 'development');
+  const entries = await readdir(developmentDir, { withFileTypes: true });
+
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+      .map(async (entry) => {
+        const filePath = path.join(developmentDir, entry.name);
+        const content = await readFile(filePath, 'utf8');
+        if (content.startsWith('---\n')) return;
+
+        const title = content.match(/^#\s+(.+)$/m)?.[1];
+        if (!title) throw new Error(`Development document ${filePath} has no title`);
+        await writeFile(filePath, `---\ntitle: ${JSON.stringify(title)}\n---\n\n${content}`);
+      }),
+  );
+}
+
 await Promise.all([
   rm(pythonDir, { recursive: true, force: true }),
   rm(generatedDocsDir, { recursive: true, force: true }),
@@ -99,13 +118,24 @@ await Promise.all([
     recursive: true,
     force: true,
   }),
+  cp(path.join(repositoryDir, 'docs', 'en', 'development'), path.join(generatedDocsDir, 'en', 'development'), {
+    recursive: true,
+    force: true,
+  }),
+  cp(path.join(repositoryDir, 'docs', 'zh', 'development'), path.join(generatedDocsDir, 'zh', 'development'), {
+    recursive: true,
+    force: true,
+  }),
   cp(path.join(repositoryDir, 'docs', 'assets'), path.join(generatedDocsDir, 'assets'), {
     recursive: true,
     force: true,
   }),
 ]);
 
-await Promise.all(['en', 'zh'].map(prepareRfcContent));
+await Promise.all([
+  ...['en', 'zh'].map(prepareRfcContent),
+  ...['en', 'zh'].map(prepareDevelopmentContent),
+]);
 
 const pythonPackage = path.join(websiteDir, 'node_modules', 'fumadocs-python');
 const pythonModules = [
