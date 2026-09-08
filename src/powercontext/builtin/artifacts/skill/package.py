@@ -280,7 +280,12 @@ def _archive_files(archive_bytes: bytes) -> tuple[_PackageFile, ...]:  # noqa: C
         entries: list[tuple[zipfile.ZipInfo, str, int]] = []
         total_bytes = 0
         for info in archive.infolist():
-            path = _validate_relative_path(info.filename.rstrip("/") if info.is_dir() else info.filename)
+            # ZipInfo.filename truncates the name at NUL bytes on every platform
+            # and rewrites backslashes as separators on Windows; only
+            # orig_filename keeps the raw archive name, so validate that before
+            # host-dependent normalization can hide hostile input.
+            name = info.orig_filename
+            path = _validate_relative_path(name.rstrip("/") if info.is_dir() else name)
             collision_key = _path_collision_key(path)
             if collision_key in seen_paths:
                 raise SkillPackageError(f"Agent Skill archive contains duplicate or colliding paths: {path}")
