@@ -1,6 +1,6 @@
 + Proposal Name: `scope_source_discovery`
 + Start Date: 2026-09-08
-+ RFC PR: [oceanbase/powercontext#0000](https://github.com/oceanbase/powercontext/pull/0000)
++ RFC PR: [oceanbase/powercontext#1502](https://github.com/oceanbase/powercontext/pull/1502)
 
 # 概要
 
