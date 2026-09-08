@@ -162,10 +162,10 @@ const OPERATIONS = {
 	list_scopes: {
 		method: "GET",
 		path: "/v1/scopes",
-		location: null,
+		location: "query",
 		scopeMode: "none",
 		pathParameters: [],
-		queryParams: [],
+		queryParams: ["query"],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
@@ -892,6 +892,17 @@ const OPERATIONS = {
 		scopeMode: "selection",
 		pathParameters: [],
 		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_sources: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/sources",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: ["limit", "cursor"],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
