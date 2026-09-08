@@ -2031,7 +2031,10 @@ async def create_subject_source(
         elif access.uses_static_preset(principal):
             # The subject Scope is resolved inside the atomic dual-write transaction,
             # so materialize the fixed static preset through the same connection.
-            await access.with_connection(connection).bootstrap_static_scope(principal, target, context=context)
+            bound = access.with_connection(connection)
+            await bound.bootstrap_static_scope(principal, target, context=context)
+            # Bootstrap is idempotent and must not bypass a previously revoked grant.
+            await bound.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(target), context=context)
         else:
             await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(target), context=context)
 

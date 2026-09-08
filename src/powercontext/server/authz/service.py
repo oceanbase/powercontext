@@ -340,6 +340,10 @@ class BuiltinAuthorizationProvider:
         self._deployment_id = deployment_id
         self._clock = clock or (lambda: datetime.now(UTC))
 
+    def with_repository(self, repository: AccessRepository) -> BuiltinAuthorizationProvider:
+        """Use transaction-local relationships without changing policy semantics."""
+        return BuiltinAuthorizationProvider(repository, deployment_id=self._deployment_id, clock=self._clock)
+
     async def check(self, request: AccessRequest, /) -> AccessDecision:
         decisions = await self.check_batch((request,))
         return decisions[0]
@@ -463,14 +467,17 @@ class AccessControlService:
         self._static_scope_principal = static_scope_principal
 
     def with_connection(self, connection):
-        """Bind internal relationship and audit writes to an existing transaction."""
+        """Bind relationships, builtin authorization reads, and audit to a transaction."""
         from powercontext.server.authz.repository import RelationalAccessRepository
 
         if not isinstance(self.relationships, RelationalAccessRepository) or self.audit is not self.relationships:
             raise AccessUnavailableError("transactional_relationships_unavailable")
         repository = self.relationships.with_connection(connection)
+        provider = self.provider
+        if isinstance(provider, BuiltinAuthorizationProvider):
+            provider = provider.with_repository(repository)
         return AccessControlService(
-            self.provider,
+            provider,
             relationships=repository,
             audit=repository,
             deployment_id=self.deployment_id,

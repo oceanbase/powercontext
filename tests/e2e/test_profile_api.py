@@ -16,6 +16,7 @@
 """Profile and subject convenience operations through the real HTTP stack."""
 
 import asyncio
+import sqlite3
 
 import httpx
 import pytest
@@ -93,6 +94,77 @@ def test_subject_dual_write_preserves_single_scope_api_and_authorization(tmp_pat
                     json={"subject_key": "U2", "subject_scope_id": explicit_scope, "content": "Direct"},
                 )
                 assert direct.status_code == 201, direct.text
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("explicit_target", [False, True])
+def test_subject_dual_write_rejects_revoked_target_contribution(tmp_path, explicit_target):
+    database_path = tmp_path / "revoked-subject.db"
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
+            auth=BearerAuthConfig(enabled=True, token=SecretStr("test-subject-token")),
+            access=AccessControlConfig(mode="enforced"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    async def run():
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://test",
+                headers={"Authorization": "Bearer test-subject-token"},
+            ) as client,
+        ):
+            group = (await client.get("/v1/scopes/default")).json()["scope_id"]
+            payload = {"subject_key": "U1", "content": "initial evidence"}
+            if explicit_target:
+                created = await client.post(
+                    "/v1/scopes",
+                    json={"title": "Subject", "summary": "Subject", "idempotency_key": "subject"},
+                )
+                assert created.status_code == 201, created.text
+                payload["subject_scope_id"] = created.json()["scope_id"]
+            path = f"/v1/scopes/{group}/subject-sources"
+            first = await client.post(path, json=payload)
+            assert first.status_code == 201, first.text
+            target = first.json()["subject_scope_id"]
+            # Materialize the static preset before revoking every contribution grant.
+            scope = await client.get(f"/v1/scopes/{target}")
+            assert scope.status_code == 200, scope.text
+            bindings = await client.post(
+                "/v1/access/bindings/list",
+                json={"management_resource": {"type": "scope", "scope_id": target}, "role": "scope.contributor"},
+            )
+            assert bindings.status_code == 200, bindings.text
+            assert bindings.json()["items"]
+            for binding in bindings.json()["items"]:
+                revoked = await client.post(
+                    "/v1/access/bindings/revoke",
+                    json={
+                        "binding_id": binding["binding_id"],
+                        "expected_version": binding["version"],
+                        "idempotency_key": "revoke-" + binding["binding_id"],
+                    },
+                )
+                assert revoked.status_code == 200, revoked.text
+            direct = await client.post(f"/v1/scopes/{target}/sources", json={"content": "forbidden direct"})
+            assert direct.status_code == 403, direct.text
+            with sqlite3.connect(database_path) as connection:
+                before = connection.execute("SELECT * FROM pc_sources ORDER BY scope_id, source_id").fetchall()
+                journal_before = connection.execute(
+                    "SELECT * FROM pc_source_journal_heads ORDER BY scope_id"
+                ).fetchall()
+            denied = await client.post(path, json={**payload, "content": "forbidden dual write"})
+            assert denied.status_code == 403, denied.text
+            with sqlite3.connect(database_path) as connection:
+                after = connection.execute("SELECT * FROM pc_sources ORDER BY scope_id, source_id").fetchall()
+                journal_after = connection.execute("SELECT * FROM pc_source_journal_heads ORDER BY scope_id").fetchall()
+            assert after == before
+            assert journal_after == journal_before
 
     asyncio.run(run())
 
