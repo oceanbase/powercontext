@@ -66,7 +66,12 @@ from powercontext.server.authz.models import (
     PrincipalRef,
     ResourceRef,
 )
-from powercontext.server.authz.service import BindingReplacement, BindingSearchRequest, ReplaceBinding
+from powercontext.server.authz.service import (
+    BindingReplacement,
+    BindingSearchRequest,
+    DecisionState,
+    ReplaceBinding,
+)
 
 ACCESS_METADATA = MetaData()
 
@@ -448,6 +453,88 @@ class RelationalAccessRepository:
                 .all()
             )
         return tuple(_decode_resource(row, artifact_only=True) for row in rows)
+
+    async def decision_snapshot(
+        self,
+        subjects: Sequence[AccessSubjectRef],
+        *,
+        now: datetime,
+        artifact_resources: Sequence[ResourceRef] = (),
+        owned_by: PrincipalRef | None = None,
+    ) -> DecisionState:
+        """Read revision, active bindings and ownership in one transaction.
+
+        Providers build their enforcers from this snapshot so a decision can
+        never pair a policy revision with bindings from a different policy
+        state. Consistency across the statements depends on the backend
+        transaction isolation (a SQLite read transaction and an OceanBase
+        REPEATABLE READ transaction both provide it); callers without this
+        capability fall back to bounded revision-check-and-retry.
+        """
+        binding_rows: Sequence[Mapping[Any, Any]] = ()
+        owned_rows: Sequence[Mapping[Any, Any]] = ()
+        artifact_owners: dict[str, ArtifactOwnerRelation] = {}
+        async with self._database.transaction() as connection:
+            revision = await connection.scalar(
+                select(ACCESS_POLICY_HEADS_TABLE.c.revision).where(ACCESS_POLICY_HEADS_TABLE.c.name == _POLICY_HEAD)
+            )
+            if subjects:
+                binding_rows = (
+                    (
+                        await connection.execute(
+                            select(ACCESS_BINDINGS_TABLE).where(
+                                or_(
+                                    *(
+                                        (ACCESS_BINDINGS_TABLE.c.subject_type == subject.type)
+                                        & (ACCESS_BINDINGS_TABLE.c.subject_id == subject.id)
+                                        for subject in subjects
+                                    )
+                                ),
+                                ACCESS_BINDINGS_TABLE.c.state == AccessBindingState.ACTIVE.value,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            if artifact_resources:
+                owner_rows = (
+                    (
+                        await connection.execute(
+                            select(ACCESS_OWNERS_TABLE).where(
+                                ACCESS_OWNERS_TABLE.c.owner_kind == "artifact",
+                                ACCESS_OWNERS_TABLE.c.object_key_hash.in_([
+                                    _digest(resource.key) for resource in artifact_resources
+                                ]),
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                for row in owner_rows:
+                    relation = _decode_owner(row)
+                    artifact_owners[relation.resource.key] = relation
+            if owned_by is not None:
+                owned_rows = (
+                    (
+                        await connection.execute(
+                            select(ACCESS_OWNERS_TABLE).where(
+                                ACCESS_OWNERS_TABLE.c.owner_kind == "artifact",
+                                ACCESS_OWNERS_TABLE.c.owner_type == owned_by.type,
+                                ACCESS_OWNERS_TABLE.c.owner_id == owned_by.id,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+        return DecisionState(
+            policy_revision=str(revision or 0),
+            bindings=tuple(binding for row in binding_rows if (binding := _decode_binding(row)).active_at(now)),
+            artifact_owners=artifact_owners,
+            owned_resources=tuple(_decode_resource(row, artifact_only=True) for row in owned_rows),
+        )
 
     async def create_binding(self, binding: AccessBinding, /) -> AccessBinding:
         payload_hash = _creation_hash(binding)

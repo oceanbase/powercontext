@@ -31,7 +31,6 @@ from powercontext.server.authz.models import (
     AccessDecision,
     AccessResourceType,
     AccessRole,
-    AccessSubjectRef,
     ResourceRef,
 )
 from powercontext.server.authz.service import (
@@ -39,7 +38,9 @@ from powercontext.server.authz.service import (
     AccessRequest,
     AuthorizedResourceFilter,
     ResourceSearchRequest,
+    _derive_authorized_resource_filter,
     contextual_policy_revision,
+    read_decision_state,
 )
 
 _MODEL = """
@@ -75,15 +76,21 @@ class CasbinAuthorizationProvider:
         return (await self.check_batch((request,)))[0]
 
     async def check_batch(self, requests: Sequence[AccessRequest], /) -> tuple[AccessDecision, ...]:
-        revision = await self._repository.policy_revision()
         if not requests:
             return ()
         principal = requests[0].subject
         if any(request.subject != principal for request in requests):
             raise AccessInvalidRequestError("batch-subject")
-        revision = contextual_policy_revision(revision, requests[0].context.subject_groups)
-        subjects: tuple[AccessSubjectRef, ...] = (principal, *requests[0].context.subject_groups)
-        bindings = await self._repository.active_bindings(subjects, now=self._clock())
+        state = await read_decision_state(
+            self._repository,
+            (principal, *requests[0].context.subject_groups),
+            now=self._clock(),
+            artifact_resources=tuple(
+                request.resource for request in requests if request.resource.type is AccessResourceType.ARTIFACT
+            ),
+        )
+        revision = contextual_policy_revision(state.policy_revision, requests[0].context.subject_groups)
+        bindings = state.bindings
         decisions: list[AccessDecision] = []
         for request in requests:
             if request.action is AccessAction.ACCESS_SELF:
@@ -91,7 +98,7 @@ class CasbinAuthorizationProvider:
                 continue
             matched = _matching_binding(bindings, request.action, request.resource)
             owner = (
-                await self._repository.get_artifact_owner(request.resource)
+                state.artifact_owners.get(request.resource.key)
                 if request.resource.type is AccessResourceType.ARTIFACT
                 else None
             )
@@ -123,39 +130,24 @@ class CasbinAuthorizationProvider:
         return tuple(decisions)
 
     async def resolve_resource_filter(self, request: ResourceSearchRequest, /) -> AuthorizedResourceFilter:
-        revision = contextual_policy_revision(
-            await self._repository.policy_revision(),
-            request.context.subject_groups,
-        )
-        subjects: tuple[AccessSubjectRef, ...] = (request.subject, *request.context.subject_groups)
-        bindings = await self._repository.active_bindings(subjects, now=self._clock())
-        exact: dict[str, ResourceRef] = {}
-        parents: dict[str, ResourceRef] = {}
-        for binding in bindings:
-            resource = binding.resource
-            if (
-                resource.type is request.resource_type
-                and request.action in ROLE_ACTIONS[binding.role]
-                and (request.family is None or resource.family == request.family)
-            ):
-                exact[resource.key] = resource
-            elif _is_parent(resource, request.resource_type) and request.action in ROLE_CHILD_ACTIONS.get(
-                binding.role, frozenset()
-            ):
-                parents[resource.key] = resource
-        if (
-            request.resource_type is AccessResourceType.ARTIFACT
+        owned_by = (
+            request.subject
+            if request.resource_type is AccessResourceType.ARTIFACT
             and request.action in ROLE_ACTIONS[AccessRole.ARTIFACT_OWNER]
-        ):
-            for resource in await self._repository.list_owned_resources(request.subject):
-                if request.family is None or resource.family == request.family:
-                    exact[resource.key] = resource
-        return AuthorizedResourceFilter(
-            exact_resources=tuple(exact[key] for key in sorted(exact)),
-            parent_constraints=tuple(parents[key] for key in sorted(parents)),
-            complete=True,
+            else None
+        )
+        state = await read_decision_state(
+            self._repository,
+            (request.subject, *request.context.subject_groups),
+            now=self._clock(),
+            owned_by=owned_by,
+        )
+        revision = contextual_policy_revision(state.policy_revision, request.context.subject_groups)
+        return _derive_authorized_resource_filter(
+            bindings=state.bindings,
+            owned_resources=state.owned_resources,
+            request=request,
             policy_revision=revision,
-            max_direct_resource_keys=10_000,
         )
 
 
@@ -227,12 +219,6 @@ def _covers(parent: ResourceRef, child: ResourceRef) -> bool:
         parent.type is AccessResourceType.SCOPE
         and child.type is AccessResourceType.ARTIFACT
         and parent.scope_id == child.scope_id
-    )
-
-
-def _is_parent(resource: ResourceRef, requested_type: AccessResourceType) -> bool:
-    return resource.type is AccessResourceType.SERVER or (
-        resource.type is AccessResourceType.SCOPE and requested_type is AccessResourceType.ARTIFACT
     )
 
 
