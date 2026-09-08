@@ -167,7 +167,8 @@ def test_exact_revision_lookup_does_not_resolve_nonexistent_revision(server, tmp
     assert list(root.iterdir()) == []
 
 
-def test_approved_package_roundtrip_into_real_native_loader(server, tmp_path):
+@pytest.mark.parametrize("preexisting_shadow", [False, True])
+def test_approved_package_roundtrip_into_real_native_loader(server, tmp_path, preexisting_shadow):
     configured = os.environ.get("DATUS_RUNTIME_PYTHON")
     if not configured:
         pytest.skip("requires the separately locked Datus runtime")
@@ -175,6 +176,8 @@ def test_approved_package_roundtrip_into_real_native_loader(server, tmp_path):
     _, manifest, download = approved(client, scope, archive_bytes())
     root = tmp_path / "skills"
     root.mkdir()
+    if preexisting_shadow:
+        (root / "SKILL.md").write_text("---\nname: adapter-smoke\ndescription: Old content.\n---\nPREEXISTING\n")
     receipt = install_package(manifest, download, root)
     source = Path(__file__).resolve().parents[2] / "integrations/datus/src"
     result = subprocess.run(
@@ -193,6 +196,11 @@ def test_approved_package_roundtrip_into_real_native_loader(server, tmp_path):
         text=True,
         timeout=60,
     )
+    if preexisting_shadow:
+        assert result.returncode == 1, (result.stdout, result.stderr)
+        assert json.loads(result.stdout)["error_type"] == "IntegrityError"
+        assert receipt["files"] == snapshot(root / "adapter-smoke")
+        return
     assert result.returncode == 0, (result.stdout, result.stderr)
     report = json.loads(result.stdout)
     assert report["skills"]["inventory"] == ["adapter-smoke"]

@@ -22,6 +22,7 @@ import math
 from collections import Counter, deque
 from dataclasses import dataclass
 from decimal import Decimal
+from fractions import Fraction
 from typing import TypeAlias
 
 Cell: TypeAlias = str | int | float | bool | Decimal | None
@@ -102,7 +103,12 @@ def _rows_match(a: tuple[TypedCell, ...], b: tuple[TypedCell, ...], policy: Comp
         if at == "number":
             if not isinstance(av, Decimal) or not isinstance(bv, Decimal):
                 raise ValueError("invalid numeric cell")
-            if abs(av - bv) > max(policy.absolute_tolerance, policy.relative_tolerance * abs(bv)):
+            # Fraction(Decimal) preserves the exact finite coefficient/exponent.
+            # All subsequent arithmetic is rational: no caller Decimal context,
+            # precision, rounding, exponent limits, traps or flags are involved.
+            left, right = Fraction(av), Fraction(bv)
+            tolerance = max(Fraction(policy.absolute_tolerance), Fraction(policy.relative_tolerance) * abs(right))
+            if abs(left - right) > tolerance:
                 return False
         elif av != bv:
             return False

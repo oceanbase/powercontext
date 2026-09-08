@@ -81,7 +81,12 @@ PYTHONPATH=integrations/datus/src uv run --project integrations/datus/runtime --
 
 `skill_manager_for` creates the actual native SkillManager with explicit
 directories, config mutation disabled and auto-sync off. It checks **all**
-discovered and GenSQL-visible names against the supplied exact allowlist. It
+physical entrypoints **before** registry name deduplication: each expected name
+must have exactly `skill-root/name/SKILL.md`, with matching native-parsed metadata.
+Root-level, nested, aliased and duplicate entries are rejected without deleting
+files. It then checks discovered/GenSQL-visible names and their actual locations
+against that exact allowlist; the smoke also compares loaded content with its
+expected package entrypoint. The root must remain unchanged during validation. It
 does not call `SkillConfig.from_dict`, which appends builtin/adapter directories.
 The caller must inject this manager into the real GenSQL node; invoking the
 standard Datus CLI alone does not install this manager or the observer.
@@ -126,7 +131,9 @@ retries, retrieval/schema/Skill calls and child operations count. Ambiguity mean
 
 The table oracle requires a predeclared column mapping/order; it does not compare
 SQL text or independent sorted columns. Unsupported cell types fail closed and
-require a frozen evaluator conversion policy. Numeric tolerance defaults to zero.
+require a frozen evaluator conversion policy. Numeric tolerance defaults to zero;
+nonzero tolerances use exact rational arithmetic over the finite decimal inputs,
+independent of the caller's Decimal precision, rounding, exponent limits or traps.
 Final-answer grounding and oracle consistency are independent mandatory checks.
 
 ## Acceptance sequence (not executed by the component CLI)

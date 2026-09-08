@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import replace
-from decimal import Decimal
+from decimal import ROUND_DOWN, ROUND_UP, Decimal, Inexact, Rounded, localcontext
 
 import pytest
 from powercontext_datus.freeze import IntegrityError, snapshot, verify_snapshot
@@ -52,6 +52,37 @@ def test_tolerance_uses_full_rows_and_non_greedy_matching():
     assert not compare_tables(Table(("v",), ((5,),)), Table(("v",), ((2,),)), policy)
     with pytest.raises(ValueError):
         ComparisonPolicy(absolute_tolerance=Decimal("-1"))
+
+
+@pytest.mark.parametrize("ordered", [False, True])
+@pytest.mark.parametrize("precision,rounding", [(2, ROUND_DOWN), (28, ROUND_UP), (80, ROUND_DOWN)])
+def test_tolerance_is_exact_across_decimal_contexts(ordered, precision, rounding):
+    cases = [
+        ("0.10000000000000000000000000001", "0", "0.1", "0", False),
+        ("0.1", "0", "0.1", "0", True),
+        ("1.10000000000000000000000000001", "1", "0.1", "0", False),
+        ("1.10000000000000000000000000011", "1.0000000000000000000000000001", "0", "0.1", True),
+        ("1.10000000000000000000000000012", "1.0000000000000000000000000001", "0", "0.1", False),
+        ("-1.10000000000000000000000000012", "-1.0000000000000000000000000001", "0", "0.1", False),
+        ("1.1e80", "1e80", "0", "0.1", True),
+        ("1.10000000000000000000000000001e-80", "1e-80", "0", "0.1", False),
+    ]
+    with localcontext() as context:
+        context.prec = precision
+        context.rounding = rounding
+        context.Emax = 9
+        context.Emin = -9
+        context.traps[Inexact] = True
+        context.traps[Rounded] = True
+        context.clear_flags()
+        for actual, expected, absolute, relative, matches in cases:
+            policy = ComparisonPolicy(ordered, Decimal(absolute), Decimal(relative))
+            assert (
+                compare_tables(Table(("v",), ((Decimal(actual),),)), Table(("v",), ((Decimal(expected),),)), policy)
+                is matches
+            )
+        assert not any(context.flags.values())
+        assert (context.prec, context.rounding, context.Emax, context.Emin) == (precision, rounding, 9, -9)
 
 
 def event(operation, status="started", name="read_query"):

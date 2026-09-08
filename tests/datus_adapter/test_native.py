@@ -14,6 +14,7 @@
 
 """Optional real-library smoke, explicitly not an LLM or QA execution."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -70,6 +71,48 @@ def test_native_empty_baseline_does_not_discover_builtin_skills(runtime_python, 
     result = probe(runtime_python, root)
     assert result.returncode == 0, (result.stdout, result.stderr)
     assert json.loads(result.stdout)["skills"]["inventory"] == []
+
+
+@pytest.mark.parametrize("shadow", ["SKILL.md", "legacy/SKILL.md", "native-fixture/nested/SKILL.md"])
+def test_native_rejects_duplicate_entrypoints_before_name_deduplication(runtime_python, tmp_path, shadow):
+    root = tmp_path / "skills"
+    previous = root / shadow
+    previous.parent.mkdir(parents=True)
+    previous.write_text("---\nname: native-fixture\ndescription: Old alias.\n---\nOLD CONTENT\n")
+    exact = root / "native-fixture/SKILL.md"
+    exact.parent.mkdir(exist_ok=True)
+    exact.write_text("---\nname: native-fixture\ndescription: Exact package.\n---\nEXACT CONTENT\n")
+    before = snapshot(root)
+    result = probe(runtime_python, root, "native-fixture")
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert json.loads(result.stdout)["error_type"] == "IntegrityError"
+    assert snapshot(root) == before  # Fail closed without deleting either package.
+
+
+def test_native_rejects_names_bound_to_other_package_paths(runtime_python, tmp_path):
+    root = tmp_path / "skills"
+    for folder, name in (("first", "second"), ("second", "first")):
+        package = root / folder
+        package.mkdir(parents=True)
+        (package / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Mismatched location.\n---\nWrong package\n")
+    result = probe(runtime_python, root, "first", "second")
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert json.loads(result.stdout)["error_type"] == "IntegrityError"
+
+
+def test_native_multiple_distinct_packages_load_exact_entries(runtime_python, tmp_path):
+    root = tmp_path / "skills"
+    expected = {}
+    for name in ("first", "second"):
+        package = root / name
+        package.mkdir(parents=True)
+        content = f"---\nname: {name}\ndescription: Distinct package.\n---\n{name} content\n"
+        (package / "SKILL.md").write_text(content)
+        expected[name] = hashlib.sha256(content.encode()).hexdigest()
+    result = probe(runtime_python, root, "first", "second")
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    report = json.loads(result.stdout)
+    assert report["skills"]["loaded_content_sha256"] == expected
 
 
 def test_native_observer_retains_rollback_failures_and_distinct_sql(runtime_python, tmp_path):
