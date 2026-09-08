@@ -426,7 +426,7 @@ class RelationalContexts:
         handoff_verification_keys: tuple[bytes, ...] = (),
     ) -> None:
         self.database = database
-        self.scopes = ScopeApplication(database)
+        self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         self.index = NoMemoryIndex() if index is None else index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index

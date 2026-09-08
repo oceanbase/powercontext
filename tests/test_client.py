@@ -52,6 +52,7 @@ from powercontext.http import (
     ReplaceMemoryArtifactRequest,
     ReportFormat,
     ScopeId,
+    ScopeQueryField,
     ScopeSelection,
     UpdateScopeRequest,
 )
@@ -431,13 +432,28 @@ def test_client_serializes_scope_filter_and_source_page_query() -> None:
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
             client = PowerContextClient("https://memory.example", http_client=http_client)
-            await client.list_scopes("powercontext")
+            await client.list_scopes()
+            await client.list_scopes(
+                "powercontext",
+                query_field=ScopeQueryField.TITLE,
+                external_reference_kind="repository",
+                limit=7,
+                cursor="cursor-0",
+            )
             await client.list_sources("scope one", ListSourcesRequest(limit=7, cursor="cursor-1"))
 
         assert requests[0].url.path == "/v1/scopes"
-        assert dict(requests[0].url.params) == {"query": "powercontext"}
-        assert requests[1].url.path == "/v1/scopes/scope one/sources"
-        assert dict(requests[1].url.params) == {"limit": "7", "cursor": "cursor-1"}
+        assert not requests[0].url.params
+        assert requests[1].url.path == "/v1/scopes"
+        assert dict(requests[1].url.params) == {
+            "query": "powercontext",
+            "query_field": "title",
+            "external_reference_kind": "repository",
+            "limit": "7",
+            "cursor": "cursor-0",
+        }
+        assert requests[2].url.path == "/v1/scopes/scope one/sources"
+        assert dict(requests[2].url.params) == {"limit": "7", "cursor": "cursor-1"}
 
     asyncio.run(scenario())
 

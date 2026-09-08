@@ -22,7 +22,7 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
 
 
-def test_scope_list_filters_only_scope_ids_by_literal_substring(tmp_path) -> None:
+def test_scope_discovery_filters_one_explicit_field_in_sql_and_paginates(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scope-query.db'}"),
@@ -34,17 +34,65 @@ def test_scope_list_filters_only_scope_ids_by_literal_substring(tmp_path) -> Non
     with TestClient(app) as client:
         created = client.post(
             "/v1/scopes",
-            json={"title": "Needle title", "summary": "Needle summary", "idempotency_key": "needle"},
+            json={
+                "title": "ＰowerContext title",  # noqa: RUF001 - exercises NFKC normalization
+                "summary": "Needle summary",
+                "external_references": [{"kind": "repository", "value": "https://github.com/OceanBase/PowerContext"}],
+                "idempotency_key": "needle",
+            },
         ).json()
         scope_id = created["scope_id"]
         fragment = scope_id[4:12]
+        second = client.post(
+            "/v1/scopes",
+            json={
+                "title": "PowerContext child",
+                "summary": "Child scope",
+                "parent_scope_id": scope_id,
+                "idempotency_key": "child",
+            },
+        ).json()
+        binding_key = {"integration": "codex", "kind": "session", "external_id": "Workspace-PowerContext"}
+        assert client.put("/v1/scope-bindings", json={"key": binding_key, "scope_id": scope_id}).status_code == 200
 
-        matched = client.get("/v1/scopes", params={"query": f"  {fragment}  "})
+        matched = client.get(
+            "/v1/scopes",
+            params={"query": f"  {fragment.upper()}  ", "query_field": "scope_id"},
+        )
         assert [item["scope_id"] for item in matched.json()["items"]] == [scope_id]
-        assert client.get("/v1/scopes", params={"query": fragment.upper()}).json() == {"items": []}
-        assert client.get("/v1/scopes", params={"query": "Needle"}).json() == {"items": []}
-        assert client.get("/v1/scopes", params={"query": "%_*"}).json() == {"items": []}
-        assert len(client.get("/v1/scopes", params={"query": "   "}).json()["items"]) == 2
+        assert client.get("/v1/scopes", params={"query": "powercontext", "query_field": "title"}).json()["items"]
+        assert (
+            client.get(
+                "/v1/scopes", params={"query": "oceanbase/powercontext", "query_field": "external_reference_value"}
+            ).json()["items"][0]["scope_id"]
+            == scope_id
+        )
+        assert (
+            client.get(
+                "/v1/scopes",
+                params={
+                    "query": "workspace-powercontext",
+                    "query_field": "binding_external_id",
+                    "binding_integration": "codex",
+                    "binding_kind": "session",
+                },
+            ).json()["items"][0]["scope_id"]
+            == scope_id
+        )
+        assert [
+            item["scope_id"] for item in client.get("/v1/scopes", params={"parent_scope_id": scope_id}).json()["items"]
+        ] == [second["scope_id"]]
+        assert client.get("/v1/scopes", params={"query": "%_*", "query_field": "title"}).json()["items"] == []
+
+        first_page = client.get("/v1/scopes", params={"limit": 1}).json()
+        assert len(first_page["items"]) == 1
+        assert first_page["next_cursor"]
+        second_page = client.get("/v1/scopes", params={"limit": 1, "cursor": first_page["next_cursor"]}).json()
+        assert second_page["items"][0]["scope_id"] > first_page["items"][0]["scope_id"]
+
+        assert len(client.get("/v1/scopes", params={"query": "   "}).json()["items"]) == 3
+        assert client.get("/v1/scopes", params={"query": fragment}).status_code == 422
+        assert client.get("/v1/scopes", params={"query_field": "scope_id"}).status_code == 422
         assert client.get("/v1/scopes?query=one&query=two").status_code == 422
         assert client.get("/v1/scopes", params={"title": "Needle"}).status_code == 422
 

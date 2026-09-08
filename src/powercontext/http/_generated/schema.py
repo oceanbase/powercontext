@@ -213,11 +213,56 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["scopes"],
                 "summary": "List observable Scopes",
-                "description": "Optionally filter Scope descriptors by a case-sensitive literal substring of scope_id.",
+                "description": "Discover Scope descriptors with an explicit "
+                "literal-substring field and exact relationship "
+                "filters. Requests without query parameters "
+                "preserve the existing complete-list behavior.",
                 "operationId": "list_scopes",
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
                 "parameters": [
-                    {"name": "query", "in": "query", "required": False, "schema": {"type": "string", "maxLength": 256}}
+                    {"name": "query", "in": "query", "required": False, "schema": {"type": "string", "maxLength": 256}},
+                    {
+                        "name": "query_field",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"$ref": "#/components/schemas/ScopeQueryField"},
+                    },
+                    {
+                        "name": "parent_scope_id",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "external_reference_kind",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "binding_integration",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "binding_kind",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 4096},
+                    },
                 ],
                 "responses": {
                     "200": {
@@ -3933,10 +3978,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["scope_id", "title", "summary", "context_references", "external_references", "version"],
             },
             "ScopePage": {
-                "properties": {"items": {"items": {"$ref": "#/components/schemas/ScopeDescriptor"}, "type": "array"}},
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/ScopeDescriptor"}, "type": "array"},
+                    "next_cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["items"],
+            },
+            "ScopeQueryField": {
+                "type": "string",
+                "enum": ["scope_id", "title", "summary", "external_reference_value", "binding_external_id"],
             },
             "CreateScopeRequest": {
                 "properties": {
@@ -7005,7 +7057,40 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "ListScopesRequest": {
-                "properties": {"query": {"type": "string", "maxLength": 256, "nullable": True}},
+                "properties": {
+                    "query": {"type": "string", "maxLength": 256, "nullable": True},
+                    "query_field": {"allOf": [{"$ref": "#/components/schemas/ScopeQueryField"}], "nullable": True},
+                    "parent_scope_id": {
+                        "type": "string",
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "external_reference_kind": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "binding_integration": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "binding_kind": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
+                },
                 "additionalProperties": False,
                 "type": "object",
             },

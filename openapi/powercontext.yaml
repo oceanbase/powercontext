@@ -268,7 +268,9 @@ paths:
     get:
       tags: [scopes]
       summary: List observable Scopes
-      description: Optionally filter Scope descriptors by a case-sensitive literal substring of scope_id.
+      description: >-
+        Discover Scope descriptors with an explicit literal-substring field and exact relationship filters.
+        Requests without query parameters preserve the existing complete-list behavior.
       operationId: list_scopes
       x-powercontext-access: {action: server.observe, resource: {type: server}}
       parameters:
@@ -278,6 +280,58 @@ paths:
           schema:
             type: string
             maxLength: 256
+        - name: query_field
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ScopeQueryField"
+        - name: parent_scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: external_reference_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '.*\S.*'
+        - name: binding_integration
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '.*\S.*'
+        - name: binding_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: '.*\S.*'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
       responses:
         "200":
           description: Durable Scope metadata in deterministic identity order.
@@ -4296,6 +4350,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ScopeDescriptor"
+        next_cursor:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 4096
+    ScopeQueryField:
+      type: string
+      enum: [scope_id, title, summary, external_reference_value, binding_external_id]
     CreateScopeRequest:
       type: object
       additionalProperties: false
@@ -8005,6 +8067,44 @@ components:
         query:
           type: string
           maxLength: 256
+          nullable: true
+        query_field:
+          allOf:
+            - $ref: "#/components/schemas/ScopeQueryField"
+          nullable: true
+        parent_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+          nullable: true
+        external_reference_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          nullable: true
+        binding_integration:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          nullable: true
+        binding_kind:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '.*\S.*'
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
           nullable: true
     ListSourcesRequest:
       type: object

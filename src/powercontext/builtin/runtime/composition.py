@@ -62,6 +62,7 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryVectorIndex,
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.scope_search_schema import ensure_scope_search_schema
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
@@ -439,6 +440,7 @@ async def open_builtin_contexts(
         ) as profile:
             async with profile.database.transaction() as connection:
                 await ensure_skill_distribution_schema(connection)
+                await ensure_scope_search_schema(connection)
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
             contexts = RelationalContexts(
@@ -479,6 +481,7 @@ async def open_builtin_contexts(
     async with profile_context as profile:
         async with profile.database.transaction() as connection:
             await ensure_skill_distribution_schema(connection)
+            await ensure_scope_search_schema(connection)
             await index.initialize(connection)
             await experience_index.initialize(connection)
         contexts = RelationalContexts(

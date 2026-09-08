@@ -162,6 +162,7 @@ from powercontext.http import (
     ScopeDescriptor,
     ScopedStats,
     ScopePage,
+    ScopeQueryField,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SetDefaultScopeRequest,
@@ -365,10 +366,44 @@ class PowerContextClient:
 
         return await self._request(GET_CAPABILITIES)
 
-    async def list_scopes(self, query: str | None = None) -> ScopePage:
-        """List durable Scope descriptors."""
+    async def list_scopes(
+        self,
+        query: str | None = None,
+        *,
+        query_field: ScopeQueryField | None = None,
+        parent_scope_id: str | None = None,
+        external_reference_kind: str | None = None,
+        binding_integration: str | None = None,
+        binding_kind: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> ScopePage:
+        """List or discover durable Scope descriptors."""
 
-        return await self._request(LIST_SCOPES, ListScopesRequest(query=query))
+        if (
+            query is None
+            and query_field is None
+            and parent_scope_id is None
+            and external_reference_kind is None
+            and binding_integration is None
+            and binding_kind is None
+            and limit == 50
+            and cursor is None
+        ):
+            return await self._request(LIST_SCOPES)
+        return await self._request(
+            LIST_SCOPES,
+            ListScopesRequest(
+                query=query,
+                query_field=query_field,
+                parent_scope_id=parent_scope_id,
+                external_reference_kind=external_reference_kind,
+                binding_integration=binding_integration,
+                binding_kind=binding_kind,
+                limit=limit,
+                cursor=cursor,
+            ),
+        )
 
     async def create_scope(self, request: CreateScopeRequest) -> ScopeDescriptor:
         """Create one independent Scope boundary."""

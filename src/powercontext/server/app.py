@@ -297,6 +297,9 @@ from powercontext.builtin.scope import (
     ScopeDescriptor as DomainScopeDescriptor,
 )
 from powercontext.builtin.scope import (
+    ScopeDiscovery as DomainScopeDiscovery,
+)
+from powercontext.builtin.scope import (
     ScopeExternalReference as DomainScopeExternalReference,
 )
 from powercontext.builtin.scope import (
@@ -500,6 +503,7 @@ from powercontext.http import (
     ScopeDescriptor,
     ScopedStats,
     ScopePage,
+    ScopeQueryField,
     ScopeSelection,
     SearchMemoryRequest,
     SearchMemoryResponse,
@@ -1809,19 +1813,84 @@ async def list_access_audit(payload: ListAccessAuditRequest, request: Request) -
 def _list_scopes_query(
     http_request: Request,
     query: Annotated[str | None, Query(max_length=256)] = None,
+    query_field: Annotated[ScopeQueryField | None, Query()] = None,
+    parent_scope_id: Annotated[str | None, Query(min_length=1, max_length=256, pattern=r".*\S.*")] = None,
+    external_reference_kind: Annotated[str | None, Query(min_length=1, max_length=128, pattern=r".*\S.*")] = None,
+    binding_integration: Annotated[str | None, Query(min_length=1, max_length=128, pattern=r".*\S.*")] = None,
+    binding_kind: Annotated[str | None, Query(min_length=1, max_length=64, pattern=r".*\S.*")] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
 ) -> ListScopesRequest:
-    if set(http_request.query_params) - {"query"}:
+    parameter_names = {
+        "query",
+        "query_field",
+        "parent_scope_id",
+        "external_reference_kind",
+        "binding_integration",
+        "binding_kind",
+        "limit",
+        "cursor",
+    }
+    if set(http_request.query_params) - parameter_names:
         raise InvalidBaseAccessRequestError("query", "contains unknown parameters")
-    if len(http_request.query_params.getlist("query")) > 1:
-        raise InvalidBaseAccessRequestError("query", "must be provided at most once")
-    return ListScopesRequest(query=query)
+    if any(len(http_request.query_params.getlist(name)) > 1 for name in parameter_names):
+        raise InvalidBaseAccessRequestError("query", "parameters must be provided at most once")
+    normalized_query = None if query is None or not query.strip() else query.strip()
+    if (normalized_query is None) != (query_field is None):
+        raise InvalidBaseAccessRequestError("query", "query and query_field must be provided together")
+    return ListScopesRequest(
+        query=normalized_query,
+        query_field=query_field,
+        parent_scope_id=parent_scope_id,
+        external_reference_kind=external_reference_kind,
+        binding_integration=binding_integration,
+        binding_kind=binding_kind,
+        limit=limit,
+        cursor=cursor,
+    )
 
 
 async def list_scopes(
     request: Annotated[ListScopesRequest, Depends(_list_scopes_query)],
+    http_request: Request,
     scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
 ) -> ScopePage:
-    return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.list(query=request.query)])
+    pagination_requested = (
+        request.query is not None
+        or any(
+            value is not None
+            for value in (
+                request.parent_scope_id,
+                request.external_reference_kind,
+                request.binding_integration,
+                request.binding_kind,
+                request.cursor,
+            )
+        )
+        or "limit" in http_request.query_params
+    )
+    if not pagination_requested:
+        return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.list()])
+
+    principal = current_principal()
+    caller = "anonymous" if principal is None else f"{principal.type}:{principal.id}"
+    page = await scopes.discover(
+        DomainScopeDiscovery(
+            query=request.query,
+            query_field=None if request.query_field is None else request.query_field.value,
+            parent_scope_id=request.parent_scope_id,
+            external_reference_kind=request.external_reference_kind,
+            binding_integration=request.binding_integration,
+            binding_kind=request.binding_kind,
+            limit=request.limit,
+            cursor=request.cursor,
+        ),
+        caller=caller,
+    )
+    return ScopePage(
+        items=[_scope_descriptor_response(scope) for scope in page.items],
+        next_cursor=page.next_cursor,
+    )
 
 
 async def create_scope(

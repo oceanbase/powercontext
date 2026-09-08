@@ -34,10 +34,12 @@ from powercontext.builtin.scope.models import (
     ScopeBinding,
     ScopeBindingKey,
     ScopeDescriptor,
+    ScopeDiscovery,
     ScopeDraft,
     ScopeExternalReference,
     ScopeMutation,
 )
+from powercontext.builtin.scope.search import literal_contains, normalize_scope_search
 
 _DEFAULT_SETTING = "default"
 
@@ -60,11 +62,60 @@ class ScopeRepository:
             select(SCOPES_TABLE).where(SCOPES_TABLE.c.scope_id.in_(scope_ids)).order_by(SCOPES_TABLE.c.scope_id),
         )
 
-    async def list(self, connection: AsyncConnection, /, *, query: str | None = None) -> tuple[ScopeDescriptor, ...]:
-        rows = tuple((await connection.execute(select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id))).mappings())
-        if query:
-            rows = tuple(row for row in rows if query in str(row["scope_id"]))
-        return await self._load_rows(connection, rows)
+    async def list(self, connection: AsyncConnection, /) -> tuple[ScopeDescriptor, ...]:
+        return await self._load(connection, select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id))
+
+    async def discover(
+        self,
+        connection: AsyncConnection,
+        discovery: ScopeDiscovery,
+        /,
+        *,
+        after: str,
+    ) -> tuple[tuple[ScopeDescriptor, ...], bool]:
+        statement = select(SCOPES_TABLE).where(SCOPES_TABLE.c.scope_id > after)
+        normalized_query = None if discovery.query is None else normalize_scope_search(discovery.query)
+
+        if normalized_query is not None and discovery.query_field in {"scope_id", "title", "summary"}:
+            search_column = {
+                "scope_id": SCOPES_TABLE.c.scope_id_search,
+                "title": SCOPES_TABLE.c.title_search,
+                "summary": SCOPES_TABLE.c.summary_search,
+            }[discovery.query_field]
+            statement = statement.where(literal_contains(search_column, normalized_query, connection.dialect.name))
+        if discovery.parent_scope_id is not None:
+            statement = statement.where(SCOPES_TABLE.c.parent_scope_id == discovery.parent_scope_id)
+
+        external_reference = SCOPE_EXTERNAL_REFERENCES_TABLE.alias("scope_discovery_external_reference")
+        external_conditions = [external_reference.c.scope_id == SCOPES_TABLE.c.scope_id]
+        if discovery.external_reference_kind is not None:
+            external_conditions.append(external_reference.c.kind == discovery.external_reference_kind)
+        if normalized_query is not None and discovery.query_field == "external_reference_value":
+            external_conditions.append(
+                literal_contains(external_reference.c.value_search, normalized_query, connection.dialect.name)
+            )
+        if len(external_conditions) > 1:
+            statement = statement.where(select(1).where(*external_conditions).correlate(SCOPES_TABLE).exists())
+
+        binding = SCOPE_BINDINGS_TABLE.alias("scope_discovery_binding")
+        binding_conditions = [binding.c.scope_id == SCOPES_TABLE.c.scope_id]
+        if discovery.binding_integration is not None:
+            binding_conditions.append(binding.c.integration == discovery.binding_integration)
+        if discovery.binding_kind is not None:
+            binding_conditions.append(binding.c.kind == discovery.binding_kind)
+        if normalized_query is not None and discovery.query_field == "binding_external_id":
+            binding_conditions.append(
+                literal_contains(binding.c.external_id_search, normalized_query, connection.dialect.name)
+            )
+        if len(binding_conditions) > 1:
+            statement = statement.where(select(1).where(*binding_conditions).correlate(SCOPES_TABLE).exists())
+
+        rows = tuple(
+            (
+                await connection.execute(statement.order_by(SCOPES_TABLE.c.scope_id).limit(discovery.limit + 1))
+            ).mappings()
+        )
+        return await self._load_rows(connection, rows[: discovery.limit]), len(rows) > discovery.limit
 
     async def lock_write_transaction(self, connection: AsyncConnection, /) -> None:
         """Acquire SQLite's writer boundary before reading state that will change."""
@@ -160,6 +211,9 @@ class ScopeRepository:
                 scope_id=scope_id,
                 title=draft.title,
                 summary=draft.summary,
+                scope_id_search=normalize_scope_search(scope_id),
+                title_search=normalize_scope_search(draft.title),
+                summary_search=normalize_scope_search(draft.summary),
                 parent_scope_id=draft.parent_scope_id,
                 version=1,
             )
@@ -198,6 +252,8 @@ class ScopeRepository:
             .values(
                 title=mutation.title,
                 summary=mutation.summary,
+                title_search=normalize_scope_search(mutation.title),
+                summary_search=normalize_scope_search(mutation.summary),
                 parent_scope_id=mutation.parent_scope_id,
                 version=mutation.expected_version + 1,
             )
@@ -248,6 +304,7 @@ class ScopeRepository:
                 integration=key.integration,
                 kind=key.kind,
                 external_id=key.external_id,
+                external_id_search=normalize_scope_search(key.external_id),
                 scope_id=scope_id,
             )
         )
@@ -267,7 +324,7 @@ class ScopeRepository:
                 SCOPE_BINDINGS_TABLE.c.kind == key.kind,
                 SCOPE_BINDINGS_TABLE.c.external_id == key.external_id,
             )
-            .values(scope_id=scope_id)
+            .values(scope_id=scope_id, external_id_search=normalize_scope_search(key.external_id))
         )
         if result.rowcount == 0:
             await connection.execute(
@@ -275,6 +332,7 @@ class ScopeRepository:
                     integration=key.integration,
                     kind=key.kind,
                     external_id=key.external_id,
+                    external_id_search=normalize_scope_search(key.external_id),
                     scope_id=scope_id,
                 )
             )
@@ -320,6 +378,7 @@ class ScopeRepository:
                         "ordinal": ordinal,
                         "kind": reference.kind,
                         "value": reference.value,
+                        "value_search": normalize_scope_search(reference.value),
                         "value_digest": sha256(reference.value.encode()).hexdigest(),
                     }
                     for ordinal, reference in enumerate(external_references)
