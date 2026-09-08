@@ -16,7 +16,7 @@
 
 import Link from 'next/link';
 import { BrandLogo } from './brand-logo';
-import type { Language } from '@/lib/i18n';
+import { defaultLanguage, type Language } from '@/lib/i18n';
 
 const copy = {
   en: {
@@ -50,7 +50,7 @@ export function SiteFooter({ lang }: { lang: Language }) {
     <footer className="mt-20 border-t bg-fd-card/40">
       <div className="mx-auto grid w-full max-w-(--fd-layout-width) gap-10 px-4 py-12 md:grid-cols-4">
         <div className="md:col-span-2">
-          <Link aria-label="PowerContext" href={`/${lang}`}>
+          <Link aria-label="PowerContext" href={lang === defaultLanguage ? '/' : `/${lang}`}>
             <BrandLogo className="w-40" />
           </Link>
           <p className="mt-4 max-w-sm text-sm leading-6 text-fd-muted-foreground">{text.description}</p>

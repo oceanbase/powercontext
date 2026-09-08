@@ -41,6 +41,7 @@ from powercontext.builtin.persistence.errors import (
 )
 from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
+from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -49,11 +50,13 @@ from powercontext.builtin.persistence.tables import (
     SOURCE_JOURNAL_HEADS_TABLE,
     SOURCES_TABLE,
 )
+from powercontext.builtin.persistence.tags import RelationalTagService, tag_predicate
 from powercontext.builtin.records import (
     ArtifactCollectionItem,
     ArtifactCreated,
     ArtifactRecord,
     ArtifactRecordPage,
+    ArtifactRevisionPage,
     ArtifactRevisionPreconditionError,
     ArtifactWrite,
     BaseValueConflictError,
@@ -74,11 +77,13 @@ from powercontext.builtin.sources import (
     ContentSourceInternal,
     ContentSourceTarget,
 )
+from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import SourceMaterialization, SourceRef
 
 Clock = Callable[[], datetime]
 IdFactory = Callable[[str], str]
+
 
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
 _JSON_VALUE = TypeAdapter(JsonValue)
@@ -100,6 +105,8 @@ class RelationalRecordService:
         id_factory: IdFactory | None = None,
         cursor_secret: bytes | None = None,
         cursor_ttl_seconds: int = _DEFAULT_CURSOR_TTL_SECONDS,
+        processing_pending: ArtifactProcessingPendingRepository | None = None,
+        source_processing_bindings: tuple[str, ...] = (),
     ) -> None:
         if isinstance(cursor_ttl_seconds, bool) or cursor_ttl_seconds < 1:
             raise ValueError("cursor_ttl_seconds must be a positive integer")  # noqa: TRY003
@@ -113,6 +120,26 @@ class RelationalRecordService:
         self._id_factory = _resource_id if id_factory is None else id_factory
         self._cursor_secret = secrets.token_bytes(32) if cursor_secret is None else cursor_secret
         self._cursor_ttl = timedelta(seconds=cursor_ttl_seconds)
+        self._processing_pending = processing_pending
+        self._source_processing_bindings = source_processing_bindings
+        self._tags = RelationalTagService(
+            database,
+            artifacts,
+            cursor_secret=self._cursor_secret,
+            clock=self._clock,
+            cursor_ttl_seconds=cursor_ttl_seconds,
+        )
+
+    async def get_tags(self, scope_id: str, target: TagTarget) -> ArtifactTagSet:
+        return await self._tags.get(scope_id, target)
+
+    async def replace_tags(
+        self, scope_id: str, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str
+    ) -> ArtifactTagSet:
+        return await self._tags.replace(scope_id, target, tags, expected_etag=expected_etag)
+
+    async def query_tags(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
+        return await self._tags.query(scope_id, query, caller=caller)
 
     async def create_source(
         self,
@@ -150,7 +177,11 @@ class RelationalRecordService:
             )
         except ValidationError as error:
             raise InvalidBaseAccessRequestError("content", "does not match the Source adapter") from error
-        return await self._store_source(scope_id, source_type, await CONTENT_SOURCE_ADAPTER.resolve(capture))
+        return await self._store_source(
+            scope_id,
+            source_type,
+            await CONTENT_SOURCE_ADAPTER.resolve(capture),
+        )
 
     async def _store_source(
         self,
@@ -160,7 +191,15 @@ class RelationalRecordService:
     ) -> SourceRecord:
         try:
             async with self._database.transaction() as connection:
-                stored = await self._sources.add(connection, scope_id, source)
+                stored, created = await self._sources.add_with_status(connection, scope_id, source)
+                if created and self._processing_pending is not None:
+                    for binding_name in self._source_processing_bindings:
+                        await self._processing_pending.raise_source(
+                            connection,
+                            scope_id,
+                            binding_name,
+                            stored.journal_position,
+                        )
         except StoredPayloadConflictError as error:
             raise BaseValueConflictError("source", (scope_id, source_type, source.name)) from error
         return _source_record(scope_id, stored)
@@ -180,7 +219,15 @@ class RelationalRecordService:
     ) -> ArtifactCreated:
         writer = self._family_writers.get(family)
         command = writer.validate_create(write.content)
-        artifact_id = writer.artifact_id_for_create(self._id_factory(family))
+        if family == "prompt":
+            if write.prompt_key is None:
+                raise InvalidBaseAccessRequestError("prompt_key", "is required for Prompt Create")
+            selected_id = write.prompt_key
+        else:
+            if write.prompt_key is not None:
+                raise InvalidBaseAccessRequestError("prompt_key", "is only accepted for Prompt Create")
+            selected_id = self._id_factory(family)
+        artifact_id = writer.artifact_id_for_create(selected_id)
         source_id = self._id_factory("source")
         canonical_content = cast(
             dict[str, JsonValue],
@@ -240,6 +287,73 @@ class RelationalRecordService:
                 raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id, revision)) from None
             return _artifact_record(scope_id, artifact)
 
+    async def list_artifact_revisions(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> ArtifactRevisionPage:
+        self._require_family(family)
+        _require_limit(limit)
+        expected_cursor = {
+            "version": 1,
+            "endpoint": "list_artifact_revisions",
+            "scope_id": scope_id,
+            "family": family,
+            "artifact_id": artifact_id,
+            "authorization": "scope_read",
+            "order": "revision:desc",
+        }
+        after_text = self._cursor_after_text(cursor, expected_cursor)
+        async with self._database.transaction() as connection:
+            try:
+                current = await self._artifacts.latest(connection, scope_id, family, artifact_id)
+            except RepositoryNotFoundError:
+                raise BaseValueNotFoundError("artifact", (scope_id, family, artifact_id)) from None
+            if after_text:
+                try:
+                    snapshot_text, revision_text = after_text.split(":")
+                    snapshot, after = int(snapshot_text), int(revision_text)
+                except ValueError:
+                    raise InvalidCursorError from None
+                if not 1 <= after <= snapshot <= current.revision:
+                    raise InvalidCursorError
+            else:
+                snapshot, after = current.revision, current.revision + 1
+            revisions = tuple(
+                (
+                    await connection.execute(
+                        select(ARTIFACTS_TABLE.c.revision)
+                        .where(
+                            ARTIFACTS_TABLE.c.scope_id == scope_id,
+                            ARTIFACTS_TABLE.c.family == family,
+                            ARTIFACTS_TABLE.c.artifact_id == artifact_id,
+                            ARTIFACTS_TABLE.c.revision <= snapshot,
+                            ARTIFACTS_TABLE.c.revision < after,
+                        )
+                        .order_by(ARTIFACTS_TABLE.c.revision.desc())
+                        .limit(limit + 1)
+                    )
+                ).scalars()
+            )
+            selected = revisions[:limit]
+            artifacts = await self._artifacts.get_many(
+                connection,
+                scope_id,
+                tuple(ArtifactRef(family=family, artifact_id=artifact_id, revision=revision) for revision in selected),
+            )
+            items = tuple(_artifact_collection_item(scope_id, artifact) for artifact in artifacts)
+        next_cursor = (
+            self._encode_cursor(expected_cursor, f"{snapshot}:{selected[-1]}")
+            if len(revisions) > limit and selected
+            else None
+        )
+        return ArtifactRevisionPage(items=items, next_cursor=next_cursor)
+
     async def current_memory_entry(self, scope_id: str, artifact_id: str, entry_id: str, /) -> MemoryEntryVersion:
         """Resolve only one entry body, including entries in base-API Memory artifacts."""
         backend = RelationalMemoryBackend(database=self._database, scope_id=scope_id, artifacts=self._artifacts)
@@ -291,6 +405,7 @@ class RelationalRecordService:
         *,
         limit: int,
         cursor: str | None,
+        tag_filter: TagFilter | None = None,
     ) -> ArtifactRecordPage:
         self._require_family(family)
         _require_limit(limit)
@@ -301,6 +416,13 @@ class RelationalRecordService:
             "family": family,
             "order": "artifact_id:asc",
         }
+        if tag_filter is not None:
+            expected_cursor["tag_filter"] = sha256(
+                rfc8785.dumps({
+                    "keys": list(tag_filter.keys),
+                    "match": tag_filter.match,
+                })
+            ).hexdigest()
         after = self._cursor_after_text(cursor, expected_cursor)
         async with self._database.transaction() as connection:
             statement = (
@@ -316,6 +438,17 @@ class RelationalRecordService:
                 .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
                 .limit(limit + 1)
             )
+            if tag_filter is not None:
+                statement = statement.where(
+                    tag_predicate(
+                        scope_id,
+                        family,
+                        ARTIFACT_HEADS_TABLE.c.artifact_id,
+                        "artifact",
+                        ARTIFACT_HEADS_TABLE.c.artifact_id,
+                        tag_filter,
+                    )
+                )
             rows = (await connection.execute(statement)).all()
             selected_rows = rows[:limit]
             artifacts = await self._artifacts.get_many(
@@ -345,6 +478,8 @@ class RelationalRecordService:
         write: ArtifactWrite,
         /,
     ) -> ArtifactRecord:
+        if write.prompt_key is not None:
+            raise InvalidBaseAccessRequestError("prompt_key", "is not accepted for replacement")
         writer = self._family_writers.get(family)
         command = writer.validate_replace(write.content)
         async with self._database.transaction() as connection:
@@ -415,7 +550,7 @@ class RelationalRecordService:
 
     def _require_family(self, family: str) -> None:
         if family not in self._artifacts.families:
-            raise InvalidBaseAccessRequestError("family", "must be memory, experience, skill, or handoff")
+            raise InvalidBaseAccessRequestError("family", "must be a registered Artifact family")
 
     async def _get_source(
         self,

@@ -21,6 +21,10 @@ from typing import Annotated, ClassVar, Literal, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, InstanceOf, field_validator, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactDraft, ArtifactRef
+from powercontext.builtin.artifacts.handoff.generation_metadata import (
+    HandoffGenerationEnvelope,
+    HandoffGenerationMetadata,
+)
 from powercontext.builtin.artifacts.memory import MemoryCitation, MemoryEntryVersion
 from powercontext.sources import Source, SourceRef
 
@@ -215,6 +219,8 @@ class HandoffOmission(_HandoffValue):
 class HandoffContent(_HandoffValue):
     """The complete content shared by temporary and committed Handoffs."""
 
+    generation: HandoffGenerationMetadata | None = Field(default=None, exclude_if=lambda value: value is None)
+
     schema_version: Literal["powercontext.handoff.v1"] = Field(
         default="powercontext.handoff.v1",
         alias="schema",
@@ -239,6 +245,8 @@ class HandoffContent(_HandoffValue):
 
 class HandoffDraft(_HandoffValue):
     """Inspectable and correctable content before Handoff finalization."""
+
+    generation: HandoffGenerationEnvelope | None = Field(default=None, exclude_if=lambda value: value is None)
 
     objective: Annotated[str, Field(max_length=MAX_HANDOFF_TEXT_LENGTH)]
     state: Annotated[
@@ -307,6 +315,8 @@ class HandoffArtifactDraft(ArtifactDraft[HandoffContent]):
 
 class PreparedHandoff(_HandoffValue):
     """Finalized temporary Handoff associated with one scope and observed head."""
+
+    generation: HandoffGenerationEnvelope | None = Field(default=None, exclude_if=lambda value: value is None)
 
     schema_version: Literal["powercontext.prepared-handoff.v1"] = Field(
         default="powercontext.prepared-handoff.v1",

@@ -27,7 +27,7 @@ import { OPERATIONS, type OperationId, type OperationSpec } from './operations.g
 
 export type JsonObject = Record<string, unknown>
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
-export type ClientSuccess = { kind: 'json'; value: unknown; status: number; requestId: string | undefined }
+export type ClientSuccess = { kind: 'json'; value: unknown; status: number; requestId: string | undefined; etag?: string }
 
 export interface ClientOptions {
   baseUrl: string
@@ -110,7 +110,8 @@ async function readLimitedBody(response: Response): Promise<Uint8Array> {
 function queryString(payload: JsonObject | undefined): string {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(payload ?? {})) {
-    if (value !== undefined && value !== null) params.set(key, String(value))
+    if (value === undefined || value === null) continue
+    for (const item of Array.isArray(value) ? value : [value]) params.append(key, String(item))
   }
   const encoded = params.toString()
   return encoded ? `?${encoded}` : ''
@@ -208,10 +209,10 @@ export class PowerContextClient {
       }
       if (hasStatus(spec.emptyStatuses as readonly number[], response.status)) {
         if (bytes.byteLength !== 0) throw new InvalidResponseError(spec.path, requestId)
-        return { kind: 'json', value: null, status: response.status, requestId }
+        return { kind: 'json', value: null, status: response.status, requestId, etag: response.headers.get('ETag') ?? undefined }
       }
       try {
-        return { kind: 'json', value: JSON.parse(Buffer.from(bytes).toString('utf8')), status: response.status, requestId }
+        return { kind: 'json', value: JSON.parse(Buffer.from(bytes).toString('utf8')), status: response.status, requestId, etag: response.headers.get('ETag') ?? undefined }
       } catch {
         throw new InvalidResponseError(spec.path, requestId)
       }

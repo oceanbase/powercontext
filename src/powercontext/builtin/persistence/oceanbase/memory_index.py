@@ -50,6 +50,7 @@ from powercontext.builtin.persistence.tables import (
     MEMORY_ENTRY_VERSIONS_TABLE,
     identity_string,
 )
+from powercontext.builtin.persistence.tags import memory_tag_parameters, memory_tag_sql, tag_predicate
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 _OCEANBASE_FTS_INDEX_NAME = "ix_pc_memory_entry_heads_fts"
@@ -100,7 +101,7 @@ LIMIT :candidate_limit
 class OceanBaseMemoryFTSIndex:
     """OceanBase FULLTEXT strategy over the relational active-head projection."""
 
-    capabilities = MemoryCapabilities(fts=True)
+    capabilities = MemoryCapabilities(fts=True, tag_filter=True)
     tables: tuple[Table, ...] = ()
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
@@ -159,6 +160,20 @@ class OceanBaseMemoryFTSIndex:
                         tuple(memory.artifact_id for memory in request.memories)
                     ),
                     score,
+                    *(
+                        ()
+                        if request.tag_filter is None
+                        else (
+                            tag_predicate(
+                                scope_id,
+                                "memory",
+                                MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id,
+                                "memory_entry",
+                                MEMORY_ENTRY_HEADS_TABLE.c.entry_id,
+                                request.tag_filter,
+                            ),
+                        )
+                    ),
                 )
                 .order_by(
                     score.desc(),
@@ -204,6 +219,7 @@ class OceanBaseMemoryVectorIndex:
             )
         self.profile = profile
         self.capabilities = MemoryCapabilities(
+            tag_filter=True,
             fts=False,
             vector=True,
             embedding_profile=profile,
@@ -236,6 +252,16 @@ class OceanBaseMemoryVectorIndex:
         )
         self._search_sql = text(_OCEANBASE_VECTOR_SEARCH_SQL).bindparams(
             bindparam("memory_artifact_ids", expanding=True),
+            bindparam("query_vector", type_=VECTOR(profile.dimension)),
+        )
+        self._tagged_search_sql = text(
+            _OCEANBASE_VECTOR_SEARCH_SQL.replace("ORDER BY", memory_tag_sql("m") + "ORDER BY").replace(
+                " APPROXIMATE", ""
+            )
+        ).bindparams(
+            bindparam("memory_artifact_ids", expanding=True),
+            bindparam("tag_keys", expanding=True),
+            bindparam("tag_hashes", expanding=True),
             bindparam("query_vector", type_=VECTOR(profile.dimension)),
         )
 
@@ -304,7 +330,7 @@ class OceanBaseMemoryVectorIndex:
             raise CapabilityNotSupportedError("vector")
         rows = (
             await connection.execute(
-                self._search_sql,
+                self._search_sql if request.tag_filter is None else self._tagged_search_sql,
                 {
                     "scope_id": scope_id,
                     "memory_artifact_ids": tuple(memory.artifact_id for memory in request.memories),
@@ -313,6 +339,7 @@ class OceanBaseMemoryVectorIndex:
                         dimension=self.profile.dimension,
                     ),
                     "candidate_limit": request.candidate_limit,
+                    **memory_tag_parameters(request.tag_filter),
                 },
             )
         ).mappings()

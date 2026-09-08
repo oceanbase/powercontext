@@ -92,6 +92,38 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
+## Scope-owned operational Prompts
+
+Operational Prompts use `family=prompt` and the same Scope access boundary as other Artifacts. Under enforced Access,
+creation and demonstration generation require `scope.contribute`; reading a head, exact revision, or revision history
+requires `artifact.read`; replacing a Prompt requires `artifact.write`. Scope read roles inherit Prompt read/use access,
+and the creator owns the logical Prompt. Direct Prompt sharing has no grantable roles.
+
+`GET /v1/scopes/{scope_id}/prompts/{prompt_key}` reads the current configuration without saving a revision or calling
+an inference provider. It requires `scope.read` and, when a saved Prompt exists, `artifact.read`. The response includes:
+
+- `mode`, `status`, and `reason`: the selected mode and whether the operation supports customization.
+- `effective`: the selected instructions and demonstrations. Auto returns the deployed built-in instructions;
+  Custom returns the saved content.
+- `builtin`: the deployed instructions, version, and applicable profile, including the runtime's coding or conversation
+  memory extraction profile.
+- `artifact` and `artifact_etag`: the saved head reference and its conditional-write token. Both are null before the
+  first save. A saved Auto revision retains its reference even though its effective instructions come from the runtime.
+
+Disabled operations remain readable. Externally injected components return null for `effective` and `builtin` because
+they manage their own prompts. The read response is not a Prompt write payload: saving Auto still uses empty
+`instructions` and `demonstrations` in `powercontext.prompt.v1` content.
+
+The `/prompts` page shows Auto instructions read-only. Switching to Custom starts from those defaults and preserves
+unsaved custom instructions and demonstrations when toggling modes. The deployed default remains available for comparison.
+
+Use `GET /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}/revisions` to list immutable history and
+`POST /v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations` to generate editable suggestions. Suggestions are not
+saved automatically. Rollback reads an exact historical revision and conditionally replaces the current head with
+`If-Match`, creating a new revision: restoring revision 2 while the head is revision 3 creates revision 4. Restoring Auto
+uses the currently deployed built-in instructions; history does not archive built-in templates from older deployments.
+Scheduled and manual inference use the same Scope-owned Prompt configuration.
+
 ## Grant one logical Handoff to a receiver
 
 `scope_id` never grants access by itself. The Handoff owner or an authorized delegator assigns one logical committed Handoff by creating a

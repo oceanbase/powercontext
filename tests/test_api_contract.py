@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
 
+import powercontext.http as http_models
 from powercontext.http import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
@@ -39,11 +42,14 @@ from powercontext.http import (
     CreateWorkContractRequest,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
+    FlushTopicMemoryRequest,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetMemoryEntryRequest,
     GetStatsRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffActivation,
     HandoffCurrentWorkRequest,
@@ -68,6 +74,8 @@ from powercontext.http import (
     ScanExternalSkillsResponse,
     ScopedStats,
     SearchMemoryRequest,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     SkillProposal,
     SkillValidationItem,
     SourceRecord,
@@ -92,6 +100,7 @@ from powercontext.http._generated.operations import (
     ENROLL_REMOTE_SKILL_TARGET,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
+    FLUSH_TOPIC_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
     GET_ARTIFACT,
@@ -104,6 +113,7 @@ from powercontext.http._generated.operations import (
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
     GET_STATS,
+    GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
@@ -135,6 +145,7 @@ from powercontext.http._generated.operations import (
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SEARCH_TOPIC_MEMORY,
     SUBMIT_SOURCE_OBSERVATION,
     UNPUBLISH_REMOTE_SKILL,
     UPDATE_SKILL_LIFECYCLE,
@@ -142,6 +153,22 @@ from powercontext.http._generated.operations import (
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import HandoffReportConfig, ServerSettings
+
+
+def test_http_public_exports_resolve() -> None:
+    assert [name for name in http_models.__all__ if not hasattr(http_models, name)] == []
+
+
+def test_http_star_import_resolves_every_public_export() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "from powercontext.http import *"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "openapi" / "powercontext.yaml"
 
@@ -252,6 +279,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
         "handoff_generation",
         "search_modes",
         "context_versions",
+        "prompts",
     }
     assert "CapabilityLimit" not in schemas
 
@@ -264,6 +292,24 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.request_type is CaptureContentSourceRequest
     assert CAPTURE_CONTENT_SOURCE.response_type is CaptureContentSourceResponse
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
+
+
+def test_topic_memory_operations_use_strict_public_shapes_without_retrieval_controls() -> None:
+    assert FLUSH_TOPIC_MEMORY.request_type is FlushTopicMemoryRequest
+    assert FLUSH_TOPIC_MEMORY.response_type is FlushTopicMemoryResponse
+    assert SEARCH_TOPIC_MEMORY.request_type is SearchTopicMemoryRequest
+    assert SEARCH_TOPIC_MEMORY.response_type is SearchTopicMemoryResponse
+    assert GET_TOPIC_MEMORY.request_type is GetTopicMemoryRequest
+    assert (
+        FLUSH_TOPIC_MEMORY.success_status
+        == SEARCH_TOPIC_MEMORY.success_status
+        == GET_TOPIC_MEMORY.success_status
+        == 200
+    )
+    assert set(SearchTopicMemoryRequest.model_fields) == {"scope_id", "query", "limit"}
+
+    with pytest.raises(ValidationError):
+        SearchTopicMemoryRequest.model_validate({"scope_id": "scope-a", "query": "query", "mode": "fts"})
 
 
 def test_source_observation_contract_uses_explicit_connector_scope_and_captured_values() -> None:
@@ -689,17 +735,28 @@ def test_generated_transport_rejects_values_outside_openapi(
         model.model_validate(value)
 
 
-def test_base_access_contract_uses_only_the_seven_scoped_operations() -> None:
+def test_base_access_contract_includes_revision_history_and_tags() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     expected_operations = {
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "get"): "get_artifact_tags",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "put"): "replace_artifact_tags",
+        (
+            "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+            "get",
+        ): "get_memory_entry_tags",
+        (
+            "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+            "put",
+        ): "replace_memory_entry_tags",
         ("/v1/scopes/{scope_id}/sources", "post"): "create_source",
         ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}", "get"): "get_source",
         ("/v1/scopes/{scope_id}/artifacts", "post"): "create_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}", "get"): "list_artifacts",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "get"): "get_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "put"): "replace_artifact",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions", "get"): "list_artifact_revisions",
         (
             "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
             "get",
@@ -730,8 +787,11 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
-    assert len(artifact["oneOf"]) == 4
+    assert len(artifact["oneOf"]) == 6
     assert artifact["discriminator"]["propertyName"] == "family"
+    prompt_request = schemas["CreatePromptArtifactRequest"]
+    assert prompt_request["required"] == ["family", "prompt_key", "content"]
+    assert set(prompt_request["properties"]) == {"family", "prompt_key", "content"}
     for name in (
         "CreateMemoryArtifactRequest",
         "CreateExperienceArtifactRequest",
@@ -775,14 +835,19 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
             model.model_validate(payload)
 
 
-def test_artifact_collection_only_accepts_pagination() -> None:
+def test_artifact_collection_accepts_pagination_and_exact_tag_filters() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     assert "/v1/scopes/{scope_id}/sources/{source_type}" not in paths
     parameters = paths["/v1/scopes/{scope_id}/artifacts/{family}"]["get"]["parameters"]
-    assert [parameter["name"] for parameter in parameters if parameter["in"] == "query"] == ["limit", "cursor"]
-    assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None}
+    assert {parameter["name"] for parameter in parameters if parameter["in"] == "query"} == {
+        "limit",
+        "cursor",
+        "tag",
+        "tag_match",
+    }
+    assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None, "tag": None, "tag_match": None}
 
 
 def test_base_access_uses_a_dedicated_source_type_reference() -> None:

@@ -63,32 +63,37 @@ export function renderToolResult(_args: unknown, value: ToolResult): Array<{ typ
   return [{ type: 'text', text: JSON.stringify(value) }]
 }
 
+function requestIdField(requestId: string | undefined): { request_id?: string } {
+  // DSH validates tool outputs as lossless JSON, including optional fields.
+  return requestId === undefined ? {} : { request_id: requestId }
+}
+
 function mapServerError(error: ServerResponseError): ToolResult {
   const code = publicErrorCode(error.code)
   if (error.statusCode === 401) {
-    return { ok: false, code: 'authentication_failed', message: 'PowerContext authentication failed. Check Authorization.', status: 401, request_id: error.requestId }
+    return { ok: false, code: 'authentication_failed', message: 'PowerContext authentication failed. Check Authorization.', status: 401, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 404) {
     if (isVersionMismatch(error)) {
-      return { ok: false, code: 'version_mismatch', message: 'A required PowerContext endpoint is unavailable. Check the Server endpoint and compatible plugin/Server versions.', status: 404, request_id: error.requestId }
+      return { ok: false, code: 'version_mismatch', message: 'A required PowerContext endpoint is unavailable. Check the Server endpoint and compatible plugin/Server versions.', status: 404, ...requestIdField(error.requestId) }
     }
-    return { ok: false, code: 'not_found', ...(code ? { error_code: code } : {}), message: code === 'scope_not_found' ? 'PowerContext could not resolve the requested Scope. Check its configuration.' : 'PowerContext resource was not found.', status: 404, request_id: error.requestId }
+    return { ok: false, code: 'not_found', ...(code ? { error_code: code } : {}), message: code === 'scope_not_found' ? 'PowerContext could not resolve the requested Scope. Check its configuration.' : 'PowerContext resource was not found.', status: 404, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 409) {
-    return { ok: false, code: code ?? 'conflict', message: 'PowerContext operation conflicts with the current state. Inspect the current reference before retrying.', status: 409, request_id: error.requestId }
+    return { ok: false, code: code ?? 'conflict', message: 'PowerContext operation conflicts with the current state. Inspect the current reference before retrying.', status: 409, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 422) {
-    return { ok: false, code: code ?? 'invalid_request', message: 'PowerContext rejected the request.', status: 422, request_id: error.requestId }
+    return { ok: false, code: code ?? 'invalid_request', message: 'PowerContext rejected the request.', status: 422, ...requestIdField(error.requestId) }
   }
   if (error.statusCode === 503) {
-    return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable, continue the task.', status: 503, request_id: error.requestId }
+    return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable, continue the task.', status: 503, ...requestIdField(error.requestId) }
   }
   return {
     ok: false,
     code: code ?? 'server_error',
     message: 'PowerContext is unavailable, continue the task.',
     status: error.statusCode,
-    request_id: error.requestId,
+    ...requestIdField(error.requestId),
   }
 }
 
@@ -101,7 +106,7 @@ export function toToolResult(error: unknown): ToolResult {
   }
   if (error instanceof ServerResponseError) return mapServerError(error)
   if (error instanceof InvalidResponseError) {
-    return { ok: false, code: 'invalid_response', message: 'PowerContext returned an invalid response.', request_id: error.requestId }
+    return { ok: false, code: 'invalid_response', message: 'PowerContext returned an invalid response.', ...requestIdField(error.requestId) }
   }
   if (error instanceof TransportError) {
     return { ok: false, code: 'unavailable', message: 'PowerContext is unavailable, continue the task.' }
@@ -123,12 +128,12 @@ export function injectScope(
 
 function encodeSuccess(result: Awaited<ReturnType<PowerContextClient['request']>>): ToolResult {
   if (result.kind === 'bytes') {
-    return { ok: true, status: result.status, request_id: result.requestId, data: { bytes_base64: Buffer.from(result.value).toString('base64') } }
+    return { ok: true, status: result.status, ...requestIdField(result.requestId), data: { bytes_base64: Buffer.from(result.value).toString('base64') } }
   }
   if (result.kind === 'text') {
-    return { ok: true, status: result.status, request_id: result.requestId, data: { markdown: result.value } }
+    return { ok: true, status: result.status, ...requestIdField(result.requestId), data: { markdown: result.value } }
   }
-  return { ok: true, status: result.status, request_id: result.requestId, data: result.value }
+  return { ok: true, status: result.status, ...requestIdField(result.requestId), data: result.value }
 }
 
 export async function invokeOperation(

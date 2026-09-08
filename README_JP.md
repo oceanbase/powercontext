@@ -86,6 +86,8 @@ Enter を押すと既定では無効のままです。明示的に選ぶ場合�
 
 アプリケーションは、非同期 Python クライアント、HTTP API、MCP、または同一プロセス内の Core SDK から PowerContext を利用できます。入口を選ぶには[インターフェースリファレンス](https://powercontext.oceanbase.io/en/docs/reference/interfaces/)を参照してください。
 
+Python で段階的に試すには、チーム作業の一連の流れも学べる [22 本の Jupyter チュートリアル（中国語）](examples/jupyter/README.md)をご覧ください。Memory、コンテキストの準備、Handoff、Experience、Skill、実際の Agent を動かしながら学べます。最初の 7 本はモデルや API キーなしで実行できます。
+
 ## PowerContext で何が変わるか
 
 ![LoCoMo と SWE-bench Pro における PowerContext の結果をまとめた比較図](docs/assets/readme-benchmark-summary.svg)

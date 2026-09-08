@@ -21,6 +21,117 @@ from pydantic import (
 )
 
 
+class SubjectType(StrEnum):
+    USER = "user"
+
+
+class SourceType(StrEnum):
+    CONTENT = "content"
+
+
+class CreateSubjectSourceRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    subject_key: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    subject_type: SubjectType = SubjectType.USER
+    subject_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
+    source_type: SourceType = SourceType.CONTENT
+    content: Annotated[Any, Field(description="JSON value stored identically in both scopes.")]
+
+
+class ActivationMode(StrEnum):
+    AUTOMATIC = "automatic"
+    REVIEW_REQUIRED = "review_required"
+
+
+class PutProfilePolicyRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    generation_enabled: StrictBool
+    activation_mode: ActivationMode = ActivationMode.AUTOMATIC
+    expected_version: Annotated[StrictInt, Field(ge=0)]
+
+
+class ProfilePolicyResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    generation_enabled: StrictBool
+    activation_mode: ActivationMode
+    pending_candidate_id: Annotated[StrictStr | None, Field(...)]
+    version: Annotated[StrictInt, Field(ge=1)]
+    updated_at: AwareDatetime
+
+
+class FlushProfileRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class Status(StrEnum):
+    UPDATED = "updated"
+    NOOP = "noop"
+    REVIEW_PENDING = "review_pending"
+    DISABLED = "disabled"
+    CONFLICT = "conflict"
+
+
+class ProfileWriteContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: Annotated[StrictStr, Field(min_length=1)]
+    restored_from_revision: Annotated[StrictInt | None, Field(ge=1)] = None
+
+
+class ProfileSourceWindow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Annotated[StrictInt, Field(ge=0)]
+    through: Annotated[StrictInt, Field(ge=0)]
+
+
+class Schema(StrEnum):
+    POWERCONTEXT_PROFILE_CANDIDATE_V1 = "powercontext.profile-candidate.v1"
+
+
+class ProfileCandidateProposal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema, Field(alias="schema")]
+    content: Annotated[StrictStr, Field(min_length=1)]
+    source_window: ProfileSourceWindow
+    generator_id: Annotated[StrictStr, Field(min_length=1)]
+    generator_version: Annotated[StrictStr, Field(min_length=1)]
+    created_at: AwareDatetime
+
+
+class Family(StrEnum):
+    PROFILE = "profile"
+
+
+class CreateProfileArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Literal["profile"]
+    content: ProfileWriteContent
+
+
+class ReplaceProfileArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: ProfileWriteContent
+
+
 class ArtifactReference(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -208,6 +319,7 @@ class ResolveScopeBindingRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allow_default: StrictBool = True
     explicit_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
     binding_keys: Annotated[list[ScopeBindingKey], Field(validate_default=True)] = []
 
@@ -360,7 +472,7 @@ class WorkClaimBasis(StrEnum):
     VERIFIED = "verified"
 
 
-class Schema(StrEnum):
+class Schema1(StrEnum):
     POWERCONTEXT_WORK_CONTRACT_V1 = "powercontext.work-contract.v1"
 
 
@@ -388,7 +500,7 @@ class OpenQuestion(RootModel[StrictStr]):
     root: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
 
 
-class Schema1(StrEnum):
+class Schema2(StrEnum):
     POWERCONTEXT_CURRENT_WORK_HANDOFF_V1 = "powercontext.current-work-handoff.v1"
 
 
@@ -454,7 +566,7 @@ class TaskCheckStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
-class Schema2(StrEnum):
+class Schema3(StrEnum):
     POWERCONTEXT_TASK_OUTCOME_V1 = "powercontext.task-outcome.v1"
 
 
@@ -600,6 +712,27 @@ class Trust3(StrEnum):
 
 class Kind2(StrEnum):
     SOURCE = "source"
+
+
+class HandoffGenerationEnvelope(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    receipt: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
+
+
+class Selection(StrEnum):
+    BUILT_IN = "built_in"
+    ARTIFACT = "artifact"
+
+
+class EditStatus(StrEnum):
+    UNCHANGED = "unchanged"
+    EDITED = "edited"
+
+
+class HandoffPromptKey(StrEnum):
+    HANDOFF_GENERATE = "handoff.generate"
 
 
 class ExperienceProposal(BaseModel):
@@ -1030,6 +1163,21 @@ class FlushMemoryRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
 
 
+class FlushTopicMemoryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+
+
+class GetTopicMemoryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact: ArtifactReference
+
+
 class GetArtifactCandidateRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1078,16 +1226,6 @@ class ListMemoryChangesRequest(BaseModel):
             ge=0,
         ),
     ] = None
-
-
-class ListMemoryEntriesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    include_inactive: Annotated[
-        StrictBool, Field(description="Include inactive entries from the current Memory head for explicit audit.")
-    ] = False
 
 
 class ListExternalSkillsRequest(BaseModel):
@@ -1174,6 +1312,15 @@ class ReviseMemoryEntryRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=512)] = None
 
 
+class SearchTopicMemoryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern="^\\S(?:[\\s\\S]*\\S)?$")]
+    limit: Annotated[StrictInt, Field(ge=1, le=20)] = 10
+
+
 class ScanExternalSkillsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1209,11 +1356,15 @@ class ImportExternalSkillRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
 
 
-class Family(StrEnum):
+class Family1(StrEnum):
+    PROMPT = "prompt"
+
+
+class Family2(StrEnum):
     MEMORY = "memory"
 
 
-class Family1(StrEnum):
+class Family3(StrEnum):
     EXPERIENCE = "experience"
 
 
@@ -1225,11 +1376,11 @@ class CreateExperienceArtifactRequest(BaseModel):
     content: ExperienceProposal
 
 
-class Family2(StrEnum):
+class Family4(StrEnum):
     SKILL = "skill"
 
 
-class Family3(StrEnum):
+class Family5(StrEnum):
     HANDOFF = "handoff"
 
 
@@ -1257,10 +1408,6 @@ class CreateMemoryArtifactEntry(BaseModel):
     ]
 
 
-class SourceType(StrEnum):
-    CONTENT = "content"
-
-
 class CreateSourceRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1269,12 +1416,287 @@ class CreateSourceRequest(BaseModel):
     content: Annotated[Any, Field(description="JSON value persisted by the built-in content Source adapter.")]
 
 
+class TaggableArtifactFamily(StrEnum):
+    MEMORY = "memory"
+    EXPERIENCE = "experience"
+    SKILL = "skill"
+    HANDOFF = "handoff"
+
+
+class TagMatch(StrEnum):
+    ALL = "all"
+    ANY = "any"
+
+
+class TagTargetType(StrEnum):
+    ARTIFACT = "artifact"
+    MEMORY_ENTRY = "memory_entry"
+
+
+class Type(StrEnum):
+    ARTIFACT = "artifact"
+
+
+class ArtifactTagTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["artifact"]
+    family: TaggableArtifactFamily
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+
+
+class Type1(StrEnum):
+    MEMORY_ENTRY = "memory_entry"
+
+
+class Family6(StrEnum):
+    MEMORY = "memory"
+
+
+class MemoryEntryTagTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["memory_entry"]
+    family: Family6
+    artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+
+
+class TagTarget(RootModel[ArtifactTagTarget | MemoryEntryTagTarget]):
+    root: Annotated[ArtifactTagTarget | MemoryEntryTagTarget, Field(discriminator="type")]
+
+
+class Tag(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
+class TagFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tags: Annotated[list[Tag], Field(max_length=16, min_length=1)]
+    match: TagMatch = TagMatch.ALL
+
+
+class ReplaceArtifactTagsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tags: Annotated[list[Tag], Field(max_length=32, min_length=0)]
+
+
+class QueryArtifactTagsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tags: Annotated[list[Tag], Field(max_length=16, min_length=1)]
+    match: TagMatch = TagMatch.ALL
+    families: Annotated[list[TaggableArtifactFamily] | None, Field(max_length=4, min_length=1)] = None
+    target_types: Annotated[list[TagTargetType] | None, Field(max_length=2, min_length=1)] = None
+    include_inactive: StrictBool = False
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ArtifactTagSet(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target: TagTarget
+    tags: Annotated[list[Tag], Field(max_length=32, min_length=0)]
+    tag_digest: Annotated[
+        StrictStr,
+        Field(
+            description="Digest of canonical display labels; informational, not a mutation precondition.",
+            pattern="^sha256:[0-9a-f]{64}$",
+        ),
+    ]
+
+
+class TaggedTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    target: TagTarget
+    tags: Annotated[list[Tag], Field(max_length=32, min_length=0)]
+    tag_digest: Annotated[
+        StrictStr,
+        Field(
+            description="Digest of canonical display labels; informational, not a mutation precondition.",
+            pattern="^sha256:[0-9a-f]{64}$",
+        ),
+    ]
+    reference: ArtifactReference | MemoryCitation
+
+
+class ArtifactTagPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[TaggedTarget]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
+class TagItem(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
 class ListArtifactsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tag: Annotated[list[TagItem] | None, Field(max_length=16, min_length=1)] = None
+    tag_match: TagMatch | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ListArtifactRevisionsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
     cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class PromptKey(StrEnum):
+    MEMORY_EXTRACT = "memory.extract"
+    MEMORY_RERANK = "memory.rerank"
+    EXPERIENCE_INCUBATE = "experience.incubate"
+    EXPERIENCE_GENERATE = "experience.generate"
+    SKILL_GENERATE = "skill.generate"
+    HANDOFF_GENERATE = "handoff.generate"
+
+
+class SchemaVersion(StrEnum):
+    POWERCONTEXT_PROMPT_V1 = "powercontext.prompt.v1"
+
+
+class Mode3(StrEnum):
+    AUTO = "auto"
+    CUSTOM = "custom"
+
+
+class PromptDemonstration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    input: Annotated[Any, Field(description="Complete JSON input matching the registered Prompt Definition.")]
+    expected_output: Annotated[Any, Field(description="Desired JSON output matching the registered Prompt Definition.")]
+
+
+class Status1(StrEnum):
+    SUPPORTED = "supported"
+    DISABLED = "disabled"
+    UNSUPPORTED = "unsupported"
+
+
+class ReasonEnum(StrEnum):
+    OPERATION_DISABLED = "operation_disabled"
+    PROVIDER_NOT_CONFIGURED = "provider_not_configured"
+    INJECTED_COMPONENT = "injected_component"
+
+
+class Reason(RootModel[ReasonEnum | None]):
+    root: ReasonEnum | None = None
+
+
+class BuiltinProfileEnum(StrEnum):
+    CODING = "coding"
+    CONVERSATION = "conversation"
+
+
+class BuiltinProfile(RootModel[BuiltinProfileEnum | None]):
+    root: BuiltinProfileEnum | None = None
+
+
+class PromptCapability(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Status1
+    reason: Annotated[Reason | None, Field(...)]
+    definition_version: StrictStr
+    builtin_version: StrictStr
+    builtin_profile: Annotated[BuiltinProfile | None, Field(...)]
+
+
+class PromptInstructions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: Annotated[
+        StrictStr, Field(description="Readable guidance; this is not the persisted Auto content representation.")
+    ]
+    demonstrations: list[PromptDemonstration]
+
+
+class ProfileEnum(StrEnum):
+    CODING = "coding"
+    CONVERSATION = "conversation"
+
+
+class Profile(RootModel[ProfileEnum | None]):
+    root: ProfileEnum | None = None
+
+
+class BuiltinPromptInstructions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    version: StrictStr
+    profile: Annotated[Profile | None, Field(...)]
+    instructions: Annotated[
+        StrictStr, Field(description="Exact default instructions from the active Runtime Prompt Definition.")
+    ]
+
+
+class Reason1Enum(StrEnum):
+    OPERATION_DISABLED = "operation_disabled"
+    PROVIDER_NOT_CONFIGURED = "provider_not_configured"
+    INJECTED_COMPONENT = "injected_component"
+
+
+class Reason1(RootModel[Reason1Enum | None]):
+    root: Reason1Enum | None = None
+
+
+class PromptConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: StrictStr
+    prompt_key: PromptKey
+    status: Status1
+    reason: Annotated[Reason1 | None, Field(...)]
+    mode: Mode3
+    artifact: Annotated[ArtifactReference | None, Field(...)]
+    artifact_etag: Annotated[
+        StrictStr | None,
+        Field(description="ETag of the saved Artifact head for If-Match; null when no configuration has been saved."),
+    ]
+    effective: Annotated[PromptInstructions | None, Field(...)]
+    builtin: Annotated[BuiltinPromptInstructions | None, Field(...)]
+
+
+class GeneratePromptDemonstrationsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: Annotated[StrictStr, Field(max_length=32768, min_length=1, pattern=".*\\S.*")]
+    demonstration_count: Annotated[StrictInt, Field(ge=1, le=20)]
+
+
+class PromptDemonstrationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    prompt_key: PromptKey
+    demonstrations: Annotated[list[PromptDemonstration], Field(max_length=20, min_length=1)]
 
 
 class ReplaceMemoryArtifactEntry(BaseModel):
@@ -1334,6 +1756,8 @@ class BaseArtifactFamily(StrEnum):
     EXPERIENCE = "experience"
     SKILL = "skill"
     HANDOFF = "handoff"
+    PROFILE = "profile"
+    PROMPT = "prompt"
 
 
 class StatsPeriod(StrEnum):
@@ -1345,6 +1769,7 @@ class StatsPeriod(StrEnum):
 class CandidateFamily(StrEnum):
     EXPERIENCE = "experience"
     SKILL = "skill"
+    PROFILE = "profile"
 
 
 class ExternalSkillInstallationScope(StrEnum):
@@ -1383,6 +1808,23 @@ class EntryChangeOperation(StrEnum):
 class FlushStatus(StrEnum):
     IDLE = "idle"
     PROCESSED = "processed"
+
+
+class TopicMemoryFlushStatus(StrEnum):
+    ACCEPTED = "accepted"
+    IDLE = "idle"
+
+
+class TopicMemoryMatchedBy(StrEnum):
+    TOPIC_FTS = "topic_fts"
+    TOPIC_VECTOR = "topic_vector"
+    DETAIL_FTS = "detail_fts"
+    DETAIL_VECTOR = "detail_vector"
+
+
+class TopicMemoryUsedSearchMode(StrEnum):
+    FTS = "fts"
+    HYBRID = "hybrid"
 
 
 class MemoryEntryState(StrEnum):
@@ -1448,7 +1890,7 @@ class PreparedHandoffSchema(StrEnum):
     POWERCONTEXT_PREPARED_HANDOFF_V1 = "powercontext.prepared-handoff.v1"
 
 
-class Type(StrEnum):
+class Type2(StrEnum):
     USER = "user"
     SERVICE = "service"
 
@@ -1462,7 +1904,7 @@ class AccessPrincipal(BaseModel):
     description: Annotated[StrictStr | None, Field(max_length=255, min_length=1)] = None
 
 
-class Type1(StrEnum):
+class Type3(StrEnum):
     GROUP = "group"
 
 
@@ -1523,7 +1965,7 @@ class AccessResourceType(StrEnum):
     ARTIFACT = "artifact"
 
 
-class Type2(StrEnum):
+class Type4(StrEnum):
     SERVER = "server"
 
 
@@ -1535,7 +1977,7 @@ class ServerAccessResource(BaseModel):
     deployment_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
-class Type3(StrEnum):
+class Type5(StrEnum):
     SCOPE = "scope"
 
 
@@ -1547,7 +1989,7 @@ class ScopeAccessResource(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
 
 
-class Type4(StrEnum):
+class Type6(StrEnum):
     MEMORY_ENTRY = "memory_entry"
 
 
@@ -1555,7 +1997,7 @@ class MemoryEntryAccessSelector(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: Type4
+    type: Type6
     entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
@@ -1567,7 +2009,7 @@ class AccessArtifactIdentity(BaseModel):
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
-class Type5(StrEnum):
+class Type7(StrEnum):
     ARTIFACT = "artifact"
 
 
@@ -1839,6 +2281,19 @@ class AccessAuditPage(BaseModel):
     next_cursor: Annotated[StrictStr | None, Field(max_length=2048)]
 
 
+class FlushProfileResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: Status
+    previous_cursor: Annotated[StrictInt, Field(ge=0)]
+    current_cursor: Annotated[StrictInt, Field(ge=0)]
+    high_watermark: Annotated[StrictInt, Field(ge=0)]
+    processed_source_count: Annotated[StrictInt, Field(ge=0)]
+    artifact: ArtifactReference | None = None
+    candidate_id: StrictStr | None = None
+
+
 class ArtifactCollectionItem(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     family: BaseArtifactFamily
@@ -1859,6 +2314,14 @@ class ArtifactCreated(BaseModel):
 
 
 class ArtifactPage(BaseModel):
+    items: list[ArtifactCollectionItem]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
+class ArtifactRevisionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     items: list[ArtifactCollectionItem]
     next_cursor: Annotated[StrictStr | None, Field(...)]
 
@@ -1886,6 +2349,7 @@ class Capabilities(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    prompts: Annotated[dict[str, PromptCapability], Field(validate_default=True)] = {}
     source_types: list[StrictStr]
     artifact_families: list[StrictStr]
     memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]
@@ -2042,6 +2506,21 @@ class HandoffSourceCitation(BaseModel):
     source_ref: SourceReference
 
 
+class HandoffGenerationMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    prompt_key: HandoffPromptKey
+    selection: Selection
+    artifact: Annotated[ArtifactReference | None, Field(...)]
+    definition_version: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    builtin_version: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    compiled_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    original_draft_digest: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    edit_status: EditStatus
+
+
 class PreparedContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2182,6 +2661,13 @@ class FlushMemoryResponse(BaseModel):
     memory: ArtifactReference | None = None
 
 
+class FlushTopicMemoryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: TopicMemoryFlushStatus
+
+
 class GetMemoryEntryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2208,6 +2694,17 @@ class HandoffReportResponse(BaseModel):
     markdown: Annotated[StrictStr | None, Field(...)]
     selection_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
     report_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+
+
+class ListMemoryEntriesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    tag_filter: TagFilter | None = None
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    include_inactive: Annotated[
+        StrictBool, Field(description="Include inactive entries from the current Memory head for explicit audit.")
+    ] = False
 
 
 class ListArtifactCandidatesRequest(BaseModel):
@@ -2392,7 +2889,7 @@ class ReviseArtifactCandidateRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     expected_version: Annotated[StrictInt, Field(ge=1)]
-    proposal: ExperienceProposal | SkillProposal
+    proposal: ExperienceProposal | SkillProposal | ProfileWriteContent
     source_refs: Annotated[
         list[SourceReference],
         Field(
@@ -2429,10 +2926,31 @@ class SearchMemoryHit(BaseModel):
     matched_by: list[MemoryMatchedBy]
 
 
+class SearchTopicMemoryHit(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    title: Annotated[StrictStr, Field(max_length=512, min_length=1)]
+    summary: Annotated[StrictStr, Field(max_length=8000, min_length=1)]
+    snippet: Annotated[StrictStr | None, Field(...)]
+    score: Annotated[StrictFloat, Field(ge=0.0)]
+    matched_by: Annotated[list[TopicMemoryMatchedBy], Field(min_length=1)]
+
+
+class SearchTopicMemoryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: TopicMemoryUsedSearchMode
+    hits: list[SearchTopicMemoryHit]
+
+
 class SearchMemoryRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    tag_filter: TagFilter | None = None
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
     limit: Annotated[StrictInt, Field(ge=1, le=50)] = 10
@@ -2448,6 +2966,17 @@ class SearchMemoryResponse(BaseModel):
     hits: list[SearchMemoryHit]
 
 
+class TopicMemoryArtifact(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact: ArtifactReference
+    title: Annotated[StrictStr, Field(max_length=512, min_length=1)]
+    summary: Annotated[StrictStr, Field(max_length=8000, min_length=1)]
+    detail: Annotated[StrictStr, Field(max_length=125000, min_length=1)]
+    source_refs: list[SourceReference]
+
+
 class CreateSkillArtifactRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2461,6 +2990,16 @@ class CreateMemoryArtifactContent(BaseModel):
         extra="forbid",
     )
     entries: Annotated[list[CreateMemoryArtifactEntry], Field(max_length=100, min_length=1)]
+
+
+class PromptContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_version: SchemaVersion
+    mode: Mode3
+    instructions: Annotated[StrictStr, Field(max_length=32768)]
+    demonstrations: Annotated[list[PromptDemonstration], Field(max_length=50)]
 
 
 class ReplaceMemoryArtifactContent(BaseModel):
@@ -2527,6 +3066,16 @@ class ListAccessAuditRequest(BaseModel):
     limit: Annotated[StrictInt, Field(ge=1, le=500)] = 100
 
 
+class CreateSubjectSourceResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    subject_key: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    subject_type: SubjectType
+    subject_scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    sources: Annotated[list[SourceRecord], Field(max_length=2, min_length=2)]
+
+
 class ArtifactCandidate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2539,7 +3088,7 @@ class ArtifactCandidate(BaseModel):
     version: Annotated[StrictInt, Field(ge=1)]
     family: CandidateFamily
     status: CandidateStatus
-    proposal: ExperienceProposal | SkillProposal
+    proposal: ExperienceProposal | SkillProposal | ProfileCandidateProposal
     source_refs: Annotated[
         list[SourceReference],
         Field(
@@ -2670,12 +3219,28 @@ class GeneratedCandidateResponse(BaseModel):
     candidate: Annotated[ArtifactCandidate | None, Field(...)]
 
 
+class CreatePromptArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Literal["prompt"]
+    prompt_key: PromptKey
+    content: PromptContent
+
+
 class CreateMemoryArtifactRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     family: Literal["memory"]
     content: CreateMemoryArtifactContent
+
+
+class ReplacePromptArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: PromptContent
 
 
 class ReplaceMemoryArtifactRequest(BaseModel):
@@ -2709,7 +3274,7 @@ class WorkContract(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema, Field(alias="schema")]
+    schema_: Annotated[Schema1, Field(alias="schema")]
     trust: Trust
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     facts: Annotated[list[WorkClaim], Field(max_length=64)]
@@ -2733,7 +3298,7 @@ class CurrentWorkHandoff(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema1, Field(alias="schema")]
+    schema_: Annotated[Schema2, Field(alias="schema")]
     trust: Trust
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     state: Annotated[list[WorkClaim], Field(max_length=64, min_length=1)]
@@ -2766,7 +3331,7 @@ class TaskOutcome(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    schema_: Annotated[Schema2, Field(alias="schema")]
+    schema_: Annotated[Schema3, Field(alias="schema")]
     trust: Trust2
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     status: TaskOutcomeStatus
@@ -2791,6 +3356,7 @@ class HandoffContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    generation: HandoffGenerationMetadata | None = None
     schema_: Annotated[HandoffSchema, Field(alias="schema")]
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     state: Annotated[list[HandoffStatement], Field(max_length=64, min_length=1)]
@@ -2803,6 +3369,7 @@ class HandoffDraft(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    generation: HandoffGenerationEnvelope | None = None
     objective: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     state: Annotated[list[HandoffStatement], Field(max_length=64, min_length=1)]
     disposition: HandoffDisposition
@@ -2828,6 +3395,7 @@ class PreparedHandoff(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    generation: HandoffGenerationEnvelope | None = None
     schema_: Annotated[PreparedHandoffSchema, Field(alias="schema")]
     scope_id: StrictStr
     base: Annotated[ArtifactReference | None, Field(...)]
@@ -2934,13 +3502,17 @@ class CreateArtifactRequest(
         | CreateExperienceArtifactRequest
         | CreateSkillArtifactRequest
         | CreateHandoffArtifactRequest
+        | CreatePromptArtifactRequest
+        | CreateProfileArtifactRequest
     ]
 ):
     root: Annotated[
         CreateMemoryArtifactRequest
         | CreateExperienceArtifactRequest
         | CreateSkillArtifactRequest
-        | CreateHandoffArtifactRequest,
+        | CreateHandoffArtifactRequest
+        | CreatePromptArtifactRequest
+        | CreateProfileArtifactRequest,
         Field(discriminator="family"),
     ]
 
@@ -2951,6 +3523,8 @@ class ReplaceArtifactRequest(
         | ReplaceExperienceArtifactRequest
         | ReplaceSkillArtifactRequest
         | ReplaceHandoffArtifactRequest
+        | ReplacePromptArtifactRequest
+        | ReplaceProfileArtifactRequest
     ]
 ):
     root: (
@@ -2958,4 +3532,6 @@ class ReplaceArtifactRequest(
         | ReplaceExperienceArtifactRequest
         | ReplaceSkillArtifactRequest
         | ReplaceHandoffArtifactRequest
+        | ReplacePromptArtifactRequest
+        | ReplaceProfileArtifactRequest
     )

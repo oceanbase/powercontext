@@ -65,6 +65,45 @@ Existing conflict and validation codes, such as `revision_conflict` and `invalid
 results preserve available HTTP status and request ID, but use fixed messages instead of Server-provided text. Unknown
 error codes are omitted from `error_code` and diagnostics; their presence alone does not imply a version mismatch.
 
+## Diagnose automatic recall and capture
+
+Ordinary messages also trigger Scope resolution, context preparation, prompt capture, and optional flush. A failure
+in these automatic stages leaves the Harness conversation running. Scope resolution failures stop all subsequent
+PowerContext operations for that step; they never select a different Scope or create a binding.
+
+The `powercontext.dsh` logger identifies the stage as `scope_resolve`, `context_prepare`,
+`capture_content_source`, `flush_memory`, or `context_inject`. It reports fixed diagnostic outcomes and recognized
+public error codes, without Server messages, prompt content, credentials, or request paths. Repeated identical
+warnings are suppressed for 60 seconds. Logger failures cannot discard prepared context or interrupt the conversation.
+
+Log visibility depends on the DSH profile's native exporters. The tested DSH 0.1.2-rc.1 Web profile does not export
+these warnings to the terminal by default. A profile using Cordis's console exporter
+(`@deepseek-ai/cordis-plugin-logger-console`) needs `config.levels.default: 2` to include warnings, or `3` for debug
+events as well. Read the terminal running `dsh web` for `powercontext.dsh` records. This uses the host logger and adds
+no model message or separate log panel.
+
+A missing required route produces `version_mismatch` only when its 404 has no business code. A Scope business 404
+instead records `invalid_response` with `error_code: scope_not_found`. A resolver that completes without a Scope
+records `skipped` with `reason: scope_unresolved`. A valid empty recall is normal and logged at debug level.
+Use `/pc doctor` and `/pc capabilities` to check the Server even when Scope resolution fails.
+
+Preparation and capture are independent: a prepare failure can still allow capture, and a capture or flush failure
+does not discard already prepared context. An accepted Source does not mean Memory has been generated; that requires
+successful Server processing. Cancellation stops subsequent operations, while an individual request timeout retains
+the existing per-request behavior.
+
+## Inspect recalled context
+
+A non-empty PreparedContext is appended once as a plugin message with `source.form=snapshot` and a `PowerContext`
+section. In DSH 0.1.2-rc.1 Web, expand a completed turn's process details, then its **Context injection — powercontext-dsh**
+row. Other host versions may expose this in a context browser. The section
+contains the same text sent to the model and saved in the session log, including the untrusted-history label and
+request-specific replacement wording. Reopening session history retains this metadata.
+
+Empty responses and automatic failures do not create a snapshot or a model-visible error notice. Presentation uses
+the host's existing snapshot support; it does not add a separate PowerContext panel or claim receipt/source details
+that the Server has not returned.
+
 ## Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting DeepSeek Harness when the current work must not be recorded:

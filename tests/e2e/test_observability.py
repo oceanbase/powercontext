@@ -98,12 +98,21 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.experience.search.limit",
         "powercontext.experience.search.result_count",
     },
+    "topic_memory.search": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.topic_memory.search.configured",
+        "powercontext.topic_memory.search.limit",
+        "powercontext.topic_memory.search.result_count",
+    },
     "context.build": {
         "powercontext.operation.name",
         "powercontext.operation.unit",
         "powercontext.operation.outcome",
         "powercontext.context.build.scope_count",
         "powercontext.context.build.memory_candidate_count",
+        "powercontext.context.build.topic_memory_candidate_count",
         "powercontext.context.build.experience_candidate_count",
         "powercontext.context.build.selected_count",
         "powercontext.context.build.status",
@@ -505,6 +514,24 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert not _children(spans, search_application, "scope.lock")
     search = _only_child(spans, search_application, "memory.search")
     search_attributes = dict(search.attributes or {})
+    prompt_prefix = "powercontext.prompt.memory.rerank."
+    prompt_attributes = {
+        key.removeprefix(prompt_prefix): search_attributes.pop(key)
+        for key in tuple(search_attributes)
+        if key.startswith(prompt_prefix)
+    }
+    assert set(prompt_attributes) == {
+        "selection",
+        "version",
+        "definition_version",
+        "builtin_version",
+        "compiled_digest",
+        "demonstration_count",
+    }
+    assert prompt_attributes["selection"] == "built_in"
+    assert prompt_attributes["version"] == prompt_attributes["builtin_version"]
+    assert prompt_attributes["demonstration_count"] == 0
+    assert len(str(prompt_attributes["compiled_digest"])) == 64
     assert search_attributes == {
         "powercontext.operation.name": "memory.search",
         "powercontext.operation.unit": "stage",
@@ -572,8 +599,11 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     ready_experience = _only_child(spans, ready_application, "experience.search")
     assert (ready_experience.attributes or {})["powercontext.experience.search.configured"] is True
     assert (ready_experience.attributes or {})["powercontext.experience.search.result_count"] == 0
+    ready_topic = _only_child(spans, ready_application, "topic_memory.search")
+    assert (ready_topic.attributes or {})["powercontext.topic_memory.search.result_count"] == 0
     ready_context = _only_child(spans, ready_application, "context.build")
     assert (ready_context.attributes or {})["powercontext.context.build.memory_candidate_count"] == 1
+    assert (ready_context.attributes or {})["powercontext.context.build.topic_memory_candidate_count"] == 0
     assert (ready_context.attributes or {})["powercontext.context.build.experience_candidate_count"] == 0
     assert (ready_context.attributes or {})["powercontext.context.build.selected_count"] == 1
     assert (ready_context.attributes or {})["powercontext.context.build.status"] == "ready"
@@ -589,6 +619,8 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert not _children(spans, empty_memory, "memory.rerank")
     empty_experience = _only_child(spans, empty_application, "experience.search")
     assert (empty_experience.attributes or {})["powercontext.experience.search.result_count"] == 0
+    empty_topic = _only_child(spans, empty_application, "topic_memory.search")
+    assert (empty_topic.attributes or {})["powercontext.topic_memory.search.result_count"] == 0
     empty_context = _only_child(spans, empty_application, "context.build")
     assert (empty_context.attributes or {})["powercontext.context.build.selected_count"] == 0
     assert (empty_context.attributes or {})["powercontext.context.build.status"] == "empty"
@@ -598,6 +630,8 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
         if allowed_keys is None:
             continue
+        if span.name == "memory.search":
+            allowed_keys = allowed_keys | {prompt_prefix + key for key in prompt_attributes}
         attributes = dict(span.attributes or {})
         assert attributes.keys() <= allowed_keys
         assert all(isinstance(value, str | bool | int | float) for value in attributes.values())

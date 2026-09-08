@@ -34,6 +34,7 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryUsedSearchMode,
 )
 from powercontext.builtin.inference import EmbeddingModel, EmbeddingVector
+from powercontext.builtin.tags import TagFilter
 from powercontext.sources import Source
 
 
@@ -81,6 +82,7 @@ class MemorySearchRequest(BaseModel):
     mode: MemoryUsedSearchMode
     query_vector: EmbeddingVector | None = None
     embedding_profile: EmbeddingProfile | None = None
+    tag_filter: TagFilter | None = None
 
 
 class MemorySearchChannels(BaseModel):
@@ -109,6 +111,11 @@ class MemoryUnitOfWork(Protocol):
 
 
 class MemoryBackend(Protocol):
+    async def tagged_entry_ids(self, memory: ArtifactRef, tag_filter: TagFilter) -> frozenset[str]:
+        """Return exact tag matches without imposing a candidate limit."""
+
+        ...
+
     """Storage and retrieval capabilities required by the Memory Family."""
 
     async def capabilities(self) -> MemoryCapabilities:

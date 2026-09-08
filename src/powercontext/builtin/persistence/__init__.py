@@ -23,6 +23,8 @@ from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
+    ArtifactProcessingLeadershipLostError,
+    ArtifactProcessingWaveIncompleteError,
     DatabaseClosedError,
     GenerationConflictError,
     IdentityMismatchError,
@@ -48,10 +50,31 @@ from powercontext.builtin.persistence.statistics import (
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
+from powercontext.builtin.persistence.supervision import (
+    GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP,
+    ArtifactProcessingBindingStateRepository,
+    ArtifactProcessingFence,
+    ArtifactProcessingLeaseRepository,
+    StoredArtifactProcessingBindingState,
+    StoredArtifactProcessingLease,
+)
+from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    NoTopicMemoryIndex,
+    TopicMemoryIndex,
+)
 
 __all__ = (
+    "GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP",
+    "ArtifactProcessingBindingStateRepository",
+    "ArtifactProcessingFence",
+    "ArtifactProcessingLeadershipLostError",
+    "ArtifactProcessingLeaseRepository",
+    "ArtifactProcessingWaveIncompleteError",
     "AsyncDatabase",
     "CandidateRepository",
+    "CompositeTopicMemoryIndex",
     "ConnectorCheckpointRepository",
     "DatabaseClosedError",
     "ExternalSkillRepository",
@@ -60,6 +83,7 @@ __all__ = (
     "InvalidRepositoryArgumentError",
     "InvalidStoredColumnError",
     "InvalidStoredPayloadError",
+    "NoTopicMemoryIndex",
     "PersistenceError",
     "RemoteAgentSkillTarget",
     "RemoteAgentSkillTargetRepository",
@@ -72,8 +96,12 @@ __all__ = (
     "SkillPublicationRepository",
     "SourceDefinitionManifestRepository",
     "StatisticsRepository",
+    "StoredArtifactProcessingBindingState",
+    "StoredArtifactProcessingLease",
     "StoredInventoryCounts",
     "StoredModelUsage",
     "StoredPayloadConflictError",
     "StoredRecallTokenUsage",
+    "TopicMemoryIndex",
+    "TopicMemoryRepository",
 )

@@ -1697,6 +1697,19 @@ dev = [
     { name = "tox-uv", specifier = ">=1.33.4" },
     { name = "ty", specifier = ">=0.0.24" },
 ]
+notebooks = [
+    { name = "ipykernel", specifier = ">=6.29,<8" },
+    { name = "jupyterlab", specifier = ">=4.3,<5" },
+    { name = "langchain-openai", specifier = ">=1,<2" },
+    { name = "nbclient", specifier = ">=0.10,<1" },
+    { name = "nbformat", specifier = ">=5.10,<6" },
+    { name = "playwright", specifier = ">=1.55,<2" },
+    { name = "powercontext", extras = ["cli", "server"] },
+    { name = "powercontext-connector-opendal", marker = "python_full_version >= '3.12'", editable = "../../integrations/opendal" },
+    { name = "powercontext-langchain", editable = "../../integrations/langchain" },
+    { name = "powercontext-langgraph", editable = "../../integrations/langgraph" },
+    { name = "python-dotenv", specifier = ">=1,<2" },
+]
 
 [[package]]
 name = "powercontext-bub"

@@ -83,6 +83,7 @@ class ScopeApplication:
         digest = _draft_digest(draft)
         try:
             async with self._database.transaction() as connection:
+                await self._repository.lock_write_transaction(connection)
                 existing = await self._repository.creation(connection, draft.idempotency_key)
                 if existing is not None:
                     return await self._resolve_creation(connection, draft.idempotency_key, digest, existing)
@@ -157,6 +158,7 @@ class ScopeApplication:
                 return await self._set_default(scope_id)
             except IntegrityError:
                 async with self._database.transaction() as connection:
+                    await self._repository.lock_write_transaction(connection)
                     if await self._repository.default_scope_id(connection) is None:
                         raise
                     scope = await self._required(connection, scope_id)
@@ -165,6 +167,7 @@ class ScopeApplication:
 
     async def _set_default(self, scope_id: str) -> ScopeDescriptor:
         async with self._database.transaction() as connection:
+            await self._repository.lock_write_transaction(connection)
             scope = await self._required(connection, scope_id)
             await self._repository.set_default(connection, scope_id)
             return scope
@@ -175,6 +178,7 @@ class ScopeApplication:
                 return await self._bind(key, scope_id)
             except IntegrityError:
                 async with self._database.transaction() as connection:
+                    await self._repository.lock_write_transaction(connection)
                     if await self._repository.binding(connection, key) is None:
                         raise
                     await self._required(connection, scope_id)
@@ -182,6 +186,7 @@ class ScopeApplication:
 
     async def _bind(self, key: ScopeBindingKey, scope_id: str) -> ScopeBinding:
         async with self._database.transaction() as connection:
+            await self._repository.lock_write_transaction(connection)
             await self._required(connection, scope_id)
             return await self._repository.set_binding(connection, key, scope_id)
 
@@ -198,6 +203,7 @@ class ScopeApplication:
         *,
         explicit_scope_id: str | None = None,
         binding_keys: Sequence[ScopeBindingKey] = (),
+        allow_default: bool = True,
     ) -> ScopeDescriptor:
         async with self._database.transaction() as connection:
             if explicit_scope_id is not None:
@@ -206,6 +212,8 @@ class ScopeApplication:
                 binding = await self._repository.binding(connection, key)
                 if binding is not None:
                     return await self._required(connection, binding.scope_id)
+            if not allow_default:
+                raise ScopeBindingNotFoundError
             default_scope_id = await self._repository.default_scope_id(connection)
             if default_scope_id is None:
                 raise ScopeBindingNotFoundError

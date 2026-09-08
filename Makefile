@@ -10,6 +10,14 @@ skills-install: ## Install recommended agent skills from skills-lock.json
 	@npx skills experimental_install
 	@echo "Restart Codex to pick up new skills."
 
+.PHONY: notebooks
+notebooks: ## Open the PowerContext feature tutorials and complete team workflow in JupyterLab.
+	@uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
+
+.PHONY: notebooks-test
+notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS for models, HTTP, and browser.
+	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
+
 .PHONY: check
 check: integration-manifest-check ## Run code quality tools.
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"
@@ -40,6 +48,14 @@ real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE de
 		--real-e2e-mode="$${REAL_E2E_MODE:-all}" \
 		--real-codex-timeout="$${REAL_CODEX_TIMEOUT:-600}" \
 		--real-e2e-env-file="$${REAL_E2E_ENV_FILE:-.env}"
+
+.PHONY: topic-memory-r8-acceptance
+topic-memory-r8-acceptance: ## Run bounded R8 hermetic and available real product-chain layers.
+	@uv run python -m tests.e2e.topic_memory_product.harness \
+		--layers="$${POWERCONTEXT_R8_LAYERS:-e0,e1,e2,e3,e4}" \
+		--output="$${POWERCONTEXT_R8_OUTPUT:-.artifacts/topic-memory-r8}" \
+		--codex-timeout="$${POWERCONTEXT_R8_CODEX_TIMEOUT:-180}" \
+		--generation-timeout="$${POWERCONTEXT_R8_GENERATION_TIMEOUT:-240}"
 
 .PHONY: harness-sync
 harness-sync: ## Install the Bub replay harness environment.
@@ -121,6 +137,11 @@ js-test: ## Install, build, and test the DeepSeek Harness plugin.
 		integrations/dsh/plugins/powercontext/lib
 	@pnpm --dir integrations/dsh/plugins/powercontext test
 	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e
+
+.PHONY: dsh-runtime-test
+dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.
+	@pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
+	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
 
 .PHONY: openclaw-plugin-build
 openclaw-plugin-build: ## Build the external OpenClaw memory plugin.

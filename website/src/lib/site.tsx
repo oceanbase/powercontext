@@ -16,7 +16,7 @@
 
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { BrandLogo } from '@/components/brand-logo';
-import type { Language } from './i18n';
+import { defaultLanguage, type Language } from './i18n';
 
 const labels = {
   en: {
@@ -37,7 +37,7 @@ export function baseOptions(lang: Language): BaseLayoutProps {
   return {
     nav: {
       title: <BrandLogo className="w-36" priority />,
-      url: `/${lang}`,
+      url: lang === defaultLanguage ? '/' : `/${lang}`,
     },
     links: [
       { text: label.docs, url: `/${lang}/docs` },

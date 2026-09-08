@@ -77,6 +77,12 @@ class ServerMetrics:
             ("operation", "outcome"),
             registry=self.registry,
         )
+        self.topic_memory_searches = Counter(
+            "powercontext_server_topic_memory_searches_total",
+            "Topic Memory searches by actual mode and embedding fallback outcome.",
+            ("mode", "fallback"),
+            registry=self.registry,
+        )
         self.runtime_ready = Gauge(
             "powercontext_server_runtime_ready",
             "Whether the built-in Runtime can accept operations.",
@@ -118,6 +124,10 @@ class ServerMetrics:
             self.application_operations.labels(operation=operation, outcome=outcome).inc()
         with suppress(Exception):
             self.application_duration.labels(operation=operation, outcome=outcome).observe(duration)
+
+    def observe_topic_memory_search(self, mode: str, fallback: bool) -> None:
+        with suppress(Exception):
+            self.topic_memory_searches.labels(mode=mode, fallback=str(fallback).lower()).inc()
 
     def set_ready(self, ready: bool) -> None:
         with suppress(Exception):

@@ -20,6 +20,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from powercontext.builtin.persistence.errors import DatabaseClosedError
@@ -32,7 +33,7 @@ class AsyncDatabase:
     object. Closing an attached database leaves the caller's engine available.
     """
 
-    def __init__(self, engine: AsyncEngine, *, owns_engine: bool) -> None:
+    def __init__(self, engine: AsyncEngine, *, owns_engine: bool, shared_connection: bool = False) -> None:
         self._engine = engine
         self._owns_engine = owns_engine
         self._closed = False
@@ -40,6 +41,11 @@ class AsyncDatabase:
         self._active_transactions = 0
         self._state_changed = asyncio.Condition()
         self._close_lock = asyncio.Lock()
+        # In-memory SQLite shares one physical connection. Its transactions
+        # cannot overlap, including read snapshots used by tag pagination.
+        self._shared_connection_lock = asyncio.Lock() if shared_connection else None
+        self._transaction_owner: asyncio.Task[object] | None = None
+        self._shared_connection: AsyncConnection | None = None
 
     @classmethod
     def attach(cls, engine: AsyncEngine, /) -> AsyncDatabase:
@@ -48,10 +54,10 @@ class AsyncDatabase:
         return cls(engine, owns_engine=False)
 
     @classmethod
-    def own(cls, engine: AsyncEngine, /) -> AsyncDatabase:
+    def own(cls, engine: AsyncEngine, /, *, shared_connection: bool = False) -> AsyncDatabase:
         """Take disposal ownership of an already configured async engine."""
 
-        return cls(engine, owns_engine=True)
+        return cls(engine, owns_engine=True, shared_connection=shared_connection)
 
     @property
     def engine(self) -> AsyncEngine:
@@ -63,13 +69,27 @@ class AsyncDatabase:
     async def transaction(self) -> AsyncIterator[AsyncConnection]:
         """Yield a connection in a transaction owned by the calling use case."""
 
+        owner = asyncio.current_task()
+        if self._shared_connection is not None and self._transaction_owner is owner:
+            # Nested lookups on a single-connection profile must join their
+            # caller's transaction, not acquire or commit that connection again.
+            yield self._shared_connection
+            return
         async with self._state_changed:
             if self._closed or self._closing:
                 raise DatabaseClosedError
             self._active_transactions += 1
         try:
-            async with self._engine.begin() as connection:
-                yield connection
+            guard = self._shared_connection_lock if self._shared_connection_lock is not None else nullcontext()
+            async with guard, self._engine.begin() as connection:
+                if self._shared_connection_lock is not None:
+                    self._transaction_owner = owner
+                    self._shared_connection = connection
+                try:
+                    yield connection
+                finally:
+                    self._transaction_owner = None
+                    self._shared_connection = None
         finally:
             async with self._state_changed:
                 self._active_transactions -= 1
@@ -115,3 +135,12 @@ class AsyncDatabase:
                 self._closed = True
                 self._closing = False
                 self._state_changed.notify_all()
+
+
+def is_transaction_contention(error: OperationalError) -> bool:
+    """Recognize only rollback-safe SQLite busy and MySQL transaction conflicts."""
+    original = error.orig
+    sqlite_code = getattr(original, "sqlite_errorcode", None)
+    if isinstance(sqlite_code, int) and sqlite_code & 0xFF in {5, 6}:
+        return True
+    return bool(original is not None and original.args and original.args[0] in {1205, 1213})

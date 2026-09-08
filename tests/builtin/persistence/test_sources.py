@@ -22,6 +22,7 @@ from sqlalchemy import insert
 from powercontext import InvalidSourceDefinitionError
 from powercontext.builtin.persistence import (
     InvalidRepositoryArgumentError,
+    RepositoryNotFoundError,
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.codec import dump_model
@@ -94,6 +95,56 @@ def test_reusing_a_stable_source_identity_with_different_payload_is_a_conflict()
                 await repositories.sources.add(connection, "scope-a", original)
                 with pytest.raises(StoredPayloadConflictError):
                     await repositories.sources.add(connection, "scope-a", changed)
+
+    asyncio.run(scenario())
+
+
+def test_repository_batch_reads_deduplicate_refs_and_bound_the_journal_window() -> None:
+    async def scenario() -> None:
+        async with repository_profile() as (profile, repositories):
+            first_source = NoteSource(
+                name="note-1",
+                materialization=SourceMaterialization.CAPTURED,
+                body="first",
+            )
+            second_source = NoteSource(
+                name="note-2",
+                materialization=SourceMaterialization.CAPTURED,
+                body="second",
+            )
+            third_source = NoteSource(
+                name="note-3",
+                materialization=SourceMaterialization.CAPTURED,
+                body="third",
+            )
+            async with profile.database.transaction() as connection:
+                first = await repositories.sources.add(connection, "scope-a", first_source)
+                second = await repositories.sources.add(connection, "scope-a", second_source)
+                third = await repositories.sources.add(connection, "scope-a", third_source)
+
+                loaded = await repositories.sources.get_many(
+                    connection,
+                    "scope-a",
+                    (second.ref, first.ref, second.ref),
+                )
+                window = await repositories.sources.list_window(
+                    connection,
+                    "scope-a",
+                    after=first.journal_position,
+                    through=second.journal_position,
+                )
+
+                assert loaded == (second, first)
+                assert window == (second,)
+                assert third.journal_position > second.journal_position
+                with pytest.raises(RepositoryNotFoundError):
+                    await repositories.sources.get_many(
+                        connection,
+                        "scope-a",
+                        (SourceRef(source_type="note", source_id="missing"),),
+                    )
+                with pytest.raises(InvalidRepositoryArgumentError):
+                    await repositories.sources.list_window(connection, "scope-a", after=2, through=1)
 
     asyncio.run(scenario())
 

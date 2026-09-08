@@ -34,6 +34,8 @@ from powercontext.builtin.artifacts.memory.models import (
     MemorySearchMode,
     MemoryUsedSearchMode,
 )
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
+from powercontext.builtin.artifacts.prompt import PromptCapability
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     ExternalSkillResolution,
@@ -49,11 +51,12 @@ from powercontext.builtin.review import (
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
 from powercontext.builtin.sources import ExternalSkillImportMode
+from powercontext.builtin.tags import TagFilter
 from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
-ReviewedProposal: TypeAlias = ExperienceContent | SkillContent
+ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal
 
 PREPARED_CONTEXT_SCHEMA: PreparedContextSchema = "powercontext.prepared-context.v1"
 
@@ -108,6 +111,7 @@ class RuntimeCapabilities(BaseModel):
     external_skill_registry: bool = False
     memory_search_modes: tuple[MemorySearchMode, ...]
     handoff_generation: bool = False
+    prompts: dict[str, PromptCapability] = Field(default_factory=dict)
     context_versions: tuple[PreparedContextSchema, ...] = (PREPARED_CONTEXT_SCHEMA,)
 
 
@@ -123,6 +127,25 @@ class MemoryFlushResult(BaseModel):
     @property
     def processed(self) -> bool:
         return self.current_cursor > self.previous_cursor
+
+
+class TopicMemoryFlushResult(BaseModel):
+    """Durable acceptance result for one scoped Topic Memory flush request."""
+
+    status: Literal["accepted", "idle"]
+
+
+class SearchTopicMemoryRequest(BaseModel):
+    """Caller-neutral Topic Memory search request."""
+
+    query: str
+    limit: int = 10
+
+
+class GetTopicMemoryRequest(BaseModel):
+    """Read one exact immutable Topic Memory revision."""
+
+    artifact: ArtifactRef
 
 
 class ExperienceIncubationResult(BaseModel):
@@ -153,6 +176,7 @@ class SearchMemoryRequest(BaseModel):
     query: str
     limit: int = 10
     mode: MemorySearchMode = "auto"
+    tag_filter: TagFilter | None = None
 
 
 class MemorySearchPage(BaseModel):
@@ -340,7 +364,7 @@ class ListArtifactCandidatesRequest(BaseModel):
     """Filter and page the current Review Inbox."""
 
     status: CandidateStatus = CandidateStatus.PENDING
-    family: Literal["experience", "skill"] | None = None
+    family: Literal["experience", "skill", "profile"] | None = None
     cursor: str | None = None
     limit: Annotated[int, Field(ge=1, le=MAX_CANDIDATE_PAGE_SIZE)] = DEFAULT_CANDIDATE_PAGE_SIZE
 
@@ -359,7 +383,7 @@ class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
 
 
 class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
-    proposal: ReviewedProposal
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
     target: ArtifactRef | None = None

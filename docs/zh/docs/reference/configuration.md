@@ -67,12 +67,21 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 按 binding 的自动波次间隔；未设置即关闭自动波次 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 单个 Topic Memory Worker 最多处理的 Source 数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES` | `20` | 处理时考虑的历史 Topic 候选上限 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` | `70` | 归一化到 `0..100` 的 RRF 接受阈值 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | 达到阈值的候选过少时保证的最小历史召回数 |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_MAX_WORKERS` | `10` | 所有 Artifact binding 共用的全局子 Worker 并发数 |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` | `600` | Supervisor 对单个有界 Source Window 子 Worker 的超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | 进程角色：`all`、`api` 或 `background` |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation client 静态 header JSON object；value 按 secret 处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS` | `{}` | Pydantic AI generation model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | 单次结构化 generation 操作的超时秒数 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | 单次结构化 generation 操作最多发起的 provider 请求数，包含重试 |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` | `125000` | Topic 处理预算使用的 generation model 总上下文窗口 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | 未设置 | Pydantic AI embedding model；必须同时设置 profile ID 和 dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider 默认值 | 自定义 OpenAI-compatible embeddings base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | embedding client 静态 header JSON object；value 按 secret 处理 |
@@ -176,6 +185,17 @@ Server 级 Bearer token 时可达。部署条件允许时，应优先启用鉴�
 
 Handoff Report API route 独立默认启用。Selection、检查和导出步骤见
 [使用 Handoff Report](../how-to/use-handoff-report.md)。
+
+默认 `all` 角色会启动 Artifact Processing Supervisor。OceanBase 部署可以拆分 `api` 和 `background`；
+`powercontext server run --role background` 不启动 HTTP、MCP 或 Dashboard listener，多个后台候选者通过数据库 Lease
+自动选出一个 active Leader。SQLite 与嵌入式 seekDB 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次
+保持关闭；显式 flush 工作的恢复不依赖该间隔。Topic Worker 要求使用文件 SQLite；内存 SQLite 配合 generation
+model 的配置会在声明处理能力之前被拒绝。请通过 `POWERCONTEXT_SERVER_DATABASE_URL` 指定持久数据库路径，例如
+`sqlite+aiosqlite:////srv/powercontext/runtime.db`。Memory、Experience 与 Profile APScheduler 作业只由 `all` 角色运行：
+任一 split role 与 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`、
+`POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` 或启用的
+`POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED` 同时配置时，进程会在启动阶段明确拒绝。需要这些旧作业时应继续
+使用 `all`；把旧作业分配到独立进程不属于当前 split-role 合同。
 
 指定 SQLite 路径并启用定时提取的示例：
 
@@ -290,7 +310,8 @@ OpenTelemetry 环境变量进行配置。不使用 `powercontext` command 的 pr
 `cli` extra。
 
 启用 tracing 后，PowerContext 自己构造的 generation 与 embedding 调用也会产生 span，且不记录 prompt、模型响应、
-Memory 内容或向量。可运行的配置见 [用 Phoenix 查看 trace](../how-to/trace-with-phoenix.md)。
+Memory 内容或向量。可运行的配置见 [用 Phoenix 查看 trace](../how-to/trace-with-phoenix.md)；需要通过
+`OTEL_EXPORTER_OTLP_HEADERS` 为 exporter 鉴权的后端示例见 [用 Langfuse 查看 trace](../how-to/trace-with-langfuse.md)。
 
 使用 OceanBase 时，通过环境或 secret manager 提供 URL：
 

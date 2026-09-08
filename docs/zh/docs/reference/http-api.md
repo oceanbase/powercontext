@@ -85,6 +85,33 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
+## Scope 内的操作提示词
+
+操作提示词使用 `family=prompt`，遵循 Artifact 的 Scope 权限边界。启用 Access 后，创建提示词和生成示例需要
+`scope.contribute`；读取当前内容、指定版本或版本历史需要 `artifact.read`；替换提示词需要 `artifact.write`。
+Scope 的读取角色继承提示词的读取和使用权限，创建者拥有该逻辑 Prompt。当前不提供直接分享 Prompt 的可授予角色。
+
+`GET /v1/scopes/{scope_id}/prompts/{prompt_key}` 读取当前配置，不保存版本，也不调用推理服务。
+该接口需要 `scope.read`；已有保存记录时，还需要 `artifact.read`。返回内容包括：
+
+- `mode`、`status` 和 `reason`：所选模式，以及当前操作是否支持自定义。
+- `effective`：所选指令和案例。Auto 返回当前部署的内置指令，Custom 返回已保存的内容。
+- `builtin`：当前部署的内置指令、版本和适用的 profile，记忆抽取会匹配运行时使用的 coding 或 conversation 配置。
+- `artifact` 和 `artifact_etag`：已保存的当前版本引用及其条件更新标记。首次保存前两者均为 null。
+  已保存的 Auto 仍保留版本引用，其实际指令来自运行时。
+
+未启用的操作仍可查看。外部注入组件自行管理提示词，因此其 `effective` 和 `builtin` 均为 null。
+读取结果不能直接作为 Prompt 内容写回：保存 Auto 时，`powercontext.prompt.v1` 中的 `instructions` 和
+`demonstrations` 仍为空。
+
+`/prompts` 页面以只读方式展示 Auto 指令。首次切换到自定义时以默认指令为起点，切换模式会保留未保存的自定义
+指令和案例，并可展开查看当前部署的内置指令进行对照。
+
+通过 `GET /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}/revisions` 查看不可变的版本历史，通过
+`POST /v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations` 生成可编辑示例。示例不会自动保存。
+回滚时读取指定历史版本，再携带当前 `If-Match` 条件替换，生成新版本。例如当前为版本 3，恢复版本 2 会创建版本 4。
+恢复 Auto 使用当前部署的内置指令，历史记录不会归档旧部署的内置模板。定时与手动推理使用相同的 Scope 提示词配置。
+
 ## 把一个逻辑 Handoff 授予接收者
 
 `scope_id` 本身从不授予权限。Handoff owner 或获授权的 delegator 通过创建 Binding，把一个逻辑 committed Handoff 授予接收者已经认证的

@@ -29,6 +29,30 @@ function jsonResponse(status: number, body: unknown, headers?: Record<string, st
 }
 
 describe('PowerContextClient', () => {
+  it('preserves repeated tag filters and the opaque ETag for conditional tag writes', async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = []
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 1000,
+      fetch: async (url, init) => {
+        requests.push({ url, init })
+        return new Response(JSON.stringify({ tags: ['Release'] }), {
+          status: 200, headers: { ETag: '"opaque-tag-token"' },
+        })
+      },
+    })
+    const target = { scope_id: 'project', family: 'memory', artifact_id: 'memory' }
+    await client.request('list_artifacts', { ...target, tag: ['Release', '客户A'], tag_match: 'all' })
+    const listed = new URL(requests[0]!.url)
+    expect(listed.searchParams.getAll('tag')).toEqual(['Release', '客户A'])
+    expect(listed.searchParams.get('tag_match')).toBe('all')
+    const current = await client.request('get_artifact_tags', target)
+    expect(current.etag).toBe('"opaque-tag-token"')
+    await client.request('replace_artifact_tags', { ...target, tags: [], if_match: current.etag })
+    expect(new Headers(requests[2]!.init.headers).get('If-Match')).toBe(current.etag)
+    expect(JSON.parse(String(requests[2]!.init.body))).toEqual({ tags: [] })
+  })
+
   it('keeps the User-Agent version aligned with package.json', () => {
     const manifest = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8'))
     expect(PLUGIN_VERSION).toBe(manifest.version)

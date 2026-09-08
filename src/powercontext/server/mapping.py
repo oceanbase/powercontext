@@ -23,6 +23,12 @@ from pydantic import ValidationError
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.handoff import HandoffCitation as RuntimeHandoffCitation
+from powercontext.builtin.artifacts.handoff.generation_metadata import (
+    HandoffGenerationEnvelope,
+    HandoffGenerationMetadata,
+)
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal as RuntimeProfileCandidateProposal
+from powercontext.builtin.artifacts.profile.models import ProfileWriteContent as RuntimeProfileWriteContent
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     Skill,
@@ -35,6 +41,7 @@ from powercontext.builtin.artifacts.skill import (
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
 )
+from powercontext.builtin.artifacts.topic_memory import PublishedTopicMemory, TopicMemorySearchResult
 from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance
 from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
 from powercontext.builtin.review import ArtifactCandidatePage as RuntimeArtifactCandidatePage
@@ -73,6 +80,7 @@ from powercontext.builtin.runtime import (
     PrepareHandoff,
     RememberMemoryRequest,
     SourceReceipt,
+    TopicMemoryFlushResult,
 )
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
@@ -99,6 +107,7 @@ from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
 )
 from powercontext.builtin.runtime import GetSkillRequest as RuntimeGetSkillRequest
+from powercontext.builtin.runtime import GetTopicMemoryRequest as RuntimeGetTopicMemoryRequest
 from powercontext.builtin.runtime import (
     ImportExternalSkillRequest as RuntimeImportExternalSkillRequest,
 )
@@ -132,6 +141,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
+from powercontext.builtin.runtime import SearchTopicMemoryRequest as RuntimeSearchTopicMemoryRequest
 from powercontext.builtin.runtime import (
     Statistics as RuntimeStatistics,
 )
@@ -139,6 +149,7 @@ from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
+from powercontext.builtin.tags import TagFilter
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
 )
@@ -187,6 +198,7 @@ from powercontext.http import (
     ExternalSkillResolutionStatus,
     FlushMemoryResponse,
     FlushStatus,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GeneratedCandidateStatus,
     GenerateExperienceRequest,
@@ -196,6 +208,7 @@ from powercontext.http import (
     GetExperienceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffActivationStatus,
     HandoffClaim,
@@ -223,6 +236,8 @@ from powercontext.http import (
     PreparedHandoffSchema,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
+    ProfileCandidateProposal,
+    ProfileWriteContent,
     ProposeExperienceRequest,
     ProposeSkillRequest,
     RecordTaskOutcomeRequest,
@@ -236,6 +251,9 @@ from powercontext.http import (
     SearchMemoryHit,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SearchTopicMemoryHit,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     SkillArtifact,
     SkillGovernance,
     SkillLifecycleState,
@@ -249,6 +267,10 @@ from powercontext.http import (
     SourceTypeReference,
     SubmitSourceObservationRequest,
     TaskCheck,
+    TopicMemoryArtifact,
+    TopicMemoryFlushStatus,
+    TopicMemoryMatchedBy,
+    TopicMemoryUsedSearchMode,
     WorkClaim,
     WorkSourceKind,
     WorkSourceReceipt,
@@ -272,6 +294,8 @@ from powercontext.http import (
 from powercontext.http import (
     HandoffEvidenceCheck as TransportHandoffEvidenceCheck,
 )
+from powercontext.http import HandoffGenerationEnvelope as TransportHandoffGenerationEnvelope
+from powercontext.http import HandoffGenerationMetadata as TransportHandoffGenerationMetadata
 from powercontext.http import (
     HandoffMemoryCitation as TransportHandoffMemoryCitation,
 )
@@ -620,7 +644,22 @@ def revise_candidate_request(value: ReviseArtifactCandidateRequest) -> RuntimeRe
 
 
 def search_request(value: SearchMemoryRequest) -> RuntimeSearchMemoryRequest:
-    return RuntimeSearchMemoryRequest(query=value.query, limit=value.limit, mode=value.mode.value)
+    return RuntimeSearchMemoryRequest(
+        query=value.query,
+        limit=value.limit,
+        mode=value.mode.value,
+        tag_filter=None
+        if value.tag_filter is None
+        else TagFilter.model_validate_json(value.tag_filter.model_dump_json()),
+    )
+
+
+def topic_memory_search_request(value: SearchTopicMemoryRequest) -> RuntimeSearchTopicMemoryRequest:
+    return RuntimeSearchTopicMemoryRequest(query=value.query, limit=value.limit)
+
+
+def topic_memory_get_request(value: GetTopicMemoryRequest) -> RuntimeGetTopicMemoryRequest:
+    return RuntimeGetTopicMemoryRequest(artifact=runtime_artifact_reference(value.artifact))
 
 
 def prepare_context_request(value: TransportPrepareContextRequest) -> PrepareContextRequest:
@@ -656,6 +695,9 @@ def prepare_handoff_request(value: PrepareHandoffRequest) -> PrepareHandoff:
 
 def runtime_handoff_draft(value: TransportHandoffDraft) -> HandoffDraft:
     return HandoffDraft(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=tuple(runtime_handoff_statement(statement) for statement in value.state),
         disposition=value.disposition.value,
@@ -666,6 +708,9 @@ def runtime_handoff_draft(value: TransportHandoffDraft) -> HandoffDraft:
 
 def runtime_prepared_handoff(value: TransportPreparedHandoff) -> PreparedHandoff:
     return PreparedHandoff(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         scope_id=value.scope_id,
         base=None if value.base is None else runtime_artifact_reference(value.base),
         content=runtime_handoff_content(value.content),
@@ -674,6 +719,9 @@ def runtime_prepared_handoff(value: TransportPreparedHandoff) -> PreparedHandoff
 
 def handoff_draft_response(value: HandoffDraft) -> TransportHandoffDraft:
     return TransportHandoffDraft(
+        generation=None
+        if value.generation is None
+        else TransportHandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=[handoff_statement(statement) for statement in value.state],
         disposition=HandoffDisposition(value.disposition),
@@ -684,6 +732,7 @@ def handoff_draft_response(value: HandoffDraft) -> TransportHandoffDraft:
 
 def prepared_handoff_response(value: PreparedHandoff) -> TransportPreparedHandoff:
     return TransportPreparedHandoff.model_validate({
+        "generation": None if value.generation is None else value.generation.model_dump(mode="json"),
         "schema": PreparedHandoffSchema(value.schema_version),
         "scope_id": value.scope_id,
         "base": None if value.base is None else artifact_reference(value.base),
@@ -735,6 +784,38 @@ def search_response(value: MemorySearchPage) -> SearchMemoryResponse:
         memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
         mode=None if value.mode is None else MemoryUsedSearchMode(value.mode),
         hits=[search_hit(hit) for hit in value.hits],
+    )
+
+
+def topic_memory_flush_response(value: TopicMemoryFlushResult) -> FlushTopicMemoryResponse:
+    return FlushTopicMemoryResponse(status=TopicMemoryFlushStatus(value.status))
+
+
+def topic_memory_search_response(value: TopicMemorySearchResult) -> SearchTopicMemoryResponse:
+    return SearchTopicMemoryResponse(
+        mode=TopicMemoryUsedSearchMode(value.mode),
+        hits=[
+            SearchTopicMemoryHit(
+                artifact=artifact_reference(hit.artifact_ref),
+                title=hit.title,
+                summary=hit.summary,
+                snippet=hit.snippet,
+                score=hit.score,
+                matched_by=[TopicMemoryMatchedBy(channel) for channel in hit.matched_by],
+            )
+            for hit in value.hits
+        ],
+    )
+
+
+def topic_memory_response(value: PublishedTopicMemory) -> TopicMemoryArtifact:
+    topic = value.topic
+    return TopicMemoryArtifact(
+        artifact=artifact_reference(topic.as_ref()),
+        title=topic.content.title,
+        summary=topic.content.summary,
+        detail=topic.content.detail,
+        source_refs=[source_reference(reference) for reference in topic.lineage.sources],
     )
 
 
@@ -927,13 +1008,19 @@ def skill_proposal(value: SkillContent) -> SkillProposal:
     )
 
 
-def reviewed_content(value: ExperienceProposal | SkillProposal) -> ExperienceContent | SkillContent:
+def reviewed_content(
+    value: ExperienceProposal | SkillProposal | ProfileWriteContent,
+) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent:
+    if isinstance(value, ProfileWriteContent):
+        return RuntimeProfileWriteContent.model_validate(value.model_dump(mode="json"))
     if isinstance(value, ExperienceProposal):
         return experience_content(value)
     return skill_content(value)
 
 
-def reviewed_proposal(value: object) -> ExperienceProposal | SkillProposal:
+def reviewed_proposal(value: object) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal:
+    if isinstance(value, RuntimeProfileCandidateProposal):
+        return ProfileCandidateProposal.model_validate(value.model_dump(mode="json", by_alias=True))
     if isinstance(value, ExperienceContent):
         return experience_proposal(value)
     if isinstance(value, SkillContent):
@@ -1051,6 +1138,9 @@ def handoff_omission(value: HandoffOmission) -> TransportHandoffOmission:
 
 def runtime_handoff_content(value: TransportHandoffContent) -> HandoffContent:
     return HandoffContent(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationMetadata.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=tuple(runtime_handoff_statement(statement) for statement in value.state),
         disposition=value.disposition.value,
@@ -1061,6 +1151,9 @@ def runtime_handoff_content(value: TransportHandoffContent) -> HandoffContent:
 
 def handoff_content(value: HandoffContent) -> TransportHandoffContent:
     return TransportHandoffContent.model_validate({
+        "generation": None
+        if value.generation is None
+        else TransportHandoffGenerationMetadata.model_validate_json(value.generation.model_dump_json()),
         "schema": HandoffSchema(value.schema_version),
         "objective": value.objective,
         "state": [handoff_statement(statement) for statement in value.state],

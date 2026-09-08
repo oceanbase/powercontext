@@ -17,15 +17,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.memory import MemoryEntryVersion
 from powercontext.sources import SourceRef
 
-BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff"]
+if TYPE_CHECKING:
+    from powercontext.builtin.artifacts.memory import MemoryEntryVersion
+    from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
+
+BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt"]
 
 
 class _RecordModel(BaseModel):
@@ -47,6 +50,7 @@ class ArtifactWrite(_RecordModel):
     """Complete family-specific content for one Artifact write."""
 
     content: dict[str, JsonValue]
+    prompt_key: str | None = None
 
 
 class ArtifactCreated(_RecordModel):
@@ -100,6 +104,13 @@ class ArtifactRecordPage(_RecordModel):
     next_cursor: str | None
 
 
+class ArtifactRevisionPage(_RecordModel):
+    """One descending, snapshot-bounded page of immutable Artifact revisions."""
+
+    items: tuple[ArtifactCollectionItem, ...]
+    next_cursor: str | None
+
+
 class ScopeSummary(_RecordModel):
     """Scope identity plus Source and Artifact activity summaries."""
 
@@ -128,7 +139,7 @@ class BaseAccessError(Exception):
 class BaseValueNotFoundError(BaseAccessError):
     """Report an absent or non-visible Source or Artifact."""
 
-    def __init__(self, kind: Literal["source", "artifact"], identity: object) -> None:
+    def __init__(self, kind: str, identity: object) -> None:
         self.kind = kind
         self.identity = identity
         super().__init__(f"{kind} was not found")
@@ -137,7 +148,7 @@ class BaseValueNotFoundError(BaseAccessError):
 class BaseValueConflictError(BaseAccessError):
     """Report an identity that already names different durable state."""
 
-    def __init__(self, kind: Literal["source", "artifact"], identity: object) -> None:
+    def __init__(self, kind: str, identity: object) -> None:
         self.kind = kind
         self.identity = identity
         super().__init__(f"{kind} identity conflicts with durable state")
@@ -234,6 +245,17 @@ class RecordService(Protocol):
         /,
     ) -> ArtifactRecord: ...
 
+    async def list_artifact_revisions(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> ArtifactRevisionPage: ...
+
     async def current_memory_entry(self, scope_id: str, artifact_id: str, entry_id: str, /) -> MemoryEntryVersion: ...
 
     async def logical_artifacts(self, scope_id: str, /) -> tuple[LogicalArtifactRecord, ...]: ...
@@ -246,7 +268,16 @@ class RecordService(Protocol):
         *,
         limit: int,
         cursor: str | None,
+        tag_filter: TagFilter | None = None,
     ) -> ArtifactRecordPage: ...
+
+    async def get_tags(self, scope_id: str, target: TagTarget) -> ArtifactTagSet: ...
+
+    async def replace_tags(
+        self, scope_id: str, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str
+    ) -> ArtifactTagSet: ...
+
+    async def query_tags(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage: ...
 
     async def replace_artifact(
         self,

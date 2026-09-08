@@ -29,6 +29,16 @@ def dashboard(tmp_path: Path):
         yield client
 
 
+def test_dashboard_assets_revalidate_after_an_update(dashboard: TestClient) -> None:
+    for path in ("layout.css", "vendor/htmx.min.js", "vendor/tabler.min.js"):
+        response = dashboard.get(f"/dashboard/static/{path}")
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "no-cache"
+        cached = dashboard.get(f"/dashboard/static/{path}", headers={"If-None-Match": response.headers["ETag"]})
+        assert cached.status_code == 304
+        assert cached.headers["Cache-Control"] == "no-cache"
+
+
 def create_scope(client: TestClient, title: str, parent: str | None = None) -> dict[str, Any]:
     result = client.post(
         "/v1/scopes",

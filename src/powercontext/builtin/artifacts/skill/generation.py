@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, Self
+from typing import Protocol
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -33,8 +33,8 @@ class _GeneratedSkillContent(SkillContent):
     name: str = Field(min_length=1, max_length=64, pattern=SKILL_NAME_PATTERN)
 
     @model_validator(mode="after")
-    def validate_package(self) -> Self:
-        # Feed canonical package errors back into structured generation retries.
+    def require_standard_package(self) -> _GeneratedSkillContent:
+        # Reject invalid names/frontmatter while model retries are still available, before proposing a write.
         build_instruction_skill_package(self)
         return self
 

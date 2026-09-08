@@ -575,12 +575,22 @@ def test_service_install_requires_persistent_config_for_shell_server_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "8123")
+    monkeypatch.setenv("POWERCONTEXT_HOME", "private-data-directory")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_API_KEY", "secret-test-token")
     adapter = FakeAdapter(tmp_path)
 
     with pytest.raises(ServiceError, match="do not copy shell environment variables") as raised:
         ServiceController(adapter).install()
 
     assert raised.value.exit_code == 2
+    message = str(raised.value)
+    assert "POWERCONTEXT_SERVER_HTTP_PORT" in message
+    assert "POWERCONTEXT_HOME" in message
+    assert "POWERCONTEXT_SERVER_HTTP_PORT=8123" in message
+    assert "POWERCONTEXT_HOME=private-data-directory" in message
+    assert "POWERCONTEXT_SERVER_API_KEY=<your-current-value>" in message
+    assert "secret-test-token" not in message
+    assert "powercontext service install --env-file" in message
     assert adapter.events == []
 
 

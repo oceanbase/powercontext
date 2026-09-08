@@ -26,6 +26,7 @@ import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from powercontext.client.errors import InvalidResponseError, TransportError, server_response_error
+from powercontext.client.tags import ArtifactTagSetResponse
 from powercontext.client.tracing import ClientSpan
 from powercontext.http import (
     AccessAuditPage,
@@ -46,6 +47,7 @@ from powercontext.http import (
     ArtifactPage,
     ArtifactPublication,
     ArtifactRevision,
+    ArtifactRevisionPage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
@@ -61,6 +63,8 @@ from powercontext.http import (
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
     CreateSourceRequest,
+    CreateSubjectSourceRequest,
+    CreateSubjectSourceResponse,
     CreateWorkContractRequest,
     DownloadRemoteSkillPackageRequest,
     EnrollRemoteSkillTargetRequest,
@@ -70,8 +74,13 @@ from powercontext.http import (
     FinalizeHandoffRequest,
     FlushMemoryRequest,
     FlushMemoryResponse,
+    FlushProfileRequest,
+    FlushProfileResponse,
+    FlushTopicMemoryRequest,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
+    GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
     GetConnectorCheckpointRequest,
@@ -81,6 +90,7 @@ from powercontext.http import (
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffActivation,
     HandoffCurrentWorkRequest,
@@ -94,6 +104,7 @@ from powercontext.http import (
     ListAccessResourcesRequest,
     ListAccessRolesRequest,
     ListArtifactCandidatesRequest,
+    ListArtifactRevisionsRequest,
     ListArtifactsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -112,11 +123,15 @@ from powercontext.http import (
     PreparedHandoff,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
+    ProfilePolicyResponse,
+    PromptConfiguration,
+    PromptDemonstrationResult,
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
     ProposeSkillRequest,
     PublishArtifactRequest,
     PublishRemoteSkillRequest,
+    PutProfilePolicyRequest,
     ReadinessResponse,
     ReconcileRemoteSkillsRequest,
     ReconcileRemoteSkillsResponse,
@@ -150,6 +165,8 @@ from powercontext.http import (
     ScopePage,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
     SkillArtifact,
@@ -160,10 +177,17 @@ from powercontext.http import (
     SourceObservationReceipt,
     SourceRecord,
     SubmitSourceObservationRequest,
+    TopicMemoryArtifact,
     UnpublishRemoteSkillRequest,
     UpdateScopeRequest,
     UpdateSkillLifecycleRequest,
     WorkSourceReceipt,
+)
+from powercontext.http._generated.models import (
+    ArtifactTagPage,
+    ArtifactTagSet,
+    QueryArtifactTagsRequest,
+    ReplaceArtifactTagsRequest,
 )
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
@@ -180,18 +204,23 @@ from powercontext.http._generated.operations import (
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SCOPE,
     CREATE_SOURCE,
+    CREATE_SUBJECT_SOURCE,
     CREATE_WORK_CONTRACT,
     DOWNLOAD_REMOTE_SKILL_PACKAGE,
     DOWNLOAD_SKILL_PACKAGE,
     ENROLL_REMOTE_SKILL_TARGET,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
+    FLUSH_PROFILE,
+    FLUSH_TOPIC_MEMORY,
     GENERATE_EXPERIENCE,
+    GENERATE_PROMPT_DEMONSTRATIONS,
     GENERATE_SKILL,
     GET_ACCESS_PRINCIPAL,
     GET_ARTIFACT,
     GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
+    GET_ARTIFACT_TAGS,
     GET_CAPABILITIES,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
@@ -199,12 +228,16 @@ from powercontext.http._generated.operations import (
     GET_HANDOFF_REPORT,
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
+    GET_MEMORY_ENTRY_TAGS,
+    GET_PROFILE_POLICY,
+    GET_PROMPT_CONFIGURATION,
     GET_READINESS,
     GET_SCOPE,
     GET_SKILL,
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
     GET_STATS,
+    GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ACCESS_AUDIT,
@@ -212,6 +245,7 @@ from powercontext.http._generated.operations import (
     LIST_ACCESS_RESOURCES,
     LIST_ACCESS_ROLES,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_ARTIFACT_REVISIONS,
     LIST_ARTIFACTS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
@@ -226,6 +260,8 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL_PACKAGE,
     PUBLISH_ARTIFACT,
     PUBLISH_REMOTE_SKILL,
+    PUT_PROFILE_POLICY,
+    QUERY_ARTIFACT_TAGS,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -236,6 +272,8 @@ from powercontext.http._generated.operations import (
     RENAME_REMOTE_SKILL_TARGET,
     REPLACE_ACCESS_BINDING,
     REPLACE_ARTIFACT,
+    REPLACE_ARTIFACT_TAGS,
+    REPLACE_MEMORY_ENTRY_TAGS,
     RESOLVE_EXTERNAL_SKILL,
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
@@ -246,6 +284,7 @@ from powercontext.http._generated.operations import (
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SEARCH_TOPIC_MEMORY,
     SET_DEFAULT_SCOPE,
     SET_SCOPE_BINDING,
     SUBMIT_SOURCE_OBSERVATION,
@@ -501,6 +540,21 @@ class PowerContextClient:
 
         return await self._request(CREATE_SOURCE, request, path_parameters={"scope_id": scope_id})
 
+    async def create_subject_source(
+        self, scope_id: str, request: CreateSubjectSourceRequest
+    ) -> CreateSubjectSourceResponse:
+        """Resolve a subject binding and atomically write both Sources."""
+        return await self._request(CREATE_SUBJECT_SOURCE, request, path_parameters={"scope_id": scope_id})
+
+    async def get_profile_policy(self, scope_id: str) -> ProfilePolicyResponse:
+        return await self._request(GET_PROFILE_POLICY, path_parameters={"scope_id": scope_id})
+
+    async def put_profile_policy(self, scope_id: str, request: PutProfilePolicyRequest) -> ProfilePolicyResponse:
+        return await self._request(PUT_PROFILE_POLICY, request, path_parameters={"scope_id": scope_id})
+
+    async def flush_profile(self, request: FlushProfileRequest) -> FlushProfileResponse:
+        return await self._request(FLUSH_PROFILE, request)
+
     async def get_source(self, scope_id: str, source_type: str, source_id: str) -> SourceRecord:
         """Read one exact Source in a Scope and Source type."""
 
@@ -530,6 +584,105 @@ class PowerContextClient:
             extra_headers=None if if_none_match is None else {"If-None-Match": if_none_match},
         )
 
+    async def get_artifact_tags(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        *,
+        if_none_match: str | None = None,
+    ) -> ArtifactTagSetResponse | None:
+        """Read scope-local labels with the server-issued ETag; None means 304."""
+        return await self._tag_request(
+            GET_ARTIFACT_TAGS,
+            None,
+            {"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
+            headers={} if if_none_match is None else {"If-None-Match": if_none_match},
+        )
+
+    async def replace_artifact_tags(
+        self,
+        scope_id: str,
+        family: str,
+        artifact_id: str,
+        request: ReplaceArtifactTagsRequest,
+        *,
+        expected_etag: str,
+    ) -> ArtifactTagSetResponse:
+        """Replace labels without revising content; use the ETag from a prior read."""
+        result = await self._tag_request(
+            REPLACE_ARTIFACT_TAGS,
+            request,
+            {"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
+            headers={"If-Match": expected_etag},
+        )
+        if result is None:
+            raise InvalidResponseError(REPLACE_ARTIFACT_TAGS.path, request_id=None)
+        return result
+
+    async def get_memory_entry_tags(
+        self,
+        scope_id: str,
+        artifact_id: str,
+        entry_id: str,
+        *,
+        if_none_match: str | None = None,
+    ) -> ArtifactTagSetResponse | None:
+        """Read one logical entry's labels, including an inactive manifest entry."""
+        return await self._tag_request(
+            GET_MEMORY_ENTRY_TAGS,
+            None,
+            {"scope_id": scope_id, "artifact_id": artifact_id, "entry_id": entry_id},
+            headers={} if if_none_match is None else {"If-None-Match": if_none_match},
+        )
+
+    async def replace_memory_entry_tags(
+        self,
+        scope_id: str,
+        artifact_id: str,
+        entry_id: str,
+        request: ReplaceArtifactTagsRequest,
+        *,
+        expected_etag: str,
+    ) -> ArtifactTagSetResponse:
+        """Replace one logical entry's labels without changing its version."""
+        result = await self._tag_request(
+            REPLACE_MEMORY_ENTRY_TAGS,
+            request,
+            {"scope_id": scope_id, "artifact_id": artifact_id, "entry_id": entry_id},
+            headers={"If-Match": expected_etag},
+        )
+        if result is None:
+            raise InvalidResponseError(REPLACE_MEMORY_ENTRY_TAGS.path, request_id=None)
+        return result
+
+    async def query_artifact_tags(self, scope_id: str, request: QueryArtifactTagsRequest) -> ArtifactTagPage:
+        """Find visible targets by exact tags within a Scope."""
+        return await self._request(QUERY_ARTIFACT_TAGS, request, path_parameters={"scope_id": scope_id})
+
+    async def _tag_request(
+        self,
+        operation: Operation[Any, ArtifactTagSet],
+        request: ReplaceArtifactTagsRequest | None,
+        path_parameters: dict[str, str],
+        *,
+        headers: dict[str, str],
+    ) -> ArtifactTagSetResponse | None:
+        response_headers: dict[str, str] = {}
+        result = await self._request(
+            operation,
+            request,
+            path_parameters=path_parameters,
+            extra_headers=headers,
+            response_headers=response_headers,
+        )
+        if result is None:
+            return None
+        etag = response_headers.get("etag")
+        if etag is None:
+            raise InvalidResponseError(operation.path, request_id=response_headers.get(REQUEST_ID_HEADER.lower()))
+        return ArtifactTagSetResponse(tag_set=result, etag=etag)
+
     async def get_artifact_revision(
         self,
         scope_id: str,
@@ -556,6 +709,36 @@ class PowerContextClient:
             LIST_ARTIFACTS,
             request,
             path_parameters={"scope_id": scope_id, "family": family},
+        )
+
+    async def list_artifact_revisions(
+        self, scope_id: str, family: str, artifact_id: str, request: ListArtifactRevisionsRequest
+    ) -> ArtifactRevisionPage:
+        """List immutable revision metadata using a stable, scoped pagination snapshot."""
+
+        return await self._request(
+            LIST_ARTIFACT_REVISIONS,
+            request,
+            path_parameters={"scope_id": scope_id, "family": family, "artifact_id": artifact_id},
+        )
+
+    async def get_prompt_configuration(self, scope_id: str, prompt_key: str) -> PromptConfiguration:
+        """Read the saved selection and Runtime defaults without creating a revision."""
+
+        return await self._request(
+            GET_PROMPT_CONFIGURATION,
+            path_parameters={"scope_id": scope_id, "prompt_key": prompt_key},
+        )
+
+    async def generate_prompt_demonstrations(
+        self, scope_id: str, prompt_key: str, request: GeneratePromptDemonstrationsRequest
+    ) -> PromptDemonstrationResult:
+        """Suggest typed demonstrations without saving or changing a Prompt."""
+
+        return await self._request(
+            GENERATE_PROMPT_DEMONSTRATIONS,
+            request,
+            path_parameters={"scope_id": scope_id, "prompt_key": prompt_key},
         )
 
     async def replace_artifact(
@@ -624,6 +807,11 @@ class PowerContextClient:
 
         return await self._request(FLUSH_MEMORY, request)
 
+    async def flush_topic_memory(self, request: FlushTopicMemoryRequest) -> FlushTopicMemoryResponse:
+        """Durably request Topic Memory processing without waiting for completion."""
+
+        return await self._request(FLUSH_TOPIC_MEMORY, request)
+
     async def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
         """Save one explicit Memory entry without creating a Source."""
 
@@ -633,6 +821,16 @@ class PowerContextClient:
         """Search active Memory entries in one scope."""
 
         return await self._request(SEARCH_MEMORY, request)
+
+    async def search_topic_memory(self, request: SearchTopicMemoryRequest) -> SearchTopicMemoryResponse:
+        """Search current Topic Memory heads with Server-owned retrieval mode."""
+
+        return await self._request(SEARCH_TOPIC_MEMORY, request)
+
+    async def get_topic_memory(self, request: GetTopicMemoryRequest) -> TopicMemoryArtifact:
+        """Read one exact immutable Topic Memory revision."""
+
+        return await self._request(GET_TOPIC_MEMORY, request)
 
     async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
         """Prepare final bounded context for one Agent turn."""
@@ -876,6 +1074,7 @@ class PowerContextClient:
         path_parameters: Mapping[str, str | int] | None = None,
         query_parameters: Mapping[str, Any] | None = None,
         extra_headers: Mapping[str, str] | None = None,
+        response_headers: dict[str, str] | None = None,
     ) -> _ResponseT:
         path, json_payload, request_query = _prepare_request(
             operation,
@@ -911,6 +1110,8 @@ class PowerContextClient:
         span.finish("success" if succeeded else "failure", status_code=response.status_code)
 
         request_id = response.headers.get(REQUEST_ID_HEADER)
+        if response_headers is not None:
+            response_headers.update(response.headers)
         if not succeeded:
             error = _decode_error(response.content)
             raise server_response_error(

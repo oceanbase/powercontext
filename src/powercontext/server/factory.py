@@ -30,6 +30,7 @@ from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
 from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
+from powercontext.builtin.artifacts.profile.service import ProfileGenerator
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -43,7 +44,14 @@ from powercontext.builtin.runtime.application import ScheduledExperienceRunner, 
 from powercontext.builtin.runtime.composition import open_builtin_runtime
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
-from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema, ReadinessResponse, ReadinessStatus
+from powercontext.http import (
+    Capabilities,
+    MemorySearchMode,
+    PreparedContextSchema,
+    PromptCapability,
+    ReadinessResponse,
+    ReadinessStatus,
+)
 from powercontext.paths import default_scheduler_path
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import create_app
@@ -73,6 +81,13 @@ from powercontext.server.tracing import HttpTracingMiddleware, ServerTracing
 logger = logging.getLogger(__name__)
 
 
+class BackgroundRoleRequiresBackgroundRunnerError(RuntimeError):
+    """Prevent a background-only process from accidentally exposing HTTP/MCP."""
+
+    def __init__(self) -> None:
+        super().__init__("artifact processing role 'background' must use the background service runner")
+
+
 class _MetricsEndpoint:
     def __init__(self, metrics: ServerMetrics) -> None:
         self._metrics = metrics
@@ -96,13 +111,14 @@ class _MetricsEndpoint:
         return Response(self._metrics.render(), media_type=CONTENT_TYPE_LATEST)
 
 
-def create_server_app(
+def create_server_app(  # noqa: C901
     *,
     settings: ServerSettings | None = None,
     scheduler_path: str | Path | None = None,
     candidate_pipeline: CandidatePipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
+    profile_generator: ProfileGenerator | None = None,
     skill_generator: SkillGenerator | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
@@ -115,6 +131,8 @@ def create_server_app(
     """Build the Server process and mount MCP when configured."""
 
     resolved = ServerSettings() if settings is None else settings
+    if resolved.runtime.artifact_processing_role == "background":
+        raise BackgroundRoleRequiresBackgroundRunnerError
     static_principal, configured_authentication, configured_access_control, legacy_static_admin = (
         _resolve_security_providers(
             resolved,
@@ -168,16 +186,29 @@ def create_server_app(
                     candidate_pipeline=candidate_pipeline,
                     experience_pipeline=experience_pipeline,
                     experience_generator=experience_generator,
+                    profile_generator=profile_generator,
                     skill_generator=skill_generator,
                     external_skill_provider=external_skill_provider,
                     handoff_pipeline=handoff_pipeline,
                     embedding_model=embedding_model,
                     instrumentation=resolved_tracing.instrumentation,
                     scope_cache_observer=None if metrics is None else metrics.set_runtime_scopes,
+                    topic_memory_search_observer=None if metrics is None else metrics.observe_topic_memory_search,
                     tracing=resolved_tracing,
                     scheduled_source_runner=scheduled_source_runner,
                     scheduled_experience_runner=scheduled_experience_runner,
+                    scheduled_profile_runner=_scheduled_profile_runner(
+                        resolved,
+                        active_access_control,
+                        enabled=config.runtime.profile_schedule_enabled
+                        and (profile_generator is not None or config.inference.generation_model is not None),
+                        legacy_static_principal=static_principal if legacy_static_admin else None,
+                    ),
                     cursor_secret=cursor_secret,
+                    handoff_verification_keys=tuple(
+                        secret.get_secret_value().encode()
+                        for secret in resolved.handoff_generation_verification_secrets
+                    ),
                 )
             )
             readiness_probe.bind(runtime)
@@ -352,6 +383,49 @@ def _scheduled_access_runners(
     )
 
 
+def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_principal):
+    if settings.access.mode == "disabled" or not enabled:
+        return None
+    if access is None:
+        raise ValueError("Profile scheduling requires an Authorization Provider")  # noqa: TRY003
+    principal = _scheduled_principal(settings, legacy_static_principal=legacy_static_principal)
+
+    async def run(scope_id, high, profiles):
+        context = AccessAuditContext(transport="background", operation="flush_profile")
+        await access.bootstrap_static_scope(principal, scope_id, context=context)
+        await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id), context=context)
+        resource = ResourceRef.artifact(scope_id, family="profile", artifact_id="profile")
+
+        async def authorize_snapshot(current):
+            if current is not None:
+                await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
+
+        async def on_commit(connection, artifact, candidate):
+            bound = access.with_connection(connection)
+            if artifact is not None and await bound.artifact_owner(resource) is None:
+                await bound.establish_artifact_owner(
+                    resource,
+                    principal,
+                    idempotency_key=f"profile-owner:{scope_id}",
+                    context=context,
+                )
+            if candidate is not None:
+                await bound.attest_candidate_owner(
+                    scope_id=scope_id,
+                    candidate_id=candidate.candidate_id,
+                    family="profile",
+                    proposed_owner=principal,
+                    target=None if candidate.target is None else resource,
+                    idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+                )
+
+        return await profiles.flush(
+            scope_id, high_watermark=high, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+        )
+
+    return run
+
+
 def _scheduled_principal(
     settings: ServerSettings,
     *,
@@ -478,7 +552,11 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
     capabilities = await runtime.capabilities()
     return Capabilities(
         source_types=[CONTENT_SOURCE_NAME],
-        artifact_families=["memory", "experience", "skill", "handoff"],
+        artifact_families=["memory", "topic-memory", "experience", "skill", "handoff", "profile", "prompt"],
+        prompts={
+            key: PromptCapability.model_validate_json(value.model_dump_json())
+            for key, value in capabilities.prompts.items()
+        },
         memory_extraction=capabilities.memory_extraction,
         experience_generation=capabilities.experience_generation,
         managed_skill_generation=capabilities.managed_skill_generation,

@@ -97,6 +97,7 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+examples/jupyter/VALIDATION.*
 
 # IPython
 profile_default/

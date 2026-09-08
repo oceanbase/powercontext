@@ -22,6 +22,7 @@ from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.generation import ArtifactGenerationInput
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.review import InvalidCandidateError
 from powercontext.builtin.review.generation import GenerationCapabilityUnavailableError
 from powercontext.builtin.runtime import (
@@ -36,6 +37,7 @@ from powercontext.builtin.runtime import (
     open_builtin_runtime,
 )
 from powercontext.builtin.scope import ScopeDraft
+from powercontext.builtin.source_eligibility import SourceNotEligibleError
 
 
 async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str = "project") -> str:
@@ -146,6 +148,30 @@ def test_experience_generation_uses_exact_source_and_supports_no_op() -> None:
 
             assert result.generated is False
             assert inbox.candidates == ()
+
+    asyncio.run(scenario())
+
+
+def test_explicit_generation_rejects_a_lineage_only_source_before_model_use() -> None:
+    async def scenario() -> None:
+        generator = _ExperienceGenerator(_experience())
+        async with open_builtin_runtime(
+            BuiltinConfig(database=SQLiteConfig()),
+            experience_generator=generator,
+        ) as runtime:
+            scope_id = await _create_scope(runtime)
+            created = await runtime.records.for_scope(scope_id).create_artifact(
+                "memory",
+                ArtifactWrite(content={"entries": [{"kind": "fact", "text": "Direct input."}]}),
+            )
+
+            with pytest.raises(SourceNotEligibleError) as error:
+                await runtime.experience.for_scope(scope_id).generate(
+                    GenerateExperienceRequest(sources=(created.sources[0],))
+                )
+
+            assert error.value.source == created.sources[0]
+            assert generator.inputs == []
 
     asyncio.run(scenario())
 

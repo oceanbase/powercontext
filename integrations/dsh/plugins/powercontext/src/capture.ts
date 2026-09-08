@@ -17,8 +17,8 @@
 import { createHash } from 'node:crypto'
 import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
-import { failureEvent } from './diagnostics.ts'
-import { MAX_SOURCE_LENGTH } from './errors.ts'
+import { logSafely, reportFailure } from './diagnostics.ts'
+import { MAX_SOURCE_LENGTH, TransportError } from './errors.ts'
 import { containsSecret } from './secrets.ts'
 
 export interface CaptureInput {
@@ -46,6 +46,7 @@ async function flushThrough(
   signal?: AbortSignal,
 ): Promise<void> {
   for (let i = 0; i < config.flushMaxCalls; i += 1) {
+    if (signal?.aborted) throw new TransportError('', signal.reason)
     const result = await client.request('flush_memory', { scope_id: scopeId }, signal)
     const cursor = result.kind === 'json' && result.value && typeof result.value === 'object'
       ? (result.value as { current_cursor?: unknown }).current_cursor
@@ -64,12 +65,13 @@ function sourcePosition(value: unknown): number | undefined {
 export async function captureUserPrompt(input: CaptureInput): Promise<void> {
   if (!input.config.capturePrompts) return
   if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt)) {
-    input.log({ event: 'capture_content_source', outcome: 'skipped' })
+    logSafely(input.log, { event: 'capture_content_source', outcome: 'skipped' })
     return
   }
   let position: number | undefined
   let captureStatus = 202
   try {
+    if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
     const result = await input.client.request('capture_content_source', {
       scope_id: input.scopeId,
       source_id: buildSourceId(input.scopeId, input.sessionId, input.turnId, input.prompt),
@@ -85,18 +87,16 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
     position = result.kind === 'json' ? sourcePosition(result.value) : undefined
     captureStatus = result.status
   } catch (error) {
-    const diagnostic = failureEvent('capture_content_source', error)
-    if (diagnostic) input.log(diagnostic)
+    reportFailure(input.log, 'capture_content_source', error)
     return
   }
 
+  logSafely(input.log, { event: 'capture_content_source', outcome: 'ok', status: captureStatus })
   if (input.config.flushOnCapture && position !== undefined) {
     try {
       await flushThrough(input.client, input.config, input.scopeId, position, input.signal)
     } catch (error) {
-      const diagnostic = failureEvent('flush_memory', error)
-      if (diagnostic) input.log(diagnostic)
+      reportFailure(input.log, 'flush_memory', error)
     }
   }
-  input.log({ event: 'capture_content_source', outcome: 'ok', status: captureStatus })
 }

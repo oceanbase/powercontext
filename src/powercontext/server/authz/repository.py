@@ -38,6 +38,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.tables import identity_string
@@ -206,11 +207,12 @@ _RECEIVER_IDENTITY_MISMATCH = "receiver_identity_mismatch"
 class RelationalAccessRepository:
     """Persist logical bindings, direct ownership and minimized audit events."""
 
-    def __init__(self, database: AsyncDatabase) -> None:
+    def __init__(self, database: AsyncDatabase, *, connection: AsyncConnection | None = None) -> None:
         self._database = database
+        self._bound_connection = connection
 
     async def get_receipt_identity(self, scope_id: str, source_id: str, /) -> HandoffReceiptIdentity | None:
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             row = (
                 (
                     await connection.execute(
@@ -274,7 +276,7 @@ class RelationalAccessRepository:
         return identity
 
     async def policy_revision(self) -> str:
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             revision = await connection.scalar(
                 select(ACCESS_POLICY_HEADS_TABLE.c.revision).where(ACCESS_POLICY_HEADS_TABLE.c.name == _POLICY_HEAD)
             )
@@ -298,12 +300,12 @@ class RelationalAccessRepository:
             ),
             ACCESS_BINDINGS_TABLE.c.state == AccessBindingState.ACTIVE.value,
         )
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             rows = (await connection.execute(statement)).mappings().all()
         return tuple(binding for row in rows if (binding := _decode_binding(row)).active_at(now))
 
     async def get_binding(self, binding_id: str, /) -> AccessBinding | None:
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             row = await _binding_by_id(connection, binding_id)
         return None if row is None else _decode_binding(row)
 
@@ -325,7 +327,7 @@ class RelationalAccessRepository:
         if request.cursor is not None:
             statement = statement.where(ACCESS_BINDINGS_TABLE.c.binding_id > request.cursor)
         statement = statement.order_by(ACCESS_BINDINGS_TABLE.c.binding_id).limit(request.limit)
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             rows = (await connection.execute(statement)).mappings().all()
         return tuple(_decode_binding(row) for row in rows)
 
@@ -337,7 +339,7 @@ class RelationalAccessRepository:
         if relation.resource.type is not AccessResourceType.ARTIFACT:
             raise AccessInvalidRequestError("artifact-identity")
         resource_hash = _digest(relation.resource.key)
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             existing = (
                 (
                     await connection.execute(
@@ -366,7 +368,7 @@ class RelationalAccessRepository:
     async def get_artifact_owner(self, resource: ResourceRef, /) -> ArtifactOwnerRelation | None:
         if resource.type is not AccessResourceType.ARTIFACT:
             return None
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             row = (
                 (
                     await connection.execute(
@@ -386,7 +388,7 @@ class RelationalAccessRepository:
         attestation: CandidateOwnerAttestation,
         /,
     ) -> CandidateOwnerAttestation:
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             existing = (
                 (
                     await connection.execute(
@@ -417,7 +419,7 @@ class RelationalAccessRepository:
         candidate_id: str,
         /,
     ) -> CandidateOwnerAttestation | None:
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             row = (
                 (
                     await connection.execute(
@@ -433,7 +435,7 @@ class RelationalAccessRepository:
         return None if row is None else _decode_candidate_owner(row)
 
     async def list_owned_resources(self, owner: PrincipalRef, /) -> tuple[ResourceRef, ...]:
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             rows = (
                 (
                     await connection.execute(
@@ -449,9 +451,18 @@ class RelationalAccessRepository:
             )
         return tuple(_decode_resource(row, artifact_only=True) for row in rows)
 
+    def with_connection(self, connection: AsyncConnection) -> RelationalAccessRepository:
+        if connection.engine.url != self._database.engine.url or (
+            connection.dialect.name == "sqlite"
+            and connection.engine.url.database in {None, "", ":memory:"}
+            and connection.engine is not self._database.engine
+        ):
+            raise AccessUnavailableError("transactional_relationships_unavailable")
+        return RelationalAccessRepository(self._database, connection=connection)
+
     async def create_binding(self, binding: AccessBinding, /) -> AccessBinding:
         payload_hash = _creation_hash(binding)
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             replay = await _idempotent_result(
                 connection,
                 actor=binding.granted_by,
@@ -491,7 +502,7 @@ class RelationalAccessRepository:
         revoked_by: PrincipalRef,
     ) -> AccessBinding:
         payload_hash = _digest(f"{binding_id}\0{expected_version}")
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             replay = await _idempotent_result(
                 connection,
                 actor=revoked_by,
@@ -558,7 +569,7 @@ class RelationalAccessRepository:
                 "" if request.expires_at is None else _timestamp(request.expires_at),
             ))
         )
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             replay = await _idempotent_result(
                 connection,
                 actor=actor,
@@ -630,7 +641,7 @@ class RelationalAccessRepository:
         return BindingReplacement(revoked, created)
 
     async def append_audit(self, event: AccessAuditEvent, /) -> AccessAuditEvent:
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             await connection.execute(insert(ACCESS_AUDIT_EVENTS_TABLE).values(_audit_row(event)))
             cursor = await connection.scalar(
                 select(ACCESS_AUDIT_EVENTS_TABLE.c.cursor).where(ACCESS_AUDIT_EVENTS_TABLE.c.event_id == event.event_id)
@@ -668,7 +679,7 @@ class RelationalAccessRepository:
         if after is not None:
             statement = statement.where(ACCESS_AUDIT_EVENTS_TABLE.c.cursor > after)
         statement = statement.order_by(ACCESS_AUDIT_EVENTS_TABLE.c.cursor).limit(limit)
-        async with self._database.transaction() as connection:
+        async with self._database.connection(self._bound_connection) as connection:
             rows = (await connection.execute(statement)).mappings().all()
         return tuple(_decode_audit(row) for row in rows)
 

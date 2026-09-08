@@ -14,7 +14,7 @@ PowerContext keeps context with the work across conversations. When you return, 
 
 ![You and agents hand work off and continue with stored context](docs/assets/readme-workflow.svg)
 
-[Website](https://powercontext.oceanbase.io/en/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
+[Website](https://powercontext.oceanbase.io/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
 
 ## Pick up where the work left off
 
@@ -85,6 +85,8 @@ For other agents and deployment options, continue with the [agent setup guide](h
 </table>
 
 Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](https://powercontext.oceanbase.io/en/docs/reference/interfaces/) to choose an entry point.
+
+Explore the [22 Chinese Jupyter tutorials and a complete team workflow](examples/jupyter/README.md) to run Memory, context preparation, Handoff, Experience, Skill, and a real Agent step by step. The first seven tutorials need no model or API key.
 
 ## What changes with PowerContext
 

@@ -23,14 +23,16 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent, ExperienceDraft
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
+from powercontext.builtin.artifacts.profile.review import decide_profile, revise_profile
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
+from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
-from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.models import (
     MAX_CANDIDATE_EVIDENCE,
@@ -39,12 +41,11 @@ from powercontext.builtin.review.models import (
     ArtifactCandidatePage,
     CandidateStatus,
 )
-from powercontext.builtin.source_eligibility import require_source_eligible
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 from powercontext.sources import SourceRef
 
 IdFactory = Callable[[str], str]
-ReviewedProposal: TypeAlias = ExperienceContent | SkillContent
+ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
 ReviewedCandidate: TypeAlias = ArtifactCandidate[ReviewedProposal]
@@ -62,7 +63,7 @@ class ReviewService:
         artifacts: ArtifactRepository,
         experience_index: ExperienceIndex,
         skill_packages: SkillPackageRepository,
-        sources: SourceRepository,
+        sources: GenerationSourceAccess,
         id_factory: IdFactory,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -211,7 +212,7 @@ class ReviewService:
         self,
         candidate_id: str,
         expected_version: int,
-        proposal: ReviewedProposal,
+        proposal: ReviewedProposal | ProfileWriteContent,
         /,
         *,
         sources: tuple[SourceRef, ...],
@@ -230,13 +231,16 @@ class ReviewService:
                 expected_version,
             )
             reviewed = _reviewed_candidate(current)
+            if reviewed.family == "profile":
+                proposal = revise_profile(current, proposal, canonical_sources, canonical_artifacts, target)
             _validate_proposal_family(reviewed.family, proposal)
             if isinstance(proposal, SkillContent):
                 proposal = await self._canonical_skill_proposal(connection, proposal)
             if target != current.target:
                 raise InvalidCandidateError("target", "cannot change across Candidate versions")
             await self._validate_evidence(connection, canonical_sources, canonical_artifacts)
-            await self._validate_target(connection, reviewed.family, target, canonical_artifacts)
+            if reviewed.family != "profile":
+                await self._validate_target(connection, reviewed.family, target, canonical_artifacts)
             revised = await self._candidates.revise(
                 connection,
                 self._scope_id,
@@ -259,6 +263,17 @@ class ReviewService:
     ) -> ReviewedCandidate:
         _validate_reason(reason)
         async with self._database.connection(self._bound_connection) as connection:
+            current = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if current.family == "profile":
+                return _reviewed_candidate(
+                    await decide_profile(
+                        self,
+                        connection,
+                        candidate_id,
+                        expected_version,
+                        reason=reason,
+                    )
+                )
             rejected = await self._candidates.reject(
                 connection,
                 self._scope_id,
@@ -277,6 +292,9 @@ class ReviewService:
         """Atomically commit the reviewed Artifact and Candidate result."""
 
         async with self._database.connection(self._bound_connection) as connection:
+            current = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if current.family == "profile":
+                return _reviewed_candidate(await decide_profile(self, connection, candidate_id, expected_version))
             candidate = _reviewed_candidate(
                 await self._candidates.lock_pending(
                     connection,
@@ -286,6 +304,7 @@ class ReviewService:
                 )
             )
             _validate_approval_lineage(candidate)
+            await self._validate_evidence(connection, candidate.sources, candidate.artifacts)
             if isinstance(candidate.proposal, SkillContent) and candidate.proposal.package is not None:
                 await self._canonical_skill_proposal(connection, candidate.proposal)
             draft = _candidate_draft(candidate)
@@ -348,14 +367,12 @@ class ReviewService:
         sources: tuple[SourceRef, ...],
         artifacts: tuple[ArtifactRef, ...],
     ) -> None:
-        if not sources and not artifacts:
+        if not sources and not any(artifact.family != "prompt" for artifact in artifacts):
             raise InvalidCandidateError("evidence", "at least one exact reference is required")
         if len(sources) + len(artifacts) > MAX_CANDIDATE_EVIDENCE:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
         try:
-            for source in sources:
-                stored = await self._sources.get(connection, self._scope_id, source)
-                require_source_eligible(source, stored.value)
+            await self._sources.require_for_generation(connection, self._scope_id, sources)
             for artifact in artifacts:
                 await self._artifacts.get(connection, self._scope_id, artifact)
         except RepositoryNotFoundError as error:
@@ -429,6 +446,7 @@ def _validate_proposal_family(family: str, proposal: object) -> None:
     expected = {
         Experience.family: ExperienceContent,
         Skill.family: SkillContent,
+        "profile": ProfileCandidateProposal,
     }.get(family)
     if expected is None or type(proposal) is not expected:
         raise InvalidCandidateError("family", family)
@@ -438,10 +456,14 @@ def _validate_approval_lineage(candidate: ReviewedCandidate) -> None:
     if candidate.family != Skill.family:
         return
     if candidate.target is None:
-        if any(artifact.family != Experience.family for artifact in candidate.artifacts):
+        if any(
+            artifact.family != Experience.family
+            and not (artifact.family == "prompt" and artifact.artifact_id == "skill.generate")
+            for artifact in candidate.artifacts
+        ):
             raise InvalidCandidateError(
                 "artifacts",
-                "new managed Skill lineage may reference only Experience Artifacts",
+                "new managed Skill lineage may reference only Experience Artifacts and its generation Prompt",
             )
         return
     if candidate.target not in candidate.artifacts:

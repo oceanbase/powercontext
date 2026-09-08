@@ -16,13 +16,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from typing import Any, Literal, cast
 
 import rfc8785
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import func, insert, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -83,6 +83,18 @@ class SourceRepository:
     ) -> StoredSource:
         """Add one stable Source or return an identical existing capture."""
 
+        stored, _created = await self.add_with_status(connection, scope_id, source)
+        return stored
+
+    async def add_with_status(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        source: Source,
+        /,
+    ) -> tuple[StoredSource, bool]:
+        """Add one Source and report whether this call inserted its journal row."""
+
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
         if isinstance(source, SourceObservation):
             ref = SourceRef(source_type=source.source_type, source_id=source.name)
@@ -98,7 +110,7 @@ class SourceRepository:
             stored = self._decode_row(existing)
             if stored.value != source:
                 raise StoredPayloadConflictError("source", (scope_id, ref))
-            return stored
+            return stored, False
 
         position = await _next_journal_position(connection, scope_id)
         try:
@@ -121,8 +133,8 @@ class SourceRepository:
             stored = self._decode_row(existing)
             if stored.value != source:
                 raise StoredPayloadConflictError("source", (scope_id, ref)) from None
-            return stored
-        return StoredSource(ref=ref, value=source, journal_position=position)
+            return stored, False
+        return StoredSource(ref=ref, value=source, journal_position=position), True
 
     async def get(
         self,
@@ -138,6 +150,51 @@ class SourceRepository:
         if row is None:
             raise RepositoryNotFoundError("source", (scope_id, ref))
         return self._decode_row(row)
+
+    async def get_many(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        refs: Sequence[SourceRef],
+        /,
+    ) -> tuple[StoredSource, ...]:
+        """Load exact Sources in first-requested order using one query."""
+
+        _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
+        ordered: list[SourceRef] = []
+        identities: set[tuple[str, str]] = set()
+        for ref in refs:
+            identity = (ref.source_type, ref.source_id)
+            if identity not in identities:
+                ordered.append(ref)
+                identities.add(identity)
+        if not ordered:
+            return ()
+
+        rows = (
+            (
+                await connection.execute(
+                    select(SOURCES_TABLE).where(
+                        SOURCES_TABLE.c.scope_id == scope_id,
+                        tuple_(SOURCES_TABLE.c.source_type, SOURCES_TABLE.c.source_id).in_(tuple(identities)),
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        decoded: dict[tuple[str, str], StoredSource] = {}
+        for row in rows:
+            try:
+                stored = self._decode_row(row)
+            except RepositoryNotFoundError:
+                ref = SourceRef(source_type=str(row["source_type"]), source_id=str(row["source_id"]))
+                raise RepositoryNotFoundError("source", (scope_id, ref)) from None
+            decoded[(stored.ref.source_type, stored.ref.source_id)] = stored
+        for ref in ordered:
+            if (ref.source_type, ref.source_id) not in decoded:
+                raise RepositoryNotFoundError("source", (scope_id, ref))
+        return tuple(decoded[(ref.source_type, ref.source_id)] for ref in ordered)
 
     async def list(
         self,
@@ -168,6 +225,39 @@ class SourceRepository:
         rows = (await connection.execute(statement)).mappings()
         return tuple(self._decode_row(row) for row in rows)
 
+    async def list_window(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        /,
+        *,
+        after: int,
+        through: int,
+    ) -> tuple[StoredSource, ...]:
+        """Return the exact journal interval ``(after, through]``."""
+
+        _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
+        if after < 0:
+            raise InvalidRepositoryArgumentError("after", "must be non-negative")
+        if through < after:
+            raise InvalidRepositoryArgumentError("through", "must not precede after")
+        rows = (
+            (
+                await connection.execute(
+                    select(SOURCES_TABLE)
+                    .where(
+                        SOURCES_TABLE.c.scope_id == scope_id,
+                        SOURCES_TABLE.c.journal_position > after,
+                        SOURCES_TABLE.c.journal_position <= through,
+                    )
+                    .order_by(SOURCES_TABLE.c.journal_position)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return tuple(self._decode_row(row) for row in rows)
+
     async def journal_position(self, connection: AsyncConnection, scope_id: str, /) -> int:
         """Return the current high watermark for one scope."""
 
@@ -180,6 +270,11 @@ class SourceRepository:
         if value is None:
             raise InvalidStoredColumnError("journal_position", "an integer")
         return int(value)
+
+    async def read_value(self, source: Source, /) -> object:
+        """Read one decoded Source through the same registered adapter route."""
+
+        return await self._registry.read(source)
 
     def _definition_by_name(self, name: str) -> _AnySourceAdapter:
         try:

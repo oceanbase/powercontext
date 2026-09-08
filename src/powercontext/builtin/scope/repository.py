@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections import defaultdict
 from hashlib import sha256
 
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, false, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.tables import (
@@ -62,6 +62,14 @@ class ScopeRepository:
 
     async def list(self, connection: AsyncConnection, /) -> tuple[ScopeDescriptor, ...]:
         return await self._load(connection, select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id))
+
+    async def lock_write_transaction(self, connection: AsyncConnection, /) -> None:
+        """Acquire SQLite's writer boundary before reading state that will change."""
+
+        if connection.dialect.name == "sqlite":
+            # Even an empty UPDATE starts a write transaction. Acquiring it
+            # before reads avoids lock-upgrade races across application instances.
+            await connection.execute(update(SCOPES_TABLE).where(false()).values(version=SCOPES_TABLE.c.version))
 
     async def lock_hierarchy(self, connection: AsyncConnection, /) -> None:
         """Serialize Parent validation and mutation across Runtime instances."""
@@ -221,6 +229,18 @@ class ScopeRepository:
             )
         ).scalar_one_or_none()
         return None if value is None else ScopeBinding(key=key, scope_id=str(value))
+
+    async def ensure_binding(self, connection: AsyncConnection, key: ScopeBindingKey, scope_id: str, /) -> ScopeBinding:
+        """Insert only; the caller rolls back and retries a concurrent binding race."""
+        await connection.execute(
+            insert(SCOPE_BINDINGS_TABLE).values(
+                integration=key.integration,
+                kind=key.kind,
+                external_id=key.external_id,
+                scope_id=scope_id,
+            )
+        )
+        return ScopeBinding(key=key, scope_id=scope_id)
 
     async def set_binding(
         self,

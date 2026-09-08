@@ -137,6 +137,8 @@ class OpenDALTextFileConnector:
                 "OpenDALTextFileConnector.from_service requires powercontext-connector-opendal on Python 3.12+"
             ) from error
         backend_options: dict[str, Any] = dict(storage_options or {})
+        # Each run is a full scan; external writers cannot invalidate fsspec's directory cache.
+        backend_options["use_listings_cache"] = False
         filesystem = opendalfs.OpendalFileSystem(
             scheme=service,
             asynchronous=False,

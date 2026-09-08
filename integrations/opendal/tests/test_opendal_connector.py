@@ -335,3 +335,25 @@ def test_remote_ingestion_rejects_invalid_projection_and_stale_checkpoint(tmp_pa
         assert (stale.value.status_code, stale.value.code) == (409, "connector_checkpoint_conflict")
 
     asyncio.run(scenario())
+
+
+def test_reused_local_connector_discovers_files_created_outside_the_worker(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        root = tmp_path / "files"
+        (root / "docs").mkdir(parents=True)
+        (root / "docs" / "first.md").write_text("First captured file", encoding="utf-8")
+        connector = OpenDALTextFileConnector.from_service(
+            "fs", source_namespace="external-writer", root="docs", storage_options={"root": str(root)}
+        )
+        database = tmp_path / "runtime.db"
+        first, _ = await _run(_app(database), connector)
+        (root / "docs" / "second.md").write_text("Added by another process", encoding="utf-8")
+        second, _ = await _run(_app(database), connector)
+        unchanged, _ = await _run(_app(database), connector)
+        assert len(first.items) == 1
+        assert len(second.items) == 1
+        assert second.items[0].item_id == "second.md"
+        assert second.items[0].status is ConnectorSubmissionStatus.ACCEPTED
+        assert unchanged.items == ()
+
+    asyncio.run(scenario())
