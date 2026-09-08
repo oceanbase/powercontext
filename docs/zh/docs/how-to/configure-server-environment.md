@@ -13,7 +13,8 @@ description: 通过显式环境文件生成、检查、校验并运行 PowerCont
 powercontext config init --output .env
 ```
 
-引导式命令会以 `0600` 权限写入私有文件。通过环境或 secret manager 提供 provider 凭据，不要把它们写入命令行参数。
+引导式命令会以 `0600` 权限写入私有文件，不会在部署过程中询问 model 或 provider 凭据。默认文件可以直接启动 Server；
+如果需要自动抽取、模型生成或向量检索，请在文件中补充对应的 model、credential、embedding profile ID 和 dimension。
 
 ## 2. 检查并校验
 

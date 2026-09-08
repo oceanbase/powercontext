@@ -72,14 +72,14 @@ class GeneratedConfiguration:
     """Canonical state rendered into one managed environment block."""
 
     config_version: int
-    generation: ModelSelection
-    embedding: ModelSelection
-    embedding_profile_id: str
-    embedding_dimension: int
+    generation: ModelSelection | None
+    embedding: ModelSelection | None
+    embedding_profile_id: str | None
+    embedding_dimension: int | None
     database_kind: str
     database_url: str | None
     database_path: str | None
-    schedule_seconds: int
+    schedule_seconds: int | None
     credentials: tuple[str, ...] = ()
 
 
@@ -150,6 +150,32 @@ AGENTS: dict[str, tuple[str, str, str]] = {
         "opencode",
     ),
     "pi": ("Pi", "powercontext setup pi --source oceanbase/powercontext --ref master", "pi"),
+    "openclaw": (
+        "OpenClaw",
+        "powercontext setup openclaw --source oceanbase/powercontext --ref master",
+        "openclaw",
+    ),
+    "hermes": (
+        "Hermes",
+        "powercontext setup hermes --source oceanbase/powercontext --ref master",
+        "hermes",
+    ),
+    "workbuddy": (
+        "WorkBuddy",
+        "powercontext setup workbuddy --source oceanbase/powercontext --ref master",
+        "重启 WorkBuddy",
+    ),
+}
+
+_AGENT_MODEL_IMPACTS: dict[str, str] = {
+    "codex": "显式 Memory、Source 采集和已有 Handoff 可用; 自动 Memory 抽取和语义检索会退化。",
+    "claude-code": "显式 Memory、Source 采集和已有 Handoff 可用; 自动 Memory 抽取和语义检索会退化。",
+    "dsh": "显式 Memory、Source 采集和已有 Handoff 可用; 自动抽取、Experience/Skill 生成和语义检索不可用或退化。",
+    "opencode": "显式 Memory、Source 采集和已有 Handoff 可用; Experience/Skill 生成不可用, 语义检索会退化。",
+    "pi": "显式 Memory、Source 采集和已有 Handoff 可用; 自动抽取和语义检索会退化。",
+    "openclaw": "显式 Memory 和 Source 采集可用; 自动 Memory 抽取不可用, 语义检索会退化。",
+    "hermes": "显式 Memory、Source 采集和 Handoff 可用; 自动抽取、Experience/Skill 生成和语义检索不可用或退化。",
+    "workbuddy": "显式 Memory、Source 采集和已有 Handoff 可用; 自动 Memory 抽取和语义检索会退化。",
 }
 
 # Input hints only, not a provider allowlist. Unknown prefixes can attach arbitrary variables.
@@ -306,18 +332,28 @@ def validate_command(
 
 
 def _print_summary(configuration: GeneratedConfiguration) -> None:
-    generation_url = next(
-        (variable.value for variable in configuration.generation.environment if _is_base_url_name(variable.name)),
-        "provider default",
+    generation_url = (
+        next(
+            (variable.value for variable in configuration.generation.environment if _is_base_url_name(variable.name)),
+            "provider default",
+        )
+        if configuration.generation is not None
+        else "not configured"
     )
-    embedding_url = next(
-        (variable.value for variable in configuration.embedding.environment if _is_base_url_name(variable.name)),
-        "provider default",
+    embedding_url = (
+        next(
+            (variable.value for variable in configuration.embedding.environment if _is_base_url_name(variable.name)),
+            "provider default",
+        )
+        if configuration.embedding is not None
+        else "not configured"
     )
     typer.secho("\nConfiguration", bold=True, fg=typer.colors.CYAN)
     typer.echo("  Scope       Server default; integrations may bind a Session or workspace")
-    typer.echo(f"  Generation  {configuration.generation.model.partition(':')[2]} ({generation_url})")
-    typer.echo(f"  Embedding   {configuration.embedding.model.partition(':')[2]} ({embedding_url})")
+    generation_model = "not configured" if configuration.generation is None else configuration.generation.model
+    embedding_model = "not configured" if configuration.embedding is None else configuration.embedding.model
+    typer.echo(f"  Generation  {generation_model} ({generation_url})")
+    typer.echo(f"  Embedding   {embedding_model} ({embedding_url})")
     typer.echo(f"  Database    {configuration.database_kind}")
 
 
@@ -325,45 +361,24 @@ def collect_configuration(
     *,
     advanced: bool = False,
 ) -> GeneratedConfiguration:
-    """Collect a short task-oriented configuration."""
+    """Collect a minimal deployment configuration without asking for model credentials."""
 
     typer.secho("\nPowerContext configuration", bold=True, fg=typer.colors.CYAN)
-    typer.echo("Press Enter to accept a default. Provider details are derived from the API protocol.\n")
-    generation, generation_credentials = _collect_connection("generation")
-    generation_protocol = _PROTOCOL_BY_ID.get(generation.protocol_id or "")
-    can_reuse = generation_protocol is not None and generation_protocol.embedding_adapter is not None
-    reuse = can_reuse and typer.confirm("Use this API connection for Embedding?", default=True)
-    if reuse and generation_protocol is not None:
-        embedding_model = typer.prompt(
-            "Embedding model", default=generation_protocol.default_embedding_model or "text-embedding-3-small"
-        ).strip()
-        embedding = ModelSelection(
-            model=f"{generation_protocol.embedding_adapter}:{embedding_model}",
-            environment=generation.environment,
-            protocol_id=generation_protocol.identifier,
-        )
-        embedding_credentials = generation_credentials
-    else:
-        embedding, embedding_credentials = _collect_connection("embedding")
-    dimension = typer.prompt("Embedding dimension", default=1536, type=int)
-    profile = _profile_id(embedding.model, dimension)
+    typer.echo("This setup creates a runnable Server without configuring an inference provider.\n")
     if advanced:
         database_kind, database_url, database_path = _collect_database()
-        schedule = typer.prompt("Source processing interval in seconds", default=60, type=int)
     else:
         database_kind, database_url, database_path = "sqlite", None, None
-        schedule = 60
     return GeneratedConfiguration(
         config_version=CONFIG_VERSION,
-        generation=generation,
-        embedding=embedding,
-        embedding_profile_id=profile,
-        embedding_dimension=dimension,
+        generation=None,
+        embedding=None,
+        embedding_profile_id=None,
+        embedding_dimension=None,
         database_kind=database_kind,
         database_url=database_url,
         database_path=database_path,
-        schedule_seconds=schedule,
-        credentials=tuple(dict.fromkeys(generation_credentials + embedding_credentials)),
+        schedule_seconds=None,
     )
 
 
@@ -371,20 +386,25 @@ def render_environment(configuration: GeneratedConfiguration) -> dict[str, str]:
     """Render canonical configuration into environment assignments."""
 
     values = dict(_BASE_ENVIRONMENT)
-    values.update({
-        "POWERCONTEXT_SERVER_DATABASE_KIND": configuration.database_kind,
-        "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS": str(configuration.schedule_seconds),
-        "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL": configuration.generation.model,
-        "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL": configuration.embedding.model,
-        "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID": configuration.embedding_profile_id,
-        "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION": str(configuration.embedding_dimension),
-    })
+    values["POWERCONTEXT_SERVER_DATABASE_KIND"] = configuration.database_kind
+    if configuration.schedule_seconds is not None:
+        values["POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS"] = str(configuration.schedule_seconds)
+    if configuration.generation is not None:
+        values["POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL"] = configuration.generation.model
+    if configuration.embedding is not None:
+        values["POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL"] = configuration.embedding.model
+        if configuration.embedding_profile_id is not None:
+            values["POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID"] = configuration.embedding_profile_id
+        if configuration.embedding_dimension is not None:
+            values["POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION"] = str(configuration.embedding_dimension)
     if configuration.database_url is not None:
         values["POWERCONTEXT_SERVER_DATABASE_URL"] = configuration.database_url
     if configuration.database_path is not None:
         values["POWERCONTEXT_SERVER_DATABASE_PATH"] = configuration.database_path
-    _merge_provider_values(values, configuration.generation)
-    _merge_provider_values(values, configuration.embedding)
+    if configuration.generation is not None:
+        _merge_provider_values(values, configuration.generation)
+    if configuration.embedding is not None:
+        _merge_provider_values(values, configuration.embedding)
     return values
 
 
@@ -393,9 +413,11 @@ def render_managed_block(configuration: GeneratedConfiguration) -> str:
 
     metadata = [
         f"# config-version={configuration.config_version}",
-        f"# generation-environment={_environment_names(configuration.generation)}",
-        f"# embedding-environment={_environment_names(configuration.embedding)}",
     ]
+    if configuration.generation is not None:
+        metadata.append(f"# generation-environment={_environment_names(configuration.generation)}")
+    if configuration.embedding is not None:
+        metadata.append(f"# embedding-environment={_environment_names(configuration.embedding)}")
     if configuration.credentials:
         metadata.append(f"# credentials={','.join(configuration.credentials)}")
     assignments = tuple(f"{name}={shlex.quote(value)}" for name, value in render_environment(configuration).items())
@@ -418,11 +440,10 @@ def update_environment_document(content: str, configuration: GeneratedConfigurat
         if end < start:
             raise ConfigError("PowerContext managed markers are out of order")  # noqa: TRY003
         return _join_document_parts(content[:start].rstrip(), block.rstrip(), content[end:].strip("\n"))
-    managed_names = _ALL_FIXED_MANAGED_NAMES | {
-        variable.name
-        for selection in (configuration.generation, configuration.embedding)
-        for variable in selection.environment
-    }
+    managed_names = set(_ALL_FIXED_MANAGED_NAMES)
+    for selection in (configuration.generation, configuration.embedding):
+        if selection is not None:
+            managed_names.update(variable.name for variable in selection.environment)
     retained = []
     for line in content.splitlines():
         match = _ASSIGNMENT_NAME.match(line.strip())
@@ -436,25 +457,39 @@ def configuration_from_document(content: str) -> GeneratedConfiguration:
 
     values = parse_environment(content)
     metadata = _managed_metadata(content)
-    generation_model = _required(values, "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL")
-    embedding_model = _required(values, "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL")
+    generation_model = values.get("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL")
+    embedding_model = values.get("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL")
+    generation = (
+        ModelSelection(generation_model, _provider_variables("generation", generation_model, metadata, values))
+        if generation_model
+        else None
+    )
+    embedding = (
+        ModelSelection(embedding_model, _provider_variables("embedding", embedding_model, metadata, values))
+        if embedding_model
+        else None
+    )
+    embedding_dimension = values.get("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION")
     return GeneratedConfiguration(
         config_version=_parse_integer(str(metadata.get("config-version", CONFIG_VERSION)), "config-version"),
-        generation=ModelSelection(
-            generation_model, _provider_variables("generation", generation_model, metadata, values)
-        ),
-        embedding=ModelSelection(embedding_model, _provider_variables("embedding", embedding_model, metadata, values)),
-        embedding_profile_id=_required(values, "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID"),
-        embedding_dimension=_parse_integer(
-            _required(values, "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION"),
-            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION",
+        generation=generation,
+        embedding=embedding,
+        embedding_profile_id=values.get("POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID"),
+        embedding_dimension=(
+            None
+            if embedding_dimension is None
+            else _parse_integer(embedding_dimension, "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION")
         ),
         database_kind=values.get("POWERCONTEXT_SERVER_DATABASE_KIND", "sqlite"),
         database_url=values.get("POWERCONTEXT_SERVER_DATABASE_URL"),
         database_path=values.get("POWERCONTEXT_SERVER_DATABASE_PATH"),
-        schedule_seconds=_parse_integer(
-            values.get("POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS", "60"),
-            "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS",
+        schedule_seconds=(
+            None
+            if "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS" not in values
+            else _parse_integer(
+                values["POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS"],
+                "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS",
+            )
         ),
         credentials=tuple(name for name in metadata.get("credentials", "").split(",") if name),
     )
@@ -465,10 +500,19 @@ def validate_configuration(configuration: GeneratedConfiguration) -> None:
 
     if configuration.config_version != CONFIG_VERSION:
         raise ConfigError(f"unsupported config version: {configuration.config_version}")  # noqa: TRY003
-    if configuration.embedding_dimension < 1 or configuration.schedule_seconds < 1:
-        raise ConfigError("Embedding dimension and Source interval must be positive")  # noqa: TRY003
-    _validate_model_selection("Generation", configuration.generation)
-    _validate_model_selection("Embedding", configuration.embedding)
+    if configuration.generation is not None:
+        _validate_model_selection("Generation", configuration.generation)
+    if configuration.embedding is None:
+        if configuration.embedding_profile_id is not None or configuration.embedding_dimension is not None:
+            raise ConfigError("Embedding profile and dimension require an embedding model")  # noqa: TRY003
+    else:
+        if configuration.embedding_profile_id is None or configuration.embedding_dimension is None:
+            raise ConfigError("Embedding model requires profile ID and dimension")  # noqa: TRY003
+        if configuration.embedding_dimension < 1:
+            raise ConfigError("Embedding dimension must be positive")  # noqa: TRY003
+        _validate_model_selection("Embedding", configuration.embedding)
+    if configuration.schedule_seconds is not None and configuration.schedule_seconds < 1:
+        raise ConfigError("Source interval must be positive")  # noqa: TRY003
     if configuration.database_kind not in {"sqlite", "oceanbase", "seekdb"}:
         raise ConfigError(f"unsupported database: {configuration.database_kind}")  # noqa: TRY003
     if configuration.database_kind == "oceanbase" and not configuration.database_url:
@@ -937,9 +981,33 @@ def _report_written(path: Path, backup: Path | None) -> None:
 def _print_next_steps(path: Path) -> None:
     quoted = shlex.quote(str(path.resolve()))
     typer.echo(f"\nStart Server:\n  powercontext server run --env-file {quoted}")
+    _print_model_capability_notice(path)
     typer.secho("\nSupported Coding Agents (choose one):", bold=True, fg=typer.colors.CYAN)
-    for name, setup, launch in AGENTS.values():
-        typer.echo(f"\n{name}:\n  {setup}\n  set -a; . {quoted}; set +a; {launch}")
+    for agent_id, (name, setup, launch) in AGENTS.items():
+        typer.echo(f"\n{name}:\n  {setup}")
+        if launch.startswith("重启"):
+            typer.echo(f"  {launch}")
+        else:
+            typer.echo(f"  set -a; . {quoted}; set +a; {launch}")
+        typer.echo(f"  {_AGENT_MODEL_IMPACTS[agent_id]}")
+    typer.echo(
+        "\n其他 Python 适配器(Pydantic AI、LangChain、LangGraph 和 Bub)也会遵循同一 Server 能力状态;"
+        "它们的模型调用仍由应用自己负责。"
+    )
+
+
+def _print_model_capability_notice(path: Path) -> None:
+    """Explain the intentional degraded capabilities of a model-free deployment."""
+
+    quoted = shlex.quote(str(path.resolve()))
+    typer.secho("\nInference capability notice", bold=True, fg=typer.colors.YELLOW)
+    typer.echo("本次部署没有配置 generation 或 embedding model, Server 仍可启动并提供基础 Memory/Source 能力。")
+    typer.echo("未配置 generation model:")
+    typer.echo("  - Source 自动抽取 Memory、Memory rerank、Experience/Skill/Handoff 生成和 Prompt demonstration 不可用。")
+    typer.echo("未配置 embedding model:")
+    typer.echo("  - 向量检索和 hybrid 检索不可用; Memory、Experience 等检索会退化为 FTS (关键词检索)。")
+    typer.echo("如需启用上述能力, 请编辑环境文件, 配置 provider:model、凭据、embedding profile ID 和 dimension,")
+    typer.echo(f"然后运行: powercontext config validate --env-file {quoted}")
 
 
 def _fail(message: str) -> Never:

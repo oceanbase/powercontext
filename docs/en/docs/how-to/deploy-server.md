@@ -83,8 +83,8 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 
 The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
 file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
-are ignored. See the [Full-capability Quick Start](full-capability-runtime.md) to generate a validated file
-interactively.
+are ignored. `config init` creates a model-free base configuration; see the [Full-capability Quick Start](full-capability-runtime.md)
+when you need to add inference models and enable the full capability set.
 
 ## Run with Docker
 

@@ -79,8 +79,8 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
 
 文件可能包含 Provider 凭据或 Bearer token，因此只能允许 Server 运维者读取。文件中的值会覆盖进程中的同名值；
-文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略。需要交互式生成并校验配置文件时，请阅读
-[完整功能 Quick Start](full-capability-runtime.md)。
+文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略。`config init` 生成的是不含模型的基础配置；需要启用完整
+推理能力时，请阅读[完整功能 Quick Start](full-capability-runtime.md)并补充模型配置。
 
 ## 使用 Docker 运行
 

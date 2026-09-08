@@ -24,25 +24,23 @@ import powercontext.cli.config as config_cli
 from powercontext.server.configuration import server_settings_context
 
 
-def test_init_asks_for_protocol_endpoint_key_and_plain_model_name(tmp_path: Path) -> None:
+def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp_path: Path) -> None:
     environment = tmp_path / ".env"
 
     result = CliRunner().invoke(
         config_cli.app,
         ["init", "--output", str(environment)],
-        input="\n\n\n\nshared-secret\n\n\n\n\n\n",
+        input="\n",
     )
 
     assert result.exit_code == 0
     assert "PowerContext configuration" in result.output
-    assert "Generation API protocol" in result.output
-    assert "Generation API Base URL" in result.output
-    assert "Generation API key" in result.output
-    assert "Generation model" in result.output
-    assert "Generation model identifier" not in result.output
-    assert "environment variable name" not in result.output
-    assert "Alibaba Cloud" not in result.output
-    assert "OpenRouter" not in result.output
+    assert "Generation API protocol" not in result.output
+    assert "Generation API key" not in result.output
+    assert "Embedding model" not in result.output
+    assert "Inference capability notice" in result.output
+    assert "Source 自动抽取 Memory" in result.output
+    assert "向量检索和 hybrid 检索" in result.output
     assert "Configuration" in result.output
     assert "Supported Coding Agents (choose one)" in result.output
     for name, setup, launch in config_cli.AGENTS.values():
@@ -50,9 +48,13 @@ def test_init_asks_for_protocol_endpoint_key_and_plain_model_name(tmp_path: Path
         assert setup in result.output
         assert launch in result.output
     values = config_cli.parse_environment(environment.read_text(encoding="utf-8"))
-    assert values["OPENAI_API_KEY"] == "shared-secret"
-    assert values["OPENAI_BASE_URL"] == "https://api.openai.com/v1"
-    assert values["POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL"] == "openai-chat:gpt-4.1-mini"
+    assert "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL" not in values
+    assert "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL" not in values
+    assert "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS" not in values
+    validated = CliRunner().invoke(config_cli.app, ["validate", "--env-file", str(environment)])
+    shown = CliRunner().invoke(config_cli.app, ["show", "--env-file", str(environment)])
+    assert validated.exit_code == 0
+    assert shown.exit_code == 0
 
 
 def test_arbitrary_model_providers_and_environment_variables_are_not_rejected() -> None:
@@ -227,7 +229,7 @@ def test_init_rejects_configuration_that_validation_rejects(
     result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
 
     assert result.exit_code == 2
-    assert "Embedding dimension and Source interval must be positive" in result.output
+    assert "Embedding dimension must be positive" in result.output
     assert not environment.exists()
 
 
@@ -285,29 +287,20 @@ def test_standard_provider_requires_a_credential() -> None:
     assert credentials == ("OPENAI_API_KEY",)
 
 
-def test_custom_connection_is_not_reclassified_from_its_model_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    generation = config_cli.ModelSelection(
-        model="openai:custom-generation",
-        environment=(config_cli.ProviderVariable("CUSTOM_CREDENTIAL", "secret"),),
+def test_collect_configuration_does_not_collect_model_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        config_cli,
+        "_collect_connection",
+        lambda _role: pytest.fail("deployment setup must not collect model connections"),
     )
-    embedding = config_cli.ModelSelection(
-        model="voyage:custom-embedding",
-        environment=(config_cli.ProviderVariable("VOYAGE_API_KEY", "secret"),),
-    )
-    connections = iter(((generation, ("CUSTOM_CREDENTIAL",)), (embedding, ("VOYAGE_API_KEY",))))
-    monkeypatch.setattr(config_cli, "_collect_connection", lambda _role: next(connections))
-    prompts = iter((3,))
-    monkeypatch.setattr(config_cli.typer, "prompt", lambda *_args, **_kwargs: next(prompts))
 
-    with patch.object(
-        config_cli.typer,
-        "confirm",
-        side_effect=AssertionError("custom connection cannot be reused"),
-    ):
-        configuration = config_cli.collect_configuration()
+    configuration = config_cli.collect_configuration()
 
-    assert configuration.generation == generation
-    assert configuration.embedding == embedding
+    assert configuration.generation is None
+    assert configuration.embedding is None
+    assert configuration.embedding_profile_id is None
+    assert configuration.embedding_dimension is None
+    assert configuration.schedule_seconds is None
 
 
 def test_init_refuses_to_replace_an_existing_environment_without_force(
@@ -487,27 +480,16 @@ def test_custom_connection_marks_prompted_credential_for_show_redaction(
     assert "extra-secret" not in shown.output
 
 
-def test_init_hides_and_redacts_marked_additional_credentials(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_init_does_not_prompt_for_or_record_provider_credentials(tmp_path: Path) -> None:
     environment = tmp_path / ".env"
-    monkeypatch.setattr(config_cli, "_select_value", lambda *_args, **_kwargs: "custom")
-    monkeypatch.setattr(config_cli, "_validate_builtin_runtime", lambda *_args, **_kwargs: None)
 
-    result = CliRunner().invoke(
-        config_cli.app,
-        ["init", "--output", str(environment)],
-        input="\n-\n-\nMYTOKEN\ny\nextra-secret\n\n\n-\n-\n\n1536\ny\n",
-    )
-    text = environment.read_text(encoding="utf-8")
+    result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)], input="\n")
 
     assert result.exit_code == 0
-    assert "# credentials=MYTOKEN" in text
-    shown = CliRunner().invoke(config_cli.app, ["show", "--env-file", str(environment)])
-    assert shown.exit_code == 0
-    assert "MYTOKEN=<redacted>" in shown.output
-    assert "extra-secret" not in shown.output
+    text = environment.read_text(encoding="utf-8")
+    assert "# credentials=" not in text
+    assert "OPENAI_API_KEY" not in text
+    assert "ANTHROPIC_API_KEY" not in text
 
 
 def test_collect_provider_variable_hides_input_for_credential_names() -> None:

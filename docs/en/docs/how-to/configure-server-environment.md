@@ -13,8 +13,9 @@ Use an explicit environment file when the Server needs inference, scheduling, st
 powercontext config init --output .env
 ```
 
-The guided command writes a private file with mode `0600`. Enter provider credentials through your environment or
-secret manager, not in command-line arguments.
+The guided command writes a private file with mode `0600` and does not ask for models or provider credentials during
+deployment. The default file can start the Server directly; add the required model, credential, embedding profile ID,
+and dimension when you need automatic extraction, model generation, or vector retrieval.
 
 ## 2. Inspect and validate it
 
