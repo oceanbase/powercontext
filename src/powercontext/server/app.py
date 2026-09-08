@@ -2323,6 +2323,12 @@ async def replace_memory_entry_tags(
     return ArtifactTagSet.model_validate(result.model_dump(mode="json"))
 
 
+def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
+    if if_none_match is None:
+        return False
+    return any(value.strip().removeprefix("W/") == etag for value in if_none_match.split(","))
+
+
 def _tag_response(
     result: RuntimeArtifactTagSet,
     response: Response,
@@ -2330,9 +2336,7 @@ def _tag_response(
     if_none_match: str | None,
 ) -> ArtifactTagSet | Response:
     etag = result.etag
-    if if_none_match is not None and any(
-        value.strip().removeprefix("W/") == etag for value in if_none_match.split(",")
-    ):
+    if _if_none_match_matches(if_none_match, etag):
         return Response(status_code=304, headers={"ETag": etag})
     response.headers["ETag"] = etag
     return ArtifactTagSet.model_validate(result.model_dump(mode="json"))
@@ -2368,7 +2372,7 @@ async def get_artifact(
 ) -> ArtifactRevision | Response:
     result = await application.records.for_scope(scope_id).get_artifact(family.value, artifact_id)
     etag = _artifact_etag(result.revision)
-    if if_none_match == etag:
+    if _if_none_match_matches(if_none_match, etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
     response.headers["ETag"] = etag
     return _artifact_revision_response(result)

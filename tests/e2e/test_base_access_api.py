@@ -146,6 +146,14 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
                 if_none_match=etag,
             )
             assert not_modified is None
+            weak_match = await transport.get(head_path, headers={"If-None-Match": f"W/{etag}"})
+            assert weak_match.status_code == 304
+            assert weak_match.headers["ETag"] == etag
+            list_match = await transport.get(head_path, headers={"If-None-Match": f'"revision:999", {etag}'})
+            assert list_match.status_code == 304
+            assert list_match.headers["ETag"] == etag
+            stale_match = await transport.get(head_path, headers={"If-None-Match": '"revision:999"'})
+            assert stale_match.status_code == 200
 
             listed = await client.list_artifacts(scope_id, "memory", ListArtifactsRequest())
             assert [item.artifact_id for item in listed.items] == [created.artifact_id]
