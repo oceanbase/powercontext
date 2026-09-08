@@ -2,7 +2,8 @@
 <section class="card compact-usage">
   <style>
     me.compact-usage { margin-top: 20px; }
-    me.compact-usage .card-body { padding: 15px 24px; display: grid; grid-template-columns: 285px 1fr; gap: 30px; }
+    me.compact-usage .card-body { padding: 15px 24px; display: grid; grid-template-columns: 285px minmax(0, 1fr); gap: 30px; }
+    me .compact-chart { min-width: 0; }
     me .compact-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 24px; }
     me .compact-summary h3 { font-size: 18px; margin: 0 0 6px; }
     me .compact-summary p { font-size: 15px; margin: 0 0 7px; }
@@ -10,7 +11,7 @@
     me .compact-summary small { font-size: 12px; display: block; margin-top: 18px; }
     me .compact-chart .section-heading { margin-bottom: 9px; font-size: 12px; }
     me .compact-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
-    @media (max-width: 1199px) { me.compact-usage .card-body { grid-template-columns: 220px 1fr; gap: 20px; } }
+    @media (max-width: 1199px) { me.compact-usage .card-body { grid-template-columns: 220px minmax(0, 1fr); gap: 20px; } }
     @media (max-width: 600px) { me.compact-usage .card-body { display: block; } }
     @media (max-width: 600px) { me .compact-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 15px; margin-bottom: 20px; } }
     @media (max-width: 600px) { me .compact-chart .section-heading { flex-wrap: wrap; } }
@@ -26,7 +27,7 @@
     <div class="compact-chart">
       <div class="section-heading">
         <div class="compact-legend"><i class="baseline-key"></i>{{ t.baseline }} <i class="recalled-key ms-3"></i>{{ t.recalled }}</div>
-        <a href="{{ link('usage') }}">{{ t.view_usage }} →</a>
+        <a href="{{ link('usage') }}">{{ t.view_usage }}</a>
       </div>
       {{ comparison_chart(compact=true) }}
     </div>

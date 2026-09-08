@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -123,9 +124,9 @@ async def _error_response(
     send: Send,
 ) -> None:
     if scope["path"].startswith("/dashboard/"):
-        await login_response(status_code, rejected="authorization" in authentication_headers(scope))(
-            scope, receive, send
-        )
+        await login_response(
+            status_code, rejected="authorization" in authentication_headers(scope), request=Request(scope)
+        )(scope, receive, send)
         return
     response = JSONResponse(
         content=ErrorResponse(error=ErrorDetail(code=code, message=message, details=None)).model_dump(mode="json"),

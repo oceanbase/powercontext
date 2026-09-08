@@ -1,4 +1,5 @@
 {% from 'components/page-heading.html' import page_heading %}
+{% from 'components/pagination.html' import pagination %}
 {{ page_heading(t.handoff, t.handoff_subtitle) }}
 {% from 'components/read-error.html' import read_error with context %}
 {% if errors.get('handoff') %}{{ read_error(errors.handoff, t.handoff) }}{% endif %}
@@ -9,10 +10,10 @@
   <h2><a class="text-reset" href="{{ link('handoff-detail', artifact=record.artifact_id, revision=record.revision) }}">{{ record.objective|truncate(120, true) }}</a></h2>
   <p>{{ record.state[0].text|truncate(160, true) }}</p>
   <h3>{{ t.next_action }}</h3><p>{{ record.next_action.text|truncate(160, true) if record.next_action else t.no_next_action }}</p>
-  <a href="{{ link('handoff-detail', artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_handoff }} →</a>
+  <a href="{{ link('handoff-detail', artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_handoff }}</a>
 </div></section>
 {% endif %}
 {% else %}
-{% if not errors.get('handoff') %}<section class="card"><div class="empty"><h2>{{ t.handoff_empty }}</h2><p>{{ t.handoff_empty_body }}</p><a href="{{ link('guide') }}">{{ t.guide }} →</a></div></section>{% endif %}
+{% if not errors.get('handoff') %}<section class="card"><div class="empty"><h2>{{ t.handoff_empty }}</h2><p>{{ t.handoff_empty_body }}</p></div></section>{% endif %}
 {% endfor %}
-{% if collections.get('handoff', {}).get('next_cursor') %}<a class="btn" href="{{ link(cursor=collections.handoff.next_cursor) }}">{{ t.next_page }} →</a>{% endif %}
+{{ pagination(collections.get('handoff', {}).get('pager'), t) }}

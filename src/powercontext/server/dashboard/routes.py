@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -13,15 +12,17 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoes
 
 from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
 from powercontext.server.dashboard.content import RECORDS, load_content
+from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
 from powercontext.server.dashboard.presenters import source_view
 
 ROOT = Path(__file__).parent
-LABELS = json.loads((ROOT / "labels.json").read_text())
+LABELS = CATALOGS["zh"]
 PARENTS = {"handoff-detail": "handoff", "experience": "methods", "skill": "methods"}
-PAGES = {"home", "handoff", "notes", "methods", "usage", "guide", "entry", *RECORDS}
+PAGES = {"home", "handoff", "notes", "methods", "usage", "entry", *RECORDS}
 ENV = Environment(
     loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(), undefined=StrictUndefined
 )
+ENV.policies["json.dumps_kwargs"] = {"sort_keys": True, "ensure_ascii": False}
 router = APIRouter()
 
 
@@ -31,7 +32,7 @@ def render(
     partial = (
         request.headers.get("HX-Request") == "true" and request.headers.get("HX-History-Restore-Request") != "true"
     )
-    return HTMLResponse(
+    response = HTMLResponse(
         ENV.get_template(fragment if partial else full).render(**ctx),
         status_code=ctx["status"],
         headers={
@@ -40,6 +41,8 @@ def render(
             "X-Dashboard-HTML": "1",
         },
     )
+    remember_language(response, request)
+    return response
 
 
 def links(request: Request, ctx: dict[str, Any]):
@@ -63,6 +66,11 @@ def links(request: Request, ctx: dict[str, Any]):
                     "experience_cursor",
                     "skill_cursor",
                     "extent",
+                    "q",
+                    "notes_page",
+                    "skill_page",
+                    "experience_history",
+                    "handoff_history",
                 }
             })
         record = ctx["data"].get(RECORDS.get(destination, ""))
@@ -96,13 +104,14 @@ def links(request: Request, ctx: dict[str, Any]):
 
 def initial_context(request: Request, page: str) -> dict[str, Any]:
     ctx: dict[str, Any] = {
-        "t": LABELS,
+        **presentation(request),
         "page": page,
         "parent_page": PARENTS.get(page),
         "scope": request.query_params.get("scope"),
         "period": request.query_params.get("period", "7d"),
         "extent": request.query_params.get("extent", "exact"),
         "method_kind": request.query_params.get("kind", "all"),
+        "skill_query": request.query_params.get("q", "").strip() or None,
         "data": {
             "title": "PowerContext",
             "summary": "",
@@ -191,14 +200,16 @@ def validate_selection(page: str, ctx: dict[str, Any]) -> None:
         ctx["period"] not in {"today", "7d", "30d"}
         or ctx["extent"] not in {"exact", "subtree"}
         or ctx["method_kind"] not in {"all", "experience", "skill"}
+        or len(ctx["skill_query"] or "") > 2000
     ):
         raise ReadError(422, "invalid_request")
 
 
 @router.get("")
 @router.get("/")
-async def index() -> RedirectResponse:
-    return RedirectResponse("/dashboard/home")
+@router.get("/guide")
+async def index(request: Request) -> RedirectResponse:
+    return RedirectResponse("/dashboard/home" + ("?" + str(request.query_params) if request.query_params else ""))
 
 
 @router.get("/evidence/{source_id:path}")
@@ -234,9 +245,9 @@ async def screen(request: Request, page: str) -> HTMLResponse:
     try:
         validate_selection(page, ctx)
         await scope_context(api, ctx)
-        if ctx["scope"] and page not in {"guide", "entry"}:
+        if ctx["scope"] and page != "entry":
             await load_content(api, request, ctx)
-        if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"] and page != "guide":
+        if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
             raise next(iter(ctx["errors"].values()))
     except ReadError as error:
         ctx.update(page_error=error, status=error.status)

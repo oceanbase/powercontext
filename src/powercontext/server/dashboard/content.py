@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import Request
 
 from powercontext.server.dashboard.api import DashboardAPI, ReadError
+from powercontext.server.dashboard.pagination import PAGE_SIZE, cursor_links, list_links, list_page
 from powercontext.server.dashboard.presenters import memory_view, usage_view
 
 RECORDS = {"handoff-detail": "handoff", "experience": "experience", "skill": "skill"}
@@ -15,7 +16,20 @@ async def load_collection(api: DashboardAPI, request: Request, ctx: dict[str, An
     page, scope = ctx["page"], ctx["scope"]
     try:
         cursor = request.query_params.get(f"{family}_cursor" if page == "methods" else "cursor")
-        result = await api.records(scope, family, cursor=cursor, limit=1 if page == "home" else 12)
+        result = await api.records(
+            scope,
+            family,
+            cursor=cursor,
+            limit=1 if page == "home" else PAGE_SIZE,
+            query=ctx["skill_query"] if family == "skill" and page == "methods" else None,
+        )
+        if page != "home":
+            if family == "skill":
+                window = list_page(result["items"], request.query_params.get("skill_page"))
+                result["items"] = window["items"]
+                result["pager"] = list_links(ctx, family, window)
+            else:
+                result["pager"] = cursor_links(request, ctx, family, result["next_cursor"])
         ctx["collections"][family] = result
         ctx["data"][family] = next((item for item in result["items"] if "error" not in item), None)
         for item in result["items"]:
@@ -106,6 +120,11 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         )
     elif page == "notes":
         await load_notes(api, ctx)
+        window = list_page(
+            ctx["data"]["notes"], request.query_params.get("notes_page"), request.query_params.get("entry")
+        )
+        ctx["data"]["notes"] = window["items"]
+        ctx["notes_pager"] = list_links(ctx, "notes", window)
         await select_note(api, request, ctx)
     elif page == "handoff":
         await load_collection(api, request, ctx, "handoff")

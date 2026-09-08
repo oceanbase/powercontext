@@ -4,18 +4,21 @@
      data-days='{{ stats.daily|tojson }}'
      role="img" aria-label="{{ t.daily_title }}; {{ t.baseline }} {{ stats.baseline_tokens }}; {{ t.recalled }} {{ stats.recalled_tokens }}">
   <script>
-    {
-      const element = me();
+    me().run(async element => {
+      // Let scoped styles establish the container width before ApexCharts measures it.
+      await tick();
+      if (!element.isConnected) return;
       const days = JSON.parse(element.dataset.days);
       const labels = JSON.parse(element.dataset.labels);
       const compact = element.dataset.compact === 'true';
       const style = getComputedStyle(document.documentElement);
       const chart = new ApexCharts(element, {
         chart: {
-          type: 'bar', height: compact ? 155 : 300, fontFamily: 'inherit',
+          type: 'bar', height: compact ? 155 : 300, fontFamily: 'inherit', background: 'transparent',
           toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: false },
           parentHeightOffset: 0,
         },
+        theme: { mode: document.documentElement.dataset.bsTheme || 'light' },
         series: ['baseline_tokens', 'recalled_tokens'].map((field, index) => ({
           name: labels[index], data: days.map(day => day[field]),
         })),
@@ -23,7 +26,7 @@
         plotOptions: { bar: { columnWidth: '55%', borderRadius: 0, dataLabels: { position: 'top' } } },
         dataLabels: {
           enabled: days.length <= 7, offsetY: -16,
-          formatter: value => `${Number((value / 1000).toFixed(1))}k`,
+          formatter: value => value ? `${Number((value / 1000).toFixed(1))}k` : '',
           style: { fontSize: '11px', fontWeight: 400, colors: [style.getPropertyValue('--tblr-body-color').trim()] },
         },
         legend: { show: false },
@@ -39,6 +42,6 @@
       element.on('htmx:beforeCleanupElement', event => {
         if (event.detail.elt === element) chart.destroy();
       });
-    }
+    });
   </script>
 </div>

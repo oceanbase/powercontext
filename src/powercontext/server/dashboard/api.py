@@ -58,9 +58,32 @@ class DashboardAPI:
         return result.json()
 
     async def record(self, scope: str, family: str, artifact: str, revision: int) -> dict[str, Any]:
+        if family in {"experience", "skill"}:
+            value = await self.read(
+                f"/v1/{family}/get",
+                {
+                    "scope_id": scope,
+                    "artifact": {"family": family, "artifact_id": artifact, "revision": revision},
+                },
+            )
+            return self.family_record(family, value)
         value = await self.read(
             f"/v1/scopes/{segment(scope)}/artifacts/{family}/{segment(artifact)}/revisions/{revision}"
         )
+        return self.family_record(
+            family,
+            {
+                "content": value["content"],
+                "artifact": {"artifact_id": value["artifact_id"], "revision": value["revision"]},
+                "source_refs": [
+                    {"name": source["source_type"], "source_id": source["source_id"]} for source in value["sources"]
+                ],
+                "artifact_refs": value["artifacts"],
+            },
+        )
+
+    @staticmethod
+    def family_record(family: str, value: dict[str, Any]) -> dict[str, Any]:
         try:
             content = (
                 CONTENT_MODELS[family]
@@ -71,12 +94,24 @@ class DashboardAPI:
             raise ReadError(422, "unsupported_content") from error
         return {
             **content,
-            "artifact_id": value["artifact_id"],
-            "revision": value["revision"],
-            "sources": value["sources"],
+            **value["artifact"],
+            "sources": [
+                {"source_type": source["name"], "source_id": source["source_id"]} for source in value["source_refs"]
+            ],
+            "artifacts": value["artifact_refs"],
         }
 
-    async def records(self, scope: str, family: str, *, cursor: str | None = None, limit: int = 12) -> dict[str, Any]:
+    async def records(
+        self, scope: str, family: str, *, cursor: str | None = None, limit: int = 12, query: str | None = None
+    ) -> dict[str, Any]:
+        if family == "skill":
+            maximum = 1 if limit == 1 else 200
+            result = await self.read("/v1/skill/library", {"scope_id": scope, "limit": maximum, "query": query})
+            return {
+                "items": [self.family_record(family, item) for item in result["skills"]],
+                "next_cursor": None,
+                "search_limited": maximum == 200 and len(result["skills"]) == maximum,
+            }
         url = httpx.URL(f"/v1/scopes/{segment(scope)}/artifacts/{family}", params={"limit": limit})
         if cursor:
             url = url.copy_add_param("cursor", cursor)

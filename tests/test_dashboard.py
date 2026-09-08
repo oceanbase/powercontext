@@ -1,8 +1,11 @@
 """Exercise HTML against real runtime operations and isolated databases."""
 
+import re
+from html import unescape
 from pathlib import Path
 from secrets import token_urlsafe
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,9 +51,219 @@ def test_scope_selection_default_and_unknown_scope(dashboard: TestClient) -> Non
     assert "Work on Project" in result.text
     assert dashboard.get("/v1/scopes/default").json()["scope_id"] == child["scope_id"]
     assert dashboard.get("/dashboard/home?scope=missing").status_code == 404
-    assert LABELS["fresh_heading"] not in dashboard.get("/dashboard/home?scope=missing").text
     assert LABELS["entry_heading"] in dashboard.get("/dashboard/home?scope=").text
-    assert dashboard.get("/dashboard/preview").status_code == 404
+
+
+def test_language_survives_navigation_without_translating_records(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Release work")
+    dashboard.put("/v1/scopes/default", json={"scope_id": scope["scope_id"]})
+    response = dashboard.get("/dashboard/home", params={"lang": "en", "scope": scope["scope_id"], "period": "30d"})
+    assert response.status_code == 200
+    assert '<html lang="en">' in response.text
+    assert "Experiences &amp; skills" in response.text
+    assert "Work on Release work" in response.text
+    chinese_link = re.search(r'href="([^"]+)" lang="zh-CN"', response.text)
+    assert chinese_link is not None
+    changed = dashboard.get(unescape(chinese_link[1]))
+    assert changed.status_code == 200
+    assert changed.url.params["scope"] == scope["scope_id"]
+    assert changed.url.params["period"] == "30d"
+    assert '<html lang="zh-CN">' in changed.text
+    dashboard.get("/dashboard/home?lang=en")
+    partial = dashboard.get("/dashboard/notes", headers={"HX-Request": "true"})
+    assert "Memories" in partial.text
+    assert "Release work" in partial.text
+    assert '<html lang="zh-CN">' in dashboard.get("/dashboard/home?lang=zh").text
+    assert '<html lang="zh-CN">' in dashboard.get("/dashboard/home?lang=invalid").text
+
+
+def test_legacy_bookmark_preserves_scope_on_redirect(dashboard: TestClient) -> None:
+    response = dashboard.get("/dashboard/guide?scope=chosen&period=30d", follow_redirects=False)
+    assert response.is_redirect
+    assert response.headers["location"] == "/dashboard/home?scope=chosen&period=30d"
+
+
+def page_link(html: str, label: str) -> str:
+    match = re.search(r'<a\b[^>]*href="([^"]+)"[^>]*>' + re.escape(label) + "</a>", html)
+    assert match is not None
+    return unescape(match[1])
+
+
+def record_links(html: str, route: str, identity: str) -> set[str]:
+    links = [urlsplit(unescape(value)) for value in re.findall(r'href="([^"]+)"', html)]
+    return {value for link in links if link.path == route for value in parse_qs(link.query).get(identity, [])}
+
+
+def collect_pages(client: TestClient, first: str, route: str, identity: str) -> set[str]:
+    current = first
+    seen: set[str] = set()
+    visited: set[str] = set()
+    while True:
+        records = record_links(current, route, identity)
+        assert records and not records.intersection(seen)
+        seen.update(records)
+        match = re.search(r'href="([^"<>]+)">' + re.escape(LABELS["next_page"]) + "</a>", current)
+        if match is None:
+            return seen
+        following = unescape(match[1])
+        assert following not in visited
+        visited.add(following)
+        next_page = client.get(following)
+        assert next_page.status_code == 200
+        previous = client.get(page_link(next_page.text, LABELS["previous_page"]))
+        assert previous.status_code == 200
+        assert record_links(previous.text, route, identity) == records
+        current = next_page.text
+
+
+def test_memory_pagination_and_deep_link_select_the_corresponding_text(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Long memory")["scope_id"]
+    for index in range(25):
+        response = dashboard.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope, "kind": "constraint", "text": f"Recorded constraint {index}."},
+        )
+        assert response.status_code == 200
+    entries = dashboard.post("/v1/memory/entries/list", json={"scope_id": scope}).json()["entries"]
+    first = dashboard.get("/dashboard/notes", params={"scope": scope})
+    expected = {item["citation"]["entry_id"] for item in entries}
+    assert collect_pages(dashboard, first.text, "/dashboard/notes", "entry") == expected
+    entry = entries[-1]["citation"]
+    deep = dashboard.get("/dashboard/notes", params={"scope": scope, "entry": entry["entry_id"]})
+    assert deep.status_code == 200
+    assert entry["entry_id"] in record_links(deep.text, "/dashboard/notes", "entry")
+    assert entries[-1]["text"] in deep.text
+    assert dashboard.get("/dashboard/notes", params={"scope": scope, "notes_page": "invalid"}).status_code == 422
+    assert dashboard.get("/dashboard/notes", params={"scope": scope, "notes_page": "99"}).status_code == 404
+
+
+@pytest.mark.parametrize("family", ["experience", "skill"])
+def test_method_pagination_returns_to_the_previous_records(dashboard: TestClient, family: str) -> None:
+    scope = create_scope(dashboard, "Long library")["scope_id"]
+    source = dashboard.post(
+        "/v1/sources/content",
+        json={
+            "scope_id": scope,
+            "source_id": "review",
+            "content": "Check the saved report and preserve its limits.",
+        },
+    ).json()["source"]
+    expected = set()
+    for index in range(19):
+        proposal = (
+            {
+                "situation": "Review",
+                "action": "Read the report",
+                "outcome": "Unknown",
+                "lesson": f"Review lesson {index}",
+            }
+            if family == "experience"
+            else {
+                "name": f"review-{index}",
+                "description": "Read the report",
+                "instructions": "Preserve its limits.",
+                "validation": ["Keep unknown outcomes."],
+            }
+        )
+        result = dashboard.post(
+            f"/v1/{family}/propose",
+            json={"scope_id": scope, "proposal": proposal, "source_refs": [source], "artifact_refs": []},
+        )
+        assert result.status_code == 201
+        candidate = result.json()
+        approved = dashboard.post(
+            "/v1/artifact-candidates/approve",
+            json={
+                "scope_id": scope,
+                "candidate_id": candidate["candidate_id"],
+                "expected_version": candidate["version"],
+            },
+        )
+        assert approved.status_code == 200
+        expected.add(approved.json()["result_artifact"]["artifact_id"])
+    first = dashboard.get("/dashboard/methods", params={"scope": scope, "kind": family})
+    assert collect_pages(dashboard, first.text, f"/dashboard/{family}", "artifact") == expected
+
+
+def test_skill_with_usage_provenance_is_readable_and_searchable(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Skill review")["scope_id"]
+    source = dashboard.post(
+        "/v1/sources/content",
+        json={
+            "scope_id": scope,
+            "source_id": "report",
+            "content": "The report leaves unsupported outcomes unknown.",
+        },
+    ).json()["source"]
+    proposal = {
+        "name": "review-report",
+        "description": "Review the report",
+        "instructions": "Read the report.",
+        "validation": ["Keep unsupported outcomes unknown."],
+    }
+    candidate = dashboard.post(
+        "/v1/skill/propose",
+        json={
+            "scope_id": scope,
+            "proposal": proposal,
+            "source_refs": [source],
+            "artifact_refs": [],
+        },
+    ).json()
+    approved = dashboard.post(
+        "/v1/artifact-candidates/approve",
+        json={
+            "scope_id": scope,
+            "candidate_id": candidate["candidate_id"],
+            "expected_version": candidate["version"],
+        },
+    ).json()["result_artifact"]
+    usage = dashboard.post(
+        "/v1/skill/usage",
+        json={
+            "scope_id": scope,
+            "observation_id": "review-observation",
+            "skill_ref": approved,
+            "package_digest": "sha256:" + candidate["proposal"]["package"]["tree_digest"],
+            "target_id": "review-consumer",
+            "selected": True,
+            "invoked": "true",
+            "validation": "unknown",
+            "outcome": "unknown",
+        },
+    )
+    assert usage.status_code == 201
+    candidate = dashboard.post(
+        "/v1/skill/propose",
+        json={
+            "scope_id": scope,
+            "proposal": {**proposal, "instructions": "Read the report and retain unknown outcomes."},
+            "source_refs": [usage.json()["source"]],
+            "artifact_refs": [approved],
+            "target": approved,
+        },
+    ).json()
+    updated = dashboard.post(
+        "/v1/artifact-candidates/approve",
+        json={
+            "scope_id": scope,
+            "candidate_id": candidate["candidate_id"],
+            "expected_version": candidate["version"],
+        },
+    ).json()["result_artifact"]
+    collection = dashboard.get("/dashboard/methods", params={"scope": scope, "kind": "skill", "q": "report"})
+    assert collection.status_code == 200
+    assert "review-report" in collection.text
+    detail = dashboard.get(
+        "/dashboard/skill", params={"scope": scope, "artifact": updated["artifact_id"], "revision": updated["revision"]}
+    )
+    assert detail.status_code == 200
+    assert "retain unknown outcomes" in detail.text
+    assert "skill-usage/review-observation" in detail.text
+    assert (
+        "review-report"
+        not in dashboard.get("/dashboard/methods", params={"scope": scope, "kind": "skill", "q": "unrelated"}).text
+    )
 
 
 def test_memory_exact_revision_and_cross_scope_isolation(dashboard: TestClient) -> None:

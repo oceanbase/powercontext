@@ -1,18 +1,23 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{ html_language }}">
 <head>
+  <script src="/dashboard/static/vendor/tabler-theme.min.js"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/dashboard/static/brand/favicon-color.svg" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="/dashboard/static/brand/favicon-reverse.svg" media="(prefers-color-scheme: dark)">
   <title>{{ t.source_label }} · PowerContext</title>
   <link rel="stylesheet" href="/dashboard/static/vendor/tabler.min.css">
   <link rel="stylesheet" href="/dashboard/static/layout.css">
   <script src="/dashboard/static/vendor/css-scope-inline.js"></script>
+  <script src="/dashboard/static/vendor/tabler.min.js"></script>
 </head>
 <body>
   <main class="standalone-source">
     <style>
       me.standalone-source { max-width: 850px; margin: 40px auto; padding: 20px 30px; }
     </style>
+    {% include 'components/preferences.html' %}
     <a href="{{ link(origin) }}">← {{ t[origin] }}</a>
     <h1 class="mt-4">{{ t.source_label }}</h1>
     {% include 'evidence.html' %}

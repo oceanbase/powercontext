@@ -3,7 +3,7 @@
   me .period-control { text-align: right; }
   me .period-control .btn { font-size: 16px; padding: 8px 24px; }
   me .period-control small { display: block; font-size: 13px; margin-top: 8px; }
-  me .btn-group .active { background: #edf3ff; border-color: #b9ccec; color: var(--tblr-primary); }
+  me .btn-group .active { background: var(--pc-active-bg); border-color: var(--tblr-border-color); color: var(--tblr-primary); }
   me .usage-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 30px; }
   me .usage-summary h2 { font-size: 22px; }
   me .big-number { font-size: 82px; letter-spacing: -4px; line-height: 1.25; color: var(--tblr-primary); font-weight: 600; margin: 12px 0 4px; font-variant-numeric: tabular-nums; }
@@ -19,11 +19,14 @@
   me .bar-chart { padding: 0; }
   me .usage-caption { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--tblr-border-color); font-size: 14px; }
   me .table { --tblr-table-border-color: var(--tblr-border-color); font-size: 15px; }
-  me .table tfoot th { font-size: 14px; }
-  @media (max-width: 1199px) { me .usage-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 22px; } }
+  me .table tfoot th { font-size: 14px; white-space: normal; }
+  me .model-usage-table th, me .model-usage-table td { padding-inline: 8px; }
+  @media (max-width: 1199px) { me .usage-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 22px; padding-right: 12px; } }
   @media (max-width: 600px) { me .period-control { margin-top: 16px; } }
   @media (max-width: 600px) { me .chart-legend { font-size: 11px; gap: 10px; } }
   @media (max-width: 600px) { me .period-control { text-align: left; } }
+  @media (max-width: 600px) { me .period-control .btn { padding-inline: 12px; } }
+  @media (max-width: 375px) { me .period-control .btn { font-size: 14px; padding-inline: 8px; } }
 </style>
 {% from 'macros.html' import comparison_chart, number, disclosure, coverage_notice with context %}
 {% from 'components/page-heading.html' import page_heading %}
@@ -41,7 +44,7 @@
 {% for value in ['exact', 'subtree'] %}<a class="nav-link {{ 'active' if extent == value else '' }}" href="{{ link('usage', extent=value) }}" {% if extent == value %}aria-current="page"{% endif %}>{{ t[value ~ '_scope'] }}</a>{% endfor %}
 </nav>
 {% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats.empty %}
-<section class="card"><div class="empty"><h2>{{ t.usage_empty }}</h2><p class="empty-subtitle">{{ t.usage_empty_body }}</p><a class="btn" href="{{ link('home') }}">{{ t.back_home }} →</a></div></section>
+<section class="card"><div class="empty"><h2>{{ t.usage_empty }}</h2><p class="empty-subtitle">{{ t.usage_empty_body }}</p><a class="btn" href="{{ link('home') }}">{{ t.back_home }}</a></div></section>
 {% else %}
 {% if stats.estimator_available %}
 <section class="card usage-sheet">
@@ -76,17 +79,17 @@
 <section class="mt-4">
     <div class="card"><div class="card-body">
       <h2>{{ t.model_usage }}</h2><p class="text-secondary">{{ t.model_note }}</p>
-      <div class="table-responsive"><table class="table model-usage-table">
-        <thead><tr><th scope="col">{{ t.purpose }}</th><th scope="col">{{ t.model_type }}</th><th scope="col" class="text-end">{{ t.input }}</th><th scope="col" class="text-end">{{ t.output }}</th></tr></thead>
-        <tbody>{% for row in stats.model_usage %}<tr><td>{{ t.get(row.purpose, row.purpose) }}</td><td>{{ t[row.operation] }}</td><td class="text-end">{{ number(row.input_tokens) }}</td><td class="text-end">{{ number(row.output_tokens) }}</td></tr>{% endfor %}</tbody>
-        <tfoot>{% for operation in ['generation', 'embedding'] %}<tr><th scope="row" colspan="2">{{ t[operation ~ '_total'] }}</th><td class="text-end fw-bold">{{ number(stats[operation].input_tokens) }}</td><td class="text-end fw-bold">{{ number(stats[operation].output_tokens) }}</td></tr>{% endfor %}</tfoot>
+      <div class="table-responsive" tabindex="0" role="region" aria-label="{{ t.model_usage }}"><table class="table table-mobile-sm model-usage-table">
+        <thead><tr><th scope="col">{{ t.purpose }}</th><th scope="col" class="text-end">{{ t.input }}</th><th scope="col" class="text-end">{{ t.output }}</th></tr></thead>
+        <tbody>{% for row in stats.model_usage %}<tr><td>{{ t.get(row.purpose, row.purpose) }}<span class="d-block text-secondary small">{{ t[row.operation] }}</span></td><td class="text-sm-end" data-label="{{ t.input }}">{{ number(row.input_tokens) }}</td><td class="text-sm-end" data-label="{{ t.output }}">{{ number(row.output_tokens) }}</td></tr>{% endfor %}</tbody>
+        <tfoot>{% for operation in ['generation', 'embedding'] %}<tr><th scope="row">{{ t[operation ~ '_total'] }}</th><td class="text-sm-end fw-bold" data-label="{{ t.input }}">{{ number(stats[operation].input_tokens) }}</td><td class="text-sm-end fw-bold" data-label="{{ t.output }}">{{ number(stats[operation].output_tokens) }}</td></tr>{% endfor %}</tfoot>
       </table></div>
       {% if stats.unknown_usage %}<p class="mt-3">{{ t.unknown_notice }}</p>{% endif %}
     </div></div>
 </section>
 {% if stats.estimator_available %}<div class="card mt-4 daily-table">
 {% call disclosure('daily-summary', t.daily_details) %}
-  <div class="table-responsive mt-3"><table class="table card-table">
+  <div class="table-responsive mt-3" tabindex="0" role="region" aria-label="{{ t.daily_details }}"><table class="table card-table">
     <caption>{{ t.daily_title }} · UTC · tokens</caption>
     <thead><tr>{% for label in ['date', 'baseline', 'recalled', 'difference'] %}<th scope="col">{{ t[label] }}</th>{% endfor %}</tr></thead>
     <tbody>{% for row in stats.daily %}<tr><td>{{ row.date }}</td><td>{{ number(row.baseline_tokens) }}</td><td>{{ number(row.recalled_tokens) }}</td><td>{{ number(row.baseline_tokens - row.recalled_tokens) }}</td></tr>{% endfor %}</tbody>

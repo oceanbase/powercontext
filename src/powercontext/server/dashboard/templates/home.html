@@ -1,5 +1,6 @@
 <div class="home-view">
 <style>
+  me { overflow-wrap: anywhere; }
   me .handoff-sheet .card-body { padding: 19px 30px 12px; }
   me .handoff-sheet .row { --tblr-gutter-y: 12px; }
   me .handoff-title { font-size: clamp(26px, 2.25vw, 35px); margin: 10px 0 0; }
@@ -8,18 +9,18 @@
   me .state-list { list-style: none; padding: 0; margin: 0; }
   me .state-list li { display: flex; align-items: baseline; gap: 14px; margin: 9px 0; font-size: 17px; }
   me .state-list li span { color: var(--tblr-body-color); }
-  me .next-action { border-left: 1px solid var(--tblr-border-color); padding-left: 50px; }
-  me .next-action p { font-size: 22px; line-height: 1.65; max-width: 340px; }
+  me .next-action { border-left: 1px solid var(--tblr-border-color); padding-left: 24px; }
+  me .next-action p { font-size: 18px; line-height: 1.65; max-width: 340px; }
   me .next-action h3 span { color: var(--tblr-primary); margin-left: 18px; }
   me .history-note { font-size: 14px; margin: 12px 0 0; }
   me .home-columns { margin-top: 22px; --tblr-gutter-y: 0; --tblr-gutter-x: 65px; }
   me .home-columns > section { padding-top: 0; }
   me .note-list .list-group-item { background: transparent; padding: 12px 12px; }
   me .note-list p { font-size: 16px; line-height: 1.6; margin: 2px 0 0; }
-  me .note-list strong { display: block; font-size: 19px; font-weight: 600; color: var(--pc-heading-color); }
+  me .note-list a { display: block; font-size: 17px; font-weight: 400; color: var(--pc-heading-color); }
   me .card .note-list { padding: 0 15px; }
   me .experience-card .card-body { padding: 13px 22px; }
-  me .experience-card h3 { font-size: 22px; margin: 4px 0 4px; }
+  me .experience-card h3 { font-size: 20px; font-weight: 400; margin: 4px 0 4px; }
   me .experience-card h3 a { color: var(--pc-heading-color); font-size: inherit; }
   me .experience-card p { font-size: 14px; line-height: 1.7; margin: 0 0 8px; }
   me .experience-card a { font-size: 14px; }
@@ -30,8 +31,8 @@
   @media (max-width: 600px) { me .home-columns { --tblr-gutter-x: 24px; } }
   @media (max-width: 600px) { me .handoff-sheet .card-body { padding: 20px; } }
   @media (max-width: 600px) { me .handoff-title { font-size: 24px; } }
-  @media (max-width: 600px) { me .next-action { border-left: 0; border-top: 1px solid var(--tblr-border-color); padding: 20px 12px 0; } }
-  @media (max-width: 600px) { me .next-action p { font-size: 18px; } }
+  @media (max-width: 767px) { me .next-action { border-left: 0; border-top: 1px solid var(--tblr-border-color); padding: 20px 12px 0; } }
+  @media (max-width: 767px) { me .next-action p { font-size: 18px; } }
   me #handoff { scroll-margin-top: 20px; }
   me #notes { scroll-margin-top: 20px; }
   me #methods { scroll-margin-top: 20px; }
@@ -39,16 +40,11 @@
 {% from 'macros.html' import note_rows, experience_card with context %}
 {% from 'components/page-heading.html' import page_heading %}
 {{ page_heading(data.title, data.summary) }}
-{% if not data.handoff and not data.notes and not data.experience and not data.skill and not errors %}
-<section class="card mb-4"><div class="card-body">
-  <h2>{{ t.fresh_heading }}</h2><p class="text-secondary">{{ t.fresh_body }}</p>
-  <a class="btn btn-primary" href="{{ link('guide') }}">{{ t.fresh_guide }} →</a>
-</div></section>
-{% endif %}
+
 {% if errors.get('handoff') %}{{ read_error(errors.handoff, t.handoff) }}{% elif data.handoff %}
 <article class="card handoff-sheet" id="handoff">
   <div class="card-body">
-    <div class="section-heading"><span>{{ t.last_handoff }}</span><a href="{{ link('handoff-detail') }}">{{ t.read_handoff }} →</a></div>
+    <div class="section-heading"><span>{{ t.last_handoff }}</span><a href="{{ link('handoff-detail') }}">{{ t.read_handoff }}</a></div>
     <h2 class="handoff-title">{{ data.handoff.objective|truncate(120, true) }}</h2>
     <div class="row g-4 mt-1">
       <div class="col-md-7 handoff-state">
@@ -58,7 +54,7 @@
         </ul>
       </div>
       <div class="col-md-5 next-action">
-        <h3>{{ t.next_action }} <span aria-hidden="true">→</span></h3><p>{{ data.handoff.next_action.text|truncate(80, true) if data.handoff.next_action else t.no_next_action }}</p>
+        <h3>{{ t.next_action }} </h3><p>{{ data.handoff.next_action.text|truncate(80, true) if data.handoff.next_action else t.no_next_action }}</p>
       </div>
     </div>
     {% if data.handoff.disposition in ['complete', 'blocked'] %}<p class="history-note">{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}
@@ -73,13 +69,13 @@
 {% endif %}
 <div class="row g-5 home-columns">
   <section class="col-lg-6" id="notes">
-    <div class="section-heading"><h2>{{ t.remember_heading }}</h2><a href="{{ link('notes') }}">{{ t.view_notes }} →</a></div>
+    <div class="section-heading"><h2>{{ t.remember_heading }}</h2><a href="{{ link('notes') }}">{{ t.view_notes }}</a></div>
     {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% elif data.notes %}{{ note_rows(data.notes[:3]) }}{% else %}
     <div class="card"><div class="card-body"><h3>{{ t.notes_empty }}</h3><p class="text-secondary mb-0">{{ t.notes_empty_body }}</p></div></div>
     {% endif %}
   </section>
   <section class="col-lg-6" id="methods">
-    <div class="section-heading"><h2>{{ t.methods_heading }}</h2><a href="{{ link('methods') }}">{{ t.view_methods }} →</a></div>
+    <div class="section-heading"><h2>{{ t.methods_heading }}</h2><a href="{{ link('methods') }}">{{ t.view_methods }}</a></div>
     {% for family in ['experience', 'skill'] if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endfor %}
     {% if data.experience %}{{ experience_card() }}{% endif %}
     {% if not data.experience and not data.skill and not errors.get('experience') and not errors.get('skill') %}
@@ -87,14 +83,14 @@
     {% endif %}
     {% if data.skill %}
     <a class="card card-link mt-2" href="{{ link('skill') }}" id="skill-summary">
-      <div class="card-body py-3 d-flex align-items-center gap-3"><span class="text-secondary">{{ t.skill }}</span><strong>{{ data.skill.name }}</strong><span class="ms-auto" aria-hidden="true">→</span></div>
+      <div class="card-body py-3 d-flex align-items-center gap-3"><span class="text-secondary">{{ t.skill }}</span><span>{{ data.skill.name }}</span></div>
     </a>
     {% endif %}
   </section>
 </div>
 {% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats %}
   {% if stats.empty or not stats.estimator_available %}
-  <section class="border-top mt-4 pt-3 d-flex flex-wrap justify-content-between gap-2"><div><h3>{{ t.usage_quiet }}</h3><p class="small text-secondary mb-0">{{ t.usage_quiet_body }}</p></div><a href="{{ link('usage') }}">{{ t.view_usage }} →</a></section>
+  <section class="border-top mt-4 pt-3 d-flex flex-wrap justify-content-between gap-2"><div><h3>{{ t.usage_quiet }}</h3><p class="small text-secondary mb-0">{{ t.usage_quiet_body }}</p></div><a href="{{ link('usage') }}">{{ t.view_usage }}</a></section>
   {% else %}{% include 'compact_usage.html' %}{% endif %}
 {% endif %}
 

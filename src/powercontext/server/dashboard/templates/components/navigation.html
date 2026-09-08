@@ -1,15 +1,15 @@
 {% from "macros.html" import icon with context %}
 <aside class="navbar navbar-vertical navbar-expand-lg" aria-label="{{ t.scope_label }}">
   <style>
-    me { background: #fff; box-shadow: none; border-right: 1px solid var(--tblr-border-color); }
+    me { background: var(--tblr-bg-surface); box-shadow: none; border-right: 1px solid var(--tblr-border-color); }
     me .container-fluid { padding: 30px 17px 24px; align-items: stretch; }
     me .navbar-brand { font-size: 26px; letter-spacing: -1.3px; color: var(--pc-heading-color); padding: 0; justify-content: flex-start; }
     me .scope-form { margin: 33px 4px 26px; }
     me .scope-form .form-label { display: none; }
-    me .scope-form .form-select { height: 50px; font-size: 17px; background-color: #fff; box-shadow: none; }
-    me .scope-go { padding-inline: 10px; background: #fff; }
+    me .scope-form .form-select { height: 50px; font-size: 17px; background-color: var(--tblr-bg-surface); box-shadow: none; }
+    me .scope-go { padding-inline: 10px; background: var(--tblr-bg-surface); }
     me .navbar-nav { gap: 9px; }
-    me .nav-link { display: flex; gap: 17px; min-height: 49px; padding: 12px 16px; color: #0a1123; border-radius: 5px; font-size: 19px; }
+    me .nav-link { display: flex; gap: 17px; min-height: 49px; padding: 12px 16px; color: var(--tblr-body-color); border-radius: 5px; font-size: 19px; }
     me .nav-link.active { color: var(--tblr-primary); background: var(--pc-active-bg); }
     me .nav-link:hover { background: var(--pc-hover-bg); }
     me .nav-symbol { width: 23px; height: 23px; display: inline-flex; align-items: center; justify-content: center; }
@@ -27,7 +27,11 @@
     @media (max-width: 991px) { me .nav-symbol img { width: 18px; height: 18px; } }
   </style>
   <div class="container-fluid">
-    <a class="navbar-brand" href="{{ link('home') }}">PowerContext</a>
+    <div class="d-flex align-items-center justify-content-between">
+      <a class="navbar-brand" href="{{ link('home') }}">{% include 'components/brand.html' %}</a>
+      <button class="navbar-toggler d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#dashboard-navigation" aria-controls="dashboard-navigation" aria-expanded="false" aria-label="{{ t.navigation }}"><span class="navbar-toggler-icon"></span></button>
+    </div>
+    <div class="collapse navbar-collapse" id="dashboard-navigation">
     <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form">
       <label for="scope" class="form-label">{{ t.scope_label }}</label>
       <input type="hidden" name="period" value="{{ period }}">
@@ -51,6 +55,8 @@
       </a>
       {% endfor %}
     </nav>
-    <a class="small {{ 'text-primary' if page == 'guide' else 'text-secondary' }} mt-4 d-block px-3" href="{{ link('guide') }}" {% if page == 'guide' %}aria-current="page"{% endif %}>{{ t.guide }} →</a>
+    <div class="mt-auto pt-4 px-1">{% include 'components/preferences.html' %}</div>
+    </div>
+
   </div>
 </aside>

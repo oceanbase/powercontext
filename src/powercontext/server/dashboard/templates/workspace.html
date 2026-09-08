@@ -1,20 +1,20 @@
 <div id="workspace" class="page" hx-boost="true" hx-target="#workspace" hx-select="#workspace" hx-swap="outerHTML settle:0" hx-sync="#workspace:replace" hx-indicator="#request-status">
   <style>
-    me .topbar { height: 58px; padding: 0 var(--pc-page-gutter); display: flex; align-items: center; justify-content: space-between; font-size: 16px; border-bottom: 1px solid var(--tblr-border-color); }
+    me .topbar { min-height: 58px; padding: 12px var(--pc-page-gutter); display: flex; align-items: center; justify-content: space-between; font-size: 16px; border-bottom: 1px solid var(--tblr-border-color); }
     me .topbar .btn { font-size: 14px; color: var(--tblr-body-color); }
-    me .page-body { width: 100%; max-width: 1440px; margin: 0 auto; padding: 20px var(--pc-page-gutter) 24px; }
-    me .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
+    me .page-body { overflow-wrap: anywhere; width: 100%; max-width: 1440px; margin: 0 auto; padding: 20px var(--pc-page-gutter) 24px; }
+    me .section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
     me .section-heading h2 { margin: 0; }
     me .section-heading h3 { margin: 0; }
     me .section-heading a { font-size: 16px; white-space: nowrap; }
     me .method-type { font-size: 13px; color: var(--tblr-secondary); }
     me .back-link { display: inline-block; font-size: 16px; margin: 5px 0 22px; }
-    me .feedback { background: #f5f8ff; border-color: #b9ccec; color: var(--tblr-body-color); }
+    me .feedback { background: var(--tblr-bg-surface); border-color: var(--tblr-border-color); color: var(--tblr-body-color); }
     me .baseline-key { background: var(--tblr-gray-400); }
     me .recalled-key { background: var(--tblr-primary); }
     me.htmx-request { cursor: progress; }
     @media (min-width: 992px) { me .navbar-vertical.navbar-expand-lg ~ .page-wrapper { margin-left: var(--pc-sidebar-width); } }
-    @media (max-width: 991px) { me .topbar { height: 53px; font-size: 13px; } }
+    @media (max-width: 991px) { me .topbar { min-height: 53px; font-size: 13px; } }
     @media (max-width: 991px) { me .page-body { padding-top: 25px; } }
     @media (max-width: 600px) { me .section-heading a { font-size: 13px; } }
     me .htmx-indicator { display: none; }
@@ -36,8 +36,6 @@
       {% from 'components/read-error.html' import read_error with context %}
       {% if page_error %}
         {{ read_error(page_error) }}
-      {% elif page == 'guide' %}
-        {% include 'guide.html' %}
       {% elif (not scope_descriptor and not record_only) or page == 'entry' %}
         {% include 'entry.html' %}
       {% else %}

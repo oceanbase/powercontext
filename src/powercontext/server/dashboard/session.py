@@ -10,14 +10,18 @@ from starlette.types import Scope
 COOKIE_NAME = "powercontext_dashboard_token"
 
 
-def login_response(status: int = 401, *, rejected: bool = False) -> HTMLResponse:
-    from powercontext.server.dashboard.routes import ENV, LABELS
+def login_response(status: int = 401, *, rejected: bool = False, request: Request | None = None) -> HTMLResponse:
+    from powercontext.server.dashboard.preferences import presentation, remember_language
+    from powercontext.server.dashboard.routes import ENV
 
-    return HTMLResponse(
-        ENV.get_template("login.html").render(t=LABELS, status=status, rejected=rejected),
+    response = HTMLResponse(
+        ENV.get_template("login.html").render(**presentation(request), status=status, rejected=rejected),
         status_code=status,
         headers={"Cache-Control": "no-store", "X-Dashboard-HTML": "1"},
     )
+    if request is not None:
+        remember_language(response, request)
+    return response
 
 
 def authentication_headers(scope: Scope) -> dict[str, str]:
@@ -48,9 +52,9 @@ async def save_session(request: Request) -> HTMLResponse | RedirectResponse:
     try:
         token = parse_qs(body.decode(), max_num_fields=1).get("token", [""])[0].strip()
     except (ValueError, UnicodeDecodeError):
-        return login_response()
+        return login_response(request=request)
     if len(token) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in token):
-        return login_response(rejected=True)
+        return login_response(rejected=True, request=request)
     response = RedirectResponse("/dashboard/home", status_code=303, headers={"Cache-Control": "no-store"})
     if token:
         response.set_cookie(

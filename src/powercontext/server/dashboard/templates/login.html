@@ -1,14 +1,19 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{ html_language }}">
 <head>
+  <script src="/dashboard/static/vendor/tabler-theme.min.js"></script>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/dashboard/static/brand/favicon-color.svg" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="/dashboard/static/brand/favicon-reverse.svg" media="(prefers-color-scheme: dark)">
   <title>{{ t.login }} · PowerContext</title>
   <link rel="stylesheet" href="/dashboard/static/vendor/tabler.min.css">
   <link rel="stylesheet" href="/dashboard/static/layout.css">
+  <script src="/dashboard/static/vendor/tabler.min.js"></script>
 </head>
 <body class="d-flex flex-column">
 <main id="workspace" class="page page-center"><div class="container container-tight py-4">
-  <h1>PowerContext</h1>
+  {% include 'components/preferences.html' %}
+  <div class="mb-4">{% include 'components/brand.html' %}</div>
   <form class="card card-md" action="/dashboard/session" method="post" hx-boost="false"><div class="card-body">
     <h2>{{ t.login }}</h2><p>{{ t.login_body }}</p>
     <label class="form-label" for="token">{{ t.token }}</label>

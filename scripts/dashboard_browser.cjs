@@ -4,6 +4,40 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
+async function checkReadingBounds(page, route) {
+  const overflow = await page.evaluate(() => {
+    const issues = [];
+    const walker = document.createTreeWalker(document.querySelector('main'), NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const element = node.parentElement;
+      if (!node.textContent.trim() || element.closest('script, style, svg, [aria-hidden="true"]')) continue;
+      const style = getComputedStyle(element);
+      if (style.visibility !== 'visible' || !element.getClientRects().length) continue;
+      // Tabler tables intentionally scroll within their own accessible region.
+      const scroll = element.closest('.table-responsive');
+      const card = element.closest('.card');
+      const bounds = scroll ? { left: 0, right: scroll.scrollWidth } : card?.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) {
+        const left = scroll ? rect.left - scroll.getBoundingClientRect().left + scroll.scrollLeft : rect.left;
+        const right = left + rect.width;
+        if (bounds && (left < bounds.left - 2 || right > bounds.right + 2)) issues.push(node.textContent.slice(0, 80));
+        if (!scroll && (left < -2 || right > innerWidth + 2)) issues.push(node.textContent.slice(0, 80));
+      }
+    }
+    return [...new Set(issues)];
+  });
+  assert.deepEqual(overflow, [], `Reading content exceeds its page or card: ${route}`);
+}
+
+async function clickNavigation(page, selector) {
+  const target = page.locator(selector);
+  if (!await target.isVisible()) await page.locator('.navbar-toggler').click();
+  await target.click();
+}
+
 async function main() {
   const base = process.env.POWERCONTEXT_BROWSER_URL || 'http://127.0.0.1:8765';
   const output = process.env.POWERCONTEXT_BROWSER_OUTPUT;
@@ -25,7 +59,7 @@ async function main() {
   const defaultScope = (await api('/v1/scopes/default')).scope_id;
   const report = { pages: [], scopes: scopes.map(scope => scope.scope_id), errors };
   for (const scope of scopes) {
-    for (const name of ['home', 'handoff', 'notes', 'methods', 'usage', 'guide']) {
+    for (const name of ['home', 'handoff', 'notes', 'methods', 'usage']) {
       const response = await page.goto(`${base}/dashboard/${name}?scope=${encodeURIComponent(scope.scope_id)}`);
       assert.equal(response.status(), 200);
       assert.equal(await page.locator('#scope').inputValue(), scope.scope_id);
@@ -61,24 +95,96 @@ async function main() {
       assert.equal((await api('/v1/scopes/default')).scope_id, defaultScope);
     }
   }
-  const routes = ['home', 'handoff', 'notes', 'methods', 'usage', 'guide'];
+  const readingScope = process.env.POWERCONTEXT_BROWSER_SCOPE || defaultScope;
+  let routes = ['home', 'handoff', 'notes', 'methods', 'usage'];
   for (const family of ['handoff', 'experience', 'skill']) {
-    const collection = await api(`/v1/scopes/${defaultScope}/artifacts/${family}`);
+    let collection;
+    if (family === 'skill') {
+      const response = await context.request.post(base + '/v1/skill/library', { data: { scope_id: readingScope } });
+      assert(response.ok());
+      collection = { items: (await response.json()).skills.map(item => item.artifact) };
+    } else collection = await api(`/v1/scopes/${readingScope}/artifacts/${family}`);
     if (collection.items.length) {
       const record = collection.items[0];
       routes.push(`${family === 'handoff' ? 'handoff-detail' : family}?artifact=${record.artifact_id}&revision=${record.revision}`);
     }
   }
-  for (const width of [390, 1024, 1536]) {
+  routes = routes.map(route => `${route}${route.includes('?') ? '&' : '?'}scope=${encodeURIComponent(readingScope)}`);
+  const sourceRecord = routes.find(route => route.startsWith('experience?'));
+  if (sourceRecord) {
+    await page.goto(base + '/dashboard/' + sourceRecord);
+    const source = page.locator('[data-evidence]').first();
+    if (await source.count()) routes.push((await source.getAttribute('href')).replace('/dashboard/', ''));
+  }
+  for (const width of [320, 601, 768, 992, 1200, 1536]) {
+    await page.setViewportSize({ width, height: 1024 });
+    await page.goto(`${base}/dashboard/usage?scope=${readingScope}&lang=en&period=30d`);
+    await clickNavigation(page, '.navbar-nav a[href*="/home?"]');
+    await page.waitForURL(url => url.pathname.endsWith('/home'));
+    await page.evaluate(async () => {
+      for (let frame = 0; frame < 20; frame++) {
+        await new Promise(requestAnimationFrame);
+        for (const chart of document.querySelectorAll('[data-comparison-chart]')) {
+          const svg = chart.querySelector('svg');
+          if (svg && svg.getBoundingClientRect().width > chart.getBoundingClientRect().width + 1) {
+            throw new Error('Chart measured its container before scoped layout was ready');
+          }
+        }
+      }
+    });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `chart at ${width}`);
+  }
+  for (const width of [320, 390, 600, 768, 991, 992, 1024, 1199, 1200, 1280, 1399, 1400, 1536, 1920]) {
     await page.setViewportSize({ width, height: 1024 });
     for (const route of routes) {
       const response = await page.goto(`${base}/dashboard/${route}`);
       assert.equal(response.status(), 200, route);
-      await page.waitForFunction(() => !!window.htmx);
+      await page.waitForLoadState('load');
+      await checkReadingBounds(page, `${route}, ${width}`);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, route);
-      await page.screenshot({ path: path.join(output, `${route.split('?')[0]}-${width}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(output, `${route.split('?')[0].replaceAll('/', '-')}-${width}.png`), fullPage: true });
     }
   }
+  for (const language of ['zh', 'en']) {
+    for (const theme of ['light', 'dark']) {
+      for (const width of [390, 1536]) {
+        await page.setViewportSize({ width, height: 1024 });
+        for (const route of routes) {
+          const separator = route.includes('?') ? '&' : '?';
+          const response = await page.goto(`${base}/dashboard/${route}${separator}lang=${language}&theme=${theme}`);
+          assert.equal(response.status(), 200, route);
+          await checkReadingBounds(page, `${route}, ${language}, ${theme}, ${width}`);
+          assert.equal(await page.locator('html').getAttribute('lang'), language === 'zh' ? 'zh-CN' : 'en');
+          assert.equal(await page.evaluate(() => document.documentElement.dataset.bsTheme || 'light'), theme);
+          if (!route.startsWith('evidence/')) {
+            const logo = page.locator(`.brand-${theme}`);
+            assert(await logo.isVisible());
+            assert(await logo.evaluate(image => image.complete && image.naturalWidth > 0 && Math.abs(image.width / image.height - image.naturalWidth / image.naturalHeight) < 0.1));
+          }
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${route}, ${language}, ${theme}, ${width}`);
+          await page.screenshot({ path: path.join(output, `${route.split('?')[0].replaceAll('/', '-')}-${language}-${theme}-${width}.png`), fullPage: true });
+        }
+      }
+    }
+  }
+  await page.goto(base + '/dashboard/home');
+  assert.equal(await page.locator('html').getAttribute('lang'), 'en');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.bsTheme), 'dark');
+  await clickNavigation(page, '.navbar-nav a[href*="/notes?"]');
+  await page.waitForURL(url => url.pathname.endsWith('/notes'));
+  assert.equal(await page.locator('html').getAttribute('lang'), 'en');
+  assert(await page.locator('.brand-dark').isVisible());
+  const currentScope = await page.locator('#scope').inputValue();
+  await page.locator('.dropdown-toggle').first().click();
+  await page.locator('.dropdown-item[lang="zh-CN"]').click();
+  await page.waitForURL(url => url.searchParams.get('lang') === 'zh');
+  assert.equal(await page.locator('html').getAttribute('lang'), 'zh-CN');
+  assert.equal(await page.locator('#scope').inputValue(), currentScope);
+  await page.locator('.dropdown-toggle').nth(1).click();
+  await page.locator('.dropdown-item[href*="theme=light"]').click();
+  await page.waitForURL(url => url.searchParams.get('theme') === 'light');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.bsTheme || 'light'), 'light');
+  assert(await page.locator('.brand-light').isVisible());
   const experience = routes.find(route => route.startsWith('experience?'));
   if (experience) {
     await page.setViewportSize({ width: 1399, height: 1024 });
@@ -95,7 +201,7 @@ async function main() {
       await page.locator('#evidence.show').waitFor();
       await page.locator('#evidence .btn-close').click();
       await page.waitForFunction(() => !document.body.style.overflow);
-      await page.locator('.navbar-nav a[href*="/usage?"]').click();
+      await clickNavigation(page, '.navbar-nav a[href*="/usage?"]');
       await page.waitForURL(url => url.pathname.endsWith('/usage'));
       assert.equal(await page.locator('.offcanvas-backdrop').count(), 0);
       await page.goBack();
@@ -104,7 +210,7 @@ async function main() {
   }
   await page.goto(base + '/dashboard/home');
   await context.setOffline(true);
-  await page.locator('.navbar-nav a[href*="/notes?"]').click();
+  await clickNavigation(page, '.navbar-nav a[href*="/notes?"]');
   await page.locator('#network-error:not([hidden])').waitFor();
   await context.setOffline(false);
   await page.locator('#network-error a').click();

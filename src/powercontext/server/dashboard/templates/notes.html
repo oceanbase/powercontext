@@ -1,36 +1,32 @@
 <div class="notes-view">
 <style>
-  me .note-selector { padding: 22px; overflow-wrap: anywhere; }
+  me .note-selector { padding: 16px; overflow-wrap: anywhere; }
   me .note-selector.active { background: var(--pc-active-bg); color: var(--tblr-primary); border-color: var(--tblr-border-color); }
-  me .note-selector strong { color: inherit; font-size: 18px; line-height: 1.7; }
-  me .note-reading { min-height: 390px; padding: 32px; }
-  me .note-reading h2 { font-size: 29px; line-height: 1.6; }
-  me .note-reading .note-text { font-size: 20px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+  me .note-selector .note-summary { color: inherit; font-size: 16px; line-height: 1.65; }
+  me .note-reading { padding: 24px; }
+  me .note-reading .note-text { font-size: 17px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 991px) { me .note-reading { min-height: auto; padding: 24px; } }
 </style>
-{% from 'macros.html' import disclosure with context %}
+{% from 'components/pagination.html' import pagination %}
 {% from 'components/page-heading.html' import page_heading %}
 {{ page_heading(t.notes, t.notes_subtitle) }}
 {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% endif %}
 {% if data.notes or selected_note %}
 <div class="row g-4">
-  <aside class="col-lg-4"><nav class="card list-group list-group-flush" aria-label="{{ t.notes_list }}">
+  <aside class="col-xl-4"><nav class="card list-group list-group-flush" aria-label="{{ t.notes_list }}">
     {% for item in data.notes %}<a class="list-group-item list-group-item-action note-selector {% if selected_note and selected_note.entry_id == item.entry_id %}active{% endif %}" href="{{ link('notes', entry=item.entry_id, fragment='note-reading') }}" {% if selected_note and selected_note.entry_id == item.entry_id %}aria-current="true"{% endif %}>
-      <span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span><strong>{{ item.text|truncate(72, true) }}</strong>
+      <span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span><span class="note-summary">{{ item.text|truncate(48, true) }}</span>
     </a>{% endfor %}
-  </nav></aside>
-  <section class="col-lg-8" id="note-reading" aria-label="{{ t.note_reading }}"><article class="card">
+  </nav>{{ pagination(notes_pager, t) }}</aside>
+  <section class="col-xl-8" id="note-reading" aria-label="{{ t.note_reading }}"><article class="card">
     <div class="card-body note-reading">
       {% if selected_note %}
-      <div class="section-heading"><span class="text-secondary">{{ t.get(selected_note.kind, selected_note.kind) }}</span><span class="small text-secondary">{{ t.revision }} {{ selected_note.version }}</span></div>
-      <h2>{{ t.note_reading }}</h2>
       <p class="note-text">{{ selected_note.text }}</p>
-      {% call disclosure('note-identity', t.technical) %}<code>memory/{{ selected_note.memory_ref.artifact_id }}@{{ selected_note.memory_ref.revision }} · {{ selected_note.entry_id }} · {{ selected_note.entry_version_id }}</code>{% endcall %}
       {% else %}<div class="empty"><h2>{{ t.not_found }}</h2><a class="btn" href="{{ link('notes') }}">{{ t.notes_list }}</a></div>{% endif %}
     </div>
   </article></section>
 </div>
 {% elif not errors.get('notes') %}
-<section class="card"><div class="empty"><h2>{{ t.notes_empty }}</h2><p class="empty-subtitle">{{ t.notes_empty_body }}</p><div class="empty-action"><a class="btn btn-primary" href="{{ link('guide') }}">{{ t.fresh_guide }} →</a></div></div></section>
+<section class="card"><div class="empty"><h2>{{ t.notes_empty }}</h2><p class="empty-subtitle">{{ t.notes_empty_body }}</p></div></section>
 {% endif %}
 </div>

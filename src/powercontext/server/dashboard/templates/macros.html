@@ -9,7 +9,7 @@
 <a class="evidence-link" href="{{ link('evidence/' ~ related_sources[index].source_id, origin='handoff-detail' if page == 'handoff-detail' else 'experience', source_type=related_sources[index].source_type) }}"
    hx-get="{{ link('evidence/' ~ related_sources[index].source_id, origin='handoff-detail' if page == 'handoff-detail' else 'experience', source_type=related_sources[index].source_type) }}" hx-target="#evidence-content"
    hx-select="unset" hx-swap="innerHTML" hx-push-url="false" data-evidence>
-  {{ label or t.evidence_open }} <span aria-hidden="true">↗</span>
+  {{ label or t.evidence_open }}
 </a>
 {% endmacro %}
 
@@ -17,7 +17,7 @@
 <div class="list-group list-group-flush note-list">
   {% for item in items %}
   <div class="list-group-item">
-    <p><strong><a class="text-reset" href="{{ link('notes', entry=item.entry_id) }}">{{ item.text|truncate(72, true) }}</a></strong></p>
+    <p><a class="text-reset" href="{{ link('notes', entry=item.entry_id) }}">{{ item.text|truncate(72, true) }}</a></p>
   </div>
   {% endfor %}
 </div>
@@ -29,8 +29,8 @@
     <div class="method-type">{{ t.experience }}</div>
     <h3><a href="{{ link('experience') }}">{{ data.experience.lesson|truncate(120, true) }}</a></h3>
     <p>{{ data.experience.situation|truncate(160, true) }}</p>
-    <div class="source-trail">{{ data.experience.sources|length }} {{ t.source_count }} <span>→</span> {{ t.experience }}</div>
-    <a href="{{ link('experience') }}">{{ t.read_experience }} →</a>
+    <div class="source-trail">{{ data.experience.sources|length }} {{ t.source_count }} </div>
+    <a href="{{ link('experience') }}">{{ t.read_experience }}</a>
   </div>
 </article>
 {% endmacro %}
