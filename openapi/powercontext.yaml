@@ -16,11 +16,191 @@ openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 0.1.0
+  version: 0.2.0
 security:
   - BearerAuth: []
   - {}
 paths:
+  /v1/scopes/{scope_id}/subject-sources:
+    post:
+      tags: ["profile"]
+      summary: "Atomically write Source to business and subject scopes"
+      operationId: "create_subject_source"
+      x-powercontext-access:
+        action: "scope.contribute"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 256
+            pattern: ".*\\S.*"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/CreateSubjectSourceRequest"
+      responses:
+        "201":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/CreateSubjectSourceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/scopes/{scope_id}/profile-policy:
+    get:
+      tags: ["profile"]
+      summary: "Read Profile policy"
+      operationId: "get_profile_policy"
+      x-powercontext-access:
+        action: "scope.read"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 256
+            pattern: ".*\\S.*"
+      responses:
+        "200":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ProfilePolicyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    put:
+      tags: ["profile"]
+      summary: "Configure Profile policy"
+      operationId: "put_profile_policy"
+      x-powercontext-access:
+        action: "scope.admin"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      parameters:
+        - name: "scope_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            minLength: 1
+            maxLength: 256
+            pattern: ".*\\S.*"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/PutProfilePolicyRequest"
+      responses:
+        "200":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ProfilePolicyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/profile/flush:
+    post:
+      tags: ["profile"]
+      summary: "Process one Profile source window"
+      operationId: "flush_profile"
+      x-powercontext-access:
+        action: "scope.contribute"
+        resource:
+          type: "scope"
+          scope-id-from: "scope_id"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/FlushProfileRequest"
+      responses:
+        "200":
+          description: "Operation completed."
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/FlushProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /health/live:
     get:
       security: []
@@ -141,6 +321,9 @@ paths:
       summary: Publish one exact Artifact revision into another Scope
       description: >-
         Memory publication is rejected until its complete family-owned state can be created atomically in the target Scope.
+        Profile artifacts cannot be copied or published across Scopes, whether or not the target already has a Profile.
+        Requests for these families return HTTP 422 with code artifact_publication_unsupported and details.family.
+        Rejection creates no target Artifact or publication record; other supported families retain their existing behavior.
       operationId: publish_artifact
       x-powercontext-access: {resolver: publish_artifact_access}
       requestBody:
@@ -2752,8 +2935,10 @@ paths:
         Dispatch the family-specific creation command through the owning Family writer and atomically create
         revision one, its derived Family state, and its system provenance Source. Handoff is the Scope singleton:
         Create returns 409 when it already exists and callers must use Replace to update it.
+        Creating a Prompt requires scope.admin because its configuration affects the whole Scope;
+        other families require scope.contribute.
       operationId: create_artifact
-      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
+      x-powercontext-access: {resolver: create_artifact_access}
       parameters:
         - name: scope_id
           in: path
@@ -2803,6 +2988,20 @@ paths:
       operationId: list_artifacts
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       parameters:
+        - name: tag
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 16
+            items: {type: string, minLength: 1, maxLength: 64}
+        - name: tag_match
+          in: query
+          required: false
+          schema: {$ref: '#/components/schemas/TagMatch'}
         - name: scope_id
           in: path
           required: true
@@ -2816,7 +3015,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: limit
           in: query
           required: false
@@ -2876,7 +3075,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: artifact_id
           in: path
           required: true
@@ -2925,7 +3124,10 @@ paths:
     put:
       tags: [artifacts]
       summary: Replace the current Artifact head
-      description: Commit a complete next revision when If-Match identifies the current head.
+      description: >-
+        Commit a complete next revision when If-Match identifies the current head.
+        Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring
+        an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation.
       operationId: replace_artifact
       x-powercontext-access: {resolver: path_artifact_write_access}
       parameters:
@@ -2942,7 +3144,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: artifact_id
           in: path
           required: true
@@ -2991,6 +3193,251 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags:
+    get:
+      tags: [artifact-tags]
+      summary: Read Artifact tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: get_artifact_tags
+      x-powercontext-access: {resolver: path_artifact_read_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: family
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/TaggableArtifactFamily'}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: {type: string, minLength: 1}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "304":
+          description: The target tag set has not changed.
+          headers:
+            ETag: {schema: {type: string}}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      tags: [artifact-tags]
+      summary: Replace Artifact tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: replace_artifact_tags
+      x-powercontext-access: {resolver: path_artifact_tags_write_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: family
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/TaggableArtifactFamily'}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string, minLength: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplaceArtifactTagsRequest'}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags:
+    get:
+      tags: [artifact-tags]
+      summary: Read Memory entry tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: get_memory_entry_tags
+      x-powercontext-access: {resolver: path_memory_entry_read_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: entry_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: {type: string, minLength: 1}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "304":
+          description: The target tag set has not changed.
+          headers:
+            ETag: {schema: {type: string}}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      tags: [artifact-tags]
+      summary: Replace Memory entry tags
+      description: Scope-local labels follow logical identity without changing content revisions. Inactive manifest entries remain valid targets.
+      operationId: replace_memory_entry_tags
+      x-powercontext-access: {resolver: path_memory_entry_write_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: entry_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string, minLength: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplaceArtifactTagsRequest'}
+      responses:
+        "200":
+          description: Complete current target-local tag set.
+          headers:
+            ETag: {schema: {type: string}, description: Opaque target-bound tag state validator.}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagSet'}
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifact-tags/query:
+    post:
+      tags: [artifact-tags]
+      summary: Query targets by exact custom tags
+      description: Match all or any normalized labels within one Scope before pagination. Tags never grant visibility or enter model prompts.
+      operationId: query_artifact_tags
+      x-powercontext-access: {resolver: path_scope_read_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/QueryArtifactTagsRequest'}
+      responses:
+        "200":
+          description: Current visible matches in family, target type, Artifact ID, and target ID order.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactTagPage'}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}:
     get:
       tags: [artifacts]
@@ -3011,7 +3458,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff]
+            enum: [memory, experience, skill, handoff, prompt]
         - name: artifact_id
           in: path
           required: true
@@ -3036,6 +3483,177 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ArtifactRevision"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions:
+    get:
+      tags: [artifacts]
+      summary: List immutable Artifact revisions
+      description: Descending history with an opaque cursor bound to the Scope, Artifact, and initial revision snapshot.
+      operationId: list_artifact_revisions
+      x-powercontext-access: {resolver: path_artifact_read_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: family
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [memory, experience, skill, handoff, prompt]
+        - name: artifact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[\x21-\x7E]+$'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+      responses:
+        "200":
+          description: One snapshot-bounded page of immutable revisions without content.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactRevisionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/prompts/{prompt_key}:
+    get:
+      tags: [prompts]
+      summary: Read scoped Prompt configuration and built-in defaults
+      description: >-
+        Read one saved Prompt head and the current Runtime's built-in instructions without creating a revision
+        or calling inference. Auto selects the built-in instructions even when an Auto revision exists.
+        Disabled built-in operations remain readable; effective and builtin are null for externally managed
+        components. Status describes availability, not whether returning the configured text executes it.
+        A saved head additionally requires its Artifact read permission. artifact_etag is the condition for
+        replacing that Artifact; it is not an ETag for this combined view.
+      operationId: get_prompt_configuration
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: prompt_key
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/PromptKey"
+      responses:
+        "200":
+          description: Current configuration and Runtime-owned default guidance.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptConfiguration"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/prompts/{prompt_key}/demonstrations:
+    post:
+      tags: [prompts]
+      summary: Generate editable Prompt demonstrations without saving
+      description: >-
+        Generate exactly the requested number of typed input/output suggestions for a supported built-in operation.
+        The caller must explicitly create or replace a Prompt Artifact to save suggestions.
+        Requires scope.admin, matching Prompt creation and replacement.
+      operationId: generate_prompt_demonstrations
+      x-powercontext-access: {action: scope.admin, resource: {type: scope, scope-id-from: scope_id}}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: prompt_key
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePromptDemonstrationsRequest"
+      responses:
+        "200":
+          description: Validated suggestions; no Artifact or head was written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptDemonstrationResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3443,6 +4061,192 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    CreateSubjectSourceRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["subject_key","content"]
+      properties:
+        subject_key:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        subject_type:
+          type: "string"
+          enum: ["user"]
+          default: "user"
+        subject_scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+          nullable: true
+        source_type:
+          type: "string"
+          enum: ["content"]
+          default: "content"
+        content:
+          description: "JSON value stored identically in both scopes."
+    CreateSubjectSourceResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["subject_key","subject_type","subject_scope_id","sources"]
+      properties:
+        subject_key:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        subject_type:
+          type: "string"
+          enum: ["user"]
+        subject_scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        sources:
+          type: "array"
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/SourceRecord"
+    PutProfilePolicyRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["generation_enabled","expected_version"]
+      properties:
+        generation_enabled:
+          type: "boolean"
+        activation_mode:
+          type: "string"
+          enum: ["automatic","review_required"]
+          default: "automatic"
+        expected_version:
+          type: "integer"
+          minimum: 0
+    ProfilePolicyResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["scope_id","generation_enabled","activation_mode","pending_candidate_id","version","updated_at"]
+      properties:
+        scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+        generation_enabled:
+          type: "boolean"
+        activation_mode:
+          type: "string"
+          enum: ["automatic","review_required"]
+        pending_candidate_id:
+          type: "string"
+          nullable: true
+        version:
+          type: "integer"
+          minimum: 1
+        updated_at:
+          type: "string"
+          format: "date-time"
+    FlushProfileRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["scope_id"]
+      properties:
+        scope_id:
+          type: "string"
+          minLength: 1
+          maxLength: 256
+          pattern: ".*\\S.*"
+    FlushProfileResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["status","previous_cursor","current_cursor","high_watermark","processed_source_count"]
+      properties:
+        status:
+          type: "string"
+          enum: ["updated","noop","review_pending","disabled","conflict"]
+        previous_cursor:
+          type: "integer"
+          minimum: 0
+        current_cursor:
+          type: "integer"
+          minimum: 0
+        high_watermark:
+          type: "integer"
+          minimum: 0
+        processed_source_count:
+          type: "integer"
+          minimum: 0
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        candidate_id:
+          type: "string"
+          nullable: true
+    ProfileWriteContent:
+      type: "object"
+      additionalProperties: false
+      required: ["content"]
+      properties:
+        content:
+          type: "string"
+          minLength: 1
+        restored_from_revision:
+          type: "integer"
+          minimum: 1
+          nullable: true
+    ProfileSourceWindow:
+      type: "object"
+      additionalProperties: false
+      required: ["after","through"]
+      properties:
+        after:
+          type: "integer"
+          minimum: 0
+        through:
+          type: "integer"
+          minimum: 0
+    ProfileCandidateProposal:
+      type: "object"
+      additionalProperties: false
+      required: ["schema","content","source_window","generator_id","generator_version","created_at"]
+      properties:
+        schema:
+          type: "string"
+          enum: ["powercontext.profile-candidate.v1"]
+        content:
+          type: "string"
+          minLength: 1
+        source_window:
+          $ref: "#/components/schemas/ProfileSourceWindow"
+        generator_id:
+          type: "string"
+          minLength: 1
+        generator_version:
+          type: "string"
+          minLength: 1
+        created_at:
+          type: "string"
+          format: "date-time"
+    CreateProfileArtifactRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["family","content"]
+      properties:
+        family:
+          type: "string"
+          enum: ["profile"]
+        content:
+          $ref: "#/components/schemas/ProfileWriteContent"
+    ReplaceProfileArtifactRequest:
+      type: "object"
+      additionalProperties: false
+      required: ["content"]
+      properties:
+        content:
+          $ref: "#/components/schemas/ProfileWriteContent"
     ActivateHandoffRequest:
       type: object
       additionalProperties: false
@@ -3530,6 +4334,18 @@ components:
             $ref: "#/components/schemas/ArtifactReference"
     ArtifactPage:
       type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactCollectionItem"
+        next_cursor:
+          type: string
+          nullable: true
+    ArtifactRevisionPage:
+      type: object
+      additionalProperties: false
       required: [items, next_cursor]
       properties:
         items:
@@ -3891,6 +4707,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        allow_default: {type: boolean, default: true}
         explicit_scope_id:
           type: string
           minLength: 1
@@ -3956,6 +4773,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ExperienceProposal"
             - $ref: "#/components/schemas/SkillProposal"
+            - $ref: "#/components/schemas/ProfileCandidateProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -4020,6 +4838,11 @@ components:
       required:
         [source_types, artifact_families, memory_extraction, handoff_generation, search_modes, context_versions]
       properties:
+        prompts:
+          type: object
+          default: {}
+          additionalProperties:
+            $ref: "#/components/schemas/PromptCapability"
         source_types:
           type: array
           items:
@@ -5070,6 +5893,9 @@ components:
       additionalProperties: false
       required: [schema, objective, state, disposition, next_action, omissions]
       properties:
+        generation:
+          $ref: "#/components/schemas/HandoffGenerationMetadata"
+          nullable: true
         schema:
           $ref: "#/components/schemas/HandoffSchema"
         objective:
@@ -5098,6 +5924,9 @@ components:
       additionalProperties: false
       required: [objective, state, disposition, next_action, omissions]
       properties:
+        generation:
+          $ref: "#/components/schemas/HandoffGenerationEnvelope"
+          nullable: true
         objective:
           type: string
           minLength: 1
@@ -5247,6 +6076,9 @@ components:
       additionalProperties: false
       required: [schema, scope_id, base, content]
       properties:
+        generation:
+          $ref: "#/components/schemas/HandoffGenerationEnvelope"
+          nullable: true
         schema:
           $ref: "#/components/schemas/PreparedHandoffSchema"
         scope_id:
@@ -5256,6 +6088,58 @@ components:
           nullable: true
         content:
           $ref: "#/components/schemas/HandoffContent"
+    HandoffGenerationEnvelope:
+      type: object
+      additionalProperties: false
+      description: >-
+        Transient Server-authenticated generation receipt. Preserve it across finalize and commit.
+        It grants no additional authority and is never stored in the Artifact.
+      required: [receipt]
+      properties:
+        receipt:
+          type: string
+          minLength: 1
+          maxLength: 8192
+    HandoffGenerationMetadata:
+      type: object
+      additionalProperties: false
+      description: >-
+        Server-derived, persisted generation origin. Raw copied metadata is not accepted as verified input
+        without a valid receipt. Prompt references are configuration lineage, not factual citations.
+      required: [scope_id, prompt_key, selection, artifact, definition_version, builtin_version, compiled_digest, original_draft_digest, edit_status]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        prompt_key:
+          $ref: "#/components/schemas/HandoffPromptKey"
+        selection:
+          type: string
+          enum: [built_in, artifact]
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+        definition_version:
+          type: string
+          minLength: 1
+          maxLength: 256
+        builtin_version:
+          type: string
+          minLength: 1
+          maxLength: 256
+        compiled_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        original_draft_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        edit_status:
+          type: string
+          enum: [unchanged, edited]
+    HandoffPromptKey:
+      type: string
+      enum: [handoff.generate]
     PreparedContext:
       type: object
       additionalProperties: false
@@ -6485,6 +7369,8 @@ components:
       additionalProperties: false
       required: [scope_id]
       properties:
+        tag_filter:
+          $ref: '#/components/schemas/TagFilter'
         scope_id:
           type: string
           minLength: 1
@@ -6878,6 +7764,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ExperienceProposal"
             - $ref: "#/components/schemas/SkillProposal"
+            - $ref: "#/components/schemas/ProfileWriteContent"
         source_refs:
           type: array
           maxItems: 32
@@ -6944,6 +7831,8 @@ components:
       additionalProperties: false
       required: [scope_id, query]
       properties:
+        tag_filter:
+          $ref: '#/components/schemas/TagFilter'
         scope_id:
           type: string
           minLength: 1
@@ -7201,6 +8090,8 @@ components:
         - $ref: "#/components/schemas/CreateExperienceArtifactRequest"
         - $ref: "#/components/schemas/CreateSkillArtifactRequest"
         - $ref: "#/components/schemas/CreateHandoffArtifactRequest"
+        - $ref: "#/components/schemas/CreatePromptArtifactRequest"
+        - $ref: "#/components/schemas/CreateProfileArtifactRequest"
       discriminator:
         propertyName: family
         mapping:
@@ -7208,6 +8099,20 @@ components:
           experience: "#/components/schemas/CreateExperienceArtifactRequest"
           skill: "#/components/schemas/CreateSkillArtifactRequest"
           handoff: "#/components/schemas/CreateHandoffArtifactRequest"
+          prompt: "#/components/schemas/CreatePromptArtifactRequest"
+          profile: "#/components/schemas/CreateProfileArtifactRequest"
+    CreatePromptArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [family, prompt_key, content]
+      properties:
+        family:
+          type: string
+          enum: [prompt]
+        prompt_key:
+          $ref: "#/components/schemas/PromptKey"
+        content:
+          $ref: "#/components/schemas/PromptContent"
     CreateMemoryArtifactRequest:
       type: object
       additionalProperties: false
@@ -7289,10 +8194,150 @@ components:
           default: content
         content:
           description: JSON value persisted by the built-in content Source adapter.
+    TaggableArtifactFamily:
+      type: string
+      description: Artifact families supporting logical tags; Prompt configurations are excluded.
+      enum: [memory, experience, skill, handoff]
+    TagMatch:
+      type: string
+      enum: [all, any]
+    TagTargetType:
+      type: string
+      enum: [artifact, memory_entry]
+    ArtifactTagTarget:
+      type: object
+      additionalProperties: false
+      required: [type, family, artifact_id]
+      properties:
+        type: {type: string, enum: [artifact]}
+        family: {$ref: '#/components/schemas/TaggableArtifactFamily'}
+        artifact_id: {type: string, minLength: 1, maxLength: 128}
+    MemoryEntryTagTarget:
+      type: object
+      additionalProperties: false
+      required: [type, family, artifact_id, entry_id]
+      properties:
+        type: {type: string, enum: [memory_entry]}
+        family: {type: string, enum: [memory]}
+        artifact_id: {type: string, minLength: 1, maxLength: 128}
+        entry_id: {type: string, minLength: 1, maxLength: 128}
+    TagTarget:
+      oneOf:
+        - $ref: '#/components/schemas/ArtifactTagTarget'
+        - $ref: '#/components/schemas/MemoryEntryTagTarget'
+      discriminator:
+        propertyName: type
+        mapping:
+          artifact: '#/components/schemas/ArtifactTagTarget'
+          memory_entry: '#/components/schemas/MemoryEntryTagTarget'
+    TagFilter:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {type: string, minLength: 1, maxLength: 64}
+        match:
+          $ref: '#/components/schemas/TagMatch'
+          default: all
+    ReplaceArtifactTagsRequest:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      description: Replace all labels atomically. Empty clears the set. Labels preserve display text, use NFC then casefold for exact matching, and reject normalized duplicates, outer whitespace, and Unicode control, surrogate or unassigned characters.
+      properties:
+        tags:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 64}
+    QueryArtifactTagsRequest:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {type: string, minLength: 1, maxLength: 64}
+        match:
+          $ref: '#/components/schemas/TagMatch'
+          default: all
+        families:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TaggableArtifactFamily'}
+        target_types:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/TagTargetType'}
+        include_inactive: {type: boolean, default: false}
+        limit: {type: integer, minimum: 1, maximum: 100, default: 50}
+        cursor: {type: string, minLength: 1, maxLength: 4096, nullable: true}
+    ArtifactTagSet:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target, tags, tag_digest]
+      properties:
+        scope_id: {type: string}
+        target: {$ref: '#/components/schemas/TagTarget'}
+        tags:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 64}
+        tag_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Digest of canonical display labels; informational, not a mutation precondition.
+    TaggedTarget:
+      type: object
+      additionalProperties: false
+      required: [scope_id, target, tags, tag_digest, reference]
+      properties:
+        scope_id: {type: string}
+        target: {$ref: '#/components/schemas/TagTarget'}
+        tags:
+          type: array
+          minItems: 0
+          maxItems: 32
+          items: {type: string, minLength: 1, maxLength: 64}
+        tag_digest:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Digest of canonical display labels; informational, not a mutation precondition.
+        reference:
+          oneOf:
+            - $ref: '#/components/schemas/ArtifactReference'
+            - $ref: '#/components/schemas/MemoryCitation'
+    ArtifactTagPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/TaggedTarget'}
+        next_cursor: {type: string, nullable: true}
     ListArtifactsRequest:
       type: object
       additionalProperties: false
       properties:
+        tag:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items: {type: string, minLength: 1, maxLength: 64}
+        tag_match:
+          $ref: '#/components/schemas/TagMatch'
         limit:
           type: integer
           minimum: 1
@@ -7309,6 +8354,172 @@ components:
         - $ref: "#/components/schemas/ReplaceExperienceArtifactRequest"
         - $ref: "#/components/schemas/ReplaceSkillArtifactRequest"
         - $ref: "#/components/schemas/ReplaceHandoffArtifactRequest"
+        - $ref: "#/components/schemas/ReplacePromptArtifactRequest"
+        - $ref: "#/components/schemas/ReplaceProfileArtifactRequest"
+    ReplacePromptArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content:
+          $ref: "#/components/schemas/PromptContent"
+    ListArtifactRevisionsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          nullable: true
+    PromptKey:
+      type: string
+      enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate]
+    PromptContent:
+      type: object
+      additionalProperties: false
+      required: [schema_version, mode, instructions, demonstrations]
+      description: >-
+        Canonical content is limited to 256 KiB. Auto requires empty instructions and demonstrations;
+        Custom requires non-blank trimmed NFC instructions. Demonstrations must match the registered operation types.
+      properties:
+        schema_version:
+          type: string
+          enum: [powercontext.prompt.v1]
+        mode:
+          type: string
+          enum: [auto, custom]
+        instructions:
+          type: string
+          maxLength: 32768
+        demonstrations:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/PromptDemonstration"
+    PromptDemonstration:
+      type: object
+      additionalProperties: false
+      required: [input, expected_output]
+      description: A typed input/output pair limited to 64 KiB of canonical JSON.
+      properties:
+        input:
+          description: Complete JSON input matching the registered Prompt Definition.
+        expected_output:
+          description: Desired JSON output matching the registered Prompt Definition.
+    PromptCapability:
+      type: object
+      additionalProperties: false
+      required: [status, reason, definition_version, builtin_version, builtin_profile]
+      properties:
+        status:
+          type: string
+          enum: [supported, disabled, unsupported]
+        reason:
+          type: string
+          nullable: true
+          enum: [operation_disabled, provider_not_configured, injected_component, null]
+        definition_version:
+          type: string
+        builtin_version:
+          type: string
+        builtin_profile:
+          type: string
+          nullable: true
+          enum: [coding, conversation, null]
+    PromptInstructions:
+      type: object
+      additionalProperties: false
+      required: [instructions, demonstrations]
+      properties:
+        instructions:
+          type: string
+          description: Readable guidance; this is not the persisted Auto content representation.
+        demonstrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PromptDemonstration"
+    BuiltinPromptInstructions:
+      type: object
+      additionalProperties: false
+      required: [version, profile, instructions]
+      properties:
+        version:
+          type: string
+        profile:
+          type: string
+          nullable: true
+          enum: [coding, conversation, null]
+        instructions:
+          type: string
+          description: Exact default instructions from the active Runtime Prompt Definition.
+    PromptConfiguration:
+      type: object
+      additionalProperties: false
+      required: [scope_id, prompt_key, status, reason, mode, artifact, artifact_etag, effective, builtin]
+      properties:
+        scope_id:
+          type: string
+        prompt_key:
+          $ref: "#/components/schemas/PromptKey"
+        status:
+          type: string
+          enum: [supported, disabled, unsupported]
+        reason:
+          type: string
+          nullable: true
+          enum: [operation_disabled, provider_not_configured, injected_component, null]
+        mode:
+          type: string
+          enum: [auto, custom]
+        artifact:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ArtifactReference"
+        artifact_etag:
+          type: string
+          nullable: true
+          description: ETag of the saved Artifact head for If-Match; null when no configuration has been saved.
+        effective:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/PromptInstructions"
+        builtin:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/BuiltinPromptInstructions"
+    GeneratePromptDemonstrationsRequest:
+      type: object
+      additionalProperties: false
+      required: [instructions, demonstration_count]
+      properties:
+        instructions:
+          type: string
+          minLength: 1
+          maxLength: 32768
+          pattern: '.*\S.*'
+        demonstration_count:
+          type: integer
+          minimum: 1
+          maximum: 20
+    PromptDemonstrationResult:
+      type: object
+      additionalProperties: false
+      required: [prompt_key, demonstrations]
+      properties:
+        prompt_key:
+          $ref: "#/components/schemas/PromptKey"
+        demonstrations:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/PromptDemonstration"
     ReplaceMemoryArtifactRequest:
       type: object
       additionalProperties: false
@@ -7428,13 +8639,13 @@ components:
       enum: [accepted]
     BaseArtifactFamily:
       type: string
-      enum: [memory, experience, skill, handoff]
+      enum: [memory, experience, skill, handoff, profile, prompt]
     StatsPeriod:
       type: string
       enum: [today, 7d, 30d]
     CandidateFamily:
       type: string
-      enum: [experience, skill]
+      enum: [experience, skill, profile]
     ExternalSkillInstallationScope:
       type: string
       enum: [user, project, plugin]

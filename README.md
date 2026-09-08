@@ -14,7 +14,7 @@ PowerContext keeps context with the work across conversations. When you return, 
 
 ![You and agents hand work off and continue with stored context](docs/assets/readme-workflow.svg)
 
-[Website](https://powercontext.oceanbase.io/en/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
+[Website](https://powercontext.oceanbase.io/) · [Read the documentation](https://powercontext.oceanbase.io/en/docs/)
 
 ## Pick up where the work left off
 
@@ -27,7 +27,7 @@ You decide what will matter later and what needs to move with the task. PowerCon
 Install the latest released [PowerContext](https://pypi.org/project/powercontext/):
 
 ```bash
-uv tool install "powercontext[cli,server]==0.1.0"
+uv tool install "powercontext[cli,server]==0.2.0"
 ```
 
 Start a local Server in its own terminal:
@@ -36,15 +36,12 @@ Start a local Server in its own terminal:
 powercontext server run
 ```
 
-The `powercontext service` command is not available in the `0.1.0` release. Keep `powercontext server run` running
-while you use PowerContext, or install the unreleased `master` version below to use the native personal service.
-
 The Server stores context in a local SQLite database by default.
 
 Then set up an agent integration from the matching release. For example:
 
 ```bash
-powercontext setup codex --ref powercontext-v0.1.0
+powercontext setup codex --ref powercontext-v0.2.0
 ```
 
 Keep the PowerContext tool and agent integration on the same Git ref. To try the latest unreleased `master`, install
@@ -55,8 +52,8 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 
-The current `master` also provides an optional persistent personal Server that survives terminal closure and can
-start again after login:
+For a persistent personal Server that survives terminal closure and can start again after login, stop the foreground
+Server and install the optional native service:
 
 ```bash
 powercontext service install # Uninstall with `powercontext service uninstall`
@@ -88,6 +85,8 @@ For other agents and deployment options, continue with the [agent setup guide](h
 </table>
 
 Applications can use PowerContext through the async Python client, HTTP API, MCP, or the in-process Core SDK. See the [interface reference](https://powercontext.oceanbase.io/en/docs/reference/interfaces/) to choose an entry point.
+
+Explore the [22 Chinese Jupyter tutorials and a complete team workflow](examples/jupyter/README.md) to run Memory, context preparation, Handoff, Experience, Skill, and a real Agent step by step. The first seven tutorials need no model or API key.
 
 ## What changes with PowerContext
 

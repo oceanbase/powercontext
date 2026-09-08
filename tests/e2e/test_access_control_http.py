@@ -46,7 +46,9 @@ from powercontext.http import (
     ListAccessResourcesRequest,
     ListArtifactsRequest,
     ListMemoryEntriesRequest,
+    QueryArtifactTagsRequest,
     ReplaceArtifactRequest,
+    ReplaceArtifactTagsRequest,
     RevokeAccessBindingRequest,
 )
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
@@ -678,6 +680,146 @@ def test_server_administrators_discover_managed_resources_without_content_access
                 direct = await viewer.list_access_resources(query.model_copy(update={"cursor": None}))
                 assert direct.total == 1
                 assert direct.items[0].model_dump(mode="json")["scope_id"] == scope.scope_id
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("family", ["memory", "experience", "skill", "handoff"])
+def test_tag_owners_and_exact_viewers_preserve_scope_boundaries(tmp_path: Path, family: str) -> None:
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tags.db'}")
+        async with open_builtin_access_control(
+            database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT_ID
+        ) as access:
+            async with _client(
+                _app(database, access, ADMIN, "admin-token", tmp_path / "admin.db"), "admin-token"
+            ) as admin:
+                scope = await admin.create_scope(
+                    CreateScopeRequest(title="Private tags", summary="Scoped tag access", idempotency_key="tags")
+                )
+                await admin.create_access_binding(
+                    CreateAccessBindingRequest.model_validate({
+                        "subject": {"type": RECEIVER.type, "id": RECEIVER.id},
+                        "resource": {"type": "scope", "scope_id": scope.scope_id},
+                        "role": "scope.contributor",
+                        "idempotency_key": "tag-owner",
+                    })
+                )
+            async with _client(
+                _app(database, access, RECEIVER, "owner-token", tmp_path / "owner.db"), "owner-token"
+            ) as owner:
+                source = await owner.create_source(scope.scope_id, CreateSourceRequest(content="Tag access evidence"))
+                content = {
+                    "memory": {"entries": [{"kind": "fact", "text": "Private release rule"}]},
+                    "experience": {
+                        "situation": "Release",
+                        "action": "Test",
+                        "outcome": "Passed",
+                        "lesson": "Test first",
+                    },
+                    "skill": {
+                        "name": "release-check",
+                        "description": "Check release",
+                        "instructions": "Run tests",
+                        "validation": ["Tests pass"],
+                    },
+                    "handoff": {
+                        "schema": "powercontext.handoff.v1",
+                        "objective": "Release checks",
+                        "state": [
+                            {
+                                "text": "Tag access evidence",
+                                "citations": [
+                                    {
+                                        "kind": "source",
+                                        "source_ref": {"name": "content", "source_id": source.source_id},
+                                    }
+                                ],
+                            }
+                        ],
+                        "disposition": "complete",
+                        "next_action": None,
+                        "omissions": [],
+                    },
+                }[family]
+                artifact = await owner.create_artifact(
+                    scope.scope_id, CreateArtifactRequest.model_validate({"family": family, "content": content})
+                )
+                entry_id = None
+                if family == "memory":
+                    head = await owner.get_artifact(scope.scope_id, family, artifact.artifact_id)
+                    assert head is not None
+                    entry_id = head.content["manifest"]["entries"][0]["entry_id"]
+
+                async def read_tags(client):
+                    if entry_id is not None:
+                        return await client.get_memory_entry_tags(scope.scope_id, artifact.artifact_id, entry_id)
+                    return await client.get_artifact_tags(scope.scope_id, family, artifact.artifact_id)
+
+                async def write_tags(client, etag):
+                    request = ReplaceArtifactTagsRequest.model_validate({"tags": ["release", "客户A"]})
+                    if entry_id is not None:
+                        return await client.replace_memory_entry_tags(
+                            scope.scope_id, artifact.artifact_id, entry_id, request, expected_etag=etag
+                        )
+                    return await client.replace_artifact_tags(
+                        scope.scope_id, family, artifact.artifact_id, request, expected_etag=etag
+                    )
+
+                empty = await read_tags(owner)
+                assert empty is not None
+                saved = await write_tags(owner, empty.etag)
+                if family == "memory":
+                    container = await owner.get_artifact_tags(scope.scope_id, family, artifact.artifact_id)
+                    assert container is not None
+                    with pytest.raises(ForbiddenResponseError):
+                        await owner.replace_artifact_tags(
+                            scope.scope_id,
+                            family,
+                            artifact.artifact_id,
+                            ReplaceArtifactTagsRequest(tags=[]),
+                            expected_etag=container.etag,
+                        )
+                binding = await owner.create_access_binding(
+                    CreateAccessBindingRequest.model_validate({
+                        "subject": {"type": VIEWER.type, "id": VIEWER.id},
+                        "resource": {
+                            "type": "artifact",
+                            "scope_id": scope.scope_id,
+                            "identity": {"family": family, "artifact_id": artifact.artifact_id},
+                            "selector": None if entry_id is None else {"type": "memory_entry", "entry_id": entry_id},
+                        },
+                        "role": "handoff.viewer" if family == "handoff" else "artifact.viewer",
+                        "idempotency_key": "tag-viewer",
+                    })
+                )
+            async with _client(
+                _app(database, access, VIEWER, "viewer-token", tmp_path / "viewer.db"), "viewer-token"
+            ) as viewer:
+                visible = await read_tags(viewer)
+                assert visible is not None and visible.tag_set.tags == saved.tag_set.tags
+                with pytest.raises(ForbiddenResponseError):
+                    await write_tags(viewer, visible.etag)
+                with pytest.raises(ForbiddenResponseError):
+                    await viewer.query_artifact_tags(
+                        scope.scope_id, QueryArtifactTagsRequest.model_validate({"tags": ["release"]})
+                    )
+                if entry_id is not None:
+                    with pytest.raises(ForbiddenResponseError):
+                        await viewer.get_artifact_tags(scope.scope_id, "memory", artifact.artifact_id)
+            async with _client(
+                _app(database, access, ADMIN, "admin-token", tmp_path / "admin.db"), "admin-token"
+            ) as admin:
+                await admin.revoke_access_binding(
+                    RevokeAccessBindingRequest(
+                        binding_id=binding.binding_id, expected_version=binding.version, idempotency_key="revoke-tags"
+                    )
+                )
+            async with _client(
+                _app(database, access, VIEWER, "viewer-token", tmp_path / "viewer.db"), "viewer-token"
+            ) as viewer:
+                with pytest.raises(ForbiddenResponseError):
+                    await read_tags(viewer)
 
     asyncio.run(scenario())
 

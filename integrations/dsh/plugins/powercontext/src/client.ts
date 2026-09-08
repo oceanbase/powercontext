@@ -30,9 +30,9 @@ export type JsonObject = Record<string, unknown>
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
 
 export type ClientSuccess =
-  | { kind: 'json'; value: unknown; status: number; requestId: string | undefined }
-  | { kind: 'text'; value: string; status: number; requestId: string | undefined }
-  | { kind: 'bytes'; value: Uint8Array; status: number; requestId: string | undefined }
+  | { kind: 'json'; value: unknown; status: number; requestId: string | undefined; etag?: string }
+  | { kind: 'text'; value: string; status: number; requestId: string | undefined; etag?: string }
+  | { kind: 'bytes'; value: Uint8Array; status: number; requestId: string | undefined; etag?: string }
 
 export interface ClientOptions {
   baseUrl: string
@@ -117,7 +117,7 @@ function queryString(payload: JsonObject | undefined): string {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(payload ?? {})) {
     if (value === undefined || value === null) continue
-    params.set(key, String(value))
+    for (const item of Array.isArray(value) ? value : [value]) params.append(key, String(item))
   }
   const encoded = params.toString()
   return encoded ? `?${encoded}` : ''
@@ -257,7 +257,7 @@ export class PowerContextClient {
     }
     if (hasStatus(spec.emptyStatuses as readonly number[], response.status)) {
       if (bytes.byteLength !== 0) throw new InvalidResponseError(spec.path, requestId)
-      return { kind: 'json', value: null, status: response.status, requestId }
+      return { kind: 'json', value: null, status: response.status, requestId, etag: response.headers.get('ETag') ?? undefined }
     }
     if (id === 'get_handoff_report' && payload?.download === true) {
       return { kind: 'bytes', value: bytes, status: response.status, requestId }
@@ -266,7 +266,7 @@ export class PowerContextClient {
       return { kind: 'text', value: Buffer.from(bytes).toString('utf8'), status: response.status, requestId }
     }
     try {
-      return { kind: 'json', value: JSON.parse(Buffer.from(bytes).toString('utf8')), status: response.status, requestId }
+      return { kind: 'json', value: JSON.parse(Buffer.from(bytes).toString('utf8')), status: response.status, requestId, etag: response.headers.get('ETag') ?? undefined }
     } catch {
       throw new InvalidResponseError(spec.path, requestId)
     }

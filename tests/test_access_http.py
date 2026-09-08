@@ -115,6 +115,108 @@ def test_enforced_mode_uses_injected_authentication_and_builtin_access(tmp_path:
     assert protected.status_code == 403
 
 
+@pytest.mark.parametrize("scheduled", [False, True])
+def test_generation_model_does_not_require_background_principal_unless_scheduled(tmp_path: Path, scheduled) -> None:
+    from powercontext.builtin.runtime.config import InferenceConfig
+
+    app = create_server_app(
+        settings=ServerSettings(
+            access=AccessControlConfig(mode="enforced"),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile-startup.db'}"),
+            inference=InferenceConfig(generation_model="test"),
+            runtime=RuntimeConfig(profile_schedule_enabled=scheduled),
+        ),
+        authentication_provider=_ActingAuthenticationProvider(),
+    )
+    if scheduled:
+        with pytest.raises(ValueError, match="BACKGROUND_PRINCIPAL_ID"), TestClient(app):
+            pass
+    else:
+        with TestClient(app) as client:
+            assert client.get("/v1/access/me").status_code == 200
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_profile_flush_authorizes_the_actual_snapshot(tmp_path: Path, monkeypatch, background) -> None:
+    from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+    from powercontext.builtin.records import ArtifactWrite
+    from powercontext.builtin.runtime.relational import RelationalContexts
+    from powercontext.builtin.scope import ScopeDraft
+    from powercontext.server.authz import AccessDeniedError
+    from powercontext.server.factory import _scheduled_profile_runner
+
+    class Generator:
+        async def generate(self, value):
+            return "# Unauthorized replacement"
+
+    async def scenario():
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile-race.db'}"),
+            tables=(*BUILTIN_TABLES, *ACCESS_TABLES),
+        ) as profile:
+            contexts = RelationalContexts(database=profile.database)
+            sid = (
+                await contexts.scopes.create(ScopeDraft(title="User", summary="User", idempotency_key="user"))
+            ).scope_id
+            repository = RelationalAccessRepository(profile.database)
+            await _seed_admin(repository)
+            access = AccessControlService(
+                BuiltinAuthorizationProvider(repository), relationships=repository, audit=repository
+            )
+            await access.create_binding(
+                ADMIN,
+                CreateBinding(
+                    subject=BOB,
+                    resource=ResourceRef.scope(sid),
+                    role=AccessRole.SCOPE_CONTRIBUTOR,
+                    idempotency_key="bob-scope-contributor",
+                ),
+                context=AUDIT,
+            )
+            await contexts.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            await contexts.records.create_source(sid, "content", "New evidence")
+            contexts.profiles.generator = Generator()
+            original_flush = contexts.profiles.flush
+            resource = ResourceRef.artifact(sid, family="profile", artifact_id="profile")
+
+            async def interleaved_flush(*args, **kwargs):
+                # Another request commits after entry-point checks, before the generation snapshot.
+                await contexts.records.create_artifact(
+                    sid, "profile", ArtifactWrite(content={"content": "# Owned by Alice"})
+                )
+                await access.establish_artifact_owner(
+                    resource, ALICE, idempotency_key="alice-profile-owner", context=AUDIT
+                )
+                return await original_flush(*args, **kwargs)
+
+            monkeypatch.setattr(contexts.profiles, "flush", interleaved_flush)
+            if background:
+                runner = _scheduled_profile_runner(
+                    ServerSettings(access=AccessControlConfig(mode="enforced")),
+                    access,
+                    enabled=True,
+                    legacy_static_principal=BOB,
+                )
+                with pytest.raises(AccessDeniedError):
+                    await runner(sid, 1, contexts.profiles)
+            else:
+                token = "bob-token"  # noqa: S105
+                async with _client(_app(access, principal=BOB, token=token, application=contexts)) as client:
+                    response = await client.post(
+                        "/v1/profile/flush", headers=_auth("bob-token"), json={"scope_id": sid}
+                    )
+                assert response.status_code == 403, response.text
+            saved = await contexts.records.get_artifact(sid, "profile", "profile")
+            assert saved.revision == 1
+            assert saved.content["content"] == "# Owned by Alice\n"
+            # A denied flush must not consume the evidence window either.
+            monkeypatch.setattr(contexts.profiles, "flush", original_flush)
+            result = await contexts.profiles.flush(sid)
+            assert result.previous_cursor == 0
+
+    asyncio.run(scenario())
+
+
 def test_injected_authentication_takes_precedence_over_legacy_token(tmp_path: Path) -> None:
     app = create_server_app(
         settings=ServerSettings(
@@ -631,7 +733,9 @@ def test_access_api_and_handoff_pep_enforce_exact_receiver_visibility() -> None:
                     "handoff",
                     "memory",
                     "experience",
+                    "profile",
                     "skill",
+                    "prompt",
                 }
                 roles = await admin.post(
                     "/v1/access/roles/list",

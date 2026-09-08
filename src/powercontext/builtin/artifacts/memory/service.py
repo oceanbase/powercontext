@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Literal, Protocol, TypeAlias, TypeVar, overload
@@ -77,6 +78,7 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemoryWritePlan,
 )
 from powercontext.builtin.artifacts.memory.reranking import MemoryReranker
+from powercontext.builtin.artifacts.prompt.service import ScopedPrompts, current_prompt, prompt_operation
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import (
     EmbeddingModel,
@@ -84,6 +86,7 @@ from powercontext.builtin.inference import (
     InferenceTimeoutError,
     InferenceUnavailableError,
 )
+from powercontext.builtin.tags import TagFilter
 from powercontext.errors import RevisionConflictError
 from powercontext.sources import Source, SourceRef
 
@@ -136,6 +139,16 @@ class _InvalidMemoryOperationError(ValueError):
         super().__init__(messages[code])
 
 
+def _extraction_prompt_refs() -> tuple[ArtifactRef, ...]:
+    selection = current_prompt("memory.extract")
+    return () if selection is None or selection.artifact is None else (selection.artifact,)
+
+
+def _require_tag_filter(capabilities: MemoryCapabilities, tag_filter: TagFilter | None) -> None:
+    if tag_filter is not None and not capabilities.tag_filter:
+        raise CapabilityNotSupportedError("tag-filter")
+
+
 class MemoryService:
     """Validate and orchestrate Memory operations without exposing storage details."""
 
@@ -150,8 +163,10 @@ class MemoryService:
         source_resolver: _SourceResolver | None = None,
         artifact_resolver: _ArtifactResolver | None = None,
         id_factory: IdFactory | None = None,
+        prompt_context: ScopedPrompts | None = None,
     ) -> None:
         self._backend = backend
+        self._prompt_context = prompt_context
         self._candidate_pipeline = candidate_pipeline
         self._embedding_model = embedding_model
         if rerank_candidate_limit < 1:
@@ -234,34 +249,40 @@ class MemoryService:
             has_entries=bool(entries),
             has_evidence=bool(sources or artifacts),
         )
-        base = await self._canonical_base(memory)
-        evidence = await self._canonical_operation_evidence(sources, artifacts)
-        current_entries = () if base is None else await self._validated_entries(base)
-        candidates = await self._candidates(
-            selected_mode,
-            tuple(entries),
-            evidence,
-            current_entries,
-            active_version_ids=(
-                frozenset()
-                if base is None
-                else frozenset(
-                    item.entry_version_id for item in base.content.manifest.entries if item.state == "active"
-                )
-            ),
+        binding = (
+            self._prompt_context.service.bind(self._prompt_context.scope_id, "memory.extract")
+            if selected_mode == "extract" and self._prompt_context is not None
+            else nullcontext()
         )
-        if not candidates:
-            return MemoryWritePlan(result=base, commit=None)
+        async with binding:
+            base = await self._canonical_base(memory)
+            evidence = await self._canonical_operation_evidence(sources, artifacts)
+            current_entries = () if base is None else await self._validated_entries(base)
+            candidates = await self._candidates(
+                selected_mode,
+                tuple(entries),
+                evidence,
+                current_entries,
+                active_version_ids=(
+                    frozenset()
+                    if base is None
+                    else frozenset(
+                        item.entry_version_id for item in base.content.manifest.entries if item.state == "active"
+                    )
+                ),
+            )
+            if not candidates:
+                return MemoryWritePlan(result=base, commit=None)
 
-        commit = await self._prepare_commit(
-            base=base,
-            candidates=candidates,
-            evidence=evidence,
-            current_entries=current_entries,
-        )
-        if commit is None:
-            return MemoryWritePlan(result=base, commit=None)
-        return MemoryWritePlan(result=commit.memory, commit=commit)
+            commit = await self._prepare_commit(
+                base=base,
+                candidates=candidates,
+                evidence=evidence,
+                current_entries=current_entries,
+            )
+            if commit is None:
+                return MemoryWritePlan(result=base, commit=None)
+            return MemoryWritePlan(result=commit.memory, commit=commit)
 
     async def apply(self, plan: MemoryWritePlan, /) -> Memory | None:
         """Apply one prepared write through this service's transaction boundary."""
@@ -373,6 +394,7 @@ class MemoryService:
                 )
         return await self._backend.changes(target.as_ref(), since_revision)
 
+    @prompt_operation("memory.rerank")
     async def search(
         self,
         query: str,
@@ -380,6 +402,7 @@ class MemoryService:
         memories: Sequence[Memory],
         limit: int = 10,
         mode: MemorySearchMode = "auto",
+        tag_filter: TagFilter | None = None,
     ) -> MemorySearchResult:
         """Search explicit current Memory heads with capability-safe fallback."""
 
@@ -397,6 +420,7 @@ class MemoryService:
         selected_memories = tuple(memory.as_ref() for memory in selected)
         await self._validate_search_heads(selected)
         capabilities = await self._backend.capabilities()
+        _require_tag_filter(capabilities, tag_filter)
         selected_mode = await self._select_search_mode(
             mode,
             memories=selected_memories,
@@ -434,6 +458,7 @@ class MemoryService:
             mode=selected_mode,
             query_vector=query_vector,
             embedding_profile=profile,
+            tag_filter=tag_filter,
         )
         channels = await self._backend.search(request)
         admitted_fts = admit_fts_candidates(normalized_query, channels.fts)
@@ -505,11 +530,18 @@ class MemoryService:
             )
         return versions
 
-    async def entries(self, memory: Memory, /) -> tuple[MemoryEntryVersion, ...]:
+    async def entries(
+        self, memory: Memory, /, *, tag_filter: TagFilter | None = None
+    ) -> tuple[MemoryEntryVersion, ...]:
         """Return the entry objects referenced by one exact current Memory head."""
 
         canonical = await self._canonical_memory(memory)
-        return await self._validated_entries(canonical)
+        entries = await self._validated_entries(canonical)
+        if tag_filter is None:
+            return entries
+        _require_tag_filter(await self._backend.capabilities(), tag_filter)
+        matching = await self._backend.tagged_entry_ids(canonical.as_ref(), tag_filter)
+        return tuple(entry for entry in entries if entry.entry_id in matching)
 
     async def rebuild_projections(self, embedding_model: EmbeddingModel | None = None, /) -> None:
         """Rebuild current-head search projections from authoritative Memory revisions."""
@@ -908,6 +940,8 @@ class MemoryService:
 
         canonical_artifacts: list[Artifact[object]] = []
         for artifact in artifacts:
+            if artifact.family == "prompt":
+                raise InvalidMemoryEvidenceError("prompt-configuration")
             if self._artifact_resolver is None:
                 raise InvalidMemoryEvidenceError("artifact-resolver")
             _append_unique(canonical_artifacts, await self._artifact_resolver.get(artifact))
@@ -1058,7 +1092,7 @@ class MemoryService:
             content=content,
             lineage=ArtifactLineage(
                 sources=self._source_refs(evidence.sources),
-                artifacts=tuple(artifact.as_ref() for artifact in evidence.artifacts),
+                artifacts=tuple(artifact.as_ref() for artifact in evidence.artifacts) + _extraction_prompt_refs(),
             ),
         )
         projections = await self._prepare_projections(

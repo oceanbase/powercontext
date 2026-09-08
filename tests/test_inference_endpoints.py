@@ -268,7 +268,6 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
                         idempotency_key="custom-inference",
                     )
                 )
-                readiness = await runtime.readiness()
                 memory = runtime.memory.for_scope(scope.scope_id)
                 await memory.remember(
                     RememberMemoryRequest(
@@ -279,8 +278,10 @@ def test_generation_embedding_and_llm_rerank_models_receive_their_own_settings(
                     )
                 )
                 search = await memory.search(SearchMemoryRequest(query="deployment environment", mode="fts", limit=1))
+                # Check readiness after the real model clients have completed their first requests.
+                readiness = await runtime.readiness()
 
-            assert readiness.status.value == "ready"
+            assert readiness.status.value == "ready", readiness.checks
             assert readiness.checks["inference.generation"] == "ready"
             assert readiness.checks["inference.embedding"] == "ready"
             assert readiness.checks["inference.rerank"] == "ready"

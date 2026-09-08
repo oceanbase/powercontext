@@ -103,6 +103,19 @@ Repository = "https://github.com/oceanbase/powercontext"
 Documentation = "https://powercontext.oceanbase.io/en/docs/"
 
 [dependency-groups]
+notebooks = [
+    "powercontext[cli,server]",
+    "powercontext-langchain",
+    "powercontext-langgraph",
+    "powercontext-connector-opendal; python_version >= '3.12'",
+    "ipykernel>=6.29,<8",
+    "jupyterlab>=4.3,<5",
+    "nbclient>=0.10,<1",
+    "nbformat>=5.10,<6",
+    "langchain-openai>=1,<2",
+    "python-dotenv>=1,<2",
+    "playwright>=1.55,<2",
+]
 dev = [
     "datamodel-code-generator==0.64.0",
     "powercontext[cli,server]",
@@ -124,6 +137,7 @@ dev = [
 [tool.uv.sources]
 powercontext-langchain = { path = "integrations/langchain", editable = true }
 powercontext-langgraph = { path = "integrations/langgraph", editable = true }
+powercontext-connector-opendal = { path = "integrations/opendal", editable = true }
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -152,6 +166,8 @@ extra-paths = [
 
 [tool.ty.src]
 exclude = [
+    # Optional Jupyter dependencies and notebook state are validated by notebooks-test.
+    "examples/jupyter",
     "e2e/bub",
     "integrations/bub",
     "integrations/pydantic-ai",
@@ -239,6 +255,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"examples/jupyter/*.ipynb" = ["S101", "RUF001", "TRY003"]
+"examples/jupyter/_tutorial.py" = ["RUF001"]
 "tests/**/*.py" = ["S101", "S603"]
 "tests/*.py" = ["S101", "S603"]
 

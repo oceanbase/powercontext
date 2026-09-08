@@ -27,7 +27,7 @@ PowerContext は、会話をまたいでもコンテキストを作業ととも�
 最新リリースの [PowerContext](https://pypi.org/project/powercontext/) をインストールします：
 
 ```bash
-uv tool install "powercontext[cli,server]==0.1.0"
+uv tool install "powercontext[cli,server]==0.2.0"
 ```
 
 別のターミナルでローカル Server を起動します：
@@ -36,16 +36,12 @@ uv tool install "powercontext[cli,server]==0.1.0"
 powercontext server run
 ```
 
-`0.1.0` リリースには `powercontext service` コマンドは含まれていません。PowerContext の使用中は
-`powercontext server run` を実行したままにするか、ネイティブの個人用サービスを使用するために、以下の未リリース版
-`master` をインストールしてください。
-
 Server はデフォルトで、コンテキストをローカルの SQLite データベースに保存します。
 
 次に同じリリースから Agent との連携を設定します。例：
 
 ```bash
-powercontext setup codex --ref powercontext-v0.1.0
+powercontext setup codex --ref powercontext-v0.2.0
 ```
 
 PowerContext ツールと Agent 連携には、常に同じ Git ref を使用してください。最新の未リリース版 `master` を試す場合は、
@@ -56,7 +52,8 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 powercontext setup codex --source oceanbase/powercontext --ref master
 ```
 
-現在の `master` では、ターミナルを閉じても動作を続け、次回ログイン時に再び起動できる個人用 Server も利用できます：
+ターミナルを閉じても動作を続け、次回ログイン時に再び起動できる個人用 Server が必要な場合は、
+フォアグラウンドの Server を停止してから、オプションのネイティブサービスをインストールします：
 
 ```bash
 powercontext service install # アンインストールは `powercontext service uninstall`
@@ -88,6 +85,8 @@ Enter を押すと既定では無効のままです。明示的に選ぶ場合�
 </table>
 
 アプリケーションは、非同期 Python クライアント、HTTP API、MCP、または同一プロセス内の Core SDK から PowerContext を利用できます。入口を選ぶには[インターフェースリファレンス](https://powercontext.oceanbase.io/en/docs/reference/interfaces/)を参照してください。
+
+Python で段階的に試すには、チーム作業の一連の流れも学べる [22 本の Jupyter チュートリアル（中国語）](examples/jupyter/README.md)をご覧ください。Memory、コンテキストの準備、Handoff、Experience、Skill、実際の Agent を動かしながら学べます。最初の 7 本はモデルや API キーなしで実行できます。
 
 ## PowerContext で何が変わるか
 

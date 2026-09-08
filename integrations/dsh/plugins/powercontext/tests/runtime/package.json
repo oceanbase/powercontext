@@ -1,0 +1,12 @@
+{
+  "name": "powercontext-dsh-runtime-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 runtime.test.mjs",
+    "test:real": "node --test real-model.test.mjs"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-sdk-client": "0.1.2-rc.1"
+  }
+}

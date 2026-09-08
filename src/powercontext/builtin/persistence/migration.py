@@ -36,8 +36,10 @@ from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
+    ARTIFACT_TAGS_TABLE,
     COORDINATION_TABLES,
     MEMORY_TABLES,
+    PROFILE_POLICIES_TABLE,
     SCHEDULER_LEASES_TABLE,
     SCOPE_TABLES,
     SHARED_TABLES,
@@ -46,14 +48,18 @@ from powercontext.builtin.persistence.tables import (
 )
 
 BASELINE_REVISION = "0001_baseline"
-CURRENT_SCHEMA_REVISION = "0003_scope_source_skill"
+BRIDGE_REVISION = "0003_scope_source_skill"
+CURRENT_SCHEMA_REVISION = "0004_profile_tags"
 SCHEMA_VERSION_TABLE = "pc_schema_revisions"
 _MIGRATION_LEASE = "schema-migration"
 _MIGRATION_LEASE_SECONDS = 600
 _NO_EXTENSION_TABLES: frozenset[str] = frozenset()
-_BASE_TABLES = SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES
+_POST_BRIDGE_TABLES = (PROFILE_POLICIES_TABLE, ARTIFACT_TAGS_TABLE)
+_BASE_TABLES = tuple(
+    table for table in SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES if table not in _POST_BRIDGE_TABLES
+)
 _NEW_TABLES = WORK_TABLES + COORDINATION_TABLES
-_CURRENT_TABLES = SCOPE_TABLES + _BASE_TABLES + _NEW_TABLES
+_CURRENT_TABLES = SCOPE_TABLES + _BASE_TABLES + _NEW_TABLES + _POST_BRIDGE_TABLES
 SchemaProvisioner = Callable[[AsyncConnection], Awaitable[None]]
 
 
@@ -186,7 +192,7 @@ def _prepare_legacy_revision(
         )
     if present_new:
         _require_expected_columns(inspector, _NEW_TABLES)
-    command.stamp(_alembic_config(connection), CURRENT_SCHEMA_REVISION if present_new else BASELINE_REVISION)
+    command.stamp(_alembic_config(connection), BRIDGE_REVISION if present_new else BASELINE_REVISION)
 
 
 def _upgrade_known_legacy_columns(connection: Connection, inspector: Inspector) -> None:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from pathlib import Path
 
 import pytest
 from pydantic import JsonValue
@@ -25,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.handoff import Handoff
-from powercontext.builtin.artifacts.memory import Memory
+from powercontext.builtin.artifacts.memory import Memory, MemoryContent
 from powercontext.builtin.artifacts.skill import Skill
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.experience_index import ExperienceIndex, NoExperienceIndex
@@ -56,9 +57,11 @@ from powercontext.builtin.records import (
     ArtifactRevisionPreconditionError,
     ArtifactWrite,
     InvalidBaseAccessRequestError,
+    InvalidCursorError,
 )
 from powercontext.builtin.source_eligibility import SourceNotEligibleError
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentSource
+from powercontext.builtin.tags import ArtifactTagTarget, MemoryEntryTagTarget, TagFilter, TagPreconditionError, TagQuery
 
 
 class _FailingExperienceIndex(NoExperienceIndex):
@@ -74,6 +77,111 @@ class _FailingExperienceIndex(NoExperienceIndex):
 
 def _memory_content() -> dict[str, JsonValue]:
     return {"entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}]}
+
+
+def test_empty_tag_set_has_one_concurrent_winner_across_connections(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(
+            SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'tag-race.db'}"), tables=BUILTIN_TABLES
+        ) as profile:
+            first, _, _ = _services(profile)
+            second, _, _ = _services(profile)
+            created = await first.create_artifact("scope", "memory", ArtifactWrite(content=_memory_content()))
+            target = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
+            empty = await first.get_tags("scope", target)
+            outcomes = await asyncio.gather(
+                first.replace_tags("scope", target, ("one",), expected_etag=empty.etag),
+                second.replace_tags("scope", target, ("two",), expected_etag=empty.etag),
+                return_exceptions=True,
+            )
+            assert sum(isinstance(outcome, TagPreconditionError) for outcome in outcomes) == 1
+            assert (await first.get_tags("scope", target)).tags in {("one",), ("two",)}
+
+    asyncio.run(scenario())
+
+
+def test_tag_cursor_is_bound_to_filter_scope_and_caller() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            for _ in range(2):
+                created = await records.create_artifact("scope", "memory", ArtifactWrite(content=_memory_content()))
+                target = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
+                empty = await records.get_tags("scope", target)
+                await records.replace_tags("scope", target, ("shared",), expected_etag=empty.etag)
+            page = await records.query_tags("scope", TagQuery(tags=("shared",), limit=1), caller="a")
+            assert page.next_cursor
+            for scope, label, caller in (
+                ("other", "shared", "a"),
+                ("scope", "different", "a"),
+                ("scope", "shared", "b"),
+            ):
+                with pytest.raises(InvalidCursorError):
+                    await records.query_tags(scope, TagQuery(tags=(label,), cursor=page.next_cursor), caller=caller)
+
+    asyncio.run(scenario())
+
+
+def test_in_memory_sqlite_supports_concurrent_tag_reads() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            created = await records.create_artifact("scope", "memory", ArtifactWrite(content=_memory_content()))
+            target = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
+            values = await asyncio.gather(*(records.get_tags("scope", target) for _ in range(3)))
+            assert len({value.etag for value in values}) == 1
+
+    asyncio.run(scenario())
+
+
+def test_artifact_and_entry_tags_preserve_content_and_query_independently() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            created = await records.create_artifact("scope-a", "memory", ArtifactWrite(content=_memory_content()))
+            before = await records.get_artifact("scope-a", "memory", created.artifact_id)
+            artifact = ArtifactTagTarget(family="memory", artifact_id=created.artifact_id)
+            entry_id = MemoryContent.model_validate(before.content).manifest.entries[0].entry_id
+            entry = MemoryEntryTagTarget(artifact_id=created.artifact_id, entry_id=entry_id)
+            empty = await records.get_tags("scope-a", artifact)
+            tagged = await records.replace_tags("scope-a", artifact, ("Project", "中文"), expected_etag=empty.etag)
+            entry_empty = await records.get_tags("scope-a", entry)
+            assert entry_empty.tags == ()
+            assert entry_empty.etag != empty.etag
+            await records.replace_tags("scope-a", entry, ("project",), expected_etag=entry_empty.etag)
+            assert await records.get_artifact("scope-a", "memory", created.artifact_id) == before
+            page = await records.query_tags("scope-a", TagQuery(tags=("PROJECT",), limit=1))
+            assert len(page.items) == 1 and page.next_cursor
+            second = await records.query_tags("scope-a", TagQuery(tags=("project",), limit=1, cursor=page.next_cursor))
+            assert {page.items[0].target.type, second.items[0].target.type} == {"artifact", "memory_entry"}
+            assert second.next_cursor is None
+            assert (await records.query_tags("other-scope", TagQuery(tags=("project",)))).items == ()
+            all_tags = await records.query_tags("scope-a", TagQuery(tags=("project", "中文")))
+            assert [item.target for item in all_tags.items] == [artifact]
+            assert (
+                len((await records.query_tags("scope-a", TagQuery(tags=("project", "中文"), match="any"))).items) == 2
+            )
+            assert (
+                await records.query_artifacts(
+                    "scope-a", "memory", limit=1, cursor=None, tag_filter=TagFilter(tags=("missing",))
+                )
+            ).items == ()
+            assert (
+                len(
+                    (
+                        await records.query_artifacts(
+                            "scope-a", "memory", limit=1, cursor=None, tag_filter=TagFilter(tags=("project",))
+                        )
+                    ).items
+                )
+                == 1
+            )
+            with pytest.raises(TagPreconditionError):
+                await records.replace_tags("scope-a", artifact, ("lost update",), expected_etag=empty.etag)
+            await records.replace_tags("scope-a", artifact, (), expected_etag=tagged.etag)
+            assert (await records.get_tags("scope-a", entry)).tags == ("project",)
+
+    asyncio.run(scenario())
 
 
 def _handoff_content(objective: str = "Transfer the API test result.") -> dict[str, JsonValue]:

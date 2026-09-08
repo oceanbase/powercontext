@@ -14,8 +14,39 @@
  * limitations under the License.
  */
 
-import defaultMdxComponents from 'fumadocs-ui/mdx';
+import type { ComponentProps, FC } from 'react';
+import defaultMdxComponents, { createRelativeLink } from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
+import { source } from '@/lib/source';
+
+type SourcePage = ReturnType<typeof source.getPages>[number];
+
+function normalizeRelativeMarkdownHref(href: string) {
+  const pathname = href.split(/[?#]/, 1)[0];
+  if (
+    !/\.mdx?$/.test(pathname)
+    || pathname.startsWith('/')
+    || /^[a-z][a-z\d+.-]*:/i.test(pathname)
+    || pathname.startsWith('.')
+  ) {
+    return href;
+  }
+
+  return `./${href}`;
+}
+
+export function createPageLink(page: SourcePage): FC<ComponentProps<'a'>> {
+  const localePrefix = page.locale ? `${page.locale}/` : '';
+  const localizedPage = {
+    ...page,
+    path: localePrefix && page.path.startsWith(localePrefix) ? page.path.slice(localePrefix.length) : page.path,
+  };
+  const RelativeLink = createRelativeLink(source, localizedPage);
+
+  return function PageLink({ href, ...props }) {
+    return <RelativeLink href={href ? normalizeRelativeMarkdownHref(href) : href} {...props} />;
+  };
+}
 
 export function getMDXComponents(components?: MDXComponents) {
   return {

@@ -28,6 +28,7 @@ const translations = {
   en: {
     pageTitle: "PowerContext · Shared with me",
     sharedTitle: "Shared with me",
+    promptsTitle: "Prompts",
     dashboardTitle: "Overview",
     skillsTitle: "Skills",
     reviewTitle: "Review",
@@ -106,6 +107,7 @@ const translations = {
   zh: {
     pageTitle: "PowerContext · 与我共享",
     sharedTitle: "与我共享",
+    promptsTitle: "提示词",
     dashboardTitle: "概览",
     skillsTitle: "技能",
     reviewTitle: "审核",

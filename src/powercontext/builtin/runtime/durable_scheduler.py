@@ -187,12 +187,15 @@ class DurableScheduler:
         async with self._database.transaction() as connection:
             await self._coordination.assert_lease(connection, lease)
             now = await database_now(connection)
+            next_run = getattr(discoverer, "next_run_at", None)
+            next_run_at = now + timedelta(seconds=discoverer.interval_seconds) if next_run is None else next_run(now)
+            if next_run_at <= now:
+                message = f"discoverer {discoverer.name} produced a non-future next run"
+                raise ValueError(message)
             await self._coordination.save_scan(
                 connection,
                 discoverer.name,
-                next_run_at=now
-                if page.continuation is not None
-                else now + timedelta(seconds=discoverer.interval_seconds),
+                next_run_at=now if page.continuation is not None else next_run_at,
                 continuation=page.continuation,
                 expected_version=None if scan is None else scan.state_version,
             )

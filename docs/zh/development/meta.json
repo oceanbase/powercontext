@@ -1,0 +1,13 @@
+{
+  "title": "\u5f00\u53d1",
+  "collapsible": true,
+  "defaultOpen": false,
+  "pages": [
+    "core-protocol",
+    "memory-layer",
+    "plugin-contract",
+    "pydantic-ai-inference",
+    "remote-access-implementation",
+    "server-web-ui"
+  ]
+}

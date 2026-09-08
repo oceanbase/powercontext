@@ -63,6 +63,7 @@ export function isVersionMismatch(error: ServerResponseError): boolean {
 }
 
 const AUTOMATIC_OPERATION_PATHS = new Map([
+  ['scope_resolve', '/v1/scope-bindings/resolve'],
   ['context_prepare', '/v1/context/prepare'],
   ['capture_content_source', '/v1/sources/content'],
   ['flush_memory', '/v1/memory/flush'],
@@ -104,6 +105,24 @@ export function failureEvent(event: string, error: unknown): DiagnosticEvent | u
   return { event, outcome: 'invalid_response' }
 }
 
+export function logSafely(log: (event: Record<string, unknown>) => unknown, event: Record<string, unknown>): void {
+  try {
+    // A diagnostic writer must neither break nor hold up the automatic path.
+    void Promise.resolve(log(event)).catch(() => undefined)
+  } catch {
+    // Native logger failures are best effort, including success/debug logging.
+  }
+}
+
+export function reportFailure(
+  log: (event: Record<string, unknown>) => unknown,
+  event: string,
+  error: unknown,
+): void {
+  const diagnostic = failureEvent(event, error)
+  if (diagnostic) logSafely(log, diagnostic)
+}
+
 export function createDiagnosticEmitter(
   write: (line: string) => void,
   now: () => number = Date.now,
@@ -125,6 +144,6 @@ export function createDiagnosticEmitter(
       if (previous !== undefined && timestamp - previous < cooldownMs) return
       lastEmitted.set(key, timestamp)
     }
-    write(JSON.stringify(normalized))
+    return write(JSON.stringify(normalized))
   }
 }

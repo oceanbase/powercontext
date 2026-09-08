@@ -61,6 +61,14 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCitationError,
     MemoryEntryNotFoundError,
 )
+from powercontext.builtin.artifacts.profile.service import RelationalProfileService
+from powercontext.builtin.artifacts.prompt import (
+    GeneratePromptDemonstrations,
+    PromptConfiguration,
+    PromptDemonstrationResult,
+    PromptError,
+)
+from powercontext.builtin.artifacts.prompt.service import PromptService
 from powercontext.builtin.artifacts.skill import (
     AgentKind,
     AgentSkillTarget,
@@ -101,6 +109,7 @@ from powercontext.builtin.records import (
     ArtifactCreated,
     ArtifactRecord,
     ArtifactRecordPage,
+    ArtifactRevisionPage,
     ArtifactWrite,
     BaseValueConflictError,
     LogicalArtifactRecord,
@@ -180,6 +189,7 @@ from powercontext.builtin.runtime.readiness import (
 )
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
+from powercontext.builtin.scope.subject_sources import SubjectSourceService
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_NAME,
     ContentCapture,
@@ -197,6 +207,7 @@ from powercontext.builtin.statistics import (
     StatisticsPeriod,
 )
 from powercontext.builtin.statistics.aggregation import aggregate_statistics
+from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 from powercontext.builtin.work import (
     HANDOFF_BOUNDARY_SOURCE_KIND,
     HANDOFF_RECEIPT_SOURCE_KIND,
@@ -385,6 +396,20 @@ class ScopedRecordApplication:
                 revision,
             )
 
+    async def list_artifact_revisions(
+        self,
+        family: str,
+        artifact_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> ArtifactRevisionPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().list_artifact_revisions(
+                self.scope_id, family, artifact_id, limit=limit, cursor=cursor
+            )
+
     async def current_memory_entry(self, artifact_id: str, entry_id: str, /) -> MemoryEntryVersion:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._runtime._records().current_memory_entry(self.scope_id, artifact_id, entry_id)
@@ -400,14 +425,29 @@ class ScopedRecordApplication:
         *,
         limit: int,
         cursor: str | None,
+        tag_filter: TagFilter | None = None,
     ) -> ArtifactRecordPage:
         async with self._runtime._scope_operation(self.scope_id):
+            filters = {} if tag_filter is None else {"tag_filter": tag_filter}
             return await self._runtime._records().query_artifacts(
                 self.scope_id,
                 family,
                 limit=limit,
                 cursor=cursor,
+                **filters,
             )
+
+    async def get_tags(self, target: TagTarget) -> ArtifactTagSet:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().get_tags(self.scope_id, target)
+
+    async def replace_tags(self, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str) -> ArtifactTagSet:
+        async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            return await self._runtime._records().replace_tags(self.scope_id, target, tags, expected_etag=expected_etag)
+
+    async def query_tags(self, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().query_tags(self.scope_id, query, caller=caller)
 
     async def replace_artifact(
         self,
@@ -439,6 +479,38 @@ class RecordApplication:
     async def list_scopes(self, *, limit: int, cursor: str | None) -> ScopeSummaryPage:
         async with self._runtime._operation():
             return await self._runtime._records().list_scopes(limit=limit, cursor=cursor)
+
+
+class ScopedPromptApplication:
+    """Read configuration and generate suggestions inside an existing Scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def read_configuration(self, key: str, /) -> PromptConfiguration:
+        async with self._runtime._scope_operation(self.scope_id):
+            service = self._runtime._prompt_service
+            if service is None:
+                raise PromptError("prompt_customization_unavailable")
+            return await service.read_configuration(self.scope_id, key)
+
+    async def generate_demonstrations(
+        self, key: str, request: GeneratePromptDemonstrations, /
+    ) -> PromptDemonstrationResult:
+        async with self._runtime._scope_operation(self.scope_id):
+            service = self._runtime._prompt_service
+            if service is None:
+                raise PromptError("prompt_customization_unavailable")
+            return await service.generate_demonstrations(key, request)
+
+
+class PromptApplication:
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedPromptApplication:
+        return ScopedPromptApplication(self._runtime, scope_id)
 
 
 class RemoteIngestionApplication:
@@ -1532,6 +1604,7 @@ class ScopedMemoryApplication:
                             memories=(current,),
                             limit=request.limit,
                             mode=request.mode,
+                            **({} if request.tag_filter is None else {"tag_filter": request.tag_filter}),
                         )
                     except (CapabilityNotSupportedError, InvalidMemoryCitationError) as error:
                         latest = await _head_or_none(service, context.artifacts.memory_artifact_id)
@@ -1554,13 +1627,15 @@ class ScopedMemoryApplication:
                         rerank=result.rerank,
                     )
 
-    async def list(self, *, include_inactive: bool = False) -> MemoryEntriesPage:
+    async def list(self, *, include_inactive: bool = False, tag_filter: TagFilter | None = None) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
             current = await _head_or_none(service, context.artifacts.memory_artifact_id)
             if current is None:
                 return MemoryEntriesPage(memory_ref=None)
-            entries = tuple(_entry_record(current, entry) for entry in await service.entries(current))
+            entries = tuple(
+                _entry_record(current, entry) for entry in await service.entries(current, tag_filter=tag_filter)
+            )
             if not include_inactive:
                 entries = tuple(entry for entry in entries if entry.state == "active")
             return MemoryEntriesPage(
@@ -1695,6 +1770,8 @@ class BuiltinRuntime:
         scope_evictor: ScopeEvictor | None = None,
         scope_cache_observer: ScopeCacheObserver | None = None,
         review_service: ReviewServiceFactory | None = None,
+        profiles: RelationalProfileService | None = None,
+        subject_sources: SubjectSourceService | None = None,
         generation_service: GenerationServiceFactory | None = None,
         experience_recall: ExperienceRecall | None = None,
         skill_recall: SkillRecall | None = None,
@@ -1713,6 +1790,7 @@ class BuiltinRuntime:
         remote_skill_distribution: RemoteSkillDistributionService | None = None,
         statistics_service: StatisticsServiceFactory | None = None,
         record_service: RecordService | None = None,
+        prompt_service: PromptService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         memory_flusher: MemoryFlusher | None = None,
         operations: OperationManager | None = None,
@@ -1730,6 +1808,8 @@ class BuiltinRuntime:
         self._provider = provider
         self._capabilities = capabilities
         self._review_service = review_service
+        self.profiles = profiles
+        self.subject_sources = subject_sources
         self._generation_service = generation_service
         self._experience_recall = experience_recall
         self._skill_recall = skill_recall
@@ -1748,6 +1828,7 @@ class BuiltinRuntime:
         self._remote_skill_distribution = remote_skill_distribution
         self._statistics_service = statistics_service
         self._record_service = record_service
+        self._prompt_service = prompt_service
         self._recall_token_estimator = recall_token_estimator
         self._memory_flusher = memory_flusher
         self.publications = publication_application
@@ -1776,6 +1857,7 @@ class BuiltinRuntime:
         self.work = WorkApplication(self)
         self.memory = MemoryApplication(self)
         self.records = RecordApplication(self)
+        self.prompts = PromptApplication(self)
         self.review = ReviewApplication(self)
         self.skill = SkillApplication(self)
         self.remote_skills = RemoteSkillApplication(self)

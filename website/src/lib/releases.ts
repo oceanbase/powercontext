@@ -28,6 +28,44 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: 'v0.2.0',
+    date: '2026-09-07',
+    title: {
+      en: 'Organize context, control access, and distribute Skills',
+      zh: '组织上下文、控制访问、分发 Skill',
+    },
+    summary: {
+      en: 'PowerContext adds Server-owned Scopes, resource-level access control, and a complete Skill package workflow, with native personal services on macOS, Linux, and Windows.',
+      zh: 'PowerContext 新增由 Server 管理的 Scope、资源级访问控制和完整的 Skill 包工作流，并支持 macOS、Linux 和 Windows 原生个人服务。',
+    },
+    changes: {
+      en: [
+        'Organize Scopes with parent relationships and explicit context references, reuse Agent bindings, and inspect exact, subtree, or all-Scope views in the Dashboard and Handoff Reports.',
+        'Apply one access-control boundary across HTTP, MCP, and Dashboard data, with resource roles, revocable Bindings, audit records, and Casbin or AuthZEN adapters.',
+        'Review and version complete Skill packages, including scripts and resources; publish to local Codex or Claude Code targets or deliver exact Revisions through a remote Receiver.',
+        'Keep a personal Server running through the native service manager on macOS, Linux, or Windows using powercontext service install/status/uninstall.',
+        'Create and read Sources, manage Artifact Revisions through scoped REST endpoints, and explore the interactive Scalar API reference.',
+        'Configure separate generation, embedding, and reranking endpoints and model settings; inspect process metrics and host-visible integration diagnostics.',
+        'Use the redesigned bilingual documentation site, Agent and API tutorials, and benchmark result pages.',
+        'Fix sqlite-vec row accumulation on Memory commits, binary cursor-key persistence on Windows, environment-file parsing, and DSH Scope error handling.',
+        'Upgrade Server, clients, and integrations together. Unregistered legacy scope_id values now return scope_not_found; older OceanBase identity columns require utf8mb4_bin collation. Review data migration before upgrading an existing database.',
+      ],
+      zh: [
+        '通过父子关系和显式上下文引用组织 Scope，复用 Agent 绑定，并在 Dashboard 和 Handoff Report 中查看单个 Scope、子树或全部 Scope。',
+        '为 HTTP、MCP 和 Dashboard 数据统一执行访问控制，支持资源角色、可撤销的 Binding、审计记录，以及 Casbin 或 AuthZEN 适配器。',
+        '审核和管理包含脚本及资源文件的完整 Skill 包，将指定 Revision 发布到本机 Codex、Claude Code，或通过远程 Receiver 分发。',
+        '通过 powercontext service install/status/uninstall，使用 macOS、Linux 或 Windows 原生服务管理器运行个人 Server。',
+        '通过按 Scope 划分的 REST 接口创建和读取 Source、管理 Artifact Revision，并使用 Scalar 交互式 API 参考。',
+        '为生成、Embedding 和重排分别配置端点与模型参数，查看进程指标，并在 Agent Host 中获得集成诊断。',
+        '使用重新设计的中英文文档网站、Agent 和 API 教程，以及 Benchmark 结果页面。',
+        '修复 Memory 提交时 sqlite-vec 行累积、Windows 二进制游标密钥持久化、环境文件解析和 DSH Scope 错误处理问题。',
+        'Server、客户端和集成需一起升级。未注册的旧 scope_id 现在返回 scope_not_found；旧 OceanBase 身份列需使用 utf8mb4_bin 排序规则。升级已有数据库前，请先确认数据迁移方案。',
+      ],
+    },
+    installCommand: 'uv tool install --force "powercontext[cli,server]==0.2.0"',
+    githubUrl: 'https://github.com/oceanbase/powercontext/releases/tag/powercontext-v0.2.0',
+  },
+  {
     version: 'v0.1.0',
     date: '2026-08-31',
     title: {

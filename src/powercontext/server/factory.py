@@ -33,6 +33,7 @@ from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
 from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
+from powercontext.builtin.artifacts.profile.service import ProfileGenerator
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -47,7 +48,14 @@ from powercontext.builtin.runtime.work_handlers import EXPERIENCE_WORK_KIND, MEM
 from powercontext.builtin.runtime.worker import WorkExecutionError
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.errors import ArtifactNotFoundError
-from powercontext.http import Capabilities, MemorySearchMode, PreparedContextSchema, ReadinessResponse, ReadinessStatus
+from powercontext.http import (
+    Capabilities,
+    MemorySearchMode,
+    PreparedContextSchema,
+    PromptCapability,
+    ReadinessResponse,
+    ReadinessStatus,
+)
 from powercontext.server.access import HttpAccessLogMiddleware
 from powercontext.server.app import create_app
 from powercontext.server.authentication import (
@@ -110,6 +118,7 @@ def create_server_app(
     candidate_pipeline: CandidatePipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
+    profile_generator: ProfileGenerator | None = None,
     skill_generator: SkillGenerator | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
@@ -177,6 +186,7 @@ def create_server_app(
                     candidate_pipeline=candidate_pipeline,
                     experience_pipeline=experience_pipeline,
                     experience_generator=experience_generator,
+                    profile_generator=profile_generator,
                     skill_generator=skill_generator,
                     external_skill_provider=external_skill_provider,
                     handoff_pipeline=handoff_pipeline,
@@ -186,8 +196,20 @@ def create_server_app(
                     tracing=resolved_tracing,
                     work_observer=metrics,
                     work_execution_hooks=work_execution_hooks,
+                    profile_work_runner=_scheduled_profile_runner(
+                        resolved,
+                        active_access_control,
+                        enabled=config.deployment.role in {"all", "worker"}
+                        and config.runtime.profile_schedule_enabled
+                        and (profile_generator is not None or config.inference.generation_model is not None),
+                        legacy_static_principal=static_principal if legacy_static_admin else None,
+                    ),
                     cursor_secret=cursor_secret,
                     schema_extension_tables=ACCESS_TABLES if resolved.access.mode == "enforced" else (),
+                    handoff_verification_keys=tuple(
+                        secret.get_secret_value().encode()
+                        for secret in resolved.handoff_generation_verification_secrets
+                    ),
                 )
             )
             readiness_probe.bind(runtime)
@@ -495,6 +517,49 @@ def _validate_scheduled_work_access(
         _scheduled_principal(settings, legacy_static_principal=legacy_static_principal)
 
 
+def _scheduled_profile_runner(settings, access, *, enabled, legacy_static_principal):
+    if settings.access.mode == "disabled" or not enabled:
+        return None
+    if access is None:
+        raise ValueError("Profile scheduling requires an Authorization Provider")  # noqa: TRY003
+    principal = _scheduled_principal(settings, legacy_static_principal=legacy_static_principal)
+
+    async def run(scope_id, high, profiles):
+        context = AccessAuditContext(transport="background", operation="flush_profile")
+        await access.bootstrap_static_scope(principal, scope_id, context=context)
+        await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(scope_id), context=context)
+        resource = ResourceRef.artifact(scope_id, family="profile", artifact_id="profile")
+
+        async def authorize_snapshot(current):
+            if current is not None:
+                await access.require(principal, AccessAction.ARTIFACT_WRITE, resource, context=context)
+
+        async def on_commit(connection, artifact, candidate):
+            bound = access.with_connection(connection)
+            if artifact is not None and await bound.artifact_owner(resource) is None:
+                await bound.establish_artifact_owner(
+                    resource,
+                    principal,
+                    idempotency_key=f"profile-owner:{scope_id}",
+                    context=context,
+                )
+            if candidate is not None:
+                await bound.attest_candidate_owner(
+                    scope_id=scope_id,
+                    candidate_id=candidate.candidate_id,
+                    family="profile",
+                    proposed_owner=principal,
+                    target=None if candidate.target is None else resource,
+                    idempotency_key=f"candidate-owner:{scope_id}:{candidate.candidate_id}",
+                )
+
+        return await profiles.flush(
+            scope_id, high_watermark=high, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+        )
+
+    return run
+
+
 def _scheduled_principal(
     settings: ServerSettings,
     *,
@@ -662,7 +727,11 @@ async def _server_capabilities(
     capabilities = await runtime.capabilities()
     return Capabilities(
         source_types=[CONTENT_SOURCE_NAME],
-        artifact_families=["memory", "experience", "skill", "handoff"],
+        artifact_families=["memory", "experience", "skill", "handoff", "profile", "prompt"],
+        prompts={
+            key: PromptCapability.model_validate_json(value.model_dump_json())
+            for key, value in capabilities.prompts.items()
+        },
         memory_extraction=capabilities.memory_extraction or accepts_distributed_memory_work,
         experience_generation=capabilities.experience_generation,
         managed_skill_generation=capabilities.managed_skill_generation,

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from contextlib import AsyncExitStack
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -113,16 +114,22 @@ def test_scope_creation_does_not_hide_an_unrelated_integrity_error() -> None:
     asyncio.run(scenario())
 
 
-def test_concurrent_default_bootstrap_returns_one_scope(tmp_path) -> None:
+@pytest.mark.parametrize("profile_count", (1, 8))
+def test_concurrent_default_bootstrap_returns_one_scope(tmp_path, profile_count: int) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}")
-        async with SQLiteProfile.open(config, tables=BUILTIN_TABLES) as profile:
-            scopes = tuple(ScopeApplication(profile.database) for _ in range(8))
+        async with AsyncExitStack() as stack:
+            profiles = [
+                await stack.enter_async_context(SQLiteProfile.open(config, tables=BUILTIN_TABLES))
+                for _ in range(profile_count)
+            ]
+            scopes = tuple(ScopeApplication(profiles[index % profile_count].database) for index in range(8))
 
             defaults = await asyncio.gather(*(application.bootstrap_default() for application in scopes))
 
             assert len({scope.scope_id for scope in defaults}) == 1
             assert await scopes[0].default_scope() == defaults[0]
+            assert await scopes[0].list() == (defaults[0],)
 
     asyncio.run(scenario())
 

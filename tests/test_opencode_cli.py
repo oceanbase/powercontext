@@ -333,7 +333,8 @@ def test_run_opencode_probe_times_out_and_stops_process(tmp_path: Path, monkeypa
     import powercontext.cli.opencode as opencode_cli
 
     command, env, _marker, pid_path = _write_probe_server(tmp_path, "timeout")
-    monkeypatch.setattr(opencode_cli, "_ACTIVATION_PROBE_TIMEOUT", 0.2)
+    # Give the Python child time to publish its PID before testing timeout cleanup.
+    monkeypatch.setattr(opencode_cli, "_ACTIVATION_PROBE_TIMEOUT", 2.0)
 
     with pytest.raises(SetupError, match="Cannot run"):
         opencode_cli._run_opencode_probe(command, env)

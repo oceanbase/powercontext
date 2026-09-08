@@ -254,6 +254,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
         "handoff_generation",
         "search_modes",
         "context_versions",
+        "prompts",
     }
     assert "CapabilityLimit" not in schemas
 
@@ -699,17 +700,28 @@ def test_generated_transport_rejects_values_outside_openapi(
         model.model_validate(value)
 
 
-def test_base_access_contract_uses_only_the_seven_scoped_operations() -> None:
+def test_base_access_contract_includes_revision_history_and_tags() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     expected_operations = {
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "get"): "get_artifact_tags",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags", "put"): "replace_artifact_tags",
+        (
+            "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+            "get",
+        ): "get_memory_entry_tags",
+        (
+            "/v1/scopes/{scope_id}/artifacts/memory/{artifact_id}/entries/{entry_id}/tags",
+            "put",
+        ): "replace_memory_entry_tags",
         ("/v1/scopes/{scope_id}/sources", "post"): "create_source",
         ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}", "get"): "get_source",
         ("/v1/scopes/{scope_id}/artifacts", "post"): "create_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}", "get"): "list_artifacts",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "get"): "get_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}", "put"): "replace_artifact",
+        ("/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions", "get"): "list_artifact_revisions",
         (
             "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
             "get",
@@ -740,8 +752,11 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
-    assert len(artifact["oneOf"]) == 4
+    assert len(artifact["oneOf"]) == 6
     assert artifact["discriminator"]["propertyName"] == "family"
+    prompt_request = schemas["CreatePromptArtifactRequest"]
+    assert prompt_request["required"] == ["family", "prompt_key", "content"]
+    assert set(prompt_request["properties"]) == {"family", "prompt_key", "content"}
     for name in (
         "CreateMemoryArtifactRequest",
         "CreateExperienceArtifactRequest",
@@ -785,14 +800,19 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
             model.model_validate(payload)
 
 
-def test_artifact_collection_only_accepts_pagination() -> None:
+def test_artifact_collection_accepts_pagination_and_exact_tag_filters() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     paths = contract["paths"]
 
     assert "/v1/scopes/{scope_id}/sources/{source_type}" not in paths
     parameters = paths["/v1/scopes/{scope_id}/artifacts/{family}"]["get"]["parameters"]
-    assert [parameter["name"] for parameter in parameters if parameter["in"] == "query"] == ["limit", "cursor"]
-    assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None}
+    assert {parameter["name"] for parameter in parameters if parameter["in"] == "query"} == {
+        "limit",
+        "cursor",
+        "tag",
+        "tag_match",
+    }
+    assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None, "tag": None, "tag_match": None}
 
 
 def test_base_access_uses_a_dedicated_source_type_reference() -> None:

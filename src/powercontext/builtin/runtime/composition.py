@@ -48,6 +48,15 @@ from powercontext.builtin.artifacts.memory import (
     MemoryRerankDecision,
     MemoryReranker,
 )
+from powercontext.builtin.artifacts.profile.generation import PROFILE_INSTRUCTIONS, LLMProfileGenerator
+from powercontext.builtin.artifacts.profile.service import (
+    ProfileGenerationInput,
+    ProfileGenerationOutput,
+    ProfileGenerator,
+)
+from powercontext.builtin.artifacts.prompt import PromptRegistry
+from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
+from powercontext.builtin.artifacts.prompt.service import DemonstrationGenerator
 from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
@@ -97,6 +106,9 @@ from powercontext.builtin.runtime.work_handlers import (
     MemoryWorkHandler,
     OperationMaintenanceDiscoverer,
     OperationMaintenanceHandler,
+    ProfileWorkDiscoverer,
+    ProfileWorkHandler,
+    ProfileWorkRunner,
 )
 from powercontext.builtin.runtime.work_observability import WorkObserver
 from powercontext.builtin.runtime.worker import DurableWorker, WorkHandler
@@ -108,6 +120,9 @@ if TYPE_CHECKING:
     from pydantic_ai.models import Model
     from pydantic_ai.models.instrumented import InstrumentationSettings
     from pydantic_ai.providers import Provider
+    from pydantic_ai.settings import ModelSettings
+
+    from powercontext.builtin.inference.pydantic_ai import InferenceLimits
 
 ValueT = TypeVar("ValueT")
 
@@ -144,6 +159,7 @@ class BuiltinConfigurationError(RuntimeError):
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
+            "scheduled-profile-generator": "scheduled Profile processing requires a generation model or generator",
             "worker-pipeline": "the worker role requires a configured Memory candidate pipeline",
             "database": "unsupported built-in database",
         }
@@ -215,6 +231,7 @@ async def open_builtin_runtime(
     candidate_pipeline: CandidatePipeline | None = None,
     experience_pipeline: ExperienceCandidatePipeline | None = None,
     experience_generator: ExperienceGenerator | None = None,
+    profile_generator: ProfileGenerator | None = None,
     skill_generator: SkillGenerator | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
@@ -226,9 +243,11 @@ async def open_builtin_runtime(
     tracing: RuntimeTracing | None = None,
     work_observer: WorkObserver | None = None,
     work_execution_hooks: WorkExecutionHooks | None = None,
+    profile_work_runner: ProfileWorkRunner | None = None,
+    schema_extension_tables: tuple[Table, ...] = (),
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
-    schema_extension_tables: tuple[Table, ...] = (),
+    handoff_verification_keys: tuple[bytes, ...] = (),
 ) -> AsyncIterator[BuiltinRuntime]:
     """Open the selected database, inference adapters, and built-in runtime.
 
@@ -241,7 +260,9 @@ async def open_builtin_runtime(
     async with AsyncExitStack() as resources:
         scheduler_only = config.deployment.role == "scheduler"
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
+        prompt_demonstrators: dict[str, DemonstrationGenerator] = {}
         (
+            generated_profile,
             generated_memory,
             generated_incubation,
             generated_experience,
@@ -257,17 +278,22 @@ async def open_builtin_runtime(
                 resources,
                 instrumentation,
                 configured_source_registry,
+                prompt_demonstrators=prompt_demonstrators,
             )
             if not scheduler_only
             and (
-                candidate_pipeline is None
+                profile_generator is None
+                or candidate_pipeline is None
                 or experience_pipeline is None
                 or experience_generator is None
                 or skill_generator is None
                 or handoff_pipeline is None
                 or (config.runtime.memory_rerank_enabled and memory_reranker is None)
             )
-            else (None, None, None, None, None, None, None, None)
+            else (None, None, None, None, None, None, None, None, None)
+        )
+        configured_profile = (
+            None if scheduler_only else generated_profile if profile_generator is None else profile_generator
         )
         configured_pipeline = (
             None if scheduler_only else generated_memory if candidate_pipeline is None else candidate_pipeline
@@ -284,6 +310,24 @@ async def open_builtin_runtime(
         )
         configured_reranker = (
             None if scheduler_only else generated_reranker if memory_reranker is None else memory_reranker
+        )
+        components = (
+            ("memory.extract", candidate_pipeline, generated_memory),
+            ("memory.rerank", memory_reranker, generated_reranker),
+            ("experience.incubate", experience_pipeline, generated_incubation),
+            ("experience.generate", experience_generator, generated_experience),
+            ("skill.generate", skill_generator, generated_skill),
+            ("handoff.generate", handoff_pipeline, generated_handoff),
+        )
+        prompt_registry = PromptRegistry(
+            builtin_prompt_definitions(config.runtime.memory_extraction_profile),
+            supported=frozenset(
+                key for key, injected, generated in components if injected is None and generated is not None
+            ),
+            injected=frozenset(key for key, injected, _ in components if injected is not None),
+            disabled=frozenset({"memory.rerank"})
+            if not config.runtime.memory_rerank_enabled and memory_reranker is None
+            else frozenset(),
         )
         if configured_reranker is not None and tracing is not None:
             configured_reranker = _TracingMemoryReranker(configured_reranker, tracing)
@@ -330,9 +374,20 @@ async def open_builtin_runtime(
                 source_registry=configured_source_registry,
                 cursor_secret=cursor_secret,
                 schema_extension_tables=schema_extension_tables,
+                prompt_registry=prompt_registry,
+                prompt_demonstrators=prompt_demonstrators,
+                handoff_verification_keys=handoff_verification_keys,
             )
         )
-        _validate_work_configuration(config, configured_pipeline, configured_incubation, configured_reranker)
+        contexts.profiles.generator = configured_profile
+        contexts.profiles.max_sources = config.runtime.profile_max_sources_per_window
+        _validate_work_configuration(
+            config,
+            configured_pipeline,
+            configured_incubation,
+            configured_profile,
+            configured_reranker,
+        )
         membership = RuntimeMembership(
             database=contexts.database,
             deployment=config.deployment,
@@ -347,8 +402,9 @@ async def open_builtin_runtime(
             config,
             contexts,
             membership.instance_id,
-            claim_readiness=generation_readiness,
+            claim_readiness=generation_readiness if config.deployment.role == "worker" else None,
             execution_hooks=work_execution_hooks,
+            profile_runner=profile_work_runner,
             observer=work_observer,
             tracing=tracing,
         )
@@ -379,12 +435,15 @@ async def open_builtin_runtime(
                     external_skill_registry=contexts.external_skill_registry,
                     memory_search_modes=_search_modes(contexts.index.capabilities),
                     handoff_generation=contexts.handoff_generation,
+                    prompts=dict(contexts.prompt_registry.capabilities),
                 ),
                 source_window_limit=config.runtime.source_window_limit,
                 scope_cache_size=config.runtime.scope_cache_size,
                 scope_evictor=contexts.evict,
                 scope_cache_observer=scope_cache_observer,
                 review_service=contexts.review,
+                profiles=contexts.profiles,
+                subject_sources=contexts.subject_sources,
                 generation_service=contexts.generation,
                 experience_recall=contexts.search_experience,
                 skill_recall=contexts.search_skills,
@@ -403,6 +462,7 @@ async def open_builtin_runtime(
                 remote_skill_distribution=contexts.remote_skill_distribution(),
                 statistics_service=contexts.statistics,
                 record_service=contexts.records,
+                prompt_service=contexts.prompts,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 memory_flusher=(lambda scope_id, limit: operation_manager.flush_memory(scope_id, limit=limit))
                 if config.deployment.role == "all"
@@ -415,6 +475,7 @@ async def open_builtin_runtime(
                 remote_ingestion=contexts,
             )
         )
+        contexts.profiles.operation_context = runtime._operation
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
                 contexts.scopes,
@@ -433,6 +494,7 @@ def _validate_work_configuration(
     config: BuiltinConfig,
     memory: CandidatePipeline | None,
     experience: ExperienceCandidatePipeline | None,
+    profile: ProfileGenerator | None,
     reranker: MemoryReranker | None,
 ) -> None:
     if config.runtime.schedule_seconds is not None and memory is None and config.deployment.role == "all":
@@ -445,6 +507,8 @@ def _validate_work_configuration(
         raise BuiltinConfigurationError("scheduled-experience-pipeline")
     if config.runtime.memory_rerank_enabled and reranker is None:
         raise BuiltinConfigurationError("memory-reranker")
+    if config.runtime.profile_schedule_enabled and profile is None and config.deployment.role in {"all", "worker"}:
+        raise BuiltinConfigurationError("scheduled-profile-generator")
     if config.deployment.role == "worker" and memory is None:
         raise BuiltinConfigurationError("worker-pipeline")
 
@@ -456,6 +520,7 @@ def _work_services(
     *,
     claim_readiness: ReadinessProbe | None,
     execution_hooks: WorkExecutionHooks | None,
+    profile_runner: ProfileWorkRunner | None,
     observer: WorkObserver | None,
     tracing: RuntimeTracing | None,
 ) -> tuple[DurableWorker | None, OperationManager]:
@@ -476,6 +541,14 @@ def _work_services(
     ]
     if contexts.experience_incubation:
         handlers.append(ExperienceWorkHandler(contexts))
+    if config.runtime.profile_schedule_enabled and contexts.profiles.generator is not None:
+        handlers.append(
+            ProfileWorkHandler(
+                contexts.profiles,
+                max_concurrency=config.runtime.profile_max_concurrency,
+                runner=profile_runner,
+            )
+        )
     local_worker = (
         DurableWorker(
             database=contexts.database,
@@ -617,6 +690,16 @@ def _work_discoverers(config: BuiltinConfig, contexts: RelationalContexts) -> li
                 payload_version=config.coordination.emit_payload_version,
             )
         )
+    if config.runtime.profile_schedule_enabled:
+        discoverers.append(
+            ProfileWorkDiscoverer(
+                contexts,
+                cron=config.runtime.profile_cron,
+                timezone=config.runtime.profile_timezone,
+                max_attempts=config.worker.max_attempts,
+                payload_version=config.coordination.emit_payload_version,
+            )
+        )
     return discoverers
 
 
@@ -636,6 +719,9 @@ async def open_builtin_contexts(
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
     schema_extension_tables: tuple[Table, ...] = (),
+    prompt_registry: PromptRegistry | None = None,
+    prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
+    handoff_verification_keys: tuple[bytes, ...] = (),
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
@@ -657,6 +743,9 @@ async def open_builtin_contexts(
             token_estimator=configured_token_estimator,
             memory_reranker=memory_reranker,
             memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
+            prompt_registry=prompt_registry,
+            prompt_demonstrators=prompt_demonstrators,
+            handoff_verification_keys=handoff_verification_keys,
             source_registry=source_registry,
             cursor_secret=cursor_secret,
         )
@@ -744,13 +833,31 @@ def _schema_provisioner(storage: _RuntimeStorage) -> Callable[[AsyncConnection],
     return provision
 
 
+def _register_prompt_demonstrators(
+    target: dict[str, DemonstrationGenerator] | None,
+    keys: tuple[str, ...],
+    model: Model,
+    limits: InferenceLimits,
+    settings: ModelSettings | None,
+) -> None:
+    if target is None:
+        return
+    from powercontext.builtin.inference.prompt_demonstrations import PromptDemonstrationGenerator
+
+    generator = PromptDemonstrationGenerator(model, limits=limits, model_settings=settings)
+    target.update(dict.fromkeys(keys, generator))
+
+
 async def _generation_pipelines(
     settings: InferenceConfig,
     runtime: RuntimeConfig,
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
     source_registry: SourceDefinitionRegistry,
+    *,
+    prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
 ) -> tuple[
+    ProfileGenerator | None,
     CandidatePipeline | None,
     ExperienceCandidatePipeline | None,
     ExperienceGenerator | None,
@@ -761,7 +868,7 @@ async def _generation_pipelines(
     ReadinessProbe | None,
 ]:
     if settings.generation_model is None and (not runtime.memory_rerank_enabled or settings.rerank_model is None):
-        return None, None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
 
     from pydantic_ai.settings import ModelSettings, merge_model_settings
 
@@ -802,6 +909,7 @@ async def _generation_pipelines(
         probe_pydantic_ai_model,
     )
 
+    generated_profile: ProfileGenerator | None = None
     generated_memory: CandidatePipeline | None = None
     generated_incubation: ExperienceCandidatePipeline | None = None
     generated_experience: ExperienceGenerator | None = None
@@ -827,6 +935,26 @@ async def _generation_pipelines(
             timeout_seconds=settings.generation_timeout_seconds,
             max_requests=settings.generation_max_requests,
         )
+        _register_prompt_demonstrators(
+            prompt_demonstrators,
+            ("memory.extract", "experience.incubate", "experience.generate", "skill.generate", "handoff.generate"),
+            generation_model,
+            generation_limits,
+            generation_request_settings,
+        )
+        generated_profile = LLMProfileGenerator(
+            UsageReportingStructuredGenerator(
+                PydanticAIStructuredGenerator(
+                    model=generation_model,
+                    instructions=PROFILE_INSTRUCTIONS,
+                    input_type=ProfileGenerationInput,
+                    output_type=ProfileGenerationOutput,
+                    limits=generation_limits,
+                    model_settings=generation_request_settings,
+                    name="profile_generation",
+                )
+            )
+        )
         memory_generator = PydanticAIStructuredGenerator(
             model=generation_model,
             instructions=memory_extraction_instructions(runtime.memory_extraction_profile),
@@ -835,6 +963,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="memory_extraction",
+            prompt_key="memory.extract",
         )
         experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -844,6 +973,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="experience_incubation",
+            prompt_key="experience.incubate",
         )
         explicit_experience_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -853,6 +983,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="experience_generation",
+            prompt_key="experience.generate",
         )
         skill_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -862,6 +993,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="skill_generation",
+            prompt_key="skill.generate",
         )
         handoff_generator = PydanticAIStructuredGenerator(
             model=generation_model,
@@ -871,6 +1003,7 @@ async def _generation_pipelines(
             limits=generation_limits,
             model_settings=generation_request_settings,
             name="handoff_generation",
+            prompt_key="handoff.generate",
         )
         generated_memory = LLMMemoryCandidatePipeline(
             UsageReportingStructuredGenerator(memory_generator),
@@ -941,8 +1074,19 @@ async def _generation_pipelines(
                 ),
                 model_settings=rerank_request_settings,
                 name="memory_rerank",
+                prompt_key="memory.rerank",
             )
             generated_reranker = LLMMemoryReranker(UsageReportingStructuredGenerator(rerank_generator))
+            _register_prompt_demonstrators(
+                prompt_demonstrators,
+                ("memory.rerank",),
+                rerank_model,
+                InferenceLimits(
+                    timeout_seconds=settings.rerank_timeout_seconds or settings.generation_timeout_seconds,
+                    max_requests=settings.rerank_max_requests or settings.generation_max_requests,
+                ),
+                rerank_request_settings,
+            )
 
             if separate_rerank_model or settings.rerank_model_settings:
 
@@ -962,6 +1106,7 @@ async def _generation_pipelines(
                 )
 
     return (
+        generated_profile,
         generated_memory,
         generated_incubation,
         generated_experience,
@@ -977,7 +1122,7 @@ async def preflight_builtin_runtime(config: BuiltinConfig) -> None:
     """Validate Runtime composition without opening persistence or making requests."""
 
     async with AsyncExitStack() as resources:
-        memory, incubation, _, _, _, reranker, _, _ = await _generation_pipelines(
+        profile, memory, incubation, _, _, _, reranker, _, _ = await _generation_pipelines(
             config.inference,
             config.runtime,
             resources,
@@ -986,7 +1131,7 @@ async def preflight_builtin_runtime(config: BuiltinConfig) -> None:
         )
         if config.inference.embedding_model is not None:
             await _embedding_models(config.inference, resources, None)
-        _validate_work_configuration(config, memory, incubation, reranker)
+        _validate_work_configuration(config, memory, incubation, profile, reranker)
 
 
 async def _open_pydantic_ai_model(

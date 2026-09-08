@@ -30,3 +30,14 @@ The plugin resolves an explicit Scope, a durable workspace binding, or the Serve
 the `POWERCONTEXT_DSH_` prefix for `BASE_URL`, `AUTHORIZATION`, `SCOPE_ID`, `CAPTURE_PROMPTS`, and `FLUSH_ON_CAPTURE`.
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Context returned by recall
 is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
+
+Automatic failures are reported through the native `powercontext.dsh` logger with a stage, a safe outcome, and an
+optional public error code. They do not become model messages. Scope failure stops that step's PowerContext work;
+prepare and capture otherwise fail independently. Cancellation prevents subsequent operations, and logger failures
+cannot discard a successful recall. Accepted Source evidence still needs Server processing before it becomes Memory.
+
+Non-empty recall uses a persisted plugin `snapshot` with a `PowerContext` section for the host context browser.
+Its displayed text is the same untrusted, request-specific context sent to the model. Empty recall creates no snapshot.
+
+See [runtime acceptance tests](tests/runtime/README.md) for the pinned real DSH host, deterministic CI scenarios,
+and the separate real-model and Web acceptance procedure.

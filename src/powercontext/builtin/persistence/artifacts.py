@@ -240,8 +240,11 @@ class ArtifactRepository:
         if not requested:
             return ()
         keys = tuple(dict.fromkeys((ref.family, ref.artifact_id, ref.revision) for ref in requested))
-        for family, _, _ in keys:
-            self._artifact_type(family)
+        for ref in requested:
+            try:
+                self._artifact_type(ref.family)
+            except RepositoryNotFoundError:
+                raise RepositoryNotFoundError("artifact", (scope_id, ref)) from None
         identity = tuple_(
             ARTIFACTS_TABLE.c.family,
             ARTIFACTS_TABLE.c.artifact_id,

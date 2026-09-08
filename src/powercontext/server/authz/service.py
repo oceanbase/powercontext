@@ -340,6 +340,10 @@ class BuiltinAuthorizationProvider:
         self._deployment_id = deployment_id
         self._clock = clock or (lambda: datetime.now(UTC))
 
+    def with_repository(self, repository: AccessRepository) -> BuiltinAuthorizationProvider:
+        """Use transaction-local relationships without changing policy semantics."""
+        return BuiltinAuthorizationProvider(repository, deployment_id=self._deployment_id, clock=self._clock)
+
     async def check(self, request: AccessRequest, /) -> AccessDecision:
         decisions = await self.check_batch((request,))
         return decisions[0]
@@ -461,6 +465,51 @@ class AccessControlService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._cursor_secret = cursor_secret or secrets.token_bytes(32)
         self._static_scope_principal = static_scope_principal
+
+    def with_connection(self, connection):
+        """Bind relationships, builtin authorization reads, and audit to a transaction."""
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        if not isinstance(self.relationships, RelationalAccessRepository) or self.audit is not self.relationships:
+            raise AccessUnavailableError("transactional_relationships_unavailable")
+        repository = self.relationships.with_connection(connection)
+        provider = self.provider
+        if isinstance(provider, BuiltinAuthorizationProvider):
+            provider = provider.with_repository(repository)
+        return AccessControlService(
+            provider,
+            relationships=repository,
+            audit=repository,
+            deployment_id=self.deployment_id,
+            provider_capabilities=self.provider_capabilities,
+            clock=self._clock,
+            static_scope_principal=self._static_scope_principal,
+        )
+
+    async def bootstrap_subject_scope(self, connection, principal, scope_id, *, context):
+        """Grant only a newly created ordinary Scope, in the Source transaction."""
+        from powercontext.server.authz.repository import RelationalAccessRepository
+
+        if not isinstance(self.relationships, RelationalAccessRepository):
+            raise AccessUnavailableError("transactional_relationships_unavailable")
+        actor = _required_principal(principal)
+        repository = self.relationships.with_connection(connection)
+        binding = AccessBinding(
+            binding_id=str(uuid4()),
+            subject=actor,
+            resource=ResourceRef.scope(scope_id),
+            role=AccessRole.SCOPE_CONTRIBUTOR,
+            granted_by=actor,
+            reason="Subject scope bootstrap",
+            created_at=self._clock(),
+            expires_at=None,
+            state=AccessBindingState.ACTIVE,
+            version=1,
+            policy_revision="pending",
+            idempotency_key=f"subject-scope:{scope_id}",
+        )
+        created = await repository.create_binding(binding)
+        await self._record_relationship(created, principal=actor, context=context, audit=repository)
 
     async def readiness(self) -> bool:
         """Probe decisions and required stores without granting or caching authority."""
@@ -1047,8 +1096,9 @@ class AccessControlService:
         principal: PrincipalRef,
         context: AccessAuditContext,
         expected_version: int | None = None,
+        audit: AccessAuditStore | None = None,
     ) -> None:
-        await self.audit.append_audit(
+        await (self.audit if audit is None else audit).append_audit(
             AccessAuditEvent(
                 cursor=None,
                 event_id=str(uuid4()),

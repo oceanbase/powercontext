@@ -24,14 +24,17 @@ import {
 } from "./auth.js?v=optional-auth";
 import {createPageUi, createRequestGate} from "./page-ui.js?v=locale-complete";
 import {buildScopeSelectionChoices} from "./scope-selection.js?v=selection-v1";
+import {createTagPanel, tagTranslations} from "./artifact-tags.js?v=tags-v1";
 
 const translations = {
   en: {
+    ...tagTranslations.en,
     pageTitle: "PowerContext Overview",
     dashboardTitle: "Overview",
     sharedTitle: "Shared with me",
     skillsTitle: "Skills",
     reviewTitle: "Review",
+    promptsTitle: "Prompts",
     handoffReportTitle: "Handoff Report",
     brandHomeLabel: "PowerContext Overview",
     primaryNavigation: "Primary navigation",
@@ -98,11 +101,13 @@ const translations = {
     scopeOverview: "Overview for the selected work"
   },
   zh: {
+    ...tagTranslations.zh,
     pageTitle: "PowerContext 概览",
     dashboardTitle: "概览",
     sharedTitle: "与我共享",
     skillsTitle: "技能",
     reviewTitle: "审核",
+    promptsTitle: "提示词",
     handoffReportTitle: "交接报告",
     brandHomeLabel: "PowerContext 概览",
     primaryNavigation: "主导航",
@@ -194,6 +199,7 @@ const ui = createPageUi(translations, () => {
   }
 });
 const {formatDateTime, formatNumber, translate} = ui;
+const tagPanel = createTagPanel(document.getElementById("artifact-tag-panel"), {translate, token: readServerToken});
 const dashboardRequests = createRequestGate();
 
 scopeSelect.addEventListener("change", async () => {
@@ -315,6 +321,7 @@ async function loadStatistics(token, scopeId, request = null) {
 }
 
 function showLogin(messageKey = "", values = {}) {
+  tagPanel.reset();
   dashboardRequests.cancel();
   scopeSelect.disabled = false;
   currentView = null;
@@ -360,6 +367,7 @@ function renderAuthError() {
 }
 
 function renderDashboard(view) {
+  tagPanel.updateScopes(view.scopes);
   currentView = view;
   currentPageStatus = null;
   const statistics = view.statistics;

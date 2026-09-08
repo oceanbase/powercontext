@@ -149,12 +149,14 @@ export function registerCommands(
     register: (definition: {
       name: string
       description: string
+      input: { hint: string }
       handler: (invocation: { rawInput: string; signal: AbortSignal; agent: { session: { header: { cwd?: string } } } }) => Promise<CommandResult>
     }) => unknown
   }>(ctx, 'commands')
   commands.register({
     name: 'pc',
     description: 'PowerContext status, search, review, and diagnostics',
+    input: { hint: 'doctor | capabilities | search <query> | remember <text> | flush | review | stats | skills scan' },
     handler: async (invocation) => handlePcCommand(
       invocation.rawInput, runtime, invocation.agent.session.header.cwd, invocation.signal,
     ),

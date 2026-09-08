@@ -205,6 +205,10 @@ class LaunchdUserAdapter:
             is_loaded = False
         if not is_loaded:
             self._run("bootstrap", self._domain, str(self.artifact_path))
+            # bootstrap registers the job, while kickstart is the launchd
+            # operation that guarantees an immediate start regardless of the
+            # configured launch conditions.
+            self._run("kickstart", self._target)
         elif self.manager_state() is not ManagerState.ACTIVE:
             self._run("kickstart", "-k", self._target)
 

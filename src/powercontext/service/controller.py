@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import sys
 import time
 from collections.abc import Callable, Generator
@@ -249,9 +250,8 @@ class ServiceController:
                 if name == "POWERCONTEXT_HOME" or name.startswith(_PERSISTED_ENVIRONMENT_PREFIX)
             )
             if inherited:
-                raise ServiceError(  # noqa: TRY003
-                    "personal services do not copy shell environment variables; write the Server configuration "
-                    "to a protected file and pass --env-file",
+                raise ServiceError(
+                    _environment_file_guidance(inherited),
                     exit_code=2,
                 )
         clean_home_context = (
@@ -421,6 +421,25 @@ def _windows_service_lock(path: Path, *, timeout: float) -> Generator[None, None
             os.lseek(descriptor, 0, os.SEEK_SET)
             locking(descriptor, lock_unlock, 1)
         os.close(descriptor)
+
+
+def _environment_file_guidance(names: list[str]) -> str:
+    # Only display values known not to carry credentials; other settings may
+    # include tokens or database URLs with embedded passwords.
+    visible = {"POWERCONTEXT_HOME", "POWERCONTEXT_SERVER_HTTP_HOST", "POWERCONTEXT_SERVER_HTTP_PORT"}
+    assignments = "\n".join(
+        f"  {name}={shlex.quote(os.environ[name]) if name in visible else '<your-current-value>'}" for name in names
+    )
+    hidden_hint = (
+        "Fill in <your-current-value> with your actual value.\n" if any(n not in visible for n in names) else ""
+    )
+    return (
+        "personal services do not copy shell environment variables. Currently set:\n"
+        f"{assignments}\n"
+        "Save these settings in powercontext.env (UTF-8, owned by you with access restricted to you).\n"
+        f"{hidden_hint}"
+        'Then run: powercontext service install --env-file "<path-to-powercontext.env>"'
+    )
 
 
 def _endpoint(host: str, port: int) -> str:

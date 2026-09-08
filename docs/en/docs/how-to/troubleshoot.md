@@ -174,8 +174,8 @@ so the previous database remains available for recovery:
 4. Create a new empty OceanBase MySQL-mode database, point `POWERCONTEXT_SERVER_DATABASE_URL` at it, and run
    `powercontext server migrate`. Do not start an API, Scheduler, or Worker process before restoring the data.
 5. Import only the exported row data into the existing new tables with OceanBase `obloader`, again **without
-   `--ddl`**. Keep foreign-key enforcement enabled and run these three layers separately. The examples use CSV; if
-   you exported SQL data, replace `--csv` with `--sql` in all three commands. Fill in `<connection-options>` through
+   `--ddl`**. Keep foreign-key enforcement enabled and run these four layers separately. The examples use CSV; if
+   you exported SQL data, replace `--csv` with `--sql` in all four commands. Fill in `<connection-options>` through
    your approved secret-handling process and make `<new-database>` select the database created in step 4.
 
    Before running the commands, compare the exported table files with `SHOW TABLES` in the target database. Every
@@ -184,7 +184,7 @@ so the previous database remains available for recovery:
    Because `pc_scopes.parent_scope_id` is self-referential, keep ancestor Scope rows before their descendants in the
    exported `pc_scopes` data.
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
-   `pc_skill_publications`), remove the absent tables from Layer 1.
+   `pc_skill_publications`) or the Profile tables, remove the absent tables from their respective layers.
    Do not import `pc_scheduler_leases`, `pc_scheduler_scans`, `pc_runtime_members`, or `pc_rate_limit_windows`.
    They contain transient coordination state. The migration command owns its migration lease row, and the runtime
    recreates the remaining rows after startup.
@@ -209,7 +209,15 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads' \
+     --table 'pc_artifact_candidate_heads,pc_memory_entry_heads,pc_artifact_tags' \
+     -f <export-directory>
+   ```
+
+   After Layer 3 completes successfully, import Profile policy in Layer 4:
+
+   ```bash
+   obloader <connection-options> -D <new-database> --csv \
+     --table 'pc_profile_policies' \
      -f <export-directory>
    ```
 

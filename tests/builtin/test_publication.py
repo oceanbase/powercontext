@@ -274,6 +274,52 @@ def test_publication_idempotency_key_cannot_select_another_revision() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("target_has_profile", [False, True])
+def test_profile_publication_is_rejected_without_changing_target(target_has_profile) -> None:
+    from sqlalchemy import func, select
+
+    from powercontext.builtin.persistence.tables import ARTIFACT_PUBLICATIONS_TABLE, PROFILE_POLICIES_TABLE
+    from powercontext.builtin.records import ArtifactWrite
+
+    async def scenario():
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            scopes = [
+                await contexts.scopes.create(ScopeDraft(title=name, summary=name, idempotency_key=name))
+                for name in ("Source", "Target")
+            ]
+            source_id, target_id = (scope.scope_id for scope in scopes)
+            await contexts.records.create_artifact(source_id, "profile", ArtifactWrite(content={"content": "# Source"}))
+            if target_has_profile:
+                await contexts.records.create_artifact(
+                    target_id, "profile", ArtifactWrite(content={"content": "# Target"})
+                )
+            before = await contexts.records.logical_artifacts(target_id)
+            request = ArtifactPublicationRequest(
+                source=ArtifactAddress(
+                    scope_id=source_id, artifact=ArtifactRef(family="profile", artifact_id="profile", revision=1)
+                ),
+                target_scope_id=target_id,
+                idempotency_key="profile-copy",
+            )
+            for _ in range(2):
+                with pytest.raises(ArtifactPublicationUnsupportedError) as error:
+                    await contexts.publications.publish(request)
+                assert error.value.family == "profile"
+            assert await contexts.records.logical_artifacts(target_id) == before
+            if target_has_profile:
+                saved = await contexts.records.get_artifact(target_id, "profile", "profile")
+                assert saved.revision == 1 and saved.content["content"] == "# Target\n"
+            async with contexts.database.transaction() as connection:
+                assert await connection.scalar(select(func.count()).select_from(ARTIFACT_PUBLICATIONS_TABLE)) == 0
+                assert await connection.scalar(
+                    select(func.count())
+                    .select_from(PROFILE_POLICIES_TABLE)
+                    .where(PROFILE_POLICIES_TABLE.c.scope_id == target_id)
+                ) == int(target_has_profile)
+
+    asyncio.run(scenario())
+
+
 def test_memory_publication_is_rejected_without_target_state() -> None:
     async def scenario() -> None:
         async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:

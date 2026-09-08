@@ -153,3 +153,5 @@ or flush. The default Scope and its opaque ID also remain stable because they ar
 | Existing data is missing | Restore the previous database URL or `POWERCONTEXT_HOME` |
 
 See [Troubleshooting](troubleshoot.md) and [Configuration](../reference/configuration.md) for details.
+
+To organize saved Artifacts and individual Memory entries, see [Custom tags](manage-artifact-tags.md).

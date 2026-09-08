@@ -25,6 +25,12 @@ from pydantic import ValidationError
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.handoff import HandoffCitation as RuntimeHandoffCitation
+from powercontext.builtin.artifacts.handoff.generation_metadata import (
+    HandoffGenerationEnvelope,
+    HandoffGenerationMetadata,
+)
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal as RuntimeProfileCandidateProposal
+from powercontext.builtin.artifacts.profile.models import ProfileWriteContent as RuntimeProfileWriteContent
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     Skill,
@@ -144,6 +150,7 @@ from powercontext.builtin.runtime import (
 )
 from powercontext.builtin.runtime.work_handlers import EXPERIENCE_WORK_KIND, MEMORY_WORK_KIND
 from powercontext.builtin.sources import ExternalSkillImportMode as RuntimeExternalSkillImportMode
+from powercontext.builtin.tags import TagFilter
 from powercontext.builtin.work import (
     AcknowledgeHandoff as RuntimeAcknowledgeHandoff,
 )
@@ -234,6 +241,8 @@ from powercontext.http import (
     PreparedHandoffSchema,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
+    ProfileCandidateProposal,
+    ProfileWriteContent,
     ProposeExperienceRequest,
     ProposeSkillRequest,
     RecordTaskOutcomeRequest,
@@ -283,6 +292,8 @@ from powercontext.http import (
 from powercontext.http import (
     HandoffEvidenceCheck as TransportHandoffEvidenceCheck,
 )
+from powercontext.http import HandoffGenerationEnvelope as TransportHandoffGenerationEnvelope
+from powercontext.http import HandoffGenerationMetadata as TransportHandoffGenerationMetadata
 from powercontext.http import (
     HandoffMemoryCitation as TransportHandoffMemoryCitation,
 )
@@ -697,7 +708,14 @@ def revise_candidate_request(value: ReviseArtifactCandidateRequest) -> RuntimeRe
 
 
 def search_request(value: SearchMemoryRequest) -> RuntimeSearchMemoryRequest:
-    return RuntimeSearchMemoryRequest(query=value.query, limit=value.limit, mode=value.mode.value)
+    return RuntimeSearchMemoryRequest(
+        query=value.query,
+        limit=value.limit,
+        mode=value.mode.value,
+        tag_filter=None
+        if value.tag_filter is None
+        else TagFilter.model_validate_json(value.tag_filter.model_dump_json()),
+    )
 
 
 def prepare_context_request(value: TransportPrepareContextRequest) -> PrepareContextRequest:
@@ -733,6 +751,9 @@ def prepare_handoff_request(value: PrepareHandoffRequest) -> PrepareHandoff:
 
 def runtime_handoff_draft(value: TransportHandoffDraft) -> HandoffDraft:
     return HandoffDraft(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=tuple(runtime_handoff_statement(statement) for statement in value.state),
         disposition=value.disposition.value,
@@ -743,6 +764,9 @@ def runtime_handoff_draft(value: TransportHandoffDraft) -> HandoffDraft:
 
 def runtime_prepared_handoff(value: TransportPreparedHandoff) -> PreparedHandoff:
     return PreparedHandoff(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         scope_id=value.scope_id,
         base=None if value.base is None else runtime_artifact_reference(value.base),
         content=runtime_handoff_content(value.content),
@@ -751,6 +775,9 @@ def runtime_prepared_handoff(value: TransportPreparedHandoff) -> PreparedHandoff
 
 def handoff_draft_response(value: HandoffDraft) -> TransportHandoffDraft:
     return TransportHandoffDraft(
+        generation=None
+        if value.generation is None
+        else TransportHandoffGenerationEnvelope.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=[handoff_statement(statement) for statement in value.state],
         disposition=HandoffDisposition(value.disposition),
@@ -761,6 +788,7 @@ def handoff_draft_response(value: HandoffDraft) -> TransportHandoffDraft:
 
 def prepared_handoff_response(value: PreparedHandoff) -> TransportPreparedHandoff:
     return TransportPreparedHandoff.model_validate({
+        "generation": None if value.generation is None else value.generation.model_dump(mode="json"),
         "schema": PreparedHandoffSchema(value.schema_version),
         "scope_id": value.scope_id,
         "base": None if value.base is None else artifact_reference(value.base),
@@ -1004,13 +1032,19 @@ def skill_proposal(value: SkillContent) -> SkillProposal:
     )
 
 
-def reviewed_content(value: ExperienceProposal | SkillProposal) -> ExperienceContent | SkillContent:
+def reviewed_content(
+    value: ExperienceProposal | SkillProposal | ProfileWriteContent,
+) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent:
+    if isinstance(value, ProfileWriteContent):
+        return RuntimeProfileWriteContent.model_validate(value.model_dump(mode="json"))
     if isinstance(value, ExperienceProposal):
         return experience_content(value)
     return skill_content(value)
 
 
-def reviewed_proposal(value: object) -> ExperienceProposal | SkillProposal:
+def reviewed_proposal(value: object) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal:
+    if isinstance(value, RuntimeProfileCandidateProposal):
+        return ProfileCandidateProposal.model_validate(value.model_dump(mode="json", by_alias=True))
     if isinstance(value, ExperienceContent):
         return experience_proposal(value)
     if isinstance(value, SkillContent):
@@ -1128,6 +1162,9 @@ def handoff_omission(value: HandoffOmission) -> TransportHandoffOmission:
 
 def runtime_handoff_content(value: TransportHandoffContent) -> HandoffContent:
     return HandoffContent(
+        generation=None
+        if value.generation is None
+        else HandoffGenerationMetadata.model_validate_json(value.generation.model_dump_json()),
         objective=value.objective,
         state=tuple(runtime_handoff_statement(statement) for statement in value.state),
         disposition=value.disposition.value,
@@ -1138,6 +1175,9 @@ def runtime_handoff_content(value: TransportHandoffContent) -> HandoffContent:
 
 def handoff_content(value: HandoffContent) -> TransportHandoffContent:
     return TransportHandoffContent.model_validate({
+        "generation": None
+        if value.generation is None
+        else TransportHandoffGenerationMetadata.model_validate_json(value.generation.model_dump_json()),
         "schema": HandoffSchema(value.schema_version),
         "objective": value.objective,
         "state": [handoff_statement(statement) for statement in value.state],

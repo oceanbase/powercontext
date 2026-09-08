@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -169,6 +170,50 @@ def test_scope_http_flow_rejects_incomplete_memory_publication(tmp_path) -> None
             "message": "The Artifact family cannot be published as complete target state.",
             "details": {"family": "memory"},
         }
+
+
+@pytest.mark.parametrize("target_has_profile", [False, True])
+def test_scope_http_rejects_profile_publication(tmp_path, target_has_profile) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'profile-copy.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    with TestClient(app) as client:
+        scope_ids = [
+            client.post("/v1/scopes", json={"title": name, "summary": name, "idempotency_key": name}).json()["scope_id"]
+            for name in ("Source", "Target")
+        ]
+        source_id, target_id = scope_ids
+        for sid in scope_ids if target_has_profile else scope_ids[:1]:
+            assert (
+                client.post(
+                    f"/v1/scopes/{sid}/artifacts", json={"family": "profile", "content": {"content": "# Profile"}}
+                ).status_code
+                == 201
+            )
+        target_path = f"/v1/scopes/{target_id}/artifacts/profile/profile"
+        before = client.get(target_path)
+        request = {
+            "source": {
+                "scope_id": source_id,
+                "artifact": {"family": "profile", "artifact_id": "profile", "revision": 1},
+            },
+            "target_scope_id": target_id,
+            "idempotency_key": "profile-copy",
+        }
+        for _ in range(2):
+            response = client.post("/v1/artifact-publications", json=request)
+            assert response.status_code == 422
+            assert response.json()["error"] == {
+                "code": "artifact_publication_unsupported",
+                "message": "Profile artifacts cannot be copied or published across Scopes.",
+                "details": {"family": "profile"},
+            }
+        after = client.get(target_path)
+        assert after.status_code == before.status_code
+        assert after.json() == before.json()
 
 
 def test_data_plane_rejects_an_unknown_scope(tmp_path) -> None:

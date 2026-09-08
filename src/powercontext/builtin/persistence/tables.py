@@ -31,7 +31,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import DATETIME, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
+from sqlalchemy.dialects.mysql import BINARY, DATETIME, MEDIUMBLOB, MEDIUMTEXT, VARCHAR
 
 from powercontext.limits import (
     MAX_ARTIFACT_FAMILY_LENGTH,
@@ -408,6 +408,28 @@ ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
     ),
 )
 
+PROFILE_POLICIES_TABLE = Table(
+    "pc_profile_policies",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("generation_enabled", Boolean, nullable=False),
+    Column("activation_mode", identity_string(32), nullable=False),
+    Column("pending_candidate_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
+    Column("version", BigInteger, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    ForeignKeyConstraint(
+        ("scope_id", "pending_candidate_id"),
+        ("pc_artifact_candidate_heads.scope_id", "pc_artifact_candidate_heads.candidate_id"),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint(
+        "activation_mode IN ('automatic', 'review_required')",
+        name="ck_pc_profile_policies_activation_mode",
+    ),
+    CheckConstraint("version > 0", name="ck_pc_profile_policies_version_positive"),
+)
+
 SOURCE_CURSORS_TABLE = Table(
     "pc_source_cursors",
     SHARED_METADATA,
@@ -637,6 +659,7 @@ SHARED_TABLES = (
     ARTIFACT_PUBLICATIONS_TABLE,
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
+    PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
@@ -893,6 +916,52 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 
 MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
+# OceanBase requires FK column lengths to match the parent. A normalized-key
+# fingerprint keeps composite indexes within 3072 bytes without narrowing any
+# Unicode identity or label. Queries also compare the full key, not just its hash.
+ARTIFACT_TAGS_TABLE = Table(
+    "pc_artifact_tags",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("target_type", identity_string(12), primary_key=True),
+    Column("target_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("tag_key_hash", LargeBinary(32).with_variant(BINARY(32), "mysql"), primary_key=True),
+    Column("tag_key", identity_string(128), nullable=False),
+    Column("tag", String(64), nullable=False),
+    Column("assigned_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id"),
+        ("pc_artifact_heads.scope_id", "pc_artifact_heads.family", "pc_artifact_heads.artifact_id"),
+        ondelete="CASCADE",
+    ),
+    CheckConstraint("family IN ('memory', 'experience', 'skill', 'handoff')", name="ck_pc_artifact_tags_family"),
+    CheckConstraint(
+        "(target_type = 'artifact' AND target_id = artifact_id) OR "
+        "(target_type = 'memory_entry' AND family = 'memory')",
+        name="ck_pc_artifact_tags_target",
+    ),
+    Index(
+        "ix_pc_artifact_tags_family_key",
+        "scope_id",
+        "family",
+        "tag_key_hash",
+        "target_type",
+        "artifact_id",
+        "target_id",
+    ),
+    Index("ix_pc_artifact_tags_key", "scope_id", "tag_key_hash", "family", "target_type", "artifact_id", "target_id"),
+)
+
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
-BUILTIN_TABLES = SCOPE_TABLES + SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES + WORK_TABLES + COORDINATION_TABLES
+BUILTIN_TABLES = (
+    SCOPE_TABLES
+    + SHARED_TABLES
+    + MEMORY_TABLES
+    + STATISTICS_TABLES
+    + WORK_TABLES
+    + COORDINATION_TABLES
+    + (ARTIFACT_TAGS_TABLE,)
+)

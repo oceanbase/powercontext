@@ -63,6 +63,40 @@ Scope 解析失败时，具名工具和依赖 Scope 的 `/pc` 命令会返回受
 request ID，提示文字使用固定内容，不透传 Server message。未知错误码不会出现在 `error_code` 或诊断中，
 也不会仅因无法识别就被判为版本不匹配。
 
+## 排查自动召回和采集
+
+普通消息也会触发 Scope 解析、上下文准备、提示词采集和可选 flush。这些自动阶段失败时，Harness 对话继续。
+Scope 解析失败会停止本轮后续的 PowerContext 操作，不会换用其他 Scope 或创建 binding。
+
+`powercontext.dsh` 日志通过 `scope_resolve`、`context_prepare`、`capture_content_source`、`flush_memory`
+或 `context_inject` 标识失败阶段。诊断使用固定结果和已识别的公开错误码，不包含 Server message、
+提示词内容、凭据或请求路径。同类重复警告在 60 秒内降噪。logger 自身失败也不会丢弃已准备的上下文或打断对话。
+
+能否看到日志取决于 DSH profile 的原生 exporter 配置。本次测试的 DSH 0.1.2-rc.1 Web profile 默认不向终端
+导出这些警告。如果 profile 使用 Cordis 的 console exporter（`@deepseek-ai/cordis-plugin-logger-console`），
+需要将其 `config.levels.default` 设为 `2` 以包含警告；设为 `3` 可同时查看 debug 事件。
+在启动 `dsh web` 的终端中查看 `powercontext.dsh` 记录。这里使用宿主 logger，不增加模型消息或独立日志面板。
+
+必需路由的 404 只有在没有业务错误码时才记录为 `version_mismatch`。Scope 的业务 404 则记录
+`invalid_response` 和 `error_code: scope_not_found`。resolver 正常结束但未返回 Scope 时记录
+`skipped` 和 `reason: scope_unresolved`。有效的空召回属于正常结果，只写 debug 日志。
+Scope 解析失败时，仍可使用 `/pc doctor` 和 `/pc capabilities` 检查 Server。
+
+上下文准备和采集相互独立：prepare 失败后仍可采集输入；capture 或 flush 失败不会丢弃已经准备好的上下文。
+Source 被接收不代表已经生成 Memory，后者需要 Server 成功处理。取消会停止后续操作；单个请求超时仍沿用
+现有的单请求行为。
+
+## 查看召回的上下文
+
+非空 PreparedContext 只追加一次，消息带有 `source.form=snapshot` 和名为 `PowerContext` 的 section。
+在 DSH 0.1.2-rc.1 Web 中，展开已完成轮次的“已思考”过程内容，再展开“上下文注入 — powercontext-dsh”。
+其他宿主版本也可能将它展示在上下文浏览器中。section 与发给模型、
+保存到会话日志的文字一致，包含不可信历史证据的提示，以及当前请求替换此前快照的说明。
+重新打开会话历史时，这些元数据仍然保留。
+
+空结果和自动失败不会生成 snapshot，也不会向模型注入错误通知。展示使用宿主已有的 snapshot 能力，
+不新增 PowerContext 面板，也不声称存在 Server 尚未返回的 receipt 或来源信息。
+
 ## 控制提示词采集
 
 默认开启提示词采集。如果当前工作不应被记录，请在启动 DeepSeek Harness 前关闭：
