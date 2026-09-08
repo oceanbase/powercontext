@@ -46,7 +46,8 @@ MAX_SKILL_ENTRYPOINT_BYTES = 128 * 1024
 SKILL_ENTRYPOINT = "SKILL.md"
 _CANONICAL_TREE_DOMAIN = b"powercontext.skill-package-tree.v1\0"
 _FORBIDDEN_COMPONENTS = frozenset({".env", ".git", "node_modules"})
-_SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SKILL_NAME_PATTERN = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
+_SKILL_NAME = re.compile(SKILL_NAME_PATTERN)
 _ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 # This mapping is part of the stored manifest contract. Keep it host-independent and append-only.
 _MEDIA_TYPES_BY_SUFFIX = {

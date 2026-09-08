@@ -68,3 +68,16 @@ def test_model_generated_skill_cannot_claim_an_existing_package_snapshot() -> No
                 },
             }
         })
+
+
+@pytest.mark.parametrize("name", ["Invalid Name", "repeated--hyphen", "x" * 65])
+def test_generated_skill_rejects_unpackageable_names_before_review(name: str) -> None:
+    with pytest.raises(ValidationError):
+        SkillGenerationOutput.model_validate({
+            "proposal": {
+                "name": name,
+                "description": "Check public API contracts.",
+                "instructions": "Run the contract checks before proposing changes.",
+                "validation": ["The contract checks pass."],
+            }
+        })
