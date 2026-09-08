@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from powercontext.builtin.artifacts.skill import AgentSkillTarget
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
     DatabaseConfig,
@@ -311,12 +312,16 @@ class ServerSettings(BaseSettings):
             raise ValueError("AUTH_TOKEN requires ACCESS_MODE=enforced or legacy AUTH_ENABLED=true")  # noqa: TRY003
         if self.access.mode == "disabled" and self.access.background_principal_id is not None:
             raise ValueError("ACCESS_MODE=disabled cannot configure a background Principal")  # noqa: TRY003
-        if is_unauthenticated_non_loopback_bind(
+        if self.runtime.artifact_processing_role != "background" and is_unauthenticated_non_loopback_bind(
             host=self.http.host,
             auth_enabled=self.access.mode != "disabled",
             allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
         ):
             raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
+        if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
+            raise ValueError(  # noqa: TRY003
+                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
+            )
         return self
 
 

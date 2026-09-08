@@ -14,7 +14,10 @@
 
 """Durable Scope organization and binding."""
 
-from powercontext.builtin.scope.application import ScopeApplication, generate_scope_id
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from powercontext.builtin.scope.errors import (
     ScopeBindingNotFoundError,
     ScopeError,
@@ -32,6 +35,18 @@ from powercontext.builtin.scope.models import (
     ScopeMutation,
     ScopeSelection,
 )
+
+if TYPE_CHECKING:
+    from powercontext.builtin.scope.application import ScopeApplication
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"ScopeApplication", "generate_scope_id"}:
+        from powercontext.builtin.scope import application
+
+        return getattr(application, name)
+    raise AttributeError(name)
+
 
 __all__ = [
     "ScopeApplication",

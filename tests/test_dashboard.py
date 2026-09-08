@@ -71,6 +71,7 @@ def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_pa
 
     with TestClient(app) as client:
         home = client.get("/")
+        topics = client.get("/topics")
         skills = client.get("/skills")
         review = client.get("/reviews")
         scopes = client.get("/dashboard/scopes")
@@ -78,6 +79,7 @@ def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_pa
 
     assert settings.dashboard.enabled is True
     assert home.status_code == 200
+    assert topics.status_code == 200
     assert skills.status_code == 200
     assert review.status_code == 200
     assert prompts.status_code == 200
@@ -118,12 +120,14 @@ def test_dashboard_can_be_disabled_explicitly(tmp_path) -> None:
 
     with TestClient(app) as client:
         home = client.get("/")
+        topics = client.get("/topics")
         skills = client.get("/skills")
         review = client.get("/reviews")
         health = client.get("/health/live")
         prompts = client.get("/prompts")
 
     assert home.status_code == 404
+    assert topics.status_code == 404
     assert skills.status_code == 404
     assert review.status_code == 404
     assert prompts.status_code == 404
@@ -176,6 +180,7 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
             json={"title": "PowerContext", "summary": "Repository context", "idempotency_key": "powercontext"},
         ).json()
         home = client.get("/")
+        topics = client.get("/topics")
         skills = client.get("/skills")
         review = client.get("/reviews")
         removed_dashboard_alias = client.get("/dashboard", headers=_AUTH_HEADERS)
@@ -189,6 +194,7 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
         )
 
     assert home.status_code == 200
+    assert topics.status_code == 200
     assert skills.status_code == 200
     assert review.status_code == 200
     assert removed_dashboard_alias.status_code == 404
@@ -210,7 +216,7 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert 'data-i18n-aria-label="primaryNavigation"' in home.text
     assert 'data-i18n-aria-label="scopeOverview"' in home.text
     assert 'data-i18n-aria-label="activityAria"' in home.text
-    assert "dashboard.js?v=product-language-v4" in home.text
+    assert "dashboard.js?v=product-language-v5" in home.text
     assert 'data-i18n="skillsTitle"' in skills.text
     assert 'aria-current="page" data-i18n="skillsTitle"' in skills.text
     assert 'id="skills-scope-search"' in skills.text
@@ -224,7 +230,7 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert 'id="skills-delivery"' in skills.text
     assert 'id="skills-create-revision"' in skills.text
     assert 'id="skills-publish-dialog"' in skills.text
-    assert "skills.js?v=remote-target-names-v1" in skills.text
+    assert "skills.js?v=remote-target-names-topics-v1" in skills.text
     assert 'data-i18n="reviewTitle"' in review.text
     assert 'aria-current="page" data-i18n="reviewTitle"' in review.text
     assert 'id="review-scope-select"' not in review.text
@@ -809,10 +815,23 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
         disabled_page = client.get("/handoff-reports")
     with TestClient(enabled_app) as client:
         enabled_page = client.get("/handoff-reports")
+        disabled_topics = client.get("/topics")
+        disabled_skills = client.get("/skills")
+        disabled_review = client.get("/reviews")
+        disabled_dashboard = client.get("/")
         scopes = client.get("/dashboard/scopes", headers=_AUTH_HEADERS)
+        protected_scopes = client.post(
+            "/v1/handoff-reports/scopes/list-known",
+            json={"limit": 100},
+        )
 
     assert disabled_page.status_code == 404
     assert enabled_page.status_code == 200
+    assert disabled_topics.status_code == 404
+    assert disabled_skills.status_code == 404
+    assert disabled_review.status_code == 404
+    assert disabled_dashboard.status_code == 404
+    assert protected_scopes.status_code == 401
     assert scopes.status_code == 200
     assert scopes.json()[0]["display_name"] == "Default"
     assert 'class="server-content" id="handoff-report"' in enabled_page.text
@@ -821,7 +840,7 @@ def test_handoff_report_page_is_available_without_the_statistics_dashboard(tmp_p
     assert 'id="download-report"' in enabled_page.text
     assert 'data-i18n-aria-label="handoffSummary"' in enabled_page.text
     assert '<details class="report-metadata">' in enabled_page.text
-    assert "handoff-report.js?v=scope-selection-v2" in enabled_page.text
+    assert "handoff-report.js?v=scope-selection-topics-v1" in enabled_page.text
 
 
 def _handoff_report_settings(database_path: Path, *, enabled: bool) -> ServerSettings:

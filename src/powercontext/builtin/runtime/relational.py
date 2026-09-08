@@ -54,6 +54,7 @@ from powercontext.builtin.artifacts.handoff import (
 from powercontext.builtin.artifacts.handoff.generation_metadata import HandoffGenerationReceipts
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
+    EmbeddingProfile,
     Memory,
     MemoryReranker,
     MemoryService,
@@ -88,6 +89,15 @@ from powercontext.builtin.artifacts.skill import (
 from powercontext.builtin.artifacts.skill.distribution import RemoteSkillDistributionService
 from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationService
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
+from powercontext.builtin.artifacts.topic_memory import (
+    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+    PublishedTopicMemory,
+    TopicMemory,
+    TopicMemoryBrowseCursor,
+    TopicMemoryCurrentItem,
+    TopicMemorySearchMode,
+    TopicMemorySearchResult,
+)
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTargetRepository
@@ -119,13 +129,20 @@ from powercontext.builtin.persistence.handoff import (
 )
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.skill_publications import SkillPublicationRepository
 from powercontext.builtin.persistence.source_definitions import SourceDefinitionManifestRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.statistics import StatisticsRepository
+from powercontext.builtin.persistence.supervision import (
+    ArtifactProcessingBindingStateRepository,
+    ArtifactProcessingLeaseRepository,
+)
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
+from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -219,6 +236,10 @@ class _Repositories:
     agent_skill_targets: RemoteAgentSkillTargetRepository
     skill_publications: SkillPublicationRepository
     statistics: StatisticsRepository
+    processing_pending: ArtifactProcessingPendingRepository
+    processing_leases: ArtifactProcessingLeaseRepository
+    processing_binding_states: ArtifactProcessingBindingStateRepository
+    topic_memories: TopicMemoryRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +280,7 @@ class _ScopedServices:
             scope_id=self.scope_id,
             registry=self.source_registry,
             repository=self.repositories.sources,
+            processing_pending=self.repositories.processing_pending,
             write_lock=self.source_lock,
             connection=connection,
         )
@@ -405,6 +427,7 @@ class RelationalContexts:
         *,
         database: AsyncDatabase,
         index: MemoryIndex | None = None,
+        topic_memory_index: TopicMemoryIndex | None = None,
         experience_index: ExperienceIndex | None = None,
         candidate_pipeline: CandidatePipeline | None = None,
         experience_pipeline: ExperienceCandidatePipeline | None = None,
@@ -429,10 +452,11 @@ class RelationalContexts:
         self.scopes = ScopeApplication(database)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         self.index = NoMemoryIndex() if index is None else index
+        self.topic_memory_index = NoTopicMemoryIndex() if topic_memory_index is None else topic_memory_index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            (Handoff, Memory, Experience, Skill, Profile, Prompt),
+            (Handoff, Memory, Experience, Skill, Profile, Prompt, TopicMemory),
             sources=source_repository,
         )
         self.repositories = _Repositories(
@@ -452,6 +476,10 @@ class RelationalContexts:
             agent_skill_targets=RemoteAgentSkillTargetRepository(),
             skill_publications=SkillPublicationRepository(),
             statistics=StatisticsRepository(),
+            processing_pending=ArtifactProcessingPendingRepository(),
+            processing_leases=ArtifactProcessingLeaseRepository(),
+            processing_binding_states=ArtifactProcessingBindingStateRepository(),
+            topic_memories=TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index),
         )
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self.prompt_registry = prompt_registry or PromptRegistry(
@@ -515,6 +543,8 @@ class RelationalContexts:
             family_writers,
             id_factory=id_factory,
             cursor_secret=cursor_secret,
+            processing_pending=self.repositories.processing_pending,
+            source_processing_bindings=(TOPIC_MEMORY_SOURCE_WINDOW_BINDING,),
         )
         self.publications = ArtifactPublicationApplication(
             database,
@@ -548,6 +578,14 @@ class RelationalContexts:
         self._activation_locks: dict[str, asyncio.Lock] = {}
         self._experience_locks: dict[str, asyncio.Lock] = {}
         self._skill_publication_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
+
+    @property
+    def token_estimator(self) -> TokenEstimator:
+        """Return the deployment-fixed estimator used by internal processors."""
+
+        if self._token_estimator is None:
+            raise RuntimeError("Token estimator is unavailable")  # noqa: TRY003
+        return self._token_estimator
 
     def evict(self, scope_id: str, /) -> None:
         """Discard inactive scope-local compositions and serialization locks."""
@@ -667,6 +705,77 @@ class RelationalContexts:
         scope = validate_scope_id(scope_id)
         async with self.database.transaction() as connection:
             return await self.experience_index.search(connection, scope, query, limit)
+
+    async def get_topic_memory(
+        self,
+        scope_id: str,
+        artifact_ref: ArtifactRef,
+        /,
+    ) -> PublishedTopicMemory:
+        """Return one exact published Topic Revision in a single scope."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            try:
+                return await self.repositories.topic_memories.get_exact(connection, scope, artifact_ref)
+            except RepositoryNotFoundError as error:
+                raise ArtifactNotFoundError(artifact_ref) from error
+
+    async def request_topic_memory_flush(self, scope_id: str, /) -> bool:
+        """Persist one flush generation and return only after its transaction commits."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            pending = await self.repositories.processing_pending.request_flush(
+                connection,
+                scope,
+                TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+            )
+        return pending is not None
+
+    async def browse_topic_memories(
+        self,
+        scope_id: str,
+        /,
+        *,
+        limit: int,
+        after: TopicMemoryBrowseCursor | None = None,
+    ) -> tuple[TopicMemoryCurrentItem, ...]:
+        """Browse only current complete Topic heads with a stable keyset boundary."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.topic_memories.browse_current(
+                connection,
+                scope,
+                limit=limit,
+                after=after,
+            )
+
+    async def search_topic_memories(
+        self,
+        scope_id: str,
+        query: str,
+        /,
+        *,
+        limit: int,
+        mode: TopicMemorySearchMode = "auto",
+        query_vector: tuple[float, ...] | None = None,
+        embedding_profile: EmbeddingProfile | None = None,
+    ) -> TopicMemorySearchResult:
+        """Search current active Topic projections in this deployment."""
+
+        scope = validate_scope_id(scope_id)
+        async with self.database.transaction() as connection:
+            return await self.repositories.topic_memories.search(
+                connection,
+                scope,
+                query,
+                limit=limit,
+                mode=mode,
+                query_vector=query_vector,
+                embedding_profile=embedding_profile,
+            )
 
     async def search_skills(
         self,
@@ -963,7 +1072,14 @@ class RelationalContexts:
         )
         async with self.database.transaction() as connection:
             await self.repositories.skill_packages.add(connection, scope, capture.package)
-            stored = await self.repositories.sources.add(connection, scope, source)
+            stored, created = await self.repositories.sources.add_with_status(connection, scope, source)
+            if created:
+                await self.repositories.processing_pending.raise_source(
+                    connection,
+                    scope,
+                    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                    stored.journal_position,
+                )
             if mode is ExternalSkillImportMode.IMPORT:
                 candidate = (
                     await self
@@ -1123,6 +1239,7 @@ class _RelationalSources:
         scope_id: str,
         registry: SourceDefinitionRegistry,
         repository: SourceRepository,
+        processing_pending: ArtifactProcessingPendingRepository,
         write_lock: asyncio.Lock,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -1130,6 +1247,7 @@ class _RelationalSources:
         self._scope_id = scope_id
         self._registry = registry
         self._repository = repository
+        self._processing_pending = processing_pending
         self._write_lock = write_lock
         self._bound_connection = connection
 
@@ -1137,7 +1255,15 @@ class _RelationalSources:
         async with self._write_lock:
             try:
                 async with self._database.connection(self._bound_connection) as connection:
-                    return (await self._repository.add(connection, self._scope_id, source)).value
+                    stored, created = await self._repository.add_with_status(connection, self._scope_id, source)
+                    if created:
+                        await self._processing_pending.raise_source(
+                            connection,
+                            self._scope_id,
+                            TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                            stored.journal_position,
+                        )
+                    return stored.value
             except StoredPayloadConflictError as error:
                 raise SourceConflictError("identity", error.identity) from None
 

@@ -39,6 +39,7 @@ _PUBLIC_PATHS = frozenset({
     "/prompts",
     "/skills",
     "/shared",
+    "/topics",
     "/health/live",
     "/health/ready",
     "/v1/skill/remote/target/enroll",

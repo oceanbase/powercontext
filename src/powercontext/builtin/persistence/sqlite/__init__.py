@@ -15,5 +15,14 @@
 """SQLite async relational profile."""
 
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.sqlite.topic_memory_index import (
+    SQLiteTopicMemoryFTSIndex,
+    SQLiteTopicMemoryVectorIndex,
+)
 
-__all__ = ("SQLiteConfig", "SQLiteProfile")
+__all__ = (
+    "SQLiteConfig",
+    "SQLiteProfile",
+    "SQLiteTopicMemoryFTSIndex",
+    "SQLiteTopicMemoryVectorIndex",
+)

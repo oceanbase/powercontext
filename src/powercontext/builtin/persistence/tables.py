@@ -434,6 +434,156 @@ SOURCE_CURSORS_TABLE = Table(
     CheckConstraint("generation >= 0", name="ck_pc_source_cursors_generation_nonnegative"),
 )
 
+ARTIFACT_PROCESSING_PENDING_TABLE = Table(
+    "pc_artifact_processing_pending",
+    SHARED_METADATA,
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_through", BigInteger, nullable=False),
+    Column("flush_generation", BigInteger, nullable=False, server_default="0"),
+    Column("handled_flush_generation", BigInteger, nullable=False, server_default="0"),
+    CheckConstraint("source_through >= 1", name="ck_pc_artifact_processing_pending_source_positive"),
+    CheckConstraint("flush_generation >= 0", name="ck_pc_artifact_processing_pending_flush_nonnegative"),
+    CheckConstraint(
+        "handled_flush_generation >= 0",
+        name="ck_pc_artifact_processing_pending_handled_nonnegative",
+    ),
+    CheckConstraint(
+        "handled_flush_generation <= flush_generation",
+        name="ck_pc_artifact_processing_pending_handled_not_ahead",
+    ),
+)
+
+ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE = Table(
+    "pc_artifact_processing_auto_wave_targets",
+    SHARED_METADATA,
+    Column("wave_id", identity_string(36), primary_key=True),
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_through", BigInteger, nullable=False),
+    Column("completed", Boolean, nullable=False, server_default="0"),
+    CheckConstraint(
+        "source_through >= 1",
+        name="ck_pc_artifact_processing_auto_wave_target_source_positive",
+    ),
+)
+
+ARTIFACT_PROCESSING_LEASES_TABLE = Table(
+    "pc_artifact_processing_leases",
+    SHARED_METADATA,
+    Column("supervisor_group", identity_string(64), primary_key=True),
+    Column("holder_id", identity_string(36), nullable=False),
+    Column("supervisor_generation", BigInteger, nullable=False),
+    Column("lease_expires_at", DateTime(timezone=False)),
+    CheckConstraint(
+        "supervisor_generation > 0",
+        name="ck_pc_artifact_processing_leases_generation_positive",
+    ),
+)
+
+ARTIFACT_PROCESSING_BINDING_STATES_TABLE = Table(
+    "pc_artifact_processing_binding_states",
+    SHARED_METADATA,
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("last_auto_wave_completed_at", DateTime(timezone=False)),
+)
+
+
+TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE = Table(
+    "pc_topic_memory_revision_publications",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), primary_key=True),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, primary_key=True),
+    Column("published_at", DateTime(timezone=False), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision"),
+        (
+            "pc_artifacts.scope_id",
+            "pc_artifacts.family",
+            "pc_artifacts.artifact_id",
+            "pc_artifacts.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("family = 'topic-memory'", name="ck_pc_topic_memory_publications_family"),
+    CheckConstraint("revision > 0", name="ck_pc_topic_memory_publications_revision_positive"),
+)
+
+
+TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE = Table(
+    "pc_topic_memory_retrieval_shape",
+    SHARED_METADATA,
+    Column("singleton", Integer, primary_key=True, autoincrement=False),
+    Column("shape", identity_string(16), nullable=False),
+    Column("profile_fingerprint", identity_string(64)),
+    CheckConstraint("singleton = 1", name="ck_pc_topic_memory_retrieval_shape_singleton"),
+    CheckConstraint("shape IN ('fts', 'hybrid')", name="ck_pc_topic_memory_retrieval_shape_value"),
+    CheckConstraint(
+        "(shape = 'fts' AND profile_fingerprint IS NULL) OR (shape = 'hybrid' AND profile_fingerprint IS NOT NULL)",
+        name="ck_pc_topic_memory_retrieval_shape_profile",
+    ),
+)
+
+
+TOPIC_MEMORY_ACTIVE_TOPICS_TABLE = Table(
+    "pc_topic_memory_active_topics",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, nullable=False),
+    Column("title", _entry_text_type(), nullable=False),
+    Column("summary", _entry_text_type(), nullable=False),
+    Column("searchable_text", _entry_text_type(), nullable=False),
+    Column("source_count", Integer, nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision"),
+        (
+            "pc_topic_memory_revision_publications.scope_id",
+            "pc_topic_memory_revision_publications.family",
+            "pc_topic_memory_revision_publications.artifact_id",
+            "pc_topic_memory_revision_publications.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("family = 'topic-memory'", name="ck_pc_topic_memory_active_topics_family"),
+    CheckConstraint("revision > 0", name="ck_pc_topic_memory_active_topics_revision_positive"),
+    CheckConstraint("source_count >= 0", name="ck_pc_topic_memory_active_topics_sources_nonnegative"),
+)
+
+
+TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE = Table(
+    "pc_topic_memory_active_chunks",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("revision", Integer, nullable=False),
+    Column("chunk_ordinal", Integer, primary_key=True),
+    Column("start_offset", Integer, nullable=False),
+    Column("end_offset", Integer, nullable=False),
+    Column("chunk_text", _entry_text_type(), nullable=False),
+    Column("searchable_text", _entry_text_type(), nullable=False),
+    Column("policy_version", identity_string(32), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "artifact_id", "revision"),
+        (
+            "pc_topic_memory_revision_publications.scope_id",
+            "pc_topic_memory_revision_publications.family",
+            "pc_topic_memory_revision_publications.artifact_id",
+            "pc_topic_memory_revision_publications.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("family = 'topic-memory'", name="ck_pc_topic_memory_active_chunks_family"),
+    CheckConstraint("revision > 0", name="ck_pc_topic_memory_active_chunks_revision_positive"),
+    CheckConstraint("chunk_ordinal >= 0", name="ck_pc_topic_memory_active_chunks_ordinal_nonnegative"),
+    CheckConstraint("start_offset >= 0", name="ck_pc_topic_memory_active_chunks_start_nonnegative"),
+    CheckConstraint("end_offset > start_offset", name="ck_pc_topic_memory_active_chunks_offsets"),
+)
+
 CONNECTOR_CHECKPOINTS_TABLE = Table(
     "pc_connector_checkpoints",
     SHARED_METADATA,
@@ -655,6 +805,10 @@ SHARED_TABLES = (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
     PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
+    ARTIFACT_PROCESSING_LEASES_TABLE,
+    ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
+    ARTIFACT_PROCESSING_PENDING_TABLE,
+    ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
@@ -753,6 +907,13 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 
 MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
 
+TOPIC_MEMORY_TABLES = (
+    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,
+    TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
+    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
+    TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE,
+)
+
 # OceanBase requires FK column lengths to match the parent. A normalized-key
 # fingerprint keeps composite indexes within 3072 bytes without narrowing any
 # Unicode identity or label. Queries also compare the full key, not just its hash.
@@ -793,4 +954,6 @@ ARTIFACT_TAGS_TABLE = Table(
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
-BUILTIN_TABLES = SCOPE_TABLES + SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES + (ARTIFACT_TAGS_TABLE,)
+BUILTIN_TABLES = (
+    SCOPE_TABLES + SHARED_TABLES + TOPIC_MEMORY_TABLES + MEMORY_TABLES + STATISTICS_TABLES + (ARTIFACT_TAGS_TABLE,)
+)

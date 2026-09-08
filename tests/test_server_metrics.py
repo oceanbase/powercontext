@@ -29,6 +29,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import RuntimeConfig
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
+from powercontext.server.metrics import ServerMetrics
 from powercontext.server.settings import (
     McpConfig,
     MetricsConfig,
@@ -93,6 +94,18 @@ def test_metrics_endpoint_is_absent_when_disabled(tmp_path) -> None:
         response = client.get("/metrics")
 
     assert response.status_code == 404
+
+
+def test_topic_memory_search_metrics_expose_mode_and_transient_fallback_without_query_content() -> None:
+    metrics = ServerMetrics()
+
+    metrics.observe_topic_memory_search("fts", True)
+    rendered = metrics.render().decode()
+
+    assert 'powercontext_server_topic_memory_searches_total{fallback="true",mode="fts"} 1.0' in rendered
+    assert "query" not in next(
+        line for line in rendered.splitlines() if line.startswith("powercontext_server_topic_memory_searches_total")
+    )
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Prometheus process metrics require Linux procfs")

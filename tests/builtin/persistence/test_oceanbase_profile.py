@@ -179,6 +179,7 @@ def test_oceanbase_profile_hides_sql_parameters(monkeypatch: pytest.MonkeyPatch)
         async with OceanBaseProfile.open(OceanBaseConfig(url=SecretStr(VALID_URL)), tables=()):
             pass
 
+        assert captured["connect_args"] == {"init_command": "SET autocommit = 0"}
         assert captured["hide_parameters"] is True
 
     asyncio.run(scenario())

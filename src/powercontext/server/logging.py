@@ -37,6 +37,7 @@ _OPERATIONAL_FIELDS = (
     "duration_ms",
     "status_code",
     "error_code",
+    "mode",
     "source_count",
     "trace_id",
     "span_id",

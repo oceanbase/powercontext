@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
 from powercontext.builtin.artifacts.memory import MemoryHit
+from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
 from powercontext.builtin.runtime import PrepareContextRequest
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
 from powercontext.builtin.runtime.prepared_context import (
@@ -34,8 +35,13 @@ from powercontext.builtin.runtime.prepared_context import (
 MEMORY_REF = ArtifactRef(family="memory", artifact_id="memory", revision=3)
 
 
+class _PreparedArtifactRef(TypedDict):
+    family: str
+
+
 class _PreparedCitation(TypedDict, total=False):
     entry_id: str
+    artifact_ref: _PreparedArtifactRef
     memory_ref: object
     memory: object
     artifact: object
@@ -73,6 +79,17 @@ def _experience_hit(artifact_id: str = "experience-1", revision: int = 1) -> Exp
             outcome="The checked-in transport matches the public contract.",
             lesson="Regenerate and inspect the client before contract tests.",
         ),
+    )
+
+
+def _topic_hit(artifact_id: str = "topic-1", revision: int = 1) -> TopicMemorySearchHit:
+    return TopicMemorySearchHit(
+        artifact_ref=ArtifactRef(family="topic-memory", artifact_id=artifact_id, revision=revision),
+        title=f"Title {artifact_id}",
+        summary=f"Summary {artifact_id}",
+        snippet=f"Snippet {artifact_id}",
+        score=1.0,
+        matched_by=("topic_fts",),
     )
 
 
@@ -209,10 +226,11 @@ def test_builder_qualifies_only_cross_scope_citations() -> None:
 
 
 def test_builder_keeps_memory_primary_and_bounds_experience_share() -> None:
-    experiences = tuple(_experience_hit(f"experience-{index}") for index in range(1, 5))
+    experiences = tuple(_experience_hit(f"experience-{index}") for index in range(1, 3))
     prepared = PreparedContextBuilder().build(
         memory_ref=MEMORY_REF,
         hits=(_hit("first", "First Memory entry"), _hit("second", "Second Memory entry")),
+        topic_memory_hits=(_topic_hit("topic-1"), _topic_hit("topic-2")),
         experience_hits=experiences,
         request=PrepareContextRequest(query="client"),
     )
@@ -220,10 +238,42 @@ def test_builder_keeps_memory_primary_and_bounds_experience_share() -> None:
     items = _items(prepared.content)
     assert [item.get("kind", "memory") for item in items] == [
         "memory",
+        "topic-memory",
         "experience",
         "memory",
+        "topic-memory",
         "experience",
     ]
+
+
+def test_builder_allows_eight_topic_memories_without_a_global_entry_limit_or_detail() -> None:
+    prepared = PreparedContextBuilder().build(
+        topic_memory_hits=tuple(_topic_hit(f"topic-{index}") for index in range(8)),
+        request=PrepareContextRequest(query="topic", max_bytes=32768),
+    )
+
+    items = _items(prepared.content)
+    assert len(items) == 8
+    assert all(item["kind"] == "topic-memory" for item in items)
+    assert all("detail" not in item["content"] for item in items)
+    assert all(item["citation"]["artifact_ref"]["family"] == "topic-memory" for item in items)
+
+
+def test_builder_interleaves_families_within_the_global_eight_entry_limit() -> None:
+    prepared = PreparedContextBuilder().build(
+        memory_ref=MEMORY_REF,
+        hits=tuple(_hit(f"memory-{index}", f"Memory {index}") for index in range(8)),
+        topic_memory_hits=tuple(_topic_hit(f"topic-{index}") for index in range(8)),
+        experience_hits=tuple(_experience_hit(f"experience-{index}") for index in range(2)),
+        request=PrepareContextRequest(query="context", max_bytes=32768),
+    )
+
+    families = [item.get("kind", "memory") for item in _items(prepared.content)]
+    assert len(families) == 8
+    assert families[:6] == ["memory", "topic-memory", "experience"] * 2
+    assert families.count("memory") == 3
+    assert families.count("topic-memory") == 3
+    assert families.count("experience") == 2
 
 
 def test_builder_rejects_non_experience_recall_hits() -> None:
