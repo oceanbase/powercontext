@@ -31,7 +31,7 @@ from powercontext_datus.sandbox import Sandbox
 
 def numbered(records):
     return [
-        {"run_id": "synthetic", "task_id": "t", "attempt_id": "a", "sequence": i, "monotonic_ns": i, **r}
+        {"run_id": "synthetic", "task_id": "t", "attempt_id": "a", **r, "sequence": i, "monotonic_ns": i}
         for i, r in enumerate(records, 1)
     ]
 
@@ -107,6 +107,85 @@ def test_native_action_lifecycle_cannot_be_folded_into_sets(damage):
         records[6]["action"]["status"] = "failed"
     result = reconcile(numbered([{k: v for k, v in r.items() if k != "sequence"} for r in records]))
     assert not result["trace_complete"] and result["steps"] is None, result
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        (2, 6, 3, 4, 5),  # C GEN-5: success before dispatch even starts.
+        (2, 3, 6, 4, 5),  # Terminal during dispatch.
+        (3, 2, 4, 5, 6),  # Processing only arrives after dispatch starts.
+        (2, 4, 3, 5, 6),  # Return before dispatch.
+        (2, 3, 5, 4, 6),  # Return after dispatch finishes.
+        (2, 3, 5, 6),  # A successful invocation cannot omit its return.
+    ],
+)
+def test_action_and_dispatch_must_share_one_ordered_lifecycle(order):
+    records = tool_records()
+    reordered = [*records[:2], *(records[i] for i in order), *records[-2:]]
+    result = reconcile(numbered([{k: v for k, v in r.items() if k != "sequence"} for r in reordered]))
+    assert not result["trace_complete"] and result["steps"] is None, result
+
+
+@pytest.mark.parametrize("mode", ["exception", "failure_payload", "success"])
+def test_ordered_native_failures_and_success_remain_countable(mode):
+    records = tool_records()
+    if mode == "exception":
+        records[5]["status"] = "failure"
+        records[6]["action"]["status"] = "failed"
+        records.pop(4)
+    elif mode == "failure_payload":
+        records[4]["value"]["success"] = False
+        records[6]["action"]["status"] = "failed"
+    result = reconcile(numbered([{k: v for k, v in r.items() if k != "sequence"} for r in records]))
+    assert result["trace_complete"] and result["steps"] == 1, result
+    assert result["operations"][0]["failed"] == (mode != "success")
+
+
+def test_unknown_dispatch_terminal_status_cannot_certify_a_failed_action():
+    records = tool_records()
+    records[5]["status"] = "not_started"
+    records[6]["action"]["status"] = "failed"
+    result = reconcile(records)
+    assert not result["trace_complete"] and result["steps"] is None, result
+
+
+@pytest.mark.parametrize("order", [(0, 2, 1, 3, 4, 5, 6, 7, 8), (0, 1, 2, 3, 4, 5, 7, 6, 8)])
+def test_native_dispatch_stays_inside_the_active_question(order):
+    records = tool_records()
+    result = reconcile(numbered([{k: v for k, v in records[i].items() if k != "sequence"} for i in order]))
+    assert not result["trace_complete"] and result["steps"] is None, result
+
+
+def test_native_exception_cannot_also_claim_a_successful_return():
+    records = tool_records()
+    records[5]["status"] = "failure"
+    records[6]["action"]["status"] = "failed"
+    result = reconcile(records)
+    assert not result["trace_complete"] and result["steps"] is None, result
+
+
+def test_native_dispatch_requires_an_explicit_online_start():
+    records = tool_records()
+    records[3]["online"] = "true"
+    result = reconcile(records)
+    assert not result["trace_complete"] and result["steps"] is None, result
+
+
+def test_interleaved_calls_are_valid_when_each_local_lifecycle_is_ordered():
+    records = tool_records()
+    first = records[2:7]
+    second = copy.deepcopy(first)
+    for record in second:
+        if "operation_id" in record:
+            record["operation_id"] = "op_second"
+        if "call_id" in record:
+            record["call_id"] = "call_second"
+        if "action" in record:
+            record["action"]["action_id"] += "_second"
+    interleaved = [first[0], second[0], first[1], *second[1:], *first[2:]]
+    result = reconcile(numbered([*records[:2], *interleaved, *records[-2:]]))
+    assert result["trace_complete"] and result["steps"] == 2, result
 
 
 def decimal_run(number):

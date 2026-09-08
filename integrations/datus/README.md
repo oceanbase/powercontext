@@ -254,8 +254,14 @@ Non-SQL protocol payload bytes are never recorded.
 
 Each native tool call must have exactly one processing action and one later
 terminal action, with matching tool names and a terminal status consistent with
-the dispatch result. Duplicate, conflicting, missing or reversed lifecycle
-evidence invalidates certification; no set-based folding can hide it.
+the dispatch result. The pinned lifecycle is
+`question < processing < operation_started < operation_finished < terminal < answer`.
+A normal invocation must emit exactly one `tool_returned` between its start and
+finish, including when the payload reports a tool failure. An invocation that
+raises instead finishes with `failure` and emits no return. Unknown dispatch
+states, early/stale terminals, returns outside the invocation, and duplicate,
+conflicting, missing or reversed evidence invalidate certification. Corrupt
+lifecycles have unknown steps; ordered failures remain counted attempts.
 
 Full result rows are captured from native fetches before DataFrame/CSV conversion
 can coerce integers/NULLs or lose empty-result columns. Chunked fetches accumulate

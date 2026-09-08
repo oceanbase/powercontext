@@ -91,10 +91,11 @@ def plan(tmp_path):
     }
 
 
-def test_native_graph_full_rows_failures_retries_and_wrapper_deduplication(sandbox, plan):
+def test_native_graph_full_rows_failures_retries_and_wrapper_deduplication(sandbox, plan, tmp_path):
     with gateway(skill=True, sql_tool=True, fail_sql=True) as (endpoint, calls):
         plan["public"]["model"]["base_url"] = endpoint
         run = run_one(plan, sandbox, "enhanced", plan["tasks"][0], run_id="component")
+    (tmp_path / "native-graph-raw.json").write_text(json.dumps(run, ensure_ascii=False))
     assert run["returncode"] == 0, run
     trace = reconcile(run["records"])
     assert trace["trace_complete"], trace
@@ -150,6 +151,20 @@ def test_native_graph_full_rows_failures_retries_and_wrapper_deduplication(sandb
         for index, record in enumerate(replayed, 1):
             record["sequence"] = index
         assert reconcile(replayed)["steps"] is None
+    premature = copy.deepcopy(run["records"])
+    terminal = next(
+        r for r in premature if r["kind"] == "action_received" and r["action"].get("action_id") == "complete_call_0"
+    )
+    premature.remove(terminal)
+    before_dispatch = next(
+        i for i, r in enumerate(premature) if r["kind"] == "operation_started" and r["call_id"] == "call_0"
+    )
+    premature.insert(before_dispatch, terminal)
+    for index, record in enumerate(premature, 1):
+        record.update(sequence=index, monotonic_ns=index)
+    corrupted = reconcile(premature)
+    assert not corrupted["trace_complete"] and corrupted["steps"] is None
+    (tmp_path / "premature-terminal.json").write_text(json.dumps({"records": premature, "reconciled": corrupted}))
 
 
 def test_native_sql_result_does_not_prove_final_answer(sandbox, plan):

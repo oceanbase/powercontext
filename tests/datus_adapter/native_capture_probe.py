@@ -64,7 +64,7 @@ def main():
                 status=ActionStatus.PROCESSING,
             )
         )
-        with trace.operation("composite", {}, call_id="call"):
+        with trace.operation("composite", {}, call_id="call") as operation_id:
             with trace.operation("nested-schema-operation", {}):
                 engine = create_engine("sqlite://")
                 with engine.connect() as connection:
@@ -93,6 +93,7 @@ def main():
             connection._read_query_result = read_result
             connection.query("SELECT 9 AS value")
             connection._sock = None
+            trace.emit("tool_returned", operation_id=operation_id, value={"success": True})
         history.add_action(
             ActionHistory(
                 action_id="complete_call",

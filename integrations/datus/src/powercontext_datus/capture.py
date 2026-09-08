@@ -299,6 +299,10 @@ def _check_native_actions(
         issues.add("unmatched_native_action")
     if len(expected_ids) != 2 * len(call_ids):
         issues.add("ambiguous_native_call_id")
+    interval = tuple(
+        next((r["sequence"] for r in records if r["kind"] == kind), 0)
+        for kind in ("question_injected", "answer_submitted")
+    )
     for op_id, start in starts.items():
         if not start["call_id"]:
             continue
@@ -308,6 +312,9 @@ def _check_native_actions(
             issues.add("native_action_cardinality")
             continue
         _check_action_pair(processing[0], terminal[0], start, finishes.get(op_id), returns.get(op_id), issues)
+        _check_action_dispatch(
+            processing[0], terminal[0], start, finishes.get(op_id), returns.get(op_id), interval, issues
+        )
 
 
 def _check_action_pair(processing, terminal, start, finish, returned, issues) -> None:
@@ -322,6 +329,31 @@ def _check_action_pair(processing, terminal, start, finish, returned, issues) ->
         issues.add("native_action_lifecycle")
     if finish is None or (last.get("status") == "failed") != _operation_failed(finish, returned):
         issues.add("native_action_status_conflict")
+
+
+def _check_action_dispatch(processing, terminal, start, finish, returned, interval, issues) -> None:
+    # At this pinned native boundary, processing precedes invocation and the
+    # native terminal follows the wrapper's completion. An ID match alone must
+    # never associate an old/early terminal with a later invocation.
+    if finish is None or finish["status"] not in {"success", "failure"} or start["online"] is not True:
+        issues.add("native_dispatch_state")
+        return
+    if not (
+        interval[0]
+        < processing["sequence"]
+        < start["sequence"]
+        < finish["sequence"]
+        < terminal["sequence"]
+        < interval[1]
+    ):
+        issues.add("native_dispatch_order")
+    # A normal invocation emits its return before leaving the wrapper, even
+    # when the returned payload reports failure. A raised exception emits none.
+    if returned is None:
+        if finish["status"] == "success":
+            issues.add("native_return_lifecycle")
+    elif finish["status"] != "success" or not start["sequence"] < returned["sequence"] < finish["sequence"]:
+        issues.add("native_return_lifecycle")
 
 
 def _operation_failed(end: dict[str, Any] | None, returned: dict[str, Any] | None) -> bool:
