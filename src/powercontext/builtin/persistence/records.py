@@ -67,6 +67,7 @@ from powercontext.builtin.records import (
     ScopeSummary,
     ScopeSummaryPage,
     SourceRecord,
+    SourceRecordPage,
 )
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
@@ -87,6 +88,7 @@ IdFactory = Callable[[str], str]
 _JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
 _JSON_VALUE = TypeAdapter(JsonValue)
 _DEFAULT_CURSOR_TTL_SECONDS = 3_600
+_SOURCE_PAGE_BUDGET_BYTES = 4 * 1024 * 1024
 
 
 class RelationalRecordService:
@@ -196,6 +198,62 @@ class RelationalRecordService:
         ref = SourceRef(source_type=source_type, source_id=source_id)
         async with self._database.transaction() as connection:
             return _source_record(scope_id, await self._get_source(connection, scope_id, ref))
+
+    async def list_sources(
+        self,
+        scope_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+        caller: str = "runtime",
+    ) -> SourceRecordPage:
+        _require_limit(limit)
+        expected_cursor = {
+            "version": 1,
+            "endpoint": "list_sources",
+            "scope_id": scope_id,
+            "source_types": [CONTENT_SOURCE_NAME],
+            "authorization": "scope_read",
+            "caller": caller,
+            "limit": limit,
+            "order": "journal_position:asc",
+        }
+        cursor_state = self._cursor_after_text(cursor, expected_cursor)
+        async with self._database.transaction() as connection:
+            high_watermark = await self._sources.journal_position(connection, scope_id)
+            if cursor_state:
+                try:
+                    through_text, after_text = cursor_state.split(":")
+                    through, after = int(through_text), int(after_text)
+                except ValueError:
+                    raise InvalidCursorError from None
+                if not 0 <= after <= through <= high_watermark:
+                    raise InvalidCursorError
+            else:
+                through, after = high_watermark, 0
+            stored = await self._sources.list(
+                connection,
+                scope_id,
+                after=after,
+                through=through,
+                limit=limit + 1,
+                source_type=CONTENT_SOURCE_NAME,
+            )
+            available = tuple(_source_record(scope_id, value) for value in stored)
+
+        selected: list[SourceRecord] = []
+        page_bytes = 0
+        for item in available[:limit]:
+            item_bytes = len(item.model_dump_json().encode("utf-8"))
+            if selected and page_bytes + item_bytes > _SOURCE_PAGE_BUDGET_BYTES:
+                break
+            selected.append(item)
+            page_bytes += item_bytes
+        next_cursor = None
+        if len(available) > len(selected) and selected:
+            next_cursor = self._encode_cursor(expected_cursor, f"{through}:{selected[-1].position}")
+        return SourceRecordPage(items=tuple(selected), next_cursor=next_cursor)
 
     async def create_artifact(
         self,

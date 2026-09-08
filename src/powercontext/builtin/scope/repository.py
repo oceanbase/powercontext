@@ -60,8 +60,11 @@ class ScopeRepository:
             select(SCOPES_TABLE).where(SCOPES_TABLE.c.scope_id.in_(scope_ids)).order_by(SCOPES_TABLE.c.scope_id),
         )
 
-    async def list(self, connection: AsyncConnection, /) -> tuple[ScopeDescriptor, ...]:
-        return await self._load(connection, select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id))
+    async def list(self, connection: AsyncConnection, /, *, query: str | None = None) -> tuple[ScopeDescriptor, ...]:
+        rows = tuple((await connection.execute(select(SCOPES_TABLE).order_by(SCOPES_TABLE.c.scope_id))).mappings())
+        if query:
+            rows = tuple(row for row in rows if query in str(row["scope_id"]))
+        return await self._load_rows(connection, rows)
 
     async def lock_write_transaction(self, connection: AsyncConnection, /) -> None:
         """Acquire SQLite's writer boundary before reading state that will change."""
@@ -80,6 +83,14 @@ class ScopeRepository:
 
     async def _load(self, connection: AsyncConnection, statement, /) -> tuple[ScopeDescriptor, ...]:
         rows = tuple((await connection.execute(statement)).mappings())
+        return await self._load_rows(connection, rows)
+
+    async def _load_rows(
+        self,
+        connection: AsyncConnection,
+        rows,
+        /,
+    ) -> tuple[ScopeDescriptor, ...]:
         scope_ids = tuple(str(row["scope_id"]) for row in rows)
         if not scope_ids:
             return ()

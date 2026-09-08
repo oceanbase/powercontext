@@ -113,6 +113,8 @@ from powercontext.http import (
     ListMemoryEntriesResponse,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
+    ListScopesRequest,
+    ListSourcesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -170,6 +172,7 @@ from powercontext.http import (
     SkillPackageManifest,
     SourceDefinitionManifest,
     SourceObservationReceipt,
+    SourcePage,
     SourceRecord,
     SubmitSourceObservationRequest,
     UnpublishRemoteSkillRequest,
@@ -245,6 +248,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_ENTRIES,
     LIST_REMOTE_SKILL_TARGETS,
     LIST_SCOPES,
+    LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -361,10 +365,10 @@ class PowerContextClient:
 
         return await self._request(GET_CAPABILITIES)
 
-    async def list_scopes(self) -> ScopePage:
+    async def list_scopes(self, query: str | None = None) -> ScopePage:
         """List durable Scope descriptors."""
 
-        return await self._request(LIST_SCOPES)
+        return await self._request(LIST_SCOPES, ListScopesRequest(query=query))
 
     async def create_scope(self, request: CreateScopeRequest) -> ScopeDescriptor:
         """Create one independent Scope boundary."""
@@ -530,6 +534,19 @@ class PowerContextClient:
         """Create one durable Source without invoking generation."""
 
         return await self._request(CREATE_SOURCE, request, path_parameters={"scope_id": scope_id})
+
+    async def list_sources(
+        self,
+        scope_id: str,
+        request: ListSourcesRequest | None = None,
+    ) -> SourcePage:
+        """List one stable page of public Sources in a Scope."""
+
+        return await self._request(
+            LIST_SOURCES,
+            ListSourcesRequest() if request is None else request,
+            path_parameters={"scope_id": scope_id},
+        )
 
     async def create_subject_source(
         self, scope_id: str, request: CreateSubjectSourceRequest

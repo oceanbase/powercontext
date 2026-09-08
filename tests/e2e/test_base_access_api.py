@@ -34,6 +34,7 @@ from powercontext.http import (
     GetSkillRequest,
     HandoffSelection,
     ListArtifactsRequest,
+    ListSourcesRequest,
     ReplaceArtifactRequest,
 )
 from powercontext.server.factory import create_server_app
@@ -102,6 +103,32 @@ def test_source_and_artifact_api_round_trip(tmp_path: Path) -> None:
             null_source = await client.create_source(scope_id, CreateSourceRequest(content=None))
             assert null_source.content is None
             assert (await client.get_source(scope_id, "content", null_source.source_id)).content is None
+
+            first_page = await client.list_sources(scope_id, ListSourcesRequest(limit=1))
+            assert [item.source_id for item in first_page.items] == [source.source_id]
+            assert first_page.next_cursor is not None
+            later_source = await client.create_source(scope_id, CreateSourceRequest(content="created after snapshot"))
+            second_page = await client.list_sources(
+                scope_id,
+                ListSourcesRequest(limit=1, cursor=first_page.next_cursor),
+            )
+            assert [item.source_id for item in second_page.items] == [null_source.source_id]
+            assert second_page.next_cursor is None
+            refreshed = await client.list_sources(scope_id, ListSourcesRequest(limit=10))
+            assert [item.source_id for item in refreshed.items] == [
+                source.source_id,
+                null_source.source_id,
+                later_source.source_id,
+            ]
+
+            invalid_cursor = await transport.get(
+                f"/v1/scopes/{encoded_scope}/sources",
+                params={"cursor": "invalid-token"},
+            )
+            assert invalid_cursor.status_code == 400
+            assert (
+                await transport.get(f"/v1/scopes/{encoded_scope}/sources", params={"source_type": "content"})
+            ).status_code == 422
 
             invalid_source_type = await transport.get(
                 f"/v1/scopes/{encoded_scope}/sources/private/{quote(source.source_id, safe='')}"

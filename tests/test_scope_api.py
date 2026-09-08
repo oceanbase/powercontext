@@ -19,7 +19,34 @@ from fastapi.testclient import TestClient
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import McpConfig, ServerSettings
+from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
+
+
+def test_scope_list_filters_only_scope_ids_by_literal_substring(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scope-query.db'}"),
+            auth=BearerAuthConfig(enabled=False),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/scopes",
+            json={"title": "Needle title", "summary": "Needle summary", "idempotency_key": "needle"},
+        ).json()
+        scope_id = created["scope_id"]
+        fragment = scope_id[4:12]
+
+        matched = client.get("/v1/scopes", params={"query": f"  {fragment}  "})
+        assert [item["scope_id"] for item in matched.json()["items"]] == [scope_id]
+        assert client.get("/v1/scopes", params={"query": fragment.upper()}).json() == {"items": []}
+        assert client.get("/v1/scopes", params={"query": "Needle"}).json() == {"items": []}
+        assert client.get("/v1/scopes", params={"query": "%_*"}).json() == {"items": []}
+        assert len(client.get("/v1/scopes", params={"query": "   "}).json()["items"]) == 2
+        assert client.get("/v1/scopes?query=one&query=two").status_code == 422
+        assert client.get("/v1/scopes", params={"title": "Needle"}).status_code == 422
 
 
 def test_scope_http_flow_resolves_default_durable_and_observation_ranges(tmp_path) -> None:

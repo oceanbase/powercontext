@@ -46,6 +46,13 @@ class SourceRecord(_RecordModel):
     content_digest: str
 
 
+class SourceRecordPage(_RecordModel):
+    """One stable page of public Sources."""
+
+    items: tuple[SourceRecord, ...]
+    next_cursor: str | None
+
+
 class ArtifactWrite(_RecordModel):
     """Complete family-specific content for one Artifact write."""
 
@@ -225,6 +232,16 @@ class RecordService(Protocol):
     ) -> SourceRecord: ...
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord: ...
+
+    async def list_sources(
+        self,
+        scope_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+        caller: str = "runtime",
+    ) -> SourceRecordPage: ...
 
     async def create_artifact(
         self,

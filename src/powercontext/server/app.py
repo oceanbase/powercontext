@@ -170,6 +170,9 @@ from powercontext.builtin.records import (
 from powercontext.builtin.records import (
     SourceRecord as RuntimeSourceRecord,
 )
+from powercontext.builtin.records import (
+    SourceRecordPage as RuntimeSourceRecordPage,
+)
 from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
 from powercontext.builtin.review import (
     ArtifactTargetConflictError,
@@ -442,6 +445,8 @@ from powercontext.http import (
     ListMemoryEntriesResponse,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
+    ListScopesRequest,
+    ListSourcesRequest,
     MemoryEntry,
     MemoryEntryAccessSelector,
     MemoryMutationResponse,
@@ -508,6 +513,7 @@ from powercontext.http import (
     SkillPackageManifest,
     SourceDefinitionManifest,
     SourceObservationReceipt,
+    SourcePage,
     SourceRecord,
     SourceType,
     SubmitSourceObservationRequest,
@@ -657,6 +663,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_ENTRIES,
     LIST_REMOTE_SKILL_TARGETS,
     LIST_SCOPES,
+    LIST_SOURCES,
     OPENAPI_VERSION,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
@@ -797,6 +804,14 @@ class _ScopedRecordApplication(Protocol):
     ) -> RuntimeSourceRecord: ...
 
     async def get_source(self, source_type: str, source_id: str, /) -> RuntimeSourceRecord: ...
+
+    async def list_sources(
+        self,
+        *,
+        limit: int,
+        cursor: str | None,
+        caller: str = "runtime",
+    ) -> RuntimeSourceRecordPage: ...
 
     async def create_artifact(
         self,
@@ -1291,6 +1306,7 @@ def create_app(
     _add_route(app, LIST_ACCESS_AUDIT, list_access_audit)
     if handoff_report_enabled:
         _add_route(app, GET_HANDOFF_REPORT, get_handoff_report)
+    _add_route(app, LIST_SOURCES, list_sources)
     _add_route(app, CREATE_SOURCE, create_source)
     _add_route(app, CREATE_SUBJECT_SOURCE, create_subject_source)
     _add_route(app, GET_PROFILE_POLICY, get_profile_policy)
@@ -1790,10 +1806,22 @@ async def list_access_audit(payload: ListAccessAuditRequest, request: Request) -
     )
 
 
+def _list_scopes_query(
+    http_request: Request,
+    query: Annotated[str | None, Query(max_length=256)] = None,
+) -> ListScopesRequest:
+    if set(http_request.query_params) - {"query"}:
+        raise InvalidBaseAccessRequestError("query", "contains unknown parameters")
+    if len(http_request.query_params.getlist("query")) > 1:
+        raise InvalidBaseAccessRequestError("query", "must be provided at most once")
+    return ListScopesRequest(query=query)
+
+
 async def list_scopes(
+    request: Annotated[ListScopesRequest, Depends(_list_scopes_query)],
     scopes: Annotated[ScopeApplication, Depends(_require_scope_application)],
 ) -> ScopePage:
-    return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.list()])
+    return ScopePage(items=[_scope_descriptor_response(scope) for scope in await scopes.list(query=request.query)])
 
 
 async def create_scope(
@@ -1991,6 +2019,44 @@ async def get_handoff_report(
     encoded_response = response_payload.model_dump_json(by_alias=True).encode("utf-8")
     _require_report_size(len(encoded_response), result)
     return response_payload
+
+
+def _list_sources_query(
+    http_request: Request,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
+) -> ListSourcesRequest:
+    if set(http_request.query_params) - {"limit", "cursor"}:
+        raise InvalidBaseAccessRequestError("query", "contains unknown parameters")
+    if any(len(http_request.query_params.getlist(name)) > 1 for name in ("limit", "cursor")):
+        raise InvalidBaseAccessRequestError("query", "parameters must be provided at most once")
+    return ListSourcesRequest(limit=limit, cursor=cursor)
+
+
+async def list_sources(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: Annotated[ListSourcesRequest, Depends(_list_sources_query)],
+    http_request: Request,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SourcePage:
+    principal = current_principal()
+    caller = "anonymous" if principal is None else f"{principal.type}:{principal.id}"
+    result = await application.records.for_scope(scope_id).list_sources(
+        limit=request.limit,
+        cursor=request.cursor,
+        caller=caller,
+    )
+    items = [_source_record_response(item) for item in result.items]
+    if http_request.app.state.access_mode == "enforced":
+        access = _require_access_control(http_request)
+        for item, source in zip(items, result.items, strict=True):
+            if not _is_handoff_receipt_content(source.content):
+                continue
+            identity = await access.receipt_identity(scope_id, source.source_id)
+            if identity is None:
+                raise AccessUnavailableError("receipt_identity_pending")
+            item.receipt_identity = _receipt_identity_response(identity)
+    return SourcePage(items=items, next_cursor=result.next_cursor)
 
 
 async def create_source(

@@ -118,6 +118,7 @@ from powercontext.builtin.records import (
     RecordService,
     ScopeSummaryPage,
     SourceRecord,
+    SourceRecordPage,
 )
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
@@ -373,6 +374,21 @@ class ScopedRecordApplication:
     async def get_source(self, source_type: str, source_id: str, /) -> SourceRecord:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._runtime._records().get_source(self.scope_id, source_type, source_id)
+
+    async def list_sources(
+        self,
+        *,
+        limit: int,
+        cursor: str | None,
+        caller: str = "runtime",
+    ) -> SourceRecordPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().list_sources(
+                self.scope_id,
+                limit=limit,
+                cursor=cursor,
+                caller=caller,
+            )
 
     async def create_artifact(
         self,

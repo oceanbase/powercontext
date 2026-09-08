@@ -268,8 +268,16 @@ paths:
     get:
       tags: [scopes]
       summary: List observable Scopes
+      description: Optionally filter Scope descriptors by a case-sensitive literal substring of scope_id.
       operationId: list_scopes
       x-powercontext-access: {action: server.observe, resource: {type: server}}
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
       responses:
         "200":
           description: Durable Scope metadata in deterministic identity order.
@@ -281,8 +289,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
         "503":
           $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       tags: [scopes]
       summary: Create an independent Scope boundary
@@ -2559,6 +2571,62 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
   /v1/scopes/{scope_id}/sources:
+    get:
+      tags: [sources]
+      summary: List public Sources in one Scope
+      description: List a snapshot-bounded page of public Content Sources in ascending journal position.
+      operationId: list_sources
+      x-powercontext-access: {resolver: path_scope_read_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+      responses:
+        "200":
+          description: One stable page of public Content Sources.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourcePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       tags: [sources]
       summary: Create a durable Source
@@ -7930,6 +7998,28 @@ components:
           minLength: 1
           maxLength: 4096
           nullable: true
+    ListScopesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        query:
+          type: string
+          maxLength: 256
+          nullable: true
+    ListSourcesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          nullable: true
     PromptKey:
       type: string
       enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate]
@@ -8164,6 +8254,18 @@ components:
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
+    SourcePage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceRecord"
+        next_cursor:
+          type: string
+          nullable: true
     SourceTypeReference:
       type: object
       additionalProperties: false

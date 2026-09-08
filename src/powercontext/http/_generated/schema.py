@@ -213,7 +213,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["scopes"],
                 "summary": "List observable Scopes",
+                "description": "Optionally filter Scope descriptors by a case-sensitive literal substring of scope_id.",
                 "operationId": "list_scopes",
+                "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
+                "parameters": [
+                    {"name": "query", "in": "query", "required": False, "schema": {"type": "string", "maxLength": 256}}
+                ],
                 "responses": {
                     "200": {
                         "description": "Durable Scope metadata in deterministic identity order.",
@@ -221,17 +226,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
                 },
-                "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
             },
             "post": {
                 "tags": ["scopes"],
                 "summary": "Create an independent Scope boundary",
                 "operationId": "create_scope",
+                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
                 "requestBody": {
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateScopeRequest"}}},
                     "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateScopeRequest"}}},
                 },
                 "responses": {
                     "201": {
@@ -245,7 +252,6 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                 },
-                "x-powercontext-access": {"action": "server.admin", "resource": {"type": "server"}},
             },
         },
         "/v1/artifact-publications": {
@@ -2365,6 +2371,48 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             }
         },
         "/v1/scopes/{scope_id}/sources": {
+            "get": {
+                "tags": ["sources"],
+                "summary": "List public Sources in one Scope",
+                "description": "List a snapshot-bounded page of public Content Sources in ascending journal position.",
+                "operationId": "list_sources",
+                "x-powercontext-access": {"resolver": "path_scope_read_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                    },
+                    {
+                        "name": "cursor",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 4096},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One stable page of public Content Sources.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SourcePage"}}},
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "410": {"$ref": "#/components/responses/CursorExpired"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+            },
             "post": {
                 "tags": ["sources"],
                 "summary": "Create a durable Source",
@@ -2405,7 +2453,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
-            }
+            },
         },
         "/v1/scopes/{scope_id}/sources/{source_type}/{source_id}": {
             "get": {
@@ -6956,6 +7004,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
             },
+            "ListScopesRequest": {
+                "properties": {"query": {"type": "string", "maxLength": 256, "nullable": True}},
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "ListSourcesRequest": {
+                "properties": {
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
             "PromptKey": {
                 "type": "string",
                 "enum": [
@@ -7202,6 +7263,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
                 "type": "object",
                 "required": ["scope_id", "source_type", "source_id", "content", "position", "content_digest"],
+            },
+            "SourcePage": {
+                "properties": {
+                    "items": {"items": {"$ref": "#/components/schemas/SourceRecord"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["items", "next_cursor"],
             },
             "SourceTypeReference": {
                 "properties": {

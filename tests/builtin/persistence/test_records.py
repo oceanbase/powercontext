@@ -260,6 +260,7 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
             created = await records.create_source("scope-a", "content", {"fact": True})
             loaded = await records.get_source("scope-a", "content", "src-1")
             null_source = await records.create_source("scope-a", "content", None)
+            third_source = await records.create_source("scope-a", "content", "third")
 
             assert loaded == created
             assert created.content == {"fact": True}
@@ -275,6 +276,35 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
             }
             with pytest.raises(InvalidBaseAccessRequestError):
                 await records.create_source("scope-a", "private", "not public")
+
+            first_page = await records.list_sources("scope-a", limit=2, cursor=None, caller="user:one")
+            assert [item.source_id for item in first_page.items] == [created.source_id, null_source.source_id]
+            assert first_page.next_cursor is not None
+            late_source = await records.create_source("scope-a", "content", "late")
+            second_page = await records.list_sources(
+                "scope-a",
+                limit=2,
+                cursor=first_page.next_cursor,
+                caller="user:one",
+            )
+            assert [item.source_id for item in second_page.items] == [third_source.source_id]
+            assert second_page.next_cursor is None
+            refreshed = await records.list_sources("scope-a", limit=100, cursor=None, caller="user:one")
+            assert refreshed.items[-1].source_id == late_source.source_id
+            with pytest.raises(InvalidCursorError):
+                await records.list_sources(
+                    "scope-a",
+                    limit=1,
+                    cursor=first_page.next_cursor,
+                    caller="user:one",
+                )
+            with pytest.raises(InvalidCursorError):
+                await records.list_sources(
+                    "scope-a",
+                    limit=2,
+                    cursor=first_page.next_cursor,
+                    caller="user:two",
+                )
 
     asyncio.run(scenario())
 

@@ -1539,6 +1539,21 @@ class ListArtifactRevisionsRequest(BaseModel):
     cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
 
 
+class ListScopesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Annotated[StrictStr | None, Field(max_length=256)] = None
+
+
+class ListSourcesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
 class PromptKey(StrEnum):
     MEMORY_EXTRACT = "memory.extract"
     MEMORY_RERANK = "memory.rerank"
@@ -2950,6 +2965,14 @@ class SourceRecord(BaseModel):
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
     position: Annotated[StrictInt, Field(ge=1)]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+
+
+class SourcePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[SourceRecord]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
 class ArtifactFamilyAccessCapability(BaseModel):
