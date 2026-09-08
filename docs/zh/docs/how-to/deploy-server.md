@@ -85,6 +85,9 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略。`config init` 生成的是不含模型的基础配置；需要启用完整
 推理能力时，请阅读[完整功能 Quick Start](full-capability-runtime.md)并补充模型配置。
 
+无论使用前台进程、Docker 还是个人服务安装，只要 generation 或 embedding model 未配置，启动或安装输出都会提示具体
+不可用或退化的能力以及配置入口；两类 model 都已配置时不输出该提示。
+
 ## 使用 Docker 运行
 
 在仓库根目录构建镜像：

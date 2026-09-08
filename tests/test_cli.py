@@ -913,6 +913,9 @@ def test_server_command_does_not_load_client_settings(monkeypatch: pytest.Monkey
 
     assert result.exit_code == 0
     assert "PowerContext Dashboard: http://127.0.0.1:8000/" in result.stdout
+    assert "Inference capability notice" in result.stdout
+    assert "未配置 generation model" in result.stdout
+    assert "未配置 embedding model" in result.stdout
 
 
 def test_cli_reports_server_errors_with_request_context_without_a_traceback(

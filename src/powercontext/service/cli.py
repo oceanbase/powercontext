@@ -23,7 +23,9 @@ from typing import Annotated
 
 import typer
 
+from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server import cli as _server_role_dependency
+from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.controller import ServiceController
 from powercontext.service.model import ServiceError, ServiceStatus
 
@@ -70,12 +72,21 @@ def install(
         typer.echo("--no-start-on-login is currently supported only on Windows.", err=True)
         raise typer.Exit(code=2)
     try:
+        with server_settings_context(env_file=env_file) as settings:
+            generation_model = settings.inference.generation_model
+            embedding_model = settings.inference.embedding_model
         status = _controller().install(env_file=env_file, start_on_login=start_on_login)
-    except (OSError, ServiceError) as error:
+    except (OSError, ServerConfigurationError, ServiceError) as error:
         typer.echo(f"PowerContext personal service installation failed: {error}", err=True)
         if isinstance(error, ServiceError) and error.status is not None:
             _write_status(error.status, json_output=False)
-        raise typer.Exit(code=error.exit_code if isinstance(error, ServiceError) else 1) from error
+        if isinstance(error, ServiceError):
+            exit_code = error.exit_code
+        elif isinstance(error, ServerConfigurationError):
+            exit_code = 2
+        else:
+            exit_code = 1
+        raise typer.Exit(code=exit_code) from error
     message = (
         "PowerContext personal service installed with login auto-start."
         if start_on_login
@@ -83,6 +94,11 @@ def install(
     )
     typer.echo(message)
     _write_environment_guidance(env_file)
+    write_inference_capability_notice(
+        generation_model=generation_model,
+        embedding_model=embedding_model,
+        env_file=env_file,
+    )
     _write_status(status, json_output=False)
 
 

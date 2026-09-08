@@ -1415,6 +1415,9 @@ def test_service_install_cli_prompts_for_login_autostart(monkeypatch: pytest.Mon
     assert "environment file: not configured" in result.output
     assert "POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
     assert "the value is never printed" in result.output
+    assert "Inference capability notice" in result.output
+    assert "未配置 generation model" in result.output
+    assert "未配置 embedding model" in result.output
 
 
 def test_service_install_cli_reports_the_environment_file_without_credentials(
@@ -1435,6 +1438,7 @@ def test_service_install_cli_reports_the_environment_file_without_credentials(
     controller.install.return_value = status
     monkeypatch.setattr(service_cli, "_controller", lambda: controller)
     environment = tmp_path / "powercontext.env"
+    environment.write_text("POWERCONTEXT_SERVER_ACCESS_MODE=disabled\n", encoding="utf-8")
 
     result = CliRunner().invoke(service_app, ["install", "--env-file", str(environment), "--start-on-login"])
 
@@ -1442,6 +1446,42 @@ def test_service_install_cli_reports_the_environment_file_without_credentials(
     assert f"environment file: {environment.resolve()} (mode 0600)" in result.output
     assert "token location: POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
     assert "the value is never printed" in result.output
+    assert "Inference capability notice" in result.output
+
+
+def test_service_install_cli_omits_inference_notice_when_models_are_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.ACTIVE,
+        server_liveness=LivenessState.LIVE,
+        endpoint="http://127.0.0.1:8000",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    environment = tmp_path / "powercontext.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-chat:test-generation",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=openai:test-embedding",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=test-profile",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=3",
+            "",
+        )),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(service_app, ["install", "--env-file", str(environment), "--start-on-login"])
+
+    assert result.exit_code == 0
+    assert "Inference capability notice" not in result.output
 
 
 def test_service_uninstall_cli_renders_partial_failure_status(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -35,6 +35,7 @@ import typer
 from pydantic import ValidationError
 
 from powercontext.cli.env_file import EnvironmentFileError, parse_environment
+from powercontext.cli.inference_notice import write_inference_capability_notice
 
 if TYPE_CHECKING:
     from powercontext.server.settings import ServerSettings
@@ -988,7 +989,7 @@ def _print_next_steps(path: Path) -> None:
         " the value is never printed."
     )
     typer.echo(f"\nStart Server:\n  powercontext server run --env-file {quoted}")
-    _print_model_capability_notice(path)
+    write_inference_capability_notice(generation_model=None, embedding_model=None, env_file=path)
     typer.secho("\nSupported Coding Agents (choose one):", bold=True, fg=typer.colors.CYAN)
     for agent_id, (name, setup, launch) in AGENTS.items():
         typer.echo(f"\n{name}:\n  {setup}")
@@ -1001,21 +1002,6 @@ def _print_next_steps(path: Path) -> None:
         "\n其他 Python 适配器(Pydantic AI、LangChain、LangGraph 和 Bub)也会遵循同一 Server 能力状态;"
         "它们的模型调用仍由应用自己负责。"
     )
-
-
-def _print_model_capability_notice(path: Path) -> None:
-    """Explain the intentional degraded capabilities of a model-free deployment."""
-
-    quoted = shlex.quote(str(path.resolve()))
-    typer.secho("\nInference capability notice", bold=True, fg=typer.colors.YELLOW)
-    typer.echo("本次部署没有配置 generation 或 embedding model, Server 仍可启动并提供基础 Memory/Source 能力。")
-    typer.echo("未配置 generation model:")
-    typer.echo("  - Source 自动抽取 Memory、Memory rerank、Experience/Skill/Handoff 生成和 Prompt demonstration 不可用。")
-    typer.echo("未配置 embedding model:")
-    typer.echo("  - 向量检索和 hybrid 检索不可用; Memory、Experience 等检索会退化为 FTS (关键词检索)。")
-    typer.echo("如需启用上述能力, 请编辑环境文件, 配置 provider:model、凭据、embedding profile ID 和 dimension,")
-    typer.echo(f"然后运行: powercontext config validate --env-file {quoted}")
-
 
 def _fail(message: str) -> Never:
     typer.echo(f"Error: {message}", err=True)
