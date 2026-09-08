@@ -10,7 +10,7 @@ The Server includes a read-only Dashboard at `/dashboard/home`. It presents scop
 | Home | Memory entries, exact Artifact revisions and statistics | Each section loads independently; content existence does not determine usage existence |
 | Memories | `/v1/memory/entries/list`, `/v1/memory/entries/get` | Preserve complete text and line breaks; links contain the complete MemoryCitation |
 | Handoffs | Scoped handoff Artifact list and revision GET endpoints | Present the recorded state and next action; list order does not imply recency |
-| Experiences and skills | Scoped Experience and Skill Artifact lists and revision GET endpoints | Paginate lists; preserve complete content on detail pages |
+| Experiences and skills | Experience list, `/v1/experience/get`, `/v1/skill/library`, `/v1/skill/get` | Paginate experiences; search skills with the library's 200-result limit; preserve exact content and provenance |
 | Source material | Scoped source GET endpoint | Verify membership in the selected record before reading; a source failure does not replace the record |
 | Usage | `/v1/stats` | Use reported periods, totals, daily values, purposes and comparison coverage |
 
@@ -52,8 +52,14 @@ Runtime files live in `src/powercontext/server/dashboard/`.
 | `presenters.py` | Contract responses projected into template contexts |
 | `session.py` | Browser credential transport and authentication recovery |
 | `templates/components/` | Navigation, headings, reading layout, sources, charts and errors |
-| `labels.json` | Interface copy, without business data |
+| `preferences.py` | Interface language, preference links and cookie |
+| `pagination.py` | Complete-list paging and backward navigation over opaque API cursors |
+| `labels.json`, `labels.en.json` | Chinese and English interface copy, without business data; write Chinese directly rather than Unicode escapes |
 | `static/` | Shared layout variables, pinned assets and licenses |
+
+Experience details use `/v1/experience/get`. Skills use `/v1/skill/library` and `/v1/skill/get`, retaining named provenance such as skill-usage. The generic Artifact response currently restricts SourceTypeReference to content and cannot represent those records completely. Never relabel or drop provenance to make a response fit. The public source-body endpoint currently supports content only; preserve other source identities without inventing readable body links.
+
+The skill library shows available heads, with exact access retained for retired revisions. Its maximum is 200 results; prompt for a narrower search at that limit rather than inventing a total or pagination cursor.
 
 The in-process HTTP transport calls the same Server and forwards incoming credentials through its authentication and authorization checks. Templates must not read the runtime or database directly. Never inject a deployment administrator token on behalf of the browser.
 
@@ -67,9 +73,27 @@ Pinned assets are Tabler Core 1.4.0, Tabler Icons 3.31.0, HTMX 2.0.4 and ApexCha
 
 Use `me()`, `on()` and `off()` as described by [Surreal](https://github.com/gnat/surreal). Place styles within their component root and use `me` according to [css-scope-inline](https://github.com/gnat/css-scope-inline). Do not implement another selector or component system.
 
+Narrow screens use Tabler Collapse for the scope selector and menu; desktop retains the fixed sidebar.
+
 Sources use Tabler `offcanvas-xxl`: side-by-side reading on large screens and a native drawer on smaller screens. Tabler owns breakpoint behavior. Explicit hide/dispose cleanup is reserved for HTMX removing a node before the closing transition restores scrolling. Destroy charts when their owning node is removed.
 
-Keep the white background, blue actions, fine borders, left navigation and split reading layout. Centralize shared colors, borders, sidebar width and gutters. Verify widths of 390, 1024 and 1536 pixels and the 1399/1400 source-panel boundary. Reject horizontal overflow, leftover backdrops and scroll locks.
+After HTMX swaps a page, css-scope-inline applies component styles through a MutationObserver. Capture the chart owner with Surreal `run`, then `await tick()` before constructing ApexCharts; skip construction if that node was removed. Measuring before scoped layout is ready causes a visibly oversized first render. Use `minmax(0, 1fr)` for the compact chart's grid track. Do not add custom resize listeners.
+
+Keep the white background, blue actions, fine borders, left navigation and split reading layout. Centralize shared colors, borders, sidebar width and gutters. Check widths from 320 to 1920 pixels, including both sides of the 991/992, 1199/1200, and 1399/1400 breakpoints. Use the CSS viewport after browser zoom: a 1536-pixel window at 200% corresponds to a 768-pixel layout. Check text within page and card boundaries, not only document scrollWidth. Reject leftover backdrops and scroll locks.
+
+Language and appearance use Tabler Dropdown. Jinja2 selects interface copy; `lang=zh|en` sets a Dashboard-only preference cookie. Business records retain their original language. Preference links preserve scope, period and exact record identity and load a complete page so the root language agrees with HTMX fragments.
+
+Load Tabler 1.4.0's `tabler-theme.min.js` before styles. It owns `theme=light|dark`, local storage and `data-bs-theme`. Charts use that theme with a transparent background. Do not add a separate theme state machine or breakpoint listener.
+
+Reuse the website's `website/assets/powercontext-color.png` and `powercontext-reverse.png`, switching them with Tabler's `hide-theme-dark` and `hide-theme-light`. The favicon uses a square SVG viewport over the original left-hand symbol; omit the wordmark and do not redraw the artwork. Memory, experience and skill rows use regular weight. List text uses 16–20 px and reading text uses 17 px. Long experience and handoff headings use 22–28 px; skill names use the same hierarchy. Memories stack below the xl breakpoint. Model usage uses Tabler `table-mobile-sm` for labeled input and output values on narrow screens, with model type beneath purpose. Daily tables retain keyboard-accessible horizontal scrolling. Memory details show the text directly, without a reading heading, revision bar or record identity. Keep arrows for directional actions such as scope submission, back navigation and new windows. There is no Getting Started page; legacy `/dashboard/guide` URLs redirect home with their parameters intact.
+
+Lists use six items per page and Tabler Pagination. Page the complete memory response and bounded skill-library results locally; retain Server cursors for experiences and handoffs, carrying visited cursors in navigation links for backward navigation. Do not infer totals from cursors. Memory deep links locate the selected entry's page. Page changes clear the preceding entry identity; scope changes clear pagination. Search and filter changes return to the first page. Lists may change after new saves while exact detail references remain stable.
+
+## Test boundaries
+
+Tests protect user-visible behavior and reproduced defects. Pagination checks cover complete traversal, returning to previous records, and opening the selected text. They do not freeze page size, CSS classes, or heading tags. Browser acceptance checks use actual API data to verify reading boundaries, scope and preference changes, source panels, and recovery. Internal rewrites should preserve these tests when the experience stays the same.
+
+Do not add coverage tests for straightforward scripts, enumerate internal errors normalized by one abstraction, or assert buffer sizes, private call order, or module ownership. Do not add tests whose only purpose is to assert that removed code, routes, or fields remain absent. Negative results remain appropriate for current authorization, isolation, and persistence contracts.
 
 ## Local verification
 
@@ -113,6 +137,12 @@ Review candidates against the source window before using revise/approve. Save ha
 
 The consecutive-day experiment controls UTC time in an isolated process and restarts the Server against the same experiment database each day. It distributes complete chronological messages across three days, recalls prior content before ingesting the next window, then extracts, recalls and reads statistics. Time is a simulated condition; sources and model results use real APIs. This does not demonstrate three elapsed production days.
 
+Every day runs memory extraction, experience generation and review, handoff preparation and commit, and skill generation and review. Skills cover `source`, `experience` and `usage` origins. For usage, an isolated Codex consumer applies a skill to the transcript, then existing content and skill-observation APIs capture its actual report. The consumer has no code, browser or test tools; validation and outcome remain unknown. Preserve a generated `no_op` without manufacturing a candidate.
+
+`scripts/dashboard_review.py` uses the locally configured Codex CLI with tools, memories and plugins disabled. Its ephemeral review receives only the as-of-day window and records inputs, hashes, outputs, limitations and exact quotes. Rejected reviews or quotes absent from the transcript stop persistence. Inspect the failure, archive its review inputs and outputs together, then resume successful API checkpoints in the same directory. Never introduce future-day evidence. Model review does not replace human acceptance.
+
+Replay creates a separate business scope without changing the Server default. A fresh Server retains `Default`; an existing Server retains its configured selection. Open replay pages with an explicit scope and verify the implicit default and scope switching independently.
+
 ```bash
 uv run python scripts/dashboard_multiday.py \
   --output /tmp/private-dashboard-multiday \
@@ -123,6 +153,8 @@ uv run python scripts/dashboard_multiday.py \
 ```
 
 Check prior citations after restart, 1024/8000-byte budgets, empty child isolation and UTC daily attribution. Use existing revise/retire operations to test current recall and historical addresses. Use scope updates to test explicit references separately from subtree statistics. All writes go through APIs; database inspection uses a read-only connection.
+
+Each day's model usage must contain memory extraction, experience generation, handoff generation and skill generation. Candidate revision requests must preserve the original target. Read yesterday's exact revisions and search the skill library before importing today's window; reading after ingestion does not establish next-day recall.
 
 Successful requests are cached in the replay journal. Changed payloads require a separate output directory. HTTP failures retain attempt records. Transport timeouts have unknown outcomes: reconcile through read APIs before retrying a potentially completed write.
 
@@ -141,10 +173,14 @@ Successful requests are cached in the replay journal. Changed payloads require a
 
 A few sessions can expose specific failures but cannot establish recall quality for every question. Verification records should include configuration, bounded inputs, API requests and responses, screenshots, read-only database observations and conditions still unverified.
 
-## Limits confirmed by replay
+## Replay verification and known limits
 
-A three-day extraction retained an earlier three-page restriction after a later user request superseded it. Existing revise and retire endpoints corrected current recall while 23 historical citations still returned their original text. A stale write returned 409. Successful extraction does not replace review of conflicts and currency.
+The isolated three-day replay calls memory, experience, handoff, and skill generation each day. Skills cover source, experience, and usage origins. Read exact references after persistence and verify previous-day content before the next import. Daily model usage distinguishes all four purposes; failed and repair requests also contribute to request counts. Read-only database checks compare API entries, revisions, and daily usage, rather than merely counting stored rows.
 
-In independent Codex consumers answering the same continuation question, the complete conversation supplied page scope and the next action. Context retrieved with `Tabler` under an 8000-byte budget retained technology constraints only; the 1024-byte budget removed another constraint. Consumers reported insufficient evidence instead of inventing a next action. Budgets are ceilings, not returned lengths, and a high reduction percentage does not establish task completeness.
+Extraction can retain superseded constraints. This replay retained a three-page limit after the user requested all pages, and context prepared with an 8000-byte budget included that stale limit. Revising it through the existing API corrected current recall, while 25 historical memory citations still returned their original text and stale writes returned 409. Successful extraction does not establish conflict resolution or freshness.
 
-These experiments use real conversations and model calls with a controlled UTC clock in an isolated process. They verify consecutive writes, restart persistence, exact citations, scope relationships and daily attribution. They do not establish several days of scheduler reliability or arbitrary natural-language recall coverage.
+For the same continuation question, the full transcript identified the latest page scope and unfinished check. The 8000-byte context carried an outdated scope; the 1024-byte context retained only component constraints and could not establish scope or next action. Budgets are upper limits, not returned lengths. A high reduction percentage does not establish task completeness. Preserve both original and corrected results for inspection.
+
+An explicit scope reference lets an empty child recall parent context without copying memories into its directory or widening its subtree selection. Keep a separate unlinked empty child for fresh-start checks and preserve the server default scope.
+
+The experiment controls UTC time in isolated processes. It exercises consecutive writes, restart reads, exact references, scope relationships, and daily statistics. It does not establish production scheduler reliability over several real days or recall quality for arbitrary queries.

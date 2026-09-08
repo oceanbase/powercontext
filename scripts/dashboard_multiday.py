@@ -11,9 +11,11 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import time_machine
 from dashboard_replay import call, read_messages
+from dashboard_review import generate_day
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 
@@ -25,6 +27,34 @@ from powercontext.server.settings import McpConfig, ServerSettings
 def require(value: bool, message: str) -> None:
     if not value:
         raise RuntimeError(message)
+
+
+def artifact_request(scope: str, reference: dict[str, str | int]) -> tuple[str, str, dict[str, Any] | None]:
+    family, artifact, revision = reference["family"], reference["artifact_id"], reference["revision"]
+    if family in {"experience", "skill"}:
+        return "POST", f"/v1/{family}/get", {"scope_id": scope, "artifact": reference}
+    return "GET", f"/v1/scopes/{scope}/artifacts/{family}/{artifact}/revisions/{revision}", None
+
+
+def verify_prior_artifacts(client: TestClient, output: Path, scope: str, day: int) -> None:
+    for prior_day in range(day):
+        references = json.loads((output / str(prior_day) / "references.json").read_text())
+        for name, reference in references.items():
+            method, route, payload = artifact_request(scope, reference)
+            response = client.request(method, route, json=payload)
+            require(response.status_code == 200, f"Prior {name} is no longer readable: {response.status_code}")
+            original = json.loads((output / str(prior_day) / f"family-{name}.json").read_text())["response"]
+            require(response.json() == original, f"Prior {name} revision changed")
+
+
+def verify_artifacts(
+    client: TestClient, directory: Path, scope: str, fresh: str, references: dict[str, dict[str, str | int]]
+) -> None:
+    for name, reference in references.items():
+        method, route, payload = artifact_request(scope, reference)
+        call(client, directory, f"family-{name}", method, route, payload)
+        method, route, payload = artifact_request(fresh, reference)
+        require(client.request(method, route, json=payload).status_code == 404, "Artifact crossed scope boundary")
 
 
 def replay(arguments: argparse.Namespace) -> None:
@@ -61,12 +91,15 @@ def replay(arguments: argparse.Namespace) -> None:
         raise ValueError("The window must span three complete message groups")  # noqa: TRY003
     start = datetime.fromisoformat(arguments.start_date).replace(tzinfo=UTC, hour=12)
     report = {"clock": "simulated UTC", "session": str(arguments.session), "days": []}
+    sources = []
+    transcripts = []
     for day, messages_for_day in enumerate(days):
         directory = output / str(day)
         directory.mkdir(exist_ok=True, mode=0o700)
         date = start + timedelta(days=day)
         content = "\n\n".join(f"{role.upper()}\n{text}" for _, role, text in messages_for_day)
         (directory / "transcript.txt").write_text(content)
+        transcripts.append(content)
         origin = {
             "session": str(arguments.session),
             "first_line": messages_for_day[0][0],
@@ -78,6 +111,7 @@ def replay(arguments: argparse.Namespace) -> None:
         with time_machine.travel(date, tick=True):
             app = create_server_app(settings=settings, scheduler_path=output / "scheduler.db")
             with TestClient(app, raise_server_exceptions=False) as client:
+                default = call(client, directory, "server-default", "GET", "/v1/scopes/default")
                 scope = call(
                     client,
                     output,
@@ -90,7 +124,6 @@ def replay(arguments: argparse.Namespace) -> None:
                         "idempotency_key": "dashboard-multiday",
                     },
                 )["scope_id"]
-                call(client, output, "default", "PUT", "/v1/scopes/default", {"scope_id": scope})
                 fresh = call(
                     client,
                     output,
@@ -119,6 +152,15 @@ def replay(arguments: argparse.Namespace) -> None:
                 call(
                     client,
                     directory,
+                    "before-skills",
+                    "POST",
+                    "/v1/skill/library",
+                    {"scope_id": scope, "query": "dashboard"},
+                )
+                verify_prior_artifacts(client, output, scope, day)
+                captured = call(
+                    client,
+                    directory,
                     "capture",
                     "POST",
                     "/v1/sources/content",
@@ -129,7 +171,13 @@ def replay(arguments: argparse.Namespace) -> None:
                         "metadata": origin,
                     },
                 )
+                sources.append(captured["source"])
                 call(client, directory, "flush", "POST", "/v1/memory/flush", {"scope_id": scope})
+                references = generate_day(client, directory, scope, sources, "\n\n".join(transcripts))
+                verify_artifacts(client, directory, scope, fresh, references)
+                call(
+                    client, directory, "skills", "POST", "/v1/skill/library", {"scope_id": scope, "query": "dashboard"}
+                )
                 recalled = call(
                     client,
                     directory,
@@ -194,18 +242,29 @@ def replay(arguments: argparse.Namespace) -> None:
                     },
                 )
                 require(stats["usage"]["period"]["end_date"] == date.date().isoformat(), "UTC period is incorrect")
+                model_day = next(item for item in stats["usage"]["daily"] if item["date"] == date.date().isoformat())
+                purposes = {item["purpose"] for item in model_day["by_purpose"] if item["generation"]["requests"] > 0}
+                require(
+                    {"memory_extraction", "experience_generation", "handoff_generation", "skill_generation"}
+                    <= purposes,
+                    "A generation family is missing from the current day's model usage",
+                )
                 today = next(item for item in stats["recall"]["daily"] if item["date"] == date.date().isoformat())
                 require(today["preparations"] == 3, "Recall was not attributed to its replay day")
-                for page in ("home", "notes", "handoff", "methods", "usage", "guide"):
-                    response = client.get("/dashboard/" + page)
+                for page in ("home", "notes", "handoff", "methods", "usage"):
+                    response = client.get("/dashboard/" + page, params={"scope": scope})
                     require(response.status_code == 200, f"{page}: HTTP {response.status_code}")
                     (directory / f"{page}.html").write_text(response.text)
+                require(client.get("/v1/scopes/default").json() == default, "Replay changed the server default")
+                require(client.get("/dashboard/home").status_code == 200, "Default scope cannot be opened")
                 report["days"].append({
                     **origin,
                     "entries": len(entries["entries"]),
                     "recall_status": recalled["status"],
                     "recall_bytes": recalled["content_bytes"],
                     "small_recall_bytes": limited["content_bytes"],
+                    "artifacts": references,
+                    "model_usage": model_day,
                     "daily": stats["recall"]["daily"],
                 })
                 (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")

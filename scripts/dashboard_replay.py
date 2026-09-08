@@ -210,7 +210,6 @@ def main() -> None:
                 "idempotency_key": f"dashboard-replay:{output.name}:empty",
             },
         )
-        call(client, output, "default-scope", "PUT", "/v1/scopes/default", {"scope_id": manifest[0]["scope_id"]})
 
 
 if __name__ == "__main__":
