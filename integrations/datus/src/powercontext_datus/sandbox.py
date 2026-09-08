@@ -20,13 +20,13 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from powercontext_datus.execution import cpuinfo_file, execution_identity
 from powercontext_datus.freeze import IntegrityError, snapshot, verify_snapshot
 
 
@@ -34,6 +34,20 @@ from powercontext_datus.freeze import IntegrityError, snapshot, verify_snapshot
 class Sandbox:
     python: Path
     bridge: Path
+    execution: str | None = None
+
+    def __post_init__(self) -> None:
+        # The interpreter prefix is mounted as well as its venv. A system
+        # interpreter would silently reintroduce a broad /usr or / root mount.
+        if self.python.resolve().parent.parent in {Path("/"), Path("/usr"), Path("/usr/local")}:
+            raise IntegrityError("a dedicated standalone Python prefix is required")
+
+    def execution_identity(self) -> dict[str, Any]:
+        return execution_identity(json.loads(self.execution) if self.execution is not None else None)
+
+    def bind_execution(self, identity: dict[str, Any]) -> Sandbox:
+        # A serialized value avoids retaining a mutable caller-owned manifest.
+        return replace(self, execution=json.dumps(identity, sort_keys=True))
 
     def command(
         self,
@@ -43,10 +57,10 @@ class Sandbox:
         database: Path | None = None,
         network: bool = False,
         module: str = "powercontext_datus.worker",
+        cpuinfo_fd: int,
     ) -> list[str]:
-        binary = shutil.which("bwrap")
-        if binary is None:
-            raise IntegrityError("bubblewrap unavailable; unsandboxed fallback is prohibited")
+        execution = self.execution_identity()
+        binary = execution["launcher"]["resolved"]
         python = self.python.absolute()
         if not python.is_file() or not (python.parent.parent / "pyvenv.cfg").is_file():
             raise IntegrityError("a locked Datus virtual environment is required")
@@ -54,9 +68,10 @@ class Sandbox:
         command = [binary, "--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL"]
         if network:
             command.append("--share-net")
-        for directory in ("/usr", "/bin", "/lib", "/lib64"):
-            if Path(directory).exists():
-                command += ["--ro-bind", directory, directory]
+        for destination, root in execution["mounts"].items():
+            if root is not None:
+                command += ["--ro-bind", root["resolved"], destination]
+        command += ["--ro-bind-data", str(cpuinfo_fd), "/proc/cpuinfo"]
         command += [
             "--ro-bind",
             str(base),
@@ -111,17 +126,6 @@ class Sandbox:
             "TOKENIZERS_PARALLELISM",
             "false",
         ]
-        for file in (
-            "/etc/ssl/certs",
-            "/etc/resolv.conf",
-            "/etc/nsswitch.conf",
-            "/etc/hosts",
-            "/proc/cpuinfo",
-            "/proc/meminfo",
-            "/sys/devices/system/cpu",
-        ):
-            if Path(file).exists():
-                command += ["--ro-bind", file, file]
         if database is not None:
             if database.is_symlink() or not database.is_file():
                 raise IntegrityError("database snapshot must be a regular file")
@@ -139,20 +143,31 @@ class Sandbox:
         timeout: float = 120,
         module: str = "powercontext_datus.worker",
     ) -> dict[str, Any]:
+        expected = self.execution_identity() if self.execution is None else json.loads(self.execution)
+        pinned = self.bind_execution(expected)
         before = snapshot(skills)
         common_before = common.read_bytes()
-        command = self.command(common=common, skills=skills, database=database, network=network, module=module)
         start = time.monotonic()
         try:
-            result = subprocess.run(
-                command,
-                input=json.dumps(request),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env={"PATH": os.defpath},
-                check=False,
-            )
+            with cpuinfo_file(expected["cpuinfo"]) as cpuinfo_fd:
+                command = pinned.command(
+                    common=common,
+                    skills=skills,
+                    database=database,
+                    network=network,
+                    module=module,
+                    cpuinfo_fd=cpuinfo_fd,
+                )
+                result = subprocess.run(
+                    command,
+                    input=json.dumps(request),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    env={"PATH": os.defpath},
+                    pass_fds=(cpuinfo_fd,),
+                    check=False,
+                )
             status, stdout, stderr = result.returncode, result.stdout, result.stderr
         except subprocess.TimeoutExpired as error:
             # subprocess.run kills and reaps bwrap; its PID namespace kills its
@@ -191,6 +206,7 @@ class Sandbox:
         # Validation cannot erase an already-launched process or its trace.
         # Keep even timeout/partial output, then invalidate the evidence.
         try:
+            pinned.execution_identity()
             verify_snapshot(skills, before)
             if common.read_bytes() != common_before:
                 run.update(state_valid=False, control_failure="leakage/state_drift")

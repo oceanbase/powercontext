@@ -104,6 +104,7 @@ def runtime_files(root: Path) -> str:
 
 def input_identity(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
     result = {
+        "execution": sandbox.execution_identity(),
         "plan": digest_json(plan),
         "common": file_hash(Path(plan["common_file"])),
         "oracle": file_hash(Path(plan["oracle_file"])),
@@ -282,12 +283,15 @@ def run_one(
 
 
 def freeze_plan(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
+    plan = json.loads(json.dumps(plan))
     validate_plan(plan)
     before = input_identity(plan, sandbox)
+    sandbox = sandbox.bind_execution(before["execution"])
     credentials = credentials_for(plan)
     effective = {}
     preparation = {}
     for arm in ARMS:
+        verify_inputs(plan, sandbox, before)
         run = run_one(
             plan,
             sandbox,
@@ -298,14 +302,14 @@ def freeze_plan(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
             credentials=credentials,
         )
         configs = [r for r in run["records"] if r["kind"] == "effective_config"]
+        verify_inputs(plan, sandbox, before)
         if run["returncode"] != 0 or run["malformed_output"] or run.get("control_failure") or len(configs) != 1:
             raise IntegrityError("native effective freeze failed; inspect with component probes")
         effective[arm] = configs[0]["effective_sha256"]
         preparation[arm] = run
-    if input_identity(plan, sandbox) != before:
-        raise IntegrityError("inputs drifted while preparing the pair")
+    verify_inputs(plan, sandbox, before)
     return {
-        "version": 1,
+        "version": 2,
         "plan": plan,
         "inputs": before,
         "effective": effective,
@@ -314,11 +318,19 @@ def freeze_plan(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
     }
 
 
+def verify_inputs(plan: dict[str, Any], sandbox: Sandbox, expected: dict[str, Any]) -> None:
+    if input_identity(plan, sandbox) != expected:
+        raise IntegrityError("frozen manifest/inputs drifted")
+
+
 def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[str, Any]:
+    manifest = json.loads(json.dumps(manifest))
     plan = manifest["plan"]
     validate_plan(plan)
-    if manifest["version"] != 1 or input_identity(plan, sandbox) != manifest["inputs"]:
-        raise IntegrityError("frozen manifest/inputs drifted")
+    if manifest["version"] != 2 or "execution" not in manifest["inputs"]:
+        raise IntegrityError("manifest requires a frozen execution root; freeze again")
+    sandbox = sandbox.bind_execution(manifest["inputs"]["execution"])
+    verify_inputs(plan, sandbox, manifest["inputs"])
     # Read once per invocation, share only in memory, and send a private copy
     # to each worker. Never hash or serialize the secret values as identity.
     credentials = credentials_for(plan)
@@ -333,8 +345,10 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
     # output is mounted in any subsequent worker.
     for task in plan["tasks"]:
         for arm in ARMS:
+            result = unstarted_result(abort or "leakage/state_drift")
             if abort is None:
                 try:
+                    verify_inputs(plan, sandbox, manifest["inputs"])
                     result = run_one(
                         plan,
                         sandbox,
@@ -344,19 +358,18 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
                         effective=manifest["effective"][arm],
                         credentials=credentials,
                     )
+                    abort = result.get("control_failure")
+                    verify_inputs(plan, sandbox, manifest["inputs"])
                 except (IntegrityError, OSError) as error:
                     abort = "leakage/state_drift" if isinstance(error, IntegrityError) else "environment/auth"
-                    result = unstarted_result(abort)
-                if result.get("control_failure"):
-                    abort = result["control_failure"]
-            else:
-                result = unstarted_result(abort)
+                    result.update(state_valid=False, control_failure=abort)
             index = len(evidence)
             evidence.append((arm, task["task_id"], result))
             write_json(output / f"case-{index:04d}.json", {"arm": arm, "task_id": task["task_id"], **result})
     try:
         validate_plan(plan)
-        state_valid = abort is None and input_identity(plan, sandbox) == manifest["inputs"]
+        verify_inputs(plan, sandbox, manifest["inputs"])
+        state_valid = abort is None
     except (IntegrityError, OSError):
         state_valid = False
     task_ids = [task["task_id"] for task in plan["tasks"]]

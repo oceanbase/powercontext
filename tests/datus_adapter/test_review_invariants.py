@@ -429,12 +429,13 @@ def test_all_tasks_and_arms_reuse_one_in_memory_credential_read(tmp_path, compon
 
     monkeypatch.setattr(paired, "credentials_for", credentials)
     monkeypatch.setattr(Sandbox, "run", worker)
+    monkeypatch.setattr(Sandbox, "execution_identity", lambda self: {})
     sandbox = Sandbox(tmp_path / "runtime/bin/python", tmp_path / "bridge")
     if phase == "freeze":
         artifact = paired.freeze_plan(plan, sandbox)
     else:
         manifest = {
-            "version": 1,
+            "version": 2,
             "plan": plan,
             "inputs": paired.input_identity(plan, sandbox),
             "effective": dict.fromkeys(paired.ARMS, "fixture"),

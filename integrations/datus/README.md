@@ -124,8 +124,11 @@ Each question runs in a new Linux bubblewrap namespace with a private tmpfs
 home/workspace/session store. Only approved common text, that arm's Skill files,
 the locked interpreter/runtime and bridge sources are mounted read-only.
 The evaluator, other questions, gold/oracles, receipts and prior traces are never
-mounted. Only CPU/memory hardware information is provided from proc/sys; process,
-environment and descriptor paths remain absent. The worker performs real denied
+mounted. CPU feature text is frozen in the manifest and copied through a read-only
+descriptor into `/proc/cpuinfo`; changing clock/calibration fields are omitted
+from both the identity and worker-visible bytes. No live proc/sys tree or memory
+statistics are mounted. Process, environment and descriptor paths remain absent.
+The worker performs real denied
 read and read-only-write probes before execution. It writes evidence through a
 write-only pipe to its parent, with no evidence file path exposed to tools.
 Timeout kills/reaps the worker's namespace and preserves partial output.
@@ -140,6 +143,33 @@ namespaces. It supplies a minimal environment from the parent, including no
 ambient product tokens. There is no unsandboxed fallback. The exact mount policy,
 rather than the presence of bubblewrap, defines the boundary; see the
 [upstream security model](https://github.com/containers/bubblewrap/blob/main/README.md#sandbox-security).
+
+Manifest v2 binds the launcher's PATH lookup path, resolved executable and content/
+mode/ownership digest, the actual native dynamic-loader dependency closure, loader
+configuration/cache/preload inputs (including absence), and every host system
+mount. `execution.SYSTEM_MOUNTS` is the single source for hashing and mounting:
+lib64/multiarch library trees and the explicit certificate/resolver/hosts files.
+The broad `/usr` and `/bin` trees are not mounted. Directory identities include
+all file bytes (including bytecode), empty directories, modes, ownership and
+symlink text; unreadable/special/unstable inputs fail closed. Resolved aliases
+are deduplicated only within one capture; no stat-based hash cache persists.
+
+`freeze` and `run` may be separate processes. The launcher uses the frozen
+absolute executable after checking that the current PATH still selects the same
+entity. A different lookup path, target, executable content or execution-root
+digest is rejected before launching a question. Adding an irrelevant PATH
+directory that still selects the same binary is harmless. Full input identities
+are checked before/after preparation and each arm/case, and before final scoring.
+Post-launch drift retains raw evidence, aborts later cases, and invalidates the
+whole pair. Pre-run drift produces no output directory or valid report. Old v1
+manifests require a fresh freeze; they cannot certify an execution root.
+
+These checks assume a trusted evaluator and host administrator keeping the roots
+stable throughout a run. Read-only worker mounts do not make the host filesystem
+an atomic snapshot: deliberate transient host changes restored between checks,
+the kernel, and a hostile host administrator are outside this profile. Native
+Linux/glibc `ldd` is required for launcher inspection; unsupported dependency
+formats are rejected rather than treated as an empty inventory.
 
 Online runs share host networking for the approved model and database connection.
 The pinned httpx clients enforce the configured model origin and retain each HTTP
@@ -178,7 +208,8 @@ in `development-plan.example.json`; its placeholders cannot pass admission.
    making a model request. It freezes actual prompt/tool/Skill/common identities,
    the plan/oracle/admission, and every non-bytecode runtime/interpreter/bridge
    file. Subsequent workers redirect bytecode lookups to their fresh private
-   layer. `run` refuses changed inputs and checks drift after the pair.
+   layer. The execution-root identity above is part of the same manifest and
+   input identity; all preparation, case and final scoring boundaries recheck it.
 6. `run` executes each question in both isolated arms and writes raw per-case
    evidence. Scoring is performed only after both arms finish. There is no
    usage-feedback write or learning backflow in the runner.
@@ -343,6 +374,13 @@ a local synthetic HTTP gateway, runs OS denial probes, checks complete rows and
 final answers, and freezes/runs two independent case sessions per arm. It covers
 SQL retries, identical repeated SQL, multi-operation wrappers, chunked results,
 unlinked PyMySQL cursor operations, timeouts, unknown usage and input drift.
+REL-1 regression probes additionally use real bubblewrap and a copied `libm`
+loaded with `ctypes` to demonstrate that PATH shadowing or changed library bytes
+(even at the same size/mtime) are refused before launch. Boundary fault injection
+covers both freeze preparations, before/after each of two questions in each arm,
+a change observed by the post-process check then restored, and final scoring.
+Loader-input absence and content changes are rejected too; none yields a valid
+pair. These probes preserve raw output when a worker has already launched.
 The synthetic driver probe does not connect to a live MySQL server. Existing
 Server/SDK tests separately exercise proposal/approval/download/install. None are
 real model learning or benchmark runs.
