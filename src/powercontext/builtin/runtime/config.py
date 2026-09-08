@@ -24,6 +24,13 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, JsonValue, Secret
 
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
 from powercontext.builtin.artifacts.skill import AgentSkillTarget, CodexSkillRoot
+from powercontext.builtin.artifacts.topic_memory import MAX_TOPIC_MEMORY_SEARCH_LIMIT
+from powercontext.builtin.artifacts.topic_memory.generation import (
+    TopicMemoryGenerationError,
+    topic_memory_stage_budget,
+    validate_topic_memory_stage_capacity,
+)
+from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -61,6 +68,30 @@ class RuntimeConfig(BaseModel):
 
     schedule_seconds: float | None = Field(default=None, gt=0)
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
+    topic_memory_schedule_seconds: float | None = Field(default=None, gt=0)
+    topic_memory_source_window_limit: int = Field(default=10, ge=1)
+    topic_memory_history_max_candidates: int = Field(default=20, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
+    topic_memory_history_rrf_threshold: int = Field(default=70, ge=0, le=100)
+    topic_memory_history_min_candidates: int = Field(default=5, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
+    artifact_processing_max_workers: int = Field(default=10, ge=1)
+    artifact_processing_worker_timeout_seconds: float = Field(default=600, gt=0)
+    artifact_processing_role: Literal["all", "api", "background"] = "all"
+
+    @model_validator(mode="after")
+    def validate_topic_memory_history_candidates(self) -> RuntimeConfig:
+        if self.topic_memory_history_min_candidates > self.topic_memory_history_max_candidates:
+            raise ValueError(  # noqa: TRY003
+                "topic_memory_history_min_candidates must not exceed topic_memory_history_max_candidates"
+            )
+        if self.artifact_processing_role != "all" and (
+            self.schedule_seconds is not None
+            or self.experience_schedule_seconds is not None
+            or self.profile_schedule_enabled
+        ):
+            raise ValueError(  # noqa: TRY003
+                "schedule_seconds, experience_schedule_seconds and profile_schedule_enabled require artifact_processing_role='all'"
+            )
+        return self
 
 
 class HandoffReportConfig(BaseModel):
@@ -80,6 +111,7 @@ class InferenceConfig(BaseModel):
     generation_model_settings: dict[str, JsonValue] = Field(default_factory=dict)
     generation_timeout_seconds: float = Field(default=30.0, gt=0)
     generation_max_requests: int = Field(default=2, ge=1)
+    generation_model_context_window_tokens: int = Field(default=125_000, ge=1)
     embedding_model: str | None = None
     embedding_base_url: AnyHttpUrl | None = None
     embedding_headers: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
@@ -167,6 +199,23 @@ class InferenceConfig(BaseModel):
             and (self.rerank_headers or self.rerank_model_settings)
         ):
             raise ValueError("rerank overrides require rerank_model or generation_model")  # noqa: TRY003
+        max_tokens = self.generation_model_settings.get("max_tokens")
+        if max_tokens is not None and (
+            not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or max_tokens < 1
+        ):
+            raise ValueError("generation_model_settings.max_tokens must be a positive integer")  # noqa: TRY003
+        if self.generation_model is not None:
+            try:
+                budget = topic_memory_stage_budget(
+                    context_window_tokens=self.generation_model_context_window_tokens,
+                    max_requests=self.generation_max_requests,
+                    model_settings=self.generation_model_settings,
+                )
+                validate_topic_memory_stage_capacity(budget, character_token_estimator())
+            except TopicMemoryGenerationError as error:
+                raise ValueError(  # noqa: TRY003
+                    f"Topic Memory generation budget is invalid: {error.error_code}"
+                ) from error
         return self
 
 
@@ -232,6 +281,14 @@ class BuiltinConfig(BaseModel):
     @classmethod
     def default_database_to_sqlite(cls, value: Any) -> Any:
         return normalize_database_discriminator(value)
+
+    @model_validator(mode="after")
+    def validate_artifact_processing_role(self) -> BuiltinConfig:
+        if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
+            raise ValueError(  # noqa: TRY003
+                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
+            )
+        return self
 
 
 __all__ = [

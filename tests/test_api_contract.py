@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 from pydantic import BaseModel, ValidationError
 
+import powercontext.http as http_models
 from powercontext.http import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
@@ -39,11 +42,14 @@ from powercontext.http import (
     CreateWorkContractRequest,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
+    FlushTopicMemoryRequest,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetMemoryEntryRequest,
     GetStatsRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffActivation,
     HandoffCurrentWorkRequest,
@@ -68,6 +74,8 @@ from powercontext.http import (
     ScanExternalSkillsResponse,
     ScopedStats,
     SearchMemoryRequest,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     SkillProposal,
     SkillValidationItem,
     SourceRecord,
@@ -92,6 +100,7 @@ from powercontext.http._generated.operations import (
     ENROLL_REMOTE_SKILL_TARGET,
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
+    FLUSH_TOPIC_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
     GET_ARTIFACT,
@@ -104,6 +113,7 @@ from powercontext.http._generated.operations import (
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
     GET_STATS,
+    GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ARTIFACT_CANDIDATES,
@@ -135,6 +145,7 @@ from powercontext.http._generated.operations import (
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SEARCH_TOPIC_MEMORY,
     SUBMIT_SOURCE_OBSERVATION,
     UNPUBLISH_REMOTE_SKILL,
     UPDATE_SKILL_LIFECYCLE,
@@ -142,6 +153,22 @@ from powercontext.http._generated.operations import (
 from powercontext.server.app import create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import HandoffReportConfig, ServerSettings
+
+
+def test_http_public_exports_resolve() -> None:
+    assert [name for name in http_models.__all__ if not hasattr(http_models, name)] == []
+
+
+def test_http_star_import_resolves_every_public_export() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "from powercontext.http import *"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "openapi" / "powercontext.yaml"
 
@@ -265,6 +292,24 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.request_type is CaptureContentSourceRequest
     assert CAPTURE_CONTENT_SOURCE.response_type is CaptureContentSourceResponse
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
+
+
+def test_topic_memory_operations_use_strict_public_shapes_without_retrieval_controls() -> None:
+    assert FLUSH_TOPIC_MEMORY.request_type is FlushTopicMemoryRequest
+    assert FLUSH_TOPIC_MEMORY.response_type is FlushTopicMemoryResponse
+    assert SEARCH_TOPIC_MEMORY.request_type is SearchTopicMemoryRequest
+    assert SEARCH_TOPIC_MEMORY.response_type is SearchTopicMemoryResponse
+    assert GET_TOPIC_MEMORY.request_type is GetTopicMemoryRequest
+    assert (
+        FLUSH_TOPIC_MEMORY.success_status
+        == SEARCH_TOPIC_MEMORY.success_status
+        == GET_TOPIC_MEMORY.success_status
+        == 200
+    )
+    assert set(SearchTopicMemoryRequest.model_fields) == {"scope_id", "query", "limit"}
+
+    with pytest.raises(ValidationError):
+        SearchTopicMemoryRequest.model_validate({"scope_id": "scope-a", "query": "query", "mode": "fts"})
 
 
 def test_source_observation_contract_uses_explicit_connector_scope_and_captured_values() -> None:

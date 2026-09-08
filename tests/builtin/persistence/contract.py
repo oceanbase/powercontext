@@ -21,8 +21,10 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict
 
 from powercontext.artifacts import Artifact, ArtifactDraft
+from powercontext.builtin.artifacts.topic_memory import TopicMemory
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import SHARED_TABLES
@@ -106,7 +108,7 @@ class ReportDraft(ArtifactDraft[ReportContent]):
 
 
 SOURCE_ADAPTERS = (CommitAdapter(), NoteAdapter())
-ARTIFACT_TYPES = (Handoff, Report)
+ARTIFACT_TYPES = (Handoff, Report, TopicMemory)
 
 
 class RepositoryBundle(BaseModel):
@@ -115,6 +117,7 @@ class RepositoryBundle(BaseModel):
     sources: SourceRepository
     artifacts: ArtifactRepository
     cursors: SourceCursorRepository
+    processing_pending: ArtifactProcessingPendingRepository
 
 
 @asynccontextmanager
@@ -126,5 +129,6 @@ async def repository_profile() -> AsyncIterator[tuple[SQLiteProfile, RepositoryB
                 sources=SourceRepository(SOURCE_ADAPTERS),
                 artifacts=ArtifactRepository(ARTIFACT_TYPES),
                 cursors=SourceCursorRepository(),
+                processing_pending=ArtifactProcessingPendingRepository(),
             ),
         )

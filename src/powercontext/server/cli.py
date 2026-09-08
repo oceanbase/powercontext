@@ -16,12 +16,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import signal
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import typer
 from pydantic import ValidationError
 
+from powercontext.builtin.runtime.composition import open_builtin_runtime
+from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.cli.env_file import environment_context
 from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
@@ -73,11 +79,23 @@ def run(
         Path | None,
         typer.Option(help="Load Server and provider settings from this environment file."),
     ] = None,
+    role: Annotated[
+        Literal["all", "api", "background"] | None,
+        typer.Option(help="Run all components, only APIs, or only background processing."),
+    ] = None,
 ) -> None:
-    """Run the ASGI service in the foreground."""
+    """Run the configured API and/or background service in the foreground."""
 
+    role_context = (
+        nullcontext()
+        if role is None
+        else environment_context(
+            {"POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE": role},
+            override=True,
+        )
+    )
     try:
-        with server_settings_context(host=host, port=port, env_file=env_file) as settings:
+        with role_context, server_settings_context(host=host, port=port, env_file=env_file) as settings:
             _run_configured_server(settings)
     except ServerConfigurationError as error:
         if isinstance(error.cause, ValidationError):
@@ -95,6 +113,18 @@ def _run_configured_server(settings: ServerSettings) -> None:
     configure_server_logging(settings.logging)
     tracing = configure_server_tracing(settings.tracing)
     try:
+        if settings.runtime.artifact_processing_role == "background":
+            _run_background(
+                BuiltinConfig(
+                    runtime=settings.runtime,
+                    database=settings.database,
+                    handoff_report=settings.handoff_report,
+                    inference=settings.inference,
+                    external_skills=settings.external_skills,
+                ),
+                tracing,
+            )
+            return
         application = create_server_app(settings=settings, tracing=tracing)
         if settings.dashboard.enabled:
             if application.state.dashboard_started:
@@ -136,3 +166,31 @@ def _run_server(application: Any, *, host: str, port: int) -> None:
     import uvicorn
 
     uvicorn.run(application, host=host, port=port, access_log=False, log_config=None)
+
+
+def _run_background(config: BuiltinConfig, tracing: Any) -> None:
+    """Run a Supervisor-only process until SIGINT or SIGTERM."""
+
+    asyncio.run(_run_background_async(config, tracing))
+
+
+async def _run_background_async(config: BuiltinConfig, tracing: Any) -> None:
+    stopped = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    installed: list[signal.Signals] = []
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(signum, stopped.set)
+        except (NotImplementedError, RuntimeError):
+            continue
+        installed.append(signum)
+    try:
+        async with open_builtin_runtime(
+            config,
+            instrumentation=tracing.instrumentation,
+            tracing=tracing,
+        ):
+            await stopped.wait()
+    finally:
+        for signum in installed:
+            loop.remove_signal_handler(signum)

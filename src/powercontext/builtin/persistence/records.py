@@ -38,6 +38,7 @@ from powercontext.builtin.persistence.errors import (
 )
 from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
+from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -101,6 +102,8 @@ class RelationalRecordService:
         id_factory: IdFactory | None = None,
         cursor_secret: bytes | None = None,
         cursor_ttl_seconds: int = _DEFAULT_CURSOR_TTL_SECONDS,
+        processing_pending: ArtifactProcessingPendingRepository | None = None,
+        source_processing_bindings: tuple[str, ...] = (),
     ) -> None:
         self._database = database
         self._sources = sources
@@ -114,6 +117,8 @@ class RelationalRecordService:
             ttl_seconds=cursor_ttl_seconds,
         )
         self._cursor_secret = self._cursor_codec.secret
+        self._processing_pending = processing_pending
+        self._source_processing_bindings = source_processing_bindings
         self._tags = RelationalTagService(
             database,
             artifacts,
@@ -183,7 +188,15 @@ class RelationalRecordService:
     ) -> SourceRecord:
         try:
             async with self._database.transaction() as connection:
-                stored = await self._sources.add(connection, scope_id, source)
+                stored, created = await self._sources.add_with_status(connection, scope_id, source)
+                if created and self._processing_pending is not None:
+                    for binding_name in self._source_processing_bindings:
+                        await self._processing_pending.raise_source(
+                            connection,
+                            scope_id,
+                            binding_name,
+                            stored.journal_position,
+                        )
         except StoredPayloadConflictError as error:
             raise BaseValueConflictError("source", (scope_id, source_type, source.name)) from error
         return _source_record(scope_id, stored)

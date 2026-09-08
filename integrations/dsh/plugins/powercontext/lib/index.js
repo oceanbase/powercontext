@@ -165,7 +165,16 @@ const OPERATIONS = {
 		location: "query",
 		scopeMode: "none",
 		pathParameters: [],
-		queryParams: ["query"],
+		queryParams: [
+			"query",
+			"query_field",
+			"parent_scope_id",
+			"external_reference_kind",
+			"binding_integration",
+			"binding_kind",
+			"limit",
+			"cursor"
+		],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
@@ -437,6 +446,39 @@ const OPERATIONS = {
 	continue_handoff: {
 		method: "POST",
 		path: "/v1/handoff/continue",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	flush_topic_memory: {
+		method: "POST",
+		path: "/v1/topic-memory/flush",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	search_topic_memory: {
+		method: "POST",
+		path: "/v1/topic-memory/search",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory: {
+		method: "POST",
+		path: "/v1/topic-memory/get",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],

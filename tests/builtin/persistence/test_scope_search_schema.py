@@ -67,8 +67,8 @@ def test_sqlite_scope_search_migration_backfills_legacy_rows_idempotently(tmp_pa
             """
         )
         connection.execute(
-            "INSERT INTO pc_scopes (scope_id, title, summary, version) "
-            "VALUES ('scp_ABC', 'ＰowerContext', 'Design', 1)"
+            "INSERT INTO pc_scopes (scope_id, title, summary, version) VALUES (?, ?, ?, ?)",
+            ("scp_ABC", "\N{FULLWIDTH LATIN CAPITAL LETTER P}owerContext", "Design", 1),
         )
         connection.execute(
             "INSERT INTO pc_scope_external_references "
@@ -89,16 +89,24 @@ def test_sqlite_scope_search_migration_backfills_legacy_rows_idempotently(tmp_pa
 
             async with profile.database.transaction() as connection:
                 scope = (
-                    await connection.exec_driver_sql(
-                        "SELECT scope_id_search, title_search, summary_search FROM pc_scopes"
+                    (
+                        await connection.exec_driver_sql(
+                            "SELECT scope_id_search, title_search, summary_search FROM pc_scopes"
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
                 reference = (
-                    await connection.exec_driver_sql("SELECT value_search FROM pc_scope_external_references")
-                ).mappings().one()
+                    (await connection.exec_driver_sql("SELECT value_search FROM pc_scope_external_references"))
+                    .mappings()
+                    .one()
+                )
                 binding = (
-                    await connection.exec_driver_sql("SELECT external_id_search FROM pc_scope_bindings")
-                ).mappings().one()
+                    (await connection.exec_driver_sql("SELECT external_id_search FROM pc_scope_bindings"))
+                    .mappings()
+                    .one()
+                )
 
         assert scope == {
             "scope_id_search": "scp_abc",

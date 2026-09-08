@@ -137,6 +137,13 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED", "true")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT", "40")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS", "45")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS", "30")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT", "7")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES", "16")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD", "65")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES", "4")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_MAX_WORKERS", "6")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS", "90")
     monkeypatch.setenv("POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET", "cursor-secret-with-at-least-thirty-two-bytes")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL", " test ")
     monkeypatch.setenv(
@@ -145,6 +152,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     )
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS", "4")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS", "64000")
     monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_ENABLED", "false")
     monkeypatch.setenv("POWERCONTEXT_SERVER_MCP_PATH", "/context/")
     monkeypatch.setenv(
@@ -174,6 +182,13 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.runtime.memory_rerank_enabled is True
     assert settings.runtime.memory_rerank_candidate_limit == 40
     assert settings.runtime.experience_schedule_seconds == 45
+    assert settings.runtime.topic_memory_schedule_seconds == 30
+    assert settings.runtime.topic_memory_source_window_limit == 7
+    assert settings.runtime.topic_memory_history_max_candidates == 16
+    assert settings.runtime.topic_memory_history_rrf_threshold == 65
+    assert settings.runtime.topic_memory_history_min_candidates == 4
+    assert settings.runtime.artifact_processing_max_workers == 6
+    assert settings.runtime.artifact_processing_worker_timeout_seconds == 90
     assert settings.cursor_signing_secret == SecretStr("cursor-secret-with-at-least-thirty-two-bytes")
     assert settings.inference.generation_model == "test"
     assert settings.inference.generation_model_settings == {
@@ -181,6 +196,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     }
     assert settings.inference.generation_timeout_seconds == 12.5
     assert settings.inference.generation_max_requests == 4
+    assert settings.inference.generation_model_context_window_tokens == 64_000
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
     assert settings.dashboard.enabled is True
@@ -337,7 +353,10 @@ def test_env_example_loads_server_settings(monkeypatch) -> None:
     assert isinstance(settings.database, SQLiteConfig)
     assert settings.dashboard.enabled is True
     assert settings.runtime.schedule_seconds == 60
+    assert settings.runtime.topic_memory_schedule_seconds == 60
+    assert settings.runtime.artifact_processing_role == "all"
     assert settings.inference.generation_model == "openai:gpt-4.1-mini"
+    assert settings.inference.generation_model_context_window_tokens == 125_000
     assert settings.inference.embedding_dimension == 1536
 
 
@@ -699,6 +718,7 @@ def test_server_factory_reports_database_failure_as_not_ready(monkeypatch, tmp_p
         "checks": {
             "runtime": "ready",
             "database": "unavailable",
+            "artifact_processing_supervisor": "leader",
             **_access_readiness_checks(),
         },
     }
@@ -742,6 +762,7 @@ def test_server_factory_reports_database_and_configured_generation_readiness(mon
             "runtime": "ready",
             "database": "ready",
             "inference.generation": "ready",
+            "artifact_processing_supervisor": "leader",
             **_access_readiness_checks(),
         },
     }
@@ -805,6 +826,7 @@ def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_
             "runtime": "ready",
             "database": "ready",
             "inference.generation": "unavailable",
+            "artifact_processing_supervisor": "leader",
             **_access_readiness_checks(),
         },
     }
@@ -836,6 +858,7 @@ def test_server_factory_caches_and_redacts_degraded_embedding_readiness(caplog, 
                 "runtime": "ready",
                 "database": "ready",
                 "inference.embedding": "misconfigured",
+                "artifact_processing_supervisor": "leader",
                 **_access_readiness_checks(),
             },
         }
@@ -865,6 +888,7 @@ def test_server_factory_reports_a_rejected_embedding_request_with_a_redacted_rea
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": "misconfigured: provider-rejected (HTTP 400)",
+            "artifact_processing_supervisor": "leader",
             **_access_readiness_checks(),
         },
     }
@@ -900,6 +924,7 @@ def test_server_factory_reports_transient_embedding_failures_as_degraded(
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": expected_status,
+            "artifact_processing_supervisor": "leader",
             **_access_readiness_checks(),
         },
     }
@@ -1005,6 +1030,7 @@ def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog,
                 "runtime": "ready",
                 "database": "ready",
                 "inference.embedding": "misconfigured: provider-rejected (HTTP 404)",
+                "artifact_processing_supervisor": "leader",
                 **_access_readiness_checks(),
             },
         }

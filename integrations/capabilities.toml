@@ -42,6 +42,12 @@ probe = "server_mcp"
 id = "search_memory"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "search_topic_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
+id = "get_topic_memory"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "list_memory_entries"
 capabilities = ["memory_read"]
 [[toolsets.tools]]

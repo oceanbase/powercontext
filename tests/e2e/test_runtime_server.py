@@ -227,7 +227,12 @@ def test_server_databases_share_source_to_memory_search_behavior(
             )
             entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope_id))
 
-        assert readiness.checks == {"runtime": "ready", "database": "ready", **_ACCESS_READINESS_CHECKS}
+        assert readiness.checks == {
+            "runtime": "ready",
+            "database": "ready",
+            "artifact_processing_supervisor": "leader",
+            **_ACCESS_READINESS_CHECKS,
+        }
         assert capabilities.source_types == ["content"]
         assert capabilities.memory_extraction is True
         assert capabilities.search_modes == ["auto", "fts"]
@@ -384,6 +389,7 @@ def test_inference_failure_degrades_readiness_without_blocking_database_operatio
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": "misconfigured",
+            "artifact_processing_supervisor": "leader",
             **_ACCESS_READINESS_CHECKS,
         }
         assert captured.position == 1
@@ -491,7 +497,15 @@ def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path
                 )
             )
 
-            assert capabilities.artifact_families == ["memory", "experience", "skill", "handoff", "profile", "prompt"]
+        assert capabilities.artifact_families == [
+            "memory",
+            "topic-memory",
+            "experience",
+            "skill",
+            "handoff",
+            "profile",
+            "prompt",
+        ]
         assert capabilities.handoff_generation is True
         assert activation.status == "generated"
         assert repeated.status == "ignored"

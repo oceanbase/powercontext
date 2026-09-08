@@ -126,6 +126,11 @@ class OceanBaseProfile:
         _register_official_dialect()
         engine = create_async_engine(
             config.url.get_secret_value(),
+            # OceanBase's MySQL handshake can leave aiomysql believing the
+            # session is transactional while the server still autocommits.
+            # Explicitly disabling autocommit keeps SAVEPOINT-based conflict
+            # recovery and the surrounding publication transaction atomic.
+            connect_args={"init_command": "SET autocommit = 0"},
             echo=config.echo,
             hide_parameters=True,
             pool_pre_ping=config.pool_pre_ping,

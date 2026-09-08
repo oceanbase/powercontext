@@ -65,7 +65,10 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
     controller = ServiceController(adapter)
 
     try:
-        installed = controller.install(env_file=environment)
+        try:
+            installed = controller.install(env_file=environment)
+        except ServiceError as error:
+            pytest.fail(f"{error}\n{_server_error_tail(tmp_path)}")
 
         assert installed.ok
         assert installed.manager_ownership is ManagerOwnershipState.OWNED
@@ -305,6 +308,15 @@ def _unused_loopback_port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         return int(listener.getsockname()[1])
+
+
+def _server_error_tail(tmp_path: Path) -> str:
+    path = tmp_path / "data" / "logs" / "server.stderr.log"
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return "server.stderr.log was not created"
+    return f"server.stderr.log tail:\n{content[-8000:]}"
 
 
 def _cleanup(adapter: NativeServiceAdapter) -> None:

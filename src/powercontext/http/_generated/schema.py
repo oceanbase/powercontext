@@ -1041,6 +1041,109 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/topic-memory/flush": {
+            "post": {
+                "tags": ["topic-memory"],
+                "summary": "Request asynchronous Topic Memory processing",
+                "description": "Persist a flush generation without waiting for background processing to complete.",
+                "operationId": "flush_topic_memory",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/FlushTopicMemoryRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The durable request was accepted, or the source cursor was already current.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/FlushTopicMemoryResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.contribute",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/topic-memory/search": {
+            "post": {
+                "tags": ["topic-memory"],
+                "summary": "Search current Topic Memory heads",
+                "description": "Select the deployment-owned FTS or "
+                "hybrid mode without accepting "
+                "caller-selected retrieval "
+                "controls.",
+                "operationId": "search_topic_memory",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/SearchTopicMemoryRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Matching current Topic Memory revisions, including the actual mode used.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/SearchTopicMemoryResponse"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/topic-memory/get": {
+            "post": {
+                "tags": ["topic-memory"],
+                "summary": "Get an exact Topic Memory revision",
+                "description": "Return full progressively-disclosed "
+                "detail and direct Source evidence for "
+                "one exact reference.",
+                "operationId": "get_topic_memory",
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GetTopicMemoryRequest"}}},
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "The exact immutable Topic Memory revision.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/TopicMemoryArtifact"}}
+                        },
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/memory/flush": {
             "post": {
                 "tags": ["memory"],
@@ -6081,6 +6184,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["status", "previous_cursor", "current_cursor", "high_watermark", "processed_source_count"],
             },
+            "FlushTopicMemoryRequest": {
+                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "FlushTopicMemoryResponse": {
+                "properties": {"status": {"$ref": "#/components/schemas/TopicMemoryFlushStatus"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["status"],
+            },
             "GetMemoryEntryRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -6089,6 +6204,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["scope_id", "citation"],
+            },
+            "GetTopicMemoryRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "artifact"],
             },
             "GetArtifactCandidateRequest": {
                 "properties": {
@@ -6622,6 +6746,43 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["citation", "text", "score", "matched_by"],
             },
+            "SearchTopicMemoryHit": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "title": {"type": "string", "maxLength": 512, "minLength": 1},
+                    "summary": {"type": "string", "maxLength": 8000, "minLength": 1},
+                    "snippet": {"type": "string", "nullable": True},
+                    "score": {"type": "number", "minimum": 0.0},
+                    "matched_by": {
+                        "items": {"$ref": "#/components/schemas/TopicMemoryMatchedBy"},
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "title", "summary", "snippet", "score", "matched_by"],
+            },
+            "SearchTopicMemoryRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "query": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": "^\\S(?:[\\s\\S]*\\S)?$"},
+                    "limit": {"type": "integer", "maximum": 20.0, "minimum": 1.0, "default": 10},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "query"],
+            },
+            "SearchTopicMemoryResponse": {
+                "properties": {
+                    "mode": {"$ref": "#/components/schemas/TopicMemoryUsedSearchMode"},
+                    "hits": {"items": {"$ref": "#/components/schemas/SearchTopicMemoryHit"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["mode", "hits"],
+            },
             "SearchMemoryRequest": {
                 "properties": {
                     "tag_filter": {"$ref": "#/components/schemas/TagFilter"},
@@ -6686,6 +6847,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["hits"],
+            },
+            "TopicMemoryArtifact": {
+                "properties": {
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "title": {"type": "string", "maxLength": 512, "minLength": 1},
+                    "summary": {"type": "string", "maxLength": 8000, "minLength": 1},
+                    "detail": {"type": "string", "maxLength": 125000, "minLength": 1},
+                    "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact", "title", "summary", "detail", "source_refs"],
             },
             "CreateArtifactRequest": {
                 "oneOf": [
@@ -7390,6 +7563,12 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "PreparedContextStatus": {"type": "string", "enum": ["ready", "empty"]},
             "EntryChangeOperation": {"type": "string", "enum": ["add", "revise", "deactivate", "reactivate"]},
             "FlushStatus": {"type": "string", "enum": ["idle", "processed"]},
+            "TopicMemoryFlushStatus": {"type": "string", "enum": ["accepted", "idle"]},
+            "TopicMemoryMatchedBy": {
+                "type": "string",
+                "enum": ["topic_fts", "topic_vector", "detail_fts", "detail_vector"],
+            },
+            "TopicMemoryUsedSearchMode": {"type": "string", "enum": ["fts", "hybrid"]},
             "MemoryEntryState": {"type": "string", "enum": ["active", "inactive"]},
             "MemoryMatchedBy": {"type": "string", "enum": ["fts", "vector"]},
             "MemorySearchMode": {"type": "string", "enum": ["auto", "fts", "vector", "hybrid"]},
