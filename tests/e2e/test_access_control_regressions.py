@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -337,6 +338,12 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             source = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
             assert source.status_code == 200, source.text
             assert source.json()["receipt_identity"] == identity
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", identity_unavailable)
+                exact_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
+                list_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact_unavailable.status_code == 503, exact_unavailable.text
+                assert list_unavailable.status_code == 503, list_unavailable.text
             denied = await client.post(
                 "/v1/work/handoffs/acknowledge",
                 headers=bob,
@@ -374,6 +381,46 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             assert response.json()["receipt_identity"] == identity
 
     asyncio.run(reopened())
+
+
+def test_generic_receipt_markers_cannot_block_source_collection(tmp_path):
+    async def scenario():
+        async with _server(tmp_path) as (app, client, _):
+            scope_id = await _scope(client)
+            marker = {"schema": "powercontext.handoff-receipt.v1"}
+
+            created = await client.post(f"/v1/scopes/{scope_id}/sources", json={"content": marker})
+            captured = await client.post(
+                "/v1/sources/content",
+                json={
+                    "scope_id": scope_id,
+                    "source_id": "forged-receipt",
+                    "content": json.dumps(marker),
+                },
+            )
+            assert created.status_code == 422, created.text
+            assert captured.status_code == 422, captured.text
+
+            records = app.state.application.records.for_scope(scope_id)
+            legacy = await records.create_source("content", marker)
+            ordinary = await records.create_source("content", {"statement": "later source"})
+
+            exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/{legacy.source_id}")
+            assert exact.status_code == 200, exact.text
+            assert exact.json()["receipt_identity"] is None
+
+            first = await client.get(f"/v1/scopes/{scope_id}/sources", params={"limit": 1})
+            assert first.status_code == 200, first.text
+            assert [item["source_id"] for item in first.json()["items"]] == [legacy.source_id]
+            assert first.json()["next_cursor"] is not None
+            second = await client.get(
+                f"/v1/scopes/{scope_id}/sources",
+                params={"limit": 1, "cursor": first.json()["next_cursor"]},
+            )
+            assert second.status_code == 200, second.text
+            assert [item["source_id"] for item in second.json()["items"]] == [ordinary.source_id]
+
+    asyncio.run(scenario())
 
 
 def test_concurrent_handoff_receipts_cannot_replace_the_authenticated_submitter(tmp_path):

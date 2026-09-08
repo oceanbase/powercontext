@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import aclosing
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, cast
@@ -240,7 +241,10 @@ class RelationalRecordService:
                     raise InvalidCursorError
             else:
                 through, after = high_watermark, 0
-            stored = await self._sources.list(
+            selected: list[SourceRecord] = []
+            page_bytes = 0
+            has_more = False
+            source_stream = self._sources.iter_list(
                 connection,
                 scope_id,
                 after=after,
@@ -248,18 +252,21 @@ class RelationalRecordService:
                 limit=limit + 1,
                 source_type=CONTENT_SOURCE_NAME,
             )
-            available = tuple(_source_record(scope_id, value) for value in stored)
+            async with aclosing(source_stream):
+                async for stored in source_stream:
+                    item = _source_record(scope_id, stored)
+                    if len(selected) == limit:
+                        has_more = True
+                        break
+                    item_bytes = len(item.model_dump_json().encode("utf-8"))
+                    if selected and page_bytes + item_bytes > _SOURCE_PAGE_BUDGET_BYTES:
+                        has_more = True
+                        break
+                    selected.append(item)
+                    page_bytes += item_bytes
 
-        selected: list[SourceRecord] = []
-        page_bytes = 0
-        for item in available[:limit]:
-            item_bytes = len(item.model_dump_json().encode("utf-8"))
-            if selected and page_bytes + item_bytes > _SOURCE_PAGE_BUDGET_BYTES:
-                break
-            selected.append(item)
-            page_bytes += item_bytes
         next_cursor = None
-        if len(available) > len(selected) and selected:
+        if has_more and selected:
             next_cursor = self._encode_cursor(expected_cursor, f"{through}:{selected[-1].position}")
         return SourceRecordPage(items=tuple(selected), next_cursor=next_cursor)
 

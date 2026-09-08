@@ -309,6 +309,40 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
     asyncio.run(scenario())
 
 
+def test_source_list_stops_decoding_when_the_response_budget_is_full(monkeypatch) -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, sources = _services(profile)
+            for index in range(8):
+                await records.create_source("scope-a", "content", f"{index}:" + "x" * 1_100_000)
+
+            decoded = 0
+            original_decode = sources._decode_row
+
+            def counting_decode(row):
+                nonlocal decoded
+                decoded += 1
+                return original_decode(row)
+
+            monkeypatch.setattr(sources, "_decode_row", counting_decode)
+            first = await records.list_sources("scope-a", limit=8, cursor=None, caller="user:one")
+
+            assert len(first.items) == 3
+            assert first.next_cursor is not None
+            assert decoded == len(first.items) + 1
+
+            second = await records.list_sources(
+                "scope-a",
+                limit=8,
+                cursor=first.next_cursor,
+                caller="user:one",
+            )
+            assert [item.position for item in second.items] == [4, 5, 6]
+            assert second.next_cursor is not None
+
+    asyncio.run(scenario())
+
+
 def test_artifact_create_is_atomic_and_binds_its_system_source() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:

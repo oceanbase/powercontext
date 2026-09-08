@@ -5548,6 +5548,9 @@ components:
           type: string
           minLength: 1
           maxLength: 200000
+          description: >-
+            Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on
+            this generic capture operation and must be created through their dedicated workflow.
         metadata:
           type: object
           additionalProperties: true
@@ -8090,7 +8093,9 @@ components:
           enum: [content]
           default: content
         content:
-          description: JSON value persisted by the built-in content Source adapter.
+          description: >-
+            JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including
+            handoff receipts, are rejected and must be created through their dedicated workflow.
     TaggableArtifactFamily:
       type: string
       description: Artifact families supporting logical tags; Prompt configurations are excluded.

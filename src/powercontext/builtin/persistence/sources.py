@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
 from contextlib import suppress
 from typing import Any, Literal, cast
 
@@ -209,6 +209,31 @@ class SourceRepository:
     ) -> tuple[StoredSource, ...]:
         """Return a stable journal-ordered page for one scope."""
 
+        return tuple([
+            item
+            async for item in self.iter_list(
+                connection,
+                scope_id,
+                after=after,
+                through=through,
+                limit=limit,
+                source_type=source_type,
+            )
+        ])
+
+    async def iter_list(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        /,
+        *,
+        after: int = 0,
+        through: int | None = None,
+        limit: int | None = None,
+        source_type: str | None = None,
+    ) -> AsyncGenerator[StoredSource, None]:
+        """Stream a stable journal-ordered page without decoding it eagerly."""
+
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
         if after < 0:
             raise InvalidRepositoryArgumentError("after", "must be non-negative")
@@ -227,8 +252,9 @@ class SourceRepository:
         statement = select(SOURCES_TABLE).where(*predicates).order_by(SOURCES_TABLE.c.journal_position)
         if limit is not None:
             statement = statement.limit(limit)
-        rows = (await connection.execute(statement)).mappings()
-        return tuple(self._decode_row(row) for row in rows)
+        async with connection.stream(statement.execution_options(yield_per=1)) as result:
+            async for row in result.mappings():
+                yield self._decode_row(row)
 
     async def list_window(
         self,

@@ -2164,9 +2164,8 @@ async def list_sources(
             if not _is_handoff_receipt_content(source.content):
                 continue
             identity = await access.receipt_identity(scope_id, source.source_id)
-            if identity is None:
-                raise AccessUnavailableError("receipt_identity_pending")
-            item.receipt_identity = _receipt_identity_response(identity)
+            if identity is not None:
+                item.receipt_identity = _receipt_identity_response(identity)
     return SourcePage(items=items, next_cursor=result.next_cursor)
 
 
@@ -2176,6 +2175,7 @@ async def create_source(
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> SourceRecord:
+    _reject_reserved_handoff_receipt_content(request.content)
     result = await application.records.for_scope(scope_id).create_source(
         request.source_type.value,
         request.content,
@@ -2312,9 +2312,8 @@ async def get_source(
     response = _source_record_response(result)
     if http_request.app.state.access_mode == "enforced" and _is_handoff_receipt_content(result.content):
         identity = await _require_access_control(http_request).receipt_identity(scope_id, source_id)
-        if identity is None:
-            raise AccessUnavailableError("receipt_identity_pending")
-        response.receipt_identity = _receipt_identity_response(identity)
+        if identity is not None:
+            response.receipt_identity = _receipt_identity_response(identity)
     return response
 
 
@@ -2726,6 +2725,7 @@ async def capture_content_source(
     request: CaptureContentSourceRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> CaptureContentSourceResponse:
+    _reject_reserved_handoff_receipt_content(request.content)
     result = await application.sources.for_scope(request.scope_id).capture(mapping.capture_request(request))
     return mapping.capture_response(result)
 
@@ -2910,6 +2910,11 @@ def _is_handoff_receipt_content(content: JsonValue) -> bool:
         except ValueError:
             return False
     return isinstance(content, dict) and content.get("schema") == "powercontext.handoff-receipt.v1"
+
+
+def _reject_reserved_handoff_receipt_content(content: JsonValue) -> None:
+    if _is_handoff_receipt_content(content):
+        raise InvalidBaseAccessRequestError("content", "uses a server-reserved handoff receipt schema")
 
 
 async def record_task_outcome(

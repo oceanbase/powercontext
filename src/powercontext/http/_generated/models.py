@@ -593,7 +593,14 @@ class CaptureContentSourceRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    content: Annotated[StrictStr, Field(max_length=200000, min_length=1)]
+    content: Annotated[
+        StrictStr,
+        Field(
+            description="Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow.",
+            max_length=200000,
+            min_length=1,
+        ),
+    ]
     metadata: dict[str, Any] | None = None
 
 
@@ -1422,7 +1429,12 @@ class CreateSourceRequest(BaseModel):
         extra="forbid",
     )
     source_type: SourceType = SourceType.CONTENT
-    content: Annotated[Any, Field(description="JSON value persisted by the built-in content Source adapter.")]
+    content: Annotated[
+        Any,
+        Field(
+            description="JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow."
+        ),
+    ]
 
 
 class TaggableArtifactFamily(StrEnum):

@@ -4965,7 +4965,35 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
-                    "content": {"type": "string", "maxLength": 200000, "minLength": 1},
+                    "content": {
+                        "type": "string",
+                        "maxLength": 200000,
+                        "minLength": 1,
+                        "description": "Raw "
+                        "integration "
+                        "content. "
+                        "Server-reserved "
+                        "payload "
+                        "schemas, "
+                        "including "
+                        "handoff "
+                        "receipts, "
+                        "are "
+                        "rejected "
+                        "on "
+                        "this "
+                        "generic "
+                        "capture "
+                        "operation "
+                        "and "
+                        "must "
+                        "be "
+                        "created "
+                        "through "
+                        "their "
+                        "dedicated "
+                        "workflow.",
+                    },
                     "metadata": {"additionalProperties": True, "type": "object", "nullable": True},
                 },
                 "additionalProperties": False,
@@ -7003,7 +7031,33 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "CreateSourceRequest": {
                 "properties": {
                     "source_type": {"type": "string", "enum": ["content"], "default": "content"},
-                    "content": {"description": "JSON value persisted by the built-in content Source adapter."},
+                    "content": {
+                        "description": "JSON "
+                        "value "
+                        "persisted "
+                        "by "
+                        "the "
+                        "built-in "
+                        "content "
+                        "Source "
+                        "adapter. "
+                        "Server-reserved "
+                        "payload "
+                        "schemas, "
+                        "including "
+                        "handoff "
+                        "receipts, "
+                        "are "
+                        "rejected "
+                        "and "
+                        "must "
+                        "be "
+                        "created "
+                        "through "
+                        "their "
+                        "dedicated "
+                        "workflow."
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",
