@@ -87,10 +87,19 @@ class DurableScheduler:
         )
         self._lease: CoordinatorLease | None = None
         self._stop_requested = asyncio.Event()
+        self._tick_lock = asyncio.Lock()
         self._failed = False
 
     async def tick(self) -> bool:
         """Renew or acquire leadership and process at most one page per discoverer."""
+
+        async with self._tick_lock:
+            if self._stop_requested.is_set():
+                return False
+            return await self._tick()
+
+    async def _tick(self) -> bool:
+        """Run one tick while the caller owns the scheduler lifecycle lock."""
 
         previous = self._lease
         with self._background(
@@ -149,13 +158,14 @@ class DurableScheduler:
         """Stop discovery and conditionally release current leadership."""
 
         self._stop_requested.set()
-        lease = self._lease
-        self._lease = None
-        self._observe_leadership(lease, None)
-        if lease is None:
-            return
-        async with self._database.transaction() as connection:
-            await self._coordination.release_lease(connection, lease)
+        async with self._tick_lock:
+            lease = self._lease
+            self._lease = None
+            self._observe_leadership(lease, None)
+            if lease is None:
+                return
+            async with self._database.transaction() as connection:
+                await self._coordination.release_lease(connection, lease)
 
     async def _scan_once(self, discoverer: WorkDiscoverer, lease: CoordinatorLease) -> None:
         async with self._database.transaction() as connection:

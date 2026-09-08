@@ -19,8 +19,13 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.builtin.persistence.coordination import CoordinationRepository, StaleCoordinatorLeaseError
+from powercontext.builtin.persistence.coordination import (
+    CoordinationRepository,
+    CoordinatorLease,
+    StaleCoordinatorLeaseError,
+)
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import COORDINATION_TABLES, SCHEDULER_LEASES_TABLE, WORK_TABLES
 from powercontext.builtin.persistence.work import WorkRepository, WorkSpec
@@ -55,6 +60,29 @@ class _PausingDiscoverer:
         self.entered.set()
         await self.resume.wait()
         return DiscoveryPage(specs=(_spec(1),), continuation=None)
+
+
+class _PausingCoordinationRepository(CoordinationRepository):
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.resume = asyncio.Event()
+
+    async def acquire_lease(
+        self,
+        connection: AsyncConnection,
+        *,
+        lease_name: str,
+        owner_id: str,
+        lease_seconds: int,
+    ) -> CoordinatorLease | None:
+        self.entered.set()
+        await self.resume.wait()
+        return await super().acquire_lease(
+            connection,
+            lease_name=lease_name,
+            owner_id=owner_id,
+            lease_seconds=lease_seconds,
+        )
 
 
 def _spec(index: int) -> WorkSpec:
@@ -126,5 +154,38 @@ def test_old_scheduler_cannot_enqueue_after_a_higher_fence_takes_over() -> None:
                 await stale_tick
             async with profile.database.transaction() as connection:
                 assert await WorkRepository().list(connection) == ()
+
+    asyncio.run(scenario())
+
+
+def test_scheduler_stop_releases_lease_acquired_during_shutdown() -> None:
+    async def scenario() -> None:
+        tables = WORK_TABLES + COORDINATION_TABLES
+        async with SQLiteProfile.open(SQLiteConfig(), tables=tables) as profile:
+            coordination = _PausingCoordinationRepository()
+            scheduler = DurableScheduler(
+                database=profile.database,
+                scheduler_id="scheduler-a",
+                discoverers=(_Discoverer(),),
+                config=CoordinationConfig(),
+                coordination=coordination,
+            )
+            run_task = asyncio.create_task(scheduler.run())
+            await asyncio.wait_for(coordination.entered.wait(), timeout=1)
+
+            stop_task = asyncio.create_task(scheduler.stop())
+            await asyncio.sleep(0)
+            coordination.resume.set()
+            await stop_task
+            await run_task
+
+            async with profile.database.transaction() as connection:
+                replacement = await CoordinationRepository().acquire_lease(
+                    connection,
+                    lease_name="work-discovery",
+                    owner_id="scheduler-b",
+                    lease_seconds=30,
+                )
+            assert replacement is not None
 
     asyncio.run(scenario())
