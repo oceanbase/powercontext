@@ -26,6 +26,7 @@
   "back_home": "Back to home",
   "evidence_open": "Read source material",
   "evidence_close": "Close source material",
+  "back_sources": "Back to sources",
   "source_original": "Original text",
   "source_unavailable": "Source material could not be loaded",
   "source_unavailable_body": "The reference remains available. Retry or open another source.",

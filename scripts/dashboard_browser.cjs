@@ -118,6 +118,26 @@ async function checkSourceReading(page, base, route, api) {
   if (mobile) {
     await page.locator('#evidence .btn-close').click();
     await page.waitForFunction(() => !document.body.style.overflow);
+  } else {
+    const url = page.url();
+    const position = await page.evaluate(() => scrollY);
+    const returnButton = page.getByRole('button', { name: /Back to sources|返回材料列表/ });
+    for (let index = 0; index < 2; index++) {
+      await page.context().setOffline(true);
+      try {
+        await returnButton.focus();
+        await page.keyboard.press('Enter');
+        await opener.waitFor({ state: 'visible' });
+      } finally {
+        await page.context().setOffline(false);
+      }
+      assert(await opener.evaluate(element => element === document.activeElement), 'Returning to sources lost keyboard focus');
+      assert.equal(page.url(), url);
+      assert.equal(await page.evaluate(() => scrollY), position);
+      assert(await page.evaluate(() => document.documentElement.scrollHeight) <= before + 1);
+      await opener.press('Enter');
+      await text.waitFor();
+    }
   }
 }
 
