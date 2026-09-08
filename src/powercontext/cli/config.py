@@ -1003,6 +1003,7 @@ def _print_next_steps(path: Path) -> None:
         "它们的模型调用仍由应用自己负责。"
     )
 
+
 def _fail(message: str) -> Never:
     typer.echo(f"Error: {message}", err=True)
     raise typer.Exit(code=2)

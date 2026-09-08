@@ -17,10 +17,10 @@ Probe，检索当前 Topic Heads，再根据上下文大小选择全局直接演
 `title`、`summary`、`detail` 和 `evidence_ids`，目标 Revision、Artifact identity、操作类型与发布状态全部
 由服务端控制。
 
-生成、检索、协调、chunking 和 Embedding 在后台 Worker 中完成。通用的
+生成、检索、协调、chunking，以及向量部署中的 Embedding 在后台 Worker 中完成。通用的
 `ArtifactProcessingSupervisor` 使用持久化 Pending dirty set 发现待处理 Scope，使用独立 Source Cursor 保存
 完成进度，并通过 Supervisor fencing、Cursor CAS 和 Artifact Head CAS 防止多副本、重复 Worker 或迟到 Worker
-提交过期结果。新 Revision 只有在四个检索通道全部准备完成后，才在一个短事务中替换旧的可检索 Revision。
+提交过期结果。新 Revision 只有在当前部署启用的全部检索通道准备完成后，才在一个短事务中替换旧的可检索 Revision。
 
 # Motivation
 
@@ -49,7 +49,7 @@ Memory 提供独立主题 identity，并把发现、判断与完整读取分开�
 
 ## 长任务不能阻塞交互请求
 
-一个 Topic Window 可能需要多次生成、四路检索、正文切片、批量 Embedding 和原子索引切换。Source 写入事务和
+一个 Topic Window 可能需要多次生成、多路检索、正文切片、向量部署中的批量 Embedding 和原子索引切换。Source 写入事务和
 显式 flush 都不应等待整条链路完成。后台执行需要在 SQLite 单机与 OceanBase 多副本部署中保持相同的业务语义，
 并能从进程崩溃、超时、重复派发和主备切换中恢复。
 
@@ -186,15 +186,19 @@ tokens。一次实际 generation 请求仍必须满足：
 ~~~
 
 如果加入下一条 Source 会超预算，它留到下一 Window。如果 Cursor 后的第一条 Source 单独就超过 Window token
-预算，为保证 Cursor 能前进，仍选择它形成单 Source Window，并按原文尝试处理。首版不对单个超长 Source 做
-内部切片、截断或拒绝；如果它超过模型实际能力，处理失败并保留 Cursor，等待后续专门设计。
+预算，仍选择它形成单 Source Window。Probe 与临时 Topic 请求将其规范化原文分成连续片段，每段连同 JSON
+转义、阶段指令和输出 schema 一起满足阶段预算。所有字符完整保留，每段携带原 evidence ID 和字符偏移，不创建
+新 Source，也不占用新的 Journal 位置。全部片段处理成功后，Window 才统一发布并推进 Cursor；任一片段失败时，
+原 Source 与 Cursor 保持不变，供后续重试。
 
 ## Probe 与历史 Topic 选择
 
-Worker 首先读取当前 Source Window，生成零到多个轻量 Probe。Probe 是语义查询句或关键词及其 evidence IDs，
+Worker 首先读取当前 Source Window。服务端标记为 `lineage_only` 的 Source 在 token 估算与生成之前排除，其
+Journal 位置仍计入原子 Cursor 推进。全部由这类 Source 构成的 Window 无需调用模型即可完成。允许用于生成的
+Source 生成零到多个轻量 Probe。Probe 是语义查询句或关键词及其 evidence IDs，
 不包含 Topic 正文，也不决定 CREATE、UPDATE 或 NOOP。
 
-每个 Probe 在当前 Scope 的四个 Topic 检索通道中召回当前可检索 Revisions。通道结果先按 Topic 合并，再通过
+每个 Probe 在当前 Scope 和当前部署启用的 Topic 检索通道中召回当前可检索 Revisions。通道结果先按 Topic 合并，再通过
 RRF 融合。历史候选选择使用三个部署配置：
 
 ~~~text
@@ -255,7 +259,7 @@ Evolver 直接生成最终 Topic 内容。
 
 ~~~text
 Work Item Source
-  -> 按 Source 边界拆成多个 Source Batch
+  -> 拆成有界 Source Batch，必要时将单个超长 Source 分段
   -> 每个 Batch 在不加载历史 Topic 的情况下生成临时 Topics
   -> 全部相关临时 Topics + 一个历史 Topic或空白目标
   -> 最终 CREATE / UPDATE / NOOP
@@ -266,7 +270,7 @@ Work Item Source
 后即丢弃。
 
 如果“全部临时 Topic + 单个历史 Topic”仍超过模型上下文，首版不做递归压缩、历史 Topic 分片或自动拆分。这是
-已知但明确排除的极端输入，与单个 Source 超过模型能力的处理边界一致。
+已知但明确排除的极端输入。Source 分段不取消临时 Topic 数量、模型请求次数和最终历史上下文的独立上限。
 
 ## 二次检索与相关组协调
 
@@ -311,12 +315,13 @@ UpdateWorkItem 的目标 ArtifactRef 由服务端持有；CreateWorkItem 的新 
 Revision、lineage 与发布状态也由服务端决定。NOOP 不保存实体或 reason，日志最多记录代码已知的
 `no_change` 及处理上下文。
 
-## Detail chunk 与四路检索
+## Detail chunk 与按部署启用的检索通道
 
 公开 TopicMemoryContent 只保存 `title`、`summary` 和 `detail`。Detail chunk 是可重建的内部检索投影，
 没有业务 identity，不是公开数据模型，也不能作为 UPDATE 单位。
 
-首版维护四个逻辑通道：
+首版支持两种部署形态。FTS-only 部署维护两个全文通道；启动时已经配置匹配 Embedding model 与 vector
+infrastructure 的部署额外维护两个向量通道：
 
 ~~~text
 title + summary 全文
@@ -326,7 +331,7 @@ embed(detail chunk)
 ~~~
 
 Detail embedding 不拼接全局 Topic title，避免短 chunk 被标题主导。Detail 自身的局部 Markdown 标题可以作为
-正文的一部分保留。
+正文的一部分保留。FTS-only 部署不生成这两个 embedding projection，也不声明 vector/hybrid 能力。
 
 Chunk policy：
 
@@ -337,12 +342,17 @@ Chunk policy：
 5. 搜索命中后围绕最佳位置动态扩展 snippet；
 6. exact get 始终返回完整 Detail。
 
-具体 chunk 长度、尾块阈值和 overlap 比例是带 policy version 的内部常量，不是公共配置。Chunk 策略变化需要
-重建对应检索投影。
+具体 chunk 长度、尾块阈值和 overlap 比例是带 policy version 的内部常量，不是公共配置。实现还会强制每个 Topic
+的 chunk 数量上限，保证向量通道最坏情况下的近邻扫描不超过后端限制；对抗性 Markdown 会回退为有界重叠窗口。
+Chunk 策略变化需要重建对应检索投影。
 
-每个检索通道先按 Topic collapse，同一 Topic 的多个 detail 命中只保留最佳位置用于 snippet。四个通道通过
-RRF 排名融合，不比较全文分数和向量距离的原始数值。最终一个 Topic 最多占一个结果位置，并保留
-`matched_by` 说明命中通道。
+每个检索通道先按 Topic collapse，同一 Topic 的多个 detail 命中只保留最佳位置用于 snippet。当前部署启用的
+两个或四个通道通过 RRF 排名融合，不比较全文分数和向量距离的原始数值。最终一个 Topic 最多占一个结果位置，并保留
+`matched_by` 说明命中通道。每个通道都先按 Topic 折叠，再应用候选上限，因此单个 Topic 的大量命中 chunk 不会
+遮蔽其他 Topic。全文 snippet 以 Analyzer v1 查询命中为中心截取有界窗口；只有向量命中时，则稳定截取其命中 chunk
+内部的窗口。
+首版搜索 limit 与历史候选配置统一限制为 20。查询最多 8,192 个字符、64 个不同的 Analyzer term；构造后端
+全文检索表达式前会去除重复 term。
 
 ## 存储、Head 与原子激活
 
@@ -352,23 +362,33 @@ Topic 内容、identity、Revision、Head 和 lineage 复用共享 Artifact 存�
 - `pc_artifact_heads` 保存当前 Topic Head；
 - `pc_artifact_lineage_sources` 保存直接 Source evidence；
 - `pc_artifact_lineage_artifacts` 保存 UPDATE 所依据的精确旧 Revision。
+- `pc_topic_memory_retrieval_shape` 保存部署级不可变检索形态（`fts` 或 `hybrid`）以及 hybrid 部署所需的
+  embedding-profile 指纹。启动时若形态缺失或不匹配必须拒绝，不能把向量数据库静默降级为 FTS-only，也不能静默
+  更换 profile。
+- `pc_topic_memory_revision_publications` 为每个已发布 Topic Revision 保存一份不可变的数据库 UTC
+  `published_at`；Head 推进后，历史精确读取仍返回该 Revision 自身的发布时间。
 
 Topic 专属检索存储维护两类 active projection records：
 
-- Topic-level active record：精确 ArtifactRef、title、summary、全文字段和 title/summary vector；
-- Detail-chunk active records：精确 ArtifactRef、chunk ordinal、正文位置、snippet 文本、全文字段和 detail vector。
+- `pc_topic_memory_active_topics`：精确 ArtifactRef、title、summary、全文字段、来源数量，以及向量部署中的
+  title/summary vector；
+- `pc_topic_memory_active_chunks`：精确 ArtifactRef、chunk ordinal、正文位置、snippet 文本、全文字段，以及
+  向量部署中的 detail vector。
 
 数据库适配器可以按 SQLite FTS/vector virtual table 或 OceanBase full-text/vector index 的现有模式实现这些
 逻辑记录，但搜索只能查询当前完整可检索的 active records，不能先读取所有 Revision 后构造大型 `IN` 查询。
 
-Topic Content、chunks、全文字段和所有 Embeddings 都在事务外准备。更新已有 Topic 时，旧 active Revision
-继续服务；新建 Topic 在首个 Revision 完整前不可检索。只有四个通道全部就绪后，Worker 才在一个短事务中：
+Topic Content、chunks、全文字段，以及向量部署中的所有 Embeddings 都在事务外准备。仓储在写入边界重新计算版本化
+chunk 序列和 Analyzer v1 title/summary 文本，任何不完整或伪造的 projection 都会在 Artifact 写入前被拒绝。更新已有
+Topic 时，旧 active Revision 继续服务；新建 Topic 在首个 Revision 完整前不可检索。只有当前部署启用的全部通道就绪后，
+Worker 才在一个短事务中：
 
 ~~~text
 验证 Supervisor 任期
 -> Cursor CAS
 -> 对每个 UPDATE 执行 Artifact Head CAS
 -> 写入全部 Topic Revisions 与 lineage
+-> 记录不可变的数据库 UTC 发布时间
 -> 写入并切换全部 active projections
 -> 推进 Cursor
 -> 更新 Pending
@@ -376,7 +396,8 @@ Topic Content、chunks、全文字段和所有 Embeddings 都在事务外准备�
 ~~~
 
 一个 Window 的全部 CREATE 和 UPDATE 与 Cursor 原子提交。任一验证或 CAS 失败则整批回滚，并基于最新状态
-重新处理。系统不存在只有全文、没有向量，或只有部分 Detail chunks 可检索的 Revision。
+重新处理。系统不存在只有部分 Detail chunks 可检索的 Revision；向量部署也不存在只有全文、没有向量或向量不完整的
+可检索 Revision。FTS-only 部署中的完整 Revision 不需要向量投影。
 
 ## Pending dirty set
 
@@ -430,6 +451,10 @@ cursor >= source_through
 and handled_flush_generation == flush_generation
 ~~~
 
+普通显式处理可以在推进 Cursor 的同一事务中按上述条件删除单个 Pending。自动波次中的 Worker 只推进 Cursor，
+暂不删除 Pending；该波次冻结的全部目标完成后，由 binding 自动波次完成事务统一清理，以便 Pending 清理与
+`last_auto_wave_completed_at` 原子提交。
+
 Worker 失败不推进 handled generation。Supervisor 重启后可以从 Cursor 和 Pending 恢复，不需要 Job history 或
 阶段 checkpoint。
 
@@ -440,6 +465,7 @@ Worker 失败不推进 handled generation。Supervisor 重启后可以从 Cursor
 - `pc_artifact_processing_pending`；
 - `pc_source_cursors`；
 - `pc_artifact_processing_leases`；
+- `pc_artifact_processing_binding_states`；
 - 内存公平队列和全局 Worker pool。
 
 本 RFC 不增加 `pc_artifact_processing_routes`。只有未来需要把 binding 在线、无停机地从 `global` 迁移到
@@ -477,6 +503,21 @@ SQLite 不做选主或续租。Supervisor 启动时覆盖 holder、递增 genera
 `lease_expires_at = NULL`；这个任期持续到下一次合法启动。Worker 使用与 OceanBase 相同的业务流程，但只验证
 holder 与 generation。即使旧 Supervisor 崩溃后留下孤儿 Worker，新启动产生的 generation 也会拒绝旧提交。
 
+### Supervisor 故障接管与恢复
+
+OceanBase Leader 续租失败后立即停止派发并尽力终止本地 Worker。其他候选 Supervisor 定期尝试获取 Lease；
+Lease 过期后，成功通过原子更新接管的候选者递增 `supervisor_generation` 并成为新 Leader。
+
+新 Leader 不接收旧 Leader 的内存队列、波次目标或退避状态，而是从持久化 Pending、flush generation、Cursor 和
+binding 调度状态重新发现工作。未完成的显式 flush 立即恢复；普通 Pending 是否立即形成自动恢复波次，由对应 binding
+的 `last_auto_wave_completed_at` 与自动处理间隔决定。旧 Leader 在自动波次完成前退出时不会推进该时间，因此新 Leader
+会立即恢复已经到期但未完成的波次；最近已经完成的自动波次则只等待剩余间隔，不因换主提前执行。内存退避在接管后清空，
+因此失败 Scope 允许立即额外重试一次。旧 Leader 或孤儿 Worker 即使继续运行，其最终事务也会因 holder、generation 或
+Lease 校验失败而整体回滚，不能写入 Artifact、projection、Cursor、Pending 或 binding 调度状态。
+
+SQLite 不提供多副本自动接管；进程重启就是它的恢复路径。新 Supervisor 启动时递增 generation，使旧孤儿 Worker
+失去发布权，再按相同的 Pending、flush generation 和 Cursor 规则恢复工作。
+
 ### 内存队列与 Worker
 
 Leader 内存中按 `(binding_name, scope_id)` 维护公平队列。同一键同时最多一个 Worker；不同键可以在
@@ -490,15 +531,65 @@ WorkAssignment 中。
 
 ### 自动调度
 
-自动处理间隔按 binding 计算，而不是按 Supervisor 全局活动时间计算。一个自动波次启动时冻结当前
-`source_through`，用多个 Window 处理到该目标；波次期间新增 Source 留给下一波。下一次自动间隔从本波结束后
-重新计算。
+自动处理间隔按 binding 计算，而不是按 Supervisor 全局活动时间计算。调度进度持久化在：
+
+~~~text
+pc_artifact_processing_binding_states
+
+binding_name                    PRIMARY KEY
+last_auto_wave_completed_at     TIMESTAMP NULL
+~~~
+
+该表只保存跨 Supervisor 任期恢复自动调度所需的最小状态；binding 的 family、自动处理间隔和 Window limit 仍由
+进程启动时的注册配置提供，它不是路由表或任务表。不同 binding 独立更新自己的完成时间，一个繁忙制品不能重置或推迟
+另一个制品的自动波次。
+
+为避免大量 Pending Scope 被一次性实体化到 Leader 内存，当前任期会把自动波次的冻结目标持久化到
+`pc_artifact_processing_auto_wave_targets`：
+
+~~~text
+wave_id            VARCHAR(36)
+binding_name       VARCHAR(128)
+scope_id           VARCHAR(256)
+source_through     BIGINT NOT NULL
+completed          BOOLEAN NOT NULL DEFAULT FALSE
+
+PRIMARY KEY (wave_id, binding_name, scope_id)
+~~~
+
+这张表只是当前任期的有界调度暂存，不是可恢复 Job 队列；Pending、Cursor 与 binding 完成时间仍是接管后的权威输入。
+新任期在开始调度前清除旧目标并从 Pending 重新冻结。每个 binding 在 wave-start 的同一 fenced 数据库事务中，用一条
+集合式语句完整冻结当时全部 Pending 成员及其 `source_through`；之后只从目标表有界分页调度，不再读取 live Pending
+补充旧波次。最后用目标表完成一次集合式 Pending 清理，因此 ready/running 内存与单轮扫描保持固定上限，同时
+completion time 与整波清理仍在同一短事务提交。
+
+显式与自动处理之间仍保持 per-key single-flight。若冻结目标已由同 key 的显式尝试或 retry 占用，Supervisor 会暂缓
+该目标并继续发现后续冻结页；自动目标自身失败时也按同样方式暂缓。因此其他 Scope 可以继续推进，但只有所有暂缓
+目标最终都被 Cursor 覆盖后，binding completion time 才能更新。
+
+若暂缓目标让旧波次长期未结束，冻结目标表中不存在的后到 Scope 仍可在不加入旧波次的前提下推进：显式 flush
+保持显式语义；普通 Pending 可执行一次只推进 Cursor、保留 Pending 的 automatic catch-up。两条路径都不会改变
+旧波次的不可变成员或 completion time。
+
+当 binding 启用了自动调度、存在普通 Pending，且 `last_auto_wave_completed_at` 为 `NULL` 或数据库当前时间已经达到
+`last_auto_wave_completed_at + automatic_processing_interval` 时，Leader 可以启动自动波次。波次启动时冻结该
+binding 当前各 Pending Scope 的 `source_through`，用多个 Window 处理到这些目标；波次期间新增 Source 留给下一波。
+
+自动波次中的 Worker 只提交 Artifact、projection 和 Cursor，不删除 Pending。只有本次冻结的全部目标都处理完成后，
+Supervisor 才执行一个使用相同 backend-specific fencing 的短事务：OceanBase 验证 holder、generation 和未过期
+Lease，SQLite 验证 holder 与 generation；事务重新确认每个冻结目标的 Cursor 已覆盖目标，使用数据库时间更新该
+binding 的 `last_auto_wave_completed_at`，再删除满足既有 Cursor/flush generation 条件且未被新 Source 推高的
+Pending。完成时间和 Pending 清理一起提交。
+
+失败、超时、失去领导权或只完成部分目标都不更新时间或清理自动波次的 Pending；显式 flush 也不更新时间。若
+Supervisor 在所有 Worker 完成后、完成事务前退出，新 Supervisor 仍能看到 Pending，并把已到期工作恢复为新波次；
+Cursor 可避免重复发布已经提交的 Window。binding 状态行在没有 Pending 时仍保留，避免换主后丢失自动调度基准。
 
 SQLite 使用进程内 flush signal 和自动 timer 唤醒同进程 Supervisor。OceanBase Leader 使用短周期事件循环完成
 续租、发现持久化 flush generation 和自动 deadline；同进程信号只用于降低延迟，正确性由数据库状态保证。
 
-自动调度关闭时，普通 Pending 等待显式 flush。未完成的 flush generation 在重启后仍需恢复；自动调度开启时，
-Supervisor 重启后对已有 Pending 立即启动恢复波次。
+自动调度关闭时，普通 Pending 等待显式 flush，`last_auto_wave_completed_at` 不参与调度。未完成的 flush generation
+在重启后仍需恢复；自动调度开启时，Supervisor 重启或故障接管后按持久化完成时间恢复每个 binding 的 deadline。
 
 ### 重试与可观测性
 
@@ -515,9 +606,11 @@ retry_states[(binding_name, scope_id)] = {
 采用带抖动的指数退避：约 30 秒、1 分钟、2 分钟，直至约 30 分钟上限；不设置最大重试次数，也不自动跳过
 Source。主备切换或进程重启会丢失退避状态，并允许立即额外重试一次。
 
-模型调用、输出校验、检索、Embedding、数据库提交、Worker crash 和 timeout 等实际错误采用同一退避策略，
+模型调用、输出校验、检索、启用后的 Embedding、数据库提交、Worker crash 和 timeout 等实际错误采用同一退避策略，
 但必须按 `stage` 和 `error_code` 写结构化日志。Cursor/Head CAS 冲突与 leadership lost 是控制信号，不增加
 普通失败次数。
+Cursor 与 Head conflict 使用固定的短 retry deadline，而不是立即重新派发；冲突目标在延后期间释放当前页，使冻结
+尾页继续推进且不会形成热循环。
 
 日志至少包含 binding、scope、Window 范围、stage、error code、异常类型、失败次数、重试延迟、Supervisor
 generation、worker ID 和 traceback；不得记录 Source 原文、Prompt、模型完整输出或密钥。
@@ -618,21 +711,33 @@ score，并交错填充结果。请求的 `max_bytes` 是最终输出的统一�
 Source Window token 上限固定派生为 generation context window 的 80%；Topic 总请求预算为 100%。两个比例首版
 不是公共配置。
 
-Topic Memory 复用现有 generation model、generation timeout、generation max requests、Embedding model、
-Embedding profile、dimension、normalization、timeout 和 batch size。Probe、Planner、Evolver 与 Reconciler
-使用同一个 generation model；分阶段模型选择留给后续 RFC。
+Topic Memory 复用现有 generation model、generation timeout 和 generation max requests。向量部署还复用现有
+Embedding model、Embedding profile、dimension、normalization、timeout 和 batch size。Probe、Planner、Evolver
+与 Reconciler 使用同一个 generation model；分阶段模型选择留给后续 RFC。
+
+检索形态在首个 Topic 发布后固定。尚无 Topic 数据时，初始化允许在 FTS-only 与 hybrid 之间切换，或选择其他兼容的
+Embedding profile。新部署可以选择 FTS-only，或在启动时配置完整且匹配的 Embedding/vector
+infrastructure
+以启用 FTS、vector 和 hybrid。首版不支持把已有 Topic Heads 的 FTS-only 部署原地切换为向量部署，也不因后来增加
+Embedding 配置而自动回填历史 Heads 或声明 vector/hybrid。该切换需要后续单独定义停写、投影创建、全量回填、完整性
+校验和能力恢复流程；在该流程实现前，部署必须继续使用原有 FTS-only 配置或创建新的向量部署。
+
+Runtime 使用向量配置打开已有 Topic 数据时，必须在 readiness 前验证每个当前 Head 已有完整且与配置 profile 匹配的
+Topic-level 和全部 Detail-chunk 向量投影。任一 Head 只有全文投影、缺少部分向量或 profile 不匹配时，初始化以 typed
+configuration error 失败；Runtime 不创建或回填这些历史向量，也不降级后继续声明 vector/hybrid。移除新增的向量配置后，
+原部署仍可按 FTS-only 方式打开。没有现有 Topic Head 的新部署可以直接初始化为向量部署。
 
 配置在进程启动时读取。OceanBase 多副本的 `all/background` 候选应使用一致配置，并在启动日志中记录有效值。
 
 # Drawbacks
 
-- Topic Memory 增加多次生成、四个逻辑检索通道、后台进程和索引存储，成本明显高于现有 Memory。
+- Topic Memory 增加多次生成、两个或四个逻辑检索通道、后台进程和索引存储，成本明显高于现有 Memory。
 - 自动演进可能错误新建或错误更新主题；不可变 Revision 与 lineage 提供审计能力，但不能自动保证语义质量。
 - 只有完整索引才能激活 Revision，会增加写入延迟。
 - Pending dirty set 增加 Source 写事务的写放大。
 - 不持久化 Job、checkpoint 和 retry state 简化了系统，但失败后需要重算整个 Window，且无法查询单次任务进度。
 - `global` Supervisor 统一资源控制，但未来多个重型 Family 共用 Worker pool 时可能成为瓶颈。
-- 单个超长 Source 和“临时 Topic + 历史 Topic”仍超上下文是首版明确接受的未覆盖极端输入。
+- Source 分段增加模型调用次数；“临时 Topic + 历史 Topic”仍可能超过上下文，对这部分材料的递归压缩不在首版范围。
 
 # Rationale and alternatives
 
@@ -661,10 +766,11 @@ Cursor 已经权威表达完成位置，Pending 只需要指出哪些键可能�
 首版只有 Topic Memory 使用新骨架。一个 global Leader 可以统一 Worker 和模型并发，而不提前建立路由系统。
 未来拆组仍可复用相同 Pending、Cursor、Lease 和 Worker 协议。
 
-## 完整索引后激活，而不是融合不完整 Revision
+## 当前部署的完整索引就绪后激活，而不是融合不完整 Revision
 
-允许无向量的新 Revision先参加全文检索，会让不同 Revision 拥有不同通道数，融合排名不可比较。保留旧 active
-Revision，直到新 Revision 的四个通道全部就绪，可以避免大型 Revision `IN` 过滤和临时评分补偿。
+FTS-only 部署以两个全文通道完整作为激活条件。向量部署如果允许无向量的新 Revision 先参加全文检索，会让不同
+Revision 拥有不同通道数，融合排名不可比较，因此保留旧 active Revision，直到新 Revision 的四个通道全部就绪。
+两种部署都只查询完整 active projection，避免大型 Revision `IN` 过滤和临时评分补偿。
 
 # Prior art
 
@@ -686,12 +792,12 @@ Revision，直到新 Revision 的四个通道全部就绪，可以避免大型 R
 
 以下边界已明确排除，不作为实现者自行选择的开放问题：
 
-- 单个 Source 自身超过生成模型实际上下文时的切片、截断或拒绝策略；
 - 临时 Topic 总内容加单个历史 Topic 仍超过上下文时的递归压缩或拆分策略；
 - 两个已有 Topic identities 的自动合并；
 - 跨 Scope Topic 检索；
 - 用户手动管理 Topic 的 create/update/delete/retire API；
 - 可查询的后台任务、取消、checkpoint 或持久化 retry state；
+- 将已有 FTS-only Topic Heads 原地升级为向量部署，以及历史向量投影的离线回填；
 - 独立 Topic Supervisor group 与在线路由迁移。
 
 # Future possibilities
@@ -700,6 +806,7 @@ Revision，直到新 Revision 的四个通道全部就绪，可以避免大型 R
 - 多模型 RFC，允许 Probe、Planner、Evolver、Reconciler、Embedding 和 rerank 使用不同模型。
 - 将 Experience incubation 与 Skill usage evolution 迁入 Artifact Processing Supervisor。
 - global 出现瓶颈后增加 `topic`、`experience` 或 `skill` group；只有要求在线无停机迁移时再增加持久路由。
-- 为超长单 Source、超长历史 Topic 和递归协调设计专门的有损或无损降级策略。
+- 为超长历史 Topic 和递归协调设计专门的降级策略。
 - 增加 Topic 人工纠正、回滚、retire、历史可视化和评估标注能力。
+- 为已有 FTS-only Topic Heads 增加停写、向量投影回填、完整性校验和能力恢复的离线迁移流程。
 - Topic Memory 开发完成并通过功能验收后，再设计并执行 LoCoMo 对比评测与调参，不把该评测作为本 RFC 实现验收条件。

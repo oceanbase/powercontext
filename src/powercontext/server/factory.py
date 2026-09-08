@@ -81,6 +81,13 @@ from powercontext.server.web import mount_web_ui
 logger = logging.getLogger(__name__)
 
 
+class BackgroundRoleRequiresBackgroundRunnerError(RuntimeError):
+    """Prevent a background-only process from accidentally exposing HTTP/MCP."""
+
+    def __init__(self) -> None:
+        super().__init__("artifact processing role 'background' must use the background service runner")
+
+
 class _MetricsEndpoint:
     def __init__(self, metrics: ServerMetrics) -> None:
         self._metrics = metrics
@@ -104,7 +111,7 @@ class _MetricsEndpoint:
         return Response(self._metrics.render(), media_type=CONTENT_TYPE_LATEST)
 
 
-def create_server_app(
+def create_server_app(  # noqa: C901
     *,
     settings: ServerSettings | None = None,
     scheduler_path: str | Path | None = None,
@@ -124,6 +131,8 @@ def create_server_app(
     """Build the Server process and mount MCP when configured."""
 
     resolved = ServerSettings() if settings is None else settings
+    if resolved.runtime.artifact_processing_role == "background":
+        raise BackgroundRoleRequiresBackgroundRunnerError
     static_principal, configured_authentication, configured_access_control, legacy_static_admin = (
         _resolve_security_providers(
             resolved,
@@ -184,6 +193,7 @@ def create_server_app(
                     embedding_model=embedding_model,
                     instrumentation=resolved_tracing.instrumentation,
                     scope_cache_observer=None if metrics is None else metrics.set_runtime_scopes,
+                    topic_memory_search_observer=None if metrics is None else metrics.observe_topic_memory_search,
                     tracing=resolved_tracing,
                     scheduled_source_runner=scheduled_source_runner,
                     scheduled_experience_runner=scheduled_experience_runner,
@@ -571,7 +581,7 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
     capabilities = await runtime.capabilities()
     return Capabilities(
         source_types=[CONTENT_SOURCE_NAME],
-        artifact_families=["memory", "experience", "skill", "handoff", "profile", "prompt"],
+        artifact_families=["memory", "topic-memory", "experience", "skill", "handoff", "profile", "prompt"],
         prompts={
             key: PromptCapability.model_validate_json(value.model_dump_json())
             for key, value in capabilities.prompts.items()

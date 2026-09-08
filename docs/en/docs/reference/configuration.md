@@ -72,12 +72,21 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | Apply listwise reranking after coarse Memory retrieval |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Per-binding Topic Memory automatic-wave interval; unset disables automatic waves |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources assigned to one Topic Memory Worker |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES` | `20` | Maximum historical Topic candidates considered while processing |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` | `70` | RRF acceptance threshold normalized to `0..100` |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | Minimum historical recall count when the threshold returns too few candidates |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_MAX_WORKERS` | `10` | Global child-Worker concurrency across Artifact bindings |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` | `600` | Supervisor timeout for one child Worker's bounded Source Window |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | Process role: `all`, `api`, or `background` |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider default | Custom generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | JSON object of static generation client headers; values are secrets |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS` | `{}` | JSON object of Pydantic AI generation model settings |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_TIMEOUT_SECONDS` | `30` | Timeout in seconds for one structured generation operation |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MAX_REQUESTS` | `2` | Maximum provider requests for one structured generation operation, including retries |
+| `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_CONTEXT_WINDOW_TOKENS` | `125000` | Total generation-model context window used to budget Topic processing |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL` | unset | Pydantic AI embedding model; requires profile ID and dimension |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BASE_URL` | provider default | Custom OpenAI-compatible embeddings base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_HEADERS` | `{}` | JSON object of static embedding client headers; values are secrets |
@@ -201,14 +210,31 @@ The non-loopback opt-in in this example is independent of the Receiver transport
 Server routes on this listener are reachable without the Server-wide bearer token. Prefer enabling authentication or
 terminating TLS in front of a loopback-bound Server whenever the deployment permits it.
 
-When compatibility static Bearer authentication is enforced, the HTML shells at `/`, `/skills`, `/reviews`, and `/handoff-reports`, plus
+When compatibility static Bearer authentication is enforced, the HTML shells at `/`, `/topics`, `/skills`, `/reviews`, and `/handoff-reports`, plus
 their static assets, remain public so the browser can render the sign-in form. Data requests stay protected. Enter the
 Server token in that form; the browser keeps it only in the current tab's session storage. Disable both Dashboard and
 Handoff Report if even these sign-in pages must not be exposed.
 
+Dashboard scopes are a UI discovery list, not an authorization boundary. The optional bearer token is Server-wide,
+not per user or per scope. The private Topic Memory support routes accept only configured Dashboard scopes, while the
+public API continues to apply its existing scope contract. A deployment that requires per-user or per-scope access
+control must provide that boundary separately.
+
 Handoff Report is independently enabled by default at `/handoff-reports`. When no scope contains a committed Handoff,
 it shows a data-free template preview. See [Use Handoff Report](../how-to/use-handoff-report.md) for scope discovery,
 inspection, Revision writes, and export.
+
+The Artifact Processing Supervisor is enabled by the default `all` role. OceanBase deployments may run `api` and
+`background` separately; `powercontext server run --role background` starts no HTTP, MCP, or Dashboard listener, and
+multiple background candidates use the database Lease to elect one active Leader. SQLite and embedded seekDB support
+only the single-process `all` role. Automatic Topic Memory waves remain disabled until a positive interval is set;
+explicit flush work remains recoverable regardless of that interval. Topic workers need file-backed SQLite: configuring
+a generation model with an in-memory SQLite database is rejected before processing is advertised. Use a persistent
+`POWERCONTEXT_SERVER_DATABASE_URL`, such as `sqlite+aiosqlite:////srv/powercontext/runtime.db`.
+Memory, Experience, and Profile APScheduler jobs belong exclusively to `all`: configuring
+`POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`, `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS`, or enabling
+`POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED` with either split role is rejected at startup. Keep `all`
+when those jobs are required; assigning them to a separate process is outside the current split-role contract.
 
 Provider credentials, such as `OPENAI_API_KEY`, are read by the configured inference provider. Do not place secrets in
 command-line arguments, documentation, or Memory. Replace `provider:model-name` with a model identifier supported by

@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
@@ -48,6 +50,12 @@ from powercontext.builtin.artifacts.prompt import PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import DemonstrationGenerator
 from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
+from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+from powercontext.builtin.artifacts.topic_memory.generation import (
+    TopicMemoryGenerationError,
+    topic_memory_stage_budget,
+    validate_topic_memory_stage_capacity,
+)
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
@@ -62,14 +70,32 @@ from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryVectorIndex,
 )
 from powercontext.builtin.persistence.oceanbase.profile import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.oceanbase.topic_memory_index import (
+    OceanBaseTopicMemoryFTSIndex,
+    OceanBaseTopicMemoryVectorIndex,
+)
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
 from powercontext.builtin.persistence.sqlite.experience_index import SQLiteExperienceFTSIndex
 from powercontext.builtin.persistence.sqlite.memory_index import SQLiteMemoryFTSIndex, SQLiteMemoryVectorIndex
 from powercontext.builtin.persistence.sqlite.profile import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.sqlite.topic_memory_index import (
+    SQLiteTopicMemoryFTSIndex,
+    SQLiteTopicMemoryVectorIndex,
+)
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    TopicMemoryIndex,
+)
 from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
 from powercontext.builtin.runtime.application import BuiltinRuntime, ScheduledExperienceRunner, ScheduledSourceRunner
+from powercontext.builtin.runtime.artifact_processing import (
+    ArtifactProcessingBinding,
+    ArtifactProcessingSupervisor,
+    SpawnArtifactProcessingWorkerLauncher,
+)
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.protocols import RuntimeTracing
@@ -81,7 +107,15 @@ from powercontext.builtin.runtime.readiness import (
     dependency_readiness_probe,
 )
 from powercontext.builtin.runtime.relational import RelationalContexts
-from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, TEXT_EVIDENCE_PROJECTION_KEY
+from powercontext.builtin.runtime.topic_memory_processing import (
+    TopicMemoryWindowSelector,
+    TopicMemoryWorkerSpec,
+    run_topic_memory_worker,
+)
+from powercontext.builtin.sources import (
+    BUILTIN_SOURCE_REGISTRY,
+    TEXT_EVIDENCE_PROJECTION_KEY,
+)
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
 from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
@@ -109,6 +143,12 @@ class BuiltinConfigurationError(RuntimeError):
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
+            "topic-memory-child-resources": (
+                "Topic Memory processing requires child-reconstructible inference resources"
+            ),
+            "topic-memory-generation-budget": "Topic Memory generation budget is not executable",
+            "topic-memory-generation": "Topic Memory processing requires a configured generation model",
+            "topic-memory-database": "Topic Memory workers require file-backed SQLite; an in-memory database cannot be shared with spawned workers",
             "database": "unsupported built-in database",
         }
         super().__init__(messages[issue])
@@ -188,7 +228,9 @@ async def open_builtin_runtime(  # noqa: C901
     memory_reranker: MemoryReranker | None = None,
     instrumentation: InstrumentationSettings | None = None,
     scope_cache_observer: ScopeCacheObserver | None = None,
+    topic_memory_search_observer: Callable[[str, bool], None] | None = None,
     tracing: RuntimeTracing | None = None,
+    artifact_processing_bindings: Sequence[ArtifactProcessingBinding] = (),
     scheduled_source_runner: ScheduledSourceRunner | None = None,
     scheduled_experience_runner: ScheduledExperienceRunner | None = None,
     scheduled_profile_runner: Any = None,
@@ -324,6 +366,14 @@ async def open_builtin_runtime(  # noqa: C901
         for name, readiness_probe in inference_readiness:
             if readiness_probe is not None:
                 readiness_probes[name] = ReadinessProbeDefinition(probe=readiness_probe, blocking=False)
+        processing_bindings = _topic_memory_processing_bindings(
+            config,
+            contexts,
+            artifact_processing_bindings,
+            injected_embedding_model=embedding_model,
+            injected_token_estimator=token_estimator,
+        )
+        topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
                 provider=contexts,
@@ -356,6 +406,13 @@ async def open_builtin_runtime(  # noqa: C901
                 skill_package_uploader=contexts.upload_skill_package,
                 skill_usage_recorder=contexts.record_skill_usage,
                 experience_incubator=contexts.incubate_experience if contexts.experience_incubation else None,
+                topic_memory_search=contexts.search_topic_memories,
+                topic_memory_get=contexts.get_topic_memory,
+                topic_memory_browse=contexts.browse_topic_memories,
+                topic_memory_flush=contexts.request_topic_memory_flush,
+                topic_memory_embedding_model=configured_embedding,
+                topic_memory_processing_available=topic_memory_processing_available,
+                topic_memory_search_observer=topic_memory_search_observer,
                 external_skill_registry=contexts.external_skills if contexts.external_skill_registry else None,
                 external_skill_importer=contexts.import_external_skill if contexts.external_skill_registry else None,
                 skill_publication_service=contexts.skill_publications,
@@ -373,19 +430,30 @@ async def open_builtin_runtime(  # noqa: C901
                 remote_ingestion=contexts,
             )
         )
+        runtime.artifact_processing_supervisor = await resources.enter_async_context(
+            _open_artifact_processing_supervisor(config, contexts, processing_bindings)
+        )
         contexts.profiles.operation_context = runtime._operation
         if config.handoff_report.enabled:
             runtime.handoff_report = HandoffReportApplication(
                 contexts.scopes,
                 RuntimeHandoffReadAdapter(runtime.handoff),
             )
-        if config.runtime.schedule_seconds is not None and configured_pipeline is None:
+        if (
+            config.runtime.artifact_processing_role == "all"
+            and config.runtime.schedule_seconds is not None
+            and configured_pipeline is None
+        ):
             raise BuiltinConfigurationError("scheduled-pipeline")
-        if config.runtime.experience_schedule_seconds is not None and configured_incubation is None:
+        if (
+            config.runtime.artifact_processing_role == "all"
+            and config.runtime.experience_schedule_seconds is not None
+            and configured_incubation is None
+        ):
             raise BuiltinConfigurationError("scheduled-experience-pipeline")
         if config.runtime.memory_rerank_enabled and configured_reranker is None:
             raise BuiltinConfigurationError("memory-reranker")
-        if (
+        if config.runtime.artifact_processing_role == "all" and (
             config.runtime.schedule_seconds is not None
             or config.runtime.experience_schedule_seconds is not None
             or (config.runtime.profile_schedule_enabled and contexts.profiles.generator is not None)
@@ -401,6 +469,91 @@ async def open_builtin_runtime(  # noqa: C901
                 profile_max_concurrency=config.runtime.profile_max_concurrency,
             )
         yield runtime
+
+
+def _topic_memory_processing_bindings(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    bindings: Sequence[ArtifactProcessingBinding],
+    *,
+    injected_embedding_model: EmbeddingModel | None = None,
+    injected_token_estimator: TokenEstimator | None = None,
+) -> tuple[ArtifactProcessingBinding, ...]:
+    configured = tuple(bindings)
+    if config.runtime.artifact_processing_role == "api":
+        return configured
+    if any(binding.binding_name == TOPIC_MEMORY_SOURCE_WINDOW_BINDING for binding in configured):
+        return configured
+    if config.inference.generation_model is None:
+        if config.runtime.topic_memory_schedule_seconds is not None:
+            raise BuiltinConfigurationError("topic-memory-generation")
+        return configured
+    if injected_embedding_model is not None or injected_token_estimator is not None:
+        raise BuiltinConfigurationError("topic-memory-child-resources")
+    if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
+        raise BuiltinConfigurationError("topic-memory-database")
+    try:
+        budget = topic_memory_stage_budget(
+            context_window_tokens=config.inference.generation_model_context_window_tokens,
+            max_requests=config.inference.generation_max_requests,
+            model_settings=config.inference.generation_model_settings,
+        )
+        validate_topic_memory_stage_capacity(budget, contexts.token_estimator)
+    except TopicMemoryGenerationError as error:
+        raise BuiltinConfigurationError("topic-memory-generation-budget") from error
+    spec = TopicMemoryWorkerSpec(config=config)
+    entrypoint = partial(run_topic_memory_worker, spec)
+    selector = TopicMemoryWindowSelector(
+        contexts.database,
+        contexts.repositories.sources,
+        contexts.token_estimator,
+        context_window_tokens=config.inference.generation_model_context_window_tokens,
+    )
+    automatic = config.runtime.topic_memory_schedule_seconds
+    return (
+        *configured,
+        ArtifactProcessingBinding(
+            binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+            source_window_limit=config.runtime.topic_memory_source_window_limit,
+            launcher=SpawnArtifactProcessingWorkerLauncher(entrypoint),
+            automatic_processing_interval=None if automatic is None else timedelta(seconds=automatic),
+            window_selector=selector,
+        ),
+    )
+
+
+def _topic_memory_processing_available(
+    config: BuiltinConfig,
+    bindings: Sequence[ArtifactProcessingBinding],
+) -> bool:
+    """Report declared cross-role processing ability without probing worker liveness."""
+
+    return any(binding.binding_name == TOPIC_MEMORY_SOURCE_WINDOW_BINDING for binding in bindings) or (
+        config.runtime.artifact_processing_role == "api" and config.inference.generation_model is not None
+    )
+
+
+@asynccontextmanager
+async def _open_artifact_processing_supervisor(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    bindings: Sequence[ArtifactProcessingBinding],
+) -> AsyncIterator[ArtifactProcessingSupervisor | None]:
+    if config.runtime.artifact_processing_role == "api":
+        yield None
+        return
+    async with ArtifactProcessingSupervisor(
+        database=contexts.database,
+        bindings=bindings,
+        lease_mode="oceanbase" if isinstance(config.database, OceanBaseConfig) else "single-process",
+        max_workers=config.runtime.artifact_processing_max_workers,
+        worker_timeout_seconds=config.runtime.artifact_processing_worker_timeout_seconds,
+        pending=contexts.repositories.processing_pending,
+        cursors=contexts.repositories.cursors,
+        leases=contexts.repositories.processing_leases,
+        binding_states=contexts.repositories.processing_binding_states,
+    ) as supervisor:
+        yield supervisor
 
 
 @asynccontextmanager
@@ -432,18 +585,24 @@ async def open_builtin_contexts(
         if embedding_model is not None:
             indexes.append(SQLiteMemoryVectorIndex(embedding_model.profile))
         index = CompositeMemoryIndex(*indexes)
+        topic_indexes: list[TopicMemoryIndex] = [SQLiteTopicMemoryFTSIndex()]
+        if embedding_model is not None:
+            topic_indexes.append(SQLiteTopicMemoryVectorIndex(embedding_model.profile))
+        topic_index = CompositeTopicMemoryIndex(*topic_indexes)
         async with SQLiteProfile.open(
             database,
-            tables=BUILTIN_TABLES + index.tables,
+            tables=BUILTIN_TABLES + index.tables + topic_index.tables,
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
                 await ensure_skill_distribution_schema(connection)
                 await index.initialize(connection)
                 await experience_index.initialize(connection)
+                await TopicMemoryRepository(index=topic_index).initialize(connection)
             contexts = RelationalContexts(
                 database=profile.database,
                 index=index,
+                topic_memory_index=topic_index,
                 experience_index=experience_index,
                 candidate_pipeline=candidate_pipeline,
                 experience_pipeline=experience_pipeline,
@@ -469,7 +628,11 @@ async def open_builtin_contexts(
     if embedding_model is not None:
         indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
     index = CompositeMemoryIndex(*indexes)
-    tables = BUILTIN_TABLES + index.tables
+    topic_indexes: list[TopicMemoryIndex] = [OceanBaseTopicMemoryFTSIndex()]
+    if embedding_model is not None:
+        topic_indexes.append(OceanBaseTopicMemoryVectorIndex(embedding_model.profile))
+    topic_index = CompositeTopicMemoryIndex(*topic_indexes)
+    tables = BUILTIN_TABLES + index.tables + topic_index.tables
     if isinstance(database, OceanBaseConfig):
         profile_context = OceanBaseProfile.open(database, tables=tables)
     elif isinstance(database, SeekDBConfig):
@@ -481,9 +644,11 @@ async def open_builtin_contexts(
             await ensure_skill_distribution_schema(connection)
             await index.initialize(connection)
             await experience_index.initialize(connection)
+            await TopicMemoryRepository(index=topic_index).initialize(connection)
         contexts = RelationalContexts(
             database=profile.database,
             index=index,
+            topic_memory_index=topic_index,
             experience_index=experience_index,
             candidate_pipeline=candidate_pipeline,
             experience_pipeline=experience_pipeline,

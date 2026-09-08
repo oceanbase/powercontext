@@ -1,0 +1,1458 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Global Artifact Processing Supervisor and child-Worker lifecycle."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import multiprocessing
+import sys
+import time
+import traceback as traceback_module
+from collections import deque
+from collections.abc import Callable, Collection, Mapping, Sequence
+from contextlib import suppress
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import StrEnum
+from multiprocessing.connection import Connection
+from multiprocessing.context import SpawnProcess
+from multiprocessing.process import BaseProcess
+from random import SystemRandom
+from typing import Protocol
+from uuid import uuid4
+
+from sqlalchemy.ext.asyncio import AsyncConnection
+from typing_extensions import override
+
+if sys.platform == "win32":
+    from multiprocessing.popen_spawn_win32 import Popen as SpawnPopen
+else:
+    from multiprocessing.popen_spawn_posix import Popen as SpawnPopen
+
+from powercontext._logging import log_safely
+from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.errors import (
+    ArtifactProcessingLeadershipLostError,
+    ArtifactProcessingWaveIncompleteError,
+)
+from powercontext.builtin.persistence.processing import (
+    ArtifactProcessingAutoWaveTargetRepository,
+    ArtifactProcessingPendingRepository,
+    StoredArtifactProcessingPending,
+)
+from powercontext.builtin.persistence.supervision import (
+    ArtifactProcessingBindingStateRepository,
+    ArtifactProcessingFence,
+    ArtifactProcessingLeaseMode,
+    ArtifactProcessingLeaseRepository,
+    StoredArtifactProcessingBindingState,
+    database_utc_now,
+)
+
+logger = logging.getLogger(__name__)
+
+_OCEANBASE_TICK_SECONDS = 1.0
+_OCEANBASE_LEASE_SECONDS = 15.0
+_RETRY_BASE_SECONDS = 30.0
+_RETRY_CAP_SECONDS = 30.0 * 60.0
+_CONTROL_CONFLICT_RETRY_SECONDS = 0.1
+_DISCOVERY_PAGE_SIZE = 100
+_DISCOVERY_PAGE_DELAY_SECONDS = 0.01
+_RETRY_STATE_LIMIT = 1000
+_SPAWN_SIGTERM_GRACE_SECONDS = 1.0
+_WORKER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
+ProcessingKey = tuple[str, str]
+
+
+class ArtifactProcessingSupervisorStatus(StrEnum):
+    """Safe process status exposed through Runtime readiness."""
+
+    DISABLED = "disabled"
+    LEADER = "leader"
+    STANDBY = "standby"
+    DEGRADED = "degraded"
+
+
+class ArtifactProcessingWaveKind(StrEnum):
+    """The persistence semantics used when one frozen wave completes."""
+
+    EXPLICIT = "explicit"
+    AUTOMATIC = "automatic"
+
+
+class ArtifactProcessingWorkerOutcome(StrEnum):
+    """Control outcomes returned after a Worker publication attempt."""
+
+    SUCCEEDED = "succeeded"
+    CURSOR_CONFLICT = "cursor_conflict"
+    HEAD_CONFLICT = "head_conflict"
+    LEADERSHIP_LOST = "leadership_lost"
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactProcessingWorkAssignment:
+    """One bounded Source Window assigned to a child Worker."""
+
+    binding_name: str
+    scope_id: str
+    source_after: int
+    source_through: int
+    wave_target: int
+    claimed_flush_generation: int
+    cursor_generation: int | None
+    wave_kind: ArtifactProcessingWaveKind
+    fence: ArtifactProcessingFence
+    worker_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactProcessingWorkerFailure:
+    """Sanitized Worker failure metadata safe to log in the Supervisor."""
+
+    stage: str
+    error_code: str
+    exception_type: str
+    traceback: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactProcessingWorkerCompletion:
+    """A child Worker's terminal control result."""
+
+    outcome: ArtifactProcessingWorkerOutcome = ArtifactProcessingWorkerOutcome.SUCCEEDED
+
+
+class ArtifactProcessingWorkerHandle(Protocol):
+    """One independently terminable Worker child."""
+
+    async def wait(self) -> ArtifactProcessingWorkerCompletion: ...
+
+    async def terminate(self) -> None: ...
+
+
+class ArtifactProcessingWorkerLauncher(Protocol):
+    """Spawn exactly one independently terminable Worker.
+
+    Implementations must release partially-created resources if ``start`` is
+    cancelled. The Supervisor bounds and cancels startup independently from a
+    Worker's execution timeout.
+    """
+
+    async def start(self, assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerHandle: ...
+
+
+class ArtifactProcessingWindowSelector(Protocol):
+    """Choose a bounded contiguous Source window outside the control transaction."""
+
+    async def select(self, scope_id: str, source_after: int, source_ceiling: int, /) -> int: ...
+
+
+WorkerEntrypoint = Callable[[ArtifactProcessingWorkAssignment], ArtifactProcessingWorkerCompletion | None]
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactProcessingBinding:
+    """Startup-only registration for one Source-driven Artifact processor."""
+
+    binding_name: str
+    source_window_limit: int
+    launcher: ArtifactProcessingWorkerLauncher
+    automatic_processing_interval: timedelta | None = None
+    window_selector: ArtifactProcessingWindowSelector | None = None
+
+    def __post_init__(self) -> None:
+        if not self.binding_name.strip() or self.binding_name != self.binding_name.strip():
+            raise ValueError("artifact processing binding_name must be non-empty and trimmed")  # noqa: TRY003
+        if self.source_window_limit < 1:
+            raise ValueError("artifact processing source_window_limit must be positive")  # noqa: TRY003
+        if self.automatic_processing_interval is not None and self.automatic_processing_interval.total_seconds() <= 0:
+            raise ValueError("artifact processing automatic interval must be positive")  # noqa: TRY003
+
+
+@dataclass(slots=True)
+class _SpawnStartOwner:
+    """Retain Popen ownership before BaseProcess can publish the handle."""
+
+    popen: SpawnPopen | None = None
+
+
+_spawn_start_owners: dict[int, _SpawnStartOwner] = {}
+
+
+class _OwnedSpawnPopen(SpawnPopen):
+    """Publish this Popen before its initializer can create a child or fail."""
+
+    def __new__(cls, process_obj: BaseProcess) -> _OwnedSpawnPopen:
+        popen = object.__new__(cls)
+        _spawn_start_owners[id(process_obj)].popen = popen
+        return popen
+
+
+class _OwnedSpawnProcess(SpawnProcess):
+    @staticmethod
+    @override
+    def _Popen(process_obj: BaseProcess) -> SpawnPopen:
+        return _OwnedSpawnPopen(process_obj)
+
+
+def _start_owned_spawn_process(process: _OwnedSpawnProcess, owner: _SpawnStartOwner) -> None:
+    process_id = id(process)
+    _spawn_start_owners[process_id] = owner
+    try:
+        process.start()
+    finally:
+        _spawn_start_owners.pop(process_id, None)
+
+
+class SpawnArtifactProcessingWorkerLauncher:
+    """Launch a picklable Worker entrypoint in a fresh spawn child process."""
+
+    def __init__(self, entrypoint: WorkerEntrypoint) -> None:
+        self._entrypoint = entrypoint
+
+    async def start(self, assignment: ArtifactProcessingWorkAssignment) -> ArtifactProcessingWorkerHandle:
+        context = multiprocessing.get_context("spawn")
+        receiver, sender = context.Pipe(duplex=False)
+        process = _OwnedSpawnProcess(
+            target=_run_spawned_worker,
+            args=(sender, self._entrypoint, assignment),
+            name=f"powercontext-artifact-worker-{assignment.worker_id}",
+            daemon=False,
+        )
+        owner = _SpawnStartOwner()
+        start_task = asyncio.create_task(
+            asyncio.to_thread(_start_owned_spawn_process, process, owner),
+            name=f"powercontext-artifact-worker-start-{assignment.worker_id}",
+        )
+        try:
+            await asyncio.shield(start_task)
+        except asyncio.CancelledError:
+            cleanup_task = asyncio.create_task(
+                _cleanup_cancelled_spawn_start(start_task, process, owner, receiver, sender),
+                name=f"powercontext-artifact-worker-cleanup-{assignment.worker_id}",
+            )
+            await _complete_spawn_cleanup(cleanup_task)
+            raise
+        except BaseException:
+            cleanup_task = asyncio.create_task(
+                _cleanup_failed_spawn_start(owner, receiver, sender),
+                name=f"powercontext-artifact-worker-cleanup-{assignment.worker_id}",
+            )
+            await _complete_spawn_cleanup(cleanup_task)
+            raise
+        sender.close()
+        return _SpawnedWorkerHandle(process, receiver)
+
+
+async def _cleanup_cancelled_spawn_start(
+    start_task: asyncio.Task[None],
+    process: BaseProcess,
+    owner: _SpawnStartOwner,
+    receiver: Connection,
+    sender: Connection,
+) -> None:
+    """Own and reap a partially-started child before cancellation returns."""
+
+    try:
+        await start_task
+    except BaseException:
+        await _cleanup_failed_spawn_start(owner, receiver, sender)
+        return
+    sender.close()
+    await _SpawnedWorkerHandle(process, receiver).terminate()
+
+
+async def _complete_spawn_cleanup(cleanup_task: asyncio.Task[None]) -> None:
+    """Keep ownership of spawn cleanup across repeated outer cancellation."""
+
+    while not cleanup_task.done():
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            continue
+    cleanup_task.result()
+
+
+async def _cleanup_failed_spawn_start(
+    owner: _SpawnStartOwner,
+    receiver: Connection,
+    sender: Connection,
+) -> None:
+    """Terminate a child whose Popen exists but was never published by BaseProcess."""
+
+    receiver.close()
+    sender.close()
+    popen = owner.popen
+    if popen is None:
+        return
+    try:
+        if hasattr(popen, "pid") and popen.poll() is None:
+            popen.terminate()
+            await asyncio.to_thread(_wait_for_spawn_popen_exit, popen, _SPAWN_SIGTERM_GRACE_SECONDS)
+        if hasattr(popen, "pid") and popen.poll() is None:
+            popen.kill()
+        if hasattr(popen, "pid"):
+            await asyncio.to_thread(popen.wait)
+    finally:
+        with suppress(AttributeError):
+            popen.close()
+        owner.popen = None
+
+
+def _wait_for_spawn_popen_exit(popen: SpawnPopen, timeout_seconds: float) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while popen.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+
+class _SpawnedWorkerHandle:
+    def __init__(self, process: BaseProcess, receiver: Connection) -> None:
+        self._process = process
+        self._receiver = receiver
+        self._closed = False
+        self._close_lock = asyncio.Lock()
+
+    async def wait(self) -> ArtifactProcessingWorkerCompletion:
+        await asyncio.to_thread(self._process.join)
+        try:
+            if self._receiver.poll():
+                result = self._receiver.recv()
+            else:
+                result = ArtifactProcessingWorkerFailure(
+                    stage="worker_process",
+                    error_code="worker_crash",
+                    exception_type="WorkerProcessExit",
+                    traceback="",
+                )
+        except EOFError:
+            result = ArtifactProcessingWorkerFailure(
+                stage="worker_process",
+                error_code="worker_crash",
+                exception_type="WorkerProcessExit",
+                traceback="",
+            )
+        finally:
+            await self._close()
+        if isinstance(result, ArtifactProcessingWorkerFailure):
+            raise _WorkerExecutionError(result)
+        if not isinstance(result, ArtifactProcessingWorkerCompletion):
+            raise _WorkerExecutionError(
+                ArtifactProcessingWorkerFailure(
+                    stage="worker_process",
+                    error_code="invalid_worker_result",
+                    exception_type=type(result).__name__,
+                    traceback="",
+                )
+            )
+        return result
+
+    async def terminate(self) -> None:
+        async with self._close_lock:
+            if self._closed:
+                return
+            if self._process.is_alive():
+                self._process.terminate()
+                await asyncio.to_thread(self._process.join, _SPAWN_SIGTERM_GRACE_SECONDS)
+            if self._process.is_alive():
+                self._process.kill()
+                await asyncio.to_thread(self._process.join)
+            self._receiver.close()
+            self._process.close()
+            self._closed = True
+
+    async def _close(self) -> None:
+        async with self._close_lock:
+            if self._closed:
+                return
+            self._receiver.close()
+            self._process.close()
+            self._closed = True
+
+
+class _WorkerExecutionError(RuntimeError):
+    def __init__(self, failure: ArtifactProcessingWorkerFailure) -> None:
+        self.failure = failure
+        super().__init__(f"artifact Worker failed at {failure.stage}: {failure.error_code}")
+
+
+class _WorkerTerminationError(RuntimeError):
+    """The Supervisor could not confirm termination inside its fixed bound."""
+
+
+class _WindowSelectionError(_WorkerExecutionError):
+    """A binding/Scope's evidence failed before a Worker could be assigned."""
+
+
+class _RetryCapacityError(RuntimeError):
+    """An automatic target cannot be safely evicted from the retry frontier."""
+
+
+class _AutomaticWaveStateError(RuntimeError):
+    def __init__(self, wave_id: str, detail: str) -> None:
+        super().__init__(f"automatic wave {wave_id} has inconsistent target state: {detail}")
+
+
+@dataclass(slots=True)
+class _WaveWork:
+    key: ProcessingKey
+    wave_kind: ArtifactProcessingWaveKind
+    wave_target: int
+    claimed_flush_generation: int
+    automatic_wave_id: str | None = None
+
+
+@dataclass(slots=True)
+class _AutomaticWave:
+    wave_id: str
+    binding_name: str
+    targets: dict[ProcessingKey, int]
+    deferred_targets: dict[ProcessingKey, int] = field(default_factory=dict)
+    discovery_after_scope_id: str | None = None
+    discovery_complete: bool = False
+    completed: set[ProcessingKey] = field(default_factory=set)
+
+
+@dataclass(slots=True)
+class _RetryState:
+    work: _WaveWork
+    consecutive_failures: int
+    next_retry_at: float
+
+
+@dataclass(slots=True)
+class _RunningWorker:
+    work: _WaveWork
+    assignment: ArtifactProcessingWorkAssignment
+    handle: ArtifactProcessingWorkerHandle
+    task: asyncio.Task[ArtifactProcessingWorkerCompletion]
+
+
+@dataclass(slots=True)
+class _LaunchingWorker:
+    work: _WaveWork
+    assignment: ArtifactProcessingWorkAssignment
+    task: asyncio.Task[ArtifactProcessingWorkerHandle]
+
+
+class ArtifactProcessingSupervisor:
+    """Coordinate durable waves through a single fenced, fair global queue."""
+
+    def __init__(
+        self,
+        *,
+        database: AsyncDatabase,
+        bindings: Sequence[ArtifactProcessingBinding],
+        lease_mode: ArtifactProcessingLeaseMode,
+        max_workers: int,
+        worker_timeout_seconds: float,
+        pending: ArtifactProcessingPendingRepository | None = None,
+        auto_wave_targets: ArtifactProcessingAutoWaveTargetRepository | None = None,
+        cursors: SourceCursorRepository | None = None,
+        leases: ArtifactProcessingLeaseRepository | None = None,
+        binding_states: ArtifactProcessingBindingStateRepository | None = None,
+        holder_id: str | None = None,
+        oceanbase_tick_seconds: float = _OCEANBASE_TICK_SECONDS,
+        oceanbase_lease_seconds: float = _OCEANBASE_LEASE_SECONDS,
+        retry_base_seconds: float = _RETRY_BASE_SECONDS,
+        retry_cap_seconds: float = _RETRY_CAP_SECONDS,
+        retry_jitter: Callable[[], float] | None = None,
+    ) -> None:
+        if max_workers < 1:
+            raise ValueError("artifact_processing_max_workers must be positive")  # noqa: TRY003
+        if worker_timeout_seconds <= 0:
+            raise ValueError("artifact_processing_worker_timeout_seconds must be positive")  # noqa: TRY003
+        names = [binding.binding_name for binding in bindings]
+        if len(names) != len(set(names)):
+            raise ValueError("artifact processing binding names must be unique")  # noqa: TRY003
+        self._database = database
+        self._bindings = {binding.binding_name: binding for binding in bindings}
+        self._lease_mode = lease_mode
+        self._max_workers = max_workers
+        self._worker_timeout_seconds = worker_timeout_seconds
+        self._pending = ArtifactProcessingPendingRepository() if pending is None else pending
+        self._auto_wave_targets = (
+            ArtifactProcessingAutoWaveTargetRepository() if auto_wave_targets is None else auto_wave_targets
+        )
+        self._cursors = SourceCursorRepository() if cursors is None else cursors
+        self._leases = ArtifactProcessingLeaseRepository() if leases is None else leases
+        self._binding_states = ArtifactProcessingBindingStateRepository() if binding_states is None else binding_states
+        self.holder_id = str(uuid4()) if holder_id is None else holder_id
+        self._oceanbase_tick_seconds = oceanbase_tick_seconds
+        self._oceanbase_lease_seconds = oceanbase_lease_seconds
+        self._retry_base_seconds = retry_base_seconds
+        self._retry_cap_seconds = retry_cap_seconds
+        self._retry_jitter = (lambda: SystemRandom().uniform(0.8, 1.2)) if retry_jitter is None else retry_jitter
+        self._status = ArtifactProcessingSupervisorStatus.STANDBY
+        self._fence: ArtifactProcessingFence | None = None
+        self._renew_at = 0.0
+        self._queue: deque[ProcessingKey] = deque()
+        self._queued: set[ProcessingKey] = set()
+        self._work: dict[ProcessingKey, _WaveWork] = {}
+        self._automatic_waves: dict[str, _AutomaticWave] = {}
+        self._automatic_discovery_queue: deque[str] = deque()
+        self._automatic_discovery_queued: set[str] = set()
+        self._discover_automatic_next = False
+        self._next_automatic_wake_at: float | None = None
+        self._discovery_after: ProcessingKey | None = None
+        self._pending_rescan_requested = False
+        self._next_discovery_wake_at: float | None = None
+        self._retries: dict[ProcessingKey, _RetryState] = {}
+        self._launching: dict[ProcessingKey, _LaunchingWorker] = {}
+        self._running: dict[ProcessingKey, _RunningWorker] = {}
+        self._wake = asyncio.Event()
+        self._stop = asyncio.Event()
+        self._started = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def status(self) -> ArtifactProcessingSupervisorStatus:
+        """Return the current safe readiness state."""
+
+        return self._status
+
+    @property
+    def fence(self) -> ArtifactProcessingFence | None:
+        """Return the current immutable term, if this candidate is Leader."""
+
+        return self._fence
+
+    async def __aenter__(self) -> ArtifactProcessingSupervisor:
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        await self.close()
+
+    async def start(self) -> None:
+        """Start election and wait for the first bounded candidate cycle."""
+
+        if self._task is not None:
+            raise RuntimeError("Artifact Processing Supervisor is already started")  # noqa: TRY003
+        self._task = asyncio.create_task(self._run(), name="powercontext-artifact-processing-supervisor")
+        await self._started.wait()
+
+    def wake(self) -> None:
+        """Reduce local flush latency; durable database state remains authoritative."""
+
+        # A flush may target a key already passed by the current page cursor.
+        # Finish that bounded traversal, then repeat it before becoming idle.
+        self._pending_rescan_requested = True
+        self._wake.set()
+
+    async def close(self) -> None:
+        """Stop dispatching, terminate child Workers, and await the control loop."""
+
+        task = self._task
+        if task is None:
+            return
+        self._stop.set()
+        self._wake.set()
+        await task
+        self._task = None
+
+    async def _run(self) -> None:
+        try:
+            while not self._stop.is_set():
+                self._wake.clear()
+                try:
+                    await self._cycle()
+                except asyncio.CancelledError:
+                    raise
+                except ArtifactProcessingLeadershipLostError:
+                    await self._lose_leadership(ArtifactProcessingSupervisorStatus.STANDBY)
+                except Exception as error:
+                    await self._lose_leadership(ArtifactProcessingSupervisorStatus.DEGRADED)
+                    log_safely(
+                        logger,
+                        logging.ERROR,
+                        "Artifact Processing Supervisor control cycle failed",
+                        exc_info=error,
+                        extra={
+                            "event": "artifact_processing.supervisor.failed",
+                            "stage": "supervisor",
+                            "error_code": "control_cycle_failed",
+                            "outcome": "failure",
+                            "unit": "artifact_processing",
+                        },
+                    )
+                finally:
+                    self._started.set()
+                if self._stop.is_set():
+                    break
+                timeout = self._next_wake_seconds()
+                if self._wake.is_set():
+                    continue
+                try:
+                    if timeout is None:
+                        await self._wake.wait()
+                    else:
+                        await asyncio.wait_for(self._wake.wait(), timeout=timeout)
+                except TimeoutError:
+                    pass
+        finally:
+            await self._lose_leadership(ArtifactProcessingSupervisorStatus.STANDBY)
+
+    async def _cycle(self) -> None:
+        await self._establish_or_renew_leadership()
+        if self._fence is None:
+            return
+        await self._drain_launches()
+        await self._drain_workers()
+        if self._fence is None:
+            return
+        await self._finish_ready_automatic_waves()
+        await self._discover_waves()
+        await self._dispatch_workers()
+
+    async def _establish_or_renew_leadership(self) -> None:
+        loop = asyncio.get_running_loop()
+        if self._fence is not None:
+            if self._lease_mode == "single-process" or loop.time() < self._renew_at:
+                return
+            async with self._database.transaction() as connection:
+                renewed = await self._leases.renew(
+                    connection,
+                    self._fence,
+                    self._oceanbase_lease_seconds,
+                )
+            self._fence = renewed.fence(self._lease_mode)
+            self._renew_at = loop.time() + self._oceanbase_lease_seconds / 3.0
+            return
+        async with self._database.transaction() as connection:
+            if self._lease_mode == "single-process":
+                acquired = await self._leases.start_single_process_term(connection, self.holder_id)
+            else:
+                acquired = await self._leases.try_acquire(
+                    connection,
+                    self.holder_id,
+                    self._oceanbase_lease_seconds,
+                )
+            if acquired is not None:
+                await self._auto_wave_targets.clear_all(connection)
+        if acquired is None:
+            if self._status is not ArtifactProcessingSupervisorStatus.DEGRADED:
+                self._status = ArtifactProcessingSupervisorStatus.STANDBY
+            return
+        self._fence = acquired.fence(self._lease_mode)
+        self._renew_at = loop.time() + self._oceanbase_lease_seconds / 3.0
+        self._status = ArtifactProcessingSupervisorStatus.LEADER
+
+    async def _discover_waves(self) -> None:
+        self._activate_due_retries()
+        available = _DISCOVERY_PAGE_SIZE - len(self._work)
+        if available <= 0:
+            # The frontier cannot advance until active work frees capacity. Its
+            # callbacks (or the OceanBase control tick) will wake us; retaining
+            # an already-due page deadline here would spin the control loop.
+            self._next_discovery_wake_at = None
+            self._next_automatic_wake_at = None
+            return
+        if self._automatic_discovery_queue and self._discover_automatic_next:
+            await self._discover_automatic_page(available)
+            self._discover_automatic_next = False
+            return
+        await self._discover_pending_page(available)
+        self._discover_automatic_next = bool(self._automatic_discovery_queue)
+
+    def _activate_due_retries(self) -> None:
+        now = asyncio.get_running_loop().time()
+        for key, retry in sorted(self._retries.items(), key=lambda item: item[1].next_retry_at):
+            if len(self._work) >= _DISCOVERY_PAGE_SIZE:
+                return
+            if key in self._work or retry.next_retry_at > now:
+                continue
+            if retry.work.automatic_wave_id is not None:
+                wave = self._automatic_waves.get(key[0])
+                if wave is not None and key in wave.deferred_targets:
+                    wave.targets[key] = wave.deferred_targets.pop(key)
+            self._work[key] = retry.work
+            self._enqueue(key)
+
+    async def _discover_pending_page(self, available: int) -> None:
+        if self._discovery_after is None:
+            # Consume only BEFORE reading the first page. A wake during the
+            # database await must survive through the end of this traversal.
+            self._pending_rescan_requested = False
+        async with self._database.transaction() as connection:
+            await self._leases.require_fence(connection, self._require_current_fence())
+            pending_rows = await self._pending.scan(
+                connection,
+                after=self._discovery_after,
+                limit=available,
+            )
+            now = await database_utc_now(connection)
+            binding_states = {
+                name: await self._binding_states.load(connection, name)
+                for name, binding in self._bindings.items()
+                if binding.automatic_processing_interval is not None
+            }
+            automatic_page_bindings = {row.binding_name for row in pending_rows if row.binding_name in binding_states}
+            frozen_waves = await self._freeze_automatic_waves(
+                connection,
+                automatic_page_bindings,
+                binding_states,
+                now,
+            )
+            new_wave_bindings = {wave.binding_name for wave in frozen_waves}
+            frozen_pending_keys = {
+                (row.binding_name, row.scope_id) for row in pending_rows if row.binding_name in new_wave_bindings
+            }
+            for binding_name in automatic_page_bindings - new_wave_bindings:
+                wave = self._automatic_waves.get(binding_name)
+                if wave is None:
+                    continue
+                scope_ids = tuple(row.scope_id for row in pending_rows if row.binding_name == binding_name)
+                frozen_scope_ids = await self._auto_wave_targets.existing_scope_ids(
+                    connection,
+                    wave.wave_id,
+                    binding_name,
+                    scope_ids,
+                )
+                frozen_pending_keys.update((binding_name, scope_id) for scope_id in frozen_scope_ids)
+        if pending_rows:
+            last = pending_rows[-1]
+            self._discovery_after = (last.binding_name, last.scope_id)
+        if len(pending_rows) < available:
+            self._discovery_after = None
+            self._next_discovery_wake_at = (
+                asyncio.get_running_loop().time() + _DISCOVERY_PAGE_DELAY_SECONDS
+                if self._pending_rescan_requested
+                else None
+            )
+        else:
+            self._next_discovery_wake_at = asyncio.get_running_loop().time() + _DISCOVERY_PAGE_DELAY_SECONDS
+        registered = tuple(row for row in pending_rows if row.binding_name in self._bindings)
+        rows_by_binding: dict[str, list[StoredArtifactProcessingPending]] = {}
+        backing_off_bindings = {retry.work.key[0] for retry in self._retries.values()}
+        for pending in registered:
+            key = (pending.binding_name, pending.scope_id)
+            if (
+                key not in self._work
+                and key not in self._retries
+                and pending.flush_generation > pending.handled_flush_generation
+            ):
+                self._register_work(pending, ArtifactProcessingWaveKind.EXPLICIT)
+            elif (
+                pending.binding_name in self._automatic_waves
+                and pending.binding_name in backing_off_bindings
+                and key not in frozen_pending_keys
+                and key not in self._work
+                and key not in self._retries
+            ):
+                self._register_untracked_automatic_work(pending)
+            rows_by_binding.setdefault(pending.binding_name, []).append(pending)
+        for wave in frozen_waves:
+            self._automatic_waves[wave.binding_name] = wave
+            self._enqueue_automatic_discovery(wave.binding_name)
+        self._refresh_automatic_timer(rows_by_binding, binding_states, now)
+
+    async def _discover_automatic_page(self, available: int) -> None:
+        wave: _AutomaticWave | None = None
+        while self._automatic_discovery_queue:
+            binding_name = self._automatic_discovery_queue.popleft()
+            self._automatic_discovery_queued.discard(binding_name)
+            candidate = self._automatic_waves.get(binding_name)
+            if candidate is not None and not candidate.targets and not candidate.discovery_complete:
+                wave = candidate
+                break
+        if wave is None:
+            self._wake.set()
+            return
+        async with self._database.transaction() as connection:
+            await self._leases.require_fence(connection, self._require_current_fence())
+            target_rows = await self._auto_wave_targets.scan(
+                connection,
+                wave.wave_id,
+                wave.binding_name,
+                after_scope_id=wave.discovery_after_scope_id,
+                limit=available,
+            )
+        if target_rows:
+            wave.discovery_after_scope_id = target_rows[-1].scope_id
+        if len(target_rows) < available:
+            wave.discovery_complete = True
+        page_targets: dict[ProcessingKey, int] = {}
+        for target in target_rows:
+            key = (target.binding_name, target.scope_id)
+            if key in self._work or key in self._retries:
+                wave.deferred_targets[key] = target.source_through
+                continue
+            page_targets[key] = target.source_through
+            self._register_automatic_work(
+                target.binding_name,
+                target.scope_id,
+                target.source_through,
+                wave_id=wave.wave_id,
+            )
+        wave.targets = page_targets
+        if not wave.targets:
+            self._wake.set()
+
+    def _refresh_automatic_timer(
+        self,
+        rows_by_binding: Mapping[str, Sequence[StoredArtifactProcessingPending]],
+        binding_states: Mapping[str, StoredArtifactProcessingBindingState | None],
+        now: datetime,
+    ) -> None:
+        automatic_delays: list[float] = []
+        loop_time = asyncio.get_running_loop().time()
+        for binding_name, state in binding_states.items():
+            binding = self._bindings[binding_name]
+            interval = binding.automatic_processing_interval
+            if interval is None:
+                continue
+            rows = rows_by_binding.get(binding_name, ())
+            if state is None or state.last_auto_wave_completed_at is None:
+                remaining = 0.0 if rows else interval.total_seconds()
+            else:
+                remaining = max(0.0, (state.last_auto_wave_completed_at + interval - now).total_seconds())
+            if not rows and remaining <= 0:
+                remaining = interval.total_seconds()
+            binding_busy = (
+                binding_name in self._automatic_waves
+                or any(key[0] == binding_name for key in self._work)
+                or any(retry.work.key[0] == binding_name for retry in self._retries.values())
+            )
+            if remaining > 0 or not binding_busy:
+                automatic_delays.append(max(remaining, 0.001))
+        self._next_automatic_wake_at = None if not automatic_delays else loop_time + min(automatic_delays)
+
+    async def _freeze_automatic_waves(
+        self,
+        connection: AsyncConnection,
+        binding_names: Collection[str],
+        binding_states: Mapping[str, StoredArtifactProcessingBindingState | None],
+        now: datetime,
+    ) -> tuple[_AutomaticWave, ...]:
+        frozen: list[_AutomaticWave] = []
+        for binding_name in sorted(binding_names):
+            binding = self._bindings[binding_name]
+            interval = binding.automatic_processing_interval
+            if interval is None or binding_name in self._automatic_waves:
+                continue
+            if len(self._automatic_waves) + len(frozen) >= _DISCOVERY_PAGE_SIZE:
+                break
+            state = binding_states[binding_name]
+            if (
+                state is not None
+                and state.last_auto_wave_completed_at is not None
+                and now < state.last_auto_wave_completed_at + interval
+            ):
+                continue
+            wave = _AutomaticWave(
+                wave_id=str(uuid4()),
+                binding_name=binding_name,
+                targets={},
+            )
+            await self._auto_wave_targets.freeze_pending(connection, wave.wave_id, binding_name)
+            frozen.append(wave)
+        return tuple(frozen)
+
+    def _enqueue_automatic_discovery(self, binding_name: str) -> None:
+        wave = self._automatic_waves.get(binding_name)
+        if (
+            wave is not None
+            and not wave.targets
+            and not wave.discovery_complete
+            and binding_name not in self._automatic_discovery_queued
+        ):
+            self._automatic_discovery_queue.append(binding_name)
+            self._automatic_discovery_queued.add(binding_name)
+            self._wake.set()
+
+    def _register_work(
+        self,
+        pending: StoredArtifactProcessingPending,
+        wave_kind: ArtifactProcessingWaveKind,
+    ) -> None:
+        key = (pending.binding_name, pending.scope_id)
+        if key in self._work or key in self._retries:
+            return
+        self._work[key] = _WaveWork(
+            key=key,
+            wave_kind=wave_kind,
+            wave_target=pending.source_through,
+            claimed_flush_generation=pending.flush_generation,
+        )
+        self._enqueue(key)
+
+    def _register_automatic_work(
+        self,
+        binding_name: str,
+        scope_id: str,
+        source_through: int,
+        *,
+        wave_id: str,
+    ) -> None:
+        key = (binding_name, scope_id)
+        if key in self._work or key in self._retries:
+            return
+        self._work[key] = _WaveWork(
+            key=key,
+            wave_kind=ArtifactProcessingWaveKind.AUTOMATIC,
+            wave_target=source_through,
+            claimed_flush_generation=0,
+            automatic_wave_id=wave_id,
+        )
+        self._enqueue(key)
+
+    def _register_untracked_automatic_work(self, pending: StoredArtifactProcessingPending) -> None:
+        key = (pending.binding_name, pending.scope_id)
+        self._work[key] = _WaveWork(
+            key=key,
+            wave_kind=ArtifactProcessingWaveKind.AUTOMATIC,
+            wave_target=pending.source_through,
+            claimed_flush_generation=0,
+        )
+        self._enqueue(key)
+
+    async def _dispatch_workers(self) -> None:
+        loop = asyncio.get_running_loop()
+        attempts = len(self._queue)
+        while self._queue and len(self._launching) + len(self._running) < self._max_workers and attempts > 0:
+            attempts -= 1
+            key = self._queue.popleft()
+            self._queued.discard(key)
+            work = self._work.get(key)
+            if work is None or key in self._launching or key in self._running:
+                continue
+            retry = self._retries.get(key)
+            if retry is not None and retry.next_retry_at > loop.time():
+                self._enqueue(key)
+                continue
+            try:
+                assignment = await self._prepare_assignment(work)
+            except _WindowSelectionError as error:
+                self._record_failure(work, None, error.failure)
+                continue
+            if assignment is None:
+                await self._finish_covered_work(work)
+                continue
+            task = asyncio.create_task(
+                self._start_worker(self._bindings[work.key[0]].launcher, assignment),
+                name=f"powercontext-artifact-worker-launch-{assignment.worker_id}",
+            )
+            task.add_done_callback(lambda _task: self._wake.set())
+            self._launching[key] = _LaunchingWorker(
+                work=work,
+                assignment=assignment,
+                task=task,
+            )
+
+    async def _start_worker(
+        self,
+        launcher: ArtifactProcessingWorkerLauncher,
+        assignment: ArtifactProcessingWorkAssignment,
+    ) -> ArtifactProcessingWorkerHandle:
+        try:
+            async with asyncio.timeout(self._worker_timeout_seconds):
+                return await launcher.start(assignment)
+        except TimeoutError as error:
+            raise _WorkerExecutionError(
+                ArtifactProcessingWorkerFailure(
+                    stage="worker_start",
+                    error_code="worker_start_timeout",
+                    exception_type=type(error).__name__,
+                    traceback="",
+                )
+            ) from None
+
+    async def _drain_launches(self) -> None:
+        for key, launching in tuple(self._launching.items()):
+            if not launching.task.done():
+                continue
+            del self._launching[key]
+            try:
+                handle = launching.task.result()
+            except asyncio.CancelledError:
+                raise
+            except _WorkerExecutionError as error:
+                self._record_failure(launching.work, launching.assignment, error.failure)
+                continue
+            except Exception as error:
+                self._record_failure(
+                    launching.work,
+                    launching.assignment,
+                    ArtifactProcessingWorkerFailure(
+                        stage="worker_start",
+                        error_code="worker_start_failed",
+                        exception_type=type(error).__name__,
+                        traceback=_safe_traceback(error),
+                    ),
+                )
+                continue
+            task = asyncio.create_task(
+                self._wait_for_worker(handle),
+                name=f"powercontext-artifact-worker-wait-{launching.assignment.worker_id}",
+            )
+            task.add_done_callback(lambda _task: self._wake.set())
+            self._running[key] = _RunningWorker(
+                work=launching.work,
+                assignment=launching.assignment,
+                handle=handle,
+                task=task,
+            )
+
+    async def _prepare_assignment(
+        self,
+        work: _WaveWork,
+    ) -> ArtifactProcessingWorkAssignment | None:
+        binding_name, scope_id = work.key
+        async with self._database.transaction() as connection:
+            await self._leases.require_fence(connection, self._require_current_fence())
+            cursor = await self._cursors.load(connection, scope_id, binding_name)
+        source_after = 0 if cursor is None else cursor.cursor.sequence
+        if source_after >= work.wave_target:
+            return None
+        source_ceiling = min(
+            source_after + self._bindings[binding_name].source_window_limit,
+            work.wave_target,
+        )
+        selector = self._bindings[binding_name].window_selector
+        try:
+            source_through = (
+                source_ceiling if selector is None else await selector.select(scope_id, source_after, source_ceiling)
+            )
+            if (
+                not isinstance(source_through, int)
+                or isinstance(source_through, bool)
+                or not source_after < source_through <= source_ceiling
+            ):
+                # Classify invalid return values exactly like selector errors.
+                raise ValueError("artifact processing selector returned an invalid Source boundary")  # noqa: TRY003, TRY301
+        except ArtifactProcessingLeadershipLostError:
+            raise
+        except Exception as error:
+            # A bad Source/adapter is local to this key. Retain its Pending and
+            # Cursor and use the same bounded retry frontier as Worker failures.
+            # Cancellation and fence loss still propagate to the control loop.
+            raise _WindowSelectionError(
+                ArtifactProcessingWorkerFailure(
+                    stage="source_window_selection",
+                    error_code="source_window_selection_failed",
+                    exception_type=type(error).__name__,
+                    traceback=_safe_traceback(error),
+                )
+            ) from None
+        return ArtifactProcessingWorkAssignment(
+            binding_name=binding_name,
+            scope_id=scope_id,
+            source_after=source_after,
+            source_through=source_through,
+            wave_target=work.wave_target,
+            claimed_flush_generation=work.claimed_flush_generation,
+            cursor_generation=None if cursor is None else cursor.generation,
+            wave_kind=work.wave_kind,
+            fence=self._require_current_fence(),
+            worker_id=str(uuid4()),
+        )
+
+    async def _wait_for_worker(
+        self,
+        handle: ArtifactProcessingWorkerHandle,
+    ) -> ArtifactProcessingWorkerCompletion:
+        try:
+            async with asyncio.timeout(self._worker_timeout_seconds):
+                return await handle.wait()
+        except TimeoutError as error:
+            await asyncio.shield(self._terminate_worker(handle))
+            raise _WorkerExecutionError(
+                ArtifactProcessingWorkerFailure(
+                    stage="worker_process",
+                    error_code="worker_timeout",
+                    exception_type=type(error).__name__,
+                    traceback="",
+                )
+            ) from None
+        except asyncio.CancelledError:
+            await asyncio.shield(self._terminate_worker(handle))
+            raise
+
+    async def _terminate_worker(self, handle: ArtifactProcessingWorkerHandle) -> None:
+        try:
+            async with asyncio.timeout(_WORKER_SHUTDOWN_TIMEOUT_SECONDS):
+                await handle.terminate()
+        except TimeoutError:
+            log_safely(
+                logger,
+                logging.ERROR,
+                "Artifact processing Worker termination timed out",
+                extra={
+                    "event": "artifact_processing.worker.termination_timeout",
+                    "stage": "worker_termination",
+                    "error_code": "worker_termination_timeout",
+                    "outcome": "failure",
+                    "unit": "artifact_processing",
+                },
+            )
+            raise _WorkerTerminationError from None
+
+    async def _drain_workers(self) -> None:
+        for key, running in tuple(self._running.items()):
+            if not running.task.done():
+                continue
+            del self._running[key]
+            try:
+                completion = running.task.result()
+            except asyncio.CancelledError:
+                raise
+            except _WorkerTerminationError:
+                await self._lose_leadership(ArtifactProcessingSupervisorStatus.DEGRADED)
+                return
+            except _WorkerExecutionError as error:
+                self._record_failure(running.work, running.assignment, error.failure)
+                continue
+            except Exception as error:
+                self._record_failure(
+                    running.work,
+                    running.assignment,
+                    ArtifactProcessingWorkerFailure(
+                        stage="worker_process",
+                        error_code="worker_wait_failed",
+                        exception_type=type(error).__name__,
+                        traceback=_safe_traceback(error),
+                    ),
+                )
+                continue
+            if completion.outcome is ArtifactProcessingWorkerOutcome.LEADERSHIP_LOST:
+                await self._lose_leadership(ArtifactProcessingSupervisorStatus.STANDBY)
+                return
+            if completion.outcome in {
+                ArtifactProcessingWorkerOutcome.CURSOR_CONFLICT,
+                ArtifactProcessingWorkerOutcome.HEAD_CONFLICT,
+            }:
+                self._defer_control_conflict(running.work)
+                continue
+            await self._complete_window(running.work)
+
+    async def _complete_window(self, work: _WaveWork) -> None:
+        self._retries.pop(work.key, None)
+        try:
+            assignment = await self._prepare_assignment(work)
+        except _WindowSelectionError as error:
+            self._record_failure(work, None, error.failure)
+            return
+        if assignment is None:
+            await self._finish_completed_work(work)
+        else:
+            self._enqueue(work.key)
+
+    async def _finish_covered_work(self, work: _WaveWork) -> None:
+        if work.wave_kind is ArtifactProcessingWaveKind.EXPLICIT:
+            binding_name, scope_id = work.key
+            async with self._database.transaction() as connection:
+                await self._leases.require_fence(connection, self._require_current_fence())
+                cursor = await self._cursors.load(connection, scope_id, binding_name)
+                cursor_position = 0 if cursor is None else cursor.cursor.sequence
+                if cursor_position < work.wave_target:
+                    raise ArtifactProcessingWaveIncompleteError(
+                        binding_name,
+                        scope_id,
+                        work.wave_target,
+                        cursor_position,
+                    )
+                await self._pending.mark_flush_handled(
+                    connection,
+                    scope_id,
+                    binding_name,
+                    work.claimed_flush_generation,
+                )
+                await self._pending.delete_if_covered(
+                    connection,
+                    scope_id,
+                    binding_name,
+                    cursor=cursor_position,
+                    source_through_limit=work.wave_target,
+                )
+        await self._finish_completed_work(work)
+
+    async def _finish_completed_work(self, work: _WaveWork) -> None:
+        binding_wave = self._automatic_waves.get(work.key[0])
+        wave = binding_wave if work.automatic_wave_id is not None else None
+        if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
+            if work.automatic_wave_id is not None and (
+                wave is None or wave.wave_id != work.automatic_wave_id or work.key not in wave.targets
+            ):
+                raise _AutomaticWaveStateError("unknown", "completed target is not active")
+            binding_name, scope_id = work.key
+            async with self._database.transaction() as connection:
+                await self._leases.require_fence(connection, self._require_current_fence())
+                cursor = await self._cursors.load(connection, scope_id, binding_name)
+                cursor_position = 0 if cursor is None else cursor.cursor.sequence
+                if cursor_position < work.wave_target:
+                    raise ArtifactProcessingWaveIncompleteError(
+                        binding_name,
+                        scope_id,
+                        work.wave_target,
+                        cursor_position,
+                    )
+                if wave is not None:
+                    marked = await self._auto_wave_targets.mark_completed(
+                        connection,
+                        wave.wave_id,
+                        scope_id,
+                    )
+                    if not marked:
+                        raise _AutomaticWaveStateError(wave.wave_id, "completed target row is missing")
+        self._work.pop(work.key, None)
+        self._queued.discard(work.key)
+        self._retries.pop(work.key, None)
+        if wave is not None:
+            wave.completed.add(work.key)
+            if wave.completed == set(wave.targets):
+                self._wake.set()
+        elif binding_wave is not None:
+            self._wake.set()
+
+    async def _complete_automatic_wave(self, wave: _AutomaticWave) -> None:
+        async with self._database.transaction() as connection:
+            await self._leases.require_fence(connection, self._require_current_fence())
+            if not await self._auto_wave_targets.all_completed(connection, wave.wave_id):
+                raise _AutomaticWaveStateError(wave.wave_id, "incomplete target rows remain")
+            await self._binding_states.mark_auto_wave_completed(connection, wave.binding_name)
+            await self._auto_wave_targets.delete_covered_pending(
+                connection,
+                wave.wave_id,
+                wave.binding_name,
+            )
+            await self._auto_wave_targets.clear_wave(connection, wave.wave_id)
+        self._automatic_waves.pop(wave.binding_name, None)
+        self._automatic_discovery_queued.discard(wave.binding_name)
+
+    def _record_failure(
+        self,
+        work: _WaveWork,
+        assignment: ArtifactProcessingWorkAssignment | None,
+        failure: ArtifactProcessingWorkerFailure,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        previous = self._retries.get(work.key)
+        failures = 1 if previous is None else previous.consecutive_failures + 1
+        base_delay = min(self._retry_base_seconds * (2 ** (failures - 1)), self._retry_cap_seconds)
+        retry_delay = base_delay * self._retry_jitter()
+        self._defer_work(
+            work,
+            consecutive_failures=failures,
+            next_retry_at=loop.time() + retry_delay,
+        )
+        log_safely(
+            logger,
+            logging.ERROR,
+            "Artifact processing Worker failed",
+            extra={
+                "event": "artifact_processing.worker.failed",
+                "binding_name": work.key[0],
+                "scope_id": work.key[1],
+                "source_after": None if assignment is None else assignment.source_after,
+                "source_through": None if assignment is None else assignment.source_through,
+                "stage": failure.stage,
+                "error_code": failure.error_code,
+                "exception_type": failure.exception_type,
+                "failure_count": failures,
+                "retry_delay_seconds": retry_delay,
+                "supervisor_generation": self._require_current_fence().supervisor_generation,
+                "worker_id": None if assignment is None else assignment.worker_id,
+                "traceback": failure.traceback,
+                "outcome": "failure",
+                "unit": "artifact_processing",
+            },
+        )
+
+    def _defer_control_conflict(self, work: _WaveWork) -> None:
+        previous = self._retries.get(work.key)
+        self._defer_work(
+            work,
+            consecutive_failures=0 if previous is None else previous.consecutive_failures,
+            next_retry_at=asyncio.get_running_loop().time() + _CONTROL_CONFLICT_RETRY_SECONDS,
+        )
+
+    def _defer_work(
+        self,
+        work: _WaveWork,
+        *,
+        consecutive_failures: int,
+        next_retry_at: float,
+    ) -> None:
+        self._work.pop(work.key, None)
+        self._queued.discard(work.key)
+        with suppress(ValueError):
+            self._queue.remove(work.key)
+        previous = self._retries.get(work.key)
+        if previous is None and len(self._retries) >= _RETRY_STATE_LIMIT:
+            evicted = next(
+                (
+                    key
+                    for key, retry in self._retries.items()
+                    if retry.work.wave_kind is ArtifactProcessingWaveKind.EXPLICIT and key not in self._work
+                ),
+                None,
+            )
+            if evicted is None:
+                if work.wave_kind is ArtifactProcessingWaveKind.AUTOMATIC:
+                    raise _RetryCapacityError
+                self._next_discovery_wake_at = next_retry_at
+            else:
+                self._retries.pop(evicted)
+        if previous is not None or len(self._retries) < _RETRY_STATE_LIMIT:
+            self._retries[work.key] = _RetryState(
+                work=work,
+                consecutive_failures=consecutive_failures,
+                next_retry_at=next_retry_at,
+            )
+        if work.automatic_wave_id is not None:
+            wave = self._automatic_waves.get(work.key[0])
+            if wave is not None and work.key in wave.targets:
+                wave.deferred_targets[work.key] = wave.targets.pop(work.key)
+                wave.completed.discard(work.key)
+
+    async def _finish_ready_automatic_waves(self) -> None:
+        for wave in tuple(self._automatic_waves.values()):
+            if wave.completed != set(wave.targets):
+                continue
+            wave.targets.clear()
+            wave.completed.clear()
+            if not wave.discovery_complete:
+                self._enqueue_automatic_discovery(wave.binding_name)
+                continue
+            available = _DISCOVERY_PAGE_SIZE - len(self._work)
+            for key, source_through in tuple(wave.deferred_targets.items()):
+                if available <= 0:
+                    break
+                if key in self._work or key in self._retries:
+                    continue
+                wave.deferred_targets.pop(key)
+                wave.targets[key] = source_through
+                self._register_automatic_work(*key, source_through, wave_id=wave.wave_id)
+                available -= 1
+            if wave.targets or wave.deferred_targets:
+                continue
+            await self._complete_automatic_wave(wave)
+
+    async def _lose_leadership(self, status: ArtifactProcessingSupervisorStatus) -> None:
+        self._fence = None
+        self._status = status
+        launching = tuple(self._launching.values())
+        self._launching.clear()
+        running = tuple(self._running.values())
+        self._running.clear()
+        for item in launching:
+            item.task.cancel()
+        for item in running:
+            item.task.cancel()
+        tasks = tuple(item.task for item in (*launching, *running))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        late_handles: list[ArtifactProcessingWorkerHandle] = []
+        for item in launching:
+            if not item.task.done() or item.task.cancelled():
+                continue
+            with suppress(Exception):
+                late_handles.append(item.task.result())
+        await asyncio.gather(*(self._terminate_worker(handle) for handle in late_handles), return_exceptions=True)
+        self._queue.clear()
+        self._queued.clear()
+        self._work.clear()
+        self._automatic_waves.clear()
+        self._automatic_discovery_queue.clear()
+        self._automatic_discovery_queued.clear()
+        self._discover_automatic_next = False
+        self._next_automatic_wake_at = None
+        self._discovery_after = None
+        self._next_discovery_wake_at = None
+        self._retries.clear()
+
+    def _enqueue(self, key: ProcessingKey) -> None:
+        if key not in self._queued and key not in self._launching and key not in self._running and key in self._work:
+            self._queue.append(key)
+            self._queued.add(key)
+
+    def _require_current_fence(self) -> ArtifactProcessingFence:
+        if self._fence is None:
+            raise ArtifactProcessingLeadershipLostError("global", self.holder_id, 0)
+        return self._fence
+
+    def _next_wake_seconds(self) -> float | None:
+        if self._status is ArtifactProcessingSupervisorStatus.DEGRADED:
+            return self._oceanbase_tick_seconds
+        if self._lease_mode == "oceanbase":
+            return self._oceanbase_tick_seconds
+        retry_delays = tuple(
+            max(0.0, retry.next_retry_at - asyncio.get_running_loop().time())
+            for key, retry in self._retries.items()
+            if key not in self._work
+        )
+        automatic_delays = (
+            ()
+            if self._next_automatic_wake_at is None
+            else (max(0.0, self._next_automatic_wake_at - asyncio.get_running_loop().time()),)
+        )
+        discovery_delays = (
+            ()
+            if self._next_discovery_wake_at is None
+            else (max(0.0, self._next_discovery_wake_at - asyncio.get_running_loop().time()),)
+        )
+        candidates = (*automatic_delays, *discovery_delays, *retry_delays)
+        return None if not candidates else min(candidates)
+
+
+def _run_spawned_worker(
+    sender: Connection,
+    entrypoint: WorkerEntrypoint,
+    assignment: ArtifactProcessingWorkAssignment,
+) -> None:
+    try:
+        completion = entrypoint(assignment)
+        sender.send(ArtifactProcessingWorkerCompletion() if completion is None else completion)
+    except BaseException as error:
+        sender.send(
+            ArtifactProcessingWorkerFailure(
+                stage=_safe_error_attribute(error, "stage", "worker"),
+                error_code=_safe_error_attribute(error, "error_code", "worker_failed"),
+                exception_type=type(error).__name__,
+                traceback=_safe_traceback(error),
+            )
+        )
+    finally:
+        sender.close()
+
+
+def _safe_error_attribute(error: BaseException, name: str, fallback: str) -> str:
+    value = getattr(error, name, None)
+    return value if isinstance(value, str) and value else fallback
+
+
+def _safe_traceback(error: BaseException) -> str:
+    """Format stack locations without exception values that may contain Source/model data."""
+
+    return "".join(traceback_module.format_list(traceback_module.extract_tb(error.__traceback__)))
+
+
+__all__ = [
+    "ArtifactProcessingBinding",
+    "ArtifactProcessingSupervisor",
+    "ArtifactProcessingSupervisorStatus",
+    "ArtifactProcessingWaveKind",
+    "ArtifactProcessingWorkAssignment",
+    "ArtifactProcessingWorkerCompletion",
+    "ArtifactProcessingWorkerFailure",
+    "ArtifactProcessingWorkerHandle",
+    "ArtifactProcessingWorkerLauncher",
+    "ArtifactProcessingWorkerOutcome",
+    "SpawnArtifactProcessingWorkerLauncher",
+]

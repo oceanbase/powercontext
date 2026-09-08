@@ -71,6 +71,7 @@ from powercontext.builtin.artifacts.prompt import (
     PromptError,
 )
 from powercontext.builtin.artifacts.prompt.service import PromptService
+from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.skill import (
     AgentKind,
     AgentSkillTarget,
@@ -97,7 +98,24 @@ from powercontext.builtin.artifacts.skill.publication import (
     ManagedSkillPublicationStatus,
 )
 from powercontext.builtin.artifacts.skill.registry import ExternalSkillRegistryService
+from powercontext.builtin.artifacts.topic_memory import (
+    MAX_TOPIC_MEMORY_QUERY_LENGTH,
+    MAX_TOPIC_MEMORY_QUERY_TERMS,
+    MAX_TOPIC_MEMORY_SEARCH_LIMIT,
+    PublishedTopicMemory,
+    TopicMemory,
+    TopicMemoryBrowseCursor,
+    TopicMemoryCurrentItem,
+    TopicMemorySearchHit,
+    TopicMemorySearchResult,
+)
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
+from powercontext.builtin.inference import (
+    EmbeddingModel,
+    InferenceTimeoutError,
+    InferenceUnavailableError,
+    InvalidInferenceOutputError,
+)
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTarget
@@ -127,7 +145,7 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
-from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError
+from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
     CaptureSource,
@@ -143,6 +161,7 @@ from powercontext.builtin.runtime.models import (
     GetExperienceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
+    GetTopicMemoryRequest,
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
     ListExternalSkillsRequest,
@@ -166,9 +185,11 @@ from powercontext.builtin.runtime.models import (
     ReviseMemoryEntryRequest,
     RuntimeCapabilities,
     SearchMemoryRequest,
+    SearchTopicMemoryRequest,
     SkillCandidate,
     SourceReceipt,
     SubmitSourceObservation,
+    TopicMemoryFlushResult,
 )
 from powercontext.builtin.runtime.prepared_context import (
     PreparedContextBuild,
@@ -188,6 +209,7 @@ from powercontext.builtin.runtime.readiness import (
     ReadinessCheckStatus,
     RuntimeReadiness,
     RuntimeReadinessChecks,
+    RuntimeReadinessStatus,
 )
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
@@ -239,6 +261,13 @@ if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
+    from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisor
+
+TopicMemorySearch = Callable[..., Awaitable[TopicMemorySearchResult]]
+TopicMemoryGet = Callable[[str, ArtifactRef], Awaitable[PublishedTopicMemory]]
+TopicMemoryBrowse = Callable[..., Awaitable[tuple[TopicMemoryCurrentItem, ...]]]
+TopicMemoryFlush = Callable[[str], Awaitable[bool]]
+TopicMemorySearchObserver = Callable[[str, bool], None]
 
 logger = logging.getLogger(__name__)
 
@@ -301,6 +330,7 @@ class _RuntimeStateError(RuntimeError):
             "skill-package": "Managed Skill package services are not configured",
             "skill-usage": "Managed Skill usage recording is not configured",
             "statistics": "Statistics services are not configured",
+            "topic-memory-browse": "Topic Memory browsing is not configured",
         }
         super().__init__(messages[code])
 
@@ -673,6 +703,7 @@ class ScopedContextApplication:
             experience_candidates,
             builder.experience_candidate_limit,
         )
+        topic_memory_hits = await self._topic_memory_hits(request.query.strip(), builder.topic_memory_candidate_limit)
 
         with self._runtime._stage(
             "context.build",
@@ -681,6 +712,7 @@ class ScopedContextApplication:
                 "powercontext.context.build.memory_candidate_count": sum(
                     len(candidates.hits) for candidates in memory_candidates
                 ),
+                "powercontext.context.build.topic_memory_candidate_count": len(topic_memory_hits),
                 "powercontext.context.build.experience_candidate_count": sum(
                     len(candidates.hits) for candidates in experience_candidates
                 ),
@@ -690,6 +722,7 @@ class ScopedContextApplication:
                 request=request,
                 current_scope_id=self.scope_id,
                 memory_candidates=memory_candidates,
+                topic_memory_hits=topic_memory_hits,
                 experience_candidates=experience_candidates,
             )
             if span is not None:
@@ -786,6 +819,29 @@ class ScopedContextApplication:
             ),
             PreparedExperienceCandidates(scope_id=scope_id, hits=experience_hits),
         )
+
+    async def _topic_memory_hits(self, query: str, limit: int) -> tuple[TopicMemorySearchHit, ...]:
+        configured = self._runtime._topic_memory_search is not None
+        bounded_query = _bounded_topic_memory_recall_query(query)
+        with self._runtime._stage(
+            "topic_memory.search",
+            attributes={
+                "powercontext.topic_memory.search.configured": configured,
+                "powercontext.topic_memory.search.limit": limit,
+            },
+        ) as span:
+            hits = (
+                ()
+                if not configured
+                else (
+                    await self._runtime.topic_memory.for_scope(self.scope_id).search(
+                        SearchTopicMemoryRequest(query=bounded_query, limit=limit)
+                    )
+                ).hits
+            )
+            if span is not None:
+                span.set_attributes({"powercontext.topic_memory.search.result_count": len(hits)})
+            return hits
 
 
 def _limit_memory_candidates(
@@ -1753,6 +1809,159 @@ class MemoryApplication:
         return ScopedMemoryApplication(self._runtime, scope_id)
 
 
+class ScopedTopicMemoryApplication:
+    """Search, exactly read, and request processing for Topic Memory in one scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def search(self, request: SearchTopicMemoryRequest, /) -> TopicMemorySearchResult:
+        search = self._runtime._topic_memory_search
+        if search is None:
+            raise _RuntimeStateError("topic-memory-search")
+        query = request.query
+        if query != query.strip() or not query or len(query) > MAX_TOPIC_MEMORY_QUERY_LENGTH:
+            raise InvalidRuntimeRequestError("topic-memory-query")
+        if not 1 <= request.limit <= MAX_TOPIC_MEMORY_SEARCH_LIMIT:
+            raise InvalidRuntimeRequestError("topic-memory-limit")
+        if len(set(analyze_text(query).split())) > MAX_TOPIC_MEMORY_QUERY_TERMS:
+            raise InvalidRuntimeRequestError("topic-memory-query-terms")
+
+        used_fallback = False
+        async with self._runtime._scoped_operation(
+            self.scope_id,
+            embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL,
+        ):
+            embedding = self._runtime._topic_memory_embedding_model
+            if embedding is None:
+                result = await search(
+                    self.scope_id,
+                    query,
+                    limit=request.limit,
+                    mode="fts",
+                )
+            else:
+                result, used_fallback = await self._search_with_embedding(request, embedding, search)
+        observer = self._runtime._topic_memory_search_observer
+        if observer is not None:
+            try:
+                observer(result.mode, used_fallback)
+            except Exception as error:
+                log_safely(
+                    logger,
+                    logging.ERROR,
+                    "Topic Memory search observation failed",
+                    exc_info=error,
+                    extra={
+                        "event": "topic_memory.search.observation_failed",
+                        "outcome": "failure",
+                        "unit": "topic-memory",
+                    },
+                )
+        return result
+
+    async def _search_with_embedding(
+        self,
+        request: SearchTopicMemoryRequest,
+        embedding: EmbeddingModel,
+        search: TopicMemorySearch,
+    ) -> tuple[TopicMemorySearchResult, bool]:
+        try:
+            embedded = await embedding.embed((request.query,))
+            if len(embedded.vectors) != 1:
+                raise InvalidInferenceOutputError("embed", "provider returned the wrong vector count")
+        except (InferenceUnavailableError, InferenceTimeoutError) as error:
+            used_fallback = True
+            log_safely(
+                logger,
+                logging.WARNING,
+                "Topic Memory search fell back to FTS",
+                extra={
+                    "event": "topic_memory.search.embedding_fallback",
+                    "outcome": "fallback",
+                    "mode": "fts",
+                    "error_code": (
+                        "inference_timeout" if isinstance(error, InferenceTimeoutError) else "inference_unavailable"
+                    ),
+                    "unit": "topic-memory",
+                },
+            )
+        else:
+            result = await search(
+                self.scope_id,
+                request.query,
+                limit=request.limit,
+                mode="hybrid",
+                query_vector=embedded.vectors[0],
+                embedding_profile=embedding.profile,
+            )
+            return result, False
+
+        result = await search(
+            self.scope_id,
+            request.query,
+            limit=request.limit,
+            mode="fts",
+        )
+        return result, used_fallback
+
+    async def get(self, request: GetTopicMemoryRequest, /) -> PublishedTopicMemory:
+        if self._runtime._topic_memory_get is None:
+            raise _RuntimeStateError("topic-memory-get")
+        if request.artifact.family != TopicMemory.family:
+            raise InvalidRuntimeRequestError("topic-memory-family")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await self._runtime._topic_memory_get(self.scope_id, request.artifact)
+
+    async def browse(
+        self,
+        *,
+        limit: int,
+        after: TopicMemoryBrowseCursor | None = None,
+    ) -> tuple[TopicMemoryCurrentItem, ...]:
+        """Browse current Topic heads for a private management projection."""
+
+        if self._runtime._topic_memory_browse is None:
+            raise _RuntimeStateError("topic-memory-browse")
+        if not 1 <= limit <= 100:
+            raise InvalidRuntimeRequestError("topic-memory-browse-limit")
+        async with self._runtime._scoped_operation(self.scope_id):
+            return await self._runtime._topic_memory_browse(self.scope_id, limit=limit, after=after)
+
+    async def flush(self) -> TopicMemoryFlushResult:
+        if not self._runtime._topic_memory_processing_available or self._runtime._topic_memory_flush is None:
+            raise TopicMemoryProcessingUnavailableError
+        async with self._runtime._scoped_operation(self.scope_id), self._runtime._locked(self.scope_id):
+            accepted = await self._runtime._topic_memory_flush(self.scope_id)
+        if accepted and self._runtime.artifact_processing_supervisor is not None:
+            try:
+                self._runtime.artifact_processing_supervisor.wake()
+            except Exception as error:
+                log_safely(
+                    logger,
+                    logging.WARNING,
+                    "Topic Memory supervisor wake failed after flush acceptance",
+                    exc_info=error,
+                    extra={
+                        "event": "topic_memory.flush.wake_failed",
+                        "outcome": "accepted",
+                        "unit": "topic-memory",
+                    },
+                )
+        return TopicMemoryFlushResult(status="accepted" if accepted else "idle")
+
+
+class TopicMemoryApplication:
+    """Select the scoped Topic Memory application service."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedTopicMemoryApplication:
+        return ScopedTopicMemoryApplication(self._runtime, scope_id)
+
+
 class ScheduledSourceProcessor:
     """Map APScheduler activations to scoped Source-window policies."""
 
@@ -1925,6 +2134,13 @@ class BuiltinRuntime:
         skill_package_uploader: SkillPackageUploader | None = None,
         skill_usage_recorder: SkillUsageRecorder | None = None,
         experience_incubator: ExperienceIncubator | None = None,
+        topic_memory_search: TopicMemorySearch | None = None,
+        topic_memory_get: TopicMemoryGet | None = None,
+        topic_memory_browse: TopicMemoryBrowse | None = None,
+        topic_memory_flush: TopicMemoryFlush | None = None,
+        topic_memory_embedding_model: EmbeddingModel | None = None,
+        topic_memory_processing_available: bool = False,
+        topic_memory_search_observer: TopicMemorySearchObserver | None = None,
         external_skill_registry: ExternalSkillRegistryFactory | None = None,
         external_skill_importer: ExternalSkillImporter | None = None,
         skill_publication_service: SkillPublicationServiceFactory | None = None,
@@ -1963,6 +2179,13 @@ class BuiltinRuntime:
         self._skill_package_uploader = skill_package_uploader
         self._skill_usage_recorder = skill_usage_recorder
         self._experience_incubator = experience_incubator
+        self._topic_memory_search = topic_memory_search
+        self._topic_memory_get = topic_memory_get
+        self._topic_memory_browse = topic_memory_browse
+        self._topic_memory_flush = topic_memory_flush
+        self._topic_memory_embedding_model = topic_memory_embedding_model
+        self._topic_memory_processing_available = topic_memory_processing_available
+        self._topic_memory_search_observer = topic_memory_search_observer
         self._external_skill_registry = external_skill_registry
         self._external_skill_importer = external_skill_importer
         self._skill_publication_service = skill_publication_service
@@ -2001,6 +2224,7 @@ class BuiltinRuntime:
         self.handoff = HandoffApplication(self)
         self.work = WorkApplication(self)
         self.memory = MemoryApplication(self)
+        self.topic_memory = TopicMemoryApplication(self)
         self.records = RecordApplication(self)
         self.prompts = PromptApplication(self)
         self.review = ReviewApplication(self)
@@ -2008,6 +2232,7 @@ class BuiltinRuntime:
         self.remote_skills = RemoteSkillApplication(self)
         self.statistics = StatisticsApplication(self)
         self.handoff_report: HandoffReportApplication | None = None
+        self.artifact_processing_supervisor: ArtifactProcessingSupervisor | None = None
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
         self.experience_processor = (
             None if scope_ids is None or experience_incubator is None else ScheduledExperienceProcessor(self, scope_ids)
@@ -2028,9 +2253,21 @@ class BuiltinRuntime:
 
         async with self._operation():
             dependencies = await self._readiness.run()
+        supervisor_status = (
+            "disabled"
+            if self.artifact_processing_supervisor is None
+            else self.artifact_processing_supervisor.status.value
+        )
+        status = dependencies.status
+        if supervisor_status == "degraded":
+            status = RuntimeReadinessStatus.NOT_READY
         return RuntimeReadiness(
-            status=dependencies.status,
-            checks={"runtime": ReadinessCheckStatus.READY, **dependencies.checks},
+            status=status,
+            checks={
+                "runtime": ReadinessCheckStatus.READY,
+                **dependencies.checks,
+                "artifact_processing_supervisor": supervisor_status,
+            },
         )
 
     def start_scheduler(  # noqa: C901
@@ -2121,6 +2358,8 @@ class BuiltinRuntime:
             async with self._lifecycle:
                 self._closing = True
                 await self._lifecycle.wait_for(lambda: self._active_operations == 0)
+            if self.artifact_processing_supervisor is not None:
+                await self.artifact_processing_supervisor.close()
             async with self._processor_lock:
                 pass
             try:
@@ -2320,6 +2559,26 @@ def _unavailable_evidence(resolution: HandoffResolution) -> tuple[HandoffCitatio
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _bounded_topic_memory_recall_query(query: str) -> str:
+    """Focus internal Prepared Context recall without weakening the public search contract."""
+
+    trimmed = query.strip()
+    terms = tuple(dict.fromkeys(analyze_text(trimmed).split()))
+    if len(terms) <= MAX_TOPIC_MEMORY_QUERY_TERMS:
+        return trimmed
+
+    selected: list[str] = []
+    characters = 0
+    for term in terms[:MAX_TOPIC_MEMORY_QUERY_TERMS]:
+        separator = int(bool(selected))
+        available = MAX_TOPIC_MEMORY_QUERY_LENGTH - characters - separator
+        if available < 1:
+            break
+        selected.append(term[:available])
+        characters += separator + min(len(term), available)
+    return " ".join(selected)
 
 
 async def _head_or_none(service: MemoryService, artifact_id: str) -> Memory | None:

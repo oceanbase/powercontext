@@ -36,4 +36,15 @@ class PreparedContextInvariantError(PowerContextError, RuntimeError):
         super().__init__(f"Prepared Context invariant failed: {code}")
 
 
-__all__ = ["InvalidRuntimeRequestError"]
+class TopicMemoryProcessingUnavailableError(PowerContextError, RuntimeError):
+    """Raised when this deployment cannot process Topic Memory flushes."""
+
+    def __init__(self) -> None:
+        super().__init__("Topic Memory processing is not configured")
+
+
+__all__ = [
+    "InvalidRuntimeRequestError",
+    "PreparedContextInvariantError",
+    "TopicMemoryProcessingUnavailableError",
+]

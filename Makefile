@@ -49,6 +49,14 @@ real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE de
 		--real-codex-timeout="$${REAL_CODEX_TIMEOUT:-600}" \
 		--real-e2e-env-file="$${REAL_E2E_ENV_FILE:-.env}"
 
+.PHONY: topic-memory-r8-acceptance
+topic-memory-r8-acceptance: ## Run bounded R8 hermetic and available real product-chain layers.
+	@uv run python -m tests.e2e.topic_memory_product.harness \
+		--layers="$${POWERCONTEXT_R8_LAYERS:-e0,e1,e2,e3,e4}" \
+		--output="$${POWERCONTEXT_R8_OUTPUT:-.artifacts/topic-memory-r8}" \
+		--codex-timeout="$${POWERCONTEXT_R8_CODEX_TIMEOUT:-180}" \
+		--generation-timeout="$${POWERCONTEXT_R8_GENERATION_TIMEOUT:-240}"
+
 .PHONY: harness-sync
 harness-sync: ## Install the Bub replay harness environment.
 	@uv sync --project e2e/bub --locked

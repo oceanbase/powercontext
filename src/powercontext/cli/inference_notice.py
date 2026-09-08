@@ -45,7 +45,9 @@ def write_inference_capability_notice(
 
     if generation_missing:
         typer.echo("未配置 generation model:")
-        typer.echo("  - Source 自动抽取 Memory、Memory rerank、Experience/Skill/Handoff 生成和 Prompt demonstration 不可用。")
+        typer.echo(
+            "  - Source 自动抽取 Memory、Memory rerank、Experience/Skill/Handoff 生成和 Prompt demonstration 不可用。"
+        )
     if embedding_missing:
         typer.echo("未配置 embedding model:")
         typer.echo("  - 向量检索和 hybrid 检索不可用; Memory、Experience 等检索会退化为 FTS (关键词检索)。")
@@ -54,7 +56,9 @@ def write_inference_capability_notice(
         typer.echo("如需启用上述能力, 请配置 Server inference model、provider 凭据和所需的 embedding profile 信息。")
         return
     quoted = shlex.quote(str(env_file.expanduser().resolve()))
-    typer.echo("如需启用上述能力, 请编辑环境文件, 配置 Server inference model、provider 凭据和所需的 embedding profile 信息,")
+    typer.echo(
+        "如需启用上述能力, 请编辑环境文件, 配置 Server inference model、provider 凭据和所需的 embedding profile 信息,"
+    )
     typer.echo(f"然后运行: powercontext config validate --env-file {quoted}")
 
 

@@ -111,6 +111,12 @@ from powercontext.builtin.artifacts.skill.distribution import (
     RemoteTargetEnrollment as DomainRemoteTargetEnrollment,
 )
 from powercontext.builtin.artifacts.skill.publication import ManagedSkillPublicationStatus
+from powercontext.builtin.artifacts.topic_memory import (
+    PublishedTopicMemory,
+    TopicMemoryBrowseCursor,
+    TopicMemoryCurrentItem,
+    TopicMemorySearchResult,
+)
 from powercontext.builtin.handoff_report import (
     HandoffReportApplication,
     HandoffReportError,
@@ -205,6 +211,8 @@ from powercontext.builtin.runtime import (
     ReviewedCandidatePage,
     SkillCandidate,
     SourceReceipt,
+    TopicMemoryFlushResult,
+    TopicMemoryProcessingUnavailableError,
 )
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
@@ -231,6 +239,7 @@ from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
 )
 from powercontext.builtin.runtime import GetSkillRequest as RuntimeGetSkillRequest
+from powercontext.builtin.runtime import GetTopicMemoryRequest as RuntimeGetTopicMemoryRequest
 from powercontext.builtin.runtime import (
     ImportExternalSkillRequest as RuntimeImportExternalSkillRequest,
 )
@@ -267,6 +276,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
+from powercontext.builtin.runtime import SearchTopicMemoryRequest as RuntimeSearchTopicMemoryRequest
 from powercontext.builtin.runtime import (
     Statistics as RuntimeStatistics,
 )
@@ -407,6 +417,8 @@ from powercontext.http import (
     FlushMemoryResponse,
     FlushProfileRequest,
     FlushProfileResponse,
+    FlushTopicMemoryRequest,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
@@ -419,6 +431,7 @@ from powercontext.http import (
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffCurrentWorkRequest,
     HandoffReportResponse,
@@ -498,6 +511,8 @@ from powercontext.http import (
     ScopeSelection,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     ServerAccessResource,
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
@@ -511,6 +526,7 @@ from powercontext.http import (
     SourceRecord,
     SourceType,
     SubmitSourceObservationRequest,
+    TopicMemoryArtifact,
     UnpublishRemoteSkillRequest,
     UpdateScopeRequest,
     UpdateSkillLifecycleRequest,
@@ -618,6 +634,7 @@ from powercontext.http._generated.operations import (
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     FLUSH_PROFILE,
+    FLUSH_TOPIC_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_PROMPT_DEMONSTRATIONS,
     GENERATE_SKILL,
@@ -642,6 +659,7 @@ from powercontext.http._generated.operations import (
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
     GET_STATS,
+    GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ACCESS_AUDIT,
@@ -689,6 +707,7 @@ from powercontext.http._generated.operations import (
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SEARCH_TOPIC_MEMORY,
     SET_DEFAULT_SCOPE,
     SET_SCOPE_BINDING,
     SUBMIT_SOURCE_OBSERVATION,
@@ -1110,6 +1129,25 @@ class _MemoryApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedMemoryApplication: ...
 
 
+class _ScopedTopicMemoryApplication(Protocol):
+    async def search(self, request: RuntimeSearchTopicMemoryRequest, /) -> TopicMemorySearchResult: ...
+
+    async def get(self, request: RuntimeGetTopicMemoryRequest, /) -> PublishedTopicMemory: ...
+
+    async def browse(
+        self,
+        *,
+        limit: int,
+        after: TopicMemoryBrowseCursor | None = None,
+    ) -> tuple[TopicMemoryCurrentItem, ...]: ...
+
+    async def flush(self) -> TopicMemoryFlushResult: ...
+
+
+class _TopicMemoryApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedTopicMemoryApplication: ...
+
+
 class _ScopedStatisticsApplication(Protocol):
     async def overview(self, *, period: RuntimeStatisticsPeriod) -> RuntimeStatistics: ...
 
@@ -1140,6 +1178,7 @@ class ServerApplication(Protocol):
     handoff: _HandoffApplication
     work: _WorkApplication
     memory: _MemoryApplication
+    topic_memory: _TopicMemoryApplication
     review: _ReviewApplication
     skill: _SkillApplication
     remote_skills: _RemoteSkillApplication
@@ -1311,6 +1350,9 @@ def create_app(
     _add_route(app, GET_PROMPT_CONFIGURATION, get_prompt_configuration)
     _add_route(app, REPLACE_ARTIFACT, replace_artifact)
     _add_route(app, CAPTURE_CONTENT_SOURCE, capture_content_source)
+    _add_route(app, FLUSH_TOPIC_MEMORY, flush_topic_memory)
+    _add_route(app, SEARCH_TOPIC_MEMORY, search_topic_memory)
+    _add_route(app, GET_TOPIC_MEMORY, get_topic_memory)
     _add_route(app, REGISTER_SOURCE_DEFINITION, register_source_definition)
     _add_route(app, GET_CONNECTOR_CHECKPOINT, get_connector_checkpoint)
     _add_route(app, SUBMIT_SOURCE_OBSERVATION, submit_source_observation)
@@ -2200,6 +2242,32 @@ async def list_artifacts(
     )
 
 
+async def flush_topic_memory(
+    request: FlushTopicMemoryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> FlushTopicMemoryResponse:
+    result = await application.topic_memory.for_scope(request.scope_id).flush()
+    return mapping.topic_memory_flush_response(result)
+
+
+async def search_topic_memory(
+    request: SearchTopicMemoryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> SearchTopicMemoryResponse:
+    result = await application.topic_memory.for_scope(request.scope_id).search(
+        mapping.topic_memory_search_request(request)
+    )
+    return mapping.topic_memory_search_response(result)
+
+
+async def get_topic_memory(
+    request: GetTopicMemoryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> TopicMemoryArtifact:
+    result = await application.topic_memory.for_scope(request.scope_id).get(mapping.topic_memory_get_request(request))
+    return mapping.topic_memory_response(result)
+
+
 def _list_artifact_revisions_query(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
@@ -2323,6 +2391,12 @@ async def replace_memory_entry_tags(
     return ArtifactTagSet.model_validate(result.model_dump(mode="json"))
 
 
+def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
+    if if_none_match is None:
+        return False
+    return any(value.strip().removeprefix("W/") == etag for value in if_none_match.split(","))
+
+
 def _tag_response(
     result: RuntimeArtifactTagSet,
     response: Response,
@@ -2330,9 +2404,7 @@ def _tag_response(
     if_none_match: str | None,
 ) -> ArtifactTagSet | Response:
     etag = result.etag
-    if if_none_match is not None and any(
-        value.strip().removeprefix("W/") == etag for value in if_none_match.split(",")
-    ):
+    if _if_none_match_matches(if_none_match, etag):
         return Response(status_code=304, headers={"ETag": etag})
     response.headers["ETag"] = etag
     return ArtifactTagSet.model_validate(result.model_dump(mode="json"))
@@ -2368,7 +2440,7 @@ async def get_artifact(
 ) -> ArtifactRevision | Response:
     result = await application.records.for_scope(scope_id).get_artifact(family.value, artifact_id)
     etag = _artifact_etag(result.revision)
-    if if_none_match == etag:
+    if _if_none_match_matches(if_none_match, etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
     response.headers["ETag"] = etag
     return _artifact_revision_response(result)
@@ -3985,6 +4057,11 @@ async def require_scope_content_ready(request: Request, scope_id: str) -> None:
         return
     application = _require_application(request)
     for identity in await application.records.for_scope(scope_id).logical_artifacts():
+        # Topic Memory is an automatic, Scope-owned projection. It has no request principal
+        # from which to establish an artifact-owner relation, so its reads remain governed by
+        # the surrounding Scope permission rather than an impossible pending owner record.
+        if identity.family == "topic-memory":
+            continue
         resource = ResourceRef.artifact(
             scope_id,
             family=identity.family,
@@ -4571,7 +4648,7 @@ def _observe_application_operation(
         except Exception as error:
             _observe_application(app, operation, "failure", started_at)
             response_status, error_code, _, _ = _map_error(error)
-            diagnostic_error = None if _sensitive_operation_error(error) else error
+            diagnostic_error = _application_log_error(operation, response_status, error)
             _log_operation(
                 logging.ERROR if response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR else logging.WARNING,
                 "PowerContext application operation failed",
@@ -4659,9 +4736,22 @@ def _observe_application(
 
 
 def _application_outcome(result: object) -> str:
-    if isinstance(result, FlushMemoryResponse) and result.status.value == "idle":
+    if isinstance(result, (FlushMemoryResponse, FlushTopicMemoryResponse)) and result.status.value == "idle":
         return "noop"
     return "success"
+
+
+def _application_log_error(
+    operation: Operation[Any, Any],
+    response_status: int,
+    error: Exception,
+) -> Exception | None:
+    if _sensitive_operation_error(error) or (
+        operation.operation_id == SEARCH_TOPIC_MEMORY.operation_id
+        and response_status >= status.HTTP_500_INTERNAL_SERVER_ERROR
+    ):
+        return None
+    return error
 
 
 def _log_operation(
@@ -5058,6 +5148,13 @@ def _map_source_ingestion_error(error: Exception) -> tuple[int, str, str, dict[s
 def _map_availability_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
+    if isinstance(error, TopicMemoryProcessingUnavailableError):
+        return (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "topic_memory_processing_unavailable",
+            "Topic Memory processing is unavailable.",
+            None,
+        )
     return _map_handoff_error(error)
 
 

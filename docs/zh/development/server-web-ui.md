@@ -14,12 +14,14 @@ src/powercontext/server/
 ├── static/
 │   ├── auth.js
 │   ├── dashboard.js
+│   ├── topics.js
 │   └── site.css
 └── templates/
     ├── base.html
     ├── components/
     └── pages/
-        └── dashboard.html
+        ├── dashboard.html
+        └── topics.html
 ```
 
 `web.py` 持有 Jinja environment、页面 router、static mount 和 UI 辅助 endpoint。`base.html` 持有 document head、
@@ -115,10 +117,30 @@ Parent 不会推断 Context 共享，报告也不会编辑 Handoff 状态。
 浏览器使用 JSON 投影。下载 Markdown 时，使用相同 selection 重新请求 `format=markdown`、`download=true`；浏览器
 不会从 DOM 重建 Markdown。关闭 Handoff Report 会移除页面和报告 API，不影响 Dashboard selection 和统计行为。
 
+## 浏览 Topic Memory
+
+Dashboard 启用时，`/topics` 会在 `/dashboard/scopes` 返回的 scope 内提供只读管理视图。query 为空时，浏览器调用
+private support route `POST /dashboard/topic-memories/list`，按最近发布时间浏览 current head，并沿用其 opaque keyset
+cursor。query 非空时，页面以 20 为上限调用 public `POST /v1/topic-memory/search`；搜索没有分页，也不允许 caller
+选择 retrieval mode。页面只有两种排序语义：browse 的“最近发布”和 search 的“相关度”。
+
+选择结果后，浏览器把结果携带的同一个 exact `ArtifactRef` 发送给 private
+`POST /dashboard/topic-memories/get`。该 route 在 application 已选定的完整 Topic detail 之外补充发布时间、当前/历史
+状态、当前 exact ref 和直接 SourceRef 标识。页面不获取 Source 原文或 metadata，也不提供创建、编辑、审核、退役、发布、
+删除或 flush 操作。所有生成字段都通过 text node 写入；Topic detail 作为文本展示，不解释为 HTML 或 Markdown。
+
+两个 support route 都不进入 OpenAPI 或 MCP，只委托 public operation 使用的同一个 `TopicMemoryApplication`。它们仅在
+Dashboard 启用时存在；scope 不在配置的 Dashboard 列表中时统一返回 404。
+
 ## 保持安全边界
 
 Dashboard shell 和 static asset 公开加载，以便浏览器显示登录表单。它们不得包含 bearer token、配置的 scope name、
 statistics 或其他私有数据。UI 辅助 endpoint 和 `/v1/` data endpoint 继续由 `StaticBearerMiddleware` 保护。
+
+`DashboardConfig.scopes` 只控制 UI 可发现范围，不是按用户或按 scope 的授权列表。当前 Bearer credential 是一枚
+Server-wide token：持有者可以调用受保护的 Server operation 并使用任意合法 scope ID，不受该 ID 是否出现在 Dashboard
+列表中的影响。两个 private Topic support route 会额外检查 configured scope，以约束 UI 投影，但不得把该检查描述成
+ACL。关闭鉴权的部署会按既有 Server policy 主动公开 data route。Per-user/per-scope authorization 需要单独的认证设计。
 
 Server 托管页面统一返回 Content Security Policy 和 `Cache-Control: no-store`。CSS 和 JavaScript 应使用外部文件。
 `base.html` 中的短 inline script 只负责在首次绘制前应用已保存 theme。

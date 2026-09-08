@@ -38,8 +38,15 @@ jobs:
       - name: Exercise the real systemd user lifecycle
         run: >-
           .native-venv/bin/python -m pytest -q
+          --junitxml "$RUNNER_TEMP/powercontext-native-linux.xml"
           --basetemp "$RUNNER_TEMP/powercontext-native-tests"
           tests/native/test_personal_service_lifecycle.py
+
+      - name: Report Linux lifecycle failures
+        if: failure()
+        run: >-
+          .native-venv/bin/python .github/scripts/report_pytest_failures.py
+          "$RUNNER_TEMP/powercontext-native-linux.xml"
 
       - name: Capture systemd diagnostics after failure
         if: failure()
@@ -79,8 +86,15 @@ jobs:
       - name: Exercise the real LaunchAgent lifecycle
         run: >-
           .native-venv/bin/python -m pytest -q
+          --junitxml "$RUNNER_TEMP/powercontext-native-macos.xml"
           --basetemp "$RUNNER_TEMP/powercontext-native-tests"
           tests/native/test_personal_service_lifecycle.py
+
+      - name: Report macOS lifecycle failures
+        if: failure()
+        run: >-
+          .native-venv/bin/python .github/scripts/report_pytest_failures.py
+          "$RUNNER_TEMP/powercontext-native-macos.xml"
 
       - name: Capture launchd diagnostics after failure
         if: failure()
@@ -120,15 +134,31 @@ jobs:
         shell: pwsh
         run: >-
           .native-venv\Scripts\python.exe -m pytest -q
+          --junitxml "$env:RUNNER_TEMP\powercontext-native-windows-cursor.xml"
           tests/test_cursor_secret.py
           tests/test_server.py::test_server_reuses_file_backed_cursor_secret_across_restarts
+
+      - name: Report Windows cursor failures
+        if: failure()
+        shell: pwsh
+        run: >-
+          .native-venv\Scripts\python.exe .github\scripts\report_pytest_failures.py
+          "$env:RUNNER_TEMP\powercontext-native-windows-cursor.xml"
 
       - name: Exercise the real Task Scheduler lifecycle
         shell: pwsh
         run: >-
           .native-venv\Scripts\python.exe -m pytest -q
+          --junitxml "$env:RUNNER_TEMP\powercontext-native-windows-service.xml"
           --basetemp "$env:RUNNER_TEMP\powercontext-native-tests"
           tests/native/test_personal_service_lifecycle.py
+
+      - name: Report Windows lifecycle failures
+        if: failure()
+        shell: pwsh
+        run: >-
+          .native-venv\Scripts\python.exe .github\scripts\report_pytest_failures.py
+          "$env:RUNNER_TEMP\powercontext-native-windows-service.xml"
 
       - name: Capture Task Scheduler diagnostics after failure
         if: failure()

@@ -102,10 +102,13 @@ def test_handoff_batch_error_identifies_missing_artifact_after_valid_source(fami
     asyncio.run(scenario())
 
 
-def test_handoff_batch_rejects_existing_prompt_as_evidence() -> None:
+def test_handoff_batch_rejects_existing_prompt_as_evidence(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with open_builtin_runtime(
-            BuiltinConfig(database=SQLiteConfig(), inference=InferenceConfig(generation_model="test")),
+            BuiltinConfig(
+                database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'prompt-evidence.db'}"),
+                inference=InferenceConfig(generation_model="test"),
+            ),
             handoff_pipeline=_EchoHandoffPipeline(),
         ) as runtime:
             assert runtime.scopes is not None

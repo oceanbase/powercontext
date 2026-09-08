@@ -1100,6 +1100,110 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/topic-memory/flush:
+    post:
+      tags: [topic-memory]
+      summary: Request asynchronous Topic Memory processing
+      description: Persist a flush generation without waiting for background processing to complete.
+      operationId: flush_topic_memory
+      x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlushTopicMemoryRequest"
+      responses:
+        "200":
+          description: The durable request was accepted, or the source cursor was already current.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlushTopicMemoryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/topic-memory/search:
+    post:
+      tags: [topic-memory]
+      summary: Search current Topic Memory heads
+      description: Select the deployment-owned FTS or hybrid mode without accepting caller-selected retrieval controls.
+      operationId: search_topic_memory
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchTopicMemoryRequest"
+      responses:
+        "200":
+          description: Matching current Topic Memory revisions, including the actual mode used.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchTopicMemoryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/topic-memory/get:
+    post:
+      tags: [topic-memory]
+      summary: Get an exact Topic Memory revision
+      description: Return full progressively-disclosed detail and direct Source evidence for one exact reference.
+      operationId: get_topic_memory
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetTopicMemoryRequest"
+      responses:
+        "200":
+          description: The exact immutable Topic Memory revision.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicMemoryArtifact"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/memory/flush:
     post:
       tags: [memory]
@@ -6956,6 +7060,23 @@ components:
         memory:
           $ref: "#/components/schemas/ArtifactReference"
           nullable: true
+    FlushTopicMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    FlushTopicMemoryResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/TopicMemoryFlushStatus"
     GetMemoryEntryRequest:
       type: object
       additionalProperties: false
@@ -6968,6 +7089,18 @@ components:
           pattern: '.*\S.*'
         citation:
           $ref: "#/components/schemas/MemoryCitation"
+    GetTopicMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, artifact]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
     GetArtifactCandidateRequest:
       type: object
       additionalProperties: false
@@ -7541,6 +7674,64 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MemoryMatchedBy"
+    SearchTopicMemoryHit:
+      type: object
+      additionalProperties: false
+      required: [artifact, title, summary, snippet, score, matched_by]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 512
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 8000
+        snippet:
+          type: string
+          nullable: true
+        score:
+          type: number
+          minimum: 0
+        matched_by:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/TopicMemoryMatchedBy"
+    SearchTopicMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id, query]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+        query:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          pattern: '^\S(?:[\s\S]*\S)?$'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 10
+    SearchTopicMemoryResponse:
+      type: object
+      additionalProperties: false
+      required: [mode, hits]
+      properties:
+        mode:
+          $ref: "#/components/schemas/TopicMemoryUsedSearchMode"
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchTopicMemoryHit"
     SearchMemoryRequest:
       type: object
       additionalProperties: false
@@ -7637,6 +7828,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SearchMemoryHit"
+    TopicMemoryArtifact:
+      type: object
+      additionalProperties: false
+      required: [artifact, title, summary, detail, source_refs]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactReference"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 512
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 8000
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 125000
+        source_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceReference"
     CreateArtifactRequest:
       oneOf:
         - $ref: "#/components/schemas/CreateMemoryArtifactRequest"
@@ -8220,6 +8434,15 @@ components:
     FlushStatus:
       type: string
       enum: [idle, processed]
+    TopicMemoryFlushStatus:
+      type: string
+      enum: [accepted, idle]
+    TopicMemoryMatchedBy:
+      type: string
+      enum: [topic_fts, topic_vector, detail_fts, detail_vector]
+    TopicMemoryUsedSearchMode:
+      type: string
+      enum: [fts, hybrid]
     MemoryEntryState:
       type: string
       enum: [active, inactive]
