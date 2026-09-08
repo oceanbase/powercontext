@@ -980,6 +980,13 @@ def _report_written(path: Path, backup: Path | None) -> None:
 
 def _print_next_steps(path: Path) -> None:
     quoted = shlex.quote(str(path.resolve()))
+    typer.secho("\nEnvironment file", bold=True, fg=typer.colors.CYAN)
+    typer.echo(f"  Path          {path.resolve()} (mode 0600)")
+    typer.echo("  Authentication disabled by default.")
+    typer.echo(
+        "  If Bearer authentication is enabled, read POWERCONTEXT_SERVER_AUTH_TOKEN from this file;"
+        " the value is never printed."
+    )
     typer.echo(f"\nStart Server:\n  powercontext server run --env-file {quoted}")
     _print_model_capability_notice(path)
     typer.secho("\nSupported Coding Agents (choose one):", bold=True, fg=typer.colors.CYAN)

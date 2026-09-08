@@ -82,6 +82,7 @@ def install(
         else "PowerContext personal service installed without login auto-start."
     )
     typer.echo(message)
+    _write_environment_guidance(env_file)
     _write_status(status, json_output=False)
 
 
@@ -141,6 +142,23 @@ def _write_status(status: ServiceStatus, *, json_output: bool) -> None:
         typer.echo(f"detail: {status.detail}")
     if status.recovery_action:
         typer.echo(f"action: {status.recovery_action}")
+
+
+def _write_environment_guidance(env_file: Path | None) -> None:
+    """Tell operators where persistent settings and optional credentials are stored."""
+
+    if env_file is None:
+        typer.echo("environment file: not configured (the service uses its process environment)")
+        typer.echo(
+            "token location: POWERCONTEXT_SERVER_AUTH_TOKEN in the service environment when authentication is enabled;"
+            " the value is never printed"
+        )
+        return
+    typer.echo(f"environment file: {env_file.expanduser().resolve()} (mode 0600)")
+    typer.echo(
+        "token location: POWERCONTEXT_SERVER_AUTH_TOKEN in this file when authentication is enabled;"
+        " the value is never printed"
+    )
 
 
 __all__ = ["app"]

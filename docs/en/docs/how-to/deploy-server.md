@@ -81,6 +81,10 @@ powercontext config validate --env-file /etc/powercontext/powercontext.env
 powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
 
+The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
+read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
+disabled by default, so no token is generated automatically.
+
 The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
 file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
 are ignored. `config init` creates a model-free base configuration; see the [Full-capability Quick Start](full-capability-runtime.md)

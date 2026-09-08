@@ -1412,6 +1412,36 @@ def test_service_install_cli_prompts_for_login_autostart(monkeypatch: pytest.Mon
     confirm.assert_called_once_with("Enable automatic Server startup when you log in?", default=False)
     controller.install.assert_called_once_with(env_file=None, start_on_login=False)
     assert "without login auto-start" in result.output
+    assert "environment file: not configured" in result.output
+    assert "POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
+    assert "the value is never printed" in result.output
+
+
+def test_service_install_cli_reports_the_environment_file_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.ACTIVE,
+        server_liveness=LivenessState.LIVE,
+        endpoint="http://127.0.0.1:8000",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    environment = tmp_path / "powercontext.env"
+
+    result = CliRunner().invoke(service_app, ["install", "--env-file", str(environment), "--start-on-login"])
+
+    assert result.exit_code == 0
+    assert f"environment file: {environment.resolve()} (mode 0600)" in result.output
+    assert "token location: POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
+    assert "the value is never printed" in result.output
 
 
 def test_service_uninstall_cli_renders_partial_failure_status(monkeypatch: pytest.MonkeyPatch) -> None:

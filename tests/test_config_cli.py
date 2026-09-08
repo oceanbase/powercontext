@@ -41,6 +41,9 @@ def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp
     assert "Inference capability notice" in result.output
     assert "Source 自动抽取 Memory" in result.output
     assert "向量检索和 hybrid 检索" in result.output
+    assert f"Path          {environment.resolve()} (mode 0600)" in result.output
+    assert "POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
+    assert "the value is never printed" in result.output
     assert "Configuration" in result.output
     assert "Supported Coding Agents (choose one)" in result.output
     for name, setup, launch in config_cli.AGENTS.values():
