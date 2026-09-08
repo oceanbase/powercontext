@@ -38,6 +38,60 @@ async function clickNavigation(page, selector) {
   await target.click();
 }
 
+async function changePreference(page, key, value) {
+  const menu = page.locator('.dropdown').nth(key === 'lang' ? 0 : 1);
+  if (!await menu.isVisible()) await page.locator('.navbar-toggler').click();
+  await menu.locator('.dropdown-toggle').click();
+  await menu.locator(`.dropdown-item[href*="${key}=${value}"]`).click();
+  await page.waitForURL(url => url.searchParams.get(key) === value);
+}
+
+async function checkSourceReading(page, base, route, api) {
+  await page.goto(base + '/dashboard/' + route);
+  const opener = page.locator('[data-evidence]').first();
+  if (!await opener.count()) return;
+  const sourceURL = new URL(await opener.getAttribute('href'), base);
+  const before = await page.evaluate(() => document.documentElement.scrollHeight);
+  await opener.click();
+  const text = page.locator('.original-content');
+  await text.waitFor();
+  const mobile = await page.locator('#evidence').evaluate(element => getComputedStyle(element).position === 'fixed');
+  if (mobile) await page.locator('#evidence.show').waitFor();
+  await page.waitForFunction(() => {
+    const rect = document.querySelector('.original-content').getBoundingClientRect();
+    return rect.left >= 0 && rect.right <= innerWidth + 1;
+  });
+  assert(await page.evaluate(() => document.documentElement.scrollHeight) <= before + 1, 'Opening a source lengthened the page');
+  const bounds = await text.boundingBox();
+  assert(bounds.height > 40 && bounds.y >= 0 && bounds.y + bounds.height <= page.viewportSize().height + 1);
+  const source = await api(`/v1/scopes/${sourceURL.searchParams.get('scope')}/sources/${sourceURL.searchParams.get('source_type')}/${sourceURL.pathname.split('/evidence/')[1]}`);
+  if (typeof source.content === 'string') assert.equal(await text.textContent(), source.content);
+  else assert.deepEqual(JSON.parse(await text.textContent()), source.content);
+  if (await text.evaluate(element => element.scrollHeight > element.clientHeight)) {
+    const position = await page.evaluate(() => scrollY);
+    await text.hover();
+    await page.mouse.wheel(0, 400);
+    await page.waitForFunction(() => document.querySelector('.original-content').scrollTop > 0);
+    assert.equal(await page.evaluate(() => scrollY), position);
+    await text.focus();
+    await page.keyboard.press('Control+End');
+    await page.waitForFunction(() => {
+      const element = document.querySelector('.original-content');
+      return element.scrollHeight - element.scrollTop - element.clientHeight < 2;
+    });
+  }
+  const tabs = page.locator('.source-content-view .nav-link');
+  if (await tabs.count() > 1) {
+    await tabs.nth(1).click();
+    await page.waitForFunction(() => document.querySelector('.source-content-view .nav-link:nth-child(2)').classList.contains('active'));
+    assert.equal(await text.evaluate(element => element.scrollTop), 0);
+  }
+  if (mobile) {
+    await page.locator('#evidence .btn-close').click();
+    await page.waitForFunction(() => !document.body.style.overflow);
+  }
+}
+
 async function main() {
   const base = process.env.POWERCONTEXT_BROWSER_URL || 'http://127.0.0.1:8765';
   const output = process.env.POWERCONTEXT_BROWSER_OUTPUT;
@@ -141,7 +195,12 @@ async function main() {
       assert.equal(response.status(), 200, route);
       await page.waitForLoadState('load');
       await checkReadingBounds(page, `${route}, ${width}`);
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, route);
+      const family = route.startsWith('handoff-detail?') ? 'handoff' : route.match(/^(experience|skill)\?/)?.[1];
+      if (family) {
+        const reference = new URL(base + '/dashboard/' + route).searchParams;
+        assert(await page.getByText(`${family}/${reference.get('artifact')}@${reference.get('revision')}`, { exact: true }).isVisible());
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${route}, ${width}px`);
       await page.screenshot({ path: path.join(output, `${route.split('?')[0].replaceAll('/', '-')}-${width}.png`), fullPage: true });
     }
   }
@@ -150,8 +209,13 @@ async function main() {
       for (const width of [390, 1536]) {
         await page.setViewportSize({ width, height: 1024 });
         for (const route of routes) {
-          const separator = route.includes('?') ? '&' : '?';
-          const response = await page.goto(`${base}/dashboard/${route}${separator}lang=${language}&theme=${theme}`);
+          const response = await page.goto(`${base}/dashboard/${route}`);
+          await changePreference(page, 'lang', language);
+          await changePreference(page, 'theme', theme);
+          const selected = new URL(page.url());
+          for (const [key, value] of new URL(base + '/dashboard/' + route).searchParams) {
+            assert.equal(selected.searchParams.get(key), value, `Preference change lost ${key}`);
+          }
           assert.equal(response.status(), 200, route);
           await checkReadingBounds(page, `${route}, ${language}, ${theme}, ${width}`);
           assert.equal(await page.locator('html').getAttribute('lang'), language === 'zh' ? 'zh-CN' : 'en');
@@ -206,6 +270,24 @@ async function main() {
       assert.equal(await page.locator('.offcanvas-backdrop').count(), 0);
       await page.goBack();
       await page.locator('[data-evidence]').first().waitFor();
+    }
+  }
+  for (const viewport of [{ width: 390, height: 700 }, { width: 844, height: 390 }, { width: 1400, height: 600 }, { width: 1536, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    for (const route of routes.filter(route => /^(experience|handoff-detail)\?/.test(route))) {
+      await checkSourceReading(page, base, route, api);
+    }
+    await page.goto(`${base}/dashboard/usage?scope=${readingScope}&period=30d`);
+    for (const button of await page.locator('.accordion-button').all()) {
+      await button.click();
+      const panel = page.locator(await button.getAttribute('data-bs-target'));
+      await page.waitForFunction(selector => document.querySelector(selector).classList.contains('show'), await button.getAttribute('data-bs-target'));
+      const body = panel.locator('.accordion-body');
+      assert((await body.boundingBox()).height <= viewport.height + 1);
+      await body.focus();
+      await page.keyboard.press('Control+End');
+      await button.click();
+      await panel.waitFor({ state: 'hidden' });
     }
   }
   await page.goto(base + '/dashboard/home');
