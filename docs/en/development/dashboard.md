@@ -187,12 +187,8 @@ A few sessions can expose specific failures but cannot establish recall quality 
 
 ## Replay verification and known limits
 
-The isolated three-day replay calls memory, experience, handoff, and skill generation each day. Skills cover source, experience, and usage origins. Read exact references after persistence and verify previous-day content before the next import. Daily model usage distinguishes all four purposes; failed and repair requests also contribute to request counts. Read-only database checks compare API entries, revisions, and daily usage, rather than merely counting stored rows.
+Verify each generation family through its existing API, then read the saved records by exact reference. Before importing the next day's content, check prior recall and citations. Compare API entries, revisions and daily usage with read-only database observations.
 
-Extraction can retain superseded constraints. This replay retained a three-page limit after the user requested all pages, and context prepared with an 8000-byte budget included that stale limit. Revising it through the existing API corrected current recall, while 25 historical memory citations still returned their original text and stale writes returned 409. Successful extraction does not establish conflict resolution or freshness.
+Check whether later instructions supersede earlier constraints. After revision through the API, current recall should reflect the correction while historical citations retain their original text. Reject writes using stale references. Compare full-source answers with budgeted context for retained constraints, next actions and citations; a high reduction percentage does not establish completeness. Keep experiment inputs and results outside the repository.
 
-For the same continuation question, the full transcript identified the latest page scope and unfinished check. The 8000-byte context carried an outdated scope; the 1024-byte context retained only component constraints and could not establish scope or next action. Budgets are upper limits, not returned lengths. A high reduction percentage does not establish task completeness. Preserve both original and corrected results for inspection.
-
-An explicit scope reference lets an empty child recall parent context without copying memories into its directory or widening its subtree selection. Keep a separate unlinked empty child for fresh-start checks and preserve the server default scope.
-
-The experiment controls UTC time in isolated processes. It exercises consecutive writes, restart reads, exact references, scope relationships, and daily statistics. It does not establish production scheduler reliability over several real days or recall quality for arbitrary queries.
+Scope references, collection membership and subtree statistics must be checked separately. Include an unlinked empty child for fresh-start checks and preserve the configured default scope. Simulated dates exercise restart reads and daily attribution; they do not establish production scheduler reliability or recall quality for arbitrary questions.
