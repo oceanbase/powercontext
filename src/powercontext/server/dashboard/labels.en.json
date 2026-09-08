@@ -30,7 +30,6 @@
   "source_unavailable": "Source material could not be loaded",
   "source_unavailable_body": "The reference remains available. Retry or open another source.",
   "source_retry": "Reload",
-  "open_full": "Open complete source",
   "no_title": "Source",
   "source_not_found": "Source not found",
   "validation": "Checks",

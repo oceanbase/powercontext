@@ -1,13 +1,13 @@
-<div class="d-flex flex-wrap gap-2" aria-label="{{ t.display_preferences }}" hx-boost="false">
+<div class="d-inline-flex gap-1" aria-label="{{ t.display_preferences }}" hx-boost="false">
   <div class="dropdown">
-    <button class="btn btn-ghost-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ t.language }}">{{ 'English' if language == 'en' else t.chinese }}</button>
+    <button class="btn btn-ghost-secondary dropdown-toggle px-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ t.language }}">{{ 'English' if language == 'en' else t.chinese }}</button>
     <div class="dropdown-menu">
       <a class="dropdown-item {{ 'active' if language == 'zh' else '' }}" href="{{ preference_url(lang='zh') }}" lang="zh-CN">{{ t.chinese }}</a>
       <a class="dropdown-item {{ 'active' if language == 'en' else '' }}" href="{{ preference_url(lang='en') }}" lang="en">English</a>
     </div>
   </div>
   <div class="dropdown">
-    <button class="btn btn-ghost-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t.appearance }}</button>
+    <button class="btn btn-ghost-secondary dropdown-toggle px-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t.appearance }}</button>
     <div class="dropdown-menu">
       <a class="dropdown-item" href="{{ preference_url(theme='light') }}">{{ t.light }}</a>
       <a class="dropdown-item" href="{{ preference_url(theme='dark') }}">{{ t.dark }}</a>

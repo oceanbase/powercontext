@@ -1,5 +1,5 @@
 {% from "macros.html" import icon with context %}
-<aside class="navbar navbar-vertical navbar-expand-lg" aria-label="{{ t.scope_label }}">
+<aside class="navbar navbar-vertical navbar-expand-lg position-relative w-100" aria-label="{{ t.scope_label }}">
   <style>
     me { background: var(--tblr-bg-surface); box-shadow: none; border-right: 1px solid var(--tblr-border-color); }
     me .container-fluid { padding: 30px 17px 24px; align-items: stretch; }
@@ -8,22 +8,22 @@
     me .scope-form .form-label { display: none; }
     me .scope-form .form-select { font-size: 16px; background-color: var(--tblr-bg-surface); box-shadow: none; }
     me .scope-go { padding-inline: 10px; background: var(--tblr-bg-surface); }
-    me .navbar-nav { gap: 4px; }
-    me .nav-link { display: flex; gap: 12px; min-height: 44px; padding: 10px 12px; color: var(--tblr-body-color); border-radius: 5px; font-size: 16px; }
+    me .navbar-nav { width: 100%; }
+    me .navbar-nav .nav-link { display: flex; gap: 12px; min-height: 56px; line-height: 1.25; padding: 8px 12px; color: var(--tblr-body-color); border-radius: 5px; font-size: 16px; }
     me .nav-link.active { color: var(--tblr-primary); background: var(--pc-active-bg); }
     me .nav-link:hover { background: var(--pc-hover-bg); }
-    me .nav-symbol { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
+    me .nav-symbol { width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
     me .nav-symbol img { width: 20px; height: 20px; }
     [data-bs-theme="dark"] me .nav-symbol img { filter: invert(1); }
     me .nav-link.active .nav-symbol img { filter: invert(27%) sepia(99%) saturate(5191%) hue-rotate(219deg) brightness(102%) contrast(106%); }
+    @media (min-width: 992px) { me.navbar-expand-lg { max-height: 100dvh; } }
     @media (min-width: 992px) { me.navbar-expand-lg .container-fluid { min-height: 100vh; padding: 24px 16px; align-items: stretch; } }
     @media (min-width: 992px) { me.navbar-expand-lg .navbar-brand { justify-content: flex-start; margin: 0; padding: 0; } }
-    @media (min-width: 992px) { me.navbar-expand-lg .navbar-nav .nav-link { justify-content: flex-start; padding: 10px 12px; } }
+    @media (min-width: 992px) { me.navbar-expand-lg .navbar-nav .nav-link { justify-content: flex-start; padding: 8px 12px; } }
     @media (max-width: 991px) { me .navbar-collapse.show { max-height: calc(100dvh - 80px); overflow-y: auto; } }
     @media (max-width: 991px) { me .container-fluid { display: block; padding: 18px 22px 12px; } }
     @media (max-width: 991px) { me .scope-form { margin: 16px 0 10px; max-width: 350px; } }
-    @media (max-width: 991px) { me .navbar-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; } }
-    @media (max-width: 991px) { me .nav-link { min-height: 36px; font-size: 14px; padding: 7px 11px; gap: 6px; } }
+    @media (max-width: 991px) { me .navbar-nav .nav-link { min-height: 44px; font-size: 14px; padding: 8px 12px; gap: 8px; } }
     @media (max-width: 991px) { me .nav-symbol { width: 18px; height: 18px; } }
     @media (max-width: 991px) { me .nav-symbol img { width: 18px; height: 18px; } }
   </style>
@@ -49,12 +49,14 @@
       {% if errors.get('scopes') %}<p class="small mt-2">{{ t.scope_list_unavailable }}</p>{% endif %}
     </form>
     <nav class="navbar-nav" aria-label="{{ t.navigation }}">
+      <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-1 g-1">
       {% for item in ['home', 'handoff', 'notes', 'methods', 'usage'] %}
       {% set active = page == item or parent_page == item %}
-      <a href="{{ link(item) }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
+      <div class="col"><a href="{{ link(item) }}" class="nav-link h-100 {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
         {{ icon(item) }}<span>{{ t[item] }}</span>
-      </a>
+      </a></div>
       {% endfor %}
+      </div>
     </nav>
     <div class="mt-auto pt-4 px-1">{% include 'components/preferences.html' %}</div>
     </div>

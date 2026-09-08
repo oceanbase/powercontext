@@ -3,13 +3,13 @@
   <style>
     me.page-heading { margin-bottom: 20px; }
     me h1 { color: var(--pc-heading-color); font-size: 32px; font-weight: var(--tblr-font-weight-bold); line-height: 1.3; letter-spacing: -.02em; margin: 0 0 6px; }
-    @media (max-width: 600px) { me h1 { font-size: 28px; } }
+    @media (max-width: 600px) { me h1 { font-size: 24px; } }
     me p { margin: 0; font-size: 16px; }
-    @media (max-width: 600px) { me p { font-size: 14px; } }
+    @media (max-width: 600px) { me p { font-size: 14px; min-height: 3.3em; } }
   </style>
   <div class="row align-items-center g-3">
-    <div class="col"><h1>{{ title }}</h1>{% if description %}<p>{{ description }}</p>{% endif %}</div>
-    {% if caller is defined %}<div class="col-12 col-md-auto">{{ caller() }}</div>{% endif %}
+    <div class="{{ 'col-12 col-md-7 col-xl-8 col-xxl-9' if caller is defined else 'col-12' }}"><h1>{{ title }}</h1>{% if description %}<p>{{ description }}</p>{% endif %}</div>
+    {% if caller is defined %}<div class="col-12 col-md-5 col-xl-4 col-xxl-3">{{ caller() }}</div>{% endif %}
   </div>
 </header>
 {% endmacro %}

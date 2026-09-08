@@ -1,6 +1,7 @@
 <div class="usage-view">
 <style>
   me .period-control { text-align: right; }
+  @media (max-width: 575px) { me .scope-extent .nav-link { min-height: 56px; } }
   me .period-control small { display: block; font-size: 13px; margin-top: 8px; }
   me .btn-group .active { background: var(--pc-active-bg); border-color: var(--tblr-border-color); color: var(--tblr-primary); }
   me .usage-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 30px; }
@@ -29,7 +30,7 @@
 {% from 'components/page-heading.html' import page_heading %}
 {% call page_heading(t.usage, t.usage_subtitle) %}
   <div class="period-control">
-    <div class="btn-group btn-group-sm">
+    <div class="btn-group btn-group-sm w-100">
       {% for value in ['today', '7d', '30d'] %}
       <a class="btn {% if period == value %}active{% endif %}" href="{{ link('usage', period=value) }}" {% if period == value %}aria-current="true"{% endif %}>{{ t[value] }}</a>
       {% endfor %}
@@ -37,8 +38,8 @@
     {% if stats %}<small>{{ stats.start }} / {{ stats.end }} · UTC</small>{% endif %}
   </div>
 {% endcall %}
-<nav class="nav nav-pills mb-3" aria-label="{{ t.usage_extent }}">
-{% for value in ['exact', 'subtree'] %}<a class="nav-link {{ 'active' if extent == value else '' }}" href="{{ link('usage', extent=value) }}" {% if extent == value %}aria-current="page"{% endif %}>{{ t[value ~ '_scope'] }}</a>{% endfor %}
+<nav class="nav nav-pills row g-0 mb-3 small scope-extent" aria-label="{{ t.usage_extent }}">
+{% for value in ['exact', 'subtree'] %}<a class="col-6 col-sm-4 col-xl-3 nav-link d-flex align-items-center justify-content-center text-center {{ 'active' if extent == value else '' }}" href="{{ link('usage', extent=value) }}" {% if extent == value %}aria-current="page"{% endif %}>{{ t[value ~ '_scope'] }}</a>{% endfor %}
 </nav>
 {% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats.empty %}
 <section class="card"><div class="empty"><h2>{{ t.usage_empty }}</h2><p class="empty-subtitle">{{ t.usage_empty_body }}</p><a class="btn" href="{{ link('home') }}">{{ t.back_home }}</a></div></section>

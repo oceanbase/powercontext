@@ -20,31 +20,37 @@
     me .htmx-request.htmx-indicator { display: inline; }
     me .source-text { white-space: pre-wrap; }
   </style>
-  {% include "components/navigation.html" %}
-  <div class="page-wrapper">
-    <header class="topbar"><div class="container-xl d-flex align-items-center justify-content-between">
-      <ol class="breadcrumb mb-0"><li class="breadcrumb-item">{{ data.title }}</li>{% if parent_page %}<li class="breadcrumb-item"><a href="{{ link(parent_page) }}">{{ t[parent_page] }}</a></li>{% endif %}<li class="breadcrumb-item active" aria-current="page">{{ t[page] }}</li></ol>
-      <div class="text-secondary small"><span id="request-status" class="htmx-indicator" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ t.loading }}</span></div>
-    </div></header>
-    <main class="page-body" id="main" tabindex="-1" data-title="{{ t[page] }} · PowerContext"><div class="container-xl">
-      <div id="network-error" class="alert feedback" role="alert" hidden>
-        {{ t.loading_error }} <a href="{{ link() }}">{{ t.retry }}</a>
+  <div class="row g-0 flex-fill">
+    <div class="col-12 col-lg-3 col-xxl-2">
+      <div class="sticky-lg-top">{% include "components/navigation.html" %}</div>
+    </div>
+    <div class="col-12 col-lg-9 col-xxl-10">
+      <div class="page-wrapper">
+        <header class="topbar"><div class="container-xl d-flex align-items-center justify-content-between">
+          <ol class="breadcrumb mb-0"><li class="breadcrumb-item">{{ data.title }}</li>{% if parent_page %}<li class="breadcrumb-item"><a href="{{ link(parent_page) }}">{{ t[parent_page] }}</a></li>{% endif %}<li class="breadcrumb-item active" aria-current="page">{{ t[page] }}</li></ol>
+          <div class="text-secondary small"><span id="request-status" class="htmx-indicator" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ t.loading }}</span></div>
+        </div></header>
+        <main class="page-body" id="main" tabindex="-1" data-title="{{ t[page] }} · PowerContext"><div class="container-xl">
+          <div id="network-error" class="alert feedback" role="alert" hidden>
+            {{ t.loading_error }} <a href="{{ link() }}">{{ t.retry }}</a>
+          </div>
+          {% from 'components/read-error.html' import read_error with context %}
+          {% if page_error %}
+            {{ read_error(page_error) }}
+          {% elif (not scope_descriptor and not record_only) or page == 'entry' %}
+            {% include 'entry.html' %}
+          {% else %}
+            {% if parent_scope or children %}
+            <nav class="d-flex flex-wrap gap-3 mb-3 small" aria-label="{{ t.scope_relationships }}">
+              {% if parent_scope %}<a href="{{ link(parent_page or page, scope=parent_scope.scope_id, artifact=none, revision=none, cursor=none, entry=none, extent=none) }}">{{ t.parent_scope }}: {{ parent_scope.title }}</a>{% endif %}
+              {% for child in children %}<a href="{{ link(parent_page or page, scope=child.scope_id, artifact=none, revision=none, cursor=none, entry=none, extent=none) }}">{{ t.child_scope }}: {{ child.title }}</a>{% endfor %}
+            </nav>
+            {% endif %}
+            {% include page ~ '.html' %}
+          {% endif %}
+        </div></main>
       </div>
-      {% from 'components/read-error.html' import read_error with context %}
-      {% if page_error %}
-        {{ read_error(page_error) }}
-      {% elif (not scope_descriptor and not record_only) or page == 'entry' %}
-        {% include 'entry.html' %}
-      {% else %}
-        {% if parent_scope or children %}
-        <nav class="d-flex flex-wrap gap-3 mb-3 small" aria-label="{{ t.scope_relationships }}">
-          {% if parent_scope %}<a href="{{ link(parent_page or page, scope=parent_scope.scope_id, artifact=none, revision=none, cursor=none, entry=none, extent=none) }}">{{ t.parent_scope }}: {{ parent_scope.title }}</a>{% endif %}
-          {% for child in children %}<a href="{{ link(parent_page or page, scope=child.scope_id, artifact=none, revision=none, cursor=none, entry=none, extent=none) }}">{{ t.child_scope }}: {{ child.title }}</a>{% endfor %}
-        </nav>
-        {% endif %}
-        {% include page ~ '.html' %}
-      {% endif %}
-    </div></main>
+    </div>
   </div>
   <script>
     {

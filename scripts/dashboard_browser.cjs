@@ -46,6 +46,35 @@ async function changePreference(page, key, value) {
   await page.waitForURL(url => url.searchParams.get(key) === value);
 }
 
+async function displayLayout(page) {
+  const navigation = page.locator('.navbar-nav');
+  const expand = await navigation.count() && !await navigation.isVisible();
+  if (expand) {
+    await page.locator('.navbar-toggler').click();
+    await page.locator('#dashboard-navigation.show').waitFor();
+  }
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => scrollTo(0, 0));
+  const layout = await page.evaluate(() => {
+    const rects = selector => [...document.querySelectorAll(selector)].map(element => {
+      const rect = element.getBoundingClientRect();
+      return [rect.x, rect.y, rect.width, rect.height].map(Math.round);
+    });
+    return {
+      navigation: rects('.navbar-nav .nav-link'),
+      preferences: rects('.dropdown-toggle').map(rect => [rect[1], rect[3]]),
+      content: rects('main').map(rect => [rect[0], rect[2]]),
+      period: rects('.period-control').map(rect => [rect[0], rect[2]]),
+      extent: rects('.scope-extent .nav-link').map(rect => [rect[0], rect[2], rect[3]]),
+    };
+  });
+  if (expand) {
+    await page.locator('.navbar-toggler').click();
+    await navigation.waitFor({ state: 'hidden' });
+  }
+  return layout;
+}
+
 async function checkSourceReading(page, base, route, api) {
   await page.goto(base + '/dashboard/' + route);
   const opener = page.locator('[data-evidence]').first();
@@ -204,6 +233,7 @@ async function main() {
       await page.screenshot({ path: path.join(output, `${route.split('?')[0].replaceAll('/', '-')}-${width}.png`), fullPage: true });
     }
   }
+  const localizedLayouts = new Map();
   for (const language of ['zh', 'en']) {
     for (const theme of ['light', 'dark']) {
       for (const width of [390, 1536]) {
@@ -212,6 +242,10 @@ async function main() {
           const response = await page.goto(`${base}/dashboard/${route}`);
           await changePreference(page, 'lang', language);
           await changePreference(page, 'theme', theme);
+          const layout = await displayLayout(page);
+          const layoutKey = `${route}/${theme}/${width}`;
+          if (language === 'zh') localizedLayouts.set(layoutKey, layout);
+          else assert.deepEqual(layout, localizedLayouts.get(layoutKey), `Language changed control placement: ${layoutKey}`);
           const selected = new URL(page.url());
           for (const [key, value] of new URL(base + '/dashboard/' + route).searchParams) {
             assert.equal(selected.searchParams.get(key), value, `Preference change lost ${key}`);

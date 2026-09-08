@@ -20,7 +20,6 @@
 {% if page_error %}{% from 'components/read-error.html' import read_error with context %}{{ read_error(page_error, t.source_label, link('evidence/' ~ source_id, origin=origin, source_type=source_type)) }}{% else %}
   {% if source.source_id %}<code class="source-identity">{{ source.source_id }}</code>{% endif %}
   <div class="original-content" tabindex="0" role="region" aria-label="{{ t.source_original }}">{{ source.text }}</div>
-  <a class="btn mt-3" href="{{ link('evidence/' ~ source.source_id, origin=origin, source_type=source_type) }}" target="_blank" rel="noopener" hx-boost="false">{{ t.open_full }} ↗</a>
 {% endif %}
 
 </div>

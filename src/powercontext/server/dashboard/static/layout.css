@@ -9,8 +9,6 @@
   --pc-evidence-width: 460px;
 }
 body { font-size: 16px; line-height: 1.65; }
-/* Tabler's root scrollbar margin shifts content beside the fixed sidebar. */
-@media (min-width: 992px) { :root { margin-left: 0; } }
 @media (max-width: 1199px) { :root { --pc-page-gutter: 24px; } }
 @media (max-width: 600px) {
   :root { --pc-page-gutter: 16px; }
