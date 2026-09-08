@@ -449,10 +449,10 @@ from powercontext.http import (
     PreparedContext,
     PreparedWorkHandoff,
     PrepareHandoffRequest,
+    ProfilePolicyResponse,
     PromptConfiguration,
     PromptDemonstrationResult,
     PromptKey,
-    ProfilePolicyResponse,
     ProposeExperienceRequest,
     ProposeSkillPackageRequest,
     ProposeSkillRequest,
@@ -591,7 +591,7 @@ from powercontext.http._generated.models import (
 from powercontext.http._generated.models import (
     ShareUnit as TransportShareUnit,
 )
-from powercontext.http._generated.models import Type4 as TransportMemoryEntrySelectorType
+from powercontext.http._generated.models import Type6 as TransportMemoryEntrySelectorType
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
@@ -634,8 +634,8 @@ from powercontext.http._generated.operations import (
     GET_LIVENESS,
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
-    GET_PROMPT_CONFIGURATION,
     GET_PROFILE_POLICY,
+    GET_PROMPT_CONFIGURATION,
     GET_READINESS,
     GET_SCOPE,
     GET_SKILL,
@@ -665,8 +665,8 @@ from powercontext.http._generated.operations import (
     PROPOSE_SKILL_PACKAGE,
     PUBLISH_ARTIFACT,
     PUBLISH_REMOTE_SKILL,
-    QUERY_ARTIFACT_TAGS,
     PUT_PROFILE_POLICY,
+    QUERY_ARTIFACT_TAGS,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,

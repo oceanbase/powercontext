@@ -491,9 +491,7 @@ def test_sdk_handoff_lifecycle_reaches_generation_and_persistence(tmp_path: Path
                 )
             )
 
-            assert capabilities.artifact_families == [
-                "memory", "experience", "skill", "handoff", "profile", "prompt"
-            ]
+            assert capabilities.artifact_families == ["memory", "experience", "skill", "handoff", "profile", "prompt"]
         assert capabilities.handoff_generation is True
         assert activation.status == "generated"
         assert repeated.status == "ignored"

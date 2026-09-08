@@ -38,15 +38,15 @@ from powercontext.builtin.artifacts.memory import (
     MemoryRerankDecision,
     MemoryReranker,
 )
-from powercontext.builtin.artifacts.prompt import PromptRegistry
-from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
-from powercontext.builtin.artifacts.prompt.service import DemonstrationGenerator
 from powercontext.builtin.artifacts.profile.generation import PROFILE_INSTRUCTIONS, LLMProfileGenerator
 from powercontext.builtin.artifacts.profile.service import (
     ProfileGenerationInput,
     ProfileGenerationOutput,
     ProfileGenerator,
 )
+from powercontext.builtin.artifacts.prompt import PromptRegistry
+from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
+from powercontext.builtin.artifacts.prompt.service import DemonstrationGenerator
 from powercontext.builtin.artifacts.skill import AgentSkillProvider, ExternalSkillProvider, SkillGenerator
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication

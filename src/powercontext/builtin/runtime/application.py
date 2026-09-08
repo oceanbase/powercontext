@@ -63,6 +63,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCitationError,
     MemoryEntryNotFoundError,
 )
+from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.prompt import (
     GeneratePromptDemonstrations,
     PromptConfiguration,
@@ -70,7 +71,6 @@ from powercontext.builtin.artifacts.prompt import (
     PromptError,
 )
 from powercontext.builtin.artifacts.prompt.service import PromptService
-from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.skill import (
     AgentKind,
     AgentSkillTarget,

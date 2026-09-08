@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, JsonValue
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.memory import MemoryEntryVersion
 from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:

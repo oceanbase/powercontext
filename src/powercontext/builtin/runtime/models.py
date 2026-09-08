@@ -34,8 +34,8 @@ from powercontext.builtin.artifacts.memory.models import (
     MemorySearchMode,
     MemoryUsedSearchMode,
 )
-from powercontext.builtin.artifacts.prompt import PromptCapability
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
+from powercontext.builtin.artifacts.prompt import PromptCapability
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     ExternalSkillResolution,

@@ -742,7 +742,7 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
-    assert len(artifact["oneOf"]) == 5
+    assert len(artifact["oneOf"]) == 6
     assert artifact["discriminator"]["propertyName"] == "family"
     prompt_request = schemas["CreatePromptArtifactRequest"]
     assert prompt_request["required"] == ["family", "prompt_key", "content"]

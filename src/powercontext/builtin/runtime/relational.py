@@ -59,6 +59,10 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
     MemoryWritePlan,
 )
+from powercontext.builtin.artifacts.profile import Profile
+from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal
+from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.prompt import Prompt, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import (
@@ -68,10 +72,6 @@ from powercontext.builtin.artifacts.prompt.service import (
     current_prompt,
     prompt_operation,
 )
-from powercontext.builtin.artifacts.profile import Profile
-from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
-from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal
-from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProvider,
     ExternalSkillRegistryUnavailableError,
