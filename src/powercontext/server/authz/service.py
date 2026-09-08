@@ -476,6 +476,7 @@ class AccessControlService:
             deployment_id=self.deployment_id,
             provider_capabilities=self.provider_capabilities,
             clock=self._clock,
+            static_scope_principal=self._static_scope_principal,
         )
 
     async def bootstrap_subject_scope(self, connection, principal, scope_id, *, context):

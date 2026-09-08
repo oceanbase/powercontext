@@ -1550,7 +1550,7 @@ async def _query_authorized_resources(
     application = _require_application(request)
     access = _require_access_control(request)
     scope_ids = await _authorized_scope_ids(request, authorized.parent_constraints)
-    families = (family,) if family is not None else ("handoff", "memory", "experience", "skill")
+    families = (family,) if family is not None else ("handoff", "memory", "experience", "skill", "profile")
     for scope_id in scope_ids:
         if resource_type is AccessResourceType.SCOPE:
             resource = ResourceRef.scope(scope_id)
@@ -1601,11 +1601,11 @@ async def _discover_scope_artifact_resources(
             )
             for entry in entries.entries
         )
-    if family in {"experience", "skill"}:
+    if family in {"experience", "skill", "profile"}:
         return await _committed_artifact_resources(
             application,
             scope_id,
-            cast(Literal["experience", "skill"], family),
+            cast(Literal["experience", "skill", "profile"], family),
         )
     raise AccessInvalidRequestError("artifact-family")
 
@@ -1613,7 +1613,7 @@ async def _discover_scope_artifact_resources(
 async def _committed_artifact_resources(
     application: ServerApplication,
     scope_id: str,
-    family: Literal["experience", "skill"],
+    family: Literal["experience", "skill", "profile"],
 ) -> tuple[ResourceRef, ...]:
     resources: list[ResourceRef] = []
     cursor: str | None = None
@@ -2028,6 +2028,10 @@ async def create_subject_source(
             )
         if new_scope:
             await access.bootstrap_subject_scope(connection, principal, target, context=context)
+        elif access.uses_static_preset(principal):
+            # The subject Scope is resolved inside the atomic dual-write transaction,
+            # so materialize the fixed static preset through the same connection.
+            await access.with_connection(connection).bootstrap_static_scope(principal, target, context=context)
         else:
             await access.require(principal, AccessAction.SCOPE_CONTRIBUTE, ResourceRef.scope(target), context=context)
 
@@ -3328,13 +3332,29 @@ async def _validate_shareable_resource(application: ServerApplication | None, re
         if selector.entry_id not in _memory_manifest_entry_ids(memory):
             raise MemoryEntryNotFoundError(selector.entry_id)
         return
-    if profile.family == "experience":
-        await application.experience.for_scope(resource.scope_id).get(RuntimeGetExperienceRequest(artifact=artifact))
-        return
-    if profile.family == "skill":
-        await application.skill.for_scope(resource.scope_id).get(RuntimeGetSkillRequest(artifact=artifact))
+    if profile.family in {"experience", "skill", "profile"}:
+        await _validate_shareable_managed_artifact(
+            application,
+            resource.scope_id,
+            cast(Literal["experience", "skill", "profile"], profile.family),
+            artifact,
+        )
         return
     raise AccessInvalidRequestError("artifact-family-disabled")
+
+
+async def _validate_shareable_managed_artifact(
+    application: ServerApplication,
+    scope_id: str,
+    family: Literal["experience", "skill", "profile"],
+    artifact: ArtifactRef,
+) -> None:
+    if family == "experience":
+        await application.experience.for_scope(scope_id).get(RuntimeGetExperienceRequest(artifact=artifact))
+    elif family == "skill":
+        await application.skill.for_scope(scope_id).get(RuntimeGetSkillRequest(artifact=artifact))
+    else:
+        await application.records.for_scope(scope_id).get_artifact("profile", artifact.artifact_id)
 
 
 async def _establish_created_owner(

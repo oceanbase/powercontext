@@ -81,6 +81,18 @@ def test_subject_dual_write_preserves_single_scope_api_and_authorization(tmp_pat
                 },
             )
             assert exact.status_code == 404
+            if enforced:
+                explicit = await client.post(
+                    "/v1/scopes",
+                    json={"title": "Explicit subject", "summary": "Explicit subject", "idempotency_key": "explicit"},
+                )
+                assert explicit.status_code == 201, explicit.text
+                explicit_scope = explicit.json()["scope_id"]
+                direct = await client.post(
+                    path + "/subject-sources",
+                    json={"subject_key": "U2", "subject_scope_id": explicit_scope, "content": "Direct"},
+                )
+                assert direct.status_code == 201, direct.text
 
     asyncio.run(run())
 
@@ -136,6 +148,30 @@ def test_profile_http_policy_crud_review_and_rollback(tmp_path, enforced):
             first = await client.get(artifact_path)
             assert first.status_code == 200
             assert first.json()["content"]["generation"]["mode"] == "review_approved"
+            if enforced:
+                resource = {
+                    "type": "artifact",
+                    "scope_id": sid,
+                    "identity": {"family": "profile", "artifact_id": "profile"},
+                    "selector": None,
+                }
+                granted = await client.post(
+                    "/v1/access/bindings/create",
+                    json={
+                        "subject": {"type": "user", "id": "profile-reader"},
+                        "resource": resource,
+                        "role": "artifact.viewer",
+                        "idempotency_key": "profile-reader",
+                    },
+                )
+                assert granted.status_code == 201, granted.text
+                for payload in (
+                    {"action": "artifact.read", "resource_type": "artifact", "family": "profile"},
+                    {"action": "artifact.read", "resource_type": "artifact"},
+                ):
+                    discovered = await client.post("/v1/access/resources/list", json=payload)
+                    assert discovered.status_code == 200, discovered.text
+                    assert resource in discovered.json()["items"]
             duplicate = await client.post(
                 path + "/artifacts", json={"family": "profile", "content": {"content": "# Duplicate"}}
             )

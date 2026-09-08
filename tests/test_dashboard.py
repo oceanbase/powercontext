@@ -233,6 +233,7 @@ def test_dashboard_is_the_authenticated_server_ui_entry(tmp_path) -> None:
     assert 'aria-controls="review-scope-options"' in review.text
     assert 'id="review-scope-options" role="listbox"' in review.text
     assert 'id="review-family-filter"' in review.text
+    assert '<option value="profile" data-i18n="profile">Profile</option>' in review.text
     assert 'id="review-status-filter"' in review.text
     assert 'id="review-list" role="listbox"' in review.text
     assert 'id="review-revision-form" hidden' in review.text
