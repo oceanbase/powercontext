@@ -1,9 +1,9 @@
 # PowerContext / Datus experimental bridge
 
-This first implementation delivers approved, exact Skill packages to a native
-Datus Skill directory. SQL remains Datus's responsibility. It also provides
-evaluation primitives and opt-in raw native observation. It does **not** yet
-provide a certified, isolated paired QA runner or establish a benchmark score.
+This experimental bridge delivers approved, exact Skill packages and runs a
+frozen native Datus workflow in isolated development sessions. SQL remains
+Datus's responsibility. The paired evaluator preserves raw evidence and refuses
+unknown coverage. Component tests establish no live benchmark score.
 It is not registered as a supported `powercontext setup` target.
 
 ## Reproduce the two environments
@@ -88,7 +88,7 @@ files. It then checks discovered/GenSQL-visible names and their actual locations
 against that exact allowlist; the smoke also compares loaded content with its
 expected package entrypoint. The root must remain unchanged during validation. It
 does not call `SkillConfig.from_dict`, which appends builtin/adapter directories.
-The caller must inject this manager into the real GenSQL node; invoking the
+The paired runner injects this manager into the real GenSQL node; invoking the
 standard Datus CLI alone does not install this manager or the observer.
 
 Optionally add `--db` to execute only `SELECT 1 AS adapter_smoke` using native
@@ -102,78 +102,184 @@ The JSON is labeled `native_component_smoke`, with `native_agent_qa_runs: 0`.
 A successful SELECT 1 or manual Skill load is neither a learning example nor a
 model-auth/Agent success. Errors expose their type, not connector URLs or passwords.
 
-## Evaluation primitives and current limits
+## Isolated native execution
 
-| Module | Implemented boundary | Still owned by the paired runner/evaluator |
-| --- | --- | --- |
-| `freeze` | Exact regular-file content/mode snapshots; additions, removals, links and drift rejected | OS/process isolation, database version, complete effective context inventory |
-| `observer` | Raw native action snapshots before/after mutation, before rollback/clear; SQLAlchemy cursor lifecycle with distinct IDs; exclusive mode-0600 sidecar | Real graph installation, complete result/final-answer capture, action/driver correlation, model costs, child-process coverage |
-| `trace` | Count unique logical operation attempts; retain failures/retries, deduplicate repeated lifecycle records; reject mixed/conflicting/incomplete traces | Prove event coverage and derive honest operation IDs from native raw evidence |
-| `oracle` | Full-row multiset or ordered comparison, duplicate multiplicity, NULL/type/finite numeric precision handling | Frozen column/unit policy, gold/answer/data consistency and final-answer grounding |
-| `report` | Fixed roster denominator, joint correctness + 1–2 steps, unknown steps remain unknown, conflict/drift/absence invalidate results | Trusted case verdict production; authenticity of native execution and stable data |
+The development entry point is `python -m powercontext_datus.paired`. It uses the
+pinned native `GenSQLAgenticNode -> ExecuteSQLNode -> OutputNode` graph.
+`workflow.build_graph` injects the exact SkillManager and the original native
+`describe_table`, `list_tables`, `execute_sql` and `load_skill` tools. Both arms
+use this same tool profile and native model adapter. SQL is executed during the
+graph, including any SQL the model requests before the ExecuteSQL node. A repeated
+execution is counted again. The evaluator never replays predicted SQL.
 
-`with NativeTrace(path, run_id=..., task_id=..., attempt_id=...):` must wrap the
-entire online interval, from question injection through final answer submission.
-It temporarily observes native ActionHistoryManager methods and SQLAlchemy Engine
-events in **one dedicated process**. It restores those hooks on exit. Do not use
-it in a multi-tenant server. Raw sidecars can contain sensitive SQL/parameters and
-tool results; store them outside Agent-readable paths and do not publish them
-without a privacy review. A successful capture-finished event is not proof of a
-correct final answer. Cursor success does not prove complete result fetching.
+This profile uses a shared, independently approved schema/business/example text
+file as native `external_knowledge`. Online vector retrieval and embedding are
+explicitly disabled. It disables Datus's implicit Bash, filesystem, web, MCP,
+sub-agent, memory, plugin and compaction tools. It verifies the effective tool
+schemas and rendered system prompt again at the final model-dispatch boundary.
+Unsupported tools/child actions or an unobserved driver prevent coverage
+certification; this is not a claim that every Datus configuration is supported.
 
-Neither the generic counter nor the observer currently performs automatic,
-coverage-certified action/DB-span reconciliation. Never label raw span counts,
-Datus's success-only counter, workflow node count, `max_steps`, or one outer RPC
-as the agreed online step metric. Multiple SQL calls inside a wrapper are multiple
-steps; the same operation's wrapper and DB span are one step. Failed attempts,
-retries, retrieval/schema/Skill calls and child operations count. Ambiguity means
-`trace_missing`, not zero. Report model calls/tokens, latency and cost separately.
+Each question runs in a new Linux bubblewrap namespace with a private tmpfs
+home/workspace/session store. Only approved common text, that arm's Skill files,
+the locked interpreter/runtime and bridge sources are mounted read-only.
+The evaluator, other questions, gold/oracles, receipts and prior traces are never
+mounted. Only CPU/memory hardware information is provided from proc/sys; process,
+environment and descriptor paths remain absent. The worker performs real denied
+read and read-only-write probes before execution. It writes evidence through a
+write-only pipe to its parent, with no evidence file path exposed to tools.
+Timeout kills/reaps the worker's namespace and preserves partial output.
 
-The table oracle requires a predeclared column mapping/order; it does not compare
-SQL text or independent sorted columns. Unsupported cell types fail closed and
-require a frozen evaluator conversion policy. Numeric tolerance defaults to zero;
-nonzero tolerances use exact rational arithmetic over the finite decimal inputs,
-independent of the caller's Decimal precision, rounding, exponent limits or traps.
-Final-answer grounding and oracle consistency are independent mandatory checks.
+The launcher supports the installed bubblewrap 0.4.0 and needs unprivileged user
+namespaces. It supplies a minimal environment from the parent, including no
+ambient product tokens. There is no unsandboxed fallback. The exact mount policy,
+rather than the presence of bubblewrap, defines the boundary; see the
+[upstream security model](https://github.com/containers/bubblewrap/blob/main/README.md#sandbox-security).
 
-## Acceptance sequence (not executed by the component CLI)
+Online runs share host networking for the approved model and database connection.
+The pinned httpx clients enforce the configured model origin and retain each HTTP
+attempt without headers or credentials. This is not a general network firewall.
+The supported tool profile exposes no arbitrary HTTP/shell/code execution.
+The database must be an independently controlled immutable read-only snapshot;
+local hashes cannot establish remote database immutability. Native MySQL transport
+and grants still require deployment-side verification.
 
-1. Authorize Datus inference, PowerContext generation and any enabled embedding
-   services separately: exact provider/model IDs, protected secret references,
-   budgets and timeouts. Verify a real model + native SQL smoke first.
-2. Import schema/approved shared business context without formal QA/gold. Prepare
-   learning and development examples in a fresh authoring context without the
-   formal questions or this design conversation. Independently verify provenance,
-   real successful executions and absence of near-copy gold examples.
-3. Give both native/enhanced arms the same independent material and budget. Learn
-   only from those examples; approve and install exact enhanced Skill revisions.
-4. Freeze model parameters, prompt/workflow/tools, effective Skill inventory and
-   bytes, schema/KB/indices, permissions, code/locks and data-version evidence.
-   Clone a fresh session/writable layer per task. Disable automatic learning,
-   cross-task memory and usage feedback. File hashes alone are not a sandbox.
-5. Run the **independent development** paired arms and record every failure.
-   Only after choosing the final version, run the fixed 46-question formal pair
-   from question-only input. Gold/answers/other-task traces must be inaccessible
-   to the Agent. Do not return formal diagnostics to authors before both arms finish.
-6. Independently validate complete online SQL results and grounded final answers
-   against the frozen oracle/data. Retain all 46 tasks, including oracle conflicts,
-   cancellations, missing traces and failures. At least **42/46 must both be
-   correct and use 1–2 online logical steps**. Also report full accuracy and full
-   mean steps (null if any unknown), coverage, model cost and failure categories.
+## Learning, freeze and paired development
 
-The fixed input SHA-256 recorded by the design is
+The runner is evaluator-owned. Its input files are not Agent inputs. Paths in the
+plan are explicit absolute paths selected by that operator. A template is provided
+in `development-plan.example.json`; its placeholders cannot pass admission.
+
+1. Independently author/review the schema/business material and learning samples
+   without the formal questions, gold or this development context. Preserve the
+   existing exposure ledger. Provide actual source, service authorization and
+   data-version receipt files, each referenced by path and SHA-256.
+2. Run `sample` with `evidence_kind=independent_learning`, question-only
+   `tasks`, the native arm, and an admission document binding the roster/common
+   digests and independent author/reviewer. Required receipt references are
+   `source_receipt`, `exposure_ledger`, `service_authorization_receipt` and
+   `data_version_receipt`. This produces native execution receipts, not approved
+   lessons. The evaluator verifies their correctness and provenance.
+3. Use the existing `learning.generate_from_examples` SDK bridge to submit only
+   independently validated lessons to PowerContext. Obtain independent Skill
+   approval and use `deliver_skill` to install exact revisions. The learning
+   runner neither generates nor approves a Skill automatically.
+4. Prepare the development roster and full-row oracle in the evaluator area.
+   Both arms share the same public model configuration, data snapshot, common
+   material, current date, timeout and turn budget. Native Skills, when prepared
+   from the shared examples, may be supplied to the native arm. The enhanced arm
+   additionally requires exact PowerContext delivery receipts.
+5. `freeze` constructs both real native graphs without sending a question or
+   making a model request. It freezes actual prompt/tool/Skill/common identities,
+   the plan/oracle/admission, and every non-bytecode runtime/interpreter/bridge
+   file. Subsequent workers redirect bytecode lookups to their fresh private
+   layer. `run` refuses changed inputs and checks drift after the pair.
+6. `run` executes each question in both isolated arms and writes raw per-case
+   evidence. Scoring is performed only after both arms finish. There is no
+   usage-feedback write or learning backflow in the runner.
+
+From the repository root (replace paths with evaluator-owned files):
+
+```bash
+PYTHONPATH=integrations/datus/src uv run --frozen python -m powercontext_datus.paired sample \
+  --runtime-python integrations/datus/runtime/.venv/bin/python \
+  --input /evaluation/independent-samples.json --output /evaluation/sample-evidence
+
+PYTHONPATH=integrations/datus/src uv run --frozen python -m powercontext_datus.paired freeze \
+  --runtime-python integrations/datus/runtime/.venv/bin/python \
+  --input /evaluation/development-plan.json --output /evaluation/frozen-manifest.json
+
+PYTHONPATH=integrations/datus/src uv run --frozen python -m powercontext_datus.paired run \
+  --runtime-python integrations/datus/runtime/.venv/bin/python \
+  --input /evaluation/frozen-manifest.json --output /evaluation/new-pair
+```
+
+The live plan uses `evidence_kind=independent_development`. Live admission requires
+`independent_author`, a distinct `independent_reviewer`, exact roster/common/oracle
+hashes, `data_mode=immutable_read_only_snapshot`, and these receipt references:
+
+- `source_receipt`, `exposure_ledger`, `native_learning_receipts`
+- `powercontext_generation_receipt`, `skill_approval_receipt`
+- `data_version_receipt`, `oracle_consistency_receipt`, `service_authorization_receipt`
+
+Each receipt is `{"file": "/evaluation/receipt.json", "sha256": "..."}` and must
+exist with matching bytes. `skill_deliveries` maps each arm to its installed
+receipts: name/files, and for PowerContext Skills scope/artifact/revision and
+archive/tree digest. These bind the independent evaluator's attestations; they do
+not authenticate an arbitrary self-authored assertion or prove its truth. The
+evaluator must check sample provenance, remote snapshot control and gold/data
+consistency before issuing admission. The service authorization receipt covers
+Datus inference, PowerContext generation and the generation service's actual
+embedding configuration, quotas and timeout.
+
+`secret_refs` contains only `model_api_key` and `db_password` file references.
+The launcher requires current-user-owned regular files with no group/other access
+and passes their values over stdin to the worker, never argv, a saved manifest,
+or the model prompt. It does not read ambient OpenAI/product/login tokens.
+Datus's `max_retry=1` means one total model-stream attempt at this pin; the shared
+`max_turns` controls the native tool loop, with the process timeout as the hard
+wall-clock bound. SDK/HTTP internal attempts are separately retained.
+
+## Evidence, counting and verdicts
+
+`capture` extends the raw NativeTrace lifecycle observer with native tool-call
+IDs, parent operation IDs, SQLAlchemy result-fetch evidence and raw PyMySQL
+cursor observation. PyMySQL initialization/metadata SQL that bypasses SQLAlchemy
+is retained too. An engine marker associates the same actual cursor execution
+with its wrapper without counting it twice. Nested SQL and repeated attempts
+remain distinct. Native actions must match completed dispatch IDs/names.
+Missing, duplicate, conflicting, unfinished or unlinked evidence produces
+`trace_missing` and unknown steps. Partial results do not become empty tables.
+
+Full result rows are captured from native fetches before DataFrame/CSV conversion
+can coerce integers/NULLs or lose empty-result columns. Chunked fetches accumulate
+until exhaustion. Decimal values have a tagged lossless JSON representation.
+Unsupported cell types fail closed and need a separately frozen conversion policy.
+
+The frozen answer protocol is `json_table_v1`: the entire native GenSQL
+`output` is a JSON string containing `columns` and `rows`. The evaluator checks
+this whole answer against the actual online result independently from the gold
+comparison. Extra prose, unsupported claims, malformed answers and mismatched
+rows do not pass. General natural-language answer judging is not implemented.
+
+The evaluator oracle maps each task ID to `expected` and `declared_answer`
+tables, with optional `ordered`, `absolute_tolerance` and `relative_tolerance`.
+It first checks oracle consistency and then compares complete predicted rows,
+preserving multiplicity, NULL and the predeclared column order. It never sorts
+columns independently or requires the prediction to equal gold SQL text.
+
+Per-case files retain native actions, every SQL/bind and complete result, raw
+GenSQL/final output, model and HTTP attempts, reported usage, failure records and
+monotonic timing. Scores retain the fixed roster, including timeouts and missing
+runs. Online and total capture latency are distinct. Missing token/cache usage
+or pricing stays null. Optional `rates` has input/output/cached prices per million
+tokens; the resulting cost is computed from supplied frozen rates, not a billing
+receipt. Default-zero SDK cache usage stays unknown.
+
+`component_fixture` is an explicit local SQLite/synthetic-HTTP mode. Its reports
+always have zero real learning/development runs and `formal_state=not_started`.
+Fixture arm statistics are component diagnostics only. The native SQLAlchemy
+connector is used for fixture execution, with a fixture-only database-name method;
+live runs use the pinned MySQL adapter. No component count establishes accuracy.
+
+## Acceptance boundary and exposure ledger
+
+This code does not admit formal runs. Real learning/development validation still
+requires authorized model/PowerContext services, independently reviewed samples
+and an established common data version/oracle. No such live runs are claimed by
+the component tests. The bridge is not registered as a supported
+`powercontext setup` target.
+
+The fixed formal input SHA-256 remains
 `c4507c1cd1d167a4c2b05d4cfad7f48226b45e216f2826127070b562e89bda84`.
-No question, answer, gold SQL, DB password or learned domain Skill is committed.
-Previous diagnostics processed reference SQL for EXPLAIN and exposed aggregate
-table/column information to the designer; preserve that exposure ledger. Do not
-claim absolute non-exposure or replace the dataset to erase the ledger. Tuning
-against later formal diagnostics makes subsequent runs known-set regression.
-
-Outstanding engineering before formal admission: wire the selected real GenSQL
-graph (`gen_sql -> execute_sql -> output`) with the manager/observer, establish
-per-case OS isolation and effective tool checks, reconcile raw operations,
-capture full results/answers/model costs, and implement the paired oracle runner.
-These are not claimed complete or hidden behind missing model authorization.
+No formal question, answer, gold SQL, database credential or learned domain Skill
+is committed. Earlier diagnostics processed reference SQL for EXPLAIN and exposed
+aggregate structure to the designer. Retain that exposure ledger; do not claim
+absolute non-exposure or replace the benchmark. Formal admission remains a
+separate coordinator decision after implementation, real development evidence,
+independent review and final freeze. The agreed formal gate remains at least
+42/46 correct with 1–2 online logical steps, plus the full-roster average; unknown
+steps cannot be excluded or filled with zero.
 
 ## Tests
 
@@ -183,9 +289,11 @@ DATUS_RUNTIME_PYTHON=integrations/datus/runtime/.venv/bin/python \
   uv run --frozen python -m pytest tests/datus_adapter -q
 ```
 
-The first command skips the optional native-library subprocess probes. The
-second runs them in the pinned environment. Local Server/SDK tests exercise real
-SQLite-backed package proposal/approval/download/install. Learning tests use
-transport mocks; native observer tests use synthetic actions and real SQLite SQL.
-None count as Datus learning/development/formal QA executions. The review packet
-must report actual native two-arm counts, even when both are zero.
+The optional suite drives the real native GenSQL/SDK/tool/SQL/output chain through
+a local synthetic HTTP gateway, runs OS denial probes, checks complete rows and
+final answers, and freezes/runs two independent case sessions per arm. It covers
+SQL retries, identical repeated SQL, multi-operation wrappers, chunked results,
+unlinked PyMySQL cursor operations, timeouts, unknown usage and input drift.
+The synthetic driver probe does not connect to a live MySQL server. Existing
+Server/SDK tests separately exercise proposal/approval/download/install. None are
+real model learning or benchmark runs.

@@ -1,0 +1,50 @@
+{
+  "evidence_kind": "independent_development",
+  "common_file": "/evaluation/approved-common.txt",
+  "oracle_file": "/evaluation/development-oracle.json",
+  "admission_file": "/evaluation/independent-admission.json",
+  "tasks": [
+    {
+      "task_id": "independent-task-id",
+      "question": "REPLACE WITH INDEPENDENTLY AUTHORED DEVELOPMENT QUESTION"
+    }
+  ],
+  "timeout_seconds": 120,
+  "public": {
+    "model": {
+      "type": "openai",
+      "model": "TASK_AUTHORIZED_MODEL_ID",
+      "base_url": "https://task-authorized-model.example.invalid/v1",
+      "temperature": 0
+    },
+    "max_turns": 8,
+    "current_date": "2026-01-01",
+    "database": {
+      "type": "mysql",
+      "name": "IMMUTABLE_SNAPSHOT_DATABASE",
+      "host": "task-authorized-db.example.invalid",
+      "port": 3306,
+      "username": "READ_ONLY_PRINCIPAL"
+    }
+  },
+  "arms": {
+    "native": {
+      "skill_root": "/evaluation/native-skills",
+      "skill_names": []
+    },
+    "enhanced": {
+      "skill_root": "/evaluation/powercontext-skills",
+      "skill_names": [
+        "approved-skill-name"
+      ]
+    }
+  },
+  "secret_refs": {
+    "model_api_key": "/run/secrets/task-datus-model",
+    "db_password": "/run/secrets/task-database"
+  },
+  "denied_paths": [
+    "/evaluation/formal-gold.json",
+    "/evaluation/other-run"
+  ]
+}

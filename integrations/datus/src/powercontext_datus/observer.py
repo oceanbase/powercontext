@@ -27,6 +27,7 @@ import functools
 import importlib
 import json
 import os
+import threading
 import time
 import uuid
 from contextlib import ExitStack
@@ -48,17 +49,25 @@ class NativeTrace:
     engines, child processes, and model usage are not covered by this observer.
     """
 
-    def __init__(self, path: Path, *, run_id: str, task_id: str, attempt_id: str) -> None:
+    def __init__(self, path: Path | None, *, run_id: str, task_id: str, attempt_id: str, stream: Any = None) -> None:
         if not all((run_id, task_id, attempt_id)):
             raise ValueError("run, task and attempt identifiers are required")
         self.path = path
+        if (path is None) == (stream is None):
+            raise ValueError("provide exactly one path or evaluator-owned write stream")
+        self._provided_stream = stream
         self.identity = {"run_id": run_id, "task_id": task_id, "attempt_id": attempt_id}
         self._stack = ExitStack()
         self._stream: Any = None
         self._sequence = 0
         self._used = False
+        self._write_lock = threading.Lock()
 
     def _write(self, kind: str, payload: dict[str, Any]) -> None:
+        with self._write_lock:
+            self._write_unlocked(kind, payload)
+
+    def _write_unlocked(self, kind: str, payload: dict[str, Any]) -> None:
         self._sequence += 1
         self._stream.write(
             json.dumps(
@@ -134,8 +143,11 @@ class NativeTrace:
         self._used = True
         _active = True
         try:
-            descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            self._stream = self._stack.enter_context(os.fdopen(descriptor, "w", encoding="utf-8"))
+            if self.path is not None:
+                descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                self._stream = self._stack.enter_context(os.fdopen(descriptor, "w", encoding="utf-8"))
+            else:
+                self._stream = self._provided_stream
             actions = importlib.import_module("datus.schemas.action_history")
             for name in ("add_action", "update_current_action", "update_action_by_id", "rollback_to", "clear"):
                 self._observe_method(actions.ActionHistoryManager, name)
