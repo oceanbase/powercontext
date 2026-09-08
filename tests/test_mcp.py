@@ -59,6 +59,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "finalize_handoff",
         "get_artifact_candidate",
         "get_memory_entry",
+        "get_topic_memory",
         "get_scope",
         "handoff_current_work",
         "list_artifact_candidates",
@@ -73,10 +74,27 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "revise_artifact_candidate",
         "revise_memory_entry",
         "search_memory",
+        "search_topic_memory",
         "set_scope_binding",
     }
     assert resource_count == 0
     assert prompt_count == 0
+
+
+def test_mcp_topic_memory_tools_are_read_only_and_flush_is_excluded() -> None:
+    async def inspect_annotations() -> dict[str, Any]:
+        async with Client(create_mcp_server(create_app())) as client:
+            return {tool.name: tool.annotations for tool in await client.list_tools()}
+
+    tools = run_async(inspect_annotations)
+
+    assert "flush_topic_memory" not in tools
+    for name in ("search_topic_memory", "get_topic_memory"):
+        annotations = tools[name]
+        assert annotations is not None
+        assert annotations.readOnlyHint is True
+        assert annotations.destructiveHint is False
+        assert annotations.openWorldHint is False
 
 
 def test_mcp_exposes_read_only_handoff_report_tools_only_when_feature_routes_are_enabled() -> None:

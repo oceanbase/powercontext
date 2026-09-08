@@ -55,6 +55,8 @@ from powercontext.http._generated.models import (
     FlushMemoryResponse,
     FlushProfileRequest,
     FlushProfileResponse,
+    FlushTopicMemoryRequest,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
@@ -67,6 +69,7 @@ from powercontext.http._generated.models import (
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffActivation,
     HandoffCurrentWorkRequest,
@@ -148,6 +151,8 @@ from powercontext.http._generated.models import (
     ScopePage,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
     SkillArtifact,
@@ -158,6 +163,7 @@ from powercontext.http._generated.models import (
     SourceObservationReceipt,
     SourceRecord,
     SubmitSourceObservationRequest,
+    TopicMemoryArtifact,
     UnpublishRemoteSkillRequest,
     UpdateScopeRequest,
     UpdateSkillLifecycleRequest,
@@ -1035,6 +1041,84 @@ CONTINUE_HANDOFF = Operation[ContinueHandoffRequest, HandoffResolution](
         500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="continue_handoff_access"),
+)
+
+FLUSH_TOPIC_MEMORY = Operation[FlushTopicMemoryRequest, FlushTopicMemoryResponse](
+    method="POST",
+    path="/v1/topic-memory/flush",
+    operation_id="flush_topic_memory",
+    request_type=FlushTopicMemoryRequest,
+    request_location="body",
+    path_parameters=(),
+    success_response_types={200: FlushTopicMemoryResponse},
+    summary="Request asynchronous Topic Memory processing",
+    tags=("topic-memory",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "The durable request was accepted, or the source cursor was already current.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(
+        action="scope.contribute", resource="scope", scope_id_field="scope_id", resolver="request"
+    ),
+)
+
+SEARCH_TOPIC_MEMORY = Operation[SearchTopicMemoryRequest, SearchTopicMemoryResponse](
+    method="POST",
+    path="/v1/topic-memory/search",
+    operation_id="search_topic_memory",
+    request_type=SearchTopicMemoryRequest,
+    request_location="body",
+    path_parameters=(),
+    success_response_types={200: SearchTopicMemoryResponse},
+    summary="Search current Topic Memory heads",
+    tags=("topic-memory",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Matching current Topic Memory revisions, including the actual mode used.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_TOPIC_MEMORY = Operation[GetTopicMemoryRequest, TopicMemoryArtifact](
+    method="POST",
+    path="/v1/topic-memory/get",
+    operation_id="get_topic_memory",
+    request_type=GetTopicMemoryRequest,
+    request_location="body",
+    path_parameters=(),
+    success_response_types={200: TopicMemoryArtifact},
+    summary="Get an exact Topic Memory revision",
+    tags=("topic-memory",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "The exact immutable Topic Memory revision.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        404: {"$ref": "#/components/responses/NotFound"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
 FLUSH_MEMORY = Operation[FlushMemoryRequest, FlushMemoryResponse | OperationAccepted](

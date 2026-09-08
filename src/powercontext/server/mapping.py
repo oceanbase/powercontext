@@ -43,6 +43,7 @@ from powercontext.builtin.artifacts.skill import (
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
 )
+from powercontext.builtin.artifacts.topic_memory import PublishedTopicMemory, TopicMemorySearchResult
 from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance
 from powercontext.builtin.persistence.work import StoredWork
 from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
@@ -83,6 +84,7 @@ from powercontext.builtin.runtime import (
     PrepareHandoff,
     RememberMemoryRequest,
     SourceReceipt,
+    TopicMemoryFlushResult,
 )
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
@@ -109,6 +111,7 @@ from powercontext.builtin.runtime import (
     GetMemoryEntryRequest as RuntimeGetMemoryEntryRequest,
 )
 from powercontext.builtin.runtime import GetSkillRequest as RuntimeGetSkillRequest
+from powercontext.builtin.runtime import GetTopicMemoryRequest as RuntimeGetTopicMemoryRequest
 from powercontext.builtin.runtime import (
     ImportExternalSkillRequest as RuntimeImportExternalSkillRequest,
 )
@@ -142,6 +145,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SearchMemoryRequest as RuntimeSearchMemoryRequest,
 )
+from powercontext.builtin.runtime import SearchTopicMemoryRequest as RuntimeSearchTopicMemoryRequest
 from powercontext.builtin.runtime import (
     Statistics as RuntimeStatistics,
 )
@@ -200,6 +204,7 @@ from powercontext.http import (
     ExternalSkillResolutionStatus,
     FlushMemoryResponse,
     FlushStatus,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GeneratedCandidateStatus,
     GenerateExperienceRequest,
@@ -209,6 +214,7 @@ from powercontext.http import (
     GetExperienceRequest,
     GetMemoryEntryRequest,
     GetSkillRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffActivationStatus,
     HandoffClaim,
@@ -256,6 +262,9 @@ from powercontext.http import (
     SearchMemoryHit,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SearchTopicMemoryHit,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     SkillArtifact,
     SkillGovernance,
     SkillLifecycleState,
@@ -269,6 +278,10 @@ from powercontext.http import (
     SourceTypeReference,
     SubmitSourceObservationRequest,
     TaskCheck,
+    TopicMemoryArtifact,
+    TopicMemoryFlushStatus,
+    TopicMemoryMatchedBy,
+    TopicMemoryUsedSearchMode,
     WorkClaim,
     WorkSourceKind,
     WorkSourceReceipt,
@@ -718,6 +731,14 @@ def search_request(value: SearchMemoryRequest) -> RuntimeSearchMemoryRequest:
     )
 
 
+def topic_memory_search_request(value: SearchTopicMemoryRequest) -> RuntimeSearchTopicMemoryRequest:
+    return RuntimeSearchTopicMemoryRequest(query=value.query, limit=value.limit)
+
+
+def topic_memory_get_request(value: GetTopicMemoryRequest) -> RuntimeGetTopicMemoryRequest:
+    return RuntimeGetTopicMemoryRequest(artifact=runtime_artifact_reference(value.artifact))
+
+
 def prepare_context_request(value: TransportPrepareContextRequest) -> PrepareContextRequest:
     return PrepareContextRequest(query=value.query, max_bytes=value.max_bytes)
 
@@ -840,6 +861,38 @@ def search_response(value: MemorySearchPage) -> SearchMemoryResponse:
         memory=None if value.memory_ref is None else artifact_reference(value.memory_ref),
         mode=None if value.mode is None else MemoryUsedSearchMode(value.mode),
         hits=[search_hit(hit) for hit in value.hits],
+    )
+
+
+def topic_memory_flush_response(value: TopicMemoryFlushResult) -> FlushTopicMemoryResponse:
+    return FlushTopicMemoryResponse(status=TopicMemoryFlushStatus(value.status))
+
+
+def topic_memory_search_response(value: TopicMemorySearchResult) -> SearchTopicMemoryResponse:
+    return SearchTopicMemoryResponse(
+        mode=TopicMemoryUsedSearchMode(value.mode),
+        hits=[
+            SearchTopicMemoryHit(
+                artifact=artifact_reference(hit.artifact_ref),
+                title=hit.title,
+                summary=hit.summary,
+                snippet=hit.snippet,
+                score=hit.score,
+                matched_by=[TopicMemoryMatchedBy(channel) for channel in hit.matched_by],
+            )
+            for hit in value.hits
+        ],
+    )
+
+
+def topic_memory_response(value: PublishedTopicMemory) -> TopicMemoryArtifact:
+    topic = value.topic
+    return TopicMemoryArtifact(
+        artifact=artifact_reference(topic.as_ref()),
+        title=topic.content.title,
+        summary=topic.content.summary,
+        detail=topic.content.detail,
+        source_refs=[source_reference(reference) for reference in topic.lineage.sources],
     )
 
 

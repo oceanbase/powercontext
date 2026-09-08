@@ -129,6 +129,25 @@ class MemoryFlushResult(BaseModel):
         return self.current_cursor > self.previous_cursor
 
 
+class TopicMemoryFlushResult(BaseModel):
+    """Durable acceptance result for one scoped Topic Memory flush request."""
+
+    status: Literal["accepted", "idle"]
+
+
+class SearchTopicMemoryRequest(BaseModel):
+    """Caller-neutral Topic Memory search request."""
+
+    query: str
+    limit: int = 10
+
+
+class GetTopicMemoryRequest(BaseModel):
+    """Read one exact immutable Topic Memory revision."""
+
+    artifact: ArtifactRef
+
+
 class ExperienceIncubationResult(BaseModel):
     """Result of incubating one scoped Task Outcome Source window."""
 

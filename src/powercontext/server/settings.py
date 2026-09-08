@@ -337,7 +337,7 @@ class ServerSettings(BaseSettings):
             raise ValueError("AUTH_TOKEN requires ACCESS_MODE=enforced or legacy AUTH_ENABLED=true")  # noqa: TRY003
         if self.access.mode == "disabled" and self.access.background_principal_id is not None:
             raise ValueError("ACCESS_MODE=disabled cannot configure a background Principal")  # noqa: TRY003
-        if is_unauthenticated_non_loopback_bind(
+        if self.runtime.artifact_processing_role != "background" and is_unauthenticated_non_loopback_bind(
             host=self.http.host,
             auth_enabled=self.access.mode != "disabled",
             allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,

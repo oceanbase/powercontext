@@ -46,6 +46,7 @@ from powercontext.http._generated.operations import (
     GET_HANDOFF_REPORT,
     GET_MEMORY_ENTRY,
     GET_SCOPE,
+    GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     LIST_ARTIFACT_CANDIDATES,
     LIST_MEMORY_ENTRIES,
@@ -59,6 +60,7 @@ from powercontext.http._generated.operations import (
     REVISE_ARTIFACT_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
+    SEARCH_TOPIC_MEMORY,
     SET_SCOPE_BINDING,
 )
 from powercontext.server.access import McpAccessLogMiddleware
@@ -84,6 +86,8 @@ _MCP_OPERATION_IDS = frozenset({
     COMMIT_HANDOFF.operation_id,
     CONTINUE_HANDOFF.operation_id,
     SEARCH_MEMORY.operation_id,
+    SEARCH_TOPIC_MEMORY.operation_id,
+    GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     REMEMBER_MEMORY.operation_id,
@@ -106,6 +110,8 @@ _MCP_OPERATION_IDS = frozenset({
 _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     CONTINUE_HANDOFF.operation_id,
     SEARCH_MEMORY.operation_id,
+    SEARCH_TOPIC_MEMORY.operation_id,
+    GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
     GET_MEMORY_ENTRY.operation_id,
     GET_HANDOFF_REPORT.operation_id,

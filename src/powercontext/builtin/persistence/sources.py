@@ -83,6 +83,18 @@ class SourceRepository:
     ) -> StoredSource:
         """Add one stable Source or return an identical existing capture."""
 
+        stored, _created = await self.add_with_status(connection, scope_id, source)
+        return stored
+
+    async def add_with_status(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        source: Source,
+        /,
+    ) -> tuple[StoredSource, bool]:
+        """Add one Source and report whether this call inserted its journal row."""
+
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
         if isinstance(source, SourceObservation):
             ref = SourceRef(source_type=source.source_type, source_id=source.name)
@@ -98,7 +110,7 @@ class SourceRepository:
             stored = self._decode_row(existing)
             if stored.value != source:
                 raise StoredPayloadConflictError("source", (scope_id, ref))
-            return stored
+            return stored, False
 
         position = await _next_journal_position(connection, scope_id)
         try:
@@ -121,8 +133,8 @@ class SourceRepository:
             stored = self._decode_row(existing)
             if stored.value != source:
                 raise StoredPayloadConflictError("source", (scope_id, ref)) from None
-            return stored
-        return StoredSource(ref=ref, value=source, journal_position=position)
+            return stored, False
+        return StoredSource(ref=ref, value=source, journal_position=position), True
 
     async def get(
         self,
@@ -258,6 +270,11 @@ class SourceRepository:
         if value is None:
             raise InvalidStoredColumnError("journal_position", "an integer")
         return int(value)
+
+    async def read_value(self, source: Source, /) -> object:
+        """Read one decoded Source through the same registered adapter route."""
+
+        return await self._registry.read(source)
 
     def _definition_by_name(self, name: str) -> _AnySourceAdapter:
         try:

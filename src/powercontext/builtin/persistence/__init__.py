@@ -32,6 +32,8 @@ from powercontext.builtin.persistence.coordination import (
 )
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import (
+    ArtifactProcessingLeadershipLostError,
+    ArtifactProcessingWaveIncompleteError,
     DatabaseClosedError,
     GenerationConflictError,
     IdentityMismatchError,
@@ -58,6 +60,20 @@ from powercontext.builtin.persistence.statistics import (
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
+from powercontext.builtin.persistence.supervision import (
+    GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP,
+    ArtifactProcessingBindingStateRepository,
+    ArtifactProcessingFence,
+    ArtifactProcessingLeaseRepository,
+    StoredArtifactProcessingBindingState,
+    StoredArtifactProcessingLease,
+)
+from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    NoTopicMemoryIndex,
+    TopicMemoryIndex,
+)
 from powercontext.builtin.persistence.work import (
     EnqueueResult,
     StaleWorkClaimError,
@@ -72,8 +88,15 @@ from powercontext.builtin.persistence.work import (
 )
 
 __all__ = (
+    "GLOBAL_ARTIFACT_PROCESSING_SUPERVISOR_GROUP",
+    "ArtifactProcessingBindingStateRepository",
+    "ArtifactProcessingFence",
+    "ArtifactProcessingLeadershipLostError",
+    "ArtifactProcessingLeaseRepository",
+    "ArtifactProcessingWaveIncompleteError",
     "AsyncDatabase",
     "CandidateRepository",
+    "CompositeTopicMemoryIndex",
     "ConnectorCheckpointRepository",
     "CoordinationRepository",
     "CoordinatorLease",
@@ -85,6 +108,7 @@ __all__ = (
     "InvalidRepositoryArgumentError",
     "InvalidStoredColumnError",
     "InvalidStoredPayloadError",
+    "NoTopicMemoryIndex",
     "PersistenceError",
     "RateLimitDecision",
     "RateLimitRepository",
@@ -105,11 +129,15 @@ __all__ = (
     "StaleScanStateError",
     "StaleWorkClaimError",
     "StatisticsRepository",
+    "StoredArtifactProcessingBindingState",
+    "StoredArtifactProcessingLease",
     "StoredInventoryCounts",
     "StoredModelUsage",
     "StoredPayloadConflictError",
     "StoredRecallTokenUsage",
     "StoredWork",
+    "TopicMemoryIndex",
+    "TopicMemoryRepository",
     "WorkClaim",
     "WorkFailure",
     "WorkRepository",

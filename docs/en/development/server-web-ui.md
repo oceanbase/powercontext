@@ -14,12 +14,14 @@ src/powercontext/server/
 ├── static/
 │   ├── auth.js
 │   ├── dashboard.js
+│   ├── topics.js
 │   └── site.css
 └── templates/
     ├── base.html
     ├── components/
     └── pages/
-        └── dashboard.html
+        ├── dashboard.html
+        └── topics.html
 ```
 
 `web.py` owns the Jinja environment, page router, static mount, and UI support endpoints. `base.html` owns the document
@@ -123,11 +125,37 @@ JSON is the browser projection. Markdown download repeats the same selection wit
 `download=true`; the browser does not reconstruct Markdown from the rendered DOM. Disabling Handoff Report removes
 the page and report API without changing Dashboard selection or statistics behavior.
 
+## Browse Topic Memory
+
+When the Dashboard is enabled, `/topics` provides a read-only management projection over the scopes returned by
+`/dashboard/scopes`. With an empty query, the browser calls the private
+`POST /dashboard/topic-memories/list` support route and follows its opaque current-head keyset cursor in recently
+published order. With a focused query, it calls the public `POST /v1/topic-memory/search` operation with a limit of 20;
+there is no search pagination or caller-selected retrieval mode. These are the only two ordering semantics: recent for
+browse and relevance for search.
+
+Selecting a result sends the same exact `ArtifactRef` to the private `POST /dashboard/topic-memories/get` support
+route. The response adds publication time, current/historical state, the current exact ref, and direct SourceRef
+identifiers to the full Topic detail already selected by the application. The page never fetches Source content or
+metadata and exposes no create, edit, review, retire, publish, delete, or flush action. All generated fields are inserted
+as text nodes; Topic detail is displayed as text rather than interpreted as HTML or Markdown.
+
+Both support routes are hidden from OpenAPI and MCP and delegate to the same `TopicMemoryApplication` used by the
+public operations. They exist only while the Dashboard is enabled and reject scopes absent from the configured
+Dashboard list with a uniform 404.
+
 ## Preserve the security boundary
 
 The Dashboard shell and static assets are public so a browser can render the sign-in form. They must not contain bearer
 tokens, configured scope names, statistics, or other private data. UI support endpoints and `/v1/` data endpoints remain
 behind `StaticBearerMiddleware`.
+
+`DashboardConfig.scopes` controls UI discovery and is not a per-user or per-scope authorization list. The current
+Bearer credential is one Server-wide token: anyone holding it can call protected Server operations for arbitrary valid
+scope IDs, independent of whether those IDs appear in the Dashboard list. The two private Topic support routes add an
+extra configured-scope check for the UI projection, but that check must not be represented as an ACL. Deployments that
+disable authentication deliberately expose data routes according to the existing Server policy. Per-user/per-scope
+authorization requires a separate authentication design.
 
 Return Server-owned pages with the shared Content Security Policy and `Cache-Control: no-store`. Prefer external CSS
 and JavaScript. The short inline script in `base.html` exists only to apply the saved theme before first paint.

@@ -85,6 +85,8 @@ from powercontext.http import (
     FlushProfileRequest,
     FlushProfileResponse,
     FlushStatus,
+    FlushTopicMemoryRequest,
+    FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
@@ -97,6 +99,7 @@ from powercontext.http import (
     GetSkillPackageRequest,
     GetSkillRequest,
     GetStatsRequest,
+    GetTopicMemoryRequest,
     HandoffAcknowledgement,
     HandoffActivation,
     HandoffCurrentWorkRequest,
@@ -178,6 +181,8 @@ from powercontext.http import (
     ScopePage,
     SearchMemoryRequest,
     SearchMemoryResponse,
+    SearchTopicMemoryRequest,
+    SearchTopicMemoryResponse,
     SetDefaultScopeRequest,
     SetScopeBindingRequest,
     SkillArtifact,
@@ -188,6 +193,7 @@ from powercontext.http import (
     SourceObservationReceipt,
     SourceRecord,
     SubmitSourceObservationRequest,
+    TopicMemoryArtifact,
     UnpublishRemoteSkillRequest,
     UpdateScopeRequest,
     UpdateSkillLifecycleRequest,
@@ -223,6 +229,7 @@ from powercontext.http._generated.operations import (
     FINALIZE_HANDOFF,
     FLUSH_MEMORY,
     FLUSH_PROFILE,
+    FLUSH_TOPIC_MEMORY,
     GENERATE_EXPERIENCE,
     GENERATE_PROMPT_DEMONSTRATIONS,
     GENERATE_SKILL,
@@ -248,6 +255,7 @@ from powercontext.http._generated.operations import (
     GET_SKILL_PACKAGE_MANIFEST,
     GET_SOURCE,
     GET_STATS,
+    GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
     LIST_ACCESS_AUDIT,
@@ -296,6 +304,7 @@ from powercontext.http._generated.operations import (
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
     SEARCH_MEMORY,
+    SEARCH_TOPIC_MEMORY,
     SET_DEFAULT_SCOPE,
     SET_SCOPE_BINDING,
     SUBMIT_SOURCE_OBSERVATION,
@@ -894,6 +903,11 @@ class PowerContextClient:
             path_parameters={"operation_id": str(UUID(str(operation_id)))},
         )
 
+    async def flush_topic_memory(self, request: FlushTopicMemoryRequest) -> FlushTopicMemoryResponse:
+        """Durably request Topic Memory processing without waiting for completion."""
+
+        return await self._request(FLUSH_TOPIC_MEMORY, request)
+
     async def remember_memory(self, request: RememberMemoryRequest) -> MemoryMutationResponse:
         """Save one explicit Memory entry without creating a Source."""
 
@@ -903,6 +917,16 @@ class PowerContextClient:
         """Search active Memory entries in one scope."""
 
         return await self._request(SEARCH_MEMORY, request)
+
+    async def search_topic_memory(self, request: SearchTopicMemoryRequest) -> SearchTopicMemoryResponse:
+        """Search current Topic Memory heads with Server-owned retrieval mode."""
+
+        return await self._request(SEARCH_TOPIC_MEMORY, request)
+
+    async def get_topic_memory(self, request: GetTopicMemoryRequest) -> TopicMemoryArtifact:
+        """Read one exact immutable Topic Memory revision."""
+
+        return await self._request(GET_TOPIC_MEMORY, request)
 
     async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
         """Prepare final bounded context for one Agent turn."""

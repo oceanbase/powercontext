@@ -48,6 +48,11 @@ debugging fragments, rejected results, or an inferred `latest` revision.
   retired entries or the complete current Memory snapshot.
 - Use `get_memory_entry` with the exact returned `citation` when full immutable
   entry details are needed.
+- Use `search_topic_memory` with a focused query and no more than eight results
+  for durable topic summaries. The Server selects the retrieval mode.
+- Use `get_topic_memory` with an exact returned Artifact reference only when
+  full Topic Memory detail is needed. Do not request Topic Memory flushes from
+  Codex.
 
 ## Explicit Memory Requests
 

@@ -52,6 +52,7 @@ _CURRENT_OPERATIONS = frozenset({
     "download_skill_package",
     "finalize_handoff",
     "flush_memory",
+    "flush_topic_memory",
     "generate_experience",
     "generate_skill",
     "get_artifact_candidate",
@@ -59,6 +60,7 @@ _CURRENT_OPERATIONS = frozenset({
     "get_memory_entry",
     "get_skill",
     "get_skill_package_manifest",
+    "get_topic_memory",
     "handoff_current_work",
     "import_external_skill",
     "list_artifact_candidates",
@@ -85,6 +87,7 @@ _CURRENT_OPERATIONS = frozenset({
     "revoke_remote_skill_target",
     "scan_external_skills",
     "search_memory",
+    "search_topic_memory",
     "unpublish_remote_skill",
     "update_skill_lifecycle",
 })

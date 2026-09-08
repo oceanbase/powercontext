@@ -1,0 +1,137 @@
+<!--
+  ~ Copyright (c) 2026 OceanBase.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+-->
+
+{% extends "base.html" %}
+
+{% block title %}PowerContext Topics{% endblock %}
+
+{% block content %}
+{% include "components/login.html" %}
+
+{% set status_title_key = "topicsTitle" %}
+{% set status_title = "Topics" %}
+{% include "components/status.html" %}
+
+<section class="server-content" id="topics-library">
+  <div class="hero topics-hero">
+    <div>
+      <p class="page-kind" data-i18n="topicsTitle">Topics</p>
+      <h1 data-i18n="topicMemoryTitle">Topic memory</h1>
+      <p class="topics-intro" data-i18n="topicsIntro">Browse durable topics, then open an exact revision for its full detail and evidence references.</p>
+    </div>
+    <div class="scope-picker topics-scope-picker">
+      <label for="topics-scope-select" data-i18n="selectScope">Scope</label>
+      <select id="topics-scope-select"></select>
+    </div>
+  </div>
+
+  <form class="topics-toolbar" id="topics-search-form" role="search">
+    <label class="topics-search-field">
+      <span data-i18n="searchTopics">Search</span>
+      <input
+        id="topics-search"
+        type="search"
+        maxlength="8192"
+        autocomplete="off"
+        spellcheck="false"
+        data-i18n-placeholder="searchTopicsPlaceholder"
+        placeholder="Search topic titles, summaries, and detail"
+      >
+    </label>
+    <label>
+      <span data-i18n="topicOrder">Order</span>
+      <select id="topics-order" disabled aria-disabled="true">
+        <option value="recent" data-i18n="recentlyPublished">Recently published</option>
+        <option value="relevance" data-i18n="relevance">Relevance</option>
+      </select>
+    </label>
+    <button class="primary-button topics-search-button" type="submit" data-i18n="searchTopicsAction">Search</button>
+    <p class="topics-live-status" id="topics-live-status" role="status" aria-live="polite"></p>
+  </form>
+
+  <div class="topics-workspace">
+    <section class="topics-index" aria-labelledby="topics-index-title">
+      <div class="topics-panel-heading">
+        <div>
+          <h2 id="topics-index-title" data-i18n="topicInventory">Topic inventory</h2>
+          <p id="topics-index-caption"></p>
+        </div>
+      </div>
+      <div class="topics-loading" id="topics-loading" aria-hidden="true" hidden>
+        <span></span><span></span><span></span>
+      </div>
+      <div class="topics-alert" id="topics-list-error" role="alert" hidden></div>
+      <div class="topics-list" id="topics-list" role="listbox" aria-label="Topics" data-i18n-aria-label="topicsTitle"></div>
+      <div class="empty-state topics-empty" id="topics-empty" hidden>
+        <strong data-i18n="noTopics">No topics match this view.</strong>
+        <p data-i18n="noTopicsHint">Try another focused query or choose another scope.</p>
+      </div>
+      <button class="secondary-button topics-load-more" id="topics-load-more" type="button" data-i18n="loadMore" hidden>Load more</button>
+    </section>
+
+    <article class="topics-detail" aria-label="Topic detail" data-i18n-aria-label="topicDetail">
+      <div class="topics-detail-empty" id="topics-detail-empty">
+        <p class="page-kind" data-i18n="topicDetail">Topic detail</p>
+        <h2 data-i18n="selectTopic">Select a topic to inspect its exact revision.</h2>
+        <p data-i18n="selectTopicHint">Full detail, publication state, and direct Source references will appear here.</p>
+      </div>
+
+      <div id="topics-detail-content" hidden>
+        <header class="topics-detail-header">
+          <div>
+            <p class="page-kind" data-i18n="topicMemoryTitle">Topic memory</p>
+            <h2 id="topics-detail-title" tabindex="-1"></h2>
+            <code id="topics-detail-ref"></code>
+          </div>
+          <span class="status-badge" id="topics-detail-current"></span>
+        </header>
+
+        <div class="topics-alert" id="topics-detail-error" role="alert" hidden></div>
+
+        <section class="topics-overview" aria-labelledby="topics-overview-title">
+          <h3 id="topics-overview-title" data-i18n="overview">Overview</h3>
+          <p id="topics-detail-summary"></p>
+          <dl class="topics-facts">
+            <div>
+              <dt data-i18n="publishedAt">Published</dt>
+              <dd id="topics-detail-published"></dd>
+            </div>
+            <div>
+              <dt data-i18n="currentRevision">Current revision</dt>
+              <dd><code id="topics-detail-head"></code></dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="topics-content" aria-labelledby="topics-content-title">
+          <h3 id="topics-content-title" data-i18n="fullDetail">Full detail</h3>
+          <pre id="topics-detail-body"></pre>
+        </section>
+
+        <section class="topics-sources" aria-labelledby="topics-sources-title">
+          <h3 id="topics-sources-title" data-i18n="sourceReferences">Source references</h3>
+          <ul id="topics-source-refs"></ul>
+          <p id="topics-no-sources" data-i18n="noSourceReferences" hidden>No direct Source references.</p>
+        </section>
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('web_static', path='/topics.js') }}?v=topic-memory-r7-v2"></script>
+{% endblock %}
