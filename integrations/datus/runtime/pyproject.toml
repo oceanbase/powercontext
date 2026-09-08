@@ -1,0 +1,11 @@
+[project]
+name = "powercontext-datus-runtime"
+version = "0.0.1"
+requires-python = ">=3.12,<3.13"
+dependencies = ["datus-agent", "datus-mysql==0.1.8"]
+
+[tool.uv.sources]
+datus-agent = { url = "https://github.com/Datus-ai/Datus-agent/archive/b38e71c30cbb32566d2f659570b6f1229c7a1415.tar.gz" }
+
+[tool.uv]
+package = false

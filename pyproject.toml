@@ -153,6 +153,7 @@ packages = ["src/powercontext", "src/powercontext_service_bootstrap"]
 python = "./.venv"
 python-version = "3.11"
 extra-paths = [
+    "./integrations/datus/src",
     "./scripts",
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/claude-code/plugins/powercontext/scripts",
@@ -195,7 +196,7 @@ missing-override-decorator = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["integrations/pydantic-ai/src", "scripts"]
+pythonpath = ["integrations/pydantic-ai/src", "integrations/datus/src", "scripts"]
 markers = [
     "native_service: mutates a disposable matching-platform current-user service manager",
     "real_e2e: uses real Codex, external model providers, and the configured database",
