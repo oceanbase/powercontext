@@ -120,7 +120,6 @@
   "handoff_subtitle": "Progress and next actions",
   "notes_subtitle": "Saved constraints, decisions and related information",
   "methods_subtitle": "Experiences and skills for reference",
-  "all_methods": "All",
   "skill_reading": "Skill",
   "method_filter": "Content type",
   "no_filtered_methods": "No matching content",
@@ -153,7 +152,6 @@
   "parent_scope": "Parent",
   "child_scope": "Child",
   "scope_list_unavailable": "The scope list could not be loaded. You can still read the current scope.",
-  "default_scope": "Default scope",
   "no_scopes": "No scopes yet",
   "next_page": "Next page",
   "exact_scope": "Current scope",
@@ -187,5 +185,12 @@
   "previous_page": "Previous",
   "page_number": "Page {page}",
   "preference": "Preference",
-  "working_note": "Working note"
+  "working_note": "Working note",
+  "search_notes": "Search memories",
+  "clear_search": "Clear search",
+  "notes_no_match": "No matching memories",
+  "notes_search_limit": "Showing up to 50 results. Refine your keywords to narrow the search.",
+  "experience_empty": "No experiences yet",
+  "skills_empty": "No skills yet",
+  "default_scope": "Default scope"
 }

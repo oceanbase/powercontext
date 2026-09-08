@@ -36,6 +36,7 @@
     <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form">
       <label for="scope" class="form-label">{{ t.scope_label }}</label>
       <input type="hidden" name="period" value="{{ period }}">
+      {% if page == 'methods' %}<input type="hidden" name="kind" value="{{ method_kind }}">{% endif %}
       <div class="input-group">
         <select id="scope" name="scope" class="form-select">
           <option value="" {% if not scope %}selected{% endif %}>{{ t.scope_none }}</option>
@@ -45,7 +46,6 @@
         </select>
         <button class="btn scope-go" aria-label="{{ t.apply }}">→</button>
       </div>
-      <a class="small d-block mt-2" href="{{ link('home', scope=none) }}">{{ t.default_scope }}</a>
       {% if errors.get('scopes') %}<p class="small mt-2">{{ t.scope_list_unavailable }}</p>{% endif %}
     </form>
     <nav class="navbar-nav" aria-label="{{ t.navigation }}">

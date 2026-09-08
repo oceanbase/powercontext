@@ -1,0 +1,14 @@
+{% macro search_form(label, limit, kind=none) %}
+<form action="/dashboard/{{ page }}" method="get" class="mb-4" role="search" aria-label="{{ label }}">
+  <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="period" value="{{ period }}">
+  {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+  <label class="form-label" for="content-query">{{ label }}</label>
+  <div class="row g-2 align-items-center">
+    <div class="col-12 col-sm"><div class="input-group">
+      <input class="form-control" type="search" id="content-query" name="q" value="{{ search_query or '' }}" maxlength="{{ limit }}">
+      <button class="btn" type="submit">{{ t.search }}</button>
+    </div></div>
+    {% if search_query %}<div class="col-12 col-sm-auto text-end"><a class="btn btn-ghost-secondary" href="{{ link(q=none, notes_page=none, skill_page=none, entry=none, memory_id=none, memory_revision=none, entry_version=none) }}">{{ t.clear_search }}</a></div>{% endif %}
+  </div>
+</form>
+{% endmacro %}

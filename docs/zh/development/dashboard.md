@@ -8,9 +8,9 @@ Dashboard 是 Server 自带的只读页面，入口为 `/dashboard/home`。它�
 | --- | --- | --- |
 | 范围选择 | `GET /v1/scopes`、`GET /v1/scopes/default`、`GET /v1/scopes/{scope_id}` | 未指定范围时读取服务端默认值；显式空值进入选择页；未知范围返回错误 |
 | 首页 | 记忆列表、各 Artifact Family 列表及精确版本、统计 | 各部分独立读取。内容存在与否不决定用量是否存在 |
-| 记忆 | `POST /v1/memory/entries/list`、`POST /v1/memory/entries/get` | 正文保留原文与换行；链接包含完整 MemoryCitation |
+| 记忆 | `POST /v1/memory/entries/list`、`POST /v1/memory/search`、`POST /v1/memory/entries/get` | 搜索使用全文检索，最多返回 50 条匹配项；正文保留原文与换行，链接包含完整 MemoryCitation |
 | 交接 | `GET /v1/scopes/{scope_id}/artifacts/handoff` 及精确版本 | 展示记录的状态与下一步；不把列表顺序解释为时间顺序 |
-| 经验与技能 | Experience 列表、`POST /v1/experience/get`、`POST /v1/skill/library`、`POST /v1/skill/get` | 经验目录分页；技能复用库检索，单次上限 200 项；精确版本保留正文、来源与检查项 |
+| 经验与技能 | Experience 列表、`POST /v1/experience/get`、`POST /v1/skill/library`、`POST /v1/skill/get` | 经验、技能分别浏览，默认打开经验；技能复用库检索，单次上限 200 项；精确版本保留正文、来源与检查项 |
 | 原始材料 | `GET /v1/scopes/{scope_id}/sources/{source_type}/{source_id}` | 先验证材料属于当前记录，再读取正文；材料失败不影响记录本身 |
 | 用量 | `POST /v1/stats` | 采用服务端周期、合计、每日数据、用途和可比较样本统计 |
 
@@ -18,11 +18,13 @@ Dashboard 不调用生成接口，不依赖 Handoff Report 开关，也不以 ca
 
 HTTP 返回的 Artifact 内容使用 JSON 模式校验。严格领域模型中的 tuple 在 JSON 中是数组，不能用 Python 对象模式直接校验 API 字典。
 
+记忆搜索调用现有接口的 `fts` 模式，不要求配置向量模型。搜索结果保留接口排序与精确引用，达到 50 条上限时提示缩小查询范围。技能搜索直接使用库接口的 `query`。经验没有公开 HTTP 搜索接口，仅提供分页目录；不能扫描当前一页冒充全部内容检索，也不能借用上下文准备接口执行列表搜索。
+
 技能库读取当前可用版本，失效版本仍可通过精确引用读取。达到 200 项上限时提示使用搜索，不伪造总数或分页游标。经验与技能详情采用各自的精确读取接口；通用 Artifact 读取的 `SourceTypeReference` 目前只允许 content，无法完整表示 skill-usage 等命名来源。来源身份必须保留，不能改写成 content 或删除后冒充完整记录。当前公开原文接口只支持 content，其他来源保留精确身份，不提供虚假的原文链接。
 
 ## Scope 的选择和粒度
 
-- 不带 `scope` 的页面读取服务端默认 scope。点击“默认范围”返回这一入口。
+- 不带 `scope` 的页面读取服务端默认 scope。所有范围统一通过下拉框选择。
 - 选择器仅改变当前页面 URL，不修改默认 scope 或工具绑定。切换范围时清除记录身份和分页游标，详情页回到对应目录。
 - 选择项优先显示自身名称，括号中显示可读的祖先路径。父子导航来自 `parent_scope_id`，不推断名称、目录或业务层级。
 - 内容页按单个 scope 读取。用量页可明确选择“当前范围”或“包含子范围”，分别对应 `exact` 和 `subtree`。
@@ -92,7 +94,9 @@ HTMX 替换页面后，css-scope-inline 会通过 MutationObserver 应用组件�
 
 完整 Logo 复用官网的 `website/assets/powercontext-color.png` 和 `powercontext-reverse.png`，通过 Tabler 的 `hide-theme-dark`、`hide-theme-light` 切换。favicon 用正方形 SVG 视窗显示原图左侧图形，不能包含文字或重新绘制品牌图形。记忆、经验和技能条目使用常规字重。列表文字使用 16–20 像素，阅读正文使用 16 像素；较长的经验与交接标题使用 22–24 像素，技能名称使用相同层级。记忆在 xl 断点以下顺序展示目录与正文，减少窄列内的频繁换行。用量表复用 Tabler `table-mobile-sm`，小屏按用途显示输入和输出，模型类型位于用途下方。每日明细保留可用键盘操作的原生横向滚动表格。记忆详情直接展示正文，不附加“阅读记忆”标题、版本栏或记录标识。箭头仅保留范围提交、返回和新窗口等有方向含义的操作。导航不设置“开始使用”页，旧 `/dashboard/guide` 地址保留参数后重定向首页。
 
-列表默认每页 6 项，翻页使用 Tabler Pagination。记忆对接口返回的完整列表分页，技能对现有库检索结果分页；经验和交接保留服务端游标，并在导航链接中携带已访问游标以支持返回。不能根据游标推导总数。直接打开一条记忆时定位到它所在页；翻页清除上一条记忆的身份，范围切换清除所有分页参数。列表随保存而变化，正文仍通过精确引用读取。筛选与搜索变化从第一页开始。
+首页记忆使用 Tabler Card 和 List Group，双栏借助原生栅格与 Flex 工具类等高，卡片上下边缘与经验和技能区块对齐。记忆目录、正文和经验／技能列表采用稳定高度的独立滚动区域；分页栏位于区域底部，条目数量与正文长度不改变其位置。
+
+列表默认每页 6 项，翻页使用 Tabler Pagination。记忆对接口返回的完整列表分页，记忆搜索对最多 50 条匹配结果分页，技能对现有库检索结果分页；经验和交接保留服务端游标，并在导航链接中携带已访问游标以支持返回。不能根据游标推导总数。直接打开一条记忆时定位到它所在页；翻页清除上一条记忆的身份，范围切换清除所有分页参数。列表随保存而变化，正文仍通过精确引用读取。筛选与搜索变化从第一页开始。
 
 ## 测试边界
 

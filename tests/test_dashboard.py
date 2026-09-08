@@ -137,6 +137,57 @@ def test_memory_pagination_and_deep_link_select_the_corresponding_text(dashboard
     assert dashboard.get("/dashboard/notes", params={"scope": scope, "notes_page": "99"}).status_code == 404
 
 
+def test_memory_search_preserves_scope_citations_and_result_pagination(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Searchable memory")["scope_id"]
+    other = create_scope(dashboard, "Separate memory")["scope_id"]
+    for index in range(9):
+        response = dashboard.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope, "kind": "constraint", "text": f"Release checklist item {index}."},
+        )
+        assert response.status_code == 200
+    response = dashboard.post(
+        "/v1/memory/remember", json={"scope_id": scope, "kind": "fact", "text": "Invoices use euros."}
+    )
+    assert response.status_code == 200
+    hits = dashboard.post(
+        "/v1/memory/search", json={"scope_id": scope, "query": "Release", "mode": "fts", "limit": 50}
+    ).json()["hits"]
+    assert hits
+    first = dashboard.get("/dashboard/notes", params={"scope": scope, "q": "Release"})
+    assert first.status_code == 200
+    assert collect_pages(dashboard, first.text, "/dashboard/notes", "entry") == {
+        hit["citation"]["entry_id"] for hit in hits
+    }
+    for hit in hits:
+        citation = hit["citation"]
+        selected = dashboard.get(
+            "/dashboard/notes",
+            params={
+                "scope": scope,
+                "q": "Release",
+                "entry": citation["entry_id"],
+                "entry_version": citation["entry_version_id"],
+                "memory_id": citation["memory_ref"]["artifact_id"],
+                "memory_revision": citation["memory_ref"]["revision"],
+            },
+        )
+        assert selected.status_code == 200
+        assert hit["text"] in selected.text
+    for target, query in [(other, "Release"), (scope, "nonexistent")]:
+        empty = dashboard.get("/dashboard/notes", params={"scope": target, "q": query})
+        assert empty.status_code == 200
+        assert LABELS["notes_no_match"] in empty.text
+        assert not record_links(empty.text, "/dashboard/notes", "entry")
+    restored = dashboard.get(page_link(first.text, LABELS["clear_search"]))
+    assert restored.status_code == 200
+    assert not restored.url.params.get("q")
+    expected = dashboard.post("/v1/memory/entries/list", json={"scope_id": scope}).json()["entries"]
+    assert collect_pages(dashboard, restored.text, "/dashboard/notes", "entry") == {
+        item["citation"]["entry_id"] for item in expected
+    }
+
+
 @pytest.mark.parametrize("family", ["experience", "skill"])
 def test_method_pagination_returns_to_the_previous_records(dashboard: TestClient, family: str) -> None:
     scope = create_scope(dashboard, "Long library")["scope_id"]

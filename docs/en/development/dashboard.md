@@ -8,9 +8,9 @@ The Server includes a read-only Dashboard at `/dashboard/home`. It presents scop
 | --- | --- | --- |
 | Scope selection | Scope list, default and descriptor GET endpoints | An absent scope uses the Server default; an explicit empty value opens the chooser; unknown scopes produce an error |
 | Home | Memory entries, exact Artifact revisions and statistics | Each section loads independently; content existence does not determine usage existence |
-| Memories | `/v1/memory/entries/list`, `/v1/memory/entries/get` | Preserve complete text and line breaks; links contain the complete MemoryCitation |
+| Memories | `/v1/memory/entries/list`, `/v1/memory/search`, `/v1/memory/entries/get` | Search up to 50 full-text matches; preserve complete text and line breaks with the complete MemoryCitation |
 | Handoffs | Scoped handoff Artifact list and revision GET endpoints | Present the recorded state and next action; list order does not imply recency |
-| Experiences and skills | Experience list, `/v1/experience/get`, `/v1/skill/library`, `/v1/skill/get` | Paginate experiences; search skills with the library's 200-result limit; preserve exact content and provenance |
+| Experiences and skills | Experience list, `/v1/experience/get`, `/v1/skill/library`, `/v1/skill/get` | Browse experiences and skills separately, opening experiences by default; search skills with the library's 200-result limit; preserve exact content and provenance |
 | Source material | Scoped source GET endpoint | Verify membership in the selected record before reading; a source failure does not replace the record |
 | Usage | `/v1/stats` | Use reported periods, totals, daily values, purposes and comparison coverage |
 
@@ -20,7 +20,7 @@ Validate Artifact HTTP content in JSON mode. Strict domain tuples are arrays in 
 
 ## Scope semantics
 
-An absent `scope` query reads the Server default. Switching the selector changes only the URL, clears record identities and cursors, and returns detail pages to their collection. It does not change tool bindings or the default save destination.
+An absent `scope` query reads the Server default. Select any scope through the dropdown. Switching the selector changes only the URL, clears record identities and cursors, and returns detail pages to their collection. It does not change tool bindings or the default save destination.
 
 Selection options show their own title before the readable ancestor path. Parent and child links use `parent_scope_id`. Content pages read one exact scope. Usage explicitly offers `exact` and `subtree` selections.
 
@@ -59,6 +59,8 @@ Runtime files live in `src/powercontext/server/dashboard/`.
 
 Experience details use `/v1/experience/get`. Skills use `/v1/skill/library` and `/v1/skill/get`, retaining named provenance such as skill-usage. The generic Artifact response currently restricts SourceTypeReference to content and cannot represent those records completely. Never relabel or drop provenance to make a response fit. The public source-body endpoint currently supports content only; preserve other source identities without inventing readable body links.
 
+Memory search uses the existing `fts` mode without requiring a vector model. Retain API ranking and exact citations, and prompt for narrower keywords at the 50-result limit. Skill search uses the library’s `query`. Experience has no public HTTP search endpoint and provides paged browsing; do not present filtering one page as a complete search or use context preparation for collection lookup.
+
 The skill library shows available heads, with exact access retained for retired revisions. Its maximum is 200 results; prompt for a narrower search at that limit rather than inventing a total or pagination cursor.
 
 The in-process HTTP transport calls the same Server and forwards incoming credentials through its authentication and authorization checks. Templates must not read the runtime or database directly. Never inject a deployment administrator token on behalf of the browser.
@@ -95,7 +97,9 @@ Load Tabler 1.4.0's `tabler-theme.min.js` before styles. It owns `theme=light|da
 
 Reuse the website's `website/assets/powercontext-color.png` and `powercontext-reverse.png`, switching them with Tabler's `hide-theme-dark` and `hide-theme-light`. The favicon uses a square SVG viewport over the original left-hand symbol; omit the wordmark and do not redraw the artwork. Memory, experience and skill rows use regular weight. List text uses 16–20 px and reading text uses 16 px. Long experience and handoff headings use 22–24 px; skill names use the same hierarchy. Memories stack below the xl breakpoint. Model usage uses Tabler `table-mobile-sm` for labeled input and output values on narrow screens, with model type beneath purpose. Daily tables retain keyboard-accessible horizontal scrolling. Memory details show the text directly, without a reading heading, revision bar or record identity. Keep arrows for directional actions such as scope submission, back navigation and new windows. There is no Getting Started page; legacy `/dashboard/guide` URLs redirect home with their parameters intact.
 
-Lists use six items per page and Tabler Pagination. Page the complete memory response and bounded skill-library results locally; retain Server cursors for experiences and handoffs, carrying visited cursors in navigation links for backward navigation. Do not infer totals from cursors. Memory deep links locate the selected entry's page. Page changes clear the preceding entry identity; scope changes clear pagination. Search and filter changes return to the first page. Lists may change after new saves while exact detail references remain stable.
+Home memories use Tabler Card and List Group. Native grid and Flex utilities align the top and bottom card edges with the experiences and skills section. Memory navigation, reading content and experience/skill lists use independently scrollable regions with stable heights. Pagination stays at the bottom of its region when item counts or text lengths change.
+
+Lists use six items per page and Tabler Pagination. Page the complete memory list, up to 50 memory search matches, and bounded skill-library results locally; retain Server cursors for experiences and handoffs, carrying visited cursors in navigation links for backward navigation. Do not infer totals from cursors. Memory deep links locate the selected entry's page. Page changes clear the preceding entry identity; scope changes clear pagination. Search and filter changes return to the first page. Lists may change after new saves while exact detail references remain stable.
 
 ## Test boundaries
 

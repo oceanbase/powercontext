@@ -21,7 +21,7 @@ async def load_collection(api: DashboardAPI, request: Request, ctx: dict[str, An
             family,
             cursor=cursor,
             limit=1 if page == "home" else PAGE_SIZE,
-            query=ctx["skill_query"] if family == "skill" and page == "methods" else None,
+            query=ctx["search_query"] if family == "skill" and page == "methods" else None,
         )
         if page != "home":
             if family == "skill":
@@ -41,7 +41,15 @@ async def load_collection(api: DashboardAPI, request: Request, ctx: dict[str, An
 
 async def load_notes(api: DashboardAPI, ctx: dict[str, Any]) -> None:
     try:
-        ctx["data"]["notes"] = memory_view(await api.read("/v1/memory/entries/list", {"scope_id": ctx["scope"]}))
+        if ctx["page"] == "notes" and ctx["search_query"]:
+            result = await api.read(
+                "/v1/memory/search",
+                {"scope_id": ctx["scope"], "query": ctx["search_query"], "mode": "fts", "limit": 50},
+            )
+            ctx["data"]["notes"] = [{**hit, **hit["citation"]} for hit in result["hits"]]
+            ctx["search_limited"] = len(result["hits"]) == 50
+        else:
+            ctx["data"]["notes"] = memory_view(await api.read("/v1/memory/entries/list", {"scope_id": ctx["scope"]}))
     except ReadError as error:
         ctx["errors"]["notes"] = error
 
@@ -129,8 +137,7 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
     elif page == "handoff":
         await load_collection(api, request, ctx, "handoff")
     elif page == "methods":
-        families = ("experience", "skill") if ctx["method_kind"] == "all" else (ctx["method_kind"],)
-        await asyncio.gather(*(load_collection(api, request, ctx, family) for family in families))
+        await load_collection(api, request, ctx, ctx["method_kind"])
     elif page == "usage":
         await load_stats(api, ctx)
     elif page in RECORDS:

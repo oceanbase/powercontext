@@ -133,8 +133,8 @@ async function main() {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  const api = async route => {
-    const response = await context.request.get(base + route);
+  const api = async (route, data) => {
+    const response = data ? await context.request.post(base + route, { data }) : await context.request.get(base + route);
     assert(response.ok(), `${route}: HTTP ${response.status()}`);
     return response.json();
   };
@@ -179,7 +179,7 @@ async function main() {
     }
   }
   const readingScope = process.env.POWERCONTEXT_BROWSER_SCOPE || defaultScope;
-  let routes = ['home', 'handoff', 'notes', 'methods', 'usage'];
+  let routes = ['home', 'handoff', 'notes', 'methods', 'methods?kind=skill', 'usage'];
   for (const family of ['handoff', 'experience', 'skill']) {
     let collection;
     if (family === 'skill') {
@@ -230,7 +230,7 @@ async function main() {
         assert(await page.getByText(`${family}/${reference.get('artifact')}@${reference.get('revision')}`, { exact: true }).isVisible());
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${route}, ${width}px`);
-      await page.screenshot({ path: path.join(output, `${route.split('?')[0].replaceAll('/', '-')}-${width}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(output, `${(route.startsWith('methods?kind=skill') ? 'skills' : route.split('?')[0].replaceAll('/', '-'))}-${width}.png`), fullPage: true });
     }
   }
   const localizedLayouts = new Map();
@@ -260,7 +260,7 @@ async function main() {
             assert(await logo.evaluate(image => image.complete && image.naturalWidth > 0 && Math.abs(image.width / image.height - image.naturalWidth / image.naturalHeight) < 0.1));
           }
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${route}, ${language}, ${theme}, ${width}`);
-          await page.screenshot({ path: path.join(output, `${route.split('?')[0].replaceAll('/', '-')}-${language}-${theme}-${width}.png`), fullPage: true });
+          await page.screenshot({ path: path.join(output, `${(route.startsWith('methods?kind=skill') ? 'skills' : route.split('?')[0].replaceAll('/', '-'))}-${language}-${theme}-${width}.png`), fullPage: true });
         }
       }
     }
@@ -323,6 +323,69 @@ async function main() {
       await button.click();
       await panel.waitFor({ state: 'hidden' });
     }
+  }
+  for (const width of [390, 1200, 1536]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${base}/dashboard/notes?scope=${readingScope}&lang=en`);
+    const geometry = () => page.evaluate(() => ({
+      height: document.documentElement.scrollHeight,
+      panels: [...document.querySelectorAll('.collection-panel')].map(element => {
+        const rect = element.getBoundingClientRect();
+        return [rect.x, rect.y + scrollY, rect.width, rect.height].map(Math.round);
+      }),
+      pager: [...document.querySelectorAll('[aria-label="Pagination"]')].map(element => {
+        const rect = element.getBoundingClientRect();
+        return [rect.x, rect.y + scrollY, rect.width, rect.height].map(Math.round);
+      }),
+    }));
+    const firstLayout = await geometry();
+    let following = page.getByRole('link', { name: 'Next page', exact: true });
+    while (await following.count()) {
+      const destination = await following.getAttribute('href');
+      await following.click();
+      await page.waitForURL(base + destination);
+      assert.deepEqual(await geometry(), firstLayout, `Pagination shifted the reading layout at ${width}`);
+      following = page.getByRole('link', { name: 'Next page', exact: true });
+    }
+  }
+  const entries = (await api('/v1/memory/entries/list', { scope_id: readingScope })).entries;
+  if (entries.length) {
+    const query = entries[0].text.match(/[A-Za-z][A-Za-z-]{3,}/)?.[0] || entries[0].text.slice(0, 12);
+    const hits = (await api('/v1/memory/search', { scope_id: readingScope, query, mode: 'fts', limit: 50 })).hits;
+    await page.getByRole('searchbox').fill(query);
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.waitForURL(url => url.searchParams.get('q') === query && !url.searchParams.has('notes_page'));
+    const expected = new Set(hits.map(hit => hit.citation.entry_id));
+    const seen = new Set();
+    while (true) {
+      for (const id of await page.locator('.note-selector').evaluateAll(links => links.map(link => new URL(link.href).searchParams.get('entry')))) {
+        assert(expected.has(id));
+        assert(!seen.has(id));
+        seen.add(id);
+      }
+      const following = page.getByRole('link', { name: 'Next page', exact: true });
+      if (!await following.count()) break;
+      const destination = await following.getAttribute('href');
+      await following.click();
+      await page.waitForURL(base + destination);
+    }
+    assert.deepEqual(seen, expected);
+    await page.getByRole('link', { name: 'Clear search', exact: true }).click();
+    await page.waitForURL(url => !url.searchParams.has('q') && !url.searchParams.has('notes_page'));
+    assert(await page.locator('.note-selector').count());
+  }
+  await page.goto(`${base}/dashboard/methods?scope=${readingScope}&lang=en`);
+  await page.locator('.nav-tabs').getByRole('link', { name: 'Skill', exact: true }).click();
+  await page.waitForURL(url => url.searchParams.get('kind') === 'skill');
+  const skills = (await api('/v1/skill/library', { scope_id: readingScope })).skills;
+  if (skills.length) {
+    await page.getByRole('searchbox').fill(skills[0].content.name);
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.waitForURL(url => url.searchParams.get('q') === skills[0].content.name);
+    await page.getByRole('link', { name: skills[0].content.name, exact: true }).click();
+    await page.waitForURL(url => url.pathname.endsWith('/skill'));
+    await page.locator('.back-link').click();
+    await page.waitForURL(url => url.pathname.endsWith('/methods') && url.searchParams.get('kind') === 'skill');
   }
   await page.goto(base + '/dashboard/home');
   await context.setOffline(true);

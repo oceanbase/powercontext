@@ -15,10 +15,10 @@
   me .history-note { font-size: 14px; margin: 12px 0 0; }
   me .home-columns { margin-top: 0; }
   me .home-columns > section { padding-top: 0; }
-  me .note-list .list-group-item { background: transparent; padding: 12px 12px; }
+  me .note-list .list-group-item { background: transparent; padding: 16px 22px; }
   me .note-list p { font-size: 16px; line-height: 1.6; margin: 2px 0 0; }
   me .note-list a { display: block; font-size: 17px; font-weight: 400; color: var(--pc-heading-color); }
-  me .card .note-list { padding: 0 15px; }
+  me .card .note-list { padding: 0; }
   me .experience-card .card-body { padding: 13px 22px; }
   me .experience-card h3 { font-size: 20px; font-weight: 400; margin: 4px 0 4px; }
   me .experience-card h3 a { color: var(--pc-heading-color); font-size: inherit; }
@@ -65,13 +65,13 @@
 </div></section>
 {% endif %}
 <div class="row g-4 home-columns">
-  <section class="col-xl-6" id="notes">
+  <section class="col-xl-6 d-flex flex-column" id="notes">
     <div class="section-heading"><h2>{{ t.remember_heading }}</h2><a href="{{ link('notes') }}">{{ t.view_notes }}</a></div>
     {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% elif data.notes %}{{ note_rows(data.notes[:3]) }}{% else %}
-    <div class="card"><div class="card-body"><h3>{{ t.notes_empty }}</h3><p class="text-secondary mb-0">{{ t.notes_empty_body }}</p></div></div>
+    <div class="card flex-fill"><div class="card-body"><h3>{{ t.notes_empty }}</h3><p class="text-secondary mb-0">{{ t.notes_empty_body }}</p></div></div>
     {% endif %}
   </section>
-  <section class="col-xl-6" id="methods">
+  <section class="col-xl-6 d-flex flex-column" id="methods">
     <div class="section-heading"><h2>{{ t.methods_heading }}</h2><a href="{{ link('methods') }}">{{ t.view_methods }}</a></div>
     {% for family in ['experience', 'skill'] if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endfor %}
     {% if data.experience %}{{ experience_card() }}{% endif %}

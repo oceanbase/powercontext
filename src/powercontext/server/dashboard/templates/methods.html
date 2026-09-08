@@ -1,4 +1,5 @@
 <div class="methods-view text-break">
+{% include 'components/collection-style.html' %}
 <style>
   me .method-row { padding: 20px 24px; }
   me .method-row h2 { font-size: 20px; font-weight: 400; line-height: 1.6; margin: 6px 0 10px; }
@@ -7,30 +8,29 @@
 </style>
 {% from 'components/page-heading.html' import page_heading %}
 {% from 'components/pagination.html' import pagination %}
+{% from 'components/search.html' import search_form with context %}
 {{ page_heading(t.methods, t.methods_subtitle) }}
 <nav class="nav nav-tabs mb-4" aria-label="{{ t.method_filter }}">
-  {% for value, label in [('all', 'all_methods'), ('experience', 'experience'), ('skill', 'skill_reading')] %}<a class="nav-link {% if method_kind == value %}active{% endif %}" href="{{ link('methods', kind=value, q=skill_query if value == 'skill' else none, skill_page=none, experience_cursor=none, experience_history=none) }}" {% if method_kind == value %}aria-current="page"{% endif %}>{{ t[label] }}</a>{% endfor %}
+  {% for value, label in [('experience', 'experience'), ('skill', 'skill_reading')] %}<a class="nav-link {% if method_kind == value %}active{% endif %}" href="{{ link('methods', kind=value, q=none, skill_page=none, experience_cursor=none, experience_history=none) }}" {% if method_kind == value %}aria-current="page"{% endif %}>{{ t[label] }}</a>{% endfor %}
 </nav>
-{% if method_kind == 'skill' %}
-<form action="/dashboard/methods" method="get" class="mb-4">
-  <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="period" value="{{ period }}"><input type="hidden" name="kind" value="skill">
-  <label class="form-label" for="skill-query">{{ t.search_skills }}</label>
-  <div class="input-group"><input class="form-control" type="search" id="skill-query" name="q" value="{{ skill_query or '' }}" maxlength="2000"><button class="btn" type="submit">{{ t.search }}</button></div>
-</form>
-{% endif %}
-{% if collections.get('skill', {}).get('search_limited') %}<p>{{ t.skills_limit }} <a href="{{ link(kind='skill') }}">{{ t.search_skills }}</a></p>{% endif %}
+{% if method_kind == 'skill' %}{{ search_form(t.search_skills, 2000, 'skill') }}{% endif %}
+{% set family = method_kind %}
+{% set collection = collections.get(family, {}) %}
+{% if collection.get('search_limited') %}<p class="text-secondary">{{ t.skills_limit }}</p>{% endif %}
 {% from 'components/read-error.html' import read_error with context %}
-{% for family in ['experience', 'skill'] if method_kind in ['all', family] %}
 {% if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endif %}
-{% for record in collections.get(family, {}).get('items', []) %}
-{% if 'error' not in record %}<article class="card method-row mb-3">
-  <span class="method-type">{{ t[family] }} · {{ t.revision }} {{ record.revision }}</span>
-  <h2><a class="text-reset" href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ (record.lesson if family == 'experience' else record.name)|truncate(80, true) }}</a></h2>
-  <p>{{ (record.situation if family == 'experience' else record.description)|truncate(160, true) }}</p>
-  <a href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_experience if family == 'experience' else t.read_skill }}</a>
-</article>{% endif %}
-{% endfor %}
-{{ pagination(collections.get(family, {}).get('pager'), t) }}
-{% endfor %}
-{% if not data.experience and not data.skill and not errors.get('experience') and not errors.get('skill') %}<section class="card"><div class="empty">{% if skill_query and method_kind == 'skill' %}<h2>{{ t.skills_no_match }}</h2>{% else %}<h2>{{ t.methods_empty }}</h2><p>{{ t.methods_empty_body }}</p>{% endif %}</div></section>{% endif %}
+<section class="collection-panel">
+  <div class="collection-content" tabindex="0" role="region" aria-label="{{ t[family] }}">
+    {% for record in collection.get('items', []) %}
+    {% if 'error' not in record %}<article class="card method-row mb-3">
+      <span class="method-type">{{ t[family] }} · {{ t.revision }} {{ record.revision }}</span>
+      <h2><a class="text-reset" href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ (record.lesson if family == 'experience' else record.name)|truncate(80, true) }}</a></h2>
+      <p>{{ (record.situation if family == 'experience' else record.description)|truncate(160, true) }}</p>
+      <a href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_experience if family == 'experience' else t.read_skill }}</a>
+    </article>{% endif %}
+    {% endfor %}
+    {% if not data[family] and not errors.get(family) %}<section class="card h-100"><div class="empty">{% if search_query and family == 'skill' %}<h2>{{ t.skills_no_match }}</h2>{% else %}<h2>{{ t.experience_empty if family == 'experience' else t.skills_empty }}</h2>{% endif %}</div></section>{% endif %}
+  </div>
+  <div class="collection-footer">{{ pagination(collection.get('pager'), t) }}</div>
+</section>
 </div>

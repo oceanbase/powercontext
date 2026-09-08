@@ -73,13 +73,15 @@ def links(request: Request, ctx: dict[str, Any]):
                     "handoff_history",
                 }
             })
-        record = ctx["data"].get(RECORDS.get(destination, ""))
+        if destination == "methods" and ctx["page"] in {"experience", "skill"}:
+            query["kind"] = ctx["page"]
+        record = (
+            ctx.get("source_record")
+            if destination.startswith("evidence/")
+            else ctx["data"].get(RECORDS.get(destination, ""))
+        )
         if record:
             query.update(artifact=record["artifact_id"], revision=record["revision"])
-        if destination.startswith("evidence/"):
-            parent_record = ctx.get("source_record")
-            if parent_record:
-                query.update(artifact=parent_record["artifact_id"], revision=parent_record["revision"])
         if destination == "notes" and "entry" in params:
             note = next((item for item in ctx["data"]["notes"] if item["entry_id"] == params["entry"]), None)
             if note:
@@ -103,6 +105,9 @@ def links(request: Request, ctx: dict[str, Any]):
 
 
 def initial_context(request: Request, page: str) -> dict[str, Any]:
+    method_kind = request.query_params.get("kind", "experience")
+    if method_kind == "all":
+        method_kind = "experience"
     ctx: dict[str, Any] = {
         **presentation(request),
         "page": page,
@@ -110,8 +115,9 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "scope": request.query_params.get("scope"),
         "period": request.query_params.get("period", "7d"),
         "extent": request.query_params.get("extent", "exact"),
-        "method_kind": request.query_params.get("kind", "all"),
-        "skill_query": request.query_params.get("q", "").strip() or None,
+        "method_kind": method_kind,
+        "search_query": request.query_params.get("q", "").strip() or None,
+        "search_limited": False,
         "data": {
             "title": "PowerContext",
             "summary": "",
@@ -199,8 +205,8 @@ def validate_selection(page: str, ctx: dict[str, Any]) -> None:
     if (
         ctx["period"] not in {"today", "7d", "30d"}
         or ctx["extent"] not in {"exact", "subtree"}
-        or ctx["method_kind"] not in {"all", "experience", "skill"}
-        or len(ctx["skill_query"] or "") > 2000
+        or ctx["method_kind"] not in {"experience", "skill"}
+        or len(ctx["search_query"] or "") > (8192 if page == "notes" else 2000)
     ):
         raise ReadError(422, "invalid_request")
 
