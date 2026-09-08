@@ -83,10 +83,16 @@ def main():
             # Exercise the real Connection.query method with a synthetic
             # transport, representing handshake SQL that creates no Cursor.
             connection: Any = Connection(defer_connect=True)
-            connection._execute_command = lambda *args: None
-            connection._read_query_result = lambda **kwargs: 1
-            connection._result = SimpleNamespace(description=(("value",),), rows=((9,),))
+            connection._sock = object()
+            connection._write_bytes = lambda *args: None
+
+            def read_result(**kwargs):
+                connection._result = SimpleNamespace(description=(("value",),), rows=((9,),))
+                return 1
+
+            connection._read_query_result = read_result
             connection.query("SELECT 9 AS value")
+            connection._sock = None
         history.add_action(
             ActionHistory(
                 action_id="complete_call",

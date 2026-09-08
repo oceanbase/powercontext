@@ -23,13 +23,16 @@ import os
 import sqlite3
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
+import gateway_fixture
 import pytest
 from gateway_fixture import SQL, TABLE, gateway
 from powercontext_datus.capture import reconcile
 from powercontext_datus.evaluate import evaluate_case, model_metrics
 from powercontext_datus.freeze import IntegrityError, digest_json
 from powercontext_datus.paired import file_hash, freeze_plan, read_secret, run_one, run_pair
+from powercontext_datus.report import summarize
 from powercontext_datus.sandbox import Sandbox
 
 
@@ -250,3 +253,106 @@ def test_native_driver_nested_operations_and_chunked_results(sandbox, tmp_path):
     )
     assert result.returncode == 0, (result.stdout, result.stderr)
     assert json.loads(result.stdout)["result"]["steps"] == 5
+
+
+def test_ordered_final_answer_obeys_frozen_policy_without_borrowing_tolerance(sandbox, plan, monkeypatch):
+    monkeypatch.setattr(gateway_fixture, "TABLE", {"columns": ["value"], "rows": [[None], [7], [7]]})
+    with gateway() as (endpoint, _):
+        plan["public"]["model"]["base_url"] = endpoint
+        run = run_one(plan, sandbox, "native", plan["tasks"][0], run_id="ordered-regression")
+    assert run["returncode"] == 0, run
+    oracle = {"expected": TABLE, "declared_answer": TABLE, "ordered": True}
+    ordered, _ = evaluate_case("fixture-1", run, oracle, state_valid=True, data_version_verified=True)
+    assert ordered.correct and not ordered.answer_grounded
+    assert summarize(["fixture-1"], [ordered], data_version_verified=True)["joint_pass"] == 0
+    oracle["ordered"] = False
+    unordered, _ = evaluate_case("fixture-1", run, oracle, state_valid=True, data_version_verified=True)
+    assert unordered.answer_grounded
+    damaged = copy.deepcopy(run)
+    answer = next(r for r in damaged["records"] if r["kind"] == "answer_submitted")
+    answer["answer"] = json.dumps({"columns": ["value"], "rows": [[None], [7.1], [7]]})
+    oracle["absolute_tolerance"] = "1"
+    tolerant, _ = evaluate_case("fixture-1", damaged, oracle, state_valid=True, data_version_verified=True)
+    assert tolerant.correct and not tolerant.answer_grounded
+
+
+def test_drift_after_model_dispatch_preserves_started_case_and_stops_pair(sandbox, plan, tmp_path):
+    def drift(_request):
+        Path(plan["common_file"]).write_text("changed after the actual HTTP model dispatch")
+
+    with gateway(on_request=drift) as (endpoint, calls):
+        plan["public"]["model"]["base_url"] = endpoint
+        manifest = freeze_plan(plan, sandbox)
+        report = run_pair(manifest, sandbox, tmp_path / "drift-evidence")
+    first = json.loads((tmp_path / "drift-evidence/case-0000.json").read_text())
+    second = json.loads((tmp_path / "drift-evidence/case-0001.json").read_text())
+    assert len(calls) == 1
+    assert first.get("not_started") is False and first["process_started"]
+    assert first["wall_seconds"] > 0
+    assert first["control_failure"] == "leakage/state_drift"
+    assert any(r["kind"] == "question_injected" for r in first["records"])
+    assert model_metrics(first["records"])["calls_started"] == 1
+    assert second["not_started"] and not second["records"]
+    assert not report["state_valid"] and report["formal_state"] == "not_started"
+    assert all(v["joint_pass"] == 0 and not v["accepted"] for v in report["arms"].values())
+
+
+def test_mysql_control_commands_and_ack_failures_are_not_hidden(sandbox, tmp_path):
+    probe = Path(__file__).with_name("mysql_command_probe.py").absolute()
+    result = subprocess.run(
+        [str(sandbox.python), str(probe)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=tmp_path,
+        env={"PATH": os.defpath, "PYTHONPATH": str(sandbox.bridge)},
+    )
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    evidence = json.loads(result.stdout)
+    assert evidence["reconciled"]["trace_complete"], evidence
+    assert evidence["reconciled"]["steps"] == 6
+    assert sum(op["failed"] for op in evidence["reconciled"]["operations"]) == 1
+    assert len(evidence["commands"]) == 6
+    assert evidence["missing_ack"]["steps"] is None
+    assert evidence["bypassed"]["steps"] is None
+    assert "mysql_command_boundary_bypassed" in evidence["bypassed"]["trace_issues"]
+    assert evidence["send_failure"]["trace_complete"] and evidence["send_failure"]["steps"] == 1
+    assert evidence["send_failure"]["operations"][0]["failed"]
+    assert evidence["cursor"]["trace_complete"] and evidence["cursor"]["steps"] == 2
+    assert len(evidence["cursor"]["sql_results"]) == 2
+
+
+@pytest.mark.parametrize("mutation", ["common_changed", "common_deleted", "skill_changed", "skill_symlink"])
+@pytest.mark.parametrize("timeout", [False, True])
+def test_post_launch_validation_never_discards_raw_or_partial_output(tmp_path, monkeypatch, mutation, timeout):
+    common = tmp_path / "common"
+    common.write_text("frozen common")
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    skill = skills / "SKILL.md"
+    skill.write_text("frozen skill")
+    raw = json.dumps({"kind": "question_injected", "sequence": 1, "run_id": "r", "task_id": "t", "attempt_id": "a"})
+    raw += "\npartial non-JSON worker output"
+
+    def completed(*args, **kwargs):
+        if mutation == "common_changed":
+            common.write_text("drift")
+        elif mutation == "common_deleted":
+            common.unlink()
+        elif mutation == "skill_changed":
+            skill.write_text("drift")
+        else:
+            skill.unlink()
+            skill.symlink_to(common)
+        if timeout:
+            raise subprocess.TimeoutExpired("component-probe", 1, output=raw.encode(), stderr=b"private error")
+        return SimpleNamespace(returncode=0, stdout=raw, stderr="private error")
+
+    monkeypatch.setattr(Sandbox, "command", lambda *args, **kwargs: ["component-probe"])
+    monkeypatch.setattr(subprocess, "run", completed)
+    run = Sandbox(tmp_path / "python", tmp_path / "bridge").run({}, common=common, skills=skills)
+    assert run["stdout"] == raw and len(run["records"]) == 1
+    assert run["process_started"] and run["not_started"] is False
+    assert run["malformed_output"] and run["timeout"] == timeout
+    assert run["control_failure"] == "leakage/state_drift" and not run["state_valid"]
+    assert run["wall_seconds"] is not None and run["stderr_bytes"] > 0

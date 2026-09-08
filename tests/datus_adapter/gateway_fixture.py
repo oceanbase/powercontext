@@ -28,7 +28,7 @@ SQL = "SELECT value FROM sample ORDER BY rowid"
 
 
 @contextmanager
-def gateway(*, skill=False, sql_tool=False, wrong_answer=False, fail_sql=False):
+def gateway(*, skill=False, sql_tool=False, wrong_answer=False, fail_sql=False, on_request=None):
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -38,6 +38,8 @@ def gateway(*, skill=False, sql_tool=False, wrong_answer=False, fail_sql=False):
         def do_POST(self):
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             calls.append(request)
+            if on_request is not None:
+                on_request(request)
             tool_returns = sum(m["role"] == "tool" for m in request["messages"])
             steps = []
             if skill:

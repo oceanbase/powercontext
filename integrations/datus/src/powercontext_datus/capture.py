@@ -378,6 +378,7 @@ def _reconcile_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     links = {k: r for k, r in _indexed(records, {"sql_link"}, "driver_span_id", issues).items() if r["online"]}
     returns = _indexed(records, {"tool_returned"}, "operation_id", issues)
     _check_native_actions(records, starts, issues)
+    _check_mysql_commands(records, starts, links, issues)
     parents = {r["parent_id"] for r in [*starts.values(), *links.values()] if r["parent_id"]}
     operations = _dispatch_operations(starts, finishes, returns, parents, issues)
     driver_ops, results = _driver_operations(records, starts, links, issues)
@@ -391,6 +392,35 @@ def _reconcile_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         "operations": operations,
         "sql_results": results,
     }
+
+
+def _check_mysql_commands(
+    records: list[dict[str, Any]], starts: dict[str, Any], links: dict[str, Any], issues: set[str]
+) -> None:
+    commands = _indexed(records, {"mysql_command_started"}, "command_id", issues)
+    finishes = _indexed(records, {"mysql_command_finished"}, "command_id", issues)
+    if set(commands) != set(finishes):
+        issues.add("unfinished_mysql_command")
+    sql_ends = _indexed(records, {"sql_success", "sql_failure"}, "driver_span_id", issues)
+    op_ends = _indexed(records, {"operation_finished"}, "operation_id", issues)
+    for identifier, command in commands.items():
+        end = finishes.get(identifier)
+        if end is None or end["sequence"] < command["sequence"] or end["status"] not in {"success", "failure"}:
+            issues.add("unfinished_mysql_command")
+            continue
+        if not command["online"]:
+            continue
+        span = command["driver_span_id"]
+        if span is not None:
+            terminal = sql_ends.get(span)
+            linked = span in links
+            failed = terminal is not None and terminal["kind"] == "sql_failure"
+        else:
+            terminal = op_ends.get(command["operation_id"])
+            linked = command["operation_id"] in starts
+            failed = terminal is not None and terminal["status"] == "failure"
+        if not linked or terminal is None or failed != (end["status"] == "failure"):
+            issues.add("unlinked_mysql_command")
 
 
 def reconcile(records: list[dict[str, Any]]) -> dict[str, Any]:

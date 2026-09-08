@@ -23,6 +23,8 @@ import uuid
 from contextvars import ContextVar
 from typing import Any
 
+from powercontext_datus.mysql_commands import command_scope, observe_commands
+
 _cursor_call: ContextVar[dict[str, Any] | None] = ContextVar("powercontext_mysql_cursor", default=None)
 
 
@@ -74,6 +76,7 @@ def observe_pymysql(trace: Any) -> None:
     for name in ("fetchone", "fetchmany", "fetchall"):
         observe_fetch(trace, cls, name)
     observe_connection_query(trace)
+    observe_commands(trace, importlib.import_module("pymysql.connections").Connection)
 
 
 def observe_fetch(trace: Any, cls: Any, name: str) -> None:
@@ -139,7 +142,8 @@ def observe_connection_query(trace: Any) -> None:
                 executemany=False,
             )
         try:
-            value = original(self, sql, unbuffered)
+            with command_scope(trace, self, query_span=span):
+                value = original(self, sql, unbuffered)
         except BaseException as error:
             if not linked:
                 trace.emit("sql_failure", driver_span_id=span, error_type=type(error).__name__)
@@ -147,6 +151,8 @@ def observe_connection_query(trace: Any) -> None:
         if not linked:
             trace.emit("sql_success", driver_span_id=span)
             result = self._result
+            if getattr(result, "has_next", False):
+                trace.emit("coverage_failure", reason="multiple_mysql_results_not_certified")
             if not unbuffered and result is not None:
                 trace.emit(
                     "sql_rows",

@@ -162,9 +162,6 @@ class Sandbox:
             stderr = error.stderr or b""
             stdout = stdout.decode(errors="replace") if isinstance(stdout, bytes) else stdout
             stderr = stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr
-        verify_snapshot(skills, before)
-        if common.read_bytes() != common_before:
-            raise IntegrityError("shared context drifted")
         records = []
         malformed = False
         for line in stdout.splitlines():
@@ -179,11 +176,26 @@ class Sandbox:
                 malformed = True
         # Third-party stderr can contain sensitive connector exception messages.
         # Keep only the presence/size; structured trace preserves bounded failures.
-        return {
+        run = {
             "returncode": status,
             "records": records,
+            "stdout": stdout,
             "malformed_output": malformed,
             "stderr_bytes": len(stderr.encode()),
             "timeout": status is None,
             "wall_seconds": time.monotonic() - start,
+            "process_started": True,
+            "not_started": False,
+            "state_valid": True,
         }
+        # Validation cannot erase an already-launched process or its trace.
+        # Keep even timeout/partial output, then invalidate the evidence.
+        try:
+            verify_snapshot(skills, before)
+            if common.read_bytes() != common_before:
+                run.update(state_valid=False, control_failure="leakage/state_drift")
+        except (IntegrityError, OSError) as error:
+            run.update(
+                state_valid=False, control_failure="leakage/state_drift", validation_error_type=type(error).__name__
+            )
+        return run

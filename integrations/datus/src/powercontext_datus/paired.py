@@ -269,7 +269,7 @@ def freeze_plan(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
             plan, sandbox, arm, {"task_id": "prepare", "question": ""}, run_id=str(uuid.uuid4()), prepare=True
         )
         configs = [r for r in run["records"] if r["kind"] == "effective_config"]
-        if run["returncode"] != 0 or run["malformed_output"] or len(configs) != 1:
+        if run["returncode"] != 0 or run["malformed_output"] or run.get("control_failure") or len(configs) != 1:
             raise IntegrityError("native effective freeze failed; inspect with component probes")
         effective[arm] = configs[0]["effective_sha256"]
         preparation[arm] = run
@@ -307,6 +307,8 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
                 except (IntegrityError, OSError) as error:
                     abort = "leakage/state_drift" if isinstance(error, IntegrityError) else "environment/auth"
                     result = unstarted_result(abort)
+                if result.get("control_failure"):
+                    abort = result["control_failure"]
             else:
                 result = unstarted_result(abort)
             index = len(evidence)
@@ -357,6 +359,8 @@ def unstarted_result(reason: str) -> dict[str, Any]:
         "timeout": False,
         "control_failure": reason,
         "not_started": True,
+        "process_started": False,
+        "state_valid": False,
         "wall_seconds": None,
         "stderr_bytes": 0,
     }
@@ -394,15 +398,19 @@ def run_samples(plan: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[st
     write_json(output / "plan.json", plan)
     run_id = str(uuid.uuid4())
     results = []
+    abort = None
     for index, task in enumerate(tasks):
-        run = run_one(plan, sandbox, "native", task, run_id=run_id)
+        run = run_one(plan, sandbox, "native", task, run_id=run_id) if abort is None else unstarted_result(abort)
         write_json(output / f"sample-{index:04d}.json", {"task_id": task["task_id"], **run})
         results.append(run)
+        if run.get("control_failure"):
+            abort = run["control_failure"]
     report = {
         "evidence_kind": "independent_learning",
         "formal_state": "not_started",
         "real_learning_runs": sum(any(r["kind"] == "question_injected" for r in v["records"]) for v in results),
-        "native_completed": sum(v["returncode"] == 0 for v in results),
+        "native_completed": sum(v["returncode"] == 0 and not v.get("control_failure") for v in results),
+        "state_valid": abort is None,
         "independent_lesson_validation": "required",
         "skill_generation": "not_started",
     }

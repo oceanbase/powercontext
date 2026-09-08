@@ -231,6 +231,15 @@ remain distinct. Native actions must match completed dispatch IDs/names.
 Missing, duplicate, conflicting, unfinished or unlinked evidence produces
 `trace_missing` and unknown steps. Partial results do not become empty tables.
 
+The PyMySQL command boundary also records native ROLLBACK/COMMIT/BEGIN, SET,
+session selection and PING paths that bypass `Connection.query`. Submission and
+native reply completion are separate events; failed sends and acknowledgements
+are retained. Query/cursor/engine records share one SQL operation ID. Each online
+control SQL and connection probe is counted as a distinct attempt, including
+pool/recovery activity; they are not hidden initialization or exempt traffic.
+Unscoped, bypassed, unsupported or unfinished commands invalidate coverage.
+Non-SQL protocol payload bytes are never recorded.
+
 Full result rows are captured from native fetches before DataFrame/CSV conversion
 can coerce integers/NULLs or lose empty-result columns. Chunked fetches accumulate
 until exhaustion. Decimal values have a tagged lossless JSON representation.
@@ -241,6 +250,8 @@ The frozen answer protocol is `json_table_v1`: the entire native GenSQL
 this whole answer against the actual online result independently from the gold
 comparison. Extra prose, unsupported claims, malformed answers and mismatched
 rows do not pass. General natural-language answer judging is not implemented.
+Grounding obeys the frozen `ordered` row policy, but remains numerically exact:
+the gold comparison's tolerance never permits an inaccurate final answer.
 
 The evaluator oracle maps each task ID to `expected` and `declared_answer`
 tables, with optional `ordered`, `absolute_tolerance` and `relative_tolerance`.
@@ -255,6 +266,14 @@ runs. Online and total capture latency are distinct. Missing token/cache usage
 or pricing stays null. Optional `rates` has input/output/cached prices per million
 tokens; the resulting cost is computed from supplied frozen rates, not a billing
 receipt. Default-zero SDK cache usage stays unknown.
+
+After a process starts, context/Skill drift invalidates its result without
+discarding its raw stdout, parsed records, timeout state or wall time. These
+evaluator-only files can contain sensitive outputs and must not be published
+without review. The launched case has `process_started=true/not_started=false`;
+only subsequent unlaunched cases are marked `not_started`. Pair and sample
+runners stop dispatch after a reported control failure. Partial or malformed
+stdout is retained even when no complete answer can be scored.
 
 `component_fixture` is an explicit local SQLite/synthetic-HTTP mode. Its reports
 always have zero real learning/development runs and `formal_state=not_started`.

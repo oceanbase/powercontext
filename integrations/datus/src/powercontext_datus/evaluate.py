@@ -102,7 +102,9 @@ def evaluate_case(
                 answer = json.loads(submitted["answer"])
                 # Grounding is exact, independent of the oracle's permitted
                 # numerical tolerance. It cannot borrow the expected answer.
-                grounded = set(answer) == {"columns", "rows"} and compare_tables(table_from_json(answer), actual)
+                grounded = set(answer) == {"columns", "rows"} and compare_tables(
+                    table_from_json(answer), actual, ComparisonPolicy(ordered=policy.ordered)
+                )
             except (ValueError, TypeError, KeyError):
                 answer_error = "unsupported_or_inaccurate_final_answer"
     correct = actual is not None and compare_tables(actual, expected, policy)
@@ -128,7 +130,7 @@ def evaluate_case(
         answer_grounded=grounded,
         trace_complete=complete,
         oracle_consistent=consistent,
-        state_valid=state_valid,
+        state_valid=state_valid and run.get("state_valid", True) and not run.get("control_failure"),
         failures=tuple(sorted(failures)),
     )
     return verdict, {**trace, "answer_error": answer_error, "metrics": model_metrics(records)}
