@@ -30,7 +30,7 @@
     "@types/node": "^24.3.0",
     "tsdown": "^0.16.2",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=20",
