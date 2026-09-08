@@ -26,6 +26,7 @@ from powercontext_datus import paired
 from powercontext_datus.capture import reconcile
 from powercontext_datus.evaluate import evaluate_case
 from powercontext_datus.freeze import IntegrityError, digest_json, snapshot
+from powercontext_datus.report import summarize
 from powercontext_datus.sandbox import Sandbox
 
 
@@ -186,6 +187,59 @@ def test_interleaved_calls_are_valid_when_each_local_lifecycle_is_ordered():
     interleaved = [first[0], second[0], first[1], *second[1:], *first[2:]]
     result = reconcile(numbered([*records[:2], *interleaved, *records[-2:]]))
     assert result["trace_complete"] and result["steps"] == 2, result
+
+
+@pytest.mark.parametrize("position", [1, 7, 8])
+@pytest.mark.parametrize("success", [True, False])
+def test_orphan_tool_return_is_never_ignored(position, success):
+    records = tool_records()
+    records.insert(position, {"kind": "tool_returned", "operation_id": "orphan", "value": {"success": success}})
+    result = reconcile(numbered(records))
+    assert not result["trace_complete"] and result["steps"] is None, result
+
+
+@pytest.mark.parametrize("binding", ["no_call_id", "offline"])
+def test_tool_return_cannot_borrow_an_operation_without_native_actions(binding):
+    records = tool_records()
+    # A known operation ID alone is not a native invocation proof. Retain the
+    # other complete call so an ignored return cannot hide behind no_operations.
+    extra = copy.deepcopy(records[3:6])
+    for record in extra:
+        record["operation_id"] = "other"
+    extra[0]["call_id"] = None if binding == "no_call_id" else "offline_call"
+    extra[0]["online"] = binding != "offline"
+    result = reconcile(numbered([*records[:7], *extra, *records[7:]]))
+    assert not result["trace_complete"] and result["steps"] is None, result
+
+
+def test_orphan_return_preserves_correct_rows_but_cannot_pass_evaluation():
+    run, table = decimal_run("1.0")
+    oracle = {"expected": table, "declared_answer": table}
+    original, _ = evaluate_case("t", run, oracle, state_valid=True, data_version_verified=True)
+    assert summarize(["t"], [original], data_version_verified=True)["joint_pass"] == 1
+    run["records"].insert(
+        -2,
+        {
+            "kind": "tool_returned",
+            "operation_id": "orphan",
+            "value": {"success": True},
+        },
+    )
+    run["records"] = numbered(run["records"])
+    verdict, _ = evaluate_case("t", run, oracle, state_valid=True, data_version_verified=True)
+    report = summarize(["t"], [verdict], data_version_verified=True)
+    assert verdict.correct and verdict.answer_grounded
+    assert report["total"] == 1 and report["results_present"] == 1
+    assert not report["accepted"] and report["joint_pass"] == 0 and report["mean_steps"] is None
+    assert report["cases"] == [
+        {
+            "task_id": "t",
+            "correct": True,
+            "steps": None,
+            "joint_pass": False,
+            "failures": ["trace_missing"],
+        }
+    ]
 
 
 def decimal_run(number):

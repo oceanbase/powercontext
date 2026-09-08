@@ -287,7 +287,12 @@ def _check_native_actions(
     returns: dict[str, Any],
     issues: set[str],
 ) -> None:
-    call_ids = [r["call_id"] for r in starts.values() if r["call_id"]]
+    native_starts = {op_id: start for op_id, start in starts.items() if start["call_id"]}
+    # Return evidence must be covered by the native lifecycles checked below,
+    # not silently ignored because no dispatch happens to reference it.
+    if returns.keys() - native_starts.keys():
+        issues.add("unmatched_tool_return")
+    call_ids = [r["call_id"] for r in native_starts.values()]
     if len(call_ids) != len(set(call_ids)):
         issues.add("reused_native_call_id")
     actions = [r for r in records if r["kind"] == "action_received" and r["action"].get("role") == "tool"]
@@ -303,9 +308,7 @@ def _check_native_actions(
         next((r["sequence"] for r in records if r["kind"] == kind), 0)
         for kind in ("question_injected", "answer_submitted")
     )
-    for op_id, start in starts.items():
-        if not start["call_id"]:
-            continue
+    for op_id, start in native_starts.items():
         processing = by_id.get(start["call_id"], [])
         terminal = by_id.get("complete_" + start["call_id"], [])
         if len(processing) != 1 or len(terminal) != 1:

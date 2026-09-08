@@ -262,6 +262,9 @@ raises instead finishes with `failure` and emits no return. Unknown dispatch
 states, early/stale terminals, returns outside the invocation, and duplicate,
 conflicting, missing or reversed evidence invalidate certification. Corrupt
 lifecycles have unknown steps; ordered failures remain counted attempts.
+Every return must belong to one of these complete online native lifecycles.
+Orphan returns and returns attached only to offline or non-native operations
+invalidate the whole trace, even outside the question/answer interval.
 
 Full result rows are captured from native fetches before DataFrame/CSV conversion
 can coerce integers/NULLs or lose empty-result columns. Chunked fetches accumulate

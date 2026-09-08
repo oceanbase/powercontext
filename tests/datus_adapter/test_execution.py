@@ -165,6 +165,15 @@ def test_native_graph_full_rows_failures_retries_and_wrapper_deduplication(sandb
     corrupted = reconcile(premature)
     assert not corrupted["trace_complete"] and corrupted["steps"] is None
     (tmp_path / "premature-terminal.json").write_text(json.dumps({"records": premature, "reconciled": corrupted}))
+    orphaned = copy.deepcopy(run["records"])
+    orphan = copy.deepcopy(next(r for r in orphaned if r["kind"] == "tool_returned"))
+    orphan["operation_id"] = "unobserved-dispatch"
+    orphaned.insert(next(i for i, r in enumerate(orphaned) if r["kind"] == "answer_submitted"), orphan)
+    for index, record in enumerate(orphaned, 1):
+        record.update(sequence=index, monotonic_ns=index)
+    unbound = reconcile(orphaned)
+    (tmp_path / "orphan-return.json").write_text(json.dumps({"records": orphaned, "reconciled": unbound}))
+    assert not unbound["trace_complete"] and unbound["steps"] is None, unbound
 
 
 def test_native_sql_result_does_not_prove_final_answer(sandbox, plan):
