@@ -2,7 +2,7 @@
 <section class="card compact-usage">
   <style>
     me.compact-usage { margin-top: 20px; }
-    me.compact-usage .card-body { padding: 15px 24px; display: grid; grid-template-columns: 285px minmax(0, 1fr); gap: 30px; }
+    me.compact-usage .card-body { padding: 16px 24px; }
     me .compact-chart { min-width: 0; }
     me .compact-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 24px; }
     me .compact-summary h3 { font-size: 18px; margin: 0 0 6px; }
@@ -11,20 +11,18 @@
     me .compact-summary small { font-size: 12px; display: block; margin-top: 18px; }
     me .compact-chart .section-heading { margin-bottom: 9px; font-size: 12px; }
     me .compact-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
-    @media (max-width: 1199px) { me.compact-usage .card-body { grid-template-columns: 220px minmax(0, 1fr); gap: 20px; } }
-    @media (max-width: 600px) { me.compact-usage .card-body { display: block; } }
-    @media (max-width: 600px) { me .compact-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 15px; margin-bottom: 20px; } }
-    @media (max-width: 600px) { me .compact-chart .section-heading { flex-wrap: wrap; } }
+    @media (max-width: 991px) { me .compact-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 15px; margin-bottom: 20px; } }
+    @media (max-width: 991px) { me .compact-chart .section-heading { flex-wrap: wrap; } }
   </style>
 
-  <div class="card-body">
-    <div class="compact-summary">
+  <div class="card-body"><div class="row g-4">
+    <div class="col-lg-4 col-xxl-3 compact-summary">
       <h3>{{ t[period] }}</h3>
       <p>{% if stats.percent is not none %}{{ t.compact_comparison }}{{ t.increased if stats.token_reduction < 0 else t.reduced }} <strong>{{ stats.percent }}%</strong>{% else %}{{ t.no_comparison }}{% endif %}</p>
       {% if stats.comparable_preparations > 0 %}<a href="{{ link('usage') }}">{{ coverage_notice() }}</a>{% endif %}
       <small>{{ t.compact_estimate_notice }}</small>
     </div>
-    <div class="compact-chart">
+    <div class="col-lg-8 col-xxl-9 compact-chart">
       <div class="section-heading">
         <div class="compact-legend"><i class="baseline-key"></i>{{ t.baseline }} <i class="recalled-key ms-3"></i>{{ t.recalled }}</div>
         <a href="{{ link('usage') }}">{{ t.view_usage }}</a>
@@ -33,4 +31,5 @@
     </div>
   </div>
 
+  </div>
 </section>

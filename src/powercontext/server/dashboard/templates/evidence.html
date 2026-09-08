@@ -1,10 +1,14 @@
 <div class="source-content-view">
 <style>
   me .source-identity { display: block; color: var(--tblr-secondary); background: transparent; overflow-wrap: anywhere; font-size: 13px; padding: 0; }
-  me.source-content-view { width: 100%; min-width: 0; }
-  me .original-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; font-size: 18px; padding: 26px 0; margin: 24px 0; border-top: 1px solid var(--tblr-border-color); min-height: 310px; }
+  me.source-content-view { width: 100%; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; }
+  me > :not(.original-content) { flex-shrink: 0; }
+  me > .alert { flex-shrink: 1; min-height: 0; overflow: auto; }
+  me .nav-tabs { max-height: 20dvh; overflow-y: auto; }
+  me .source-identity { max-height: 15dvh; overflow-y: auto; }
+  me .original-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: 16px; padding: 16px 0; margin: 16px 0 0; border-top: 1px solid var(--tblr-border-color); min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 </style>
-  <nav class="nav nav-tabs mb-4" aria-label="{{ t.source_label }}">
+  <nav class="nav nav-tabs mb-3" aria-label="{{ t.source_label }}">
     {% for item in related_sources %}
     <a href="{{ link('evidence/' ~ item.source_id, origin=origin, source_type=item.source_type) }}" class="nav-link {% if item.source_id == source_id and item.source_type == source_type %}active{% endif %}"
        {% if item.source_id == source_id and item.source_type == source_type %}aria-current="page"{% endif %}
@@ -14,8 +18,8 @@
     {% endfor %}
   </nav>
 {% if page_error %}{% from 'components/read-error.html' import read_error with context %}{{ read_error(page_error, t.source_label, link('evidence/' ~ source_id, origin=origin, source_type=source_type)) }}{% else %}
-  <h3>{{ t.source_original }}</h3><code class="source-identity">{{ source.source_id }}</code>
-  <div class="original-content">{{ source.text }}</div>
+  {% if source.source_id %}<code class="source-identity">{{ source.source_id }}</code>{% endif %}
+  <div class="original-content" tabindex="0" role="region" aria-label="{{ t.source_original }}">{{ source.text }}</div>
   <a class="btn mt-3" href="{{ link('evidence/' ~ source.source_id, origin=origin, source_type=source_type) }}" target="_blank" rel="noopener" hx-boost="false">{{ t.open_full }} ↗</a>
 {% endif %}
 

@@ -5,37 +5,15 @@
   --tblr-body-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
   --tblr-border-radius: 5px;
   --tblr-card-border-radius: 5px;
-  --pc-page-gutter: 38px;
-  --pc-sidebar-width: 256px;
+  --pc-page-gutter: 32px;
   --pc-evidence-width: 460px;
 }
 body { font-size: 16px; line-height: 1.65; }
 /* Tabler's root scrollbar margin shifts content beside the fixed sidebar. */
 @media (min-width: 992px) { :root { margin-left: 0; } }
-a { color: var(--tblr-primary); text-underline-offset: 4px; }
-button, select, input, textarea { font: inherit; }
-a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--tblr-primary); outline-offset: 4px; }
-h1, h2, h3 { color: var(--pc-heading-color); font-weight: 650; letter-spacing: -.02em; }
-h1 { font-size: 42px; line-height: 1.3; margin: 0 0 6px; }
-h2 { font-size: 23px; line-height: 1.45; }
-h3 { font-size: 20px; line-height: 1.5; }
-p { margin-bottom: 12px; }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
-
-.card {
-  --tblr-card-spacer-x: 24px;
-  --tblr-card-spacer-y: 24px;
-  --tblr-card-border-color: var(--tblr-border-color);
-  --tblr-card-border-radius: var(--tblr-border-radius);
-  --tblr-card-inner-border-radius: calc(var(--tblr-border-radius) - var(--tblr-border-width));
-  --tblr-card-box-shadow: none;
-  --tblr-card-bg: var(--tblr-body-bg);
-}
-@media (max-width: 1199px) { :root { --pc-page-gutter: 28px; } }
+@media (max-width: 1199px) { :root { --pc-page-gutter: 24px; } }
 @media (max-width: 600px) {
-  :root { --pc-page-gutter: 18px; }
-  h1 { font-size: 32px; }
-  .card { --tblr-card-spacer-x: 20px; --tblr-card-spacer-y: 20px; }
+  :root { --pc-page-gutter: 16px; }
 }
 
 :root:not([data-bs-theme="dark"]) {
@@ -50,7 +28,3 @@ p { margin-bottom: 12px; }
   --pc-active-bg: #ecf2ff;
   --pc-hover-bg: #f2f6ff;
 }
-[data-bs-theme="dark"] .nav-symbol img { filter: invert(1); }
-
-.brand-logo { display: inline-block; width: 200px; max-width: 100%; line-height: 0; }
-.brand-logo img { width: 100%; height: auto; }

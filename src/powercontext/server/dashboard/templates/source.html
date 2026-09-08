@@ -15,7 +15,8 @@
 <body>
   <main class="standalone-source">
     <style>
-      me.standalone-source { max-width: 850px; margin: 40px auto; padding: 20px 30px; }
+      me.standalone-source { width: 100%; max-width: 850px; height: 100dvh; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; }
+      me > :not(.source-content-view) { flex-shrink: 0; }
     </style>
     {% include 'components/preferences.html' %}
     <a href="{{ link(origin) }}">← {{ t[origin] }}</a>

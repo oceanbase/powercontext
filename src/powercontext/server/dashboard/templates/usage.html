@@ -1,16 +1,15 @@
 <div class="usage-view">
 <style>
   me .period-control { text-align: right; }
-  me .period-control .btn { font-size: 16px; padding: 8px 24px; }
   me .period-control small { display: block; font-size: 13px; margin-top: 8px; }
   me .btn-group .active { background: var(--pc-active-bg); border-color: var(--tblr-border-color); color: var(--tblr-primary); }
   me .usage-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 30px; }
-  me .usage-summary h2 { font-size: 22px; }
+  me .usage-summary h2 { font-size: var(--tblr-font-size-h2); }
   me .big-number { font-size: 82px; letter-spacing: -4px; line-height: 1.25; color: var(--tblr-primary); font-weight: 600; margin: 12px 0 4px; font-variant-numeric: tabular-nums; }
   me .big-number > span { font-size: 66px; }
   me .big-number > small { font-size: 33px; margin-left: 16px; }
   me .big-number.negative { color: var(--tblr-body-color); }
-  me .comparison-values { margin: 25px 0; font-size: 15px; }
+  me .comparison-values { margin: 25px 0; font-size: 14px; }
   me .comparison-values div { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
   me .comparison-values dt { font-weight: 400; }
   me .comparison-values dd { margin: 0; font-variant-numeric: tabular-nums; }
@@ -18,21 +17,19 @@
   me .chart-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
   me .bar-chart { padding: 0; }
   me .usage-caption { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--tblr-border-color); font-size: 14px; }
-  me .table { --tblr-table-border-color: var(--tblr-border-color); font-size: 15px; }
+  me .table { --tblr-table-border-color: var(--tblr-border-color); font-size: 14px; }
   me .table tfoot th { font-size: 14px; white-space: normal; }
   me .model-usage-table th, me .model-usage-table td { padding-inline: 8px; }
   @media (max-width: 1199px) { me .usage-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 22px; padding-right: 12px; } }
   @media (max-width: 600px) { me .period-control { margin-top: 16px; } }
   @media (max-width: 600px) { me .chart-legend { font-size: 11px; gap: 10px; } }
   @media (max-width: 600px) { me .period-control { text-align: left; } }
-  @media (max-width: 600px) { me .period-control .btn { padding-inline: 12px; } }
-  @media (max-width: 375px) { me .period-control .btn { font-size: 14px; padding-inline: 8px; } }
 </style>
 {% from 'macros.html' import comparison_chart, number, disclosure, coverage_notice with context %}
 {% from 'components/page-heading.html' import page_heading %}
 {% call page_heading(t.usage, t.usage_subtitle) %}
   <div class="period-control">
-    <div class="btn-group">
+    <div class="btn-group btn-group-sm">
       {% for value in ['today', '7d', '30d'] %}
       <a class="btn {% if period == value %}active{% endif %}" href="{{ link('usage', period=value) }}" {% if period == value %}aria-current="true"{% endif %}>{{ t[value] }}</a>
       {% endfor %}

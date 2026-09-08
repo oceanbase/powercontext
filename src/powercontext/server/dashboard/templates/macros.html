@@ -41,6 +41,9 @@
 
 {% macro disclosure(identifier, title) %}
 <div class="accordion accordion-flush" id="{{ identifier }}">
+  <style>
+    me .accordion-body { max-height: 60dvh; overflow: auto; overscroll-behavior: contain; }
+  </style>
   <div class="accordion-item">
     <h2 class="accordion-header">
       <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
@@ -49,7 +52,7 @@
       </button>
     </h2>
     <div class="accordion-collapse collapse" id="{{ identifier }}-body">
-      <div class="accordion-body">{{ caller() }}</div>
+      <div class="accordion-body" tabindex="0" role="region" aria-label="{{ title }}">{{ caller() }}</div>
     </div>
   </div>
 </div>

@@ -1,6 +1,7 @@
 <div class="handoff-reading">
 {% include 'components/reading-style.html' %}
-{% from 'macros.html' import disclosure, evidence_link with context %}
+{% from 'components/record-references.html' import record_references %}
+{% from 'macros.html' import evidence_link with context %}
 {% if data.handoff %}
 <article class="reading-sheet row g-5">
   <div class="col-xxl-7">
@@ -9,7 +10,7 @@
       <section><h2>{{ t.recorded_state }}</h2><ul>{% for statement in data.handoff.state %}<li>{{ statement.text }}</li>{% endfor %}</ul></section>
       <section><h2>{{ t.next_action }}</h2><p>{{ data.handoff.next_action.text if data.handoff.next_action else t.no_next_action }}</p></section>
       <section><h2>{{ t.handoff_omissions }}</h2>{% if data.handoff.omissions %}<ul>{% for omission in data.handoff.omissions %}<li>{{ omission.text }}</li>{% endfor %}</ul>{% else %}<p>{{ t.no_omissions }}</p>{% endif %}</section>
-      {% call disclosure('handoff-identity', t.technical) %}<code>handoff/{{ data.handoff.artifact_id }}@{{ data.handoff.revision }}</code>{% endcall %}
+      {{ record_references(data.handoff, 'handoff') }}
     </div>
   </div>
   {% include 'components/record-sources.html' %}

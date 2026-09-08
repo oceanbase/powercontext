@@ -3,8 +3,8 @@
   me .note-selector { padding: 16px; overflow-wrap: anywhere; }
   me .note-selector.active { background: var(--pc-active-bg); color: var(--tblr-primary); border-color: var(--tblr-border-color); }
   me .note-selector .note-summary { color: inherit; font-size: 16px; line-height: 1.65; }
-  me .note-reading { padding: 24px; }
-  me .note-reading .note-text { font-size: 17px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+  me .note-reading { padding: 24px; max-height: 70dvh; overflow: auto; overscroll-behavior: contain; }
+  me .note-reading .note-text { font-size: 16px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 991px) { me .note-reading { min-height: auto; padding: 24px; } }
 </style>
 {% from 'components/pagination.html' import pagination %}
@@ -19,7 +19,7 @@
     </a>{% endfor %}
   </nav>{{ pagination(notes_pager, t) }}</aside>
   <section class="col-xl-8" id="note-reading" aria-label="{{ t.note_reading }}"><article class="card">
-    <div class="card-body note-reading">
+    <div class="card-body note-reading" tabindex="0" role="region" aria-label="{{ t.notes }}">
       {% if selected_note %}
       <p class="note-text">{{ selected_note.text }}</p>
       {% else %}<div class="empty"><h2>{{ t.not_found }}</h2><a class="btn" href="{{ link('notes') }}">{{ t.notes_list }}</a></div>{% endif %}

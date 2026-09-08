@@ -3,7 +3,7 @@
   me { overflow-wrap: anywhere; }
   me .handoff-sheet .card-body { padding: 19px 30px 12px; }
   me .handoff-sheet .row { --tblr-gutter-y: 12px; }
-  me .handoff-title { font-size: clamp(26px, 2.25vw, 35px); margin: 10px 0 0; }
+  me .handoff-title { font-size: clamp(24px, 2vw, 28px); margin: 10px 0 0; }
   me .handoff-state h3 { font-size: 18px; margin-bottom: 13px; color: var(--tblr-body-color); }
   me .next-action h3 { font-size: 18px; margin-bottom: 13px; color: var(--tblr-body-color); }
   me .state-list { list-style: none; padding: 0; margin: 0; }
@@ -13,7 +13,7 @@
   me .next-action p { font-size: 18px; line-height: 1.65; max-width: 340px; }
   me .next-action h3 span { color: var(--tblr-primary); margin-left: 18px; }
   me .history-note { font-size: 14px; margin: 12px 0 0; }
-  me .home-columns { margin-top: 22px; --tblr-gutter-y: 0; --tblr-gutter-x: 65px; }
+  me .home-columns { margin-top: 0; }
   me .home-columns > section { padding-top: 0; }
   me .note-list .list-group-item { background: transparent; padding: 12px 12px; }
   me .note-list p { font-size: 16px; line-height: 1.6; margin: 2px 0 0; }
@@ -26,9 +26,6 @@
   me .experience-card a { font-size: 14px; }
   me .source-trail { font-size: 13px; margin: 10px 0; }
   me .source-trail span { padding: 0 12px; }
-  @media (max-width: 991px) { me .home-columns { --tblr-gutter-y: 24px; margin-top: 0; } }
-  @media (max-width: 1199px) { me .home-columns { --tblr-gutter-x: 40px; } }
-  @media (max-width: 600px) { me .home-columns { --tblr-gutter-x: 24px; } }
   @media (max-width: 600px) { me .handoff-sheet .card-body { padding: 20px; } }
   @media (max-width: 600px) { me .handoff-title { font-size: 24px; } }
   @media (max-width: 767px) { me .next-action { border-left: 0; border-top: 1px solid var(--tblr-border-color); padding: 20px 12px 0; } }
@@ -67,14 +64,14 @@
   <p class="text-secondary mb-0">{{ t.handoff_empty_body }}</p>
 </div></section>
 {% endif %}
-<div class="row g-5 home-columns">
-  <section class="col-lg-6" id="notes">
+<div class="row g-4 home-columns">
+  <section class="col-xl-6" id="notes">
     <div class="section-heading"><h2>{{ t.remember_heading }}</h2><a href="{{ link('notes') }}">{{ t.view_notes }}</a></div>
     {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% elif data.notes %}{{ note_rows(data.notes[:3]) }}{% else %}
     <div class="card"><div class="card-body"><h3>{{ t.notes_empty }}</h3><p class="text-secondary mb-0">{{ t.notes_empty_body }}</p></div></div>
     {% endif %}
   </section>
-  <section class="col-lg-6" id="methods">
+  <section class="col-xl-6" id="methods">
     <div class="section-heading"><h2>{{ t.methods_heading }}</h2><a href="{{ link('methods') }}">{{ t.view_methods }}</a></div>
     {% for family in ['experience', 'skill'] if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endfor %}
     {% if data.experience %}{{ experience_card() }}{% endif %}

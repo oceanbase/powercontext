@@ -1,0 +1,13 @@
+{% macro record_references(record, family) %}
+{% if record.artifact_id or record.sources or record.artifacts %}
+<footer class="record-references text-secondary border-top pt-3" tabindex="0">
+  <style>
+    me.record-references { max-height: 25dvh; overflow: auto; overflow-wrap: anywhere; }
+    me code { display: block; margin-bottom: 8px; padding: 0; color: inherit; background: transparent; font-size: 13px; }
+  </style>
+  {% if record.artifact_id %}<code>{{ family }}/{{ record.artifact_id }}{% if record.revision %}@{{ record.revision }}{% endif %}</code>{% endif %}
+  {% for source in record.sources if source.source_id %}<code>{{ source.source_type }}/{{ source.source_id }}</code>{% endfor %}
+  {% for artifact in record.artifacts if artifact.artifact_id %}<code>{{ artifact.family }}/{{ artifact.artifact_id }}{% if artifact.revision %}@{{ artifact.revision }}{% endif %}</code>{% endfor %}
+</footer>
+{% endif %}
+{% endmacro %}
