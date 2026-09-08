@@ -22,6 +22,7 @@ import secrets
 from collections import deque
 from collections.abc import Callable, Sequence
 
+import rfc8785
 from pydantic import JsonValue
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -158,6 +159,9 @@ class ScopeApplication:
             "limit": discovery.limit,
             "order": "scope_id:asc",
         }
+        # Normalization can expand a valid query manyfold. Bind the complete
+        # context by digest so the opaque cursor stays within the HTTP limit.
+        expected = {"version": 2, "context_digest": hashlib.sha256(rfc8785.dumps(expected)).hexdigest()}
         after = self._cursor_codec.after_text(discovery.cursor, expected)
         async with self._database.transaction() as connection:
             items, has_more = await self._repository.discover(connection, discovery, after=after)

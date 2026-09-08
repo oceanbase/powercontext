@@ -490,6 +490,8 @@ def test_client_serializes_scope_filter_and_source_page_query() -> None:
                 cursor="cursor-0",
             )
             await client.list_sources("scope one", ListSourcesRequest(limit=7, cursor="cursor-1"))
+            await client.list_scopes(limit=50)
+            await client.list_scopes("title", query_field=ScopeQueryField.TITLE)
 
         assert requests[0].url.path == "/v1/scopes"
         assert not requests[0].url.params
@@ -503,6 +505,8 @@ def test_client_serializes_scope_filter_and_source_page_query() -> None:
         }
         assert requests[2].url.path == "/v1/scopes/scope one/sources"
         assert dict(requests[2].url.params) == {"limit": "7", "cursor": "cursor-1"}
+        assert dict(requests[3].url.params) == {"limit": "50"}
+        assert dict(requests[4].url.params) == {"query": "title", "query_field": "title", "limit": "50"}
 
     asyncio.run(scenario())
 

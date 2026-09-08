@@ -2161,9 +2161,11 @@ async def list_sources(
     if http_request.app.state.access_mode == "enforced":
         access = _require_access_control(http_request)
         for item, source in zip(items, result.items, strict=True):
-            if not _is_handoff_receipt_content(source.content):
+            if not source.handoff_receipt and not _is_handoff_receipt_content(source.content):
                 continue
             identity = await access.receipt_identity(scope_id, source.source_id)
+            if identity is None and source.handoff_receipt:
+                raise AccessUnavailableError("receipt_identity_pending")
             if identity is not None:
                 item.receipt_identity = _receipt_identity_response(identity)
     return SourcePage(items=items, next_cursor=result.next_cursor)
@@ -2310,8 +2312,12 @@ async def get_source(
 ) -> SourceRecord:
     result = await application.records.for_scope(scope_id).get_source(source_type, source_id)
     response = _source_record_response(result)
-    if http_request.app.state.access_mode == "enforced" and _is_handoff_receipt_content(result.content):
+    if http_request.app.state.access_mode == "enforced" and (
+        result.handoff_receipt or _is_handoff_receipt_content(result.content)
+    ):
         identity = await _require_access_control(http_request).receipt_identity(scope_id, source_id)
+        if identity is None and result.handoff_receipt:
+            raise AccessUnavailableError("receipt_identity_pending")
         if identity is not None:
             response.receipt_identity = _receipt_identity_response(identity)
     return response

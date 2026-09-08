@@ -338,6 +338,16 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             source = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
             assert source.status_code == 200, source.text
             assert source.json()["receipt_identity"] == identity
+
+            async def identity_missing(*args, **kwargs):
+                return None
+
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", identity_missing)
+                exact_missing = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
+                list_missing = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact_missing.status_code == 503, exact_missing.text
+                assert list_missing.status_code == 503, list_missing.text
             with monkeypatch.context() as patch:
                 patch.setattr(access, "receipt_identity", identity_unavailable)
                 exact_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")

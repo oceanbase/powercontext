@@ -164,6 +164,8 @@ class RelationalRecordService:
         content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
+        *,
+        handoff_receipt: bool = False,
     ) -> SourceRecord:
         """Preserve the caller-stable identity used by the existing capture API."""
 
@@ -178,7 +180,7 @@ class RelationalRecordService:
         return await self._store_source(
             scope_id,
             source_type,
-            await CONTENT_SOURCE_ADAPTER.resolve(capture),
+            (await CONTENT_SOURCE_ADAPTER.resolve(capture)).model_copy(update={"handoff_receipt": handoff_receipt}),
         )
 
     async def _store_source(
@@ -668,6 +670,7 @@ def _source_record(
         content=_source_content(stored.value),
         position=stored.journal_position,
         content_digest=_content_digest(_source_content(stored.value)),
+        handoff_receipt=stored.value.handoff_receipt,
     )
 
 

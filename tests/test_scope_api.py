@@ -97,6 +97,38 @@ def test_scope_discovery_filters_one_explicit_field_in_sql_and_paginates(tmp_pat
         assert client.get("/v1/scopes", params={"title": "Needle"}).status_code == 422
 
 
+def test_scope_discovery_cursor_handles_expanding_unicode_query(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'unicode-query.db'}"),
+            auth=BearerAuthConfig(enabled=False),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+    query = "\ufdfa" * 256
+    with TestClient(app) as client:
+        scope_ids = set()
+        for index in range(2):
+            created = client.post(
+                "/v1/scopes",
+                json={"title": query, "summary": "Unicode pagination", "idempotency_key": f"unicode-{index}"},
+            )
+            assert created.status_code == 201, created.text
+            scope_ids.add(created.json()["scope_id"])
+        params = {"query": query, "query_field": "title", "limit": 1}
+        first = client.get("/v1/scopes", params=params)
+        assert first.status_code == 200, first.text
+        cursor = first.json()["next_cursor"]
+        assert cursor and len(cursor) <= 4096
+        second = client.get("/v1/scopes", params=params | {"cursor": cursor})
+        assert second.status_code == 200, second.text
+        assert second.json()["next_cursor"] is None
+        assert {item["scope_id"] for page in (first, second) for item in page.json()["items"]} == scope_ids
+        changed = client.get("/v1/scopes", params=params | {"cursor": cursor, "query": "other"})
+        assert changed.status_code == 400, changed.text
+        assert changed.json()["error"]["code"] == "invalid_cursor"
+
+
 def test_scope_http_flow_resolves_default_durable_and_observation_ranges(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(

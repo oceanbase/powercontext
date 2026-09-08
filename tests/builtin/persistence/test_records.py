@@ -56,6 +56,7 @@ from powercontext.builtin.persistence.tables import (
 from powercontext.builtin.records import (
     ArtifactRevisionPreconditionError,
     ArtifactWrite,
+    BaseValueConflictError,
     InvalidBaseAccessRequestError,
     InvalidCursorError,
 )
@@ -77,6 +78,32 @@ class _FailingExperienceIndex(NoExperienceIndex):
 
 def _memory_content() -> dict[str, JsonValue]:
     return {"entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}]}
+
+
+def test_receipt_provenance_is_server_owned_and_legacy_replay_is_idempotent() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            metadata = {"handoff_receipt": True, "kind": "handoff_receipt"}
+            legacy = await records.capture_source("scope", "content", "receipt", "receipt body", metadata)
+            assert not legacy.handoff_receipt
+            attested = await records.capture_source(
+                "scope", "content", "receipt", "receipt body", metadata, handoff_receipt=True
+            )
+            assert attested.handoff_receipt
+            assert attested.model_dump() == legacy.model_dump()
+            replay = await records.capture_source(
+                "scope", "content", "receipt", "receipt body", metadata, handoff_receipt=True
+            )
+            assert replay == attested
+            read = await records.get_source("scope", "content", "receipt")
+            page = await records.list_sources("scope", limit=10, cursor=None)
+            assert read.handoff_receipt
+            assert len(page.items) == 1 and page.items[0].handoff_receipt
+            with pytest.raises(BaseValueConflictError):
+                await records.capture_source("scope", "content", "receipt", "changed", metadata, handoff_receipt=True)
+
+    asyncio.run(scenario())
 
 
 def test_empty_tag_set_has_one_concurrent_winner_across_connections(tmp_path: Path) -> None:

@@ -36,6 +36,7 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
+from powercontext.builtin.sources.content import ContentSource
 from powercontext.errors import SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
 from powercontext.sources import Source, SourceAdapter, SourceDefinitionRegistry, SourceObservation, SourceRef
@@ -108,6 +109,25 @@ class SourceRepository:
         existing = await self._find_row(connection, scope_id, ref)
         if existing is not None:
             stored = self._decode_row(existing)
+            # A trusted acknowledgement may replay a pre-provenance receipt.
+            # Upgrade only its server-owned attestation, never its content or position.
+            if (
+                isinstance(source, ContentSource)
+                and source.handoff_receipt
+                and isinstance(stored.value, ContentSource)
+                and not stored.value.handoff_receipt
+                and stored.value.model_copy(update={"handoff_receipt": True}) == source
+            ):
+                await connection.execute(
+                    update(SOURCES_TABLE)
+                    .where(
+                        SOURCES_TABLE.c.scope_id == scope_id,
+                        SOURCES_TABLE.c.source_type == ref.source_type,
+                        SOURCES_TABLE.c.source_id == ref.source_id,
+                    )
+                    .values(payload=payload)
+                )
+                return StoredSource(ref=ref, value=source, journal_position=stored.journal_position), False
             if stored.value != source:
                 raise StoredPayloadConflictError("source", (scope_id, ref))
             return stored, False

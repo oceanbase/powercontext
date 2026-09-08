@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.sources import SourceRef
@@ -44,6 +44,7 @@ class SourceRecord(_RecordModel):
     content: JsonValue
     position: int
     content_digest: str
+    handoff_receipt: bool = Field(default=False, exclude=True)
 
 
 class SourceRecordPage(_RecordModel):
@@ -229,6 +230,8 @@ class RecordService(Protocol):
         content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
+        *,
+        handoff_receipt: bool = False,
     ) -> SourceRecord: ...
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord: ...

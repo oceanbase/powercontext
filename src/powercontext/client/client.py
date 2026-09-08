@@ -384,7 +384,7 @@ class PowerContextClient:
         external_reference_kind: str | None = None,
         binding_integration: str | None = None,
         binding_kind: str | None = None,
-        limit: int = 50,
+        limit: int | None = None,
         cursor: str | None = None,
     ) -> ScopePage:
         """List or discover durable Scope descriptors."""
@@ -396,7 +396,7 @@ class PowerContextClient:
             and external_reference_kind is None
             and binding_integration is None
             and binding_kind is None
-            and limit == 50
+            and limit is None
             and cursor is None
         ):
             return await self._request(LIST_SCOPES)
@@ -409,7 +409,7 @@ class PowerContextClient:
                 external_reference_kind=external_reference_kind,
                 binding_integration=binding_integration,
                 binding_kind=binding_kind,
-                limit=limit,
+                limit=50 if limit is None else limit,
                 cursor=cursor,
             ),
         )
