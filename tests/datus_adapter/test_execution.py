@@ -135,6 +135,21 @@ def test_native_graph_full_rows_failures_retries_and_wrapper_deduplication(sandb
     for index, record in enumerate(unknown, 1):
         record["sequence"] = index
     assert "unmatched_native_action" in reconcile(unknown)["trace_issues"]
+    for status in ("success", "failed"):
+        replayed = copy.deepcopy(run["records"])
+        terminal = next(
+            r
+            for r in replayed
+            if r["kind"] == "action_received"
+            and r["action"].get("role") == "tool"
+            and r["action"].get("status") == "success"
+        )
+        replay = copy.deepcopy(terminal)
+        replay["action"]["status"] = status
+        replayed.insert(-1, replay)
+        for index, record in enumerate(replayed, 1):
+            record["sequence"] = index
+        assert reconcile(replayed)["steps"] is None
 
 
 def test_native_sql_result_does_not_prove_final_answer(sandbox, plan):
@@ -173,6 +188,7 @@ def test_pair_freezes_actual_runtime_and_never_counts_fixtures_as_live(sandbox, 
     assert report["formal_state"] == "not_started"
     assert report["component_case_runs"] == 4
     assert all(v["joint_pass"] == 2 for v in report["arms"].values()), report
+    assert all(not v["accepted"] and v["component_pass"] for v in report["arms"].values()), report
     sessions = []
     for path in sorted((tmp_path / "evidence").glob("case-*.json")):
         evidence = json.loads(path.read_text())

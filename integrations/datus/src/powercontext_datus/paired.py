@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from powercontext.http import ArtifactAddress
 from powercontext_datus.evaluate import evaluate_case, model_metrics
 from powercontext_datus.freeze import IntegrityError, digest_json, snapshot
 from powercontext_datus.report import summarize
@@ -69,9 +70,26 @@ def runtime_files(root: Path) -> str:
     # Worker redirects bytecode lookups to its fresh private writable layer.
     # Hash every executable, source, prompt, config and dependency, including
     # resolved venv symlink bytes. An import/version label alone is insufficient.
+    if not stat.S_ISDIR(root.lstat().st_mode):
+        raise IntegrityError("runtime root must be a regular directory")
     inventory = {}
     for path in sorted(root.rglob("*")):
-        if "__pycache__" in path.parts or path.suffix == ".pyc" or path.is_dir():
+        mode = path.lstat().st_mode
+        # lstat must precede directory/cache exclusions: rglob does not follow
+        # directory symlinks, but the mounted interpreter could resolve them.
+        if stat.S_ISLNK(mode) and path.is_dir():
+            target = path.resolve()
+            if not target.is_relative_to(root.resolve()) or "__pycache__" in target.parts:
+                raise IntegrityError("runtime directory symlink escapes the inventoried tree")
+            # Standard venv lib64 -> lib aliases are allowed only because their
+            # targets' files are independently inventoried below the same root.
+            inventory[path.relative_to(root).as_posix()] = {
+                "directory_symlink": os.readlink(path),
+                "target": str(target),
+                "mode": stat.S_IMODE(mode),
+            }
+            continue
+        if "__pycache__" in path.parts or path.suffix == ".pyc" or stat.S_ISDIR(mode):
             continue
         resolved = path.resolve()
         if not resolved.is_file():
@@ -195,20 +213,23 @@ def validate_deliveries(plan: dict[str, Any], admission: dict[str, Any]) -> None
     for arm in ARMS:
         refs = admission["skill_deliveries"][arm]
         for ref in refs:
-            if arm == "enhanced" and (
-                not ref.get("scope_id")
-                or ref.get("artifact", {}).get("family") != "skill"
-                or not ref.get("artifact", {}).get("revision")
-                or not ref.get("tree_digest")
-                or not ref.get("archive_digest")
-            ):
-                raise IntegrityError("enhanced Skill requires exact SDK delivery receipt")
+            if arm == "enhanced":
+                validate_delivery_reference(ref)
             if snapshot(Path(plan["arms"][arm]["skill_root"]) / ref["name"]) != ref["files"]:
                 raise IntegrityError("installed exact Skill differs from approved delivery")
         if sorted(ref["name"] for ref in refs) != sorted(plan["arms"][arm]["skill_names"]):
             raise IntegrityError("approved Skill inventory differs")
     if not admission["skill_deliveries"]["enhanced"]:
         raise IntegrityError("enhanced arm requires an independently approved exact Skill")
+
+
+def validate_delivery_reference(ref: dict[str, Any]) -> None:
+    try:
+        address = ArtifactAddress.model_validate({"scope_id": ref.get("scope_id"), "artifact": ref.get("artifact")})
+    except (ValueError, TypeError) as error:
+        raise IntegrityError("enhanced Skill requires exact SDK delivery receipt") from error
+    if address.artifact.family != "skill" or not ref.get("tree_digest") or not ref.get("archive_digest"):
+        raise IntegrityError("enhanced Skill requires exact SDK delivery receipt")
 
 
 def credentials_for(plan: dict[str, Any]) -> dict[str, str]:
@@ -229,6 +250,7 @@ def run_one(
     run_id: str,
     effective: str | None = None,
     prepare: bool = False,
+    credentials: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     request = {
         "run_id": run_id,
@@ -236,7 +258,7 @@ def run_one(
         "task": task,
         "public": plan["public"],
         "skill_names": plan["arms"][arm]["skill_names"],
-        "credentials": credentials_for(plan),
+        "credentials": dict(credentials if credentials is not None else credentials_for(plan)),
         "evidence_kind": plan["evidence_kind"],
         "denied_paths": [
             plan["admission_file"],
@@ -262,11 +284,18 @@ def run_one(
 def freeze_plan(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
     validate_plan(plan)
     before = input_identity(plan, sandbox)
+    credentials = credentials_for(plan)
     effective = {}
     preparation = {}
     for arm in ARMS:
         run = run_one(
-            plan, sandbox, arm, {"task_id": "prepare", "question": ""}, run_id=str(uuid.uuid4()), prepare=True
+            plan,
+            sandbox,
+            arm,
+            {"task_id": "prepare", "question": ""},
+            run_id=str(uuid.uuid4()),
+            prepare=True,
+            credentials=credentials,
         )
         configs = [r for r in run["records"] if r["kind"] == "effective_config"]
         if run["returncode"] != 0 or run["malformed_output"] or run.get("control_failure") or len(configs) != 1:
@@ -290,6 +319,9 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
     validate_plan(plan)
     if manifest["version"] != 1 or input_identity(plan, sandbox) != manifest["inputs"]:
         raise IntegrityError("frozen manifest/inputs drifted")
+    # Read once per invocation, share only in memory, and send a private copy
+    # to each worker. Never hash or serialize the secret values as identity.
+    credentials = credentials_for(plan)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     run_id = str(uuid.uuid4())
     write_json(output / "manifest.json", manifest)
@@ -303,7 +335,15 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
         for arm in ARMS:
             if abort is None:
                 try:
-                    result = run_one(plan, sandbox, arm, task, run_id=run_id, effective=manifest["effective"][arm])
+                    result = run_one(
+                        plan,
+                        sandbox,
+                        arm,
+                        task,
+                        run_id=run_id,
+                        effective=manifest["effective"][arm],
+                        credentials=credentials,
+                    )
                 except (IntegrityError, OSError) as error:
                     abort = "leakage/state_drift" if isinstance(error, IntegrityError) else "environment/auth"
                     result = unstarted_result(abort)
@@ -344,11 +384,19 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
         },
         "component_case_runs": len(evidence) if not live else 0,
         "state_valid": state_valid,
-        "arms": {arm: summarize(task_ids, verdicts[arm], data_version_verified=state_valid) for arm in ARMS},
+        "arms": {arm: summarize_arm(task_ids, verdicts[arm], state_valid=state_valid, live=live) for arm in ARMS},
         "cases": details,
     }
     write_json(output / "report.json", report)
     return report
+
+
+def summarize_arm(task_ids, verdicts, *, state_valid: bool, live: bool) -> dict[str, Any]:
+    result = summarize(task_ids, verdicts, data_version_verified=state_valid)
+    if not live:
+        result["component_pass"] = result["accepted"]
+        result["accepted"] = False
+    return result
 
 
 def unstarted_result(reason: str) -> dict[str, Any]:
@@ -394,13 +442,18 @@ def run_samples(plan: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[st
         ref = admission[name]
         if file_hash(Path(ref["file"])) != ref["sha256"]:
             raise IntegrityError("sample admission evidence mismatch")
+    credentials = credentials_for(plan)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     write_json(output / "plan.json", plan)
     run_id = str(uuid.uuid4())
     results = []
     abort = None
     for index, task in enumerate(tasks):
-        run = run_one(plan, sandbox, "native", task, run_id=run_id) if abort is None else unstarted_result(abort)
+        run = (
+            run_one(plan, sandbox, "native", task, run_id=run_id, credentials=credentials)
+            if abort is None
+            else unstarted_result(abort)
+        )
         write_json(output / f"sample-{index:04d}.json", {"task_id": task["task_id"], **run})
         results.append(run)
         if run.get("control_failure"):

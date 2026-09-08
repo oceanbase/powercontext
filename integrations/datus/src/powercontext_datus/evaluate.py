@@ -99,7 +99,7 @@ def evaluate_case(
         if matching:
             try:
                 actual = table_from_json(matching[-1])
-                answer = json.loads(submitted["answer"])
+                answer = json.loads(submitted["answer"], parse_float=Decimal)
                 # Grounding is exact, independent of the oracle's permitted
                 # numerical tolerance. It cannot borrow the expected answer.
                 grounded = set(answer) == {"columns", "rows"} and compare_tables(

@@ -280,22 +280,60 @@ def _validate_capture(records: list[dict[str, Any]], issues: set[str]) -> None:
     issues.update(r["reason"] for r in records if r["kind"] == "coverage_failure")
 
 
-def _check_native_actions(records: list[dict[str, Any]], starts: dict[str, Any], issues: set[str]) -> None:
+def _check_native_actions(
+    records: list[dict[str, Any]],
+    starts: dict[str, Any],
+    finishes: dict[str, Any],
+    returns: dict[str, Any],
+    issues: set[str],
+) -> None:
     call_ids = [r["call_id"] for r in starts.values() if r["call_id"]]
     if len(call_ids) != len(set(call_ids)):
         issues.add("reused_native_call_id")
-    actions = [r["action"] for r in records if r["kind"] == "action_received" and r["action"].get("role") == "tool"]
-    native_ids = {r.get("action_id", "").removeprefix("complete_") for r in actions}
-    if native_ids != set(call_ids):
+    actions = [r for r in records if r["kind"] == "action_received" and r["action"].get("role") == "tool"]
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    for record in actions:
+        by_id.setdefault(record["action"]["action_id"], []).append(record)
+    expected_ids = set(call_ids) | {"complete_" + call for call in call_ids}
+    if set(by_id) != expected_ids:
         issues.add("unmatched_native_action")
-    terminals = {
-        r.get("action_id", "").removeprefix("complete_") for r in actions if r.get("status") in {"success", "failed"}
-    }
-    if terminals != set(call_ids):
-        issues.add("unfinished_native_action")
-    names = {r["call_id"]: r["name"] for r in starts.values() if r["call_id"]}
-    if any(r.get("action_type") != names.get(r.get("action_id", "").removeprefix("complete_")) for r in actions):
+    if len(expected_ids) != 2 * len(call_ids):
+        issues.add("ambiguous_native_call_id")
+    for op_id, start in starts.items():
+        if not start["call_id"]:
+            continue
+        processing = by_id.get(start["call_id"], [])
+        terminal = by_id.get("complete_" + start["call_id"], [])
+        if len(processing) != 1 or len(terminal) != 1:
+            issues.add("native_action_cardinality")
+            continue
+        _check_action_pair(processing[0], terminal[0], start, finishes.get(op_id), returns.get(op_id), issues)
+
+
+def _check_action_pair(processing, terminal, start, finish, returned, issues) -> None:
+    first, last = processing["action"], terminal["action"]
+    if first.get("action_type") != start["name"] or last.get("action_type") != start["name"]:
         issues.add("native_action_identity_changed")
+    if (
+        processing["sequence"] >= terminal["sequence"]
+        or first.get("status") != "processing"
+        or last.get("status") not in {"success", "failed"}
+    ):
+        issues.add("native_action_lifecycle")
+    if finish is None or (last.get("status") == "failed") != _operation_failed(finish, returned):
+        issues.add("native_action_status_conflict")
+
+
+def _operation_failed(end: dict[str, Any] | None, returned: dict[str, Any] | None) -> bool:
+    value = (returned or {}).get("value")
+    if isinstance(value, str):
+        with suppress(ValueError):
+            value = json.loads(value)
+    return (
+        end is None
+        or end["status"] != "success"
+        or (isinstance(value, dict) and (value.get("success") in (False, 0) or bool(value.get("error"))))
+    )
 
 
 def _dispatch_operations(
@@ -310,16 +348,10 @@ def _dispatch_operations(
             issues.add("unknown_parent")
         if op_id in parents:
             continue
-        value = returns.get(op_id, {}).get("value")
-        if isinstance(value, str):
-            with suppress(ValueError):
-                value = json.loads(value)
-        failed = end is None or end["status"] != "success"
-        failed |= isinstance(value, dict) and value.get("success") in (False, 0)
         operations.append({
             "operation_id": op_id,
             "name": start["name"],
-            "failed": failed,
+            "failed": _operation_failed(end, returns.get(op_id)),
             "call_id": start["call_id"],
             "parent_id": start["parent_id"],
         })
@@ -377,7 +409,7 @@ def _reconcile_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     finishes = _indexed(records, {"operation_finished"}, "operation_id", issues)
     links = {k: r for k, r in _indexed(records, {"sql_link"}, "driver_span_id", issues).items() if r["online"]}
     returns = _indexed(records, {"tool_returned"}, "operation_id", issues)
-    _check_native_actions(records, starts, issues)
+    _check_native_actions(records, starts, finishes, returns, issues)
     _check_mysql_commands(records, starts, links, issues)
     parents = {r["parent_id"] for r in [*starts.values(), *links.values()] if r["parent_id"]}
     operations = _dispatch_operations(starts, finishes, returns, parents, issues)

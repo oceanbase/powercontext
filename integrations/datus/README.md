@@ -130,6 +130,11 @@ read and read-only-write probes before execution. It writes evidence through a
 write-only pipe to its parent, with no evidence file path exposed to tools.
 Timeout kills/reaps the worker's namespace and preserves partial output.
 
+Runtime/bridge roots must be regular directories. Directory symlinks are checked
+before cache exclusions: external or excluded-cache targets fail closed. Internal
+aliases such as a venv's `lib64 -> lib` include the link and resolved target in
+identity, with target files independently inventoried under the same root.
+
 The launcher supports the installed bubblewrap 0.4.0 and needs unprivileged user
 namespaces. It supplies a minimal environment from the parent, including no
 ambient product tokens. There is no unsandboxed fallback. The exact mount policy,
@@ -205,7 +210,10 @@ hashes, `data_mode=immutable_read_only_snapshot`, and these receipt references:
 Each receipt is `{"file": "/evaluation/receipt.json", "sha256": "..."}` and must
 exist with matching bytes. `skill_deliveries` maps each arm to its installed
 receipts: name/files, and for PowerContext Skills scope/artifact/revision and
-archive/tree digest. These bind the independent evaluator's attestations; they do
+archive/tree digest. Enhanced receipts must satisfy the strict SDK artifact address
+schema: nonempty scope and printable artifact ID, family `skill`, positive integer
+revision (not a string or boolean), and no extra artifact fields.
+These bind the independent evaluator's attestations; they do
 not authenticate an arbitrary self-authored assertion or prove its truth. The
 evaluator must check sample provenance, remote snapshot control and gold/data
 consistency before issuing admission. The service authorization receipt covers
@@ -215,7 +223,11 @@ embedding configuration, quotas and timeout.
 `secret_refs` contains only `model_api_key` and `db_password` file references.
 The launcher requires current-user-owned regular files with no group/other access
 and passes their values over stdin to the worker, never argv, a saved manifest,
-or the model prompt. It does not read ambient OpenAI/product/login tokens.
+or the model prompt. Each freeze, paired-run or sample invocation reads its
+references exactly once and reuses those values in memory across all tasks and
+arms. Each worker receives its own copy. Secret values and their hashes never
+enter a manifest or evidence; rotation requires a separate authorized invocation.
+It does not read ambient OpenAI/product/login tokens.
 Datus's `max_retry=1` means one total model-stream attempt at this pin; the shared
 `max_turns` controls the native tool loop, with the process timeout as the hard
 wall-clock bound. SDK/HTTP internal attempts are separately retained.
@@ -240,6 +252,11 @@ pool/recovery activity; they are not hidden initialization or exempt traffic.
 Unscoped, bypassed, unsupported or unfinished commands invalidate coverage.
 Non-SQL protocol payload bytes are never recorded.
 
+Each native tool call must have exactly one processing action and one later
+terminal action, with matching tool names and a terminal status consistent with
+the dispatch result. Duplicate, conflicting, missing or reversed lifecycle
+evidence invalidates certification; no set-based folding can hide it.
+
 Full result rows are captured from native fetches before DataFrame/CSV conversion
 can coerce integers/NULLs or lose empty-result columns. Chunked fetches accumulate
 until exhaustion. Decimal values have a tagged lossless JSON representation.
@@ -252,6 +269,9 @@ comparison. Extra prose, unsupported claims, malformed answers and mismatched
 rows do not pass. General natural-language answer judging is not implemented.
 Grounding obeys the frozen `ordered` row policy, but remains numerically exact:
 the gold comparison's tolerance never permits an inaccurate final answer.
+Standard JSON decimal and exponent number literals are parsed directly as
+`Decimal`, without intermediate binary-float rounding. Tagged database decimals
+remain lossless; models need not emit the internal tagged representation.
 
 The evaluator oracle maps each task ID to `expected` and `declared_answer`
 tables, with optional `ordered`, `absolute_tolerance` and `relative_tolerance`.
@@ -277,7 +297,8 @@ stdout is retained even when no complete answer can be scored.
 
 `component_fixture` is an explicit local SQLite/synthetic-HTTP mode. Its reports
 always have zero real learning/development runs and `formal_state=not_started`.
-Fixture arm statistics are component diagnostics only. The native SQLAlchemy
+Fixture arms always set `accepted=false`; `component_pass` retains their diagnostic
+gate result. Fixture arm statistics are component diagnostics only. The native SQLAlchemy
 connector is used for fixture execution, with a fixture-only database-name method;
 live runs use the pinned MySQL adapter. No component count establishes accuracy.
 
