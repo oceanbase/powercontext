@@ -1,0 +1,21 @@
+<div class="guide-view">
+  <style>
+    me .guide-copy { max-width: 70ch; }
+    me .guide-copy section + section { margin-top: 32px; }
+    me .guide-connection { border-top: 1px solid var(--tblr-border-color); padding-top: 24px; }
+    @media (min-width: 992px) { me .guide-connection { border-top: 0; border-left: 1px solid var(--tblr-border-color); padding: 0 0 0 32px; } }
+  </style>
+  {% from 'components/page-heading.html' import page_heading %}
+  {{ page_heading(t.guide_heading, t.guide_intro) }}
+  <article class="card"><div class="card-body">
+    <div class="row g-5">
+      <div class="col-lg-8 guide-copy">
+        {% for title, body in [('guide_first', 'guide_first_body'), ('guide_next', 'guide_next_body'), ('guide_return', 'guide_return_body')] %}
+        <section><h2>{{ t[title] }}</h2><p>{{ t[body] }}</p></section>
+        {% endfor %}
+        <a class="btn" href="{{ link('home') }}">{{ t.back_home }} →</a>
+      </div>
+      <aside class="col-lg-4"><div class="guide-connection"><h2>{{ t.guide_connection }}</h2><p>{{ t.guide_connection_body }}</p><p>{{ t.scope_viewing_notice }}</p></div></aside>
+    </div>
+  </div></article>
+</div>

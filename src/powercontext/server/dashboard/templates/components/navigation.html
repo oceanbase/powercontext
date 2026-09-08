@@ -1,0 +1,56 @@
+{% from "macros.html" import icon with context %}
+<aside class="navbar navbar-vertical navbar-expand-lg" aria-label="{{ t.scope_label }}">
+  <style>
+    me { background: #fff; box-shadow: none; border-right: 1px solid var(--tblr-border-color); }
+    me .container-fluid { padding: 30px 17px 24px; align-items: stretch; }
+    me .navbar-brand { font-size: 26px; letter-spacing: -1.3px; color: var(--pc-heading-color); padding: 0; justify-content: flex-start; }
+    me .scope-form { margin: 33px 4px 26px; }
+    me .scope-form .form-label { display: none; }
+    me .scope-form .form-select { height: 50px; font-size: 17px; background-color: #fff; box-shadow: none; }
+    me .scope-go { padding-inline: 10px; background: #fff; }
+    me .navbar-nav { gap: 9px; }
+    me .nav-link { display: flex; gap: 17px; min-height: 49px; padding: 12px 16px; color: #0a1123; border-radius: 5px; font-size: 19px; }
+    me .nav-link.active { color: var(--tblr-primary); background: var(--pc-active-bg); }
+    me .nav-link:hover { background: var(--pc-hover-bg); }
+    me .nav-symbol { width: 23px; height: 23px; display: inline-flex; align-items: center; justify-content: center; }
+    me .nav-symbol img { width: 23px; height: 23px; }
+    me .nav-link.active .nav-symbol img { filter: invert(27%) sepia(99%) saturate(5191%) hue-rotate(219deg) brightness(102%) contrast(106%); }
+    @media (min-width: 992px) { me.navbar-expand-lg { width: var(--pc-sidebar-width); } }
+    @media (min-width: 992px) { me.navbar-expand-lg .container-fluid { min-height: 100vh; padding: 28px 17px 24px; align-items: stretch; } }
+    @media (min-width: 992px) { me.navbar-expand-lg .navbar-brand { justify-content: flex-start; margin: 0 10px; padding: 0; font-size: 25px; } }
+    @media (min-width: 992px) { me.navbar-expand-lg .navbar-nav .nav-link { justify-content: flex-start; padding: 12px 16px; } }
+    @media (max-width: 991px) { me .container-fluid { display: block; padding: 18px 22px 12px; } }
+    @media (max-width: 991px) { me .scope-form { margin: 16px 0 10px; max-width: 350px; } }
+    @media (max-width: 991px) { me .navbar-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; } }
+    @media (max-width: 991px) { me .nav-link { min-height: 36px; font-size: 14px; padding: 7px 11px; gap: 6px; } }
+    @media (max-width: 991px) { me .nav-symbol { width: 18px; height: 18px; } }
+    @media (max-width: 991px) { me .nav-symbol img { width: 18px; height: 18px; } }
+  </style>
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{{ link('home') }}">PowerContext</a>
+    <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form">
+      <label for="scope" class="form-label">{{ t.scope_label }}</label>
+      <input type="hidden" name="period" value="{{ period }}">
+      <div class="input-group">
+        <select id="scope" name="scope" class="form-select">
+          <option value="" {% if not scope %}selected{% endif %}>{{ t.scope_none }}</option>
+          {% for item in scopes %}
+          <option value="{{ item.scope_id }}" {% if scope == item.scope_id %}selected{% endif %}>{{ item.display_title }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn scope-go" aria-label="{{ t.apply }}">→</button>
+      </div>
+      <a class="small d-block mt-2" href="{{ link('home', scope=none) }}">{{ t.default_scope }}</a>
+      {% if errors.get('scopes') %}<p class="small mt-2">{{ t.scope_list_unavailable }}</p>{% endif %}
+    </form>
+    <nav class="navbar-nav" aria-label="{{ t.navigation }}">
+      {% for item in ['home', 'handoff', 'notes', 'methods', 'usage'] %}
+      {% set active = page == item or parent_page == item %}
+      <a href="{{ link(item) }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
+        {{ icon(item) }}<span>{{ t[item] }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+    <a class="small {{ 'text-primary' if page == 'guide' else 'text-secondary' }} mt-4 d-block px-3" href="{{ link('guide') }}" {% if page == 'guide' %}aria-current="page"{% endif %}>{{ t.guide }} →</a>
+  </div>
+</aside>

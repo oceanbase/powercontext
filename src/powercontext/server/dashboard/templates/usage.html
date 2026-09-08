@@ -1,0 +1,99 @@
+<div class="usage-view">
+<style>
+  me .period-control { text-align: right; }
+  me .period-control .btn { font-size: 16px; padding: 8px 24px; }
+  me .period-control small { display: block; font-size: 13px; margin-top: 8px; }
+  me .btn-group .active { background: #edf3ff; border-color: #b9ccec; color: var(--tblr-primary); }
+  me .usage-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 30px; }
+  me .usage-summary h2 { font-size: 22px; }
+  me .big-number { font-size: 82px; letter-spacing: -4px; line-height: 1.25; color: var(--tblr-primary); font-weight: 600; margin: 12px 0 4px; font-variant-numeric: tabular-nums; }
+  me .big-number > span { font-size: 66px; }
+  me .big-number > small { font-size: 33px; margin-left: 16px; }
+  me .big-number.negative { color: var(--tblr-body-color); }
+  me .comparison-values { margin: 25px 0; font-size: 15px; }
+  me .comparison-values div { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  me .comparison-values dt { font-weight: 400; }
+  me .comparison-values dd { margin: 0; font-variant-numeric: tabular-nums; }
+  me .chart-legend { display: flex; gap: 24px; justify-content: flex-end; font-size: 13px; margin-bottom: 8px; }
+  me .chart-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
+  me .bar-chart { padding: 0; }
+  me .usage-caption { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--tblr-border-color); font-size: 14px; }
+  me .table { --tblr-table-border-color: var(--tblr-border-color); font-size: 15px; }
+  me .table tfoot th { font-size: 14px; }
+  @media (max-width: 1199px) { me .usage-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 22px; } }
+  @media (max-width: 600px) { me .period-control { margin-top: 16px; } }
+  @media (max-width: 600px) { me .chart-legend { font-size: 11px; gap: 10px; } }
+  @media (max-width: 600px) { me .period-control { text-align: left; } }
+</style>
+{% from 'macros.html' import comparison_chart, number, disclosure, coverage_notice with context %}
+{% from 'components/page-heading.html' import page_heading %}
+{% call page_heading(t.usage, t.usage_subtitle) %}
+  <div class="period-control">
+    <div class="btn-group">
+      {% for value in ['today', '7d', '30d'] %}
+      <a class="btn {% if period == value %}active{% endif %}" href="{{ link('usage', period=value) }}" {% if period == value %}aria-current="true"{% endif %}>{{ t[value] }}</a>
+      {% endfor %}
+    </div>
+    {% if stats %}<small>{{ stats.start }} / {{ stats.end }} · UTC</small>{% endif %}
+  </div>
+{% endcall %}
+<nav class="nav nav-pills mb-3" aria-label="{{ t.usage_extent }}">
+{% for value in ['exact', 'subtree'] %}<a class="nav-link {{ 'active' if extent == value else '' }}" href="{{ link('usage', extent=value) }}" {% if extent == value %}aria-current="page"{% endif %}>{{ t[value ~ '_scope'] }}</a>{% endfor %}
+</nav>
+{% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats.empty %}
+<section class="card"><div class="empty"><h2>{{ t.usage_empty }}</h2><p class="empty-subtitle">{{ t.usage_empty_body }}</p><a class="btn" href="{{ link('home') }}">{{ t.back_home }} →</a></div></section>
+{% else %}
+{% if stats.estimator_available %}
+<section class="card usage-sheet">
+  <div class="card-body">
+    <div class="row g-4">
+      <div class="col-xl-4 usage-summary">
+        <h2>{{ t.comparison }}{% if stats.percent is not none %}<br>{{ t.increased if stats.token_reduction < 0 else t.reduced }}{% endif %}</h2>
+        {% if stats.percent is not none %}
+        <div class="big-number {% if stats.token_reduction < 0 %}negative{% endif %}">{{ stats.percent }}<span>%</span><small>{{ '↑' if stats.token_reduction < 0 else '↓' }}</small></div>
+        <p>{{ t.more_tokens if stats.token_reduction < 0 else t.fewer_tokens }} {{ number(stats.token_reduction|abs) }} tokens</p>
+        {% else %}<h3 class="my-4">{{ t.no_comparison }}</h3>{% endif %}
+        <dl class="comparison-values">
+          <div><dt>{{ t.baseline }}</dt><dd>{{ number(stats.baseline_tokens) }}</dd></div>
+          <div><dt>{{ t.recalled }}</dt><dd>{{ number(stats.recalled_tokens) }}</dd></div>
+        </dl>
+        {% if stats.comparable_preparations > 0 %}<p class="text-secondary">{{ coverage_notice() }}</p>{% endif %}
+      </div>
+      <div class="col-xl-8">
+        <div class="section-heading"><h3>{{ t.daily_title }}</h3><span class="text-secondary small">tokens</span></div>
+        <div class="chart-legend"><span><i class="baseline-key"></i>{{ t.baseline }}</span><span><i class="recalled-key"></i>{{ t.recalled }}</span></div>
+        <div class="bar-chart">{{ comparison_chart() }}</div>
+      </div>
+    </div>
+    <div class="usage-caption">{{ t.estimate_notice }}</div>
+    {% if stats.token_reduction < 0 %}<p class="mt-3">{{ t.negative_notice }}</p>{% endif %}
+    {% call disclosure('calculation', t.calculation) %}<p>{{ t.calculation_body }}</p><p>{{ t.coverage_details.format(total=stats.preparations, comparable=stats.comparable_preparations) }}</p><p>{{ t.coverage_body }}</p>{% endcall %}
+  </div>
+</section>
+{% else %}
+<section class="card"><div class="card-body"><h2>{{ t.no_estimates }}</h2><p class="mb-0 text-secondary">{{ t.no_estimates_body }}</p></div></section>
+{% endif %}
+<section class="mt-4">
+    <div class="card"><div class="card-body">
+      <h2>{{ t.model_usage }}</h2><p class="text-secondary">{{ t.model_note }}</p>
+      <div class="table-responsive"><table class="table model-usage-table">
+        <thead><tr><th scope="col">{{ t.purpose }}</th><th scope="col">{{ t.model_type }}</th><th scope="col" class="text-end">{{ t.input }}</th><th scope="col" class="text-end">{{ t.output }}</th></tr></thead>
+        <tbody>{% for row in stats.model_usage %}<tr><td>{{ t.get(row.purpose, row.purpose) }}</td><td>{{ t[row.operation] }}</td><td class="text-end">{{ number(row.input_tokens) }}</td><td class="text-end">{{ number(row.output_tokens) }}</td></tr>{% endfor %}</tbody>
+        <tfoot>{% for operation in ['generation', 'embedding'] %}<tr><th scope="row" colspan="2">{{ t[operation ~ '_total'] }}</th><td class="text-end fw-bold">{{ number(stats[operation].input_tokens) }}</td><td class="text-end fw-bold">{{ number(stats[operation].output_tokens) }}</td></tr>{% endfor %}</tfoot>
+      </table></div>
+      {% if stats.unknown_usage %}<p class="mt-3">{{ t.unknown_notice }}</p>{% endif %}
+    </div></div>
+</section>
+{% if stats.estimator_available %}<div class="card mt-4 daily-table">
+{% call disclosure('daily-summary', t.daily_details) %}
+  <div class="table-responsive mt-3"><table class="table card-table">
+    <caption>{{ t.daily_title }} · UTC · tokens</caption>
+    <thead><tr>{% for label in ['date', 'baseline', 'recalled', 'difference'] %}<th scope="col">{{ t[label] }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in stats.daily %}<tr><td>{{ row.date }}</td><td>{{ number(row.baseline_tokens) }}</td><td>{{ number(row.recalled_tokens) }}</td><td>{{ number(row.baseline_tokens - row.recalled_tokens) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+{% endcall %}
+</div>
+{% endif %}
+{% endif %}
+
+</div>

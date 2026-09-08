@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ t.login }} · PowerContext</title>
+  <link rel="stylesheet" href="/dashboard/static/vendor/tabler.min.css">
+  <link rel="stylesheet" href="/dashboard/static/layout.css">
+</head>
+<body class="d-flex flex-column">
+<main id="workspace" class="page page-center"><div class="container container-tight py-4">
+  <h1>PowerContext</h1>
+  <form class="card card-md" action="/dashboard/session" method="post" hx-boost="false"><div class="card-body">
+    <h2>{{ t.login }}</h2><p>{{ t.login_body }}</p>
+    <label class="form-label" for="token">{{ t.token }}</label>
+    <input class="form-control" type="password" name="token" id="token" autocomplete="current-password" required>
+    {% if status == 503 %}<p class="text-secondary mt-3" role="alert">{{ t.error_503 }}</p>{% elif rejected %}<p class="text-secondary mt-3" role="alert">{{ t.invalid_token }}</p>{% endif %}
+    <button class="btn btn-primary mt-3" type="submit">{{ t.login }}</button>
+  </div></form>
+</div></main>
+</body>
+</html>

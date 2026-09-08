@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"historyCacheSize":0,"includeIndicatorStyles":false}'>
+  <title>{{ t[page] }} · PowerContext</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/dashboard/static/vendor/tabler.min.css">
+  <link rel="stylesheet" href="/dashboard/static/vendor/tabler-vendors.min.css">
+  <link rel="stylesheet" href="/dashboard/static/layout.css">
+  <script src="/dashboard/static/vendor/surreal.js"></script>
+  <script src="/dashboard/static/vendor/css-scope-inline.js"></script>
+  <script defer src="/dashboard/static/vendor/htmx.min.js"></script>
+  <script src="/dashboard/static/vendor/tabler.min.js"></script>
+  <script src="/dashboard/static/vendor/apexcharts.min.js"></script>
+  <noscript><style>.collapse { display: block; } .htmx-indicator { display: none; }</style></noscript>
+</head>
+<body>
+  {% include 'workspace.html' %}
+</body>
+</html>

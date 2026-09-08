@@ -1,0 +1,17 @@
+<div class="skill-reading">
+{% include 'components/reading-style.html' %}
+{% from 'macros.html' import disclosure with context %}
+<a class="back-link" href="{{ link('methods', kind='skill') }}">← {{ t.back_methods }}</a>
+{% if data.skill %}
+<article class="reading-sheet reading-sheet-single">
+  <header class="reading-heading"><span class="method-type">{{ t.skill_reading }} · {{ data.title }} · {{ t.revision }} {{ data.skill.revision }}</span><h1>{{ data.skill.name }}</h1><p>{{ data.skill.description }}</p></header>
+    <div class="reading-body">
+      <section><h2>{{ t.skill_instructions }}</h2><p class="source-text">{{ data.skill.instructions or t.skill_body_unavailable }}</p></section>
+      {% if data.skill.validation %}<section><h2>{{ t.validation }}</h2><ul>{% for check in data.skill.validation %}<li>{{ check }}</li>{% endfor %}</ul></section>{% endif %}
+      {% call disclosure('skill-identity', t.technical) %}<code>skill/{{ data.skill.artifact_id }}@{{ data.skill.revision }}</code>{% endcall %}
+    </div>
+</article>
+{% else %}
+<section class="card"><div class="empty"><h1>{{ t.methods_empty }}</h1><p>{{ t.methods_empty_body }}</p><a class="btn" href="{{ link('guide') }}">{{ t.fresh_guide }} →</a></div></section>
+{% endif %}
+</div>

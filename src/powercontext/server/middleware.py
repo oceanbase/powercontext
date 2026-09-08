@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -30,8 +29,10 @@ from powercontext.server.authentication import (
 )
 from powercontext.server.authz import PrincipalRef
 from powercontext.server.context import bind_authentication, is_internal_bridge, reset_authentication
+from powercontext.server.dashboard.session import authentication_headers, login_response
 
 _PUBLIC_PATHS = frozenset({
+    "/",
     "/docs",
     "/health/live",
     "/health/ready",
@@ -57,7 +58,7 @@ class AuthenticationMiddleware:
             result = await self._provider.authenticate(
                 AuthenticationRequest(
                     transport="http",
-                    headers=dict(Headers(scope=scope).items()),
+                    headers=authentication_headers(scope),
                     client_host=_client_host(scope),
                 )
             )
@@ -100,7 +101,12 @@ class StaticBearerMiddleware(AuthenticationMiddleware):
 
 
 def _is_public(scope: Scope) -> bool:
-    return scope["type"] != "http" or scope["path"] in _PUBLIC_PATHS
+    return (
+        scope["type"] != "http"
+        or scope["path"] in _PUBLIC_PATHS
+        or scope["path"] == "/dashboard/session"
+        or scope["path"].startswith("/dashboard/static/")
+    )
 
 
 def _client_host(scope: Scope) -> str | None:
@@ -116,6 +122,11 @@ async def _error_response(
     receive: Receive,
     send: Send,
 ) -> None:
+    if scope["path"].startswith("/dashboard/"):
+        await login_response(status_code, rejected="authorization" in authentication_headers(scope))(
+            scope, receive, send
+        )
+        return
     response = JSONResponse(
         content=ErrorResponse(error=ErrorDetail(code=code, message=message, details=None)).model_dump(mode="json"),
         status_code=status_code,

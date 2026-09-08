@@ -63,6 +63,7 @@ from powercontext.server.authz import (
 from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.context import current_principal, current_request_id
 from powercontext.server.cursor_secret import resolve_cursor_secret
+from powercontext.server.dashboard import mount_dashboard
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
 from powercontext.server.middleware import AuthenticationMiddleware
@@ -260,6 +261,7 @@ def create_server_app(
             metrics=metrics,
             tracing=resolved_tracing,
         )
+    mount_dashboard(app)
     return app
 
 

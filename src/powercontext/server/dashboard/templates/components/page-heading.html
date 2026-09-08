@@ -1,0 +1,13 @@
+{% macro page_heading(title, description='') %}
+<header class="page-heading">
+  <style>
+    me.page-heading { margin-bottom: 20px; }
+    me p { margin: 0; font-size: 17px; }
+    @media (max-width: 600px) { me p { font-size: 14px; } }
+  </style>
+  <div class="row align-items-center g-3">
+    <div class="col"><h1>{{ title }}</h1>{% if description %}<p>{{ description }}</p>{% endif %}</div>
+    {% if caller is defined %}<div class="col-12 col-md-auto">{{ caller() }}</div>{% endif %}
+  </div>
+</header>
+{% endmacro %}
