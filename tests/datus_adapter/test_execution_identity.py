@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import py_compile
 import shutil
 import subprocess
 import sys
@@ -80,6 +81,7 @@ def make_probe(tmp_path, monkeypatch):
         " 'monotonic_ns': time.monotonic_ns(),\n"
         " 'run_id': request['run_id'], 'task_id': request['task']['task_id'],\n"
         " 'attempt_id': request['attempt_id'], 'effective_sha256': 'execution-root-probe',\n"
+        " 'startup_probe': getattr(__import__('builtins'), 'gen10_probe', None),\n"
         " 'loaded_library': library._name, 'cos_zero': library.cos(0.0)}))\n"
     )
     return Sandbox(runtime / "bin/python", bridge), library
@@ -295,3 +297,54 @@ def test_rel1_loader_input_change_rejected_before_launch(probe, plan, tmp_path, 
     with pytest.raises(IntegrityError, match="host execution roots drifted"):
         run_pair(manifest, sandbox, output)
     assert not output.exists()
+
+
+def startup_payload(bridge, placement, value):
+    # Compile with the same interpreter used by the real OS probe. All files
+    # are test-owned: no mutation of a shared bridge/runtime or host library.
+    if placement == "sourceless_sitecustomize":
+        source = bridge / "sitecustomize.py"
+    else:
+        (bridge / "sitecustomize.py").write_text("from __pycache__ import payload\n")
+        cache = bridge / "__pycache__"
+        cache.mkdir(exist_ok=True)
+        source = cache / "payload.py"
+    source.write_text(f"import builtins\nbuiltins.gen10_probe = {value!r}\n")
+    if placement != "cache_source":
+        py_compile.compile(str(source), cfile=str(source.with_suffix(".pyc")), doraise=True)
+        source.unlink()
+
+
+@pytest.mark.parametrize("placement", ["sourceless_sitecustomize", "cache_bytecode", "cache_source"])
+def test_gen10_executable_startup_bytes_are_frozen_before_worker_main(probe, plan, tmp_path, placement):
+    sandbox, _ = probe
+    plan["public"]["model"]["base_url"] = "http://127.0.0.1:1/v1"
+    startup_payload(sandbox.bridge, placement, "alpha")
+    manifest = freeze_plan(plan, sandbox)
+    assert all(run["records"][0]["startup_probe"] == "alpha" for run in manifest["preparation"].values())
+    (tmp_path / "bytecode-freeze.json").write_text(json.dumps(manifest, indent=2))
+    startup_payload(sandbox.bridge, placement, "bravo")
+    # Uncertified control proves startup code is executable despite no-write
+    # and cache-prefix settings. Only run_pair may certify the frozen inputs.
+    control = paired.run_one(plan, sandbox, "native", plan["tasks"][0], run_id="unfrozen-startup-control")
+    assert control["returncode"] == 0 and control["records"][0]["startup_probe"] == "bravo"
+    unchanged = paired.input_identity(plan, sandbox) == manifest["inputs"]
+    (tmp_path / "bytecode-mutation.json").write_text(
+        json.dumps(
+            {
+                "evidence_kind": "synthetic_environment_probe",
+                "placement": placement,
+                "identity_unchanged_after_mutation": unchanged,
+                "uncertified_control": control,
+            },
+            indent=2,
+        )
+    )
+    output = tmp_path / "mutated-output"
+    with pytest.raises(IntegrityError, match="manifest/inputs drifted"):
+        run_pair(manifest, sandbox, output)
+    assert not unchanged and not output.exists()
+    # Bytecode is not banned: provisioning it and freezing again is valid.
+    refreshed = freeze_plan(plan, sandbox)
+    assert all(run["records"][0]["startup_probe"] == "bravo" for run in refreshed["preparation"].values())
+    (tmp_path / "bytecode-refrozen.json").write_text(json.dumps(refreshed, indent=2))

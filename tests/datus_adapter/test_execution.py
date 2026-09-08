@@ -126,6 +126,17 @@ def test_native_graph_full_rows_failures_retries_and_wrapper_deduplication(sandb
     unbound = reconcile(orphaned)
     (tmp_path / "orphan-return.json").write_text(json.dumps({"records": orphaned, "reconciled": unbound}))
     assert not unbound["trace_complete"] and unbound["steps"] is None, unbound
+    orphan_sql = copy.deepcopy(run["records"])
+    failure = next(r for r in orphan_sql if r["kind"] == "sql_failure")
+    for span in ("unobserved-sql-first", "unobserved-sql-second"):
+        index = next(i for i, r in enumerate(orphan_sql) if r["kind"] == "answer_submitted")
+        orphan_sql.insert(index, {**failure, "driver_span_id": span})
+    for index, record in enumerate(orphan_sql, 1):
+        record.update(sequence=index, monotonic_ns=index)
+    invalid_sql = reconcile(orphan_sql)
+    (tmp_path / "orphan-sql-failures.json").write_text(json.dumps({"records": orphan_sql, "reconciled": invalid_sql}))
+    assert not invalid_sql["trace_complete"] and invalid_sql["steps"] is None
+    assert "unmatched_sql_terminal" in invalid_sql["trace_issues"]
 
 
 def test_native_sql_result_does_not_prove_final_answer(sandbox, plan):

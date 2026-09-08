@@ -134,9 +134,16 @@ write-only pipe to its parent, with no evidence file path exposed to tools.
 Timeout kills/reaps the worker's namespace and preserves partial output.
 
 Runtime/bridge roots must be regular directories. Directory symlinks are checked
-before cache exclusions: external or excluded-cache targets fail closed. Internal
+before traversal: external or cache-directory alias targets fail closed. Internal
 aliases such as a venv's `lib64 -> lib` include the link and resolved target in
 identity, with target files independently inventoried under the same root.
+All runtime/interpreter/bridge file bytes are inventoried, including `.pyc`,
+sourceless bytecode and every file below a real `__pycache__` directory. Worker
+cache-prefix and no-write settings do not prohibit startup hooks or explicit
+bytecode loaders and therefore justify no identity exclusions. Keep these roots
+stable; evaluator processes sharing them should also start with
+`PYTHONDONTWRITEBYTECODE=1`. A host cache write is drift and requires refreezing,
+not an exemption from the identity check.
 
 The launcher supports the installed bubblewrap 0.4.0 and needs unprivileged user
 namespaces. It supplies a minimal environment from the parent, including no
@@ -206,10 +213,10 @@ in `development-plan.example.json`; its placeholders cannot pass admission.
    additionally requires exact PowerContext delivery receipts.
 5. `freeze` constructs both real native graphs without sending a question or
    making a model request. It freezes actual prompt/tool/Skill/common identities,
-   the plan/oracle/admission, and every non-bytecode runtime/interpreter/bridge
-   file. Subsequent workers redirect bytecode lookups to their fresh private
-   layer. The execution-root identity above is part of the same manifest and
-   input identity; all preparation, case and final scoring boundaries recheck it.
+   the plan/oracle/admission, and every runtime/interpreter/bridge file, including
+   bytecode and cache-named paths. The execution-root identity is part of the
+   same manifest and input identity; all preparation, case and final scoring
+   boundaries recheck it.
 6. `run` executes each question in both isolated arms and writes raw per-case
    evidence. Scoring is performed only after both arms finish. There is no
    usage-feedback write or learning backflow in the runner.
@@ -296,6 +303,12 @@ lifecycles have unknown steps; ordered failures remain counted attempts.
 Every return must belong to one of these complete online native lifecycles.
 Orphan returns and returns attached only to offline or non-native operations
 invalidate the whole trace, even outside the question/answer interval.
+SQL success/failure terminals and result rows must also belong to recorded SQL
+starts and links. Unknown spans, online evidence borrowing an offline dispatch,
+or rows attached to a failed SQL attempt invalidate coverage with unknown steps.
+Complete offline initialization remains uncounted; complete online failures and
+retries remain separate counted attempts. The raw evidence and task denominator
+are retained even when an otherwise correct answer cannot pass the joint metric.
 
 Full result rows are captured from native fetches before DataFrame/CSV conversion
 can coerce integers/NULLs or lose empty-result columns. Chunked fetches accumulate

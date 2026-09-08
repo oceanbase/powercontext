@@ -67,15 +67,15 @@ def file_hash(path: Path) -> str:
 
 
 def runtime_files(root: Path) -> str:
-    # Worker redirects bytecode lookups to its fresh private writable layer.
-    # Hash every executable, source, prompt, config and dependency, including
-    # resolved venv symlink bytes. An import/version label alone is insufficient.
+    # Cache redirection/no-write flags do not disable sourceless imports or
+    # explicit loaders. Hash every file, including bytecode and cache-named
+    # directories, plus resolved venv symlink bytes.
     if not stat.S_ISDIR(root.lstat().st_mode):
         raise IntegrityError("runtime root must be a regular directory")
     inventory = {}
     for path in sorted(root.rglob("*")):
         mode = path.lstat().st_mode
-        # lstat must precede directory/cache exclusions: rglob does not follow
+        # lstat must precede directory exclusions: rglob does not follow
         # directory symlinks, but the mounted interpreter could resolve them.
         if stat.S_ISLNK(mode) and path.is_dir():
             target = path.resolve()
@@ -89,7 +89,7 @@ def runtime_files(root: Path) -> str:
                 "mode": stat.S_IMODE(mode),
             }
             continue
-        if "__pycache__" in path.parts or path.suffix == ".pyc" or stat.S_ISDIR(mode):
+        if stat.S_ISDIR(mode):
             continue
         resolved = path.resolve()
         if not resolved.is_file():

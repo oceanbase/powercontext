@@ -409,11 +409,38 @@ def _full_result(span: str, sql: str, records: list[dict[str, Any]], issues: set
     }
 
 
+def _check_sql_evidence(
+    records: list[dict[str, Any]],
+    sql: dict[str, Any],
+    terminals: dict[str, Any],
+    links: dict[str, Any],
+    issues: set[str],
+) -> None:
+    all_links = _indexed(records, {"sql_link"}, "driver_span_id", issues)
+    online_sequence = next((r["sequence"] for r in records if r["kind"] == "question_injected"), float("inf"))
+    # Examine every terminal/result, not only evidence reachable from online
+    # links. Legitimate offline initialization stays bound but is not counted;
+    # an online terminal cannot borrow an offline dispatch's identity.
+    for record in records:
+        if record["kind"] not in {"sql_success", "sql_failure", "sql_rows"}:
+            continue
+        span = record["driver_span_id"]
+        rows = record["kind"] == "sql_rows"
+        if (
+            span not in sql
+            or span not in all_links
+            or (record["sequence"] > online_sequence and span not in links)
+            or (rows and terminals.get(span, {}).get("kind") != "sql_success")
+        ):
+            issues.add("unmatched_sql_rows" if rows else "unmatched_sql_terminal")
+
+
 def _driver_operations(
     records: list[dict[str, Any]], starts: dict[str, Any], links: dict[str, Any], issues: set[str]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     sql = _indexed(records, {"sql_started"}, "driver_span_id", issues)
     terminals = _indexed(records, {"sql_success", "sql_failure"}, "driver_span_id", issues)
+    _check_sql_evidence(records, sql, terminals, links, issues)
     operations, results = [], []
     online_sequence = next((r["sequence"] for r in records if r["kind"] == "question_injected"), float("inf"))
     if {span for span, r in sql.items() if r["sequence"] > online_sequence} != set(links):

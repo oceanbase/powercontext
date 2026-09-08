@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from decimal import localcontext
 from pathlib import Path
 
@@ -268,6 +269,129 @@ def decimal_run(number):
     return {"records": records, "returncode": 0, "timeout": False, "malformed_output": False}, table
 
 
+@pytest.mark.parametrize("kind", ["sql_failure", "sql_success", "sql_rows"])
+@pytest.mark.parametrize("position", [1, -2, -1])
+def test_orphan_sql_evidence_cannot_certify_a_successful_answer(kind, position):
+    run, table = decimal_run("1.0")
+    run["records"].insert(position, {"kind": kind, "driver_span_id": "orphan", "complete": True, **table})
+    run["records"] = numbered(run["records"])
+    verdict, trace = evaluate_case(
+        "t", run, {"expected": table, "declared_answer": table}, state_valid=True, data_version_verified=True
+    )
+    assert not trace["trace_complete"] and trace["steps"] is None, trace
+    assert verdict.correct and verdict.answer_grounded
+    report = summarize(["t"], [verdict], data_version_verified=True)
+    assert report["total"] == report["results_present"] == 1
+    assert report["joint_pass"] == 0 and report["mean_steps"] is None and not report["accepted"]
+
+
+def test_two_unbound_sql_failures_never_disappear_from_one_step_trace(tmp_path):
+    run, table = decimal_run("1.0")
+    for span in ("missing-first", "missing-second"):
+        run["records"].insert(-2, {"kind": "sql_failure", "driver_span_id": span})
+    run["records"] = numbered(run["records"])
+    verdict, trace = evaluate_case(
+        "t", run, {"expected": table, "declared_answer": table}, state_valid=True, data_version_verified=True
+    )
+    report = summarize(["t"], [verdict], data_version_verified=True)
+    (tmp_path / "orphan-sql-evidence.json").write_text(
+        json.dumps(
+            {
+                "evidence_kind": "synthetic_component",
+                "run": run,
+                "trace": trace,
+                "report": report,
+            },
+            indent=2,
+        )
+    )
+    assert trace["trace_complete"] is False and verdict.steps is None
+    assert "unmatched_sql_terminal" in trace["trace_issues"]
+    assert summarize(["t"], [verdict], data_version_verified=True)["joint_pass"] == 0
+
+
+@pytest.mark.parametrize("online", [False, True])
+def test_complete_sql_failure_lifecycle_is_retained_and_only_online_is_counted(online):
+    run, _ = decimal_run("1.0")
+    failed = [
+        {"kind": "sql_started", "driver_span_id": "failed", "sql": "SELECT missing"},
+        {
+            "kind": "sql_link",
+            "driver_span_id": "failed",
+            "parent_id": None,
+            "online": online,
+            "dialect": "sqlite",
+            "executemany": False,
+        },
+        {"kind": "sql_failure", "driver_span_id": "failed"},
+    ]
+    position = 2 if online else 1
+    records = numbered([*run["records"][:position], *failed, *run["records"][position:]])
+    trace = reconcile(records)
+    assert trace["trace_complete"] and trace["steps"] == 1 + int(online), trace
+    assert sum(op["failed"] for op in trace["operations"]) == int(online)
+    # A result cannot borrow the identity of a failed SQL attempt.
+    failed.append({"kind": "sql_rows", "driver_span_id": "failed", "columns": [], "rows": [], "complete": True})
+    invalid = reconcile(numbered([*run["records"][:position], *failed, *run["records"][position:]]))
+    assert not invalid["trace_complete"] and invalid["steps"] is None
+
+
+@pytest.mark.parametrize("binding", ["missing_link", "offline_link"])
+def test_sql_terminal_cannot_borrow_a_partial_or_offline_dispatch(binding):
+    run, _ = decimal_run("1.0")
+    prefix = [{"kind": "sql_started", "driver_span_id": "other", "sql": "SELECT 0"}]
+    terminal = {"kind": "sql_failure", "driver_span_id": "other"}
+    if binding == "missing_link":
+        prefix.append(terminal)
+    else:
+        prefix.append({
+            "kind": "sql_link",
+            "driver_span_id": "other",
+            "parent_id": None,
+            "online": False,
+            "dialect": "sqlite",
+            "executemany": False,
+        })
+        run["records"].insert(-2, terminal)
+    trace = reconcile(numbered([run["records"][0], *prefix, *run["records"][1:]]))
+    assert not trace["trace_complete"] and trace["steps"] is None
+    assert "unmatched_sql_terminal" in trace["trace_issues"]
+
+
+def test_offline_successful_rows_remain_bound_but_uncounted():
+    run, _ = decimal_run("1.0")
+    offline = copy.deepcopy(run["records"][2:6])
+    for record in offline:
+        record["driver_span_id"] = "offline"
+        if record["kind"] == "sql_link":
+            record["online"] = False
+    trace = reconcile(numbered([run["records"][0], *offline, *run["records"][1:]]))
+    assert trace["trace_complete"] and trace["steps"] == 1
+    assert len(trace["sql_results"]) == 1 and trace["sql_results"][0]["operation_id"] == "s"
+
+
+@pytest.mark.parametrize(
+    "filename", ["sitecustomize.pyc", "pkg/module.pyc", "__pycache__/module.pyc", "__pycache__/payload.py"]
+)
+def test_runtime_identity_includes_bytecode_and_cache_directory_contents(tmp_path, filename):
+    root = tmp_path / "runtime"
+    root.mkdir()
+    path = root / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    empty = paired.runtime_files(root)
+    path.write_bytes(b"first bytecode")
+    first = paired.runtime_files(root)
+    assert first != empty
+    original = path.stat()
+    path.write_bytes(b"other bytecode")
+    # Equal size and mtime cannot conceal changed executable bytes.
+    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
+    assert path.stat().st_size == original.st_size
+    assert paired.runtime_files(root) != first
+    path.unlink()
+    assert paired.runtime_files(root) == empty
+
+
 @pytest.mark.parametrize(
     "number", ["12345678901234567890.12", "-0.000000000000000000000000012345678901", "1.234567890123456789e50"]
 )
@@ -305,12 +429,15 @@ def test_runtime_directory_symlinks_cannot_hide_from_identity(tmp_path, placemen
         paired.runtime_files(root)
 
 
-def test_runtime_file_symlink_tracks_target_content(tmp_path):
+@pytest.mark.parametrize("filename", ["python", "module.pyc", "__pycache__/module.pyc"])
+def test_runtime_file_symlink_tracks_target_content(tmp_path, filename):
     root = tmp_path / "runtime"
     root.mkdir()
     binary = tmp_path / "python"
     binary.write_bytes(b"first binary")
-    (root / "python").symlink_to(binary)
+    link = root / filename
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(binary)
     before = paired.runtime_files(root)
     binary.write_bytes(b"second binary")
     assert paired.runtime_files(root) != before
