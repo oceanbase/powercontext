@@ -106,3 +106,20 @@ powercontext doctor pi
 
 `doctor pi` 会检查 Pi 可执行文件是否存在，以及 Pi 是否列出了 PowerContext package。修改 PowerContext 环境变量后
 需要重启 Pi。
+
+## 环境变量
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL；非 loopback endpoint 必须使用 HTTPS |
+| `POWERCONTEXT_PI_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
+| `POWERCONTEXT_PI_AUTHORIZATION` | 未设置 | package HTTP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | 把符合条件的用户提示词采集为 Source 证据 |
+| `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `1000` | 单请求超时，单位毫秒 |
+| `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `4000` | 召回/采集共享 HTTP 时间预算，单位毫秒 |
+| `POWERCONTEXT_PI_MAX_BYTES` | `8000` | 请求并校验的 PreparedContext byte 上限（`512`–`32768`） |
+| `POWERCONTEXT_PI_FLUSH_ON_CAPTURE` | `false` | 在 prompt hook 中等待已采集 Source 的处理 |
+| `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | 一个 pending Source 最多 flush 次数 |
+
+Pi 会拒绝包含凭据、query 或 fragment 的 base URL。召回、采集和边界 flush 都会正常降级；显式 `pc_*` 持久化写入
+必须确认，Pi 没有交互 UI 时会被拒绝。修改这些变量后需要重启 Pi。

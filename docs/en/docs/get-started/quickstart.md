@@ -5,12 +5,12 @@ description: Install PowerContext, connect one Agent, and recover a saved decisi
 
 # Quick Start
 
-Use one running PowerContext Server to keep project context across Agent sessions. This path uses Codex and explicit
-Memory writes; it needs no generation model or embedding provider.
+Use one running PowerContext Server to keep project context across Agent sessions. This path uses explicit Memory
+writes; it needs no generation model or embedding provider.
 
 ## 1. Install and start
 
-You need Python 3.11+, Git, uv, and an installed Codex host. PowerContext supports macOS and Linux;
+You need Python 3.11+, Git, uv, and an installed Agent. PowerContext supports macOS and Linux;
 Windows support is `experimental`. Host and optional database requirements are listed in
 [Install and run](install-and-run.md). The commands below use the current, unreleased `master` integration:
 
@@ -27,20 +27,11 @@ Keep the Server package and integration on the same tag or commit.
 
 ## 2. Connect an Agent
 
-In another terminal:
+Choose your host from [Connect Agents](../integrations/index.md), follow its installation, connection, and verification
+steps, then start a new Agent session. For example, use the [Codex guide](../integrations/codex.md) for Codex plugin setup.
 
-```bash
-powercontext setup codex --source oceanbase/powercontext --ref master
-powercontext doctor codex
-```
-
-Open Codex in the project whose context you want to keep. Start a new session after installation so the plugin is
-loaded. The plugin resolves an existing Scope through a session or workspace binding, falling back to the Server's
-default Scope. Projects are not automatically assigned separate Scopes; use
-[Scopes and access](../workflows/scopes-and-access.md) to establish separate project boundaries.
-
-For another host, use its [integration guide](../integrations/index.md). WorkBuddy needs its own
-`setup workbuddy` command; Hermes additionally requires `hermes memory setup` and selecting PowerContext.
+Different projects do not automatically receive separate Scopes. Use [Scopes and access control](../workflows/scopes-and-access.md)
+when projects need isolated data.
 
 ## 3. Save and recover one decision
 

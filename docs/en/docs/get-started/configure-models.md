@@ -117,14 +117,9 @@ The round trip is verified when the response has `mode: "vector"`, the recorded 
 powercontext stats --scope-id "$SCOPE_ID"
 ```
 
-## 4. Start Codex
+## 4. Connect an Agent
 
-Install the plugin using the command printed by Config Generator, load `.env`, and start Codex. Do not set
-`POWERCONTEXT_CODEX_SCOPE_ID` for the normal Session flow: the plugin resolves the Session binding, then the workspace
-binding, then the Server default Scope. Set it only when the host must select a known existing Scope explicitly.
-
-After Codex starts, send an ordinary prompt. The plugin recalls from the bound Scope and captures the prompt as Source
-evidence. Scheduled processing handles new Sources within the configured interval.
+After verifying the Server, follow the [guide for your Agent](../integrations/index.md) to configure its connection, authentication, and capture behavior.
 
 ## Data and restart behavior
 

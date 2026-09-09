@@ -14,6 +14,7 @@ description: 安装 PowerContext Codex 插件并控制其本地行为。
 
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext doctor codex
 ```
 
 该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，并创建用户数据目录。重复执行是安全的。
@@ -110,3 +111,34 @@ Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Code
 `systemMessage` 返回；`empty` 仍只作为本地诊断。outcome 包括 `empty`、`authentication_failed`、
 `version_mismatch`、`server_unavailable` 和 `invalid_response`；事件不会包含 query、scope、prepared content、
 `citation`、response body 或 authorization value。
+
+## 使用生成的环境文件
+
+如果已按[启用提取与向量搜索](../get-started/configure-models.md)生成 `.env`，使用 Config Generator 输出的插件安装命令，
+再在启动 Codex 的终端中加载该文件：
+
+```bash
+set -a
+. ./.env
+set +a
+codex
+```
+
+普通会话无需设置 `POWERCONTEXT_CODEX_SCOPE_ID`；只有需要显式选择已存在的 Scope 时才设置。
+发送普通 prompt 后，插件从绑定的 Scope 召回上下文，并将 prompt 采集为 Source。Server 的 Scheduler 按配置间隔处理新 Sources。
+
+## 环境变量
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `POWERCONTEXT_CODEX_SCOPE_ID` | 未设置 | 显式选择一个已存在 Scope，不再解析 binding 和 Server 默认 Scope |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
+| `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Hook 共享 HTTP 时间预算 |
+| `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | 每个提示词最多执行的 flush 次数 |
+
+Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。未显式指定
+Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。配置变量必须存在于启动 Codex 的
+进程环境中；修改后需要重启 Codex。

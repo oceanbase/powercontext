@@ -1,6 +1,6 @@
 ---
 title: 配置选项
-description: PowerContext 路径、Server、Client、推理和 Agent 集成环境变量。
+description: PowerContext 路径、Server、Client 和推理环境变量。
 ---
 
 # 配置选项
@@ -358,79 +358,6 @@ full-text search 仍可用。配置和 capability 验证步骤见[配置向量�
 `powercontext` 为 Server URL 和 timeout 提供对应的单次命令参数。Token 只能通过环境变量提供，避免出现在
 命令行参数中。
 
-## Codex 插件
+## Agent 集成
 
-| 变量 | 默认值 | 含义 |
-| --- | --- | --- |
-| `POWERCONTEXT_CODEX_SCOPE_ID` | 未设置 | 显式选择一个已存在 Scope，不再解析 binding 和 Server 默认 Scope |
-| `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
-| `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
-| `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Hook 共享 HTTP 时间预算 |
-| `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | 每个提示词最多执行的 flush 次数 |
-
-Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。未显式指定
-Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。配置变量必须存在于启动 Codex 的
-进程环境中；修改后需要重启 Codex。
-
-## Claude Code 插件
-
-| 变量 | 默认值 | 含义 |
-| --- | --- | --- |
-| `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Hook 使用的 Server base URL |
-| `POWERCONTEXT_CLAUDE_SCOPE_ID` | 未设置 | 覆盖持久 binding 和 Server 默认 Scope |
-| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
-| `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | 把用户 prompt 采集为普通 Source 证据 |
-| `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
-| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `4` | 召回、采集和可选 flush 共用的 Hook HTTP 时间预算 |
-| `POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS` | `4` | 每个 prompt 最多执行的 flush 次数；有效值为 1 到 16 |
-
-`powercontext setup claude-code` 会把 `server_url` 和 `capture_prompts` 保存为非敏感的 Claude Code 插件
-选项。启动 Claude Code 的进程中，对应的 `POWERCONTEXT_CLAUDE_*` 环境变量优先级更高。
-Authorization 只能来自环境变量，不能加入 Server URL 或插件选项。
-
-`UserPromptSubmit` Hook 的外层超时为十秒。召回与采集共用一个 wall-clock 时间预算，但会独立降级。
-明文 HTTP 只允许连接 loopback endpoint；远程 Server 必须使用 HTTPS。修改环境变量后需要重启 Claude Code。
-
-## DeepSeek Harness 插件
-
-| 变量 | 默认值 | 含义 |
-| --- | --- | --- |
-| `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | 插件使用的 Server 地址 |
-| `POWERCONTEXT_DSH_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
-| `POWERCONTEXT_DSH_AUTHORIZATION` | 未设置 | 插件 HTTP 请求使用的完整 `Bearer <token>` header |
-| `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
-| `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-
-`timeoutMs`、`requestTimeoutMs`、`maxBytes` 和 `flushMaxCalls` 是插件 patch 配置。Server 不可用时，召回和采集会降级；修改这些变量后需要重启 `dsh web`。
-
-## Pi package
-
-| 变量 | 默认值 | 含义 |
-| --- | --- | --- |
-| `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL；非 loopback endpoint 必须使用 HTTPS |
-| `POWERCONTEXT_PI_SCOPE_ID` | 未设置 | 在 workspace binding 和 Server 默认值之前显式选择已有 Scope |
-| `POWERCONTEXT_PI_AUTHORIZATION` | 未设置 | package HTTP 请求使用的完整 `Bearer <token>` header |
-| `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | 把符合条件的用户提示词采集为 Source 证据 |
-| `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `1000` | 单请求超时，单位毫秒 |
-| `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `4000` | 召回/采集共享 HTTP 时间预算，单位毫秒 |
-| `POWERCONTEXT_PI_MAX_BYTES` | `8000` | 请求并校验的 PreparedContext byte 上限（`512`–`32768`） |
-| `POWERCONTEXT_PI_FLUSH_ON_CAPTURE` | `false` | 在 prompt hook 中等待已采集 Source 的处理 |
-| `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | 一个 pending Source 最多 flush 次数 |
-
-Pi 会拒绝包含凭据、query 或 fragment 的 base URL。召回、采集和边界 flush 都会正常降级；显式 `pc_*` 持久化写入
-必须确认，Pi 没有交互 UI 时会被拒绝。修改这些变量后需要重启 Pi。
-
-## 其他 Agent 集成
-
-部分集成使用自己的配置文件或环境变量前缀，具体指南是这些设置的准确信息源：
-
-- [Hermes](../integrations/hermes.md)
-- [LangChain](../integrations/langchain.md)
-- [LangGraph](../integrations/langgraph.md)
-- [OpenClaw](../integrations/openclaw.md)
-- [OpenCode](../integrations/opencode.md)
-- [Pydantic AI 适配器预览](../integrations/pydantic-ai.md)
-- [WorkBuddy](../integrations/workbuddy.md)
+各 Agent 的安装、连接、认证和环境变量见[对应的集成文档](../integrations/index.md)。

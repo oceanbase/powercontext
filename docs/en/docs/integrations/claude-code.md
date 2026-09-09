@@ -131,7 +131,7 @@ Server default.
 normal interactive use.
 
 The timeout and flush controls are listed in the
-[configuration reference](../operate/configuration.md#claude-code-plugin). They apply to the Hook process; the MCP
+[configuration reference](#environment-variables). They apply to the Hook process; the MCP
 client remains managed by Claude Code.
 
 ## Connect an authenticated Server
@@ -197,3 +197,24 @@ claude plugin marketplace remove powercontext
 
 Uninstalling the plugin from its last scope also removes its `${CLAUDE_PLUGIN_DATA}` directory unless Claude Code is
 run with `--keep-data`.
+
+## Environment variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Server base URL used by the Hook |
+| `POWERCONTEXT_CLAUDE_SCOPE_ID` | unset | Override durable bindings and the Server default Scope |
+| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
+| `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | Capture user prompts as ordinary Source evidence |
+| `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
+| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request Hook timeout |
+| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `4` | Shared Hook HTTP budget for recall, capture, and optional flush |
+| `POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt; valid values are 1 through 16 |
+
+`powercontext setup claude-code` stores `server_url` and `capture_prompts` as non-sensitive Claude Code plugin
+options. The corresponding `POWERCONTEXT_CLAUDE_*` variables take precedence for the process that starts Claude Code.
+Authorization is environment-only and must not be added to the Server URL or plugin options.
+
+The outer `UserPromptSubmit` Hook timeout is ten seconds. Recall and capture use one shared wall-clock budget but fail
+independently. Plain HTTP is accepted only for loopback endpoints; use HTTPS for a remote Server. Restart Claude Code
+after changing its environment.

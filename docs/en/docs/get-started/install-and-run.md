@@ -25,7 +25,6 @@ Keep a released package and integration on the same tag. For example, install `0
 
 ```bash
 uv tool install "powercontext[cli,server]==0.2.0"
-powercontext setup codex --ref powercontext-v0.2.0
 ```
 
 The following examples use `master`, including unreleased capabilities. Check the
@@ -46,27 +45,8 @@ including credential helpers and SSH settings. For an SSH-based install, replace
 approved for your environment. `--force` also refreshes an existing tool from the current commit behind the selected
 Git ref; without it, `uv` may report the same requirement as already installed without fetching a newer `master`.
 
-To install a tested branch or tag, replace `master` after the final `@`. Use the same ref when configuring integrations:
-
-```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
-```
-
-Per-host commands remain the explicit path. The first-class catalog contains `codex`, `claude-code`, `dsh`,
-`openclaw`, `opencode`, `pi`, and `hermes`. To install more than one in one run, pass `--host` repeatedly, or omit
-`--host` on a TTY to choose from the catalog. `powercontext setup` with no subcommand still prints help:
-
-```bash
-powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref <ref>
-```
-
-Without `--server-url`, Claude Code and OpenClaw keep their `http://127.0.0.1:8000` defaults. An explicit
-`--server-url` overrides both selected hosts. Selected Codex, DSH,
-OpenCode, Pi, and Hermes integrations pass their existing post-install diagnostics before they are reported as
-installed. After installing Hermes, run `hermes memory setup` and select PowerContext before starting Hermes.
-
-WorkBuddy remains available through `powercontext setup workbuddy`, but it is not part of `setup select`. The
-integration guides in the site navigation describe host-specific prerequisites, options, and behavior.
+To install a tested branch or tag, replace `master` after the final `@`.
+Follow the [guide for each integration](../integrations/index.md) for Agent installation, connection options, and verification, using the same ref as the Server.
 
 ## Run the local Server
 
@@ -131,15 +111,6 @@ powercontext capabilities
 
 ```bash
 powercontext doctor
-powercontext doctor integrations
-powercontext doctor codex
-powercontext doctor claude-code
-powercontext doctor dsh
-powercontext doctor openclaw
-powercontext doctor opencode
-powercontext doctor pi
-powercontext doctor hermes
-powercontext doctor workbuddy
 powercontext ready
 powercontext capabilities
 ```
@@ -147,12 +118,8 @@ powercontext capabilities
 `doctor` checks the installed package, Server liveness, and Server readiness without requiring an integration. Server
 readiness covers the database and each configured inference provider. Runtime or database failures return
 `not_ready`; an inference failure returns `degraded` without removing database-backed operations from traffic.
-`doctor integrations` is an optional read-only overview of every first-class host; a missing CLI does not fail that
-command. The individual `doctor <host>` commands check one optional host CLI and all of its PowerContext integration
-items. WorkBuddy has an individual `doctor workbuddy` command but is not included in the first-class overview. The
-content commands exercise the public HTTP SDK path. `ready` and `capabilities` show the readiness and enabled
-capabilities of the running service. For complete status definitions and recovery steps, see
-[Troubleshoot](../operate/troubleshoot.md).
+`ready` and `capabilities` show the readiness and enabled capabilities of the running service.
+For Agent diagnostics, use the [guide for each integration](../integrations/index.md). For Server status definitions and recovery steps, see [Troubleshoot](../operate/troubleshoot.md).
 
 For a long-running process, Docker, authentication, or remote access, continue with
 [Deploy the Server](../operate/deploy-server.md).
@@ -163,10 +130,9 @@ To replace the installed tool with a chosen ref:
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
 ```
 
-Repeat the setup command for each installed host, using the same ref. Restart the Server and open a new host session
+Update each installed host using its [integration guide](../integrations/index.md) and the same ref. Restart the Server and open a new host session
 after updating. Existing SQLite data remains in the user data directory unless `POWERCONTEXT_HOME` or the database URL
 changes.
 

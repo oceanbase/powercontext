@@ -23,7 +23,6 @@ Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent Host 仍�
 
 ```bash
 uv tool install "powercontext[cli,server]==0.2.0"
-powercontext setup codex --ref powercontext-v0.2.0
 ```
 
 后续示例使用 `master`，包含尚未发布的能力。核对[能力矩阵](../integrations/capabilities.md)，
@@ -42,27 +41,8 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。`--force` 还会从所选 Git ref 当前指向的 commit
 刷新已安装工具；如果不加该参数，`uv` 可能只提示相同 requirement 已安装，而不会获取更新后的 `master`。
 
-安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。配置集成时应使用同一个 ref：
-
-```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
-```
-
-单宿主命令仍是显式路径。一级宿主目录包含 `codex`、`claude-code`、`dsh`、`openclaw`、`opencode`、`pi`
-和 `hermes`。若要一次安装多个宿主，可重复传入 `--host`；在 TTY 上省略 `--host` 则从目录中选择。不带子命令的
-`powercontext setup` 仍然只打印帮助：
-
-```bash
-powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref <ref>
-```
-
-未传入 `--server-url` 时，Claude Code 和 OpenClaw 保留 `http://127.0.0.1:8000` 默认值；显式传入该选项时会覆盖
-两个被选中宿主的地址。Codex、DSH、OpenCode、Pi 和 Hermes 只有在
-通过现有安装后诊断后才会报告为 installed。安装 Hermes 后，还需运行 `hermes memory setup` 并选择 PowerContext，
-然后再启动 Hermes。
-
-WorkBuddy 仍可通过 `powercontext setup workbuddy` 安装，但不在 `setup select` 中。站点导航中的集成指南说明了
-各宿主的前置条件、专有选项和行为。
+安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。
+Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integrations/index.md)，并使用与 Server 相同的 ref。
 
 ## 运行本地 Server
 
@@ -124,26 +104,14 @@ powercontext capabilities
 
 ```bash
 powercontext doctor
-powercontext doctor integrations
-powercontext doctor codex
-powercontext doctor claude-code
-powercontext doctor dsh
-powercontext doctor openclaw
-powercontext doctor opencode
-powercontext doctor pi
-powercontext doctor hermes
-powercontext doctor workbuddy
 powercontext ready
 powercontext capabilities
 ```
 
 `doctor` 检查已安装的包、Server 存活状态和 Server 就绪状态，不要求安装集成。Server 就绪检查涵盖数据库和
 每个已配置的推理服务。Runtime 或数据库故障返回 `not_ready`；推理服务故障返回 `degraded`，不会使数据库
-操作退出流量。`doctor integrations` 是可选的一级宿主只读总览，缺失 CLI 不会让该命令失败。
-各个 `doctor <host>` 命令分别检查一个可选宿主 CLI 及其全部 PowerContext 集成项。WorkBuddy 提供独立的
-`doctor workbuddy` 命令，但不出现在一级宿主总览中。内容命令会经过公开 HTTP SDK 路径。`ready` 和
-`capabilities` 用于查看运行中服务的就绪状态和已启用能力。完整的状态解释和恢复步骤见
-[排查问题](../operate/troubleshoot.md)。
+操作退出流量。`ready` 和 `capabilities` 用于查看运行中服务的就绪状态和已启用能力。
+Agent 诊断见[各自的集成文档](../integrations/index.md)；Server 状态解释和恢复步骤见[排查问题](../operate/troubleshoot.md)。
 
 需要长期运行进程、使用 Docker、启用鉴权或允许远程访问时，请继续阅读[部署 Server](../operate/deploy-server.md)。
 
@@ -153,10 +121,9 @@ powercontext capabilities
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
 ```
 
-对每个已安装宿主重复 setup 命令，并使用同一个 ref。更新后重启 Server，再开启新的宿主会话。只要没有修改
+按[各自的集成文档](../integrations/index.md)更新已安装宿主，并使用同一个 ref。更新后重启 Server，再开启新的宿主会话。只要没有修改
 `POWERCONTEXT_HOME` 或数据库 URL，现有 SQLite 数据会继续保留。
 
 ## 为 Python 项目安装角色

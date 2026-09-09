@@ -1,6 +1,6 @@
 ---
 title: Configuration options
-description: PowerContext paths, Server, Client, inference, and Agent integration environment variables.
+description: PowerContext paths, Server, Client, and inference environment variables.
 ---
 
 # Configuration options
@@ -384,82 +384,6 @@ For configuration and capability verification, see [Configure vector search](../
 Equivalent one-off flags are available for the Server URL and timeout on `powercontext`. The token is accepted
 only through the environment so it does not appear in command-line arguments.
 
-## Codex plugin
+## Agent integrations
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `POWERCONTEXT_CODEX_SCOPE_ID` | unset | Explicitly select an existing Scope instead of resolving bindings and the Server default |
-| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
-| `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
-| `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Shared hook HTTP budget |
-| `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
-
-The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
-the Server is unavailable or rejects authentication. Without an explicit Scope, the plugin resolves the Session
-binding, workspace binding, then Server default. Configuration variables must be present in the environment that
-starts Codex; restart Codex after changing them.
-
-## Claude Code plugin
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Server base URL used by the Hook |
-| `POWERCONTEXT_CLAUDE_SCOPE_ID` | unset | Override durable bindings and the Server default Scope |
-| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
-| `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | Capture user prompts as ordinary Source evidence |
-| `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request Hook timeout |
-| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `4` | Shared Hook HTTP budget for recall, capture, and optional flush |
-| `POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt; valid values are 1 through 16 |
-
-`powercontext setup claude-code` stores `server_url` and `capture_prompts` as non-sensitive Claude Code plugin
-options. The corresponding `POWERCONTEXT_CLAUDE_*` variables take precedence for the process that starts Claude Code.
-Authorization is environment-only and must not be added to the Server URL or plugin options.
-
-The outer `UserPromptSubmit` Hook timeout is ten seconds. Recall and capture use one shared wall-clock budget but fail
-independently. Plain HTTP is accepted only for loopback endpoints; use HTTPS for a remote Server. Restart Claude Code
-after changing its environment.
-
-## DeepSeek Harness plugin
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | Server base URL used by the plugin |
-| `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
-| `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for plugin HTTP requests |
-| `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
-| `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-
-`timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Server unavailability fails open for recall and capture; restart `dsh web` after changing these variables.
-
-## Pi package
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL; non-loopback endpoints must use HTTPS |
-| `POWERCONTEXT_PI_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
-| `POWERCONTEXT_PI_AUTHORIZATION` | unset | Complete `Bearer <token>` header for package HTTP requests |
-| `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | Capture eligible user prompts as Source evidence |
-| `POWERCONTEXT_PI_REQUEST_TIMEOUT_MS` | `1000` | Per-request timeout in milliseconds |
-| `POWERCONTEXT_PI_HTTP_BUDGET_MS` | `4000` | Shared recall/capture HTTP budget in milliseconds |
-| `POWERCONTEXT_PI_MAX_BYTES` | `8000` | Requested and validated PreparedContext byte limit (`512`–`32768`) |
-| `POWERCONTEXT_PI_FLUSH_ON_CAPTURE` | `false` | Wait for captured Source processing during the prompt hook |
-| `POWERCONTEXT_PI_FLUSH_MAX_CALLS` | `4` | Maximum flush attempts for one pending Source |
-
-Pi rejects base URLs containing credentials, a query, or a fragment. Recall, capture, and boundary flushing fail open;
-explicit `pc_*` durable writes require confirmation and are refused when Pi has no interactive UI. Restart Pi after
-changing these variables.
-
-## Other Agent integrations
-
-Some integrations have their own configuration file or environment prefix. Their guides are the source of truth:
-
-- [Hermes](../integrations/hermes.md)
-- [LangChain](../integrations/langchain.md)
-- [LangGraph](../integrations/langgraph.md)
-- [OpenClaw](../integrations/openclaw.md)
-- [OpenCode](../integrations/opencode.md)
-- [Pydantic AI adapter preview](../integrations/pydantic-ai.md)
-- [WorkBuddy](../integrations/workbuddy.md)
+For installation, connection, authentication, and environment variables, use the [guide for your integration](../integrations/index.md).

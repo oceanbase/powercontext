@@ -111,14 +111,9 @@ curl -fsS -X POST http://127.0.0.1:8000/v1/memory/search \
 powercontext stats --scope-id "$SCOPE_ID"
 ```
 
-## 4. 启动 Codex
+## 4. 接入 Agent
 
-使用 Config Generator 输出的命令安装插件，加载 `.env` 后启动 Codex。普通 Session 流程不要设置
-`POWERCONTEXT_CODEX_SCOPE_ID`：插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。只有宿主必须
-显式选择一个已存在 Scope 时才设置该变量。
-
-Codex 启动后发送普通 prompt。插件从绑定 Scope 召回内容，并把 prompt 捕获为 Source 证据。Scheduler 会在配置的间隔内
-处理新 Source。
+Server 验证通过后，按[对应 Agent 的文档](../integrations/index.md)配置连接、认证和采集行为。
 
 ## 数据与重启
 

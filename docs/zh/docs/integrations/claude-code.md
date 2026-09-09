@@ -120,7 +120,7 @@ claude
 
 `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE=true` 会让 Hook 等待 Source 处理，只适合测试，不适合日常交互。
 
-timeout 和 flush 控制项见[配置参考](../operate/configuration.md)。这些设置作用于 Hook
+timeout 和 flush 控制项见[环境变量](#环境变量)。这些设置作用于 Hook
 进程；MCP client 仍由 Claude Code 管理。
 
 ## 连接启用认证的 Server
@@ -183,3 +183,23 @@ claude plugin marketplace remove powercontext
 
 从最后一个 scope 卸载插件时，Claude Code 也会删除 `${CLAUDE_PLUGIN_DATA}`；除非卸载时传入
 `--keep-data`。
+
+## 环境变量
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `POWERCONTEXT_CLAUDE_SERVER_URL` | `http://127.0.0.1:8000` | Hook 使用的 Server base URL |
+| `POWERCONTEXT_CLAUDE_SCOPE_ID` | 未设置 | 覆盖持久 binding 和 Server 默认 Scope |
+| `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | 把用户 prompt 采集为普通 Source 证据 |
+| `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
+| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
+| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `4` | 召回、采集和可选 flush 共用的 Hook HTTP 时间预算 |
+| `POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS` | `4` | 每个 prompt 最多执行的 flush 次数；有效值为 1 到 16 |
+
+`powercontext setup claude-code` 会把 `server_url` 和 `capture_prompts` 保存为非敏感的 Claude Code 插件
+选项。启动 Claude Code 的进程中，对应的 `POWERCONTEXT_CLAUDE_*` 环境变量优先级更高。
+Authorization 只能来自环境变量，不能加入 Server URL 或插件选项。
+
+`UserPromptSubmit` Hook 的外层超时为十秒。召回与采集共用一个 wall-clock 时间预算，但会独立降级。
+明文 HTTP 只允许连接 loopback endpoint；远程 Server 必须使用 HTTPS。修改环境变量后需要重启 Claude Code。

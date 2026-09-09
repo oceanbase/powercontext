@@ -31,13 +31,15 @@ The 8 Agent Hosts use `official` for PowerContext project maintenance and `commu
 | [Pi Coding Agent](pi.md) | `community` | Extension + pc_* + /pc |
 | [WorkBuddy](workbuddy.md) | `community` | Prompt Hook + MCP + Skill |
 
-Each integration connects to a separately running Server. Follow the host-specific installation and capability limits:
+Each integration connects to a separately running Server. Follow its guide in the table for installation, connection settings, authentication, and diagnostics.
 
-- `setup select` and `doctor integrations` include all 7 hosts except WorkBuddy. This CLI catalog is not a stewardship category.
-- WorkBuddy uses its own `powercontext setup workbuddy` and `powercontext doctor workbuddy` commands.
-- After installing Hermes, run `hermes memory setup`, select PowerContext, and restart. Its guide explains the different
-  interactive and Gateway command limits in Hermes 0.20.4.
-- OpenClaw currently has no Handoff surface; Memory support does not imply work-transfer support.
+To select multiple hosts interactively, run:
+
+```bash
+powercontext setup select --source oceanbase/powercontext --ref master
+```
+
+Use the same ref as the Server. The selector lists hosts in the CLI catalog; consult each Agent guide for its supported installation path.
 
 ## Python Agent frameworks
 

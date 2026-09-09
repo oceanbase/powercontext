@@ -28,12 +28,15 @@ description: 选择插件、MCP、Skills、Agent Host 或 Python 框架接入。
 | [Pi Coding Agent](pi.md) | `community` | Extension + pc_* + /pc |
 | [WorkBuddy](workbuddy.md) | `community` | Prompt Hook + MCP + Skill |
 
-所有集成都连接独立运行的 Server。安装步骤与能力不能在宿主之间直接套用：
+所有集成都连接独立运行的 Server。安装、连接设置、认证和诊断步骤见上表中的各 Agent 文档。
 
-- `setup select` 和 `doctor integrations` 包含除 WorkBuddy 外的 7 个 Host。该 CLI 目录不是维护归属分类。
-- WorkBuddy 使用独立的 `powercontext setup workbuddy` 和 `powercontext doctor workbuddy`。
-- Hermes 安装后必须运行 `hermes memory setup`、选择 PowerContext 并重启。Hermes 0.20.4 的交互命令与 Gateway 命令有不同限制，见专页。
-- OpenClaw 当前没有 Handoff；不能把 Memory 能力等同于工作交接能力。
+需要交互选择多个宿主时，可运行：
+
+```bash
+powercontext setup select --source oceanbase/powercontext --ref master
+```
+
+使用与 Server 相同的 ref。该选择器仅列出 CLI 目录中的宿主，完整支持情况见各 Agent 文档。
 
 ## Python Agent 框架
 

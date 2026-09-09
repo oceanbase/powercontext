@@ -14,6 +14,7 @@ Run:
 
 ```bash
 powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext doctor codex
 ```
 
 The command adds the repository as a Codex marketplace, installs the PowerContext plugin, and creates the user data
@@ -119,3 +120,36 @@ returned through the top-level `systemMessage` in the successful stdout hook res
 diagnostic. Outcomes include `empty`, `authentication_failed`, `version_mismatch`, `server_unavailable`, and
 `invalid_response`. The event never contains the query, scope, prepared content, citation, response body, or
 authorization value.
+
+## Use a generated environment file
+
+If you generated `.env` with [Enable extraction and vector search](../get-started/configure-models.md), install the plugin
+using the command printed by Config Generator, then load the file in the terminal that starts Codex:
+
+```bash
+set -a
+. ./.env
+set +a
+codex
+```
+
+Leave `POWERCONTEXT_CODEX_SCOPE_ID` unset for normal sessions; set it only to select a known existing Scope explicitly.
+After an ordinary prompt, the plugin recalls from the bound Scope and captures the prompt as Source evidence.
+The Server Scheduler processes new Sources at the configured interval.
+
+## Environment variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `POWERCONTEXT_CODEX_SCOPE_ID` | unset | Explicitly select an existing Scope instead of resolving bindings and the Server default |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
+| `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
+| `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Shared hook HTTP budget |
+| `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
+
+The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
+the Server is unavailable or rejects authentication. Without an explicit Scope, the plugin resolves the Session
+binding, workspace binding, then Server default. Configuration variables must be present in the environment that
+starts Codex; restart Codex after changing them.
