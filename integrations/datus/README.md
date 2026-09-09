@@ -1,7 +1,7 @@
 # PowerContext / Datus experimental bridge
 
 This experimental bridge delivers approved, exact Skill packages and runs a
-frozen native Datus workflow in isolated development sessions. SQL remains
+frozen native Datus workflow in isolated, separately admitted learning/development/formal sessions. SQL remains
 Datus's responsibility. The paired evaluator preserves raw evidence and refuses
 unknown coverage. Component tests establish no live benchmark score.
 It is not registered as a supported `powercontext setup` target.
@@ -91,12 +91,15 @@ does not call `SkillConfig.from_dict`, which appends builtin/adapter directories
 The paired runner injects this manager into the real GenSQL node; invoking the
 standard Datus CLI alone does not install this manager or the observer.
 
-Optionally add `--db` to execute only `SELECT 1 AS adapter_smoke` using native
-`datus_mysql.MySQLConnector.execute_query`. Provision `DATUS_DB_HOST`,
-`DATUS_DB_PORT`, `DATUS_DB_USER`, `DATUS_DB_PASSWORD`, `DATUS_DB_NAME` through the
-authorized task environment. Use a read-only account and a foreground process
-timeout. The current native adapter does not enforce its connection timeout
-field or configure TLS here; do not assume the connection is encrypted.
+Optionally add `--db --db-plan /evaluation/smoke.json --approval-sha256 APPROVAL_DIGEST`
+to execute only `SELECT 1 AS adapter_smoke`. The plan has phase `native_smoke`
+and the same explicit TLS/public identity/approval contract described in
+[Controlled admission](SAFETY.md). The native query method is unchanged, but
+every physical MySQL connection is created through the bridge's REQUIRED TLS
+creator. Ambient `DATUS_DB_*` values are not read. A dedicated private
+`secret_refs.db_password` file is read only after admission. No certificate or
+transport failure is retried in plaintext. A foreground process timeout remains
+required for this component CLI.
 
 The JSON is labeled `native_component_smoke`, with `native_agent_qa_runs: 0`.
 A successful SELECT 1 or manual Skill load is neither a learning example nor a
@@ -212,7 +215,9 @@ in `development-plan.example.json`; its placeholders cannot pass admission.
    from the shared examples, may be supplied to the native arm. The enhanced arm
    additionally requires exact PowerContext delivery receipts.
 5. `freeze` constructs both real native graphs without sending a question or
-   making a model request. It freezes actual prompt/tool/Skill/common identities,
+   making a model request. It **does authenticate to the database** for native
+   question-independent initialization and therefore requires live admission.
+   It freezes actual prompt/tool/Skill/common identities,
    the plan/oracle/admission, and every runtime/interpreter/bridge file, including
    bytecode and cache-named paths. The execution-root identity is part of the
    same manifest and input identity; all preparation, case and final scoring
@@ -226,15 +231,18 @@ From the repository root (replace paths with evaluator-owned files):
 ```bash
 PYTHONPATH=integrations/datus/src uv run --frozen python -m powercontext_datus.paired sample \
   --runtime-python integrations/datus/runtime/.venv/bin/python \
-  --input /evaluation/independent-samples.json --output /evaluation/sample-evidence
+  --input /evaluation/independent-samples.json --output /evaluation/sample-evidence \\
+  --approval-sha256 LEARNING_APPROVAL_DIGEST
 
 PYTHONPATH=integrations/datus/src uv run --frozen python -m powercontext_datus.paired freeze \
   --runtime-python integrations/datus/runtime/.venv/bin/python \
-  --input /evaluation/development-plan.json --output /evaluation/frozen-manifest.json
+  --input /evaluation/development-plan.json --output /evaluation/frozen-manifest.json \\
+  --approval-sha256 DEVELOPMENT_APPROVAL_DIGEST
 
 PYTHONPATH=integrations/datus/src uv run --frozen python -m powercontext_datus.paired run \
   --runtime-python integrations/datus/runtime/.venv/bin/python \
-  --input /evaluation/frozen-manifest.json --output /evaluation/new-pair
+  --input /evaluation/frozen-manifest.json --output /evaluation/new-pair \\
+  --approval-sha256 DEVELOPMENT_APPROVAL_DIGEST
 ```
 
 The live plan uses `evidence_kind=independent_development`. Live admission requires
@@ -357,7 +365,8 @@ live runs use the pinned MySQL adapter. No component count establishes accuracy.
 
 ## Acceptance boundary and exposure ledger
 
-This code does not admit formal runs. Real learning/development validation still
+Formal runs are now admitted only through the explicit safety and provenance
+contract in [SAFETY.md](SAFETY.md), not a boolean enabling flag. Real validation still
 requires authorized model/PowerContext services, independently reviewed samples
 and an established common data version/oracle. No such live runs are claimed by
 the component tests. The bridge is not registered as a supported
@@ -382,9 +391,13 @@ evidence. An oracle conflict invalidates the batch even when the remaining cases
 meet the joint count. For example, 42 correct cases at 2 steps and 4 failed cases
 at 3 steps is 96 steps and **fails**. Totals of 92/93 straddle the budget boundary;
 42 correct cases at 1 step and 4 failed cases at 3 steps is 54 and may pass.
-Passing synthetic aggregation tests does not open formal admission or certify a
-real run. Formal dispatch remains disabled pending its implementation and live
-learning/development, authorization, isolation and freeze evidence.
+Passing synthetic aggregation or simulated formal-dispatch tests does not
+establish external approval or certify a real run. Formal dispatch requires the
+registered complete roster, disjoint learning/development rosters, same-profile
+development receipts, a frozen manifest and a runner-provisioned single-run grant.
+The worker's formal path executes the same native graph as development; reports
+distinguish `real_formal_runs` from `real_development_runs` and retain all 46
+denominator entries after an abort.
 
 ### Security smoke prerequisites
 
@@ -399,15 +412,14 @@ in-process concurrency API or general trace-redaction mechanism. In particular,
 the learning/paired workflow's raw tool and result evidence needs separate
 secret-leak fault injection and review before use with real credentials.
 
-Do not infer verified TLS from the pinned MySQL adapter's default configuration:
-it exposes no verified-TLS option and the driver can fall back to a connection
-without TLS. `--db` is not a transport or principal authorization check. Before
-sending authentication, the controlled runner must establish a verified TLS
-route or task-authorized protected network, plus model-service authorization,
-read-only principal rights and a common immutable data version. A no-authentication
-greeting probe can establish that a server does not advertise TLS; it cannot
-prove account grants or qualify an unprotected network. Do not use another
-task's secret references to satisfy this prerequisite.
+The upstream adapter default is not the bridge policy. The bridge pins verified
+CA bytes, requires chain/hostname verification and TLS 1.2+, and uses the locked
+PyMySQL 1.2.0 explicit-SSL REQUIRED branch on the authentication socket. HTTPX
+uses the pinned model trust store without ambient roots/proxies or redirects.
+There is no protected-network exception to this implementation's TLS requirement.
+TLS cannot prove account grants, immutable snapshots, model authorization or
+secret-runner/rotation control. Those remain externally verified, hash-bound
+approval prerequisites. Do not use another task's secret references.
 
 ## Tests
 

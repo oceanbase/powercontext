@@ -35,6 +35,55 @@ def runtime_python():
     return executable
 
 
+def test_pinned_native_connector_all_engine_generations_use_tls_creator(runtime_python, tmp_path):
+    # Real locked Datus/MySQL constructor, fake engine/creator: no socket or DB.
+    source = Path(__file__).resolve().parents[2] / "integrations/datus/src"
+    code = r"""
+import hashlib, json, ssl
+from pathlib import Path
+from types import SimpleNamespace
+import certifi, sqlalchemy
+from powercontext_datus import transport
+from powercontext_datus.native import verify_runtime
+verify_runtime()
+path = Path(certifi.where())
+ca = {"ca_file": str(path), "ca_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+engines, connections, disposed = [], [], []
+def create(url, **kwargs):
+    assert url == "mysql+pymysql://"
+    engines.append(kwargs)
+    return SimpleNamespace(dispose=lambda: disposed.append(True))
+sqlalchemy.create_engine = create
+def connect(db, password, context):
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+    connections.append(context)
+transport.mysql_connection = connect
+connector = transport.mysql_connector({"host":"db.example.invalid", "port":3306,
+    "username":"synthetic", "name":"synthetic", "tls":ca}, "synthetic-only")
+first = connector._ensure_engine()
+assert connector._ensure_engine() is first
+engines[0]["creator"]()
+connector.close()
+second = connector._ensure_engine()
+assert second is not first
+engines[1]["creator"]()
+connector.close()
+assert len(engines) == len(connections) == len(disposed) == 2
+assert connections[0] is connections[1]
+print(json.dumps({"tls_creator_generations": 2, "real_auth_attempts": 0}))
+"""
+    result = subprocess.run(
+        [str(runtime_python), "-B", "-c", code],
+        cwd=tmp_path,
+        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(source), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"tls_creator_generations": 2, "real_auth_attempts": 0}
+
+
 def probe(runtime_python, root, *names):
     source = Path(__file__).resolve().parents[2] / "integrations/datus/src"
     env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(source), "PYTHONDONTWRITEBYTECODE": "1"}

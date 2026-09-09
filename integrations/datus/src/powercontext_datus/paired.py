@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-"""Evaluator-owned development pairing CLI. Formal tasks are deliberately inadmissible."""
+"""Evaluator-owned learning/development/formal CLI with controlled-runner admission."""
 
 # ruff: noqa: TRY003
 from __future__ import annotations
@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import stat
+import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
@@ -30,10 +31,21 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from powercontext.http import ArtifactAddress
+from powercontext_datus.admission import (
+    claim_dispatch,
+    claim_formal,
+    dispatch_permit,
+    evidence_identity,
+    profile_identity,
+    read_secret,
+    validate_formal,
+    validate_safety,
+)
 from powercontext_datus.evaluate import evaluate_case, model_metrics
 from powercontext_datus.freeze import IntegrityError, digest_json, snapshot
 from powercontext_datus.report import summarize
 from powercontext_datus.sandbox import Sandbox
+from powercontext_datus.transport import tls_context, trust_bytes
 
 ARMS = ("native", "enhanced")
 
@@ -46,17 +58,6 @@ def write_json(path: Path, value: Any) -> None:
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
-
-
-def read_secret(path: str) -> str:
-    ref = Path(path)
-    info = ref.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-        raise IntegrityError("secret reference must be an owned regular file with no group/other access")
-    value = ref.read_text().strip()
-    if not value:
-        raise IntegrityError("empty task-authorized secret reference")
-    return value
 
 
 def file_hash(path: Path) -> str:
@@ -102,26 +103,41 @@ def runtime_files(root: Path) -> str:
     return digest_json(inventory)
 
 
+def runtime_profile(sandbox: Sandbox) -> dict[str, Any]:
+    return {
+        "execution": sandbox.execution_identity(),
+        "bridge": runtime_files(sandbox.bridge),
+        "runtime": runtime_files(sandbox.python.parent.parent),
+        "python": runtime_files(sandbox.python.resolve().parent.parent),
+    }
+
+
+def verify_runtime_profile(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
+    profile = runtime_profile(sandbox)
+    if plan["evidence_kind"] != "component_fixture" and digest_json(profile) != plan.get("runtime_profile_sha256"):
+        raise IntegrityError("execution/runtime differs from the approved profile")
+    return profile
+
+
 def input_identity(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
     result = {
-        "execution": sandbox.execution_identity(),
+        **verify_runtime_profile(plan, sandbox),
         "plan": digest_json(plan),
         "common": file_hash(Path(plan["common_file"])),
         "oracle": file_hash(Path(plan["oracle_file"])),
         "admission": file_hash(Path(plan["admission_file"])),
         "skills": {arm: snapshot(Path(plan["arms"][arm]["skill_root"])) for arm in ARMS},
-        "bridge": runtime_files(sandbox.bridge),
-        "runtime": runtime_files(sandbox.python.parent.parent),
-        "python": runtime_files(sandbox.python.resolve().parent.parent),
     }
     if plan.get("database_file"):
         result["database"] = file_hash(Path(plan["database_file"]))
+    if plan["evidence_kind"] != "component_fixture":
+        result["admission_evidence"] = evidence_identity(plan)
     return result
 
 
-def validate_plan(plan: dict[str, Any]) -> None:
-    if plan["evidence_kind"] not in {"component_fixture", "independent_development"}:
-        raise IntegrityError("only independent development or component fixtures are admitted")
+def validate_plan(plan: dict[str, Any], approval_sha256: str | None = None) -> None:
+    if plan["evidence_kind"] not in {"component_fixture", "independent_development", "independent_formal"}:
+        raise IntegrityError("unknown paired evaluation phase")
     task_ids = [task["task_id"] for task in plan["tasks"]]
     if not task_ids or len(set(task_ids)) != len(task_ids):
         raise IntegrityError("nonempty unique task roster required")
@@ -131,13 +147,15 @@ def validate_plan(plan: dict[str, Any]) -> None:
         raise IntegrityError("both paired arms are required")
     validate_public(plan)
     validate_admission(plan)
+    if plan["evidence_kind"] != "component_fixture":
+        validate_safety(plan, approval_sha256)
 
 
-def validate_public(plan: dict[str, Any]) -> None:
+def validate_public(plan: dict[str, Any]) -> None:  # noqa: C901 - shared explicit configuration allowlist
     public = plan["public"]
     if not 1 <= public["max_turns"] <= 50 or not 0 < plan["timeout_seconds"] <= 3600:
         raise IntegrityError("explicit bounded shared budget required")
-    if set(public["model"]) - {"type", "model", "base_url", "temperature", "top_p", "reasoning_effort"}:
+    if set(public["model"]) - {"type", "model", "base_url", "temperature", "top_p", "reasoning_effort", "tls"}:
         raise IntegrityError("model configuration must not contain credentials or untracked extensions")
     if set(public) != {"model", "database", "max_turns", "current_date"}:
         raise IntegrityError("unknown effective configuration")
@@ -154,9 +172,20 @@ def validate_public(plan: dict[str, Any]) -> None:
         plan["evidence_kind"] == "component_fixture" and endpoint.hostname in {"127.0.0.1", "localhost"}
     ):
         raise IntegrityError("live model transport requires HTTPS")
-    allowed_db = {"type", "name", "host", "port", "username"}
+    allowed_db = {"type", "name", "host", "port", "username", "tls"}
     if set(public["database"]) - allowed_db:
         raise IntegrityError("database credentials must use protected references")
+    if plan["evidence_kind"] != "component_fixture":
+        db = public["database"]
+        if (
+            set(db) != allowed_db
+            or not all(isinstance(db[k], str) and db[k].strip() for k in ("host", "name", "username"))
+            or type(db["port"]) is not int
+            or not 1 <= db["port"] <= 65535
+        ):
+            raise IntegrityError("explicit database identity and TLS policy required")
+        for name in ("model", "database"):
+            tls_context(public[name].get("tls"))
 
 
 def validate_admission(plan: dict[str, Any]) -> None:
@@ -199,8 +228,8 @@ def validate_live_admission(plan: dict[str, Any], admission: dict[str, Any]) -> 
         raise IntegrityError("sample provenance requires independent review")
     if admission.get("data_mode") != "immutable_read_only_snapshot":
         raise IntegrityError("a proved immutable common database version is required")
-    if admission.get("evidence_kind") != "independent_development":
-        raise IntegrityError("formal admission is not accepted")
+    if admission.get("evidence_kind") != plan["evidence_kind"]:
+        raise IntegrityError("admission phase mismatch")
     for key in required[2:]:
         receipt = admission[key]
         if not isinstance(receipt, dict) or set(receipt) != {"file", "sha256"}:
@@ -208,6 +237,8 @@ def validate_live_admission(plan: dict[str, Any], admission: dict[str, Any]) -> 
         if file_hash(Path(receipt["file"])) != receipt["sha256"]:
             raise IntegrityError("admission evidence file digest mismatch")
     validate_deliveries(plan, admission)
+    if plan["evidence_kind"] == "independent_formal":
+        validate_formal(plan, admission)
 
 
 def validate_deliveries(plan: dict[str, Any], admission: dict[str, Any]) -> None:
@@ -252,7 +283,21 @@ def run_one(
     effective: str | None = None,
     prepare: bool = False,
     credentials: dict[str, str] | None = None,
+    approval_sha256: str | None = None,
+    manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
+    approval = None
+    if plan["evidence_kind"] != "component_fixture":
+        if (
+            task != {"task_id": "prepare", "question": ""} if prepare else task not in plan["tasks"]
+        ) or arm not in plan["arms"]:
+            raise IntegrityError("dispatch is outside the approved roster/arms")
+        validate_public(plan)
+        approval = validate_safety(plan, approval_sha256)
+        verify_runtime_profile(plan, sandbox)
+        approval = validate_safety(plan, approval_sha256)
+        if plan["evidence_kind"] == "independent_formal" and not prepare:
+            claim_dispatch(approval, plan, arm, task, run_id, manifest_sha256)
     request = {
         "run_id": run_id,
         "attempt_id": str(uuid.uuid4()),
@@ -272,21 +317,29 @@ def run_one(
         "prepare_only": prepare,
         "effective_sha256": effective,
     }
+    if approval is not None:
+        request["admission_permit"] = dispatch_permit(plan, approval, task)
+        # Public CA bytes, not credentials. No evaluator files are mounted.
+        request["trust_stores"] = {name: trust_bytes(plan["public"][name]["tls"]) for name in ("model", "database")}
     return sandbox.run(
         request,
         common=Path(plan["common_file"]),
         skills=Path(plan["arms"][arm]["skill_root"]),
         database=Path(plan["database_file"]) if plan.get("database_file") else None,
         network=True,
-        timeout=plan["timeout_seconds"],
+        timeout=min(plan["timeout_seconds"], max(0.001, approval["expires_at"] - time.time()))
+        if approval is not None
+        else plan["timeout_seconds"],
     )
 
 
-def freeze_plan(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
+def freeze_plan(plan: dict[str, Any], sandbox: Sandbox, *, approval_sha256: str | None = None) -> dict[str, Any]:
     plan = json.loads(json.dumps(plan))
-    validate_plan(plan)
+    validate_plan(plan, approval_sha256)
     before = input_identity(plan, sandbox)
     sandbox = sandbox.bind_execution(before["execution"])
+    if plan["evidence_kind"] != "component_fixture":
+        validate_safety(plan, approval_sha256)
     credentials = credentials_for(plan)
     effective = {}
     preparation = {}
@@ -300,9 +353,12 @@ def freeze_plan(plan: dict[str, Any], sandbox: Sandbox) -> dict[str, Any]:
             run_id=str(uuid.uuid4()),
             prepare=True,
             credentials=credentials,
+            approval_sha256=approval_sha256,
         )
         configs = [r for r in run["records"] if r["kind"] == "effective_config"]
         verify_inputs(plan, sandbox, before)
+        if plan["evidence_kind"] != "component_fixture":
+            validate_safety(plan, approval_sha256)
         if run["returncode"] != 0 or run["malformed_output"] or run.get("control_failure") or len(configs) != 1:
             raise IntegrityError("native effective freeze failed; inspect with component probes")
         effective[arm] = configs[0]["effective_sha256"]
@@ -323,19 +379,29 @@ def verify_inputs(plan: dict[str, Any], sandbox: Sandbox, expected: dict[str, An
         raise IntegrityError("frozen manifest/inputs drifted")
 
 
-def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[str, Any]:
+def run_pair(  # noqa: C901 - retain the complete paired failure denominator
+    manifest: dict[str, Any], sandbox: Sandbox, output: Path, *, approval_sha256: str | None = None
+) -> dict[str, Any]:
     manifest = json.loads(json.dumps(manifest))
     plan = manifest["plan"]
-    validate_plan(plan)
+    validate_plan(plan, approval_sha256)
     if manifest["version"] != 2 or "execution" not in manifest["inputs"]:
         raise IntegrityError("manifest requires a frozen execution root; freeze again")
     sandbox = sandbox.bind_execution(manifest["inputs"]["execution"])
     verify_inputs(plan, sandbox, manifest["inputs"])
+    profile = profile_identity(plan)
+    formal = plan["evidence_kind"] == "independent_formal"
+    if plan["evidence_kind"] != "component_fixture":
+        validate_safety(plan, approval_sha256)
+    run_id = str(uuid.uuid4())
+    if formal:
+        if output.exists():
+            raise IntegrityError("formal evidence destination must be new")
+        claim_formal(validate_safety(plan, approval_sha256), digest_json(manifest), digest_json(plan), run_id)
     # Read once per invocation, share only in memory, and send a private copy
     # to each worker. Never hash or serialize the secret values as identity.
     credentials = credentials_for(plan)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
-    run_id = str(uuid.uuid4())
     write_json(output / "manifest.json", manifest)
     oracles = read_json(Path(plan["oracle_file"]))
     verdicts: dict[str, list[Any]] = {arm: [] for arm in ARMS}
@@ -357,6 +423,8 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
                         run_id=run_id,
                         effective=manifest["effective"][arm],
                         credentials=credentials,
+                        approval_sha256=approval_sha256,
+                        manifest_sha256=digest_json(manifest),
                     )
                     abort = result.get("control_failure")
                     verify_inputs(plan, sandbox, manifest["inputs"])
@@ -367,7 +435,7 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
             evidence.append((arm, task["task_id"], result))
             write_json(output / f"case-{index:04d}.json", {"arm": arm, "task_id": task["task_id"], **result})
     try:
-        validate_plan(plan)
+        validate_plan(plan, approval_sha256)
         verify_inputs(plan, sandbox, manifest["inputs"])
         state_valid = abort is None
     except (IntegrityError, OSError):
@@ -381,17 +449,18 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
         verdicts[arm].append(verdict)
         detail["metrics"] = model_metrics(run["records"], plan.get("rates"))
         details.append({"arm": arm, "task_id": task_id, "verdict": asdict(verdict), **detail})
-    live = plan["evidence_kind"] == "independent_development"
+    live = plan["evidence_kind"] in {"independent_development", "independent_formal"}
     report = {
         "evidence_kind": plan["evidence_kind"],
         "run_id": run_id,
-        "formal_state": "not_started",
+        "formal_state": ("completed" if state_valid else "aborted") if formal else "not_started",
+        "profile_sha256": profile,
         "real_learning_runs": 0,
         "real_development_runs": {
             arm: sum(
                 a == arm and any(r["kind"] == "question_injected" for r in run["records"]) for a, _, run in evidence
             )
-            if live
+            if live and not formal
             else 0
             for arm in ARMS
         },
@@ -399,6 +468,12 @@ def run_pair(manifest: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[s
         "state_valid": state_valid,
         "arms": {arm: summarize_arm(task_ids, verdicts[arm], state_valid=state_valid, live=live) for arm in ARMS},
         "cases": details,
+    }
+    report["real_formal_runs"] = {
+        arm: sum(a == arm and any(r["kind"] == "question_injected" for r in run["records"]) for a, _, run in evidence)
+        if formal
+        else 0
+        for arm in ARMS
     }
     write_json(output / "report.json", report)
     return report
@@ -427,7 +502,9 @@ def unstarted_result(reason: str) -> dict[str, Any]:
     }
 
 
-def run_samples(plan: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[str, Any]:
+def run_samples(  # noqa: C901 - preserve all batch failure outcomes
+    plan: dict[str, Any], sandbox: Sandbox, output: Path, *, approval_sha256: str | None = None
+) -> dict[str, Any]:
     """Generate native learning receipts before Skill generation/approval exists.
 
     These are execution receipts, not independently validated lessons. The
@@ -455,6 +532,10 @@ def run_samples(plan: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[st
         ref = admission[name]
         if file_hash(Path(ref["file"])) != ref["sha256"]:
             raise IntegrityError("sample admission evidence mismatch")
+    validate_safety(plan, approval_sha256)
+    sandbox = sandbox.bind_execution(verify_runtime_profile(plan, sandbox)["execution"])
+    frozen = {"profile": profile_identity(plan), "evidence": evidence_identity(plan)}
+    validate_safety(plan, approval_sha256)
     credentials = credentials_for(plan)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     write_json(output / "plan.json", plan)
@@ -462,11 +543,25 @@ def run_samples(plan: dict[str, Any], sandbox: Sandbox, output: Path) -> dict[st
     results = []
     abort = None
     for index, task in enumerate(tasks):
-        run = (
-            run_one(plan, sandbox, "native", task, run_id=run_id, credentials=credentials)
-            if abort is None
-            else unstarted_result(abort)
-        )
+        run = unstarted_result(abort or "leakage/state_drift")
+        if abort is None:
+            try:
+                if frozen != {"profile": profile_identity(plan), "evidence": evidence_identity(plan)}:
+                    raise IntegrityError("sample inputs changed")  # noqa: TRY301 - contain state drift in partial batch
+                run = run_one(
+                    plan,
+                    sandbox,
+                    "native",
+                    task,
+                    run_id=run_id,
+                    credentials=credentials,
+                    approval_sha256=approval_sha256,
+                )
+                validate_safety(plan, approval_sha256)
+                if frozen != {"profile": profile_identity(plan), "evidence": evidence_identity(plan)}:
+                    raise IntegrityError("sample inputs changed")  # noqa: TRY301 - contain state drift in partial batch
+            except (IntegrityError, OSError):
+                run.update(state_valid=False, control_failure="leakage/state_drift")
         write_json(output / f"sample-{index:04d}.json", {"task_id": task["task_id"], **run})
         results.append(run)
         if run.get("control_failure"):
@@ -490,15 +585,18 @@ def main() -> None:
     parser.add_argument("--input", type=Path, required=True, help="Evaluator-owned plan (freeze) or manifest (run)")
     parser.add_argument("--output", type=Path, required=True, help="New manifest file or new evidence directory")
     parser.add_argument("--runtime-python", type=Path, required=True)
+    parser.add_argument(
+        "--approval-sha256", help="Out-of-plan approval anchor provisioned by the controlled runner; required live"
+    )
     args = parser.parse_args()
     sandbox = Sandbox(args.runtime_python.absolute(), Path(__file__).resolve().parents[1])
     data = read_json(args.input)
     if args.command == "sample":
-        run_samples(data, sandbox, args.output)
+        run_samples(data, sandbox, args.output, approval_sha256=args.approval_sha256)
     elif args.command == "freeze":
-        write_json(args.output, freeze_plan(data, sandbox))
+        write_json(args.output, freeze_plan(data, sandbox, approval_sha256=args.approval_sha256))
     else:
-        run_pair(data, sandbox, args.output)
+        run_pair(data, sandbox, args.output, approval_sha256=args.approval_sha256)
 
 
 if __name__ == "__main__":

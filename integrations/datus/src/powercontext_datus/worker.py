@@ -28,8 +28,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from powercontext_datus.admission import LIVE_KINDS, validate_dispatch
 from powercontext_datus.capture import ExecutionTrace
 from powercontext_datus.freeze import IntegrityError
+from powercontext_datus.transport import model_tls, mysql_connector, tls_context
 from powercontext_datus.workflow import build_graph, run_graph
 
 ANSWER_PROTOCOL = (
@@ -42,7 +44,7 @@ ANSWER_PROTOCOL = (
 
 def configuration(public: dict[str, Any], credentials: dict[str, str]) -> Any:
     cls = importlib.import_module("datus.configuration.agent_config").AgentConfig
-    model = public["model"]
+    model = {key: value for key, value in public["model"].items() if key != "tls"}
     if model["type"] != "openai":
         raise IntegrityError("this trace profile certifies only the native OpenAI model adapter")
     if not credentials.get("model_api_key"):
@@ -74,7 +76,9 @@ def configuration(public: dict[str, Any], credentials: dict[str, str]) -> Any:
     )
 
 
-def connector_for(public: dict[str, Any], credentials: dict[str, str], fixture: bool) -> Any:
+def connector_for(
+    public: dict[str, Any], credentials: dict[str, str], fixture: bool, *, trust_material: str | None = None
+) -> Any:
     database = public["database"]
     if fixture:
         cls = importlib.import_module("datus_sqlalchemy.connector").SQLAlchemyConnector
@@ -88,16 +92,9 @@ def connector_for(public: dict[str, Any], credentials: dict[str, str], fixture: 
         return connector
     if database["type"] != "mysql":
         raise IntegrityError("live profile requires the pinned native MySQL adapter")
-    cls = importlib.import_module("datus_mysql").MySQLConnector
     if not credentials.get("db_password"):
         raise IntegrityError("task-authorized read-only database credential required")
-    return cls({
-        "host": database["host"],
-        "port": database["port"],
-        "database": database["name"],
-        "username": database["username"],
-        "password": credentials["db_password"],
-    })
+    return mysql_connector(database, credentials["db_password"], trust_material)
 
 
 def probe_boundary(paths: list[str]) -> dict[str, Any]:
@@ -132,13 +129,32 @@ def execute_request(request: dict[str, Any], trace: ExecutionTrace) -> None:
         raise IntegrityError("OS isolation probe failed")
     if request.get("probe_only"):
         return
-    public = request["public"]
-    trace.observe_model_http(public["model"]["base_url"])
     fixture = request["evidence_kind"] == "component_fixture"
-    if request["evidence_kind"] not in {"component_fixture", "independent_development", "independent_learning"}:
-        raise IntegrityError("formal evaluation is not admitted by this worker")
+    if not fixture:
+        if request["evidence_kind"] not in LIVE_KINDS - {"native_smoke"}:
+            raise IntegrityError("unknown worker evaluation phase")
+        validate_dispatch(request)
+        stores = request.get("trust_stores", {})
+        if set(stores) != {"model", "database"}:
+            raise IntegrityError("supervisor must deliver both approved trust stores")
+        context = tls_context(request["public"]["model"]["tls"], stores["model"])
+        tls_context(request["public"]["database"]["tls"], stores["database"])
+        # Install capture first: model_tls unwinds before the enclosing trace,
+        # so their process-owned patches are restored in strict LIFO order.
+        trace.observe_model_http(request["public"]["model"]["base_url"])
+        with model_tls(context):
+            execute_graph(request, trace, fixture=False)
+    else:
+        trace.observe_model_http(request["public"]["model"]["base_url"])
+        execute_graph(request, trace, fixture=True)
+
+
+def execute_graph(request: dict[str, Any], trace: ExecutionTrace, *, fixture: bool) -> None:
+    public = request["public"]
     config = configuration(public, request["credentials"])
-    connector = connector_for(public, request["credentials"], fixture)
+    connector = connector_for(
+        public, request["credentials"], fixture, trust_material=request.get("trust_stores", {}).get("database")
+    )
     try:
         # Establish the fixed database session before question injection. This
         # is question-independent setup; all raw preparation SQL remains in the
@@ -183,7 +199,7 @@ def main() -> None:
             execute_request(request, trace)
         except Exception as error:
             trace.emit("worker_failure", error_type=type(error).__name__)
-            raise
+            raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

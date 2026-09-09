@@ -38,7 +38,9 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from powercontext_datus import DATUS_COMMIT
+from powercontext_datus.admission import read_document, read_secret, validate_safety
 from powercontext_datus.freeze import IntegrityError, snapshot, verify_snapshot
+from powercontext_datus.transport import mysql_connector
 
 
 def verify_runtime() -> dict[str, object]:
@@ -114,17 +116,13 @@ def skill_smoke(skill_root: Path, expected_names: list[str]) -> dict[str, object
     return {"inventory": sorted(expected_names), "loaded_content_sha256": loaded, "files": before}
 
 
-def database_smoke() -> dict[str, object]:
-    """The authorized read-only account is supplied through task-scoped env only."""
-    connector_class = importlib.import_module("datus_mysql").MySQLConnector
-    config = {
-        "host": os.environ["DATUS_DB_HOST"],
-        "port": int(os.environ.get("DATUS_DB_PORT", "3306")),
-        "username": os.environ["DATUS_DB_USER"],
-        "password": os.environ["DATUS_DB_PASSWORD"],
-        "database": os.environ["DATUS_DB_NAME"],
-    }
-    connector = connector_class(config)
+def database_smoke(plan: dict[str, Any], approval_sha256: str | None = None) -> dict[str, object]:
+    """No environment credentials or plaintext fallback; gate before secret access."""
+    if plan.get("evidence_kind") != "native_smoke":
+        raise IntegrityError("database smoke needs a task-authorized smoke plan")
+    validate_safety(plan, approval_sha256)
+    password = read_secret(plan["secret_refs"]["db_password"])
+    connector = mysql_connector(plan["public"]["database"], password)
     try:
         result = connector.execute_query("SELECT 1 AS adapter_smoke", result_format="list")
         success = bool(result.success and result.sql_return == [{"adapter_smoke": 1}])
@@ -166,7 +164,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skill-root", type=Path, required=True)
     parser.add_argument("--expected-skill", action="append", default=[])
-    parser.add_argument("--db", action="store_true", help="Opt in to the environment-configured SELECT 1 probe")
+    parser.add_argument("--db", action="store_true", help="Opt in to an independently approved TLS SELECT 1 probe")
+    parser.add_argument("--db-plan", type=Path, help="Controlled evaluator's native_smoke plan; never a secret value")
+    parser.add_argument("--approval-sha256", help="Approval anchor supplied separately by the controlled runner")
     args = parser.parse_args()
     # No third-party debug logs or connection exceptions may reveal a URL/password.
     logging.disable(logging.CRITICAL)
@@ -178,7 +178,13 @@ def main() -> None:
             structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL))
             report["runtime"] = verify_runtime()
             report["skills"] = skill_smoke(args.skill_root, args.expected_skill)
-            database = database_smoke() if args.db else {"status": "not_requested"}
+            if args.db and args.db_plan is None:
+                raise IntegrityError("database smoke requires an approved TLS plan")  # noqa: TRY301 - bounded CLI report
+            database = (
+                database_smoke(read_document(args.db_plan)[1], args.approval_sha256)
+                if args.db
+                else {"status": "not_requested"}
+            )
             report["database"] = database
             report["status"] = "passed" if not args.db or database["success"] else "failed"
         except BaseException as error:

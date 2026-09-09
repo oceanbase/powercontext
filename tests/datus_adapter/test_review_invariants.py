@@ -605,6 +605,15 @@ def test_sample_batch_reuses_credentials_without_saving_them(tmp_path, component
 
     monkeypatch.setattr(paired, "credentials_for", credentials)
     monkeypatch.setattr(Sandbox, "run", worker)
+    # This unit isolates credential reuse; live admission/transport are exercised
+    # without these stubs in test_secure_admission.py.
+    monkeypatch.setattr(paired, "validate_public", lambda *a: None)
+    monkeypatch.setattr(paired, "validate_safety", lambda *a: {"expires_at": 9999999999, "grant_id": "synthetic"})
+    monkeypatch.setattr(paired, "verify_runtime_profile", lambda *a: {"execution": {}})
+    monkeypatch.setattr(paired, "evidence_identity", lambda *a: {})
+    monkeypatch.setattr(paired, "trust_bytes", lambda *a: "public-synthetic-ca")
+    for name in ("model", "database"):
+        plan["public"][name]["tls"] = {}
     paired.run_samples(plan, Sandbox(tmp_path / "runtime/bin/python", tmp_path / "bridge"), tmp_path / "output")
     assert reads == [1] and len(supplied) == 2
     assert supplied[0] == supplied[1] == {"model_api_key": "synthetic-key-1"}

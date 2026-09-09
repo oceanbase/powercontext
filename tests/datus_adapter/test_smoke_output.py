@@ -79,9 +79,16 @@ def importing(name):
     return original_import(name)
 
 native.importlib.import_module = importing
+def secured_connector(*args):
+    noise("import")
+    return Connector({})
+native.mysql_connector = secured_connector
+native.validate_safety = lambda *args: {}
+native.read_secret = lambda *args: sentinel
+native.read_document = lambda *args: (b"", {"evidence_kind": "native_smoke", "public": {"database": {}}, "secret_refs": {"db_password": "synthetic"}})
 native.verify_runtime = lambda: {"synthetic": True}
 native.skill_smoke = lambda *args: {"synthetic": True}
-sys.argv = ["native", "--skill-root", ".", "--db"]
+sys.argv = ["native", "--skill-root", ".", "--db", "--db-plan", "synthetic.json"]
 native.main()
 """
 

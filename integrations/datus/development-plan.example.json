@@ -1,5 +1,6 @@
 {
   "evidence_kind": "independent_development",
+  "runtime_profile_sha256": "REPLACE_WITH_APPROVED_RUNTIME_PROFILE_SHA256",
   "common_file": "/evaluation/approved-common.txt",
   "oracle_file": "/evaluation/development-oracle.json",
   "admission_file": "/evaluation/independent-admission.json",
@@ -15,7 +16,11 @@
       "type": "openai",
       "model": "TASK_AUTHORIZED_MODEL_ID",
       "base_url": "https://task-authorized-model.example.invalid/v1",
-      "temperature": 0
+      "temperature": 0,
+      "tls": {
+        "ca_file": "/evaluation/verified-model-ca.pem",
+        "ca_sha256": "REPLACE_WITH_VERIFIED_CA_FILE_SHA256"
+      }
     },
     "max_turns": 8,
     "current_date": "2026-01-01",
@@ -24,7 +29,11 @@
       "name": "IMMUTABLE_SNAPSHOT_DATABASE",
       "host": "task-authorized-db.example.invalid",
       "port": 3306,
-      "username": "READ_ONLY_PRINCIPAL"
+      "username": "READ_ONLY_PRINCIPAL",
+      "tls": {
+        "ca_file": "/evaluation/verified-database-ca.pem",
+        "ca_sha256": "REPLACE_WITH_VERIFIED_CA_FILE_SHA256"
+      }
     }
   },
   "arms": {
