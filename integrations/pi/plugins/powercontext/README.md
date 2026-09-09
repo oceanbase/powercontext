@@ -1,5 +1,7 @@
 # PowerContext for Pi
 
+`community`
+
 This native Pi package restores bounded project context before each normal prompt and captures eligible user prompts
 as Source evidence. It does not sync Pi transcripts or start a PowerContext Server.
 

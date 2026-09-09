@@ -1,21 +1,29 @@
 ---
-title: Pydantic AI 适配器预览
+status: community
+title: Pydantic AI
 description: 了解当前 Pydantic AI 适配器 API 和安装状态。
 ---
 
-# Pydantic AI 适配器预览
+# Pydantic AI
 
-仓库中包含一个预览适配器，用于让 Pydantic AI Agent 通过运行中的 PowerContext Server 共享持久化 Memory。目前
-还没有受支持的独立安装方式。
+`community` · `experimental`
 
-## 使用前检查可用状态
+适配器将 Pydantic AI Agent 连接到运行中的 PowerContext Server，提供 Memory 工具、自动上下文准备与可选事件采集。
+其 API 与行为仍为试验性。
 
-`powercontext-pydantic-ai` 目前没有发布到 PyPI。它的源码包还要求正式版本
-`powercontext[client]>=0.0.3`，而当前公开包和 `master` 的开发版本都不满足该约束。因此，旧的 PyPI 命令和直接从
-Git subdirectory 安装都会在依赖解析时失败。
+## 从源码安装
 
-请等待根包和适配器发布兼容版本后再把它加入应用。仓库贡献者可以通过根目录开发环境运行适配器测试；后续内容仅用于
-说明预览 API，不能作为受支持的安装路径。
+在应用环境中添加相同 ref 的 Client 和适配器。以下示例使用 OpenAI：
+
+```bash
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext-pydantic-ai @ git+https://github.com/oceanbase/powercontext.git@master#subdirectory=integrations/pydantic-ai"
+uv add "pydantic-ai-slim[openai]>=2.29,<3"
+```
+
+按[安装与运行](../get-started/install-and-run.md)从同一 ref 启动独立 Server。
+适配器要求 `powercontext[client]>=0.0.3`；这些示例使用匹配的当前源码。
+使用其他 Provider 时，替换 `openai` extra 和模型字符串。
 
 ## 挂载预览 Capability
 
@@ -59,10 +67,10 @@ export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
 | `POWERCONTEXT_PYDANTIC_AI_TOKEN` | 未设置 | 以 `SecretStr` 保存的裸可打印 Token |
 | `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | 未设置 | 最多 256 个字符的已有 Server Scope；未设置时选择 Server 默认 Scope |
 | `POWERCONTEXT_PYDANTIC_AI_TIMEOUT` | `10` | 正秒数 |
-| `POWERCONTEXT_PYDANTIC_AI_MAX_BYTES` | `8000` | `512`–`32768` Context 字节 |
+| `POWERCONTEXT_PYDANTIC_AI_MAX_BYTES` | `8000` | `512` 至 `32768` Context 字节 |
 | `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS` | `false` | 显式同意采集可见事件 |
-| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_CHECKPOINT_EVERY` | `5` | 每 `1`–`100` 个成功事件 Flush |
-| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_MAX_BYTES` | `8192` | 每个事件 `512`–`32768` UTF-8 字节 |
+| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_CHECKPOINT_EVERY` | `5` | 每 `1` 至 `100` 个成功事件 Flush |
+| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_MAX_BYTES` | `8192` | 每个事件 `512` 至 `32768` UTF-8 字节 |
 
 Codex 与 Claude Code 插件的相关设置接收完整 authorization 值，而本适配器只接收裸 Token。不要带
 `Bearer `，也不要传完整 `Authorization` Header；公共 Client 会补上 scheme。
@@ -78,7 +86,7 @@ settings = PowerContextSettings(timeout=5, max_bytes=4096)
 
 
 def tenant_scope(ctx: RunContext[dict[str, str]]) -> str:
-    return f"tenant:{ctx.deps['tenant_id']}"
+    return ctx.deps["powercontext_scope_id"]
 
 
 capability = PowerContext(settings=settings, scope_id=tenant_scope)

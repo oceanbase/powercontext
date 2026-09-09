@@ -1,19 +1,21 @@
 ---
-title: 完整功能 Quick Start
+title: 启用 Memory 提取与向量搜索
 description: 配置模型、启动 Server，并验证完整 Memory 闭环。
 ---
 
-# 完整功能 Quick Start
+# 启用 Memory 提取与向量搜索
+
+以下步骤使用 `master` 和 Bash。Windows 支持为 `experimental`，平台要求见[安装与运行](install-and-run.md)。
 
 `powercontext server run` 不配置模型也可以运行，但依赖模型的提取和向量检索不会启用。引导式配置会启用 generation、
 embedding、定时 Source 处理，并写入 metrics 和 tracing 设置。
 
-| 能力 | 最小 Server | 完整功能 Runtime |
+| 能力 | 最小 Server | 已配置 Runtime |
 | --- | --- | --- |
 | Source capture | 启用 | 启用 |
 | Memory extraction | 关闭 | 启用 |
 | Search mode | `auto, fts` | `auto, fts, vector, hybrid` |
-| Dashboard | 默认 Scope | 默认 Scope 和所有已创建 Scope |
+| Dashboard | 有权访问的 Scope | 有权访问的 Scope |
 | MCP endpoint | `/mcp` | `/mcp` |
 
 Server 首次启动时创建一个使用不透明 ID 的默认 Scope。Dashboard 从 Server 发现 Scope descriptor，不使用预配置列表。
@@ -123,7 +125,8 @@ Codex 启动后发送普通 prompt。插件从绑定 Scope 召回内容，并把
 没有覆盖数据库设置时，SQLite 在用户数据目录保存 `powercontext.db` 和 `scheduler.db`：
 
 - Linux：`$XDG_DATA_HOME/powercontext`，或 `~/.local/share/powercontext`；
-- macOS：`~/Library/Application Support/powercontext`。
+- macOS：`~/Library/Application Support/powercontext`；
+- Windows（`experimental`）：`%LOCALAPPDATA%\\powercontext`。
 
 按 `Ctrl+C` 停止 Server。使用同一 `.env` 和数据目录重启后，默认 Scope 及其不透明 ID 保持稳定，因为它们保存在数据库中。
 

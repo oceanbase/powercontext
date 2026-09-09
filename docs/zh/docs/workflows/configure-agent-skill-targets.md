@@ -1,9 +1,9 @@
 ---
-title: 配置 Agent Skill target
+title: 将 Skill 安装到 Agent
 description: 注册显式的本地 Codex 或 Claude Code Skill 目录，用于发现和 managed publication。
 ---
 
-# 配置 Agent Skill target
+# 将 Skill 安装到 Agent
 
 在扫描 external Skill，或从 Server UI 发布 approved managed Skill 前，先注册本地 target。
 

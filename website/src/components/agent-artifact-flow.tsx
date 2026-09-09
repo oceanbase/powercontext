@@ -86,7 +86,7 @@ const agents: Agent[] = [
   },
   {
     darkLogo: 'https://github.com/bubbuild.png?size=120',
-    href: 'https://github.com/oceanbase/powercontext/tree/master/integrations/bub',
+    slug: 'evaluation',
     logo: 'https://github.com/bubbuild.png?size=120',
     name: 'Bub',
   },
@@ -159,19 +159,21 @@ function AgentLink({
   className?: string;
   lang: Language;
 }) {
+  const status = agent.slug === 'codex' ? 'official' : agent.slug === 'evaluation' ? 'evaluation' : 'community';
   const external = Boolean(agent.href);
   const href = agent.href ?? `/${lang}/docs/integrations/${agent.slug}`;
 
   return (
     <Link
-      aria-label={ariaLabel}
-      className={className}
+      aria-label={`${ariaLabel}: ${status}`}
+      className={`${className ?? ''} flex-col gap-1`}
       href={href}
       rel={external ? 'noreferrer' : undefined}
       target={external ? '_blank' : undefined}
-      title={agent.name}
+      title={`${agent.name}: ${status}`}
     >
       {children}
+      <span className="rounded border px-1 text-[10px] text-fd-muted-foreground">{status}</span>
     </Link>
   );
 }
@@ -203,7 +205,7 @@ export function AgentArtifactFlow({ content, lang }: { content: HomeContent['eco
           <Link
             aria-label={content.all_agents_label}
             className="flex min-h-18 items-center justify-center bg-fd-muted/50 text-2xl text-fd-muted-foreground hover:bg-fd-accent hover:text-fd-foreground"
-            href={`/${lang}/docs/integrations/capabilities`}
+            href={`/${lang}/docs/integrations`}
             title={content.all_agents_label}
           >
             <span aria-hidden="true">…</span>

@@ -5,6 +5,8 @@ description: Run PowerContext with persistent data, health checks, authenticatio
 
 # Deploy the Server
 
+Windows support is `experimental`.
+
 `powercontext server run` is a foreground process. On a personal macOS, Linux, or Windows workstation, PowerContext can register
 that same Server runner with the native current-user service manager. Managed deployments should continue to use a
 container platform or an administrator-owned service manager.
@@ -35,7 +37,7 @@ powercontext service install --env-file /path/to/powercontext.env
 On Windows, remove inherited access and grant the file only to the current user, `SYSTEM`, and local `Administrators` before validation, for example:
 
 ```powershell
-icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "$env:USERNAME:(F)" "SYSTEM:(F)" "Administrators:(F)"
+icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME}:(F)" "SYSTEM:(F)" "Administrators:(F)"
 ```
 
 The native definition stores only the absolute file path and non-content file identity metadata. On Windows this
@@ -83,7 +85,7 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 
 The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
 file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
-are ignored. See the [Full-capability Quick Start](../get-started/configure-models.md) to generate a validated file
+are ignored. See the [Enable extraction and vector search](../get-started/configure-models.md) to generate a validated file
 interactively.
 
 ## Run with Docker

@@ -1,9 +1,12 @@
 ---
-title: 配置 WorkBuddy
+status: community
+title: WorkBuddy
 description: 安装 PowerContext WorkBuddy hooks 并控制其本地行为。
 ---
 
-# 配置 WorkBuddy
+# WorkBuddy
+
+`community`
 
 ## 前置条件
 

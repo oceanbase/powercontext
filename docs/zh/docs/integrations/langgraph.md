@@ -1,9 +1,12 @@
 ---
-title: 配置 LangGraph
+status: community
+title: LangGraph
 description: 把 LangGraph 图连接到运行中的 PowerContext Server，获得持久 Memory 与有界召回。
 ---
 
-# 配置 LangGraph
+# LangGraph
+
+`community`
 
 `powercontext-langgraph` 通过公开的 Python Client 把 [LangGraph](https://langchain-ai.github.io/langgraph/) 图连接到
 运行中的 PowerContext Server。它在节点和工具层集成，只使用 LangGraph 稳定的公开 API，不会启动或内嵌 Server。

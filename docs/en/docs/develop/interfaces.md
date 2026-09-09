@@ -1,9 +1,9 @@
 ---
-title: Interfaces
+title: Choose an interface
 description: Choose between Agent integrations, the CLI, Python SDKs, HTTP, and MCP.
 ---
 
-# Interfaces
+# Choose an interface
 
 All remote interfaces operate on the same Server and persistent Artifact storage.
 

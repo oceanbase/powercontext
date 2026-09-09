@@ -1,9 +1,12 @@
 ---
-title: Configure OpenClaw
+status: community
+title: OpenClaw
 description: Install the PowerContext memory plugin for OpenClaw and control recall, capture, scope, and durable memory writes.
 ---
 
-# Configure OpenClaw
+# OpenClaw
+
+`community`
 
 ## Install or refresh the plugin
 

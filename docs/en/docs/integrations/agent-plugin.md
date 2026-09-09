@@ -1,9 +1,9 @@
 ---
-title: Configure Agent Plugin
+title: Agent Plugin
 description: Load reusable PowerContext skills and MCP configuration in compatible agents.
 ---
 
-# Configure Agent Plugin
+# Agent Plugin
 
 PowerContext provides a portable Agent Plugin package for agents that can load
 Agent Plugin skills and MCP configuration.

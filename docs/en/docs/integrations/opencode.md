@@ -1,9 +1,12 @@
 ---
-title: Configure OpenCode
+status: community
+title: OpenCode
 description: Install the PowerContext OpenCode plugin and control its local behavior.
 ---
 
-# Configure OpenCode
+# OpenCode
+
+`community`
 
 ## Install or refresh the plugin
 

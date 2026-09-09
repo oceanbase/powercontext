@@ -1,28 +1,18 @@
 ---
-title: HTTP API lifecycle tutorial
-description: Connect an existing AI application to PowerContext and complete the first Memory, Experience, and Skill lifecycle.
+title: API Quick Start
+description: Capture a Source, write Memory, and prepare context for an application.
 ---
 
-# HTTP API lifecycle tutorial
+# API Quick Start
 
-This tutorial is for developers who already have an AI application but do not use an Agent Host such as Codex,
-Claude Code, or OpenCode. You will connect that application to PowerContext and complete one small lifecycle:
+Connect a local Server, capture a Source, write explicit Memory, and read PreparedContext. No model is required.
 
-```text
-Source evidence + explicit Memory → PreparedContext → reviewed Experience → reviewed managed Skill
-```
-
-This page is a learning path, not an endpoint reference. Keep these references open when you need every operation,
-field, enum, limit, or response schema:
-
-- [Scalar HTTP API Reference](https://oceanbase.github.io/powercontext/api/) for the complete browsable contract;
-- [checked-in OpenAPI](https://github.com/oceanbase/powercontext/blob/master/openapi/powercontext.yaml) for client
-  generation and contract review;
-- [HTTP API reference](http-api.md) for authentication, request IDs, errors, and deployment behavior.
+These examples use current `master` and Bash. Windows support is `experimental`; see
+[installation and version requirements](../get-started/install-and-run.md).
 
 ## 1. Install and start PowerContext
 
-You need macOS or Linux, Python 3.11 or newer, and
+You need Python 3.11+, Git, and
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
@@ -135,7 +125,7 @@ post(
 question = "How should the assistant handle a refund request for an expired order?"
 prepared = post(
     "/v1/context/prepare",
-    {"scope_id": SCOPE_ID, "query": question, "max_bytes": 4000},
+    {"scope_id": SCOPE_ID, "query": "refund eligibility", "max_bytes": 4000},
 )
 
 historical_context = prepared.get("content") or ""
@@ -158,7 +148,7 @@ print(json.dumps({"prepared": prepared, "model_messages": messages}, indent=2))
 Run it:
 
 ```bash
-python3 powercontext_example.py
+python powercontext_example.py
 ```
 
 A successful response has `status: "ready"` and a bounded `content` string. A new or unrelated scope may correctly
@@ -167,125 +157,13 @@ return `status: "empty"` and `content: null`; continue the model request without
 The prepared content is ephemeral and read-only. Current user instructions, authorization, live system state, and
 fresh validation always take precedence.
 
-## 4. Turn evidence into a reviewed Experience and Skill
+The minimal Server uses full-text search. This example queries terms from the saved decision; configure
+[vector search](../workflows/configure-vector-search.md) for semantic retrieval.
 
-Memory is a direct write. Experience and managed Skill follow a different governance path:
+## Next workflows
 
-```text
-proposal → pending Candidate → human inspection → CAS approval → immutable Artifact Revision
-```
-
-Append the following code after the first example. The caller must inspect each Candidate and type its exact ID before
-approval; production systems should replace this terminal confirmation with their own review UI and authorization.
-
-```python
-def approve_after_review(candidate: dict[str, Any]) -> dict[str, Any]:
-    print(json.dumps(candidate, indent=2))
-    expected = candidate["candidate_id"]
-    confirmed = input(f"Type {expected} to approve this exact version: ")
-    if confirmed != expected:
-        raise RuntimeError("Candidate was not approved")
-    return post(
-        "/v1/artifact-candidates/approve",
-        {
-            "scope_id": SCOPE_ID,
-            "candidate_id": candidate["candidate_id"],
-            "expected_version": candidate["version"],
-        },
-    )
-
-
-experience_candidate = post(
-    "/v1/experience/propose",
-    {
-        "scope_id": SCOPE_ID,
-        "proposal": {
-            "situation": "Refund eligibility changed across order states and timezones.",
-            "action": "Added boundary tests before exposing the refund action.",
-            "outcome": "The tests caught an expired-order defect before release.",
-            "lesson": "Validate eligibility and timezone boundaries before offering a refund.",
-        },
-        "source_refs": [source_ref],
-        "artifact_refs": [],
-        "reason": "Preserve a reusable engineering judgment",
-    },
-)
-approved_experience = approve_after_review(experience_candidate)
-experience_ref = approved_experience["result_artifact"]
-
-skill_candidate = post(
-    "/v1/skill/propose",
-    {
-        "scope_id": SCOPE_ID,
-        "proposal": {
-            "name": "validate-refund-boundaries",
-            "description": "Use when changing refund eligibility or refund actions.",
-            "instructions": (
-                "Inspect current eligibility rules. Add active, expired, and timezone-boundary tests. "
-                "Run the focused billing suite before exposing a refund action."
-            ),
-            "validation": [
-                "Expired orders do not receive a refund action.",
-                "Timezone-boundary cases pass the focused billing tests.",
-            ],
-        },
-        "source_refs": [],
-        "artifact_refs": [experience_ref],
-        "reason": "Turn the reviewed lesson into repeatable instructions",
-    },
-)
-approved_skill = approve_after_review(skill_candidate)
-print(json.dumps({"approved_skill": approved_skill["result_artifact"]}, indent=2))
-```
-
-Manual proposals do not require an inference provider. If a generation model is configured, the same governance
-boundary applies to `/v1/experience/generate`, `/v1/skill/generate`, and external Skill import: model output remains a
-pending Candidate and cannot approve itself.
-
-An approved Experience may participate in later `PreparedContext` selection. An approved managed Skill does not enter
-PreparedContext automatically and grants no permission to read files, call tools, use secrets, access networks,
-execute code, or publish packages.
-
-## 5. Add Work and Handoff when tasks span sessions
-
-The first loop works without Handoff. Add the work-continuity sequence when another session, model, or Agent must
-continue an inspected task boundary:
-
-| Phase | API sequence | Keep exact |
-| --- | --- | --- |
-| Start work | `/v1/work/contracts/create` | returned Work Contract Source |
-| Prepare transfer | `/v1/work/handoffs/prepare-current` | boundary plus prepared Handoff |
-| Make a milestone durable | `/v1/handoff/commit` | committed Handoff Artifact Revision |
-| Continue elsewhere | `/v1/handoff/continue` → `/v1/work/handoffs/acknowledge` | exact selected Revision and receiver checks |
-| Close the attempt | `/v1/work/outcomes/record` | Task Outcome Source and remaining work |
-
-Use the [Scalar API Reference](https://oceanbase.github.io/powercontext/api/) for the request schemas. Receipt is not
-completion: a receiver should independently verify evidence and record its own checks before accepting the Handoff.
-
-For the operational projection over committed Handoffs, follow [Use Handoff Report](../workflows/use-handoff-report.md).
-
-## 6. Decide what belongs where
-
-| Need | Use |
-| --- | --- |
-| Preserve raw evidence | Source |
-| Save an explicitly authorized durable fact or decision | Memory |
-| Retrieve bounded history for one request | PreparedContext |
-| Preserve what worked, its result, and the lesson | reviewed Experience |
-| Preserve repeatable instructions and validation | reviewed managed Skill |
-| Transfer current work to another session or Agent | Handoff |
-
-Do not turn every prompt into Memory, every success into Experience, or every suggestion into a Skill. Keep evidence,
-review decisions, and execution authority separate.
-
-## 7. Continue from here
-
-- Browse every path and schema in the [Scalar HTTP API Reference](https://oceanbase.github.io/powercontext/api/).
-- Learn exact Candidate transitions in [Review Candidates](../workflows/review-candidates.md).
-- See a focused Experience workflow in [Create and review an Experience](../workflows/create-and-review-experience.md).
-- See Skill publication boundaries in [Create and export a managed Skill](../workflows/create-and-export-skill.md).
-- Understand the concepts in [Memory and Handoff](../workflows/memory-and-handoff.md) and
-  [Experience and Skill lifecycle](../workflows/experience-and-skill-lifecycle.md).
-
-Before production, require TLS at the Gateway, authenticate callers, authorize every scope, set request deadlines,
-keep tokens and sensitive prompt data out of logs, and treat write retries and `409` conflicts as explicit decisions.
+- [Create and review Experience](../workflows/create-and-review-experience.md).
+- [Create and export Skill](../workflows/create-and-export-skill.md).
+- [Review Candidates](../workflows/review-candidates.md).
+- [Hand off work](../workflows/handoff-with-codex.md).
+- [HTTP behavior](http-api.md) and [API schemas](/api).

@@ -1,7 +1,9 @@
 {
   "title": "\u7ba1\u7406\u4e0a\u4e0b\u6587",
   "pages": [
+    "index",
     "---Memory \u4e0e\u4e0a\u4e0b\u6587---",
+    "memory-and-context",
     "configure-vector-search",
     "---\u5de5\u4f5c\u8fde\u7eed\u6027---",
     "memory-and-handoff",
@@ -14,11 +16,15 @@
     "create-and-export-skill",
     "configure-agent-skill-targets",
     "---Sources \u4e0e\u91c7\u96c6---",
+    "sources",
     "ingest-text-files-with-opendal",
     "---Scope \u4e0e\u6cbb\u7406---",
+    "scopes-and-access",
     "use-profiles",
     "review-candidates",
     "---Artifact \u7ba1\u7406---",
-    "manage-artifact-tags"
+    "artifacts",
+    "manage-artifact-tags",
+    "manage-prompts"
   ]
 }

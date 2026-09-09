@@ -5,9 +5,29 @@ description: 从 Git 安装 PowerContext，并运行本地 Server。
 
 # 安装和运行
 
-如果你是第一次使用 PowerContext，请先跟随 [Agent 分步入门](quickstart.md)选择 Host，并从零
-跑通 Memory 与该 Host 支持的 Handoff 路径。本指南集中说明安装角色、Server 启动方式、seekDB、诊断和更新，
-便于已经明确目标的用户按需查找操作。
+首次使用请从 [Quick Start](quickstart.md)开始。本页说明版本选择、平台要求、安装角色、启动、诊断和更新。
+
+## 平台支持
+
+| 平台 | 状态 |
+| --- | --- |
+| macOS、Linux | 支持 |
+| Windows | `experimental` |
+
+Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent Host 仍需满足自身的平台要求。
+使用 Bash 语法的示例需要 Bash 环境，不可直接粘贴到 PowerShell。嵌入式 seekDB 不支持 Windows。
+
+## 选择版本
+
+发布版与集成使用相同 tag。例如安装 `0.2.0`：
+
+```bash
+uv tool install "powercontext[cli,server]==0.2.0"
+powercontext setup codex --ref powercontext-v0.2.0
+```
+
+后续示例使用 `master`，包含尚未发布的能力。核对[能力矩阵](../integrations/capabilities.md)，
+不要将 `master_only` 或 `experimental` 能力当作发布版承诺。
 
 ## 安装应用
 
@@ -65,7 +85,7 @@ powercontext server run
 按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
 
 这种最小启动方式不会启用依赖模型的抽取或向量搜索。如需生成并校验一份显式环境文件以启用这些能力，请继续阅读
-[完整功能 Quick Start](configure-models.md)。
+[启用提取与向量搜索](configure-models.md)。
 
 ## 使用嵌入式 seekDB
 

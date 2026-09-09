@@ -22,96 +22,49 @@ PowerContext は、会話をまたいでもコンテキストを作業ととも�
 
 後から何を残すか、次の担当者に何を渡すかは、あなたが決めます。PowerContext は長く使う情報を Memory として保存し、現在の目標と状態を Handoff にまとめます。再利用できる手順は、Experience または Skill として残せます。PowerContext は各項目を対象となる作業の範囲内に保ち、元の情報源と過去の版を残します。
 
-## 利用中の Agent と接続する
+## はじめる
 
-最新リリースの [PowerContext](https://pypi.org/project/powercontext/) をインストールします：
+リリース版と対応する Codex 統合をインストールします。Server は専用ターミナルで起動したままにします。
 
 ```bash
 uv tool install "powercontext[cli,server]==0.2.0"
-```
-
-別のターミナルでローカル Server を起動します：
-
-```bash
 powercontext server run
 ```
 
-Server はデフォルトで、コンテキストをローカルの SQLite データベースに保存します。
-
-次に同じリリースから Agent との連携を設定します。例：
+別のターミナルで実行します。
 
 ```bash
 powercontext setup codex --ref powercontext-v0.2.0
 ```
 
-PowerContext ツールと Agent 連携には、常に同じ Git ref を使用してください。最新の未リリース版 `master` を試す場合は、
-ツールのインストールと連携の設定の両方で `master` を指定します：
+Python 3.11+ が必要です。macOS と Linux をサポートし、Windows は `experimental` です。
+`master`、他のホスト、検証手順は [Quick Start](docs/en/docs/get-started/quickstart.md) と
+[インストールガイド](docs/en/docs/get-started/install-and-run.md)を参照してください。パッケージと統合は同じ ref を使います。
 
-```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup codex --source oceanbase/powercontext --ref master
-```
+## 統合
 
-ターミナルを閉じても動作を続け、次回ログイン時に再び起動できる個人用 Server が必要な場合は、
-フォアグラウンドの Server を停止してから、オプションのネイティブサービスをインストールします：
+| 種類 | 統合 | タグ |
+| --- | --- | --- |
+| Agent Host | Codex | `official` |
+| Agent Hosts | Claude Code、DeepSeek Harness、Hermes、OpenClaw、OpenCode、Pi、WorkBuddy | `community` |
+| Python Agent フレームワーク | Pydantic AI、LangChain、LangGraph | `community` |
+| 評価 | Bub | `evaluation` |
 
-```bash
-powercontext service install # アンインストールは `powercontext service uninstall`
-powercontext service status
-```
+`official` は PowerContext プロジェクトによるメンテナンス、`community` はコミュニティの貢献、
+`evaluation` は評価専用を意味します。ホスト提供元の推奨や同一の機能を意味するものではありません。
+[統合ガイド](docs/en/docs/integrations/index.md)と[機能一覧](docs/en/docs/integrations/capabilities.md)で
+`released`、`master_only`、`experimental` の状態を確認できます。
 
-Windows では、ログイン起動のオプションを指定しない場合、次回ログイン時の自動起動を有効にするか確認します。
-Enter を押すと既定では無効のままです。明示的に選ぶ場合は `--start-on-login` または `--no-start-on-login` を指定します。
+## ドキュメント
 
-その他の Agent の設定方法と導入方法は、[Agent セットアップガイド](https://powercontext.oceanbase.io/en/docs/get-started/quickstart/)を参照してください。対応する Agent クライアントと IDE は MCP または専用の連携機能で接続できます。
-
-<table>
-<tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/codex.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/codex-color.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/claude-code.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/claudecode-color.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/dsh.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/deepseek-color.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/hermesagent.png?raw=true&size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/hermesagent.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/pi.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/pi.png?size=120" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/openclaw.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/openclaw-color.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
-</tr>
-<tr>
-<td align="center" width="120"><a href="docs/en/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/opencode.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/opencode.png?size=120" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="https://thesvg.org/icons/workbuddy/default.svg?size=120" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/pydantic-ai.md"><img src="https://thesvg.org/icons/pydantic/default.svg?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langchain.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langchain-color.png?size=120" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
-<td align="center" width="120"><a href="docs/en/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langgraph.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langgraph.png?size=120" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
-</tr>
-</table>
-
-アプリケーションは、非同期 Python クライアント、HTTP API、MCP、または同一プロセス内の Core SDK から PowerContext を利用できます。入口を選ぶには[インターフェースリファレンス](https://powercontext.oceanbase.io/en/docs/develop/interfaces/)を参照してください。
-
-Python で段階的に試すには、チーム作業の一連の流れも学べる [22 本の Jupyter チュートリアル（中国語）](examples/jupyter/README.md)をご覧ください。Memory、コンテキストの準備、Handoff、Experience、Skill、実際の Agent を動かしながら学べます。最初の 7 本はモデルや API キーなしで実行できます。
-
-## PowerContext で何が変わるか
-
-![LoCoMo と SWE-bench Pro における PowerContext の結果をまとめた比較図](docs/assets/readme-benchmark-summary.svg)
-
-比較に用いた評価方法、詳細な結果、適用範囲は[公式ベンチマークページ](https://powercontext.oceanbase.io/en/benchmarks/)を参照してください。
-
-## PowerContext を開発する
-
-```bash
-make install
-make check
-make test
-```
-
-開発ワークフロー全体については [CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
-
-## さらに詳しく
-
-- [コアコンセプト](https://powercontext.oceanbase.io/en/docs/get-started/core-concepts/)
-- [Memory と Handoff](https://powercontext.oceanbase.io/en/docs/workflows/memory-and-handoff/)
-- [Experience と Skill のライフサイクル](https://powercontext.oceanbase.io/en/docs/workflows/experience-and-skill-lifecycle/)
+- [コンテキストの管理](docs/en/docs/workflows/index.md)：Memory、Handoff、Experience、Skill、Sources、Scope、Artifact。
+- [デプロイと運用](docs/en/docs/operate/index.md)：個人サービス、ログ、メトリクス、Tracing、復旧。
+- [開発と API](docs/en/docs/develop/index.md)：HTTP、Python、アプリケーション統合。
+- [ベンチマーク](https://powercontext.oceanbase.io/en/benchmarks/)：手法、結果、制約。
+- [貢献](CONTRIBUTING.md)。
 
 PowerContext は [PowerMem](https://www.powermem.ai/) の後継プロジェクトです。
 
 ## ライセンス
 
-PowerContext は [Apache License 2.0](LICENSE) のもとで提供されています。
+PowerContext は [Apache License 2.0](LICENSE) ライセンスで提供されています。

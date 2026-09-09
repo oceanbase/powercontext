@@ -1,9 +1,9 @@
 ---
-title: 创建并导出 managed Skill
+title: 创建与导出 Skill
 description: 根据精确证据生成 managed Skill Candidate，批准后将一个 Revision 导出给 Codex。
 ---
 
-# 创建并导出 managed Skill
+# 创建与导出 Skill
 
 当经过审核的证据能够支撑可复用 instructions 和 validation checks 时，可以生成 managed Skill。批准会创建不可变的
 Skill Revision；另一次显式导出才会让 Codex 使用某个精确 Revision。

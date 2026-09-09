@@ -1,15 +1,15 @@
 ---
-title: Codex 分步教程
+title: Codex 工作流
 description: 从安装本地 Server 开始，在 Codex 中完整跑通 Memory、跨会话恢复和 Handoff。
 ---
 
-# Codex 分步教程
+# Codex 工作流
 
 本教程面向第一次使用 PowerContext 的 Codex 用户。你不需要克隆 PowerContext 仓库，也不需要配置推理模型。
 完成后，你会在一个本地示例项目中跑通下面的完整闭环：
 
 如果你还没有决定使用哪个 Agent，或正在使用 Claude Code、DSH、OpenClaw、OpenCode、Pi、Hermes、WorkBuddy
-等其他 Host，请先阅读 [Agent 分步入门](../get-started/quickstart.md)。本文只展开 Codex 专属的 Hook、MCP Skill 与一句话
+等其他 Host，请先阅读 [Quick Start](../get-started/quickstart.md)。本文只展开 Codex 专属的 Hook、MCP Skill 与一句话
 durable Handoff 流程，不代表所有 Agent 的交互方式。
 
 ```text
@@ -25,7 +25,8 @@ durable Handoff 流程，不代表所有 Agent 的交互方式。
 
 ### 检查环境
 
-需要 macOS 或 Linux，以及以下工具：
+以下命令使用 macOS 或 Linux 上的 Bash。Windows 支持为 `experimental`，见
+[平台要求](../get-started/install-and-run.md)。需要以下工具：
 
 | 工具 | 要求 | 检查命令 |
 | --- | --- | --- |
@@ -314,6 +315,6 @@ CLI 和插件安装状态。
 
 - 了解 Memory 与 Handoff 的边界：[理解 Memory 和 Handoff](memory-and-handoff.md)；
 - 查看完整工作闭环：[在 Codex 中交接工作](handoff-with-codex.md)；
-- 启用模型抽取和向量搜索：[完整功能 Quick Start](../get-started/configure-models.md)；
+- 启用模型抽取和向量搜索：[启用提取与向量搜索](../get-started/configure-models.md)；
 - 配置长期运行、鉴权或远程访问：[部署 Server](../operate/deploy-server.md)；
 - 处理连接、插件或 readiness 问题：[排查问题](../operate/troubleshoot.md)。

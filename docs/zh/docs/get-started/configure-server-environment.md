@@ -13,7 +13,9 @@ description: 通过显式环境文件生成、检查、校验并运行 PowerCont
 powercontext config init --output .env
 ```
 
-引导式命令会以 `0600` 权限写入私有文件。通过环境或 secret manager 提供 provider 凭据，不要把它们写入命令行参数。
+在 macOS 和 Linux 上，引导式命令会以 `0600` 权限写入私有文件。通过环境或 secret manager 提供 provider 凭据，不要把它们写入命令行参数。
+
+Windows 支持为 `experimental`。将文件用于个人服务前，按[部署 Server](../operate/deploy-server.md)限制其 ACL。
 
 ## 2. 检查并校验
 

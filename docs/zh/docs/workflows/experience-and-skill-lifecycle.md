@@ -1,9 +1,9 @@
 ---
-title: 理解 Experience 与 Skill 生命周期
+title: Experience 与 Skill 生命周期
 description: 了解证据如何变成经过审核的 Experience 和 managed Skill Artifact，以及它们何时可用。
 ---
 
-# 理解 Experience 与 Skill 生命周期
+# Experience 与 Skill 生命周期
 
 Experience 和 managed Skill 使用同一个审核边界。证据支撑 proposal，人工审核一个精确 Candidate version，批准后
 创建不可变的 Artifact Revision。Generation 不会自行批准结果。

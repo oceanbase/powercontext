@@ -1,5 +1,7 @@
 # Codex integration
 
+`official`
+
 `plugins/powercontext` contains the PowerContext Codex plugin distributed by the repository marketplace. For
 installation, configuration, and troubleshooting, use the user documentation: [Codex quickstart](../../docs/en/docs/workflows/codex-workflow.md),
 [Configure Codex](../../docs/en/docs/integrations/codex.md), and

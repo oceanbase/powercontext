@@ -5,6 +5,8 @@ description: 使用持久化数据、健康检查、鉴权和安全网络边界�
 
 # 部署 Server
 
+Windows 支持为 `experimental`。
+
 `powercontext server run` 是前台进程。在个人 macOS、Linux 或 Windows 工作站上，PowerContext 可以把同一个 Server runner 注册到原生当前用户服务管理器。托管部署仍应使用容器平台或管理员拥有的服务管理器。
 
 ## 运行持久个人 Server
@@ -34,7 +36,7 @@ powercontext service install --env-file /path/to/powercontext.env
 在 Windows 上，校验前需要移除继承权限，只授予当前用户、`SYSTEM` 和本机 `Administrators` 访问权限，例如：
 
 ```powershell
-icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "$env:USERNAME:(F)" "SYSTEM:(F)" "Administrators:(F)"
+icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME}:(F)" "SYSTEM:(F)" "Administrators:(F)"
 ```
 
 原生定义只记录环境文件的绝对路径和不含内容的文件 identity metadata；在 Windows 上还记录当前用户的 owner SID，
@@ -80,7 +82,7 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 
 文件可能包含 Provider 凭据或 Bearer token，因此只能允许 Server 运维者读取。文件中的值会覆盖进程中的同名值；
 文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略。需要交互式生成并校验配置文件时，请阅读
-[完整功能 Quick Start](../get-started/configure-models.md)。
+[启用提取与向量搜索](../get-started/configure-models.md)。
 
 ## 使用 Docker 运行
 

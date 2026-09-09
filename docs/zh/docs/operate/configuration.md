@@ -1,9 +1,11 @@
 ---
-title: 配置
+title: 配置选项
 description: PowerContext 路径、Server、Client、推理和 Agent 集成环境变量。
 ---
 
-# 配置
+# 配置选项
+
+Windows 支持为 `experimental`。
 
 PowerContext 进程启动时从环境变量读取配置。CLI 不会自动搜索 `.env` 文件。接受 `--env-file` 的命令会从该文件加载环境变量（包括
 Server 与 provider 设置），并覆盖进程中的同名值。Agent 宿主可按自身规则加载环境文件。

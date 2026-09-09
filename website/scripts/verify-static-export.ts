@@ -162,6 +162,12 @@ for (const [locale, document] of Object.entries(docsDocuments)) {
     if (index < journeyIndex) throw new Error(`Static ${locale} documentation is missing journey category ${label}.`);
     journeyIndex = index;
   }
+  const integrationMarkup = renderedMarkup(exportedDocuments.get(`/${locale}/docs/integrations/codex`)!);
+  for (const status of ['official', 'community', 'evaluation']) {
+    if (!integrationMarkup.includes(`data-status="${status}"`)) {
+      throw new Error(`Static ${locale} documentation is missing the ${status} integration badge.`);
+    }
+  }
   const apiReferenceIndex = markup.indexOf(`>${apiReferenceLabel}</p>`);
   const pythonApiIndex = markup.indexOf('>Python API</a>');
   const developerIndex = markup.indexOf(`>${developerLabel}</p>`);

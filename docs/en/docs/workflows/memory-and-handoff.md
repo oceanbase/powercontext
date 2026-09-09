@@ -1,9 +1,9 @@
 ---
-title: Understand Memory and Handoff
+title: Memory and Handoff
 description: Learn the different purposes and boundaries of durable project Memory and a temporary work Handoff.
 ---
 
-# Understand Memory and Handoff
+# Memory and Handoff
 
 PowerContext provides both durable project Memory and a temporary Handoff. Both help later work continue, but they
 solve different problems.

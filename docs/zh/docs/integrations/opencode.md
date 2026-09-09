@@ -1,9 +1,12 @@
 ---
-title: 配置 OpenCode
+status: community
+title: OpenCode
 description: 安装 PowerContext OpenCode 插件并控制其本地行为。
 ---
 
-# 配置 OpenCode
+# OpenCode
+
+`community`
 
 ## 安装或刷新插件
 

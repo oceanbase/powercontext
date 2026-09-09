@@ -1,9 +1,11 @@
 ---
-title: Configuration
+title: Configuration options
 description: PowerContext paths, Server, Client, inference, and Agent integration environment variables.
 ---
 
-# Configuration
+# Configuration options
+
+Windows support is `experimental`.
 
 PowerContext reads configuration from environment variables when each process starts. The CLI does not search for a
 `.env` file automatically. A command that accepts `--env-file` loads environment assignments from that file, including

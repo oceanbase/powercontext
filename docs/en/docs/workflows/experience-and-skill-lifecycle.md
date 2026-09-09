@@ -1,9 +1,9 @@
 ---
-title: Understand the Experience and Skill lifecycle
+title: Experience and Skill lifecycle
 description: Learn how evidence becomes reviewed Experience and managed Skill Artifacts, and when each one is available.
 ---
 
-# Understand the Experience and Skill lifecycle
+# Experience and Skill lifecycle
 
 Experience and managed Skill content passes through the same review boundary. Evidence supports a proposal, a human
 reviews one exact Candidate version, and approval creates an immutable Artifact Revision. Generation never approves

@@ -1,22 +1,29 @@
 ---
-title: Pydantic AI adapter preview
+status: community
+title: Pydantic AI
 description: Review the current Pydantic AI adapter API and its installation status.
 ---
 
-# Pydantic AI adapter preview
+# Pydantic AI
 
-The repository contains a preview adapter that lets a Pydantic AI agent share durable Memory through a running
-PowerContext Server. It is not yet available as a supported standalone installation.
+`community` · `experimental`
 
-## Check availability before using it
+The adapter connects a Pydantic AI Agent to a running PowerContext Server. It provides Memory tools,
+automatic context preparation, and optional event capture. Its API and behavior are experimental.
 
-`powercontext-pydantic-ai` is not currently published on PyPI. Its source package also requires a final
-`powercontext[client]>=0.0.3`, which the current public package and the development version from `master` do not
-satisfy. Therefore, both the old PyPI command and a direct Git subdirectory install fail dependency resolution.
+## Install from source
 
-Do not add this adapter to an application until compatible root and adapter packages have been released. Repository
-contributors can run its tests through the root development environment; the remaining sections document the preview
-API for development and review, not a supported installation path.
+Add the Client and adapter from the same ref to your application environment. The examples use OpenAI:
+
+```bash
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext-pydantic-ai @ git+https://github.com/oceanbase/powercontext.git@master#subdirectory=integrations/pydantic-ai"
+uv add "pydantic-ai-slim[openai]>=2.29,<3"
+```
+
+Start a separate Server from the same ref using [Install and run](../get-started/install-and-run.md).
+The adapter requires `powercontext[client]>=0.0.3`; use the matching current source for these examples.
+For another provider, replace the `openai` extra and model string.
 
 ## Attach the preview capability
 
@@ -61,10 +68,10 @@ export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
 | `POWERCONTEXT_PYDANTIC_AI_TOKEN` | unset | Bare printable token stored as `SecretStr` |
 | `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | unset | Existing explicit Server Scope, up to 256 characters; unset selects the Server default |
 | `POWERCONTEXT_PYDANTIC_AI_TIMEOUT` | `10` | Positive seconds |
-| `POWERCONTEXT_PYDANTIC_AI_MAX_BYTES` | `8000` | `512`–`32768` prepared-context bytes |
+| `POWERCONTEXT_PYDANTIC_AI_MAX_BYTES` | `8000` | `512` to `32768` prepared-context bytes |
 | `POWERCONTEXT_PYDANTIC_AI_CAPTURE_EVENTS` | `false` | Opt in to visible event capture |
-| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_CHECKPOINT_EVERY` | `5` | `1`–`100` successful events per flush |
-| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_MAX_BYTES` | `8192` | `512`–`32768` UTF-8 bytes per event |
+| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_CHECKPOINT_EVERY` | `5` | `1` to `100` successful events per flush |
+| `POWERCONTEXT_PYDANTIC_AI_CAPTURE_MAX_BYTES` | `8192` | `512` to `32768` UTF-8 bytes per event |
 
 Unlike the Codex and Claude Code plugin settings that accept a complete authorization value, this adapter accepts a
 bare token. Do not include `Bearer ` or pass a complete `Authorization` header; the public Client adds the scheme.
@@ -80,7 +87,7 @@ settings = PowerContextSettings(timeout=5, max_bytes=4096)
 
 
 def tenant_scope(ctx: RunContext[dict[str, str]]) -> str:
-    return f"tenant:{ctx.deps['tenant_id']}"
+    return ctx.deps["powercontext_scope_id"]
 
 
 capability = PowerContext(settings=settings, scope_id=tenant_scope)

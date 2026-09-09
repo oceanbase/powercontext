@@ -1,9 +1,12 @@
 ---
-title: 配置 LangChain middleware
+status: community
+title: LangChain
 description: 为 LangChain agent 增加有界 PowerContext 召回和完成轮次 Source 采集。
 ---
 
-# 配置 LangChain middleware
+# LangChain
+
+`community`
 
 `PowerContextMiddleware` 把 LangChain `create_agent` agent 连接到单独运行的 PowerContext Server。每次模型调用前，
 它会根据最新用户消息请求一份有界 `PreparedContext`；显式开启自动采集后，agent 成功结束时会把最新用户消息和最终回答

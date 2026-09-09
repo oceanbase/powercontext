@@ -1,9 +1,12 @@
 ---
-title: 配置 DeepSeek Harness
+status: community
+title: DeepSeek Harness
 description: 安装 PowerContext DeepSeek Harness 插件并控制其本地行为。
 ---
 
-# 配置 DeepSeek Harness
+# DeepSeek Harness
+
+`community`
 
 ## 安装或刷新插件
 

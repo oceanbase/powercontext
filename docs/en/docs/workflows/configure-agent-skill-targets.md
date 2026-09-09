@@ -1,9 +1,9 @@
 ---
-title: Configure Agent Skill targets
+title: Install Skills in Agents
 description: Register explicit local Codex or Claude Code Skill directories for discovery and managed publication.
 ---
 
-# Configure Agent Skill targets
+# Install Skills in Agents
 
 Register a local target before scanning external Skills or publishing an approved managed Skill from the Server UI.
 

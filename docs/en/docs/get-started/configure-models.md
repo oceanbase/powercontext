@@ -1,19 +1,21 @@
 ---
-title: Full-capability Quick Start
+title: Enable Memory extraction and vector search
 description: Configure models, start the Server, and verify the complete Memory loop.
 ---
 
-# Full-capability Quick Start
+# Enable Memory extraction and vector search
+
+These steps use `master` and Bash. Windows support is `experimental`; see [platform requirements](install-and-run.md).
 
 `powercontext server run` works without model configuration, but model-backed extraction and vector search stay off.
 The guided configuration enables generation, embeddings, scheduled Source processing, metrics, and tracing settings.
 
-| Capability | Minimal Server | Full-capability runtime |
+| Capability | Minimal Server | Configured runtime |
 | --- | --- | --- |
 | Source capture | Enabled | Enabled |
 | Memory extraction | Disabled | Enabled |
 | Search modes | `auto, fts` | `auto, fts, vector, hybrid` |
-| Dashboard | Default Scope | Default Scope and every created Scope |
+| Dashboard | Accessible Scopes | Accessible Scopes |
 | MCP endpoint | `/mcp` | `/mcp` |
 
 The Server creates one opaque default Scope on first startup. The Dashboard discovers Scope descriptors from the
@@ -129,7 +131,8 @@ evidence. Scheduled processing handles new Sources within the configured interva
 With no database override, SQLite stores `powercontext.db` and `scheduler.db` under the user data directory:
 
 - Linux: `$XDG_DATA_HOME/powercontext`, or `~/.local/share/powercontext`;
-- macOS: `~/Library/Application Support/powercontext`.
+- macOS: `~/Library/Application Support/powercontext`;
+- Windows (`experimental`): `%LOCALAPPDATA%\\powercontext`.
 
 Press `Ctrl+C` to stop the Server. Restart it with the same `.env` and data directory. The default Scope and its opaque
 ID remain stable because they are persisted in the database.

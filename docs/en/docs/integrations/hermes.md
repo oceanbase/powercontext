@@ -1,9 +1,12 @@
 ---
-title: Configure Hermes
+status: community
+title: Hermes
 description: Install the Hermes MemoryProvider and slash-command companion, then connect them to PowerContext Server.
 ---
 
-# Configure Hermes
+# Hermes
+
+`community`
 
 The integration contains a standard Hermes `MemoryProvider` and a standalone slash-command plugin. Hermes remains
 responsible for the conversation and memory lifecycle; the provider sends recall, capture, and explicit operations to

@@ -1,9 +1,12 @@
 ---
-title: Configure DeepSeek Harness
+status: community
+title: DeepSeek Harness
 description: Install the PowerContext DeepSeek Harness plugin and control its local behavior.
 ---
 
-# Configure DeepSeek Harness
+# DeepSeek Harness
+
+`community`
 
 ## Install or refresh the plugin
 

@@ -13,8 +13,11 @@ Use an explicit environment file when the Server needs inference, scheduling, st
 powercontext config init --output .env
 ```
 
-The guided command writes a private file with mode `0600`. Enter provider credentials through your environment or
+On macOS and Linux, the guided command writes a private file with mode `0600`. Enter provider credentials through your environment or
 secret manager, not in command-line arguments.
+
+Windows support is `experimental`. Before using the file for a personal service, restrict its ACL as described in
+[Deploy the Server](../operate/deploy-server.md).
 
 ## 2. Inspect and validate it
 

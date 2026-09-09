@@ -1,9 +1,9 @@
 ---
-title: 用自定义标签管理制品
+title: 使用标签整理内容
 description: 为逻辑制品和记忆条目设置标签，并通过精确标签进行检索。
 ---
 
-# 用自定义标签管理制品
+# 使用标签整理内容
 
 Memory、Experience、Skill 和 Handoff 都可以在各自 Scope 内设置标签。一个 Memory 制品与其中的每条逻辑记忆分别拥有独立的标签集合。
 标签跟随逻辑 ID，不会修改内容 Revision、条目版本、血缘、向量或 Context Version。

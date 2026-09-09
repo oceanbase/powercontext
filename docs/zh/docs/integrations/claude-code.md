@@ -1,9 +1,12 @@
 ---
-title: 配置 Claude Code
+status: community
+title: Claude Code
 description: 安装 PowerContext Claude Code 插件，并配置召回、提示词采集和认证。
 ---
 
-# 配置 Claude Code
+# Claude Code
+
+`community`
 
 ## 检查前置条件
 

@@ -1,9 +1,12 @@
 ---
-title: Configure LangGraph
+status: community
+title: LangGraph
 description: Connect a LangGraph graph to a running PowerContext Server for durable Memory and bounded recall.
 ---
 
-# Configure LangGraph
+# LangGraph
+
+`community`
 
 `powercontext-langgraph` connects a [LangGraph](https://langchain-ai.github.io/langgraph/) graph to a running
 PowerContext Server through the public Python Client. It integrates at the node and tool level, using LangGraph

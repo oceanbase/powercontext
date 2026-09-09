@@ -1,9 +1,12 @@
 ---
-title: 配置 Codex
+status: official
+title: Codex
 description: 安装 PowerContext Codex 插件并控制其本地行为。
 ---
 
-# 配置 Codex
+# Codex
+
+`official`
 
 ## 安装或刷新插件
 

@@ -1,9 +1,9 @@
 ---
-title: 配置 Agent Plugin
+title: Agent Plugin
 description: 在兼容 Agent 中加载可复用的 PowerContext skills 和 MCP configuration。
 ---
 
-# 配置 Agent Plugin
+# Agent Plugin
 
 PowerContext 提供一个可移植的 Agent Plugin package，供能够加载 Agent
 Plugin skills 和 MCP configuration 的 Agent 使用。

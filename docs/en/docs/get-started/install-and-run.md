@@ -5,9 +5,32 @@ description: Install PowerContext from Git and run the local Server.
 
 # Install and run
 
-If you are new to PowerContext, follow the [Agent step-by-step quickstart](quickstart.md) to choose
-a host and complete Memory plus its supported Handoff path from zero. This guide focuses on installation roles,
-Server startup, seekDB, diagnostics, and updates for readers who already know which operation they need.
+Start with the [Quick Start](quickstart.md) for your first session. This page covers version selection,
+platforms, installation roles, startup, diagnostics, and updates.
+
+## Platform support
+
+| Platform | Status |
+| --- | --- |
+| macOS, Linux | Supported |
+| Windows | `experimental` |
+
+Windows CLI, Server, and personal-service support is experimental. Each Agent Host still has its own platform
+requirements. Examples using Bash syntax require a Bash environment and cannot be pasted directly into PowerShell.
+Embedded seekDB is unavailable on Windows.
+
+## Choose a version
+
+Keep a released package and integration on the same tag. For example, install `0.2.0`:
+
+```bash
+uv tool install "powercontext[cli,server]==0.2.0"
+powercontext setup codex --ref powercontext-v0.2.0
+```
+
+The following examples use `master`, including unreleased capabilities. Check the
+[capability matrix](../integrations/capabilities.md); `master_only` and `experimental` capabilities
+are not release guarantees.
 
 ## Install the application
 
@@ -68,7 +91,7 @@ disable the Dashboard explicitly.
 
 This minimal launch does not enable model-backed extraction or vector search. To generate and validate one explicit
 environment file for those capabilities, continue with the
-[Full-capability Quick Start](configure-models.md).
+[Enable extraction and vector search](configure-models.md).
 
 ## Use embedded seekDB
 

@@ -22,95 +22,48 @@ PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，�
 
 你决定哪些信息以后仍然有用，哪些内容需要随任务交给下一位接手者。PowerContext 把长期信息保存为 Memory，把当前目标和状态组织成 Handoff。你可以把能够复用的做法记录为 Experience 或 Skill。PowerContext 将每项内容限定在对应的工作范围内，并保留它的来源和历史版本。
 
-## 与你使用的 Agent 一起工作
+## 开始使用
 
-安装最新发布的 [PowerContext](https://pypi.org/project/powercontext/)：
+安装发布版和匹配的 Codex 集成。让 Server 在独立终端中持续运行：
 
 ```bash
 uv tool install "powercontext[cli,server]==0.2.0"
-```
-
-在单独的终端中启动本地 Server：
-
-```bash
 powercontext server run
 ```
 
-Server 默认将上下文保存到本地 SQLite 数据库。
-
-然后从同一个发布版本配置 Agent 集成。例如：
+在另一个终端执行：
 
 ```bash
 powercontext setup codex --ref powercontext-v0.2.0
 ```
 
-PowerContext 工具与 Agent 集成应始终使用同一个 Git ref。如需试用最新但尚未发布的 `master`，请同时从
-`master` 安装工具和配置集成：
+需要 Python 3.11+。支持 macOS 和 Linux；Windows 为 `experimental`。
+当前 `master`、其他宿主和验证步骤见 [Quick Start](docs/zh/docs/get-started/quickstart.md)与
+[安装指南](docs/zh/docs/get-started/install-and-run.md)。包和集成应保持相同 ref。
 
-```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup codex --source oceanbase/powercontext --ref master
-```
+## 集成
 
-如需让个人 Server 在终端关闭后继续运行，并在下次登录后再次启动，请先停止前台 Server，再安装可选的原生服务：
+| 类型 | 集成 | 标签 |
+| --- | --- | --- |
+| Agent Host | Codex | `official` |
+| Agent Hosts | Claude Code、DeepSeek Harness、Hermes、OpenClaw、OpenCode、Pi、WorkBuddy | `community` |
+| Python Agent 框架 | Pydantic AI、LangChain、LangGraph | `community` |
+| 评测 | Bub | `evaluation` |
 
-```bash
-powercontext service install # 卸载请运行 `powercontext service uninstall`
-powercontext service status
-```
+`official` 表示 PowerContext 项目维护，`community` 表示社区贡献，`evaluation` 表示仅用于评测。
+标签不代表宿主厂商背书或各集成能力相同。接入见 [Plugins、MCP、Skills 与安装](docs/zh/docs/integrations/index.md)，
+`released`、`master_only` 和 `experimental` 状态见[能力矩阵](docs/zh/docs/integrations/capabilities.md)。
 
-在 Windows 上，未提供登录启动选项时，安装器会询问是否在下次登录时自动启动；直接按 Enter 的默认选择是不启用。
-需要显式选择时，请使用 `--start-on-login` 或 `--no-start-on-login`。
+## 文档
 
-其他 Agent 的配置方式和部署选项请继续阅读 [Agent 配置指南](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)。支持的 Agent Client 和 IDE 可通过 MCP 或专用集成连接。
+- [管理上下文](docs/zh/docs/workflows/index.md)：Memory、Handoff、Experience、Skill、Sources、Scope 和 Artifact。
+- [部署与运维](docs/zh/docs/operate/index.md)：个人服务、日志、指标、Tracing 与恢复。
+- [开发与 API](docs/zh/docs/develop/index.md)：HTTP、Python 与应用接入。
+- [基准测试](https://powercontext.oceanbase.io/zh/benchmarks/)：方法、结果与限制。
+- [参与贡献](CONTRIBUTING.md)。
 
-<table>
-<tr>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/codex.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/codex-color.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/claude-code.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/claudecode-color.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/dsh.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/deepseek-color.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/hermesagent.png?raw=true&size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/hermesagent.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/pi.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/pi.png?size=120" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/openclaw.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/openclaw-color.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
-</tr>
-<tr>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/opencode.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/opencode.png?size=120" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="https://thesvg.org/icons/workbuddy/default.svg?size=120" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
-<td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/pydantic-ai.md"><img src="https://thesvg.org/icons/pydantic/default.svg?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/langchain.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langchain-color.png?size=120" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
-<td align="center" width="120"><a href="docs/zh/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langgraph.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langgraph.png?size=120" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
-</tr>
-</table>
-
-应用还可以通过异步 Python Client、HTTP API、MCP 或进程内 Core SDK 使用 PowerContext。请参考[接口说明](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/)选择入口。
-
-想用 Python 逐步体验？从 [22 篇 Jupyter 教程与完整团队工作流](examples/jupyter/README.md)开始，亲手运行 Memory、上下文、交接、Experience、Skill 和真实 Agent。前七篇不需要模型或 API Key。
-
-## 使用 PowerContext 后有什么变化
-
-![PowerContext 在 LoCoMo 和 SWE-bench Pro 上的紧凑对比图](docs/assets/readme-benchmark-summary.svg)
-
-这些对比的评测方法、完整结果和适用边界请见[官网评测页](https://powercontext.oceanbase.io/zh/benchmarks/)。
-
-## 参与构建 PowerContext
-
-```bash
-make install
-make check
-make test
-```
-
-完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 进一步了解
-
-- [核心概念](https://powercontext.oceanbase.io/zh/docs/get-started/core-concepts/)
-- [理解 Memory 和 Handoff](https://powercontext.oceanbase.io/zh/docs/workflows/memory-and-handoff/)
-- [理解 Experience 与 Skill 生命周期](https://powercontext.oceanbase.io/zh/docs/workflows/experience-and-skill-lifecycle/)
-
-PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
+PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后继项目。
 
 ## 许可证
 
-PowerContext 基于 [Apache License 2.0](LICENSE) 发布。
+PowerContext 使用 [Apache License 2.0](LICENSE) 许可证。

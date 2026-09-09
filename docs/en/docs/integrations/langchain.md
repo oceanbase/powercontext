@@ -1,9 +1,12 @@
 ---
-title: Configure LangChain middleware
+status: community
+title: LangChain
 description: Add bounded PowerContext recall and completed-turn Source capture to a LangChain agent.
 ---
 
-# Configure LangChain middleware
+# LangChain
+
+`community`
 
 `PowerContextMiddleware` connects a LangChain `create_agent` agent to a separately running PowerContext Server. Before
 each model call it requests one bounded `PreparedContext` for the latest user message. With automatic capture enabled,

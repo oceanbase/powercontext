@@ -1,9 +1,12 @@
 ---
-title: Configure Claude Code
+status: community
+title: Claude Code
 description: Install the PowerContext Claude Code plugin and configure recall, prompt capture, and authentication.
 ---
 
-# Configure Claude Code
+# Claude Code
+
+`community`
 
 ## Check prerequisites
 

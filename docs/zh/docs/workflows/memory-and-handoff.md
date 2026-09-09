@@ -1,9 +1,9 @@
 ---
-title: 理解 Memory 和 Handoff
+title: Memory 与 Handoff
 description: 了解长期项目 Memory 与临时工作 Handoff 的不同用途和边界。
 ---
 
-# 理解 Memory 和 Handoff
+# Memory 与 Handoff
 
 PowerContext 提供长期项目 Memory 和临时 Handoff。后续任务会用到的内容不同，因此两者的用途也不同。
 

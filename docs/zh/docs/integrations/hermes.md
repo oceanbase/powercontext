@@ -1,9 +1,12 @@
 ---
-title: 配置 Hermes
+status: community
+title: Hermes
 description: 安装 Hermes MemoryProvider 和独立 slash-command 插件，并连接到 PowerContext Server。
 ---
 
-# 配置 Hermes
+# Hermes
+
+`community`
 
 该集成包含标准 Hermes `MemoryProvider` 和独立 slash-command 插件。Hermes 继续负责对话和 Memory 生命周期，
 provider 把召回、采集和显式操作发送给单独运行的 PowerContext Server；该插件会在 provider 激活前注册

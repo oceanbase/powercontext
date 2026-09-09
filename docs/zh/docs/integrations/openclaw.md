@@ -1,9 +1,12 @@
 ---
-title: 配置 OpenClaw
+status: community
+title: OpenClaw
 description: 为 OpenClaw 安装 PowerContext memory 插件，并控制召回、采集、scope 和持久化写入。
 ---
 
-# 配置 OpenClaw
+# OpenClaw
+
+`community`
 
 ## 安装或刷新插件
 

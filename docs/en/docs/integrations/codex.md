@@ -1,9 +1,12 @@
 ---
-title: Configure Codex
+status: official
+title: Codex
 description: Install the PowerContext Codex plugin and control its local behavior.
 ---
 
-# Configure Codex
+# Codex
+
+`official`
 
 ## Install or refresh the plugin
 

@@ -1,9 +1,9 @@
 ---
-title: Create and export a managed Skill
+title: Create and export a Skill
 description: Generate a managed Skill Candidate from exact evidence, approve it, and export one Revision to Codex.
 ---
 
-# Create and export a managed Skill
+# Create and export a Skill
 
 Generate a managed Skill when reviewed evidence can support reusable instructions and validation checks. Approval
 creates an immutable Skill Revision. A separate export makes one exact Revision available to Codex.

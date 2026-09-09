@@ -1,9 +1,9 @@
 ---
-title: Organize Artifacts with custom tags
+title: Organize with tags
 description: Label logical Artifacts and Memory entries, then find them with exact tag filters.
 ---
 
-# Organize Artifacts with custom tags
+# Organize with tags
 
 Custom tags organize Memory, Experience, Skill, and Handoff Artifacts within one Scope. A Memory Artifact and each
 logical entry inside it have independent tag sets. Tags follow these identities across content revisions; they do not

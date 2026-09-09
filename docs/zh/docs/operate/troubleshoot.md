@@ -1,9 +1,9 @@
 ---
-title: 排查问题
+title: 诊断与恢复
 description: 诊断 PowerContext 安装、Server、数据库和宿主集成问题。
 ---
 
-# 排查问题
+# 诊断与恢复
 
 先执行：
 

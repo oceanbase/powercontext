@@ -1,15 +1,15 @@
 ---
-title: Codex step-by-step tutorial
+title: Codex workflow
 description: Start with a local Server, then complete a Memory, cross-session recovery, and Handoff loop in Codex.
 ---
 
-# Codex step-by-step tutorial
+# Codex workflow
 
 This tutorial is for Codex users who are new to PowerContext. You do not need to clone the PowerContext repository or
 configure an inference model. By the end, you will complete this loop in a small local project:
 
 If you have not chosen an agent yet, or you use Claude Code, DSH, OpenClaw, OpenCode, Pi, Hermes, WorkBuddy, or another
-host, start with the [Agent step-by-step quickstart](../get-started/quickstart.md). This page expands only the Codex Hook, MCP
+host, start with the [Quick Start](../get-started/quickstart.md). This page expands only the Codex Hook, MCP
 Skill, and one-line durable Handoff flow; it does not represent every agent's interaction model.
 
 ```text
@@ -17,8 +17,7 @@ Install and check → Save Memory → Recover in a new session → Revise and re
 ```
 
 The complete exercise uses local SQLite. Explicit Memory and Handoff operations do not require a generation model.
-Only full capabilities such as model-backed extraction from Sources and vector search need additional provider
-configuration.
+Source extraction and vector search require additional model configuration.
 
 Team deployment, remote access, Server authentication, and other agent hosts are outside this tutorial. After the
 local loop works, use the links at the end to continue with those tasks.
@@ -27,7 +26,8 @@ local loop works, use the links at the end to continue with those tasks.
 
 ### Check your environment
 
-You need macOS or Linux and these tools:
+The commands below use Bash on macOS or Linux. Windows support is `experimental`; see
+[platform requirements](../get-started/install-and-run.md). You need these tools:
 
 | Tool | Requirement | Check command |
 | --- | --- | --- |
@@ -339,6 +339,6 @@ Choose the next guide based on your goal:
 
 - learn the boundary between the two records: [Memory and Handoff](memory-and-handoff.md);
 - use the complete work loop: [Hand off work in Codex](handoff-with-codex.md);
-- enable model extraction and vector search: [Full-capability Quick Start](../get-started/configure-models.md);
+- enable model extraction and vector search: [Enable extraction and vector search](../get-started/configure-models.md);
 - configure a persistent process, authentication, or remote access: [Deploy the Server](../operate/deploy-server.md);
 - resolve connection, plugin, or readiness problems: [Troubleshoot](../operate/troubleshoot.md).

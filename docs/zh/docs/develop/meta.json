@@ -1,6 +1,7 @@
 {
   "title": "\u5f00\u53d1\u4e0e API",
   "pages": [
+    "index",
     "api-quickstart",
     "interfaces",
     "http-api"

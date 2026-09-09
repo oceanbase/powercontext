@@ -1,9 +1,9 @@
 ---
-title: Troubleshoot
+title: Troubleshooting and recovery
 description: Diagnose PowerContext installation, Server, database, and host integration problems.
 ---
 
-# Troubleshoot
+# Troubleshooting and recovery
 
 Start with:
 

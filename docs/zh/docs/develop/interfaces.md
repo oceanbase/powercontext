@@ -1,9 +1,9 @@
 ---
-title: 接口
+title: 选择接入接口
 description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 ---
 
-# 接口
+# 选择接入接口
 
 所有远程接口都操作同一个 Server 和同一份持久化 Artifact 存储。
 

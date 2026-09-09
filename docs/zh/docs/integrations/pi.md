@@ -1,9 +1,12 @@
 ---
-title: 配置 Pi
+status: community
+title: Pi Coding Agent
 description: 安装 PowerContext 原生 Pi package，并控制召回、采集和持久化工具写入。
 ---
 
-# 配置 Pi
+# Pi Coding Agent
+
+`community`
 
 ## 安装或刷新 package
 
