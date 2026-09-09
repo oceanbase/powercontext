@@ -73,7 +73,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | unset | Scheduler interval; unset disables scheduling |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Per-binding Topic Memory automatic-wave interval; unset disables automatic waves |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources assigned to one Topic Memory Worker |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources assigned to one Topic Memory Worker, capped at 100 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES` | `20` | Maximum historical Topic candidates considered while processing |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` | `70` | RRF acceptance threshold normalized to `0..100` |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | Minimum historical recall count when the threshold returns too few candidates |
@@ -104,6 +104,21 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | Maximum model requests in one rerank operation |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience incubation interval; unset disables that job |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | automatic local project targets | JSON override containing the host identity and explicit Agent Skill targets |
+
+Topic Workers enforce a durable allowance per unadvanced Scope Cursor: 3 attempts, 512 reserved provider requests,
+and 64,000,000 estimated token-capacity units across all retries. A Window admits at most 4,194,304 canonical evidence
+characters including metadata; nested input is also bounded. Exhaustion preserves Sources, Cursor, Pending, and the
+same-Scope tail, and stops further provider calls. Flush and restart do not reset it; inspect
+`pc_topic_memory_work_budgets` and structured errors for operator remediation.
+
+Topic generation accepts `max_tokens`, `temperature`, `top_p`, `top_k`, `seed`, `presence_penalty`, `frequency_penalty`,
+`timeout`, `openai_reasoning_effort`, `openai_text_verbosity`, `service_tier`, `openai_service_tier`,
+`anthropic_service_tier`, and `anthropic_effort` as bounded scalar settings. Topic Embedding accepts only `dimensions`
+and `truncate`. Background/hidden-history/native-tool settings and `extra_body` disable Topic processing while ordinary
+inference continues; explicitly configured automatic Topic scheduling fails startup instead. Supported
+provider prefixes are `openai`, `openai-chat`, `openai-responses`, `anthropic`, `azure`, `azure-responses`, `deepseek`,
+and `openrouter`, plus the local `test` model; Embedding must also be supported by its SDK adapter. Topic SDK transport
+retries and automatic continuations are disabled. Non-Topic inference keeps its existing settings behavior.
 
 When the cursor signing secret is unset, a file-backed SQLite Server creates a private key beside its database;
 other persistent backends create one in the PowerContext user data directory. In-memory SQLite uses a process-local
@@ -235,6 +250,12 @@ Memory, Experience, and Profile APScheduler jobs belong exclusively to `all`: co
 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`, `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS`, or enabling
 `POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED` with either split role is rejected at startup. Keep `all`
 when those jobs are required; assigning them to a separate process is outside the current split-role contract.
+
+Normal Runtime startup initializes and recovers the configured search indexes. Topic Workers reuse that database
+without rebuilding the unrelated Memory/Experience search projections for each Window; Topic index validation and
+publication guards still apply. If an empty database is reconfigured to another Topic retrieval shape or embedding
+profile, reopen existing Runtimes with the same configuration: stale Runtimes reject Topic search, exact get, and
+current-head browsing with a retrieval-shape error instead of reading another vector space.
 
 Provider credentials, such as `OPENAI_API_KEY`, are read by the configured inference provider. Do not place secrets in
 command-line arguments, documentation, or Memory. Replace `provider:model-name` with a model identifier supported by

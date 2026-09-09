@@ -5,23 +5,120 @@ description: Install the PowerContext DeepSeek Harness plugin and control its lo
 
 # Configure DeepSeek Harness
 
-## Install or refresh the plugin
+## Install matching Server and plugin versions
 
-Install DeepSeek Harness first and make sure the web profile exists. Then run:
+Install DeepSeek Harness and make sure its Web profile is available. The real-host acceptance suite pins DSH
+0.1.2-rc.1. Choose one PowerContext installation path and keep the Server and plugin together.
 
-```bash
-powercontext setup dsh --source oceanbase/powercontext --ref master
-```
-
-The command installs the plugin from `integrations/dsh/plugins/powercontext` and creates the user data directory. The directory must contain a built `lib/index.js`. It is safe to run again: a valid checkout is reused, and a broken checkout for the same ref is replaced. Pass the same `--ref` used to install the PowerContext tool. `--source` accepts a GitHub slug or a `https://github.com/...` URL.
-
-A local checkout works the same way:
+For released PowerContext 0.2.0:
 
 ```bash
-powercontext setup dsh --source .
+uv tool install --force "powercontext[cli,server]==0.2.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v0.2.0
 ```
 
-`setup dsh` calls `dsh plugin --profile web add`. Open a new `dsh web` session after setup.
+Release 0.2.0 includes the direct-operation Scope error boundary. The layered Doctor and automatic snapshot
+presentation described below require the current development checkout; do not expect them in that release.
+
+For development, install both components from one checkout and record its commit:
+
+```bash
+git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
+git -C powercontext-dsh-dev rev-parse HEAD
+uv tool install --force "./powercontext-dsh-dev[cli,server]"
+powercontext setup dsh --source ./powercontext-dsh-dev
+```
+
+To update, run `git -C powercontext-dsh-dev pull --ff-only`, record the new commit, and repeat both installation
+commands. A local source must contain the checked-in built `lib/index.js`.
+`setup dsh --source oceanbase/powercontext --ref master` reuses a valid cached checkout without fetching:
+repeating that command does not update a moving branch. A broken checkout is replaced.
+
+`setup dsh` calls `dsh plugin --profile web add`; it does not start the Server. Restart DSH after installation.
+
+## Start the Server and the host
+
+For automatic Source-to-Memory extraction, generate and validate a Server configuration:
+
+```bash
+powercontext config init --output powercontext.env
+powercontext config validate --env-file powercontext.env
+powercontext server run --env-file powercontext.env
+```
+
+The Server runs in the foreground; keep this terminal open. Enable generation and scheduled processing.
+Embedding enables vector/hybrid retrieval; it is not required for explicit Memory writes or full-text search.
+A model-free Server can be healthy while extraction is disabled and recall is empty.
+See [the complete Memory loop](full-capability-runtime.md) for provider and processing configuration.
+
+In another terminal, point DSH at that Server and launch the host:
+
+```bash
+export POWERCONTEXT_DSH_BASE_URL=http://127.0.0.1:8000
+dsh web
+```
+
+In PowerShell, use `$env:POWERCONTEXT_DSH_BASE_URL = "http://127.0.0.1:8000"` before `dsh web`.
+If the Server listens elsewhere, change the URL accordingly. Use `POWERCONTEXT_DSH_AUTHORIZATION` for authentication.
+Do not copy Server model credentials into the plugin configuration. Leave `POWERCONTEXT_DSH_SCOPE_ID` unset for
+the Server default/workspace binding, or set it to an existing Scope intentionally.
+
+Environment overrides take precedence over plugin patch values, which take precedence over defaults. They must be
+present in the process launching DSH; changing another terminal's environment does not update a running host.
+
+## Diagnose the running configuration
+
+Run `/pc doctor` inside the affected DSH session. Its report identifies configuration provenance and checks
+liveness, readiness, capabilities, declared routes, the current Scope, and a read-only prepare operation independently.
+A Scope failure leaves health results available. The endpoint summary shows only its origin, configuration source
+and whether a path prefix exists; credentials, prefix text, query strings and fragments are not printed.
+
+Each failed check identifies the operation, a stable code, HTTP status/request ID when available, and a recovery
+action. Protocol errors also include `protocol_issue`, identifying the violated JSON, status or PreparedContext field rule.
+Readiness retains recognized dependency statuses, including a 503 response. It never forwards raw Server
+messages or recalled content. `ok: true` means these read-only checks passed, not that capture or processing occurred.
+
+| Check/result | Meaning and next action |
+| --- | --- |
+| `invalid_endpoint` | Correct the effective HTTP(S) base URL; remove userinfo, query and fragment. Use Authorization for credentials. |
+| `connection_refused` / `dns_lookup_failed` | Check the configured listener or hostname respectively. |
+| `request_timeout` | Inspect the named operation's Server latency/dependencies and the effective request timeout. |
+| `connection_failed` | Transport failed without a more specific reason; check the endpoint, proxy, network and Server logs. |
+| `authentication_failed` / `authorization_failed` | Check the host credential or the principal's operation/Scope permissions respectively. |
+| `not_ready` / `degraded` | Inspect the reported dependency, such as `database` or `inference.generation`; use its recovery action. |
+| `required_route_missing` | The named operation returned untyped 404. Inspect its proxy route/base path and matching versions; 404 alone does not prove a version mismatch. |
+| `required_route_undeclared` | The Server OpenAPI document lacks the listed operation declarations. |
+| `contract_unavailable` | Declarations are unchecked; expose `/openapi.json` through the same base path or verify the contract separately. |
+| `scope_not_found` / `unscoped` | Check the explicit Scope override, workspace binding, and Server default. Doctor does not alter them. |
+| `invalid_response` | The response fails protocol checks, even if HTTP status was 200. |
+| `extraction_disabled` / prepare `empty` | Valid limited capability/empty result; neither proves a hook or Server failure. |
+
+The route check reads the Server's existing `/openapi.json` and distinguishes declarations from live probes.
+Doctor never executes capture, remember, flush, binding changes or injection. A missing contract is unchecked, and
+a missing Scope skips prepare with an explicit reason. Write/processing verification belongs to acceptance below.
+
+Standalone `powercontext doctor dsh` checks Web-profile registration only and reports that the running host
+configuration and Server checks were not observed. Exit success means registration checks passed.
+`powercontext doctor` uses its own `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`; use it for the existing
+service/health diagnostics after aligning that URL, without assuming it observes DSH overrides.
+
+## Verify capture, processing and fresh-session recall
+
+This explicit check writes test evidence. With the matching installation and extraction configuration above:
+
+1. Run `/pc doctor`. Confirm health, Scope and prepare checks pass and extraction is enabled.
+2. Send a distinctive project fact, for example: “The aurora deployment color is violet-cedar-1457.”
+3. Verify Source acceptance separately from processing. Wait for the configured Scheduler, or explicitly run
+   `/pc flush`. Using the [Memory-loop API checks](full-capability-runtime.md), verify the processed cursor reaches
+   the Source position and a Memory entry cites that Source. A completed flush with no generated entry does not
+   prove successful extraction.
+4. Open a new session with the same workspace/Scope and ask for the aurora deployment color. Inspect the recalled
+   snapshot and confirm it contains the fact. A model answer alone is insufficient evidence of recall.
+
+For deterministic, provider-free acceptance from the same checkout, run `make dsh-runtime-test`.
+The pinned real-host fixture checks Source acceptance, processing, fresh-session recall and persisted snapshot
+metadata. Its model responses are deterministic; it does not establish external inference-service behavior.
+See the [runtime test procedure](https://github.com/oceanbase/powercontext/blob/master/integrations/dsh/plugins/powercontext/tests/runtime/README.md).
 
 ## Understand what the plugin does
 
@@ -44,7 +141,7 @@ per-request timeout also apply to Scope resolution.
 
 Inside DeepSeek Harness:
 
-- `/pc doctor` checks liveness and readiness independently of Scope resolution and reports both results.
+- `/pc doctor` checks health, capabilities, routes and Scope independently; a Scope failure preserves other results and skips prepare.
 - `/pc capabilities` queries the Server capabilities without resolving a Scope.
 - Unknown subcommands and missing arguments return local usage help without contacting the Server.
 - Bare `/pc` shows the resolved Scope and Server origin. If resolution fails, it returns an error while still showing

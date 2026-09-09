@@ -2,7 +2,7 @@
 
 ## Scope
 
-Implement only the persistent primitives required by RFC 0000 before the Artifact Processing Supervisor exists.
+Implement only the persistent primitives required by RFC 1417 before the Artifact Processing Supervisor exists.
 Topic Memory is the first binding, named `topic-memory-source-window`.
 
 This milestone reuses the existing scoped Source Journal (`pc_sources` and `pc_source_journal_heads`) and the existing
@@ -14,7 +14,7 @@ workers, automatic waves, retries, scheduling state, Topic generation, projectio
 
 ## Storage
 
-Add `pc_artifact_processing_pending` exactly as specified by RFC 0000:
+Add `pc_artifact_processing_pending` exactly as specified by RFC 1417:
 
 - primary key: `(binding_name, scope_id)`;
 - `source_through >= 1`;
@@ -71,5 +71,5 @@ Tests cover only RFC-visible behavior:
 ## Boundary escalation rule
 
 During review, any proposed persistence field, lock, retry, security check, validation rule, or failure state absent from
-RFC 0000 must be rejected when the RFC explicitly excludes it. If the RFC is silent and the mechanism would change the
+RFC 1417 must be rejected when the RFC explicitly excludes it. If the RFC is silent and the mechanism would change the
 contract or operational trade-off, implementation pauses for human confirmation.

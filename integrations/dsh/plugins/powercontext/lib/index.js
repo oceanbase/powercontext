@@ -30,10 +30,10 @@ const PLUGIN_VERSION = "0.0.2";
 const PLUGIN_USER_AGENT = `${PLUGIN_NAME}/${PLUGIN_VERSION}`;
 var ClientError = class extends Error {
 	requestId;
-	constructor(message, requestId) {
+	constructor(message, requestId$1) {
 		super(message);
 		this.name = new.target.name;
-		this.requestId = requestId;
+		this.requestId = requestId$1;
 	}
 };
 var TransportError = class extends ClientError {
@@ -45,11 +45,33 @@ var TransportError = class extends ClientError {
 	}
 };
 var UnavailableError = class extends TransportError {};
+const RESPONSE_ISSUES = {
+	invalid_json: "The response body is not valid JSON.",
+	redirect: "The operation returned a redirect; the client does not follow redirects.",
+	response_too_large: "The response body exceeds the 1 MiB client limit.",
+	unexpected_body: "This status requires an empty response body.",
+	prepared_object: "PreparedContext must be a JSON object.",
+	prepared_fields: "PreparedContext must contain exactly schema, status, content and content_bytes.",
+	prepared_schema: "PreparedContext.schema must be powercontext.prepared-context.v1.",
+	prepared_size: "PreparedContext.content_bytes must be a non-negative integer.",
+	prepared_empty: "An empty PreparedContext must have null content and content_bytes equal to zero.",
+	prepared_content: "A ready PreparedContext must contain non-empty text.",
+	prepared_bytes: "PreparedContext.content_bytes must match the UTF-8 content size and stay within the requested budget.",
+	liveness: "Liveness requires HTTP 200 and a JSON object with status equal to ok.",
+	readiness: "Readiness requires status ready/degraded with HTTP 200, or not_ready with HTTP 503, and a checks object of string values.",
+	capabilities: "Capabilities requires HTTP 200, boolean memory_extraction/handoff_generation, and string arrays for source_types/artifact_families/search_modes/context_versions.",
+	openapi: "API discovery requires HTTP 200, an OpenAPI 3.x version and a paths object.",
+	prepare_status: "PreparedContext requires HTTP 200."
+};
 var InvalidResponseError = class extends ClientError {
 	path;
-	constructor(path, requestId) {
-		super(`response from ${path} violated the API schema`, requestId);
+	statusCode;
+	issue;
+	constructor(path, requestId$1, statusCode, issue) {
+		super(`response from ${path} violated the API schema`, requestId$1);
 		this.path = path;
+		this.statusCode = statusCode;
+		this.issue = issue;
 	}
 };
 var UnknownOperationError = class extends ClientError {
@@ -1278,7 +1300,7 @@ function responsePath(response) {
 async function readLimitedBody(response, maxBytes = MAX_RESPONSE_BYTES) {
 	if (!response.body) {
 		const buffer = new Uint8Array(await response.arrayBuffer());
-		if (buffer.byteLength > maxBytes) throw new InvalidResponseError(responsePath(response));
+		if (buffer.byteLength > maxBytes) throw new InvalidResponseError(responsePath(response), void 0, void 0, "response_too_large");
 		return buffer;
 	}
 	const reader = response.body.getReader();
@@ -1290,7 +1312,7 @@ async function readLimitedBody(response, maxBytes = MAX_RESPONSE_BYTES) {
 		total += value.byteLength;
 		if (total > maxBytes) {
 			await reader.cancel();
-			throw new InvalidResponseError(responsePath(response));
+			throw new InvalidResponseError(responsePath(response), void 0, void 0, "response_too_large");
 		}
 		chunks.push(value);
 	}
@@ -1369,18 +1391,37 @@ var PowerContextClient = class {
 		this.requestTimeoutMs = options.requestTimeoutMs;
 		this.fetchImpl = options.fetch ?? fetch;
 	}
-	async request(id, payload, signal) {
+	async request(id, payload, signal, options = {}) {
 		if (!(id in OPERATIONS)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS[id];
 		const prepared = prepareRequest(spec, payload);
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
 		try {
 			const response = await this.fetchImpl(url, this.buildInit(spec, prepared, signal));
-			return await this.parseResponse(id, spec, payload, response);
+			return await this.parseResponse(id, spec, payload, response, options.readinessResponse === true);
 		} catch (error) {
 			if (error instanceof ServerResponseError || error instanceof InvalidResponseError) throw error;
 			if (error instanceof UnknownOperationError) throw error;
 			throw this.wrapTransport(prepared.path, error);
+		}
+	}
+	async readOpenApi(signal) {
+		const path = "/openapi.json";
+		const spec = OPERATIONS.get_liveness;
+		try {
+			const response = await this.fetchImpl(this.baseUrl + path, this.buildInit(spec, {
+				path,
+				query: "",
+				headers: {},
+				body: void 0
+			}, signal));
+			return await this.parseResponse("openapi_document", {
+				...spec,
+				path
+			}, void 0, response);
+		} catch (error) {
+			if (error instanceof ServerResponseError || error instanceof InvalidResponseError) throw error;
+			throw this.wrapTransport(path, error);
 		}
 	}
 	buildInit(spec, request, signal) {
@@ -1407,19 +1448,25 @@ var PowerContextClient = class {
 		if (error instanceof DOMException && error.name === "AbortError") return new UnavailableError(path, error);
 		return new UnavailableError(path, error);
 	}
-	async parseResponse(id, spec, payload, response) {
-		const success = response.status >= 200 && response.status < 300 || hasStatus(spec.successStatuses, response.status);
-		if (isRedirect(response.status) && !success) throw new InvalidResponseError(spec.path);
-		const bytes = await readLimitedBody(response);
-		const requestId = response.headers.get(REQUEST_ID_HEADER) ?? void 0;
-		if (!success) throw this.httpError(response.status, spec.path, requestId, bytes);
+	async parseResponse(id, spec, payload, response, readinessResponse = false) {
+		const success = response.status >= 200 && response.status < 300 || hasStatus(spec.successStatuses, response.status) || readinessResponse && id === "get_readiness" && response.status === 503;
+		const requestId$1 = response.headers.get(REQUEST_ID_HEADER) ?? void 0;
+		if (isRedirect(response.status) && !success) throw new InvalidResponseError(spec.path, requestId$1, response.status, "redirect");
+		let bytes;
+		try {
+			bytes = await readLimitedBody(response);
+		} catch (error) {
+			if (error instanceof InvalidResponseError) throw new InvalidResponseError(spec.path, requestId$1, response.status, error.issue);
+			throw error;
+		}
+		if (!success) throw this.httpError(response.status, spec.path, requestId$1, bytes);
 		if (hasStatus(spec.emptyStatuses, response.status)) {
-			if (bytes.byteLength !== 0) throw new InvalidResponseError(spec.path, requestId);
+			if (bytes.byteLength !== 0) throw new InvalidResponseError(spec.path, requestId$1, response.status, "unexpected_body");
 			return {
 				kind: "json",
 				value: null,
 				status: response.status,
-				requestId,
+				requestId: requestId$1,
 				etag: response.headers.get("ETag") ?? void 0
 			};
 		}
@@ -1427,32 +1474,32 @@ var PowerContextClient = class {
 			kind: "bytes",
 			value: bytes,
 			status: response.status,
-			requestId
+			requestId: requestId$1
 		};
 		if (id === "get_handoff_report" && payload?.format !== "json") return {
 			kind: "text",
 			value: Buffer.from(bytes).toString("utf8"),
 			status: response.status,
-			requestId
+			requestId: requestId$1
 		};
 		try {
 			return {
 				kind: "json",
 				value: JSON.parse(Buffer.from(bytes).toString("utf8")),
 				status: response.status,
-				requestId,
+				requestId: requestId$1,
 				etag: response.headers.get("ETag") ?? void 0
 			};
 		} catch {
-			throw new InvalidResponseError(spec.path, requestId);
+			throw new InvalidResponseError(spec.path, requestId$1, response.status, "invalid_json");
 		}
 	}
-	httpError(status, path, requestId, bytes) {
+	httpError(status, path, requestId$1, bytes) {
 		const decoded = decodeError(bytes);
 		return new ServerResponseError({
 			statusCode: status,
 			path,
-			requestId,
+			requestId: requestId$1,
 			code: decoded.code,
 			message: decoded.message
 		});
@@ -1608,6 +1655,350 @@ function createDiagnosticEmitter(write, now = Date.now, cooldownMs = 6e4) {
 }
 
 //#endregion
+//#region src/prepared-context.ts
+const PREPARED_CONTEXT_SCHEMA = "powercontext.prepared-context.v1";
+const PREPARED_FIELDS = new Set([
+	"schema",
+	"status",
+	"content",
+	"content_bytes"
+]);
+function isRecord(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function validatePreparedContext(response, path = "/v1/context/prepare", maxBytes = MAX_CONTEXT_BYTES) {
+	if (!isRecord(response)) throw new InvalidResponseError(path, void 0, void 0, "prepared_object");
+	const keys = Object.keys(response);
+	if (keys.length !== PREPARED_FIELDS.size || keys.some((key) => !PREPARED_FIELDS.has(key))) throw new InvalidResponseError(path, void 0, void 0, "prepared_fields");
+	if (response.schema !== PREPARED_CONTEXT_SCHEMA) throw new InvalidResponseError(path, void 0, void 0, "prepared_schema");
+	const status = response.status;
+	const content = response.content;
+	const contentBytes = response.content_bytes;
+	if (typeof contentBytes !== "number" || !Number.isInteger(contentBytes) || contentBytes < 0) throw new InvalidResponseError(path, void 0, void 0, "prepared_size");
+	if (status === "empty") {
+		if (content !== null || contentBytes !== 0) throw new InvalidResponseError(path, void 0, void 0, "prepared_empty");
+		return {
+			schema: PREPARED_CONTEXT_SCHEMA,
+			status,
+			content: null,
+			content_bytes: 0
+		};
+	}
+	if (status !== "ready" || typeof content !== "string" || !content.trim()) throw new InvalidResponseError(path, void 0, void 0, "prepared_content");
+	if (Buffer.from(content, "utf8").byteLength !== contentBytes || contentBytes > maxBytes) throw new InvalidResponseError(path, void 0, void 0, "prepared_bytes");
+	return {
+		schema: PREPARED_CONTEXT_SCHEMA,
+		status,
+		content,
+		content_bytes: contentBytes
+	};
+}
+
+//#endregion
+//#region src/doctor.ts
+const CORE_OPERATIONS = [
+	"get_liveness",
+	"get_readiness",
+	"get_capabilities",
+	"resolve_scope_binding",
+	"prepare_context",
+	"capture_content_source",
+	"remember_memory",
+	"search_memory"
+];
+const DEPENDENCY_RECOVERY = {
+	runtime: "Inspect the running Server startup and service logs for Runtime initialization failures.",
+	database: "Check the running Server database URL, database availability and database credentials.",
+	"inference.generation": "Check POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL, its Base URL and provider credentials.",
+	"inference.embedding": "Check the embedding model, Base URL, credentials, profile ID and dimension.",
+	"inference.rerank": "Check the rerank model, Base URL and provider credentials.",
+	authentication_provider: "Check the running Server authentication provider and its token configuration.",
+	access_provider: "Check the running Server access-control provider configuration and readiness."
+};
+const CONFIGURATION_CODES = new Set([
+	"dependency",
+	"model-instance",
+	"instructions",
+	"schema",
+	"input-type",
+	"serialize",
+	"embedder-instance",
+	"embedding-model",
+	"embedding-batch-size",
+	"dimension-positive",
+	"profile-identifiers",
+	"provider-rejected",
+	"pydantic-rejected"
+]);
+function record(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function check(operation, code, message, recovery, state = "failed") {
+	return {
+		state,
+		code,
+		operation,
+		message,
+		...recovery ? { recovery } : {}
+	};
+}
+function observed(operation, response, code, message) {
+	return {
+		...check(operation, code, message, void 0, "ok"),
+		http_status: response.status,
+		...requestId(response.requestId)
+	};
+}
+function requestId(value) {
+	return value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value) ? { request_id: value } : {};
+}
+function invalid(operation, response, issue) {
+	throw new InvalidResponseError(operation, response.requestId, response.status, issue);
+}
+function transportFailure(error) {
+	const cause = error instanceof TransportError ? error.cause : error;
+	if (cause instanceof Error && cause.name === "TimeoutError") return [
+		"request_timeout",
+		"The request exceeded its deadline.",
+		"Check the effective requestTimeoutMs and the running Server latency; inspect the failing dependency before increasing the timeout."
+	];
+	if (cause instanceof Error && cause.name === "AbortError") return [
+		"cancelled",
+		"The diagnostic request was cancelled.",
+		"Run /pc doctor again when the current cancellation has completed."
+	];
+	const detail = record(cause) && record(cause.cause) ? cause.cause : cause;
+	const code = record(detail) ? detail.code : void 0;
+	if (code === "ECONNREFUSED") return [
+		"connection_refused",
+		"The configured endpoint refused the connection.",
+		"Start the intended Server and verify its listening host and port against the running plugin configuration."
+	];
+	if (code === "ENOTFOUND" || code === "EAI_AGAIN") return [
+		"dns_lookup_failed",
+		"The configured endpoint hostname could not be resolved.",
+		"Check the hostname in POWERCONTEXT_DSH_BASE_URL or the plugin baseUrl and the host DNS configuration."
+	];
+	if (typeof code === "string" && [
+		"CERT_HAS_EXPIRED",
+		"DEPTH_ZERO_SELF_SIGNED_CERT",
+		"UNABLE_TO_VERIFY_LEAF_SIGNATURE"
+	].includes(code)) return [
+		"tls_verification_failed",
+		"TLS certificate verification failed.",
+		"Correct the Server certificate chain, trust configuration or hostname; do not disable certificate verification."
+	];
+	return [
+		"connection_failed",
+		"The HTTP transport failed before a usable response was received.",
+		"Check the effective endpoint host/port, proxy, network and Server service logs. The transport did not identify a narrower cause."
+	];
+}
+function failure(operation, error) {
+	if (error instanceof ServerResponseError) {
+		const code = publicErrorCode(error.code);
+		let result;
+		if (error.statusCode === 401) result = check(operation, "authentication_failed", "The Server rejected authentication for this operation.", "Set POWERCONTEXT_DSH_AUTHORIZATION to the intended Server credential and restart the DSH process so it receives the override.");
+		else if (error.statusCode === 403) result = check(operation, "authorization_failed", "The authenticated principal is not allowed to perform this operation.", "Check the principal permissions for this operation and selected Scope on the running Server.");
+		else if (error.statusCode === 404 && error.code === void 0) result = check(operation, "required_route_missing", "The required operation returned HTTP 404 without a domain error code.", "Check this operation in the Server API and proxy route table, the plugin base-path setting, and the installed Server/plugin refs. A 404 alone cannot identify which configuration is wrong.");
+		else if (error.statusCode === 404 && code === "scope_not_found") result = check(operation, code, "The Server could not find the requested Scope.", "Check POWERCONTEXT_DSH_SCOPE_ID first, then the session workspace binding and Server default Scope. Select an existing Scope explicitly; Doctor does not change bindings.");
+		else if (error.statusCode === 404) result = code ? check(operation, code, "The Server returned a recognized domain-level HTTP 404 for this operation.", "Inspect the selected resource and Scope in the Server. This domain response does not establish a missing HTTP route.") : check(operation, "unclassified_not_found", "The operation returned HTTP 404 with an unrecognized error code.", "Use the operation and request ID in the Server logs. This response cannot distinguish a missing resource from a missing route; inspect the contract check separately.");
+		else if (error.statusCode === 503) result = check(operation, code ?? "service_unavailable", "The Server returned HTTP 503 for this operation.", "Inspect the separate readiness dependency results and the running Server logs for this operation.");
+		else result = check(operation, code ?? "http_error", "The Server rejected this diagnostic operation.", "Use this operation, HTTP status and request ID to locate the request in the Server logs.");
+		return {
+			...result,
+			http_status: error.statusCode,
+			...requestId(error.requestId)
+		};
+	}
+	if (error instanceof InvalidResponseError) return {
+		...check(operation, "invalid_response", error.issue ? RESPONSE_ISSUES[error.issue] : "The response does not satisfy this operation protocol.", "Verify the effective endpoint and proxy target serve PowerContext, and use matching Server/plugin refs. Inspect Server logs using the request ID."),
+		...requestId(error.requestId),
+		...error.issue ? { protocol_issue: error.issue } : {},
+		...error.statusCode === void 0 ? {} : { http_status: error.statusCode }
+	};
+	if (error instanceof TransportError || error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name)) {
+		const [code, message, recovery] = transportFailure(error);
+		return check(operation, code, message, recovery);
+	}
+	return check(operation, "diagnostic_error", "A local diagnostic operation failed before its result could be validated.", "Inspect the DSH plugin logs for this operation and report the installed plugin commit. No Server root cause was established.");
+}
+function configuration(config, cwd) {
+	let origin;
+	let pathPrefix = false;
+	let valid = false;
+	try {
+		const url = new URL(config.baseUrl);
+		valid = ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+		if (valid) {
+			origin = url.origin;
+			pathPrefix = url.pathname !== "/";
+		}
+	} catch {}
+	return {
+		valid,
+		timeoutValid: Number.isInteger(config.requestTimeoutMs) && config.requestTimeoutMs > 0 && config.requestTimeoutMs <= 4294967295,
+		summary: {
+			observation: "running_plugin",
+			endpoint: {
+				...origin ? { origin } : {},
+				source: config.sources.baseUrl,
+				path_prefix: pathPrefix
+			},
+			authorization: {
+				configured: Boolean(config.authorization),
+				source: config.sources.authorization
+			},
+			scope: {
+				source: config.sources.scopeId,
+				selection: config.scopeId ? "explicit" : cwd?.trim() ? "workspace_then_default" : "server_default"
+			},
+			request_timeout_ms: config.requestTimeoutMs
+		}
+	};
+}
+function dependencyStatus(value) {
+	if ([
+		"ready",
+		"not_ready",
+		"disabled",
+		"unavailable",
+		"timeout",
+		"misconfigured"
+	].includes(value)) return value;
+	const configured = /^misconfigured: ([a-z-]+)(?: \(HTTP ([45][0-9]{2})\))?$/.exec(value);
+	if (configured && CONFIGURATION_CODES.has(configured[1])) return value;
+	return value.startsWith("misconfigured:") ? "misconfigured" : "unrecognized";
+}
+function readiness(response) {
+	const operation = "get_readiness";
+	const body = response.value;
+	if (!record(body) || !record(body.checks) || ![
+		"ready",
+		"degraded",
+		"not_ready"
+	].includes(String(body.status)) || Object.values(body.checks).some((value) => typeof value !== "string") || response.status === 503 !== (body.status === "not_ready") || ![200, 503].includes(response.status)) invalid(operation, response, "readiness");
+	const dependencies = {};
+	for (const name$1 of Object.keys(DEPENDENCY_RECOVERY)) {
+		const value = body.checks[name$1];
+		if (typeof value === "string") dependencies[name$1] = dependencyStatus(value);
+	}
+	const failed = Object.keys(dependencies).filter((name$1) => !["ready", "disabled"].includes(dependencies[name$1]));
+	const result = observed(operation, response, String(body.status), "Validated the Server readiness response.");
+	if (body.status !== "ready" || failed.length) {
+		result.state = body.status === "degraded" ? "degraded" : "failed";
+		result.code = body.status === "ready" ? "inconsistent_readiness" : String(body.status);
+		result.message = failed.length ? "Readiness dependency checks failed: " + failed.join(", ") + "." : "The Server reports " + String(body.status) + "; no recognized failing dependency was provided.";
+		result.recovery = failed.length ? failed.map((name$1) => DEPENDENCY_RECOVERY[name$1]).join(" ") : "Inspect the running Server readiness and service logs; unrecognized dependency details are withheld.";
+	}
+	return {
+		...result,
+		dependencies
+	};
+}
+function capabilities(response) {
+	const operation = "get_capabilities";
+	const body = response.value;
+	if (response.status !== 200 || !record(body) || typeof body.memory_extraction !== "boolean" || typeof body.handoff_generation !== "boolean" || ![
+		"source_types",
+		"artifact_families",
+		"search_modes",
+		"context_versions"
+	].every((key) => Array.isArray(body[key]) && body[key].every((value) => typeof value === "string"))) invalid(operation, response, "capabilities");
+	if (!body.context_versions.includes(PREPARED_CONTEXT_SCHEMA)) return {
+		...check(operation, "unsupported_context_schema", "The Server does not advertise the PreparedContext schema required by this plugin.", "Install Server and plugin from the same supported release tag or checkout commit."),
+		http_status: response.status,
+		...requestId(response.requestId)
+	};
+	return observed(operation, response, body.memory_extraction ? "extraction_enabled" : "extraction_disabled", body.memory_extraction ? "Memory extraction is configured. A processing/recall acceptance check is still required to prove the complete loop." : "Automatic Memory extraction is disabled. Source acceptance and a healthy Server can legitimately coexist with empty recall.");
+}
+function routes(response, flush) {
+	const operation = "openapi_document";
+	const body = response.value;
+	if (response.status !== 200 || !record(body) || typeof body.openapi !== "string" || !body.openapi.startsWith("3.") || !record(body.paths)) invalid(operation, response, "openapi");
+	const required = [...CORE_OPERATIONS, ...flush ? ["flush_memory"] : []];
+	const paths = body.paths;
+	const missing = required.filter((id) => {
+		const spec = OPERATIONS[id];
+		const path = paths[spec.path];
+		if (!record(path)) return true;
+		const declaration = path[spec.method.toLowerCase()];
+		return !record(declaration) || declaration.operationId !== id;
+	});
+	return missing.length ? {
+		...check(operation, "required_route_undeclared", "The Server contract is missing required operation declarations.", "Compare the listed operations with the Server release and proxy contract endpoint; install matching Server/plugin refs."),
+		operations: missing,
+		http_status: response.status,
+		...requestId(response.requestId)
+	} : {
+		...observed(operation, response, "routes_declared", "The Server contract declares the listed core Memory operations. Write routes were not executed."),
+		operations: required
+	};
+}
+async function diagnoseServer(runtime, cwd, signal) {
+	const config = configuration(runtime.config, cwd);
+	const checks = { configuration: !config.timeoutValid ? check("configuration", "invalid_timeout", "The plugin requestTimeoutMs is not a positive supported millisecond duration.", "Set requestTimeoutMs in the plugin patch to an integer between 1 and 4294967295, then restart DSH.") : config.valid ? check("configuration", "effective_configuration", "Using the running plugin resolved configuration.", void 0, "ok") : check("configuration", "invalid_endpoint", "The plugin base URL is not an HTTP(S) base URL without userinfo, query or fragment.", "Correct POWERCONTEXT_DSH_BASE_URL or plugin baseUrl. Put credentials in POWERCONTEXT_DSH_AUTHORIZATION and restart DSH.") };
+	async function probe(operation, run$1) {
+		if (!config.valid || !config.timeoutValid) return check(operation, "invalid_configuration", "Not checked because the plugin configuration is invalid.", "Correct the configuration check first.", "skipped");
+		try {
+			signal?.throwIfAborted();
+			const result = await run$1();
+			signal?.throwIfAborted();
+			return result;
+		} catch (error) {
+			if (signal?.aborted) return failure(operation, signal.reason instanceof Error && signal.reason.name === "TimeoutError" ? signal.reason : new DOMException("Diagnostic cancelled", "AbortError"));
+			return failure(operation, error);
+		}
+	}
+	checks.liveness = await probe("get_liveness", async () => {
+		const response = await runtime.client.request("get_liveness", {}, signal);
+		if (response.status !== 200 || !record(response.value) || response.value.status !== "ok") invalid("get_liveness", response, "liveness");
+		return observed("get_liveness", response, "live", "The PowerContext liveness response is valid.");
+	});
+	checks.readiness = await probe("get_readiness", async () => readiness(await runtime.client.request("get_readiness", {}, signal, { readinessResponse: true })));
+	checks.capabilities = await probe("get_capabilities", async () => capabilities(await runtime.client.request("get_capabilities", {}, signal)));
+	checks.routes = await probe("openapi_document", async () => {
+		try {
+			return routes(await runtime.client.readOpenApi(signal), runtime.config.flushOnCapture);
+		} catch (error) {
+			if (error instanceof ServerResponseError && error.statusCode === 404) return {
+				...check("openapi_document", "contract_unavailable", "The Server contract endpoint returned HTTP 404; declared route support is unverified.", "Expose the Server /openapi.json through the configured base path or verify the installed contract separately.", "skipped"),
+				http_status: 404,
+				...requestId(error.requestId)
+			};
+			throw error;
+		}
+	});
+	let scopeId;
+	checks.scope = await probe("resolve_scope_binding", async () => {
+		scopeId = await runtime.resolveScope(cwd, signal);
+		return scopeId ? check("resolve_scope_binding", "scope_resolved", "The Server resolved the current session Scope.", void 0, "ok") : check("resolve_scope_binding", "unscoped", "Scope resolution returned no usable Scope.", "Check the explicit Scope override, workspace binding and Server default Scope. Doctor does not create bindings.");
+	});
+	checks.prepare = scopeId ? await probe("prepare_context", async () => {
+		const response = await runtime.client.request("prepare_context", {
+			scope_id: scopeId,
+			query: "PowerContext diagnostic recall check",
+			max_bytes: 512
+		}, signal);
+		let prepared;
+		try {
+			prepared = validatePreparedContext(response.value, "/v1/context/prepare", 512);
+			if (response.status !== 200) invalid("prepare_context", response, "prepare_status");
+		} catch (error) {
+			if (error instanceof InvalidResponseError) invalid("prepare_context", response, error.issue);
+			throw error;
+		}
+		return observed("prepare_context", response, prepared.status, prepared.status === "empty" ? "The prepare route returned a valid empty result." : "The prepare route returned valid context; Doctor discarded the content without injecting it.");
+	}) : check("prepare_context", "scope_unavailable", "Not checked because the current Scope could not be resolved.", "Resolve the Scope check first.", "skipped");
+	return {
+		ok: Object.values(checks).every((value) => value.state === "ok"),
+		configuration: config.summary,
+		checks,
+		coverage: "Read-only checks of the current configuration. Write routes are declared by the contract but not executed; processing, capture and injection are not verified by Doctor."
+	};
+}
+
+//#endregion
 //#region src/secrets.ts
 const SECRET_MARKERS = [
 	"sk-",
@@ -1652,8 +2043,8 @@ function renderToolResult(_args, value) {
 		text: JSON.stringify(value)
 	}];
 }
-function requestIdField(requestId) {
-	return requestId === void 0 ? {} : { request_id: requestId };
+function requestIdField(requestId$1) {
+	return requestId$1 === void 0 ? {} : { request_id: requestId$1 };
 }
 function mapServerError(error) {
 	const code = publicErrorCode(error.code);
@@ -1879,29 +2270,14 @@ async function handleReview(tokens, runtime, cwd, signal) {
 		text: "Usage: /pc review [approve|reject] ..."
 	};
 }
-async function handleDoctor(runtime, signal) {
-	const onFailure = (error) => reportDirectFailure(runtime, "command", error);
-	const live = await invokeOperation(runtime.client, "get_liveness", {}, "", signal, onFailure);
-	const ready = await invokeOperation(runtime.client, "get_readiness", {}, "", signal, onFailure);
-	return {
-		kind: live.ok && ready.ok ? "success" : "error",
-		text: formatResult({
-			ok: live.ok && ready.ok,
-			data: {
-				live,
-				ready
-			}
-		})
-	};
-}
-function statusResult(runtime, scopeId, failure) {
+function statusResult(runtime, scopeId, failure$1) {
 	let endpoint = "(invalid URL)";
 	try {
 		endpoint = new URL(runtime.config.baseUrl).origin;
 	} catch {}
 	return {
-		kind: failure ? "error" : "success",
-		text: `scope=${scopeId ?? "unresolved"}\nbaseUrl=${endpoint}\nUse /pc doctor to check Server readiness.` + (failure ? `\n${formatResult(failure)}` : "")
+		kind: failure$1 ? "error" : "success",
+		text: `scope=${scopeId ?? "unresolved"}\nbaseUrl=${endpoint}\nUse /pc doctor to check Server readiness.` + (failure$1 ? `\n${formatResult(failure$1)}` : "")
 	};
 }
 async function handlePcCommand(rawInput, runtime, cwd, signal) {
@@ -1917,7 +2293,13 @@ async function handlePcCommand(rawInput, runtime, cwd, signal) {
 	} catch (error) {
 		return statusResult(runtime, void 0, await reportDirectFailure(runtime, "command", error));
 	}
-	if (command === "doctor") return handleDoctor(runtime, signal);
+	if (command === "doctor") {
+		const report = await diagnoseServer(runtime, cwd, signal);
+		return {
+			kind: report.ok ? "success" : "error",
+			text: JSON.stringify(report, null, 2)
+		};
+	}
 	if (command === "search") {
 		const query = tokens.slice(1).join(" ");
 		if (!query) return {
@@ -1969,6 +2351,11 @@ function registerCommands(ctx, runtime) {
 //#endregion
 //#region src/config.ts
 const DEFAULTS = {
+	sources: {
+		baseUrl: "default",
+		authorization: "default",
+		scopeId: "default"
+	},
 	baseUrl: "http://127.0.0.1:8000",
 	authorization: void 0,
 	scopeId: void 0,
@@ -2010,6 +2397,11 @@ function resolveConfig(config = {}, env = process.env) {
 	const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes;
 	if (maxBytes < 512 || maxBytes > 32768) throw new Error("maxBytes must be between 512 and 32768");
 	return {
+		sources: {
+			baseUrl: envString(env, "POWERCONTEXT_DSH_BASE_URL") ? "environment" : config.baseUrl ? "plugin" : "default",
+			authorization: envString(env, "POWERCONTEXT_DSH_AUTHORIZATION") ? "environment" : optionalText(config.authorization) ? "plugin" : "default",
+			scopeId: envString(env, "POWERCONTEXT_DSH_SCOPE_ID") ? "environment" : optionalText(config.scopeId) ? "plugin" : "default"
+		},
 		baseUrl: stripSlash(envString(env, "POWERCONTEXT_DSH_BASE_URL") ?? config.baseUrl ?? DEFAULTS.baseUrl),
 		authorization: envString(env, "POWERCONTEXT_DSH_AUTHORIZATION") ?? optionalText(config.authorization),
 		scopeId: envString(env, "POWERCONTEXT_DSH_SCOPE_ID") ?? optionalText(config.scopeId),
@@ -2107,46 +2499,6 @@ async function captureUserPrompt(input) {
 	} catch (error) {
 		reportFailure(input.log, "flush_memory", error);
 	}
-}
-
-//#endregion
-//#region src/prepared-context.ts
-const PREPARED_CONTEXT_SCHEMA = "powercontext.prepared-context.v1";
-const PREPARED_FIELDS = new Set([
-	"schema",
-	"status",
-	"content",
-	"content_bytes"
-]);
-function isRecord(value) {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function validatePreparedContext(response, path = "/v1/context/prepare", maxBytes = MAX_CONTEXT_BYTES) {
-	if (!isRecord(response)) throw new InvalidResponseError(path);
-	const keys = Object.keys(response);
-	if (keys.length !== PREPARED_FIELDS.size || keys.some((key) => !PREPARED_FIELDS.has(key))) throw new InvalidResponseError(path);
-	if (response.schema !== PREPARED_CONTEXT_SCHEMA) throw new InvalidResponseError(path);
-	const status = response.status;
-	const content = response.content;
-	const contentBytes = response.content_bytes;
-	if (typeof contentBytes !== "number" || !Number.isInteger(contentBytes) || contentBytes < 0) throw new InvalidResponseError(path);
-	if (status === "empty") {
-		if (content !== null || contentBytes !== 0) throw new InvalidResponseError(path);
-		return {
-			schema: PREPARED_CONTEXT_SCHEMA,
-			status,
-			content: null,
-			content_bytes: 0
-		};
-	}
-	if (status !== "ready" || typeof content !== "string" || !content.trim()) throw new InvalidResponseError(path);
-	if (Buffer.from(content, "utf8").byteLength !== contentBytes || contentBytes > maxBytes) throw new InvalidResponseError(path);
-	return {
-		schema: PREPARED_CONTEXT_SCHEMA,
-		status,
-		content,
-		content_bytes: contentBytes
-	};
 }
 
 //#endregion
@@ -2840,7 +3192,9 @@ const Config = { "~standard": {
 	vendor: "powercontext-dsh",
 	validate(value) {
 		try {
-			return { value: resolveConfig(value && typeof value === "object" ? value : {}) };
+			const input = value && typeof value === "object" ? value : {};
+			resolveConfig(input);
+			return { value: input };
 		} catch (error) {
 			return { issues: [{ message: error instanceof Error ? error.message : String(error) }] };
 		}

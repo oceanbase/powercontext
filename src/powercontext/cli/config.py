@@ -27,6 +27,7 @@ from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Never
 from urllib.parse import urlsplit
@@ -980,7 +981,14 @@ def _print_next_steps(path: Path) -> None:
     typer.echo(f"\nStart Server:\n  powercontext server run --env-file {quoted}")
     write_inference_capability_notice(generation_model=None, embedding_model=None)
     typer.secho("\nSupported Coding Agents (choose one):", bold=True, fg=typer.colors.CYAN)
-    for name, setup, launch in AGENTS.values():
+    for host, (name, setup, launch) in AGENTS.items():
+        if host == "dsh":
+            installed = version("powercontext")
+            setup = (
+                f"powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v{installed}"
+                if re.fullmatch(r"\d+\.\d+\.\d+", installed)
+                else "powercontext setup dsh --source /path/to/matching-powercontext-checkout"
+            )
         typer.echo(f"\n{name}:\n  {setup}")
         if launch.startswith("重启"):
             typer.echo(f"  {launch}")

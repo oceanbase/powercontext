@@ -69,7 +69,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 按 binding 的自动波次间隔；未设置即关闭自动波次 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 单个 Topic Memory Worker 最多处理的 Source 数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 单个 Topic Memory Worker 最多处理的 Source 数量，硬上限为 100 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES` | `20` | 处理时考虑的历史 Topic 候选上限 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` | `70` | 归一化到 `0..100` 的 RRF 接受阈值 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | 达到阈值的候选过少时保证的最小历史召回数 |
@@ -100,6 +100,19 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
+
+Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
+64,000,000 个估算 token 容量单位。Window 的 canonical evidence（包含 metadata）最多 4,194,304 个字符，并限制
+嵌套复杂度。耗尽后保留 Source、Cursor、Pending 和同 Scope 尾部，停止后续 provider 调用；flush 和重启均不重置。
+运维可检查 `pc_topic_memory_work_budgets` 与结构化错误以明确修复。
+
+Topic generation 只允许有界标量设置：`max_tokens`、`temperature`、`top_p`、`top_k`、`seed`、`presence_penalty`、
+`frequency_penalty`、`timeout`、`openai_reasoning_effort`、`openai_text_verbosity`、`service_tier`、
+`openai_service_tier`、`anthropic_service_tier`、`anthropic_effort`；Topic Embedding 只允许 `dimensions` 和 `truncate`。
+background、隐藏历史、native tools 和 `extra_body` 会使 Topic 处理不可用，普通推理仍可继续；显式配置自动 Topic 调度时
+则启动失败。支持的 provider 前缀为 `openai`、`openai-chat`、
+`openai-responses`、`anthropic`、`azure`、`azure-responses`、`deepseek`、`openrouter`，以及本地 `test` 模型；Embedding
+还必须受其 SDK adapter 支持。Topic 禁用 SDK transport 重试和自动 continuation，非 Topic 推理保留既有设置行为。
 
 未设置 cursor 签名密钥时，使用文件 SQLite 的 Server 会在数据库旁创建权限受限的密钥文件；其他持久化后端会在
 PowerContext 用户数据目录创建密钥。内存 SQLite 使用进程内密钥。多副本部署必须为所有副本配置相同的
@@ -211,6 +224,11 @@ model 的配置会在声明处理能力之前被拒绝。请通过 `POWERCONTEXT
 `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` 或启用的
 `POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED` 同时配置时，进程会在启动阶段明确拒绝。需要这些旧作业时应继续
 使用 `all`；把旧作业分配到独立进程不属于当前 split-role 合同。
+
+普通 Runtime 启动会初始化并恢复所配置的检索索引。Topic Worker 复用该数据库，不再为每个 Window 重建无关的
+Memory/Experience 检索投影；Topic 索引校验与发布守卫仍然执行。如果空库切换了 Topic 检索形态或 Embedding
+profile，应使用相同配置重新打开已有 Runtime；旧 Runtime 会以 retrieval-shape 错误拒绝 Topic 搜索、精确读取和
+当前 Head 浏览，而不是读取另一个向量空间。
 
 指定 SQLite 路径并启用定时提取的示例：
 

@@ -16,6 +16,7 @@
 
 import type { JsonObject } from './client.ts'
 import { requireService } from './dsh-service.ts'
+import { diagnoseServer } from './doctor.ts'
 import { invokeOperation, reportDirectFailure, type PluginRuntime, type ToolResult } from './invoke.ts'
 import { UNSCOPED_MESSAGE } from './scope.ts'
 
@@ -79,13 +80,6 @@ async function handleReview(
   return { kind: 'error', text: 'Usage: /pc review [approve|reject] ...' }
 }
 
-async function handleDoctor(runtime: PluginRuntime, signal?: AbortSignal): Promise<CommandResult> {
-  const onFailure = (error: unknown) => reportDirectFailure(runtime, 'command', error)
-  const live = await invokeOperation(runtime.client, 'get_liveness', {}, '', signal, onFailure)
-  const ready = await invokeOperation(runtime.client, 'get_readiness', {}, '', signal, onFailure)
-  return { kind: live.ok && ready.ok ? 'success' : 'error', text: formatResult({ ok: live.ok && ready.ok, data: { live, ready } }) }
-}
-
 function statusResult(runtime: PluginRuntime, scopeId?: string, failure?: ToolResult): CommandResult {
   let endpoint = '(invalid URL)'
   try {
@@ -116,7 +110,10 @@ export async function handlePcCommand(
       return statusResult(runtime, undefined, await reportDirectFailure(runtime, 'command', error))
     }
   }
-  if (command === 'doctor') return handleDoctor(runtime, signal)
+  if (command === 'doctor') {
+    const report = await diagnoseServer(runtime, cwd, signal)
+    return { kind: report.ok ? 'success' : 'error', text: JSON.stringify(report, null, 2) }
+  }
   if (command === 'search') {
     const query = tokens.slice(1).join(' ')
     if (!query) return { kind: 'error', text: 'Usage: /pc search <query>' }

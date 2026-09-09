@@ -58,7 +58,10 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
     identity_string,
 )
-from powercontext.builtin.persistence.topic_memory_index import topic_memory_embedding_profile_fingerprint
+from powercontext.builtin.persistence.topic_memory_index import (
+    topic_memory_embedding_profile_fingerprint,
+    validate_current_topic_vectors,
+)
 from powercontext.limits import MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
 
 _TOPIC_FTS_INDEX = "ix_pc_topic_memory_active_topics_fts"
@@ -89,6 +92,7 @@ WITH candidates AS (
            l2_distance(v.embedding, :query_vector) AS distance
     FROM pc_topic_memory_vector_topics AS v
     WHERE v.scope_id = :scope_id
+      AND v.profile_fingerprint = :profile_fingerprint
     ORDER BY l2_distance(v.embedding, :query_vector) APPROXIMATE
     LIMIT :candidate_limit
 )
@@ -104,6 +108,7 @@ WITH neighbors AS (
            l2_distance(v.embedding, :query_vector) AS distance
     FROM pc_topic_memory_vector_chunks AS v
     WHERE v.scope_id = :scope_id
+      AND v.profile_fingerprint = :profile_fingerprint
     ORDER BY l2_distance(v.embedding, :query_vector) APPROXIMATE
     LIMIT :neighbor_limit
 ), ranked AS (
@@ -134,6 +139,9 @@ class OceanBaseTopicMemoryFTSIndex:
 
     capabilities = TopicMemoryCapabilities(fts=True)
     tables: tuple[Table, ...] = ()
+
+    async def validate_current(self, _connection: AsyncConnection, /) -> None:
+        pass
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
         if connection.dialect.name != "mysql":
@@ -350,6 +358,9 @@ class OceanBaseTopicMemoryVectorIndex:
         await connection.run_sync(lambda sync: self._topic_index.create(sync, checkfirst=True))
         await connection.run_sync(lambda sync: self._chunk_index.create(sync, checkfirst=True))
 
+    async def validate_current(self, connection: AsyncConnection, /) -> None:
+        await validate_current_topic_vectors(connection, self.topic_table, self.chunk_table, self._fingerprint)
+
     async def replace(
         self,
         connection: AsyncConnection,
@@ -417,6 +428,7 @@ class OceanBaseTopicMemoryVectorIndex:
             raise TopicMemoryCapabilityError("embedding-profile")
         parameters = {
             "scope_id": scope_id,
+            "profile_fingerprint": self._fingerprint,
             "query_vector": canonical_embedding(
                 request.query_vector,
                 dimension=self.profile.dimension,

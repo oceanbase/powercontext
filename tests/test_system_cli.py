@@ -1054,4 +1054,4 @@ def test_doctor_dsh_requires_the_installed_plugin(monkeypatch) -> None:
 
     assert result.exit_code == 1
     assert "dsh: ok - /usr/bin/dsh" in result.output
-    assert "plugin: failed - PowerContext DSH plugin is not installed" in result.output
+    assert "plugin: failed - PowerContext DSH plugin is not registered in the Web profile" in result.output
