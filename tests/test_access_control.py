@@ -39,6 +39,7 @@ from powercontext.server.authz import (
     BuiltinAuthorizationProvider,
     CreateBinding,
     GroupRef,
+    HandoffReceiptIdentity,
     MemoryEntrySelector,
     PrincipalRef,
     ReplaceBinding,
@@ -55,6 +56,23 @@ ALICE = PrincipalRef(type="user", id="alice", description="artifact owner")
 BOB = PrincipalRef(type="user", id="bob")
 TEAM = GroupRef(type="group", id="team-platform", description="Platform team")
 AUDIT = AccessAuditContext(transport="http", operation="test", request_id="req-1")
+
+
+def test_receipt_commit_proof_is_separate_from_identity_reservation() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
+            repository = RelationalAccessRepository(profile.database)
+            identity = HandoffReceiptIdentity("scope-a", "receipt-a", ALICE, True)
+
+            assert await repository.get_committed_receipt_identity("scope-a", "receipt-a") is None
+            assert await repository.record_receipt_identity(identity) == identity
+            assert await repository.get_receipt_identity("scope-a", "receipt-a") == identity
+            assert await repository.get_committed_receipt_identity("scope-a", "receipt-a") is None
+            assert await repository.commit_receipt_identity(identity) == identity
+            assert await repository.commit_receipt_identity(identity) == identity
+            assert await repository.get_committed_receipt_identity("scope-a", "receipt-a") == identity
+
+    asyncio.run(scenario())
 
 
 def test_logical_artifact_share_is_read_only_across_all_versions() -> None:

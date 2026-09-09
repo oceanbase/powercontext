@@ -83,10 +83,19 @@ powercontext config validate --env-file /etc/powercontext/powercontext.env
 powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
 
+The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
+read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
+disabled by default, so no token is generated automatically.
+
 The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
 file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
-are ignored. See the [Enable extraction and vector search](../get-started/configure-models.md) to generate a validated file
-interactively.
+are ignored. `config init` creates a model-free base configuration; see [Enable extraction and vector search](../get-started/configure-models.md)
+when you need to add inference models and enable the full capability set.
+
+Whether the Server runs in the foreground, in Docker, or as a personal service, startup or installation output warns
+that missing models may affect some artifact features and links to the
+[configuration reference](https://powercontext.oceanbase.io/en/docs/reference/configuration/).
+The notice is omitted when both generation and embedding models are configured.
 
 ## Run with Docker
 

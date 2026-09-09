@@ -184,15 +184,15 @@ so the previous database remains available for recovery:
    Because `pc_scopes.parent_scope_id` is self-referential, keep ancestor Scope rows before their descendants in the
    exported `pc_scopes` data.
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
-   `pc_skill_publications`), the Profile tables, or `pc_topic_memory_work_budgets`, remove the absent tables from their
-   respective layers.
+   `pc_skill_publications`), the Profile tables, `pc_topic_memory_work_budgets`, or
+   `pc_receipt_migration_review`, remove the absent tables from their respective layers.
    When a work-budget table exists, restore it together with Cursors so failure allowances survive the migration.
 
    Layer 1 contains parents and tables without foreign keys:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_receipt_migration_review' \
      -f <export-directory>
    ```
 

@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
 from contextlib import suppress
 from typing import Any, Literal, cast
 
@@ -36,6 +36,7 @@ from powercontext.builtin.persistence.errors import (
     StoredPayloadConflictError,
 )
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
+from powercontext.builtin.sources.content import ContentSource
 from powercontext.errors import SourceDefinitionNotFoundError
 from powercontext.limits import MAX_SCOPE_ID_LENGTH
 from powercontext.sources import Source, SourceAdapter, SourceDefinitionRegistry, SourceObservation, SourceRef
@@ -108,6 +109,25 @@ class SourceRepository:
         existing = await self._find_row(connection, scope_id, ref)
         if existing is not None:
             stored = self._decode_row(existing)
+            # A trusted acknowledgement may replay a pre-provenance receipt.
+            # Upgrade only its server-owned attestation, never its content or position.
+            if (
+                isinstance(source, ContentSource)
+                and source.handoff_receipt
+                and isinstance(stored.value, ContentSource)
+                and not stored.value.handoff_receipt
+                and stored.value.model_copy(update={"handoff_receipt": True}) == source
+            ):
+                await connection.execute(
+                    update(SOURCES_TABLE)
+                    .where(
+                        SOURCES_TABLE.c.scope_id == scope_id,
+                        SOURCES_TABLE.c.source_type == ref.source_type,
+                        SOURCES_TABLE.c.source_id == ref.source_id,
+                    )
+                    .values(payload=payload)
+                )
+                return StoredSource(ref=ref, value=source, journal_position=stored.journal_position), False
             if stored.value != source:
                 raise StoredPayloadConflictError("source", (scope_id, ref))
             return stored, False
@@ -203,27 +223,58 @@ class SourceRepository:
         /,
         *,
         after: int = 0,
+        through: int | None = None,
         limit: int | None = None,
+        source_type: str | None = None,
     ) -> tuple[StoredSource, ...]:
         """Return a stable journal-ordered page for one scope."""
+
+        return tuple([
+            item
+            async for item in self.iter_list(
+                connection,
+                scope_id,
+                after=after,
+                through=through,
+                limit=limit,
+                source_type=source_type,
+            )
+        ])
+
+    async def iter_list(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        /,
+        *,
+        after: int = 0,
+        through: int | None = None,
+        limit: int | None = None,
+        source_type: str | None = None,
+    ) -> AsyncGenerator[StoredSource, None]:
+        """Stream a stable journal-ordered page without decoding it eagerly."""
 
         _require_identity("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
         if after < 0:
             raise InvalidRepositoryArgumentError("after", "must be non-negative")
         if limit is not None and limit < 1:
             raise InvalidRepositoryArgumentError("limit", "must be positive")
-        statement = (
-            select(SOURCES_TABLE)
-            .where(
-                SOURCES_TABLE.c.scope_id == scope_id,
-                SOURCES_TABLE.c.journal_position > after,
-            )
-            .order_by(SOURCES_TABLE.c.journal_position)
-        )
+        if through is not None and through < after:
+            raise InvalidRepositoryArgumentError("through", "must not precede after")
+        predicates = [
+            SOURCES_TABLE.c.scope_id == scope_id,
+            SOURCES_TABLE.c.journal_position > after,
+        ]
+        if through is not None:
+            predicates.append(SOURCES_TABLE.c.journal_position <= through)
+        if source_type is not None:
+            predicates.append(SOURCES_TABLE.c.source_type == source_type)
+        statement = select(SOURCES_TABLE).where(*predicates).order_by(SOURCES_TABLE.c.journal_position)
         if limit is not None:
             statement = statement.limit(limit)
-        rows = (await connection.execute(statement)).mappings()
-        return tuple(self._decode_row(row) for row in rows)
+        async with connection.stream(statement.execution_options(yield_per=1)) as result:
+            async for row in result.mappings():
+                yield self._decode_row(row)
 
     async def list_window(
         self,

@@ -116,6 +116,8 @@ from powercontext.http import (
     ListMemoryEntriesResponse,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
+    ListScopesRequest,
+    ListSourcesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     PrepareContextRequest,
@@ -163,6 +165,7 @@ from powercontext.http import (
     ScopeDescriptor,
     ScopedStats,
     ScopePage,
+    ScopeQueryField,
     SearchMemoryRequest,
     SearchMemoryResponse,
     SearchTopicMemoryRequest,
@@ -175,6 +178,7 @@ from powercontext.http import (
     SkillPackageManifest,
     SourceDefinitionManifest,
     SourceObservationReceipt,
+    SourcePage,
     SourceRecord,
     SubmitSourceObservationRequest,
     TopicMemoryArtifact,
@@ -253,6 +257,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_ENTRIES,
     LIST_REMOTE_SKILL_TARGETS,
     LIST_SCOPES,
+    LIST_SOURCES,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -370,10 +375,44 @@ class PowerContextClient:
 
         return await self._request(GET_CAPABILITIES)
 
-    async def list_scopes(self) -> ScopePage:
-        """List durable Scope descriptors."""
+    async def list_scopes(
+        self,
+        query: str | None = None,
+        *,
+        query_field: ScopeQueryField | None = None,
+        parent_scope_id: str | None = None,
+        external_reference_kind: str | None = None,
+        binding_integration: str | None = None,
+        binding_kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> ScopePage:
+        """List or discover durable Scope descriptors."""
 
-        return await self._request(LIST_SCOPES)
+        if (
+            query is None
+            and query_field is None
+            and parent_scope_id is None
+            and external_reference_kind is None
+            and binding_integration is None
+            and binding_kind is None
+            and limit is None
+            and cursor is None
+        ):
+            return await self._request(LIST_SCOPES)
+        return await self._request(
+            LIST_SCOPES,
+            ListScopesRequest(
+                query=query,
+                query_field=query_field,
+                parent_scope_id=parent_scope_id,
+                external_reference_kind=external_reference_kind,
+                binding_integration=binding_integration,
+                binding_kind=binding_kind,
+                limit=50 if limit is None else limit,
+                cursor=cursor,
+            ),
+        )
 
     async def create_scope(self, request: CreateScopeRequest) -> ScopeDescriptor:
         """Create one independent Scope boundary."""
@@ -539,6 +578,19 @@ class PowerContextClient:
         """Create one durable Source without invoking generation."""
 
         return await self._request(CREATE_SOURCE, request, path_parameters={"scope_id": scope_id})
+
+    async def list_sources(
+        self,
+        scope_id: str,
+        request: ListSourcesRequest | None = None,
+    ) -> SourcePage:
+        """List one stable page of public Sources in a Scope."""
+
+        return await self._request(
+            LIST_SOURCES,
+            ListSourcesRequest() if request is None else request,
+            path_parameters={"scope_id": scope_id},
+        )
 
     async def create_subject_source(
         self, scope_id: str, request: CreateSubjectSourceRequest

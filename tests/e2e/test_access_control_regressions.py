@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -337,6 +338,22 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             source = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
             assert source.status_code == 200, source.text
             assert source.json()["receipt_identity"] == identity
+
+            async def identity_missing(*args, **kwargs):
+                return None
+
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", identity_missing)
+                exact_missing = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
+                list_missing = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact_missing.status_code == 503, exact_missing.text
+                assert list_missing.status_code == 503, list_missing.text
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", identity_unavailable)
+                exact_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
+                list_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact_unavailable.status_code == 503, exact_unavailable.text
+                assert list_unavailable.status_code == 503, list_unavailable.text
             denied = await client.post(
                 "/v1/work/handoffs/acknowledge",
                 headers=bob,
@@ -376,6 +393,137 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             assert response.json()["receipt_identity"] == identity
 
     asyncio.run(reopened())
+
+
+def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_path, monkeypatch):
+    import sqlite3
+
+    from powercontext.builtin.runtime.application import ScopedSourceApplication
+
+    original_capture = ScopedSourceApplication._capture
+
+    async def legacy_capture(self, value, /, *, handoff_receipt=False):
+        return await original_capture(self, value, handoff_receipt=False)
+
+    async def prepare():
+        async with _server(tmp_path) as (app, client, _):
+            scope_id = await _scope(client)
+            revision = await _handoff(client, scope_id)
+            with monkeypatch.context() as patch:
+                patch.setattr(ScopedSourceApplication, "_capture", legacy_capture)
+                created = await client.post(
+                    "/v1/work/handoffs/acknowledge",
+                    json={
+                        "scope_id": scope_id,
+                        "source_id": "legacy-receipt",
+                        "receiver": "admin",
+                        "status": "declined",
+                        "selection": "exact",
+                        "revision": revision,
+                        "message": "Upgrade test",
+                    },
+                )
+                assert created.status_code == 200, created.text
+            ordinary = await app.state.application.records.for_scope(scope_id).create_source(
+                "content",
+                {"schema": "powercontext.handoff-receipt.v1"},
+            )
+            reserved_only = await app.state.application.records.for_scope(scope_id).create_source(
+                "content",
+                {"schema": "powercontext.handoff-receipt.v1"},
+            )
+            conflicted = await client.post(
+                "/v1/work/handoffs/acknowledge",
+                json={
+                    "scope_id": scope_id,
+                    "source_id": reserved_only.source_id,
+                    "receiver": "admin",
+                    "status": "declined",
+                    "selection": "exact",
+                    "revision": revision,
+                    "message": "This write must conflict",
+                },
+            )
+            assert conflicted.status_code == 409, conflicted.text
+            before = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
+            return scope_id, ordinary.source_id, reserved_only.source_id, before.json()
+
+    scope_id, ordinary_id, reserved_only_id, before = asyncio.run(prepare())
+
+    async def check_upgrade():
+        async with _server(tmp_path) as (_, client, access):
+            exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
+            assert exact.status_code == 200 and exact.json() == before
+            ordinary = await client.get(f"/v1/scopes/{scope_id}/sources/content/{ordinary_id}")
+            assert ordinary.status_code == 200 and ordinary.json()["receipt_identity"] is None
+            reserved_only = await client.get(f"/v1/scopes/{scope_id}/sources/content/{reserved_only_id}")
+            assert reserved_only.status_code == 200 and reserved_only.json()["receipt_identity"] is None
+            page = await client.get(f"/v1/scopes/{scope_id}/sources", params={"limit": 100})
+            assert page.status_code == 200, page.text
+            by_source_id = {item["source_id"]: item for item in page.json()["items"]}
+            assert by_source_id[ordinary_id]["receipt_identity"] is None
+            assert by_source_id[reserved_only_id]["receipt_identity"] is None
+
+            async def missing(*args, **kwargs):
+                return None
+
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", missing)
+                exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
+                page = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact.status_code == 503, exact.text
+                assert page.status_code == 503, page.text
+
+    for _ in range(2):
+        asyncio.run(check_upgrade())
+        with sqlite3.connect(tmp_path / "regressions.db") as connection:
+            pending = connection.execute(
+                "SELECT scope_id, source_id, reason FROM pc_receipt_migration_review"
+            ).fetchall()
+            assert set(pending) == {
+                (scope_id, ordinary_id, "missing_committed_receipt"),
+                (scope_id, reserved_only_id, "missing_committed_receipt"),
+            }
+
+
+def test_generic_receipt_markers_cannot_block_source_collection(tmp_path):
+    async def scenario():
+        async with _server(tmp_path) as (app, client, _):
+            scope_id = await _scope(client)
+            marker = {"schema": "powercontext.handoff-receipt.v1"}
+
+            created = await client.post(f"/v1/scopes/{scope_id}/sources", json={"content": marker})
+            captured = await client.post(
+                "/v1/sources/content",
+                json={
+                    "scope_id": scope_id,
+                    "source_id": "forged-receipt",
+                    "content": json.dumps(marker),
+                },
+            )
+            assert created.status_code == 422, created.text
+            assert captured.status_code == 422, captured.text
+
+            records = app.state.application.records.for_scope(scope_id)
+            legacy = await records.create_source("content", marker)
+            ordinary = await records.create_source("content", {"statement": "later source"})
+
+            exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/{legacy.source_id}")
+            assert exact.status_code == 200, exact.text
+            assert exact.json()["receipt_identity"] is None
+
+            first = await client.get(f"/v1/scopes/{scope_id}/sources", params={"limit": 1})
+            assert first.status_code == 200, first.text
+            assert [item["source_id"] for item in first.json()["items"]] == [legacy.source_id]
+            assert first.json()["next_cursor"] is not None
+            second = await client.get(
+                f"/v1/scopes/{scope_id}/sources",
+                params={"limit": 1, "cursor": first.json()["next_cursor"]},
+            )
+            assert second.status_code == 200, second.text
+            assert [item["source_id"] for item in second.json()["items"]] == [ordinary.source_id]
+
+    asyncio.run(scenario())
 
 
 def test_concurrent_handoff_receipts_cannot_replace_the_authenticated_submitter(tmp_path):

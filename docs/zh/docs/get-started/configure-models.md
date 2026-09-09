@@ -7,8 +7,8 @@ description: 配置模型、启动 Server，并验证完整 Memory 闭环。
 
 以下步骤使用 `master` 和 Bash。Windows 支持为 `experimental`，平台要求见[安装与运行](install-and-run.md)。
 
-`powercontext server run` 不配置模型也可以运行，但依赖模型的提取和向量检索不会启用。引导式配置会启用 generation、
-embedding、定时 Source 处理，并写入 metrics 和 tracing 设置。
+`powercontext server run` 不配置模型也可以运行，但依赖模型的提取和向量检索不会启用。`config init` 只负责生成可启动的
+基础环境文件，不在部署过程中索要 provider、credential 或 model；需要完整能力时，再显式补充模型配置。
 
 | 能力 | 最小 Server | 已配置 Runtime |
 | --- | --- | --- |
@@ -28,7 +28,19 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 powercontext config init --output .env
 ```
 
-按提示输入 provider connection 和 credential。本地 provider 忽略鉴权时，使用该 provider 接受的非秘密占位值。
+该命令不会询问模型或 credential。要启用完整能力，请编辑 `.env`，至少补充下面这些值，并按 provider 要求补充 credential
+和 Base URL：
+
+```dotenv
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:generation-model
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=provider-embedding-model-1536-unit-v1
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1536
+POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60
+```
+
+其中 `generation-model` 负责自动抽取和生成，`embedding-model` 负责向量检索；定时 Source 处理也需要 generation model。
+本地 provider 忽略鉴权时，使用该 provider 接受的非秘密占位值。
 
 在不打印 credential 的情况下检查并校验配置：
 
@@ -37,8 +49,8 @@ powercontext config show --env-file .env
 powercontext config validate --env-file .env
 ```
 
-生成文件包含 Server、模型、数据库、Scheduler 和 integration transport 设置。Scope identity 由运行中的 Server 管理，
-Config Generator 不会凭空生成 Scope ID。
+生成文件包含 Server、数据库和 integration transport 设置；模型配置由你显式补充后才会启用 Scheduler。Scope identity 由运行中的
+Server 管理，Config Generator 不会凭空生成 Scope ID。
 
 ## 2. 启动并检查 Server
 

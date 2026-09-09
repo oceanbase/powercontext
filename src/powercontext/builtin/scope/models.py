@@ -187,6 +187,73 @@ class ScopeBinding(_ScopeValue):
         return validate_scope_id(value)
 
 
+ScopeQueryField = Literal[
+    "scope_id",
+    "title",
+    "summary",
+    "external_reference_value",
+    "binding_external_id",
+]
+
+
+class ScopeDiscovery(_ScopeValue):
+    query: str | None = Field(default=None, max_length=256)
+    query_field: ScopeQueryField | None = None
+    parent_scope_id: str | None = None
+    external_reference_kind: str | None = None
+    binding_integration: str | None = None
+    binding_kind: str | None = None
+    limit: StrictInt = Field(default=50, ge=1, le=100)
+    cursor: str | None = Field(default=None, min_length=1, max_length=4096)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("parent_scope_id")
+    @classmethod
+    def validate_parent_scope_id(cls, value: str | None) -> str | None:
+        return None if value is None else validate_scope_id(value)
+
+    @field_validator("external_reference_kind")
+    @classmethod
+    def validate_external_reference_kind(cls, value: str | None) -> str | None:
+        return (
+            None
+            if value is None
+            else _required_text("external_reference_kind", value, MAX_SCOPE_EXTERNAL_REFERENCE_KIND_LENGTH)
+        )
+
+    @field_validator("binding_integration")
+    @classmethod
+    def validate_binding_integration(cls, value: str | None) -> str | None:
+        return (
+            None
+            if value is None
+            else _required_text("binding_integration", value, MAX_SCOPE_BINDING_INTEGRATION_LENGTH)
+        )
+
+    @field_validator("binding_kind")
+    @classmethod
+    def validate_binding_kind(cls, value: str | None) -> str | None:
+        return None if value is None else _required_text("binding_kind", value, MAX_SCOPE_BINDING_KIND_LENGTH)
+
+    @model_validator(mode="after")
+    def validate_query_pair(self) -> ScopeDiscovery:
+        if (self.query is None) != (self.query_field is None):
+            raise ValueError("query and query_field must be provided together")  # noqa: TRY003
+        return self
+
+
+class ScopeDescriptorPage(_ScopeValue):
+    items: tuple[ScopeDescriptor, ...]
+    next_cursor: str | None = None
+
+
 class ScopeSelection(_ScopeValue):
     mode: Literal["all", "exact", "subtree"]
     scope_ids: tuple[str, ...] = ()

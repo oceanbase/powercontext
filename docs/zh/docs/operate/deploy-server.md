@@ -33,6 +33,9 @@ powercontext config validate --env-file /path/to/powercontext.env
 powercontext service install --env-file /path/to/powercontext.env
 ```
 
+安装成功后的摘要会显示实际使用的环境文件路径。若启用了 Bearer 鉴权，请从该文件中的
+`POWERCONTEXT_SERVER_AUTH_TOKEN` 读取令牌；命令不会在终端打印令牌值。默认配置关闭鉴权，因此不会自动生成令牌。
+
 在 Windows 上，校验前需要移除继承权限，只授予当前用户、`SYSTEM` 和本机 `Administrators` 访问权限，例如：
 
 ```powershell
@@ -81,8 +84,12 @@ powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
 
 文件可能包含 Provider 凭据或 Bearer token，因此只能允许 Server 运维者读取。文件中的值会覆盖进程中的同名值；
-文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略。需要交互式生成并校验配置文件时，请阅读
-[启用提取与向量搜索](../get-started/configure-models.md)。
+文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略。`config init` 生成的是不含模型的基础配置；需要启用完整
+推理能力时，请阅读[启用提取与向量搜索](../get-started/configure-models.md)并补充模型配置。
+
+无论使用前台进程、Docker 还是个人服务安装，只要 generation 或 embedding model 未配置，启动或安装输出都会提示
+缺少 model 可能影响部分制品功能，具体影响范围及配置方式请参考
+[官网配置说明](https://powercontext.oceanbase.io/en/docs/reference/configuration/)；两类 model 都已配置时不输出该提示。
 
 ## 使用 Docker 运行
 

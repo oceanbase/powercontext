@@ -911,6 +911,9 @@ def test_server_command_does_not_load_client_settings(monkeypatch: pytest.Monkey
     result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
 
     assert result.exit_code == 0
+    assert "Inference capability notice" in result.stdout
+    assert "可能影响部分制品功能" in result.stdout
+    assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in result.stdout
 
 
 def test_cli_reports_server_errors_with_request_context_without_a_traceback(

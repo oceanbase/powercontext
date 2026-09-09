@@ -87,7 +87,18 @@ def test_js_operations_record_method_path_location_and_scope() -> None:
     assert by_id["get_artifact"]["emptyStatuses"] == [304]
     assert by_id["replace_artifact"]["headerParams"] == ["If-Match"]
     assert "delete_artifact" not in by_id
-    assert "list_sources" not in by_id
+    assert by_id["list_scopes"]["queryParams"] == [
+        "query",
+        "query_field",
+        "parent_scope_id",
+        "external_reference_kind",
+        "binding_integration",
+        "binding_kind",
+        "limit",
+        "cursor",
+    ]
+    assert by_id["list_sources"]["location"] == "query"
+    assert by_id["list_sources"]["queryParams"] == ["limit", "cursor"]
     assert by_id["set_scope_binding"]["scopeMode"] == "none"
 
 

@@ -268,8 +268,73 @@ paths:
     get:
       tags: [scopes]
       summary: List observable Scopes
+      description: >-
+        Discover Scope descriptors with an explicit literal-substring field and exact relationship filters.
+        Query matches the selected original field using the database's native substring operation.
+        Regular expressions and wildcard syntax are not supported. Case, accent, and full-width/half-width
+        matching follow the underlying database collation; results need not be identical across backends.
+        Requests without query parameters preserve the existing complete-list behavior.
       operationId: list_scopes
       x-powercontext-access: {action: server.observe, resource: {type: server}}
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 256
+        - name: query_field
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ScopeQueryField"
+        - name: parent_scope_id
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: external_reference_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '.*\S.*'
+        - name: binding_integration
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '.*\S.*'
+        - name: binding_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: '.*\S.*'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
       responses:
         "200":
           description: Durable Scope metadata in deterministic identity order.
@@ -277,12 +342,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScopePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
         "503":
           $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       tags: [scopes]
       summary: Create an independent Scope boundary
@@ -2665,6 +2738,62 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
   /v1/scopes/{scope_id}/sources:
+    get:
+      tags: [sources]
+      summary: List public Sources in one Scope
+      description: List a snapshot-bounded page of public Content Sources in ascending journal position.
+      operationId: list_sources
+      x-powercontext-access: {resolver: path_scope_read_access}
+      parameters:
+        - name: scope_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+            pattern: '.*\S.*'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+      responses:
+        "200":
+          description: One stable page of public Content Sources.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourcePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       tags: [sources]
       summary: Create a durable Source
@@ -4334,6 +4463,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ScopeDescriptor"
+        next_cursor:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 4096
+    ScopeQueryField:
+      type: string
+      enum: [scope_id, title, summary, external_reference_value, binding_external_id]
     CreateScopeRequest:
       type: object
       additionalProperties: false
@@ -5420,6 +5557,9 @@ components:
           type: string
           minLength: 1
           maxLength: 200000
+          description: >-
+            Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on
+            this generic capture operation and must be created through their dedicated workflow.
         metadata:
           type: object
           additionalProperties: true
@@ -7962,7 +8102,9 @@ components:
           enum: [content]
           default: content
         content:
-          description: JSON value persisted by the built-in content Source adapter.
+          description: >-
+            JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including
+            handoff receipts, are rejected and must be created through their dedicated workflow.
     TaggableArtifactFamily:
       type: string
       description: Artifact families supporting logical tags; Prompt configurations are excluded.
@@ -8133,6 +8275,66 @@ components:
         content:
           $ref: "#/components/schemas/PromptContent"
     ListArtifactRevisionsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          nullable: true
+    ListScopesRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        query:
+          type: string
+          maxLength: 256
+          nullable: true
+        query_field:
+          allOf:
+            - $ref: "#/components/schemas/ScopeQueryField"
+          nullable: true
+        parent_scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+          nullable: true
+        external_reference_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          nullable: true
+        binding_integration:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          nullable: true
+        binding_kind:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '.*\S.*'
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        cursor:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          nullable: true
+    ListSourcesRequest:
       type: object
       additionalProperties: false
       properties:
@@ -8380,6 +8582,18 @@ components:
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
+    SourcePage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceRecord"
+        next_cursor:
+          type: string
+          nullable: true
     SourceTypeReference:
       type: object
       additionalProperties: false

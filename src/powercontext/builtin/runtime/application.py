@@ -136,6 +136,7 @@ from powercontext.builtin.records import (
     RecordService,
     ScopeSummaryPage,
     SourceRecord,
+    SourceRecordPage,
 )
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
@@ -343,6 +344,9 @@ class ScopedSourceApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def capture(self, value: CaptureSource, /) -> SourceReceipt:
+        return await self._capture(value)
+
+    async def _capture(self, value: CaptureSource, /, *, handoff_receipt: bool = False) -> SourceReceipt:
         if self._runtime._record_service is not None:
             try:
                 async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
@@ -352,6 +356,7 @@ class ScopedSourceApplication:
                         value.source_id,
                         value.content,
                         value.metadata,
+                        handoff_receipt=handoff_receipt,
                     )
             except BaseValueConflictError as error:
                 raise SourceConflictError("identity", error.identity) from None
@@ -365,7 +370,8 @@ class ScopedSourceApplication:
                     source_id=value.source_id,
                     content=value.content,
                     metadata=value.model_dump(mode="json")["metadata"],
-                )
+                ),
+                handoff_receipt=handoff_receipt,
             )
             return SourceReceipt(source_ref=context.sources.catalog.as_ref(source), sequence=sequence)
 
@@ -403,6 +409,21 @@ class ScopedRecordApplication:
     async def get_source(self, source_type: str, source_id: str, /) -> SourceRecord:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._runtime._records().get_source(self.scope_id, source_type, source_id)
+
+    async def list_sources(
+        self,
+        *,
+        limit: int,
+        cursor: str | None,
+        caller: str = "runtime",
+    ) -> SourceRecordPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().list_sources(
+                self.scope_id,
+                limit=limit,
+                cursor=cursor,
+                caller=caller,
+            )
 
     async def create_artifact(
         self,
@@ -1470,12 +1491,13 @@ class ScopedWorkApplication:
             await self._runtime.handoff.for_scope(self.scope_id).validate_evidence(citations)
 
     async def _capture(self, kind: WorkSourceKind, source_id: str, value: BaseModel) -> WorkSourceReceipt:
-        receipt = await self._runtime.sources.for_scope(self.scope_id).capture(
+        receipt = await self._runtime.sources.for_scope(self.scope_id)._capture(
             CaptureSource(
                 source_id=source_id,
                 content=value.model_dump_json(by_alias=True, exclude_none=False, indent=2),
                 metadata={"kind": kind, "schema": value.model_dump(by_alias=True)["schema"]},
-            )
+            ),
+            handoff_receipt=kind == HANDOFF_RECEIPT_SOURCE_KIND,
         )
         return WorkSourceReceipt(
             kind=kind,

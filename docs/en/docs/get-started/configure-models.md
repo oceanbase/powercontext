@@ -8,7 +8,8 @@ description: Configure models, start the Server, and verify the complete Memory 
 These steps use `master` and Bash. Windows support is `experimental`; see [platform requirements](install-and-run.md).
 
 `powercontext server run` works without model configuration, but model-backed extraction and vector search stay off.
-The guided configuration enables generation, embeddings, scheduled Source processing, metrics, and tracing settings.
+`config init` only creates a runnable base environment and does not ask for providers, credentials, or models during
+deployment. Add model configuration explicitly when you need the full capability set.
 
 | Capability | Minimal Server | Configured runtime |
 | --- | --- | --- |
@@ -28,7 +29,19 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 powercontext config init --output .env
 ```
 
-Enter the provider connection and credential when prompted. For a local provider that ignores authentication, use a
+The command does not prompt for models or credentials. To enable the full capability set, edit `.env` and add at least
+the following values, plus the credential and Base URL required by the selected provider:
+
+```dotenv
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:generation-model
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=provider-embedding-model-1536-unit-v1
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1536
+POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60
+```
+
+`generation-model` powers automatic extraction and generation, while `embedding-model` powers vector retrieval;
+scheduled Source processing also requires a generation model. For a local provider that ignores authentication, use a
 non-secret placeholder accepted by that provider.
 
 Inspect and validate the generated file without printing credentials:
@@ -38,8 +51,9 @@ powercontext config show --env-file .env
 powercontext config validate --env-file .env
 ```
 
-The generated file contains Server, model, database, scheduler, and integration transport settings. Scope identity is
-owned by the running Server and is not invented by the Config Generator.
+The generated file contains Server, database, and integration transport settings; the Scheduler is enabled only after
+you explicitly add a generation model and its schedule. Scope identity is owned by the running Server and is not
+invented by the Config Generator.
 
 ## 2. Start and verify the Server
 

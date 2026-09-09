@@ -751,6 +751,7 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
             "put",
         ): "replace_memory_entry_tags",
         ("/v1/scopes/{scope_id}/sources", "post"): "create_source",
+        ("/v1/scopes/{scope_id}/sources", "get"): "list_sources",
         ("/v1/scopes/{scope_id}/sources/{source_type}/{source_id}", "get"): "get_source",
         ("/v1/scopes/{scope_id}/artifacts", "post"): "create_artifact",
         ("/v1/scopes/{scope_id}/artifacts/{family}", "get"): "list_artifacts",
@@ -770,10 +771,18 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
     }
     assert actual_operations == expected_operations
     assert not any(
-        operation_id in {"list_sources", "search_sources", "search_artifacts", "delete_artifact", "list_scopes"}
+        operation_id in {"search_sources", "search_artifacts", "delete_artifact", "list_scopes"}
         for operation_id in actual_operations.values()
     )
     assert not any("search-results" in path for path in paths)
+
+
+def test_scope_pagination_declares_cursor_failures() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    responses = contract["paths"]["/v1/scopes"]["get"]["responses"]
+
+    assert responses["400"] == {"$ref": "#/components/responses/BadRequest"}
+    assert responses["410"] == {"$ref": "#/components/responses/CursorExpired"}
 
 
 def test_base_access_create_requests_leave_identity_generation_to_the_server() -> None:
@@ -856,6 +865,8 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
 
     assert set(schemas["SourceReference"]["properties"]) == {"name", "source_id"}
     assert set(schemas["SourceTypeReference"]["properties"]) == {"source_type", "source_id"}
+    assert schemas["SourcePage"]["required"] == ["items", "next_cursor"]
+    assert schemas["SourcePage"]["properties"]["items"]["items"] == {"$ref": "#/components/schemas/SourceRecord"}
     for schema_name in ("ArtifactCreated", "ArtifactRevision", "ArtifactCollectionItem"):
         assert schemas[schema_name]["properties"]["sources"]["items"] == {
             "$ref": "#/components/schemas/SourceTypeReference"

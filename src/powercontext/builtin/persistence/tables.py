@@ -92,6 +92,9 @@ SCOPES_TABLE = Table(
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("title", String(MAX_SCOPE_TITLE_LENGTH), nullable=False),
     Column("summary", String(MAX_SCOPE_SUMMARY_LENGTH), nullable=False),
+    Column("scope_id_search", _entry_text_type(), nullable=False),
+    Column("title_search", _entry_text_type(), nullable=False),
+    Column("summary_search", _entry_text_type(), nullable=False),
     Column("parent_scope_id", identity_string(MAX_SCOPE_ID_LENGTH)),
     Column("version", Integer, nullable=False),
     ForeignKeyConstraint(
@@ -119,6 +122,7 @@ SCOPE_EXTERNAL_REFERENCES_TABLE = Table(
     Column("ordinal", Integer, primary_key=True),
     Column("kind", identity_string(MAX_SCOPE_EXTERNAL_REFERENCE_KIND_LENGTH), nullable=False),
     Column("value", String(MAX_SCOPE_EXTERNAL_REFERENCE_VALUE_LENGTH), nullable=False),
+    Column("value_search", _entry_text_type(), nullable=False),
     Column("value_digest", identity_string(64), nullable=False),
     ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
     UniqueConstraint("scope_id", "kind", "value_digest", name="uq_pc_scope_external_references_value"),
@@ -148,6 +152,7 @@ SCOPE_BINDINGS_TABLE = Table(
     Column("integration", identity_string(MAX_SCOPE_BINDING_INTEGRATION_LENGTH), primary_key=True),
     Column("kind", identity_string(MAX_SCOPE_BINDING_KIND_LENGTH), primary_key=True),
     Column("external_id", identity_string(MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH), primary_key=True),
+    Column("external_id_search", _entry_text_type(), nullable=False),
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
     ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="RESTRICT"),
 )
@@ -971,6 +976,19 @@ ARTIFACT_TAGS_TABLE = Table(
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
+RECEIPT_MIGRATION_REVIEW_TABLE = Table(
+    "pc_receipt_migration_review",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
+    Column("reason", String(64), nullable=False),
+)
+
 BUILTIN_TABLES = (
-    SCOPE_TABLES + SHARED_TABLES + TOPIC_MEMORY_TABLES + MEMORY_TABLES + STATISTICS_TABLES + (ARTIFACT_TAGS_TABLE,)
+    SCOPE_TABLES
+    + SHARED_TABLES
+    + TOPIC_MEMORY_TABLES
+    + MEMORY_TABLES
+    + STATISTICS_TABLES
+    + (ARTIFACT_TAGS_TABLE, RECEIPT_MIGRATION_REVIEW_TABLE)
 )

@@ -197,6 +197,15 @@ class ScopePage(BaseModel):
         extra="forbid",
     )
     items: list[ScopeDescriptor]
+    next_cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ScopeQueryField(StrEnum):
+    SCOPE_ID = "scope_id"
+    TITLE = "title"
+    SUMMARY = "summary"
+    EXTERNAL_REFERENCE_VALUE = "external_reference_value"
+    BINDING_EXTERNAL_ID = "binding_external_id"
 
 
 class CreateScopeRequest(BaseModel):
@@ -584,7 +593,14 @@ class CaptureContentSourceRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    content: Annotated[StrictStr, Field(max_length=200000, min_length=1)]
+    content: Annotated[
+        StrictStr,
+        Field(
+            description="Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow.",
+            max_length=200000,
+            min_length=1,
+        ),
+    ]
     metadata: dict[str, Any] | None = None
 
 
@@ -1413,7 +1429,12 @@ class CreateSourceRequest(BaseModel):
         extra="forbid",
     )
     source_type: SourceType = SourceType.CONTENT
-    content: Annotated[Any, Field(description="JSON value persisted by the built-in content Source adapter.")]
+    content: Annotated[
+        Any,
+        Field(
+            description="JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow."
+        ),
+    ]
 
 
 class TaggableArtifactFamily(StrEnum):
@@ -1556,6 +1577,28 @@ class ListArtifactsRequest(BaseModel):
 
 
 class ListArtifactRevisionsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ListScopesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Annotated[StrictStr | None, Field(max_length=256)] = None
+    query_field: ScopeQueryField | None = None
+    parent_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
+    external_reference_kind: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern=".*\\S.*")] = None
+    binding_integration: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern=".*\\S.*")] = None
+    binding_kind: Annotated[StrictStr | None, Field(max_length=64, min_length=1, pattern=".*\\S.*")] = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ListSourcesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3029,6 +3072,14 @@ class SourceRecord(BaseModel):
     content: Annotated[Any, Field(description="Persisted canonical JSON content.")]
     position: Annotated[StrictInt, Field(ge=1)]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+
+
+class SourcePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[SourceRecord]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
 class ArtifactFamilyAccessCapability(BaseModel):

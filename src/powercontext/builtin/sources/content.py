@@ -75,6 +75,8 @@ class ContentSource(Source):
     wire_content: JsonValue | None = None
     wire_content_present: bool = False
     internal: ContentSourceInternal | None = None
+    # Set only by the Work acknowledgement writer, never from capture metadata.
+    handoff_receipt: bool = False
 
 
 class ContentSourceAdapter:
