@@ -213,7 +213,7 @@ def create_server_app(  # noqa: C901
             )
             if active_access_control is not None:
                 migrated, unresolved = await runtime._records().migrate_handoff_receipts(
-                    active_access_control.receipt_identity,
+                    active_access_control.committed_receipt_identity,
                 )
                 _log_lifecycle(
                     "server.receipt_migration",

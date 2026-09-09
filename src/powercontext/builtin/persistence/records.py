@@ -93,12 +93,12 @@ class RelationalRecordService:
 
     async def migrate_handoff_receipts(
         self,
-        identity_lookup: Callable[[str, str], Awaitable[object | None]],
+        committed_identity_lookup: Callable[[str, str], Awaitable[object | None]],
         /,
     ) -> tuple[int, int]:
         from powercontext.builtin.persistence.receipt_migration import migrate_handoff_receipts
 
-        return await migrate_handoff_receipts(self._database, self._sources, identity_lookup)
+        return await migrate_handoff_receipts(self._database, self._sources, committed_identity_lookup)
 
     def __init__(
         self,

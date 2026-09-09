@@ -2161,11 +2161,14 @@ async def list_sources(
     if http_request.app.state.access_mode == "enforced":
         access = _require_access_control(http_request)
         for item, source in zip(items, result.items, strict=True):
-            if not source.handoff_receipt and not _is_handoff_receipt_content(source.content):
+            if source.handoff_receipt:
+                identity = await access.receipt_identity(scope_id, source.source_id)
+                if identity is None:
+                    raise AccessUnavailableError("receipt_identity_pending")
+            elif _is_handoff_receipt_content(source.content):
+                identity = await access.committed_receipt_identity(scope_id, source.source_id)
+            else:
                 continue
-            identity = await access.receipt_identity(scope_id, source.source_id)
-            if identity is None and source.handoff_receipt:
-                raise AccessUnavailableError("receipt_identity_pending")
             if identity is not None:
                 item.receipt_identity = _receipt_identity_response(identity)
     return SourcePage(items=items, next_cursor=result.next_cursor)
@@ -2312,12 +2315,13 @@ async def get_source(
 ) -> SourceRecord:
     result = await application.records.for_scope(scope_id).get_source(source_type, source_id)
     response = _source_record_response(result)
-    if http_request.app.state.access_mode == "enforced" and (
-        result.handoff_receipt or _is_handoff_receipt_content(result.content)
-    ):
+    if http_request.app.state.access_mode == "enforced" and result.handoff_receipt:
         identity = await _require_access_control(http_request).receipt_identity(scope_id, source_id)
-        if identity is None and result.handoff_receipt:
+        if identity is None:
             raise AccessUnavailableError("receipt_identity_pending")
+        response.receipt_identity = _receipt_identity_response(identity)
+    elif http_request.app.state.access_mode == "enforced" and _is_handoff_receipt_content(result.content):
+        identity = await _require_access_control(http_request).committed_receipt_identity(scope_id, source_id)
         if identity is not None:
             response.receipt_identity = _receipt_identity_response(identity)
     return response
@@ -2896,6 +2900,10 @@ async def acknowledge_handoff(
     result = await application.work.for_scope(request.scope_id).acknowledge(
         mapping.acknowledge_handoff_request(request)
     )
+    if identity is not None and access is not None:
+        # A reservation prevents concurrent attribution changes. This second,
+        # durable event proves that the receipt Source was actually committed.
+        identity = await access.commit_receipt_identity(identity)
     response = mapping.handoff_acknowledgement_response(result)
     if identity is not None:
         response.receipt_identity = _receipt_identity_response(identity)
@@ -2913,7 +2921,7 @@ def _is_handoff_receipt_content(content: JsonValue) -> bool:
     if isinstance(content, str):
         try:
             content = json.loads(content)
-        except ValueError:
+        except (ValueError, RecursionError):
             return False
     return isinstance(content, dict) and content.get("schema") == "powercontext.handoff-receipt.v1"
 

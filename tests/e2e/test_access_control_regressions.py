@@ -426,10 +426,27 @@ def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_pat
                 "content",
                 {"schema": "powercontext.handoff-receipt.v1"},
             )
+            reserved_only = await app.state.application.records.for_scope(scope_id).create_source(
+                "content",
+                {"schema": "powercontext.handoff-receipt.v1"},
+            )
+            conflicted = await client.post(
+                "/v1/work/handoffs/acknowledge",
+                json={
+                    "scope_id": scope_id,
+                    "source_id": reserved_only.source_id,
+                    "receiver": "admin",
+                    "status": "declined",
+                    "selection": "exact",
+                    "revision": revision,
+                    "message": "This write must conflict",
+                },
+            )
+            assert conflicted.status_code == 409, conflicted.text
             before = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
-            return scope_id, ordinary.source_id, before.json()
+            return scope_id, ordinary.source_id, reserved_only.source_id, before.json()
 
-    scope_id, ordinary_id, before = asyncio.run(prepare())
+    scope_id, ordinary_id, reserved_only_id, before = asyncio.run(prepare())
 
     async def check_upgrade():
         async with _server(tmp_path) as (_, client, access):
@@ -437,6 +454,13 @@ def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_pat
             assert exact.status_code == 200 and exact.json() == before
             ordinary = await client.get(f"/v1/scopes/{scope_id}/sources/content/{ordinary_id}")
             assert ordinary.status_code == 200 and ordinary.json()["receipt_identity"] is None
+            reserved_only = await client.get(f"/v1/scopes/{scope_id}/sources/content/{reserved_only_id}")
+            assert reserved_only.status_code == 200 and reserved_only.json()["receipt_identity"] is None
+            page = await client.get(f"/v1/scopes/{scope_id}/sources", params={"limit": 100})
+            assert page.status_code == 200, page.text
+            by_source_id = {item["source_id"]: item for item in page.json()["items"]}
+            assert by_source_id[ordinary_id]["receipt_identity"] is None
+            assert by_source_id[reserved_only_id]["receipt_identity"] is None
 
             async def missing(*args, **kwargs):
                 return None
@@ -454,7 +478,10 @@ def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_pat
             pending = connection.execute(
                 "SELECT scope_id, source_id, reason FROM pc_receipt_migration_review"
             ).fetchall()
-            assert pending == [(scope_id, ordinary_id, "missing_trusted_identity")]
+            assert set(pending) == {
+                (scope_id, ordinary_id, "missing_committed_receipt"),
+                (scope_id, reserved_only_id, "missing_committed_receipt"),
+            }
 
 
 def test_generic_receipt_markers_cannot_block_source_collection(tmp_path):

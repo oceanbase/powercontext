@@ -243,6 +243,10 @@ class RelationshipReader(Protocol):
 
     async def get_receipt_identity(self, scope_id: str, source_id: str, /) -> HandoffReceiptIdentity | None: ...
 
+    async def get_committed_receipt_identity(
+        self, scope_id: str, source_id: str, /
+    ) -> HandoffReceiptIdentity | None: ...
+
     async def get_binding(self, binding_id: str, /) -> AccessBinding | None: ...
 
     async def list_bindings(self, request: BindingSearchRequest, /) -> tuple[AccessBinding, ...]: ...
@@ -256,6 +260,8 @@ class RelationshipWriter(Protocol):
     """Idempotent relationship mutations paired with a decision Provider."""
 
     async def record_receipt_identity(self, identity: HandoffReceiptIdentity, /) -> HandoffReceiptIdentity: ...
+
+    async def commit_receipt_identity(self, identity: HandoffReceiptIdentity, /) -> HandoffReceiptIdentity: ...
 
     async def establish_artifact_owner(self, relation: ArtifactOwnerRelation, /) -> ArtifactOwnerRelation: ...
 
@@ -859,8 +865,14 @@ class AccessControlService:
     async def record_receipt_identity(self, identity: HandoffReceiptIdentity) -> HandoffReceiptIdentity:
         return await _access_call(self._relationship_writer().record_receipt_identity(identity))
 
+    async def commit_receipt_identity(self, identity: HandoffReceiptIdentity) -> HandoffReceiptIdentity:
+        return await _access_call(self._relationship_writer().commit_receipt_identity(identity))
+
     async def receipt_identity(self, scope_id: str, source_id: str) -> HandoffReceiptIdentity | None:
         return await _access_call(self._relationship_reader().get_receipt_identity(scope_id, source_id))
+
+    async def committed_receipt_identity(self, scope_id: str, source_id: str) -> HandoffReceiptIdentity | None:
+        return await _access_call(self._relationship_reader().get_committed_receipt_identity(scope_id, source_id))
 
     async def establish_artifact_owner(
         self,

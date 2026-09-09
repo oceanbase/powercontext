@@ -216,7 +216,7 @@ class RecordService(Protocol):
 
     async def migrate_handoff_receipts(
         self,
-        identity_lookup: Callable[[str, str], Awaitable[object | None]],
+        committed_identity_lookup: Callable[[str, str], Awaitable[object | None]],
         /,
     ) -> tuple[int, int]: ...
 

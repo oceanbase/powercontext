@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Idempotent receipt attestation upgrade using trusted identity records."""
+"""Idempotent receipt attestation upgrade using committed receipt records."""
 
 from __future__ import annotations
 
@@ -31,15 +31,16 @@ from powercontext.sources import SourceRef
 async def migrate_handoff_receipts(
     database: AsyncDatabase,
     sources: SourceRepository,
-    identity_lookup: Callable[[str, str], Awaitable[object | None]],
+    committed_identity_lookup: Callable[[str, str], Awaitable[object | None]],
     *,
     batch_size: int = 100,
 ) -> tuple[int, int]:
     """Return attested/unresolved counts; keep unresolved identities in the review table.
 
     Page identities only and load one payload at a time. Never infer provenance
-    from content. Identity-store errors abort startup instead of being treated
-    as missing evidence. Repeated runs can resolve previously missing identities.
+    from content or from a pre-write identity reservation. Identity-store errors
+    abort startup instead of being treated as missing evidence. Repeated runs can
+    resolve previously missing committed receipt records.
     """
     if batch_size < 1:
         raise ValueError("batch_size must be positive")  # noqa: TRY003
@@ -79,7 +80,7 @@ async def migrate_handoff_receipts(
                 continue
             if not _is_receipt_candidate(source):
                 continue
-            identity = await identity_lookup(scope_id, source_id)
+            identity = await committed_identity_lookup(scope_id, source_id)
             async with database.transaction() as connection:
                 # Serialize concurrent startup migrations using the existing
                 # journal lock, without allocating a position or queueing work.
@@ -100,7 +101,7 @@ async def migrate_handoff_receipts(
                         insert(RECEIPT_MIGRATION_REVIEW_TABLE).values(
                             scope_id=scope_id,
                             source_id=source_id,
-                            reason="missing_trusted_identity",
+                            reason="missing_committed_receipt",
                         )
                     )
                     unresolved += 1
@@ -113,6 +114,6 @@ def _is_receipt_candidate(source: ContentSource) -> bool:
     if isinstance(content, str):
         try:
             content = json.loads(content)
-        except ValueError:
+        except (ValueError, RecursionError):
             return False
     return isinstance(content, dict) and content.get("schema") == "powercontext.handoff-receipt.v1"

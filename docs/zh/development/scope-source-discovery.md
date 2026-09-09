@@ -6,9 +6,9 @@
 
 ## 旧 Handoff 回执迁移
 
-启用访问控制的服务在开始接收请求前执行可重复迁移。每批最多读取 100 条 Source 身份，并逐条加载内容；只扫描公开 content Source。回执 schema 仅用于筛选候选，不作为可信证明。核对既有服务端身份记录成功后，仅补充服务端 `handoff_receipt` 标记，不修改 Source 内容、ID、digest 或 journal position，不创建版本，也不触发生成或 consumer 队列。
+启用访问控制的服务在开始接收请求前执行可重复迁移。每批最多读取 100 条 Source 身份，并逐条加载内容；只扫描公开 content Source。回执 schema 仅用于筛选候选，不作为可信证明。回执写入会先持久化身份预留，并在 Source 成功落库后持久化独立的提交事件；迁移只有同时核对身份预留和提交事件后，才补充服务端 `handoff_receipt` 标记。迁移不修改 Source 内容、ID、digest 或 journal position，不创建版本，也不触发生成或 consumer 队列。
 
-无法找到可信身份记录的候选写入 `pc_receipt_migration_review(scope_id, source_id, reason)`，reason 为 `missing_trusted_identity`。清单只含身份和原因，不含内容。迁移可重复执行，恢复可信身份记录后再次启动会补标记并移除对应待确认项。身份存储发生异常时停止启动，不把异常当作记录缺失。
+无法找到已提交回执证明的候选写入 `pc_receipt_migration_review(scope_id, source_id, reason)`，reason 为 `missing_committed_receipt`。清单只含身份和原因，不含内容。只有身份预留而没有提交事件的记录（包括 Source 写入冲突后的遗留预留）不能自动升级。迁移可重复执行，恢复可信的提交证明后再次启动会补标记并移除对应待确认项。身份存储发生异常时停止启动，不把异常当作记录缺失。
 
 已有可信标记的回执在身份记录缺失时，详情和集合读取均返回 503。未确认的历史 marker-only Source 保持原读取行为；清单不认定其为真实回执，也不自动补造提交者。管理员需恢复记录或人工核实。迁移前即丢失全部可信证据的真实回执不能仅凭内容自动识别。
 

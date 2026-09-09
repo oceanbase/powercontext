@@ -80,7 +80,7 @@ def _memory_content() -> dict[str, JsonValue]:
     return {"entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}]}
 
 
-def test_receipt_migration_batches_and_recovers_missing_identity() -> None:
+def test_receipt_migration_batches_and_recovers_missing_commit_proof() -> None:
     from powercontext.builtin.persistence.receipt_migration import migrate_handoff_receipts
     from powercontext.builtin.persistence.tables import RECEIPT_MIGRATION_REVIEW_TABLE
 
@@ -90,13 +90,14 @@ def test_receipt_migration_batches_and_recovers_missing_identity() -> None:
             marker = {"schema": "powercontext.handoff-receipt.v1"}
             old = await records.create_source("scope", "content", marker)
             ordinary = await records.create_source("scope", "content", marker)
-            trusted = set()
+            deep_json = await records.create_source("scope", "content", "[" * 1_100 + "0" + "]" * 1_100)
+            committed = set()
 
             async def lookup(scope_id, source_id):
-                return object() if source_id in trusted else None
+                return object() if source_id in committed else None
 
             assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (0, 2)
-            trusted.add(old.source_id)
+            committed.add(old.source_id)
             assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (1, 1)
             assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (0, 1)
             upgraded = await records.get_source("scope", "content", old.source_id)
@@ -105,6 +106,8 @@ def test_receipt_migration_batches_and_recovers_missing_identity() -> None:
             async with profile.database.transaction() as connection:
                 pending = (await connection.execute(select(RECEIPT_MIGRATION_REVIEW_TABLE))).mappings().all()
                 assert [row["source_id"] for row in pending] == [ordinary.source_id]
+                assert pending[0]["reason"] == "missing_committed_receipt"
+            assert (await records.get_source("scope", "content", deep_json.source_id)).content == deep_json.content
 
     asyncio.run(scenario())
 
