@@ -89,6 +89,15 @@ def test_topic_dashboard_opens_without_content(dashboard: TestClient) -> None:
     assert "Artifacts" not in topics.text
 
 
+def test_prompt_dashboard_opens_without_profile_page(dashboard: TestClient) -> None:
+    prompts = dashboard.get("/dashboard/prompts", params={"lang": "en"})
+    profile = dashboard.get("/dashboard/profile", params={"lang": "en"})
+    assert prompts.status_code == 200
+    assert "Prompts" in prompts.text
+    assert profile.status_code == 404
+    assert "Profile" not in prompts.text
+
+
 def test_dashboard_favicons_use_square_viewports(dashboard: TestClient) -> None:
     home = dashboard.get("/")
     icons = re.findall(r'<link rel="icon"[^>]*href="([^"]+)"', home.text)

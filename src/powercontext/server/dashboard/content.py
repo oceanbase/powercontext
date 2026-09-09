@@ -161,6 +161,8 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         await load_stats(api, ctx)
     elif page == "topics":
         await load_topics(api, ctx)
+    elif page == "prompts":
+        await load_prompts(api, ctx)
     elif page in RECORDS:
         await load_record(api, request, ctx)
 
@@ -198,3 +200,21 @@ async def load_topics(api: DashboardAPI, ctx: dict[str, Any]) -> None:
             ctx["errors"]["topic_memory_selected"] = ReadError(422, "invalid_request")
         except ReadError as error:
             ctx["errors"]["topic_memory_selected"] = error
+
+
+async def load_prompts(api: DashboardAPI, ctx: dict[str, Any]) -> None:
+    """Load the scoped Prompt configurations exposed by the Prompt Dashboard."""
+    keys = (
+        "memory.extract",
+        "memory.rerank",
+        "experience.incubate",
+        "experience.generate",
+        "skill.generate",
+        "handoff.generate",
+    )
+    for key in keys:
+        try:
+            value = await api.prompt_configuration(ctx["scope"], key)
+            ctx["data"]["prompts"].append(value)
+        except ReadError as error:
+            ctx["errors"].setdefault("prompts", error)
