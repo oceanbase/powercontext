@@ -30,8 +30,11 @@ def test_notice_links_to_configuration_when_any_model_is_missing(
 
     output = capsys.readouterr().out
     assert "Inference capability notice" in output
-    assert "可能影响部分制品功能" in output
-    assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in output
+    assert (
+        "未配置或未完整配置 PowerContext Server 推理模型（generation model 和 embedding model），\n"  # noqa: RUF001
+        "可能影响部分制品功能。具体影响范围及配置方式请参考 PowerContext 官网配置说明：\n"  # noqa: RUF001
+        "https://powercontext.oceanbase.io/en/docs/reference/configuration/"
+    ) in output
 
 
 def test_notice_is_silent_when_all_models_are_configured(capsys: pytest.CaptureFixture[str]) -> None:
