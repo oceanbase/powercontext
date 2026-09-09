@@ -777,6 +777,14 @@ def test_base_access_contract_includes_revision_history_and_tags() -> None:
     assert not any("search-results" in path for path in paths)
 
 
+def test_scope_pagination_declares_cursor_failures() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    responses = contract["paths"]["/v1/scopes"]["get"]["responses"]
+
+    assert responses["400"] == {"$ref": "#/components/responses/BadRequest"}
+    assert responses["410"] == {"$ref": "#/components/responses/CursorExpired"}
+
+
 def test_base_access_create_requests_leave_identity_generation_to_the_server() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]

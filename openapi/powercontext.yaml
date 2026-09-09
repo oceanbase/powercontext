@@ -342,10 +342,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScopePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "410":
+          $ref: "#/components/responses/CursorExpired"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":

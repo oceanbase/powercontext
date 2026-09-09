@@ -400,8 +400,10 @@ LIST_SCOPES = Operation[ListScopesRequest, ScopePage](
     scope_mode="none",
     responses={
         200: {"description": "Durable Scope metadata in deterministic identity order."},
+        400: {"$ref": "#/components/responses/BadRequest"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},
