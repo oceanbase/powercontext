@@ -28,6 +28,9 @@ jobs:
       - name: Check OpenAPI contract
         run: make contract-test
 
+      - name: Check MiniMax plugin distribution
+        run: make minimax-plugin-check
+
   tests:
     runs-on: ubuntu-latest
     strategy:

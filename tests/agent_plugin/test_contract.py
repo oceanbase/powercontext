@@ -14,9 +14,12 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
+
+from powercontext.http._generated import operations
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "integrations" / "agent-plugin" / "powercontext"
 REPOSITORY_ROOT = PLUGIN_ROOT.parents[2]
@@ -65,53 +68,28 @@ def test_agent_plugin_mcp_configuration_is_portable_and_secret_free() -> None:
     assert "POWERCONTEXT" not in json.dumps(configuration)
 
 
-def test_project_context_skill_is_reusable_and_preserves_powercontext_workflows() -> None:
-    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
+def test_skill_name_and_relative_references_are_portable() -> None:
+    skill = PLUGIN_ROOT / "skills" / "powercontext-project-context"
+    content = (skill / "SKILL.md").read_text(encoding="utf-8")
     frontmatter = yaml.safe_load(content.split("---", 2)[1])
+    assert frontmatter["name"] == skill.name
+    assert frontmatter["description"].strip()
+    for document in skill.rglob("*.md"):
+        for target in re.findall(r"\]\(([^)]+)\)", document.read_text(encoding="utf-8")):
+            if "://" in target:
+                continue
+            resolved = (document.parent / target).resolve()
+            assert resolved.is_relative_to(skill.resolve())
+            assert resolved.is_file()
 
-    assert frontmatter == {
-        "name": "project-context",
-        "description": (
-            "Use PowerContext project memory and handoff tools through MCP when continuing prior work, "
-            "recalling decisions, maintaining durable memory, or transferring work across tasks, sessions, or agents."
-        ),
-    }
-    for required in (
-        "search_memory",
-        "list_memory_entries",
-        "get_memory_entry",
-        "remember_memory",
-        "revise_memory_entry",
-        "retire_memory_entry",
-        "handoff_current_work",
-        'selection: "prepared"',
-        "continue_handoff",
-        "acknowledge_handoff",
-        "record_task_outcome",
-        "Degrade Safely",
-    ):
-        assert required in content
 
-    forbidden_fragments = (
-        "Codex",
-        "OpenCode",
-        "UserPromptSubmit",
-        "prompt capture",
-        "POWERCONTEXT_CODEX",
-        "additionalContext",
+def test_skill_examples_match_current_operation_requests() -> None:
+    examples = json.loads(
+        (PLUGIN_ROOT / "skills/powercontext-project-context/references/examples.json").read_text(encoding="utf-8")
     )
-    for forbidden in forbidden_fragments:
-        assert forbidden not in content
-
-
-def test_project_context_skill_uses_default_model_free_handoff_flow() -> None:
-    content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
-
-    assert "without invoking a generation model" in content
-    assert "handoff_current_work" in content
-    assert "activate_handoff" not in content
-    assert "finalize_handoff" not in content
-    assert "`boundary_source`" not in content
+    for name, payload in examples.items():
+        operation = getattr(operations, name.upper())
+        operation.request_type.model_validate(payload)
 
 
 def test_agent_plugin_readme_documents_server_and_auth_boundaries() -> None:

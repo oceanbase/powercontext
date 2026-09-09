@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "source": "integrations/agent-plugin/powercontext",
+  "output": "integrations/minimax/plugins/powercontext",
+  "version": "0.2.0",
+  "displayName": "PowerContext",
+  "category": "Code",
+  "exampleQueries": [
+    "Search prior project decisions about database migrations.",
+    "Remember this project constraint for future tasks.",
+    "Prepare a handoff of the current work with its evidence and next action."
+  ],
+  "files": {
+    "README.md": "integrations/minimax/package.README.md",
+    "LICENSE": "LICENSE",
+    "icon.png": "src/powercontext/server/static/powercontext-color.png"
+  }
+}

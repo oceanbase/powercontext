@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "powercontext",
-  "version": "0.1.0",
-  "description": "Reusable PowerContext skills and MCP configuration for agent integrations.",
+  "version": "0.2.0",
+  "description": "Recall project decisions, maintain explicit memory, and hand off work with verifiable evidence.",
   "author": {
     "name": "PowerContext Team",
     "email": "open_oceanbase@oceanbase.com",

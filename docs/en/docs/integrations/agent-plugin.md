@@ -26,7 +26,7 @@ It contains:
 
 - `plugin.json`: portable Agent Plugin metadata.
 - `mcp.json`: MCP configuration for the PowerContext Streamable HTTP endpoint.
-- `skills/project-context/SKILL.md`: reusable instructions for Memory and
+- `skills/powercontext-project-context/SKILL.md`: reusable instructions for Memory and
   Handoff workflows.
 
 Start a PowerContext Server before loading the package:
@@ -61,7 +61,7 @@ Plugin host:
 
 3. Reload VS Code.
 4. Confirm that the PowerContext plugin appears in the Agent Plugins view and
-   that the `project-context` skill and `powercontext` MCP server are available
+   that the `powercontext-project-context` skill and `powercontext` MCP server are available
    to chat.
 
 The registered path must point at the package root that contains `plugin.json`,
