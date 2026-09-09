@@ -40,11 +40,12 @@ inference-dependent runtime features are configured, it also checks the Runtime 
 ## 3. Run the same configuration
 
 ```bash
-powercontext server run --env-file .env
+powercontext server run
 ```
 
-Values in the file override same-named process values. Inherited `POWERCONTEXT_SERVER_*` values missing from the file
-are ignored, so validation and launch use the same Server settings.
+`server run` discovers `.env` in the current directory. Use `--env-file <path>` to select a different file or
+`--no-env-file` to disable file loading. CLI options take precedence, followed by process environment variables, the
+selected file, and defaults. The command prints the resolved file path without printing credentials.
 
 The Server starts with the configured capabilities. Use `powercontext ready` and `powercontext capabilities` to check
 its readiness and enabled features.

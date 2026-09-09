@@ -18,6 +18,9 @@ powercontext service install
 powercontext service status
 ```
 
+当前目录存在 `.env` 时，`service install` 会校验并持久化该文件。使用 `--env-file <path>` 可选择其他受保护文件，使用
+`--no-env-file` 可按无模型默认配置安装。所选文件必须满足下文的保护要求。
+
 Linux 使用 `systemd --user`，日志进入 user journal；macOS 使用当前用户 LaunchAgent；Windows 使用当前用户的 Task Scheduler task。macOS 和 Windows 的 stdout、stderr 写入 PowerContext 用户数据目录。
 
 `service status` 会返回精确的日志 selector 或路径。
@@ -76,15 +79,16 @@ powercontext server run
 运行进程必须能创建和更新该目录。默认 SQLite 数据库和 scheduler 状态都保存在这里。服务管理器每次重启进程时都应
 提供相同的环境变量。
 
-PowerContext 不会自动搜索 `.env` 文件。可以导出变量、由服务管理器或容器平台提供，或者显式传入一个文件：
+当前目录存在 `.env` 时，`server run` 会自动加载。托管部署应导出变量、由服务管理器或容器平台提供，或者显式传入文件，
+避免启动行为依赖工作目录：
 
 ```bash
 powercontext config validate --env-file /etc/powercontext/powercontext.env
 powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
 
-文件可能包含 Provider 凭据或 Bearer token，因此只能允许 Server 运维者读取。文件中的值会覆盖进程中的同名值；
-文件中不存在的旧 `POWERCONTEXT_SERVER_*` 进程变量会被忽略。`config init` 生成的是不含模型的基础配置；需要启用完整
+文件可能包含 Provider 凭据或 Bearer token，因此只能允许 Server 运维者读取。对于 `server run`，进程环境变量会覆盖
+文件中的同名值。`config init` 生成的是不含模型的基础配置；需要启用完整
 推理能力时，请阅读[启用提取与向量搜索](../get-started/configure-models.md)并补充模型配置。
 
 无论使用前台进程、Docker 还是个人服务安装，只要 generation 或 embedding model 未配置，启动或安装输出都会提示

@@ -7,14 +7,16 @@ description: PowerContext 路径、Server、Client 和推理环境变量。
 
 Windows 支持为 `experimental`。
 
-PowerContext 进程启动时从环境变量读取配置。CLI 不会自动搜索 `.env` 文件。接受 `--env-file` 的命令会从该文件加载环境变量（包括
-Server 与 provider 设置），并覆盖进程中的同名值。Agent 宿主可按自身规则加载环境文件。
+PowerContext 进程启动时从环境变量读取配置。当前工作目录存在 `.env` 时，`server run` 和 `service install` 会自动加载该文件。
+使用 `--env-file <path>` 可改为加载指定文件且不再合并 `.env`；使用 `--no-env-file` 可禁用文件加载。`server run` 的配置
+优先级为：CLI 参数、进程环境变量、所选环境文件、默认值。Agent 宿主可按自身规则加载环境文件。
 
 生成、脱敏查看、校验和启动配置文件的完整流程见[配置 Server 环境](../get-started/configure-server-environment.md)。所有环境
 文件都应视为包含机密的部署产物。
 
-`service install` 还要求该文件是当前用户拥有的普通非符号链接文件，且 group 和 other 均无访问权限。服务会记录文件
-身份；文件被替换或其 owner、权限、内容发生变化后会拒绝启动。确认修改是预期行为后，请重新执行 `service install`。
+`service install` 会把自动发现或显式指定的文件固定为绝对路径，并要求它是当前用户拥有的普通非符号链接文件，且 group 和
+other 均无访问权限。服务会记录文件身份；文件被替换或其 owner、权限、内容发生变化后会拒绝启动。确认修改是预期行为后，
+请重新执行 `service install`。原生后台服务运行时不会再根据工作目录发现配置文件，也不会继承执行安装命令的 shell 环境。
 
 ## 用户数据
 

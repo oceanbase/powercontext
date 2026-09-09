@@ -159,8 +159,8 @@ powercontext external-skill import --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerp
 All content commands call the configured Server. The optional `server` role adds `powercontext server run`; it does
 not create a second content profile inside the CLI.
 
-The `config` group creates, redacts, and validates an explicit environment file. The CLI never searches for that file
-implicitly; pass it to `config show`, `config validate`, or `server run` with `--env-file`. See
+The `config` group creates, redacts, and validates an explicit environment file. `server run` discovers `.env` in the
+current directory; pass `--env-file` to select another file or `--no-env-file` to disable discovery. See
 [Configuration](../operate/configuration.md) for precedence and credential-handling rules.
 
 Use `codex`, `claude-code`, `dsh`, `hermes`, `openclaw`, `opencode`, `pi`, or `workbuddy` for `<host>`.

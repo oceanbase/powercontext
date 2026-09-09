@@ -20,6 +20,10 @@ powercontext service install
 powercontext service status
 ```
 
+If `.env` exists in the current directory, `service install` validates and persists that file. Use
+`--env-file <path>` to select another protected file or `--no-env-file` to install with model-free defaults. The
+selected file must satisfy the protection rules below.
+
 On Windows, the command asks whether to enable startup at the current user's next login when neither
 `--start-on-login` nor `--no-start-on-login` is supplied; pressing Enter keeps login auto-start disabled. Use either
 option for a non-interactive choice.
@@ -75,8 +79,9 @@ powercontext server run
 The process must be able to create and update this directory. The default SQLite database and scheduler state are
 stored below it. Supply the same environment variables whenever your service manager restarts the process.
 
-PowerContext does not search for a `.env` file automatically. Export the variables, configure them in the service
-manager or container platform, or pass one explicit file:
+`server run` loads `.env` from its current directory when present. Managed deployments should export the variables,
+configure them in the service manager or container platform, or pass one explicit file so startup does not depend on
+the working directory:
 
 ```bash
 powercontext config validate --env-file /etc/powercontext/powercontext.env
@@ -87,9 +92,9 @@ The successful installation summary prints the environment file actually used. I
 read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
 disabled by default, so no token is generated automatically.
 
-The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
-file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
-are ignored. `config init` creates a model-free base configuration; see [Enable extraction and vector search](../get-started/configure-models.md)
+The file may contain provider credentials or a bearer token, so restrict it to the Server operator. For `server run`,
+process environment variables override same-named file values. `config init` creates a model-free base configuration; see
+[Enable extraction and vector search](../get-started/configure-models.md)
 when you need to add inference models and enable the full capability set.
 
 Whether the Server runs in the foreground, in Docker, or as a personal service, startup or installation output warns

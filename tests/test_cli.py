@@ -701,7 +701,7 @@ def test_server_command_layers_partial_cli_overrides_over_environment_settings(
     tracing.shutdown.assert_called_once_with()
 
 
-def test_server_command_uses_env_file_instead_of_stale_shell_environment(
+def test_server_command_layers_process_environment_over_env_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -713,7 +713,7 @@ def test_server_command_uses_env_file_instead_of_stale_shell_environment(
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "192.0.2.20")
     monkeypatch.setenv("POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK", "true")
     monkeypatch.delenv("POWERCONTEXT_SERVER_HTTP_PORT", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "shell-secret")
     received_provider_keys: list[str | None] = []
     received_bindings: list[tuple[str, int]] = []
 
@@ -732,24 +732,150 @@ def test_server_command_uses_env_file_instead_of_stale_shell_environment(
     )
 
     assert result.exit_code == 0
-    assert received_provider_keys == ["file-secret"]
-    assert received_bindings == [("127.0.0.2", 8125)]
-    assert "OPENAI_API_KEY" not in os.environ
+    assert received_provider_keys == ["shell-secret"]
+    assert received_bindings == [("192.0.2.20", 8125)]
+    assert os.environ["OPENAI_API_KEY"] == "shell-secret"
     assert "POWERCONTEXT_SERVER_HTTP_PORT" not in os.environ
 
 
-def test_server_command_clears_stale_server_values_missing_from_env_file(
+def test_server_command_discovers_dotenv_in_current_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / ".env"
+    environment.write_text(
+        "POWERCONTEXT_SERVER_HTTP_PORT=8126\nOPENAI_API_KEY=file-secret\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_HTTP_PORT", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    received: list[tuple[int, str | None]] = []
+
+    def run_server(settings) -> None:
+        received.append((settings.http.port, os.environ.get("OPENAI_API_KEY")))
+
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
+
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
+
+    assert result.exit_code == 0
+    assert f"Loaded environment file: {environment}" in result.output
+    assert received == [(8126, "file-secret")]
+    assert "OPENAI_API_KEY" not in os.environ
+
+
+def test_server_command_uses_discovered_models_for_inference_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / ".env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai-chat:test-generation",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=openai:test-embedding",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=test-profile",
+            "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=3",
+            "OPENAI_API_KEY=test-key",
+            "",
+        )),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    for name in (
+        "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL",
+        "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL",
+        "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID",
+        "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    tracing = Mock()
+    monkeypatch.setattr("powercontext.server.cli._run_server", Mock())
+    monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
+    monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
+
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
+
+    assert result.exit_code == 0
+    assert f"Loaded environment file: {environment}" in result.output
+    assert "Inference capability notice" not in result.output
+    assert "OPENAI_API_KEY" not in os.environ
+
+
+def test_server_command_explicit_env_file_replaces_default_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env").write_text("POWERCONTEXT_SERVER_HTTP_PORT=8127\n", encoding="utf-8")
+    selected = tmp_path / "selected.env"
+    selected.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8128\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_HTTP_PORT", raising=False)
+    received_ports: list[int] = []
+    monkeypatch.setattr(
+        "powercontext.server.cli._run_configured_server",
+        lambda settings: received_ports.append(settings.http.port),
+    )
+
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "run", "--env-file", str(selected)],
+    )
+
+    assert result.exit_code == 0
+    assert f"Loaded environment file: {selected}" in result.output
+    assert received_ports == [8128]
+
+
+def test_server_command_can_disable_default_dotenv_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / ".env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8129\nOPENAI_API_KEY=file-secret\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_HTTP_PORT", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    received: list[tuple[int, str | None]] = []
+
+    def run_server(settings) -> None:
+        received.append((settings.http.port, os.environ.get("OPENAI_API_KEY")))
+
+    monkeypatch.setattr("powercontext.server.cli._run_configured_server", run_server)
+
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--no-env-file"])
+
+    assert result.exit_code == 0
+    assert "Loaded environment file:" not in result.output
+    assert received == [(8000, None)]
+
+
+def test_server_command_rejects_env_file_with_no_env_file(tmp_path: Path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8130\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "run", "--env-file", str(environment), "--no-env-file"],
+    )
+
+    assert result.exit_code == 2
+    assert "cannot be combined with --env-file" in result.output
+
+
+def test_server_command_keeps_process_values_missing_from_env_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     environment = tmp_path / ".env"
     environment.write_text("POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1\n", encoding="utf-8")
     monkeypatch.setenv("POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID", "stale-deployment")
-    run_server = Mock()
-    tracing = Mock()
-    monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
-    monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
-    monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
+    received_deployments: list[str] = []
+    monkeypatch.setattr(
+        "powercontext.server.cli._run_configured_server",
+        lambda settings: received_deployments.append(settings.access.deployment_id),
+    )
 
     result = CliRunner().invoke(
         create_cli([server_app]),
@@ -757,7 +883,7 @@ def test_server_command_clears_stale_server_values_missing_from_env_file(
     )
 
     assert result.exit_code == 0
-    run_server.assert_called_once()
+    assert received_deployments == ["stale-deployment"]
     assert os.environ["POWERCONTEXT_SERVER_ACCESS_DEPLOYMENT_ID"] == "stale-deployment"
 
 
@@ -841,6 +967,8 @@ def test_server_command_rejects_an_unauthenticated_non_loopback_host_override(
     monkeypatch.setattr("powercontext.server.cli._run_server", run_server)
     monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
     monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_AUTH_TOKEN", raising=False)
 
     result = CliRunner().invoke(
         create_cli([server_app]),

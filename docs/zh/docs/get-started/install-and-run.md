@@ -85,8 +85,9 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 powercontext server run
 ```
 
-CLI 不会自动搜索 `.env` 文件。请在 shell 中导出这些值、在启动 Server 的进程管理器或容器中配置，或者通过
-`powercontext server run --env-file <path>` 显式传入文件。
+当前目录存在 `.env` 时，`server run` 会自动加载该文件。可以在 shell 中导出变量来覆盖文件值，使用
+`--env-file <path>` 选择其他文件，或使用 `--no-env-file` 忽略环境文件。进程管理器和容器通常应提供显式环境，
+不要依赖其工作目录。
 
 PowerContext 固定使用 seekDB 内置的 `test` 数据库。未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
 PowerContext 用户数据目录的 `seekdb` 子目录中；如果设置了 `POWERCONTEXT_HOME`，默认路径为

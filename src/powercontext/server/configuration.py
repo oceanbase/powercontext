@@ -23,10 +23,14 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
+from pydantic_settings import SettingsError
 
 from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
 from powercontext.paths import POWERCONTEXT_HOME_ENV
 from powercontext.server.settings import ServerSettings
+
+DEFAULT_SERVER_ENV_FILE = Path(".env")
+_SERVER_ENVIRONMENT_PREFIX = "POWERCONTEXT_SERVER_"
 
 
 class ServerConfigurationError(ValueError):
@@ -35,6 +39,23 @@ class ServerConfigurationError(ValueError):
     def __init__(self, cause: EnvironmentFileError | OSError | ValidationError | ValueError) -> None:
         super().__init__(str(cause))
         self.cause = cause
+
+
+def resolve_server_environment_file(
+    env_file: Path | None,
+    *,
+    discover: bool,
+    directory: Path | None = None,
+) -> Path | None:
+    """Select an explicit env file or discover ``.env`` in one CLI working directory."""
+
+    if env_file is not None:
+        expanded = env_file.expanduser()
+        return Path(os.path.abspath(expanded))
+    if not discover:
+        return None
+    candidate = (Path.cwd() if directory is None else directory) / DEFAULT_SERVER_ENV_FILE
+    return Path(os.path.abspath(candidate)) if candidate.is_file() else None
 
 
 @contextmanager
@@ -60,28 +81,47 @@ def server_settings_context(
         )
     except (EnvironmentFileError, OSError) as error:
         raise ServerConfigurationError(error) from error
-    if data_dir is not None:
-        loaded = {**loaded, POWERCONTEXT_HOME_ENV: str(data_dir.expanduser().resolve())}
-    server_environment = {name for name in os.environ if name.startswith("POWERCONTEXT_SERVER_")}
-    if data_dir is not None:
-        server_environment.add(POWERCONTEXT_HOME_ENV)
-    loaded_context = (
-        environment_context(loaded, override=True, clear=server_environment)
-        if env_file is not None or environment is not None or data_dir is not None
+    server_environment = {name for name in os.environ if name.startswith(_SERVER_ENVIRONMENT_PREFIX)}
+    if env_file is not None:
+        # ServerSettings reads POWERCONTEXT_SERVER_* through pydantic-settings' dotenv source.
+        # Provider SDKs and path helpers still consume their own variables from os.environ, so
+        # expose only those non-Server assignments for the bounded runtime context. Existing
+        # process values win over dotenv values and everything is restored on exit.
+        runtime_environment = {
+            name: value for name, value in loaded.items() if not name.startswith(_SERVER_ENVIRONMENT_PREFIX)
+        }
+        loaded_context = environment_context(runtime_environment, override=False)
+    elif environment is not None or data_dir is not None:
+        if data_dir is not None:
+            loaded = {**loaded, POWERCONTEXT_HOME_ENV: str(data_dir.expanduser().resolve())}
+            server_environment.add(POWERCONTEXT_HOME_ENV)
+        loaded_context = environment_context(loaded, override=True, clear=server_environment)
+    else:
+        loaded_context = nullcontext()
+    data_dir_context = (
+        environment_context({POWERCONTEXT_HOME_ENV: str(data_dir.expanduser().resolve())}, override=True)
+        if env_file is not None and data_dir is not None
         else nullcontext()
     )
-    with loaded_context:
+    with loaded_context, data_dir_context:
         http_overrides: dict[str, Any] = {}
         if host is not None:
             http_overrides["host"] = host
         if port is not None:
             http_overrides["port"] = port
         settings_kwargs: dict[str, Any] = {"http": http_overrides} if http_overrides else {}
+        if env_file is not None:
+            settings_kwargs.update(_env_file=env_file, _env_file_encoding="utf-8")
         try:
             settings = ServerSettings(**settings_kwargs)
-        except ValidationError as error:
+        except (SettingsError, ValidationError) as error:
             raise ServerConfigurationError(error) from error
         yield settings
 
 
-__all__ = ["ServerConfigurationError", "server_settings_context"]
+__all__ = [
+    "DEFAULT_SERVER_ENV_FILE",
+    "ServerConfigurationError",
+    "resolve_server_environment_file",
+    "server_settings_context",
+]

@@ -91,8 +91,9 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 powercontext server run
 ```
 
-The CLI does not search for a `.env` file automatically. Export these values in the shell, configure them in the
-process manager or container, or pass a specific file with `powercontext server run --env-file <path>`.
+`server run` loads `.env` from the current directory when present. Export values in the shell to override that file,
+pass `--env-file <path>` to select another file, or pass `--no-env-file` to ignore environment files. Process managers
+and containers should normally provide an explicit environment instead of relying on their working directory.
 
 PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
 the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the

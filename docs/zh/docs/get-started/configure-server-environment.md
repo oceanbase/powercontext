@@ -36,11 +36,11 @@ powercontext config validate --env-file .env
 ## 3. 使用同一份配置启动
 
 ```bash
-powercontext server run --env-file .env
+powercontext server run
 ```
 
-文件中的值会覆盖同名进程变量。文件中没有的继承 `POWERCONTEXT_SERVER_*` 变量会被忽略，因此校验和启动使用同一份
-Server 设置。
+`server run` 会发现当前目录的 `.env`。使用 `--env-file <path>` 可选择其他文件，使用 `--no-env-file` 可禁用文件加载。
+配置优先级依次为 CLI 参数、进程环境变量、所选文件和默认值。命令会显示实际加载文件的绝对路径，但不会输出凭据。
 
 Server 会按配置启动对应能力。使用 `powercontext ready` 和 `powercontext capabilities` 查看就绪状态和已启用功能。
 

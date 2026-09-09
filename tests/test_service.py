@@ -1449,6 +1449,92 @@ def test_service_install_cli_reports_the_environment_file_without_credentials(
     assert "Inference capability notice" in result.output
 
 
+def test_service_install_cli_discovers_and_persists_current_dotenv(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.ACTIVE,
+        server_liveness=LivenessState.LIVE,
+        endpoint="http://127.0.0.1:8131",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    environment = tmp_path / ".env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8131\n", encoding="utf-8")
+    environment.chmod(0o600)
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(service_app, ["install", "--start-on-login"])
+
+    assert result.exit_code == 0
+    controller.install.assert_called_once_with(env_file=environment, start_on_login=True)
+    assert f"environment file: {environment} (mode 0600)" in result.output
+
+
+def test_service_install_cli_validates_discovered_dotenv_without_shell_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.ACTIVE,
+        server_liveness=LivenessState.LIVE,
+        endpoint="http://127.0.0.1:8133",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    environment = tmp_path / ".env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8133\n", encoding="utf-8")
+    environment.chmod(0o600)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9999")
+
+    result = CliRunner().invoke(service_app, ["install", "--start-on-login"])
+
+    assert result.exit_code == 0
+    controller.install.assert_called_once_with(env_file=environment, start_on_login=True)
+    assert "http://127.0.0.1:8133" in result.output
+
+
+def test_service_install_cli_can_disable_default_dotenv_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.ACTIVE,
+        server_liveness=LivenessState.LIVE,
+        endpoint="http://127.0.0.1:8000",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    (tmp_path / ".env").write_text("POWERCONTEXT_SERVER_HTTP_PORT=8132\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(service_app, ["install", "--no-env-file", "--start-on-login"])
+
+    assert result.exit_code == 0
+    controller.install.assert_called_once_with(env_file=None, start_on_login=True)
+    assert "environment file: not configured" in result.output
+
+
 def test_service_install_cli_expands_the_environment_file_home_directory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

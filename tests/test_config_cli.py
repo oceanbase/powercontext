@@ -165,6 +165,18 @@ def test_validate_accepts_minimal_server_environment_without_inference_models(tm
         assert settings.http.port == 8888
 
 
+def test_server_settings_context_does_not_implicitly_discover_dotenv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".env").write_text("POWERCONTEXT_SERVER_HTTP_PORT=8889\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_HTTP_PORT", raising=False)
+
+    with server_settings_context() as settings:
+        assert settings.http.port == 8000
+
+
 @pytest.mark.parametrize(
     "runtime_setting",
     (
