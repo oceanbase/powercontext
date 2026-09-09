@@ -10,8 +10,7 @@ Scope parent, External Reference kind, and Binding integration and kind. Add
 `GET /v1/scopes/{scope_id}/sources` to page through the public Sources owned by one Scope.
 
 Scope discovery searches one of `scope_id`, `title`, `summary`, External Reference `value`, or Binding `external_id`.
-The service persists application-normalized search projections and uses dialect-specific literal-contains expressions
-so SQLite and OceanBase implement the same Unicode, case, and metacharacter behavior.
+`query` performs a native database substring match against the selected original field. Regular expressions and wildcard syntax are not supported. Case, accent, and full-width/half-width matching follow the underlying database comparison rules; results need not agree across backends. The server trims outer whitespace only, without NFKC, casefold, or case conversion. `%`, `_`, `*`, and backslash remain ordinary text.
 
 # Motivation
 
@@ -35,7 +34,7 @@ Suppose an opaque Scope has title `PowerContext` and a `repository` External Ref
 `https://github.com/oceanbase/powercontext`. Search the title explicitly:
 
 ```http
-GET /v1/scopes?query=powercontext&query_field=title&limit=50
+GET /v1/scopes?query=PowerContext&query_field=title&limit=50
 ```
 
 ```json
@@ -126,9 +125,7 @@ Source types and Sources owned by parent, referenced, or subject Scopes.
 `query_field` paired with an empty or whitespace-only query returns 422. This release does not define `any` or
 multi-field OR search.
 
-The server trims the query and performs a case-insensitive contiguous literal substring match after NFKC and Unicode
-casefold normalization. It does not tokenize, spell-correct, or perform semantic search. `%`, `_`, `*`, backslash, and
-regular-expression characters remain literal.
+`query` performs a native database substring match against the selected original field. Regular expressions and wildcard syntax are not supported. Case, accent, and full-width/half-width matching follow the underlying database comparison rules; results need not agree across backends. The server trims outer whitespace only, without NFKC, casefold, or case conversion. `%`, `_`, `*`, and backslash remain ordinary text.
 
 Text matching and exact filters combine with AND. External Reference and Binding predicates use correlated `EXISTS`
 subqueries so one-to-many relationships cannot duplicate Scopes. If `query_field=external_reference_value` and
@@ -142,7 +139,7 @@ result. Pagination mode starts when the request supplies a valid query pair, an 
 Its default limit is 50 and maximum is 100.
 
 `ScopePage` gains optional `next_cursor: string|null`. Paginated responses always include it; the legacy full-list
-response may omit it or return null. The signed cursor binds the operation, stable caller identity, normalized query,
+response may omit it or return null. The signed cursor binds the operation, stable caller identity, trimmed original query,
 query field, exact filters, limit, order, last Scope ID, and expiration. It uses the existing deployment cursor secret
 and record-cursor TTL. It cannot cross callers, fields, filters, limits, or endpoints. Invalid or mismatched cursors
 return `400 invalid_cursor`; expired cursors return `410 cursor_expired`.
@@ -157,24 +154,7 @@ The Scope repository accepts the query pair, exact filters, keyset boundary, and
 limiting occur in SQL before descriptors and relationships are loaded. Python must not load an unbounded Scope list
 and then filter or page it.
 
-The application defines one normalization function: NFKC followed by Unicode `casefold()`, without tokenization or
-punctuation removal. Write paths persist its output and a startup migration backfills existing rows:
-
-| Table | Source field | Search projection |
-| --- | --- | --- |
-| `pc_scopes` | `scope_id` | `scope_id_search` |
-| `pc_scopes` | `title` | `title_search` |
-| `pc_scopes` | `summary` | `summary_search` |
-| `pc_scope_external_references` | `value` | `value_search` |
-| `pc_scope_bindings` | `external_id` | `external_id_search` |
-
-Original fields remain authoritative and the projections are not public. Application-generated projections avoid
-database generated-column, `LOWER()`, and default-collation differences.
-
-The SQL dialect helper emits `instr(normalized_column, :query) > 0` for SQLite and
-`locate(:query, normalized_column) > 0` for OceanBase/MySQL mode. Both treat SQL wildcard characters literally. The
-query remains a bound parameter. If LIKE is used instead, one shared helper must escape metacharacters and prove
-equivalent behavior in both storage contract suites.
+Queries use original fields, not normalized projections. SQLite uses `instr(original_column, :query) > 0`; OceanBase/SeekDB in MySQL mode use `locate(:query, original_column) > 0`. Query values are bound parameters, never SQL interpolation, and no collation is forced. Existing projection columns are retained only for schema compatibility; they do not participate in matching or require historical normalization.
 
 The repository builds only the predicate selected by `query_field`; it does not build a fixed OR across all
 projections. Main-table fields use a direct predicate. Relationship fields use correlated `EXISTS`, with exact kind
@@ -208,6 +188,14 @@ The cursor binds operation, Scope, public types, order, limit, caller, high wate
 A page returns at most `limit` records and normally remains within a 4 MiB UTF-8 JSON content budget. It never
 truncates a Source; one oversized first item may be returned whole within existing Source limits.
 
+## Legacy Handoff receipt migration
+
+With access control enabled, startup scans Source identities in batches of 100 and loads one payload at a time. A receipt schema selects candidates but does not prove provenance. Only an existing trusted identity record authorizes backfilling the server-owned receipt marker. Source content, ID, digest, journal position, revisions, and processing queues remain unchanged.
+
+Unresolved candidates are recorded in `pc_receipt_migration_review(scope_id, source_id, reason)` with reason `missing_trusted_identity`. No content is stored in the review list. Repeated migration is safe; restored trusted evidence allows attestation and removal from the list. Identity-store errors abort startup. Attested receipts with missing identity return 503 for exact and collection reads. Unconfirmed marker-only Sources retain their read behavior; administrators must restore evidence or investigate, not infer authenticity from schema alone.
+
+Tests cover upgrade, reruns, unchanged public Source data, missing identity after migration, readable ordinary markers, and recovery of pending records.
+
 ## Authorization and errors
 
 Scope discovery retains `server.observe`. Authorization completes before metadata or Binding search, and the response
@@ -238,7 +226,7 @@ model, or creates an Artifact or Candidate.
 
 # Drawbacks
 
-Normalized projections and their startup migration add storage and write-path maintenance. Literal substring search
+Native matching can differ across storage backends. Literal substring search
 can still scan rows. Legacy unparameterized Scope listing remains unbounded. Scope keyset pagination is not a
 cross-request snapshot. Returning complete Source content costs more than a summary collection.
 
@@ -249,7 +237,7 @@ cross-request snapshot. Returning complete Source content costs more than a summ
 - One query parameter per field was rejected because it expands the surface and needs extra multi-field AND/OR rules;
   one query plus one required field serves the current single-field use cases clearly.
 - Python filtering was rejected because it loads the complete collection and cannot correctly push down pagination.
-- Database `LOWER()` or default collation was rejected because SQLite and OceanBase Unicode behavior differs.
+- Native database comparison is used without enforcing common Unicode or collation behavior.
 - Joining relationship tables was rejected because it duplicates Scopes and destabilizes page boundaries.
 - A separate Scope Search route was rejected because discovery filters the same authorized collection and response.
 

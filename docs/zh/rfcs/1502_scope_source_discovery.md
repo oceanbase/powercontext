@@ -9,8 +9,8 @@
 integration/kind。新增 `GET /v1/scopes/{scope_id}/sources`，分页读取一个 Scope 持有的公开 Source。
 
 Scope discovery 可以选择 `scope_id`、`title`、`summary`、External Reference `value` 或 Binding `external_id`。
-服务端持久化由应用统一规范化的搜索投影，再使用数据库方言对应的字面包含表达式，保证 SQLite 与 OceanBase
-具有相同的 Unicode、大小写和特殊字符行为。
+服务端直接对原始字段执行数据库原生子串匹配。大小写、重音及全半角行为遵循底层数据库字符比较规则，
+不保证不同存储返回相同结果；不支持正则表达式或通配符语法。
 
 # 动机
 
@@ -31,7 +31,7 @@ Scope discovery 可以选择 `scope_id`、`title`、`summary`、External Referen
 `https://github.com/oceanbase/powercontext` 的 `repository` External Reference。按标题搜索：
 
 ```http
-GET /v1/scopes?query=powercontext&query_field=title&limit=50
+GET /v1/scopes?query=PowerContext&query_field=title&limit=50
 ```
 
 ```json
@@ -120,8 +120,7 @@ GET /v1/scopes/scp_01hzy8m6yq8j3h7m3v5w2r9k1p/sources?limit=50
 `query` 与 `query_field` 必须成对出现。缺少任一参数、枚举值未知、参数重复，或 `query_field` 配合空/纯空白
 query，均返回 422。本期不提供 `any`，也不支持多字段 OR 搜索。
 
-服务端去除 query 首尾空白，再执行 NFKC 和 Unicode casefold 后的连续字面子串匹配；不分词、不纠错、不做
-语义搜索。`%`、`_`、`*`、反斜线和正则字符均按普通字符处理。
+`query` 对指定原始字段执行数据库原生子串匹配，不支持正则表达式或通配符语法。大小写、重音及全半角的匹配行为遵循底层数据库的字符比较规则，不保证不同存储后端结果完全一致。服务端只去除 query 首尾空白，不执行 NFKC、casefold 或大小写转换。`%`、`_`、`*` 和反斜线按普通文本传入。
 
 文本匹配与精确过滤按 AND 组合。External Reference 和 Binding 使用相关 `EXISTS`，避免一对多关系产生重复
 Scope。`query_field=external_reference_value` 且提供 `external_reference_kind` 时，同一条 External Reference
@@ -133,7 +132,7 @@ Scope 按 `scope_id` 升序执行 keyset 分页。无任何 query 参数的 `GET
 query pair、精确过滤、`limit` 或 `cursor` 时进入分页模式，默认 50、最大 100。
 
 `ScopePage` 增加可选 `next_cursor: string|null`。分页响应总是返回该字段；旧全量响应可以省略或返回 null。
-签名 cursor 绑定 operation、调用方稳定身份、规范化 query、query field、精确过滤、limit、排序、最后一个
+签名 cursor 绑定 operation、调用方稳定身份、去除首尾空白后的原始 query、query field、精确过滤、limit、排序、最后一个
 Scope ID 和过期时间，复用部署的 cursor secret 与 record-cursor TTL。cursor 不能跨调用方、字段、过滤条件、
 limit 或接口使用；不合法返回 `400 invalid_cursor`，过期返回 `410 cursor_expired`。
 
@@ -145,23 +144,7 @@ Scope ID 随机生成且可搜索元数据可更新。本期提供 keyset consis
 Scope repository 接收 query pair、精确过滤、keyset 边界和 `limit + 1`。过滤、排序和限制必须在 SQL 中完成，
 不能先加载无界 Scope 列表再由 Python 过滤或分页。
 
-应用定义唯一规范化函数：NFKC 后执行 Unicode `casefold()`，不分词、不删除标点。Scope、External Reference
-和 Binding 写入路径持久化规范化结果，启动 migration 对历史记录回填：
-
-| 表 | 原字段 | 搜索投影 |
-| --- | --- | --- |
-| `pc_scopes` | `scope_id` | `scope_id_search` |
-| `pc_scopes` | `title` | `title_search` |
-| `pc_scopes` | `summary` | `summary_search` |
-| `pc_scope_external_references` | `value` | `value_search` |
-| `pc_scope_bindings` | `external_id` | `external_id_search` |
-
-原字段仍是事实来源，投影不进入公开响应。由应用生成投影可以避免数据库 generated column、`LOWER()` 和默认
-collation 的差异。
-
-SQL 方言 helper 对 SQLite 生成 `instr(normalized_column, :query) > 0`，对 OceanBase/MySQL 模式生成
-`locate(:query, normalized_column) > 0`，两者都把 SQL 通配符当作普通字符。query 始终使用绑定参数。如果最终
-使用 LIKE，必须由公共 helper 统一转义，并在两种存储合同测试中证明等价。
+查询直接使用原始字段，不读取规范化搜索投影。SQLite 使用 `instr(original_column, :query) > 0`；OceanBase/SeekDB 的 MySQL 方言使用 `locate(:query, original_column) > 0`。query 始终使用绑定参数，不拼接 SQL，不额外强制 collation。已有搜索派生列仅为兼容既有表结构而保留，不参与匹配，也不要求重新规范化历史数据。
 
 Repository 只构造 `query_field` 选择的一个谓词，不生成覆盖全部投影的固定 OR。主表字段使用直接条件，关系
 字段使用相关 `EXISTS`，类型限制进入同一个子查询。选出一页 Scope 后，复用现有批量 loader 装配 Context
@@ -193,6 +176,24 @@ Scope、公开类型、排序、limit、调用方、高水位、最后位置和�
 每页最多返回 limit 条，普通页 UTF-8 JSON 内容预算为 4 MiB。服务端不截断 Source；第一条超过预算时，可以在
 既有 Source 大小限制内完整返回这一条。
 
+## 旧 Handoff 回执迁移
+
+启用访问控制的服务在开始接收请求前执行可重复迁移。每批最多读取 100 条 Source 身份，并逐条加载内容；只扫描公开 content Source。回执 schema 仅用于筛选候选，不作为可信证明。核对既有服务端身份记录成功后，仅补充服务端 `handoff_receipt` 标记，不修改 Source 内容、ID、digest 或 journal position，不创建版本，也不触发生成或 consumer 队列。
+
+无法找到可信身份记录的候选写入 `pc_receipt_migration_review(scope_id, source_id, reason)`，reason 为 `missing_trusted_identity`。清单只含身份和原因，不含内容。迁移可重复执行，恢复可信身份记录后再次启动会补标记并移除对应待确认项。身份存储发生异常时停止启动，不把异常当作记录缺失。
+
+已有可信标记的回执在身份记录缺失时，详情和集合读取均返回 503。未确认的历史 marker-only Source 保持原读取行为；清单不认定其为真实回执，也不自动补造提交者。管理员需恢复记录或人工核实。迁移前即丢失全部可信证据的真实回执不能仅凭内容自动识别。
+
+管理员通过数据库受控访问查询待确认清单：
+
+```sql
+SELECT scope_id, source_id, reason
+FROM pc_receipt_migration_review
+ORDER BY scope_id, source_id;
+```
+
+验收覆盖旧回执升级、重复迁移、原 Source 内容/身份/位置不变、迁移后身份缺失返回 503、普通 marker-only 可读、证据恢复后清单清理。
+
 ## 授权与错误
 
 Scope discovery 保留 `server.observe`，授权完成后才搜索元数据或 Binding，响应只包含 ScopeDescriptor。Source
@@ -221,7 +222,7 @@ List 保留 `scope.read` 和精确 Get 的可见性规则。每页重新鉴权�
 
 # 缺点
 
-规范化投影及启动 migration 增加存储和写入维护成本；字面包含仍可能扫描记录。旧无参 Scope 列表仍然无界，
+原生匹配受各数据库字符比较规则影响，跨存储结果可能不同；字面包含仍可能扫描记录。旧无参 Scope 列表仍然无界，
 Scope keyset 分页不是跨请求快照。返回完整 Source content 比摘要集合开销更大。
 
 # 设计选择与替代方案
@@ -231,7 +232,7 @@ Scope keyset 分页不是跨请求快照。返回完整 Source content 比摘要
 - 不为每个字段定义独立 query 参数：参数面较大，多字段同时出现还需要额外 AND/OR 规则；当前单字段场景用
   `query + query_field` 更清晰。
 - 不在 Python 中过滤：会加载全量集合，也无法正确下推分页。
-- 不依赖数据库 `LOWER()` 或默认 collation：SQLite 与 OceanBase 的 Unicode 行为不同。
+- 使用数据库原生子串匹配，接受各存储字符比较规则的差异，不增加统一 Unicode 处理。
 - 不直接 JOIN 关系表：会产生重复 Scope 并破坏分页边界。
 - 不增加独立 Scope Search：本需求过滤同一个授权集合，并复用同一响应模型。
 
@@ -247,4 +248,4 @@ Scope keyset 分页不是跨请求快照。返回完整 Source content 比摘要
 # 未来可能
 
 未来可以迁移旧无界 Scope 列表，增加根/子树或更新时间过滤、External Reference value 精确匹配，或者引入
-专用全文索引。任何扩展都必须保持 cursor 上下文、授权以及 SQLite/OceanBase 语义一致。
+专用全文索引。任何扩展都必须保持 cursor 上下文、授权以及 各存储已声明的匹配语义。
