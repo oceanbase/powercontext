@@ -1,28 +1,16 @@
 <style>
   me .reading-sheet { overflow-wrap: anywhere; }
-  me .reading-heading { padding: 0 0 24px; border-bottom: 1px solid var(--tblr-border-color); }
-  me .reading-heading h1 { color: var(--pc-heading-color); font-weight: var(--tblr-font-weight-bold); letter-spacing: -.02em; font-size: clamp(24px, 2.5vw, 32px); line-height: 1.5; max-width: 850px; margin-top: 16px; text-wrap: balance; }
-  me .reading-heading h1.long-heading { font-size: clamp(22px, 2vw, 24px); text-wrap: pretty; }
-  me .reading-heading p { font-size: 16px; margin: 0; }
-  me .reading-heading .back-link { display: block; width: fit-content; }
-  me .reading-body { padding: 24px 0; max-width: 850px; min-width: 0; }
-  me .reading-body section { margin-bottom: 32px; }
-  me .reading-body section h2 { font-size: var(--tblr-font-size-h2); margin-bottom: 8px; }
-  me .reading-body p { white-space: pre-wrap; font-size: 16px; line-height: 1.8; }
-  me .reading-body li { font-size: 16px; line-height: 1.8; }
-  me .reading-margin h2 { font-size: var(--tblr-font-size-h2); }
-  me .reading-margin p { font-size: 15px; }
-  me .source-index { margin: 24px 0; font-size: 15px; }
-  me .reading-sheet-single { max-width: 850px; }
+  me .reading-heading { padding-bottom: var(--tblr-spacer-4); border-bottom: 1px solid var(--tblr-border-color); }
+  me .reading-heading h1 { margin-top: var(--tblr-spacer-3); }
+  me .reading-body { padding-block: var(--tblr-spacer-4); min-width: 0; }
+  me .reading-body section { margin-bottom: var(--tblr-spacer-4); }
+  me .reading-body p { white-space: pre-wrap; }
+  me .reading-sheet-single { max-width: 80ch; }
   @media (min-width: 1400px) {
-    me .reading-margin { border-left: 1px solid var(--tblr-border-color); position: sticky; top: 24px; align-self: flex-start; height: calc(100dvh - 160px); display: flex; flex-direction: column; }
+    me .reading-margin { border-inline-start: 1px solid var(--tblr-border-color); position: sticky; top: var(--tblr-page-padding-y); align-self: flex-start; height: calc(100dvh - 2 * var(--tblr-page-padding-y)); display: flex; flex-direction: column; }
     me .reading-margin > h2 { flex-shrink: 0; }
     me .reading-margin .source-links { overflow-y: auto; min-height: 0; }
     me .reading-margin:has(.source-content-view) .source-links { display: none; }
   }
-  @media (max-width: 1399.98px) { me .reading-margin { border-top: 1px solid var(--tblr-border-color); padding-top: 24px; } }
-  @media (max-width: 600px) {
-    me .reading-heading h1 { font-size: 28px; }
-    me .reading-body p { font-size: 16px; }
-  }
+  @media (max-width: 1399.98px) { me .reading-margin { border-top: 1px solid var(--tblr-border-color); padding-top: var(--tblr-spacer-4); } }
 </style>

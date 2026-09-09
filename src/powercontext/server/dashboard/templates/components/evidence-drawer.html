@@ -1,19 +1,11 @@
 <div class="offcanvas-xxl offcanvas-end evidence-drawer" tabindex="-1" id="evidence" aria-labelledby="evidence-title">
   <style>
-    me.evidence-drawer { --tblr-offcanvas-width: var(--pc-evidence-width); }
-    me .offcanvas-header { padding: 24px 30px 16px; }
-    me .offcanvas-title { font-size: 23px; }
     me .offcanvas-body { display: flex; min-height: 0; overflow: hidden; }
     me .source-return { display: none; }
     @media (min-width: 1400px) {
       me.evidence-drawer { flex: 1; min-height: 0; display: flex; flex-direction: column; }
       me .offcanvas-body { flex: 1; }
       me:has(.source-content-view) .source-return { display: block; }
-    }
-    @media (max-width: 1399.98px) { me .offcanvas-body { padding: 16px 30px 30px; } }
-    @media (max-height: 600px) {
-      me .offcanvas-header { padding: 12px 20px; }
-      me .offcanvas-body { padding: 12px 20px; }
     }
   </style>
   <div class="offcanvas-header">

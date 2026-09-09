@@ -1,38 +1,21 @@
 <div class="usage-view">
 <style>
-  me .period-control { text-align: right; }
-  @media (max-width: 575px) { me .scope-extent .nav-link { min-height: 56px; } }
-  me .period-control small { display: block; font-size: 13px; margin-top: 8px; }
-  me .usage-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 30px; }
-  me .usage-summary h2 { font-size: var(--tblr-font-size-h2); }
-  me .big-number { font-size: 82px; letter-spacing: -4px; line-height: 1.25; color: var(--tblr-primary); font-weight: 600; margin: 12px 0 4px; font-variant-numeric: tabular-nums; }
-  me .big-number > span { font-size: 66px; }
-  me .big-number > small { font-size: 33px; margin-left: 16px; }
-  me .big-number.negative { color: var(--tblr-body-color); }
-  me .comparison-values { margin: 25px 0; font-size: 14px; }
-  me .comparison-values div { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-  me .comparison-values dt { font-weight: 400; }
-  me .comparison-values dd { margin: 0; font-variant-numeric: tabular-nums; }
-  me .chart-legend { display: flex; gap: 24px; justify-content: flex-end; font-size: 13px; margin-bottom: 8px; }
-  me .chart-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
-  me .bar-chart { padding: 0; }
-  me .usage-caption { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--tblr-border-color); font-size: 14px; }
-  me .table tfoot th { font-size: 14px; white-space: normal; }
-  @media (max-width: 1199px) { me .usage-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 22px; padding-right: 12px; } }
-  @media (max-width: 600px) { me .period-control { margin-top: 16px; } }
-  @media (max-width: 600px) { me .chart-legend { font-size: 11px; gap: 10px; } }
-  @media (max-width: 600px) { me .period-control { text-align: left; } }
+  me .scope-extent .nav-link { min-height: calc(2lh + 1rem); }
+  me .usage-summary { border-inline-end: 1px solid var(--tblr-border-color); }
+  me .comparison-values div { display: flex; justify-content: space-between; gap: var(--tblr-spacer-3); }
+  me .table tfoot th { white-space: normal; }
+  @media (max-width: 1199.98px) { me .usage-summary { border-inline-end: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: var(--tblr-spacer-3); } }
 </style>
 {% from 'macros.html' import comparison_chart, number, disclosure, coverage_notice with context %}
 {% from 'components/page-heading.html' import page_heading %}
 {% call page_heading(t.usage, t.usage_subtitle) %}
-  <div class="period-control">
+  <div class="period-control text-md-end">
     <div class="btn-group btn-group-sm w-100">
       {% for value in ['today', '7d', '30d'] %}
       <a class="btn {% if period == value %}active{% endif %}" href="{{ link('usage', period=value) }}" {% if period == value %}aria-current="true"{% endif %}>{{ t[value] }}</a>
       {% endfor %}
     </div>
-    {% if stats %}<small>{{ stats.start }} / {{ stats.end }} · UTC</small>{% endif %}
+    {% if stats %}<small class="d-block mt-2">{{ stats.start }} / {{ stats.end }} · UTC</small>{% endif %}
   </div>
 {% endcall %}
 <nav class="nav nav-pills row g-0 mb-3 small scope-extent" aria-label="{{ t.usage_extent }}">
@@ -44,26 +27,26 @@
 {% if stats.estimator_available %}
 <section class="card usage-sheet">
   <div class="card-body">
-    <div class="row g-4">
+    <div class="row row-cards">
       <div class="col-xl-4 usage-summary">
         <h2>{{ t.comparison }}{% if stats.percent is not none %}<br>{{ t.increased if stats.token_reduction < 0 else t.reduced }}{% endif %}</h2>
         {% if stats.percent is not none %}
-        <div class="big-number {% if stats.token_reduction < 0 %}negative{% endif %}">{{ stats.percent }}<span>%</span><small>{{ '↑' if stats.token_reduction < 0 else '↓' }}</small></div>
+        <div class="big-number display-3 my-3 {{ 'text-body' if stats.token_reduction < 0 else 'text-primary' }}">{{ stats.percent }}<span>%</span><small class="fs-1 ms-2">{{ '↑' if stats.token_reduction < 0 else '↓' }}</small></div>
         <p>{{ t.more_tokens if stats.token_reduction < 0 else t.fewer_tokens }} {{ number(stats.token_reduction|abs) }} tokens</p>
         {% else %}<h3 class="my-4">{{ t.no_comparison }}</h3>{% endif %}
-        <dl class="comparison-values">
-          <div><dt>{{ t.baseline }}</dt><dd>{{ number(stats.baseline_tokens) }}</dd></div>
-          <div><dt>{{ t.recalled }}</dt><dd>{{ number(stats.recalled_tokens) }}</dd></div>
+        <dl class="comparison-values my-4">
+          <div><dt class="fw-normal">{{ t.baseline }}</dt><dd class="mb-2">{{ number(stats.baseline_tokens) }}</dd></div>
+          <div><dt class="fw-normal">{{ t.recalled }}</dt><dd class="mb-2">{{ number(stats.recalled_tokens) }}</dd></div>
         </dl>
         {% if stats.comparable_preparations > 0 %}<p class="text-secondary">{{ coverage_notice() }}</p>{% endif %}
       </div>
       <div class="col-xl-8">
-        <div class="section-heading"><h3>{{ t.daily_title }}</h3><span class="text-secondary small">tokens</span></div>
-        <div class="chart-legend"><span><i class="bg-gray-400"></i>{{ t.baseline }}</span><span><i class="bg-primary"></i>{{ t.recalled }}</span></div>
+        <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"><h3>{{ t.daily_title }}</h3><span class="text-secondary small">tokens</span></div>
+        <div class="chart-legend d-flex flex-wrap justify-content-end gap-3 small mb-3"><span><span class="legend bg-gray-400 me-1"></span>{{ t.baseline }}</span><span><span class="legend bg-primary me-1"></span>{{ t.recalled }}</span></div>
         <div class="bar-chart">{{ comparison_chart() }}</div>
       </div>
     </div>
-    <div class="usage-caption">{{ t.estimate_notice }}</div>
+    <div class="usage-caption border-top mt-3 pt-3 text-secondary">{{ t.estimate_notice }}</div>
     {% if stats.token_reduction < 0 %}<p class="mt-3">{{ t.negative_notice }}</p>{% endif %}
   </div>
 </section>

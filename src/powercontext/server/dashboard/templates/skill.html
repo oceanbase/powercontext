@@ -1,10 +1,10 @@
 <div class="skill-reading">
 {% include 'components/reading-style.html' %}
 {% from 'components/record-references.html' import record_references %}
-<a class="back-link" href="{{ link('methods', kind='skill') }}">← {{ t.back_methods }}</a>
+<a class="back-link d-inline-block mb-4" href="{{ link('methods', kind='skill') }}">← {{ t.back_methods }}</a>
 {% if data.skill %}
 <article class="reading-sheet reading-sheet-single">
-  <header class="reading-heading"><span class="method-type">{{ t.skill_reading }} · {{ data.title }} · {{ t.revision }} {{ data.skill.revision }}</span><h1 class="long-heading">{{ data.skill.name }}</h1><p>{{ data.skill.description }}</p></header>
+  <header class="reading-heading"><span class="method-type text-secondary small">{{ t.skill_reading }} · {{ data.title }} · {{ t.revision }} {{ data.skill.revision }}</span><h1>{{ data.skill.name }}</h1><p>{{ data.skill.description }}</p></header>
     <div class="reading-body">
       <section><h2>{{ t.skill_instructions }}</h2><p class="source-text">{{ data.skill.instructions or t.skill_body_unavailable }}</p></section>
       {% if data.skill.validation %}<section><h2>{{ t.validation }}</h2><ul>{% for check in data.skill.validation %}<li>{{ check }}</li>{% endfor %}</ul></section>{% endif %}

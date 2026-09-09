@@ -14,6 +14,7 @@ RECORDS = {"handoff-detail": "handoff", "experience": "experience", "skill": "sk
 
 async def load_collection(api: DashboardAPI, request: Request, ctx: dict[str, Any], family: str) -> None:
     page, scope = ctx["page"], ctx["scope"]
+    ctx["collection_page_size"] = PAGE_SIZE
     try:
         cursor = request.query_params.get(f"{family}_cursor" if page == "methods" else "cursor")
         result = await api.records(

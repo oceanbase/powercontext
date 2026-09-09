@@ -1,10 +1,8 @@
 <div class="methods-view text-break">
-{% include 'components/collection-style.html' %}
+
 <style>
-  me .method-row { padding: 20px 24px; }
-  me .method-row h2 { font-size: 20px; font-weight: 400; line-height: 1.6; margin: 6px 0 10px; }
-  me .method-row p { max-width: 780px; line-height: 1.65; }
-  @media (max-width: 600px) { me .method-row { padding: 20px; } }
+  me .method-grid { grid-template-rows: repeat({{ collection_page_size }}, 1fr); min-height: 65dvh; }
+  me .method-row { min-width: 0; }
 </style>
 {% from 'components/page-heading.html' import page_heading %}
 {% from 'components/pagination.html' import pagination %}
@@ -19,17 +17,17 @@
 {% if collection.get('search_limited') %}<p class="text-secondary">{{ t.skills_limit }}</p>{% endif %}
 {% from 'components/read-error.html' import read_error with context %}
 {% if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endif %}
-<section class="collection-panel">
-  <div class="collection-content" tabindex="0" role="region" aria-label="{{ t[family] }}">
+<section>
+  <div class="{{ 'method-grid d-grid gap-3' if collection.get('items') else '' }}" aria-label="{{ t[family] }}">
     {% for record in collection.get('items', []) %}
-    {% if 'error' not in record %}<article class="card method-row mb-3">
-      <span class="method-type">{{ t[family] }} · {{ t.revision }} {{ record.revision }}</span>
-      <h2><a class="text-reset" href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ (record.lesson if family == 'experience' else record.name)|truncate(80, true) }}</a></h2>
-      <p>{{ (record.situation if family == 'experience' else record.description)|truncate(160, true) }}</p>
+    {% if 'error' not in record %}<article class="card method-row"><div class="card-body">
+      <span class="method-type text-secondary small">{{ t[family] }} · {{ t.revision }} {{ record.revision }}</span>
+      <h2 class="card-title fw-normal"><a class="text-reset d-block text-truncate" href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ (record.lesson if family == 'experience' else record.name)|truncate(80, true) }}</a></h2>
+      <p class="text-secondary text-truncate">{{ (record.situation if family == 'experience' else record.description)|truncate(160, true) }}</p>
       <a href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_experience if family == 'experience' else t.read_skill }}</a>
-    </article>{% endif %}
+    </div></article>{% endif %}
     {% endfor %}
-    {% if not data[family] and not errors.get(family) %}<section class="card h-100"><div class="empty">{% if search_query and family == 'skill' %}<h2>{{ t.skills_no_match }}</h2>{% else %}<h2>{{ t.experience_empty if family == 'experience' else t.skills_empty }}</h2>{% endif %}</div></section>{% endif %}
+    {% if not data[family] and not errors.get(family) %}<section class="card"><div class="empty">{% if search_query and family == 'skill' %}<h2>{{ t.skills_no_match }}</h2>{% else %}<h2>{{ t.experience_empty if family == 'experience' else t.skills_empty }}</h2>{% endif %}</div></section>{% endif %}
   </div>
   <div class="collection-footer">{{ pagination(collection.get('pager'), t) }}</div>
 </section>

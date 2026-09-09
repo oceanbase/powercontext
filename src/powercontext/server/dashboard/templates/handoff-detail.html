@@ -3,9 +3,9 @@
 {% from 'components/record-references.html' import record_references %}
 {% from 'macros.html' import evidence_link with context %}
 {% if data.handoff %}
-<article class="reading-sheet row g-5">
+<article class="reading-sheet row row-cards">
   <div class="col-xxl-7">
-  <header class="reading-heading"><a class="back-link" href="{{ link('handoff') }}">← {{ t.back_handoffs }}</a><span class="method-type">{{ t.handoff }} · {{ data.title }} · {{ t.revision }} {{ data.handoff.revision }}</span><h1 class="{{ 'long-heading' if data.handoff.objective|length > 80 else '' }}">{{ data.handoff.objective }}</h1>{% if data.handoff.disposition in ['complete', 'blocked'] %}<p>{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}</header>
+  <header class="reading-heading"><a class="back-link d-block mb-4" href="{{ link('handoff') }}">← {{ t.back_handoffs }}</a><span class="method-type text-secondary small">{{ t.handoff }} · {{ data.title }} · {{ t.revision }} {{ data.handoff.revision }}</span><h1>{{ data.handoff.objective }}</h1>{% if data.handoff.disposition in ['complete', 'blocked'] %}<p>{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}</header>
     <div class="reading-body">
       <section><h2>{{ t.recorded_state }}</h2><ul>{% for statement in data.handoff.state %}<li>{{ statement.text }}</li>{% endfor %}</ul></section>
       <section><h2>{{ t.next_action }}</h2><p>{{ data.handoff.next_action.text if data.handoff.next_action else t.no_next_action }}</p></section>

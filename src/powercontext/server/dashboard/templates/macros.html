@@ -1,5 +1,5 @@
 {% macro icon(name) %}
-<span class="nav-symbol" aria-hidden="true">
+<span class="nav-symbol nav-link-icon" aria-hidden="true">
   <img src="/dashboard/static/vendor/icons/{{ {'home':'home','handoff':'arrows-exchange','notes':'notes','methods':'book','usage':'chart-bar'}[name] }}.svg" alt="">
 </span>
 {% endmacro %}
@@ -17,7 +17,7 @@
 <div class="card flex-fill"><div class="list-group list-group-flush note-list">
   {% for item in items %}
   <div class="list-group-item">
-    <p><a class="text-reset" href="{{ link('notes', entry=item.entry_id) }}">{{ item.text|truncate(72, true) }}</a></p>
+    <p class="mb-0"><a class="text-reset fw-normal" href="{{ link('notes', entry=item.entry_id) }}">{{ item.text|truncate(72, true) }}</a></p>
   </div>
   {% endfor %}
 </div></div>
@@ -26,10 +26,10 @@
 {% macro experience_card() %}
 <article class="card experience-card">
   <div class="card-body">
-    <div class="method-type">{{ t.experience }}</div>
-    <h3><a href="{{ link('experience') }}">{{ data.experience.lesson|truncate(120, true) }}</a></h3>
+    <div class="method-type text-secondary small">{{ t.experience }}</div>
+    <h3 class="card-title fw-normal"><a class="text-reset" href="{{ link('experience') }}">{{ data.experience.lesson|truncate(120, true) }}</a></h3>
     <p>{{ data.experience.situation|truncate(160, true) }}</p>
-    <div class="source-trail">{{ data.experience.sources|length }} {{ t.source_count }} </div>
+    <div class="source-trail text-secondary small mb-3">{{ data.experience.sources|length }} {{ t.source_count }} </div>
     <a href="{{ link('experience') }}">{{ t.read_experience }}</a>
   </div>
 </article>

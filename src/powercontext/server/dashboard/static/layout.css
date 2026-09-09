@@ -1,28 +1,6 @@
-:root {
-  --pc-heading-color: var(--tblr-body-color);
-  --pc-active-bg: rgba(var(--tblr-primary-rgb), .14);
-  --pc-hover-bg: rgba(var(--tblr-primary-rgb), .08);
-  --tblr-body-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-  --tblr-border-radius: 5px;
-  --tblr-card-border-radius: 5px;
-  --pc-page-gutter: 32px;
-  --pc-evidence-width: 460px;
-}
-body { font-size: 16px; line-height: 1.65; }
-@media (max-width: 1199px) { :root { --pc-page-gutter: 24px; } }
-@media (max-width: 600px) {
-  :root { --pc-page-gutter: 16px; }
-}
-
+/* Brand accents; typography and component dimensions come from Tabler. */
 :root:not([data-bs-theme="dark"]) {
-  --tblr-body-color: #111b36;
   --tblr-body-bg: #fff;
   --tblr-primary: #0059ff;
-  --tblr-gray-400: #b8becb;
   --tblr-primary-rgb: 0, 89, 255;
-  --tblr-border-color: #d0daee;
-  --tblr-secondary: #56617a;
-  --pc-heading-color: #080d19;
-  --pc-active-bg: #ecf2ff;
-  --pc-hover-bg: #f2f6ff;
 }

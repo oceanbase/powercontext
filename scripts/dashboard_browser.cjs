@@ -54,6 +54,10 @@ async function changePreference(page, key, value) {
   assert.deepEqual(await toggle.boundingBox(), before, 'Opening display settings moved its button');
   const bounds = await menu.locator('.dropdown-menu').boundingBox();
   assert(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= page.viewportSize().width + 1 && bounds.y + bounds.height <= page.viewportSize().height + 1, 'Display settings exceed the viewport');
+  assert(await menu.locator('.dropdown-item').evaluateAll(items => items.every(element => {
+    const rect = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  })), 'Display options are clipped by navigation scrolling');
   await menu.locator(`.dropdown-item[href*="${key}=${value}"]`).click();
   await page.waitForURL(url => url.searchParams.get(key) === value);
 }
@@ -267,6 +271,21 @@ async function main() {
     });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `chart at ${width}`);
   }
+  for (const width of [390, 1536]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const period of ['today', '7d', '30d']) {
+      await page.goto(`${base}/dashboard/usage?scope=${readingScope}&period=${period}`);
+      const chart = page.locator('[data-comparison-chart]');
+      if (!await chart.count()) continue;
+      const days = JSON.parse(await chart.getAttribute('data-days'));
+      await chart.locator('.apexcharts-xaxis-label tspan').first().waitFor();
+      const labels = await chart.locator('.apexcharts-xaxis-label tspan').allTextContents();
+      const visible = labels.map(label => label.trim()).filter(Boolean);
+      assert(visible.length, `Missing chart dates for ${period} at ${width}px`);
+      for (const label of visible) assert(days.some(day => day.label === label), `Chart date ${label} is outside ${period}`);
+      if (days.length === 1) assert.deepEqual(visible, [days[0].label]);
+    }
+  }
   for (const width of [320, 390, 600, 768, 991, 992, 1024, 1199, 1200, 1280, 1399, 1400, 1536, 1920]) {
     await page.setViewportSize({ width, height: 1024 });
     for (const route of routes) {
@@ -274,6 +293,15 @@ async function main() {
       assert.equal(response.status(), 200, route);
       await page.waitForLoadState('load');
       await checkReadingBounds(page, `${route}, ${width}`);
+      if (route.startsWith('methods')) {
+        for (const row of await page.locator('.method-row').all()) {
+          assert(await row.evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            const directory = element.parentElement.getBoundingClientRect();
+            return bounds.top >= directory.top - 1 && bounds.bottom <= directory.bottom + 1;
+          }), `Collection entry requires internal scrolling at ${width}px`);
+        }
+      }
       if (route.startsWith('home?') && width >= 1200) {
         const rows = await page.locator('.note-list .list-group-item').evaluateAll(items => items.map(item => item.getBoundingClientRect().height));
         if (rows.length) assert(Math.max(...rows) - Math.min(...rows) <= 1, `Home memories have unequal row heights at ${width}px`);
@@ -383,6 +411,13 @@ async function main() {
       await page.keyboard.press('Control+End');
       await button.click();
       await panel.waitFor({ state: 'hidden' });
+    }
+  }
+  for (const viewport of [{ width: 390, height: 320 }, { width: 1024, height: 390 }, { width: 1536, height: 320 }]) {
+    await page.setViewportSize(viewport);
+    for (const language of ['zh', 'en']) {
+      await page.goto(`${base}/dashboard/home?scope=${readingScope}&lang=${language}`);
+      await changePreference(page, 'lang', language === 'zh' ? 'en' : 'zh');
     }
   }
   for (const width of [390, 1200, 1536]) {

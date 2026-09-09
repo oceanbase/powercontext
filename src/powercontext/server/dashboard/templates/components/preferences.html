@@ -1,5 +1,6 @@
-<div class="dropdown {{ preferences_placement|default('') }} display-preferences" hx-boost="false">
-  <button class="btn dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t.display_preferences }}</button>
+<div class="dropdown display-preferences" hx-boost="false">
+  {# Navbar defaults use static positioning; Popper keeps short-screen menus reachable. #}
+  <button class="btn dropdown-toggle w-100" type="button" data-bs-toggle="dropdown"{% if preferences_placement|default('') == 'top-start' %} data-bs-popper-config='{"placement":"top-start","modifiers":[{"name":"applyStyles","enabled":true},{"name":"preventOverflow","options":{"altAxis":true}}]}'{% endif %} aria-expanded="false">{{ t.display_preferences }}</button>
   <div class="dropdown-menu w-100">
     <span class="dropdown-header">{{ t.language }}</span>
     <a class="dropdown-item {{ 'active' if language == 'zh' else '' }}" href="{{ preference_url(lang='zh') }}" lang="zh-CN" {% if language == 'zh' %}aria-current="true"{% endif %}>{{ t.chinese }}</a>

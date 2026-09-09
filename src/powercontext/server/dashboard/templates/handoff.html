@@ -6,7 +6,7 @@
 {% for record in collections.get('handoff', {}).get('items', []) %}
 {% if 'error' not in record %}
 <section class="card mb-3"><div class="card-body">
-  <div class="section-heading"><span>{{ t.handoff_saved }}</span><span>{{ t.revision }} {{ record.revision }}</span></div>
+  <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"><span>{{ t.handoff_saved }}</span><span>{{ t.revision }} {{ record.revision }}</span></div>
   <h2><a class="text-reset" href="{{ link('handoff-detail', artifact=record.artifact_id, revision=record.revision) }}">{{ record.objective|truncate(120, true) }}</a></h2>
   <p>{{ record.state[0].text|truncate(160, true) }}</p>
   <h3>{{ t.next_action }}</h3><p>{{ record.next_action.text|truncate(160, true) if record.next_action else t.no_next_action }}</p>

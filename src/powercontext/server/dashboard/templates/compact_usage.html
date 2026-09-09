@@ -2,27 +2,20 @@
 <section class="card compact-usage">
   <style>
     me .compact-chart { min-width: 0; }
-    me .compact-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 24px; }
-    me .compact-summary h3 { font-size: 18px; margin: 0 0 6px; }
-    me .compact-summary p { font-size: 15px; margin: 0 0 7px; }
-    me .compact-summary strong { font-size: 31px; color: var(--tblr-primary); }
-    me .compact-summary small { font-size: 12px; display: block; margin-top: 18px; }
-    me .compact-chart .section-heading { margin-bottom: 9px; font-size: 12px; }
-    me .compact-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
-    @media (max-width: 991px) { me .compact-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 15px; margin-bottom: 20px; } }
-    @media (max-width: 991px) { me .compact-chart .section-heading { flex-wrap: wrap; } }
+    me .compact-summary { border-inline-end: 1px solid var(--tblr-border-color); }
+    @media (max-width: 991.98px) { me .compact-summary { border-inline-end: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: var(--tblr-spacer-3); } }
   </style>
 
-  <div class="card-body"><div class="row g-4">
+  <div class="card-body"><div class="row row-cards">
     <div class="col-lg-4 col-xxl-3 compact-summary">
       <h3>{{ t[period] }}</h3>
-      <p>{% if stats.percent is not none %}{{ t.compact_comparison }}{{ t.increased if stats.token_reduction < 0 else t.reduced }} <strong>{{ stats.percent }}%</strong>{% else %}{{ t.no_comparison }}{% endif %}</p>
+      <p>{% if stats.percent is not none %}{{ t.compact_comparison }}{{ t.increased if stats.token_reduction < 0 else t.reduced }} <strong class="h1 text-primary">{{ stats.percent }}%</strong>{% else %}{{ t.no_comparison }}{% endif %}</p>
       {% if stats.comparable_preparations > 0 %}<a href="{{ link('usage') }}">{{ coverage_notice() }}</a>{% endif %}
-      <small>{{ t.compact_estimate_notice }}</small>
+      <small class="d-block text-secondary mt-3">{{ t.compact_estimate_notice }}</small>
     </div>
     <div class="col-lg-8 col-xxl-9 compact-chart">
-      <div class="section-heading">
-        <div class="compact-legend"><i class="bg-gray-400"></i>{{ t.baseline }} <i class="bg-primary ms-3"></i>{{ t.recalled }}</div>
+      <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+        <div class="compact-legend small"><span class="legend bg-gray-400 me-1"></span>{{ t.baseline }} <span class="legend bg-primary ms-3"></span>{{ t.recalled }}</div>
       </div>
       {{ comparison_chart(compact=true) }}
     </div>
