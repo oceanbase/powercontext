@@ -23,14 +23,9 @@ from typing import Annotated
 
 import typer
 
-from powercontext.cli.env_file import EnvironmentFileError, read_environment_file
 from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server import cli as _server_role_dependency
-from powercontext.server.configuration import (
-    ServerConfigurationError,
-    resolve_server_environment_file,
-    server_settings_context,
-)
+from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.controller import ServiceController
 from powercontext.service.model import ServiceError, ServiceStatus
 
@@ -57,10 +52,6 @@ def install(
         Path | None,
         typer.Option(help="Load persistent Server and provider settings from this protected environment file."),
     ] = None,
-    no_env_file: Annotated[
-        bool,
-        typer.Option("--no-env-file", help="Do not discover or load an environment file."),
-    ] = False,
     start_on_login: Annotated[
         bool | None,
         typer.Option(
@@ -71,8 +62,6 @@ def install(
 ) -> None:
     """Install the personal Server service and optionally start it at user login."""
 
-    if env_file is not None and no_env_file:
-        raise typer.BadParameter("cannot be combined with --env-file", param_hint="--no-env-file")  # noqa: TRY003
     if start_on_login is None:
         start_on_login = (
             typer.confirm("Enable automatic Server startup when you log in?", default=False)
@@ -82,20 +71,19 @@ def install(
     if not start_on_login and sys.platform != "win32":
         typer.echo("--no-start-on-login is currently supported only on Windows.", err=True)
         raise typer.Exit(code=2)
-    selected_env_file = resolve_server_environment_file(env_file, discover=not no_env_file)
+    expanded_env_file = env_file.expanduser() if env_file is not None else None
     try:
-        persisted_environment = read_environment_file(selected_env_file) if selected_env_file is not None else None
-        with server_settings_context(environment=persisted_environment) as settings:
+        with server_settings_context(env_file=expanded_env_file) as settings:
             generation_model = settings.inference.generation_model
             embedding_model = settings.inference.embedding_model
-        status = _controller().install(env_file=selected_env_file, start_on_login=start_on_login)
-    except (EnvironmentFileError, OSError, ServerConfigurationError, ServiceError) as error:
+        status = _controller().install(env_file=expanded_env_file, start_on_login=start_on_login)
+    except (OSError, ServerConfigurationError, ServiceError) as error:
         typer.echo(f"PowerContext personal service installation failed: {error}", err=True)
         if isinstance(error, ServiceError) and error.status is not None:
             _write_status(error.status, json_output=False)
         if isinstance(error, ServiceError):
             exit_code = error.exit_code
-        elif isinstance(error, (EnvironmentFileError, ServerConfigurationError)):
+        elif isinstance(error, ServerConfigurationError):
             exit_code = 2
         else:
             exit_code = 1
@@ -106,7 +94,7 @@ def install(
         else "PowerContext personal service installed without login auto-start."
     )
     typer.echo(message)
-    _write_environment_guidance(selected_env_file)
+    _write_environment_guidance(expanded_env_file)
     write_inference_capability_notice(
         generation_model=generation_model,
         embedding_model=embedding_model,

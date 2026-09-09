@@ -7,21 +7,19 @@ description: PowerContext paths, Server, Client, and inference environment varia
 
 Windows support is `experimental`.
 
-PowerContext reads configuration from environment variables when each process starts. `server run` and `service
-install` load `.env` from the current working directory when that file exists. Pass `--env-file <path>` to select a
-different file without also merging `.env`, or pass `--no-env-file` to disable file loading. For `server run`, CLI
-options override process environment variables, process variables override values from the selected file, and
-defaults apply last. Agent hosts can load their own environment files according to their host-specific rules.
+PowerContext reads configuration from environment variables when each process starts. `server run` loads `.env` from the
+current working directory when that file exists. Pass `--env-file <path>` to select a different file without also
+merging `.env`, or pass `--no-env-file` to disable file loading. For `server run`, CLI options override process
+environment variables, process variables override values from the selected file, and defaults apply last. Agent hosts
+can load their own environment files according to their host-specific rules.
 
 For the configuration-file workflow, including generation, redacted inspection, validation, and launch, see
 [Configure a Server environment](../get-started/configure-server-environment.md). Treat every environment file as a
 secret-bearing deployment artifact.
 
-`service install` resolves a discovered or explicit file to a persistent absolute path. It additionally requires the
-file to be a regular, non-symlink file owned by the current user with no group or other permissions. The service
-records its identity and refuses to launch if the file is replaced or its ownership, permissions, or contents change;
-run `service install` again after an intentional update. The native service never discovers a file from its runtime
-working directory and does not inherit the installing shell's environment.
+`service install` additionally requires the file to be a regular, non-symlink file owned by the current user with no
+group or other permissions. The service records its identity and refuses to launch if the file is replaced or its
+ownership, permissions, or contents change; run `service install` again after an intentional update.
 
 ## User data
 

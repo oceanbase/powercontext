@@ -18,9 +18,6 @@ powercontext service install
 powercontext service status
 ```
 
-当前目录存在 `.env` 时，`service install` 会校验并持久化该文件。使用 `--env-file <path>` 可选择其他受保护文件，使用
-`--no-env-file` 可按无模型默认配置安装。所选文件必须满足下文的保护要求。
-
 Linux 使用 `systemd --user`，日志进入 user journal；macOS 使用当前用户 LaunchAgent；Windows 使用当前用户的 Task Scheduler task。macOS 和 Windows 的 stdout、stderr 写入 PowerContext 用户数据目录。
 
 `service status` 会返回精确的日志 selector 或路径。

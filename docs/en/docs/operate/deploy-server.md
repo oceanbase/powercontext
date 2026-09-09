@@ -20,10 +20,6 @@ powercontext service install
 powercontext service status
 ```
 
-If `.env` exists in the current directory, `service install` validates and persists that file. Use
-`--env-file <path>` to select another protected file or `--no-env-file` to install with model-free defaults. The
-selected file must satisfy the protection rules below.
-
 On Windows, the command asks whether to enable startup at the current user's next login when neither
 `--start-on-login` nor `--no-start-on-login` is supplied; pressing Enter keeps login auto-start disabled. Use either
 option for a non-interactive choice.
