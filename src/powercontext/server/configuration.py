@@ -19,11 +19,13 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from pydantic_settings import SettingsError
+from pydantic_settings import BaseSettings, EnvSettingsSource, PydanticBaseSettingsSource, SettingsError
+from typing_extensions import override
 
 from powercontext.cli.env_file import EnvironmentFileError, environment_context, read_environment_file
 from powercontext.paths import POWERCONTEXT_HOME_ENV
@@ -31,6 +33,10 @@ from powercontext.server.settings import ServerSettings
 
 DEFAULT_SERVER_ENV_FILE = Path(".env")
 _SERVER_ENVIRONMENT_PREFIX = "POWERCONTEXT_SERVER_"
+_SERVER_ENVIRONMENT_FILE: ContextVar[Mapping[str, str] | None] = ContextVar(
+    "powercontext_server_environment_file",
+    default=None,
+)
 
 
 def _is_server_environment_name(name: str) -> bool:
@@ -45,6 +51,42 @@ class ServerConfigurationError(ValueError):
     def __init__(self, cause: EnvironmentFileError | OSError | ValidationError | ValueError) -> None:
         super().__init__(str(cause))
         self.cause = cause
+
+
+class _EnvironmentMappingSource(EnvSettingsSource):
+    """Read Server settings from the strict environment-file parser's mapping."""
+
+    def __init__(self, settings_cls: type[BaseSettings], environment: Mapping[str, str]) -> None:
+        super().__init__(settings_cls)
+        self.env_vars = {name if self.case_sensitive else name.lower(): value for name, value in environment.items()}
+
+
+class _ServerSettingsWithEnvironmentFile(ServerSettings):
+    """Use the strict environment-file mapping as a separate Pydantic source."""
+
+    @classmethod
+    @override
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        environment = _SERVER_ENVIRONMENT_FILE.get()
+        if environment is None:
+            return init_settings, env_settings, dotenv_settings, file_secret_settings
+        return init_settings, env_settings, _EnvironmentMappingSource(settings_cls, environment), file_secret_settings
+
+
+@contextmanager
+def _server_environment_file_context(environment: Mapping[str, str]) -> Iterator[None]:
+    token = _SERVER_ENVIRONMENT_FILE.set(environment)
+    try:
+        yield
+    finally:
+        _SERVER_ENVIRONMENT_FILE.reset(token)
 
 
 def resolve_server_environment_file(
@@ -93,17 +135,16 @@ def server_settings_context(
     except (EnvironmentFileError, OSError) as error:
         raise ServerConfigurationError(error) from error
     server_environment = {name for name in os.environ if _is_server_environment_name(name)}
+    settings_class: type[ServerSettings] = ServerSettings
+    settings_context = nullcontext()
     if env_file is not None:
         if process_environment_overrides:
-            # Use the project's strict parser for every assignment. Applying only names that
-            # are absent from the process environment gives ServerSettings the desired
-            # process > dotenv > default precedence without asking pydantic-settings to parse
-            # the same file a second time with python-dotenv semantics.
-            process_names = {name.casefold() for name in os.environ}
             runtime_environment = {
-                name: value for name, value in loaded.items() if name.casefold() not in process_names
+                name: value for name, value in loaded.items() if not _is_server_environment_name(name)
             }
             loaded_context = environment_context(runtime_environment, override=False)
+            settings_context = _server_environment_file_context(loaded)
+            settings_class = _ServerSettingsWithEnvironmentFile
         else:
             # Native services and maintenance commands must keep the historical file-authority
             # behavior. Their launcher/controller also use this mode, so preflight and runtime
@@ -121,7 +162,7 @@ def server_settings_context(
         if env_file is not None and data_dir is not None
         else nullcontext()
     )
-    with loaded_context, data_dir_context:
+    with settings_context, loaded_context, data_dir_context:
         http_overrides: dict[str, Any] = {}
         if host is not None:
             http_overrides["host"] = host
@@ -129,7 +170,7 @@ def server_settings_context(
             http_overrides["port"] = port
         settings_kwargs: dict[str, Any] = {"http": http_overrides} if http_overrides else {}
         try:
-            settings = ServerSettings(**settings_kwargs)
+            settings = settings_class(**settings_kwargs)
         except (SettingsError, ValidationError) as error:
             raise ServerConfigurationError(error) from error
         yield settings

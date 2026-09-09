@@ -189,6 +189,34 @@ def test_server_settings_context_preserves_strict_env_file_values(
         assert settings.auth.token.get_secret_value() == token
 
 
+def test_server_settings_context_preserves_process_priority_for_nested_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8999\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP", '{"port":8123}')
+    monkeypatch.delenv("POWERCONTEXT_SERVER_HTTP_PORT", raising=False)
+
+    with server_settings_context(env_file=environment, process_environment_overrides=True) as settings:
+        assert settings.http.port == 8123
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows environment names are case-insensitive")
+def test_server_settings_context_preserves_provider_environment_case(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text("OPENAI_API_KEY=file-secret\n", encoding="utf-8")
+    monkeypatch.setenv("openai_api_key", "process-lowercase-secret")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    with server_settings_context(env_file=environment, process_environment_overrides=True):
+        assert os.environ["OPENAI_API_KEY"] == "file-secret"
+        assert os.environ["openai_api_key"] == "process-lowercase-secret"  # noqa: SIM112
+
+
 def test_server_settings_context_does_not_implicitly_discover_dotenv(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
