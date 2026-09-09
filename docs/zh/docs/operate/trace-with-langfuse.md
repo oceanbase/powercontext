@@ -11,9 +11,30 @@ generation 与 embedding 调用也会被 trace，因此一条 trace 里可以同
 本文把这些 span 通过 OTLP 端点发送到 [Langfuse](https://langfuse.com)。整个过程不需要改动 PowerContext 代码，也不需要
 Langfuse SDK：只是把 [用 Phoenix 查看 trace](trace-with-phoenix.md) 中的标准 OpenTelemetry 变量改为指向 Langfuse。
 
+## 前置要求
+
+准备一台能够运行 PowerContext Server 的 Linux 或 macOS 开发机，并确保：
+
+- 已安装 Git。
+- 已安装并启动 Docker 与 Docker Compose；macOS 使用 Docker Desktop。
+- 已安装 `uv`。
+- 本机端口 `3000` 和 PowerContext Server 使用的端口（默认 `8000`）未被占用。
+
+开始前可以运行以下命令确认工具可用：
+
+```bash
+git --version
+docker info
+docker compose version
+uv --version
+```
+
 ## 启动 Langfuse
 
 Langfuse 自托管通过 Docker Compose 运行多个服务（web、worker、PostgreSQL、ClickHouse、Redis 和 MinIO）：
+
+Langfuse 仓库中的 Compose 文件包含默认数据库密码、Redis 密码、MinIO 密钥和应用密钥，以下命令沿用这些默认值，
+只适合单机临时体验。如果主机可能被其他人访问或用于长期运行，请先替换 Compose 文件中标有 `CHANGEME` 的值。
 
 ```bash
 git clone https://github.com/langfuse/langfuse.git
@@ -40,10 +61,27 @@ uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://git
 
 缺少该 extra 时，启用 tracing 会在启动阶段直接报错，而不是静默丢弃 span。
 
+这条命令面向新部署，也会强制重建已有的 `uv tool` 工具环境并替换其中的 PowerContext。执行前请确认现有 Server 的
+安装方式和配置文件位置；命令从 `master` 安装当前最新代码，结果会随仓库更新而变化。
+
+如果要让已运行的 PowerContext Server 支持 tracing，需要在**该 Server 实际使用的 Python 环境**中安装完整的
+`cli`、`server` 和 `tracing-otlp` extras，然后重启旧进程。对于由 `uv tool` 安装并以前台运行的 Server，先在旧 Server
+所在终端按 `Ctrl+C` 停止进程，再执行：
+
+```bash
+command -v powercontext
+uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext server run --env-file /path/to/powercontext.env
+```
+
+请把示例中的配置文件路径替换为现有 Server 的实际路径。如果 Server 由 systemd、Supervisor 或其他进程管理器启动，
+请确认服务指向更新后的 `powercontext` 可执行文件，再通过对应的管理器重启服务；只在另一个环境中安装 exporter 不会让
+正在运行的 Server 获得 tracing 能力。
+
 ## 配置并启动 Server
 
-Langfuse 用 project key 组成的 HTTP Basic 认证来鉴权 OTLP 请求。启用 tracing、把 exporter 指向 Langfuse，并配置一个
-generation model，让推理 span 有内容可记录：
+Langfuse 用 project key 组成的 HTTP Basic 认证来鉴权 OTLP 请求。在终端 A 中启用 tracing、把 exporter 指向 Langfuse，
+并配置一个 generation model，让推理 span 有内容可记录：
 
 ```bash
 export LANGFUSE_PUBLIC_KEY=pk-lf-replace-me
@@ -58,6 +96,8 @@ export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
 powercontext server run
 ```
 
+`powercontext server run` 会在前台持续运行。保持终端 A 打开，后续请求在另一个终端中执行。
+
 OpenTelemetry SDK 会在 `OTEL_EXPORTER_OTLP_ENDPOINT` 后追加 `/v1/traces`，因此 span 最终发往
 `http://localhost:3000/api/public/otel/v1/traces`，正是 Langfuse 期望的 traces 端点。Langfuse 只接受 OTLP over HTTP，
 与 `tracing-otlp` extra 安装的 exporter 协议一致。`x-langfuse-ingestion-version=4` 头让 Langfuse 立即处理这些
@@ -66,16 +106,29 @@ PowerContext 既不会记录凭据，也不会记录 exporter 的请求头。
 
 ## 触发一次推理请求
 
-将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID，先捕获一个 Source，再把它转成 Memory：
+在终端 B 中创建一个 Scope，并保存 Server 返回的 ID：
 
 ```bash
-curl -X POST http://localhost:8000/v1/sources/content \
+export POWERCONTEXT_URL=http://127.0.0.1:8000
+export POWERCONTEXT_SCOPE_ID="$(
+  curl --fail --silent --show-error \
+    --header 'Content-Type: application/json' \
+    --data '{"title":"Tracing demo","summary":"Scope for tracing walkthrough","idempotency_key":"tracing-demo"}' \
+    "$POWERCONTEXT_URL/v1/scopes" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["scope_id"])'
+)"
+```
+
+然后先捕获一个 Source，再把它转成 Memory：
+
+```bash
+curl -X POST "$POWERCONTEXT_URL/v1/sources/content" \
   -H 'content-type: application/json' \
   -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\",\"source_id\":\"task-1\",\"content\":\"I always book aisle seats.\"}"
 ```
 
 ```bash
-curl -X POST http://localhost:8000/v1/memory/flush \
+curl -X POST "$POWERCONTEXT_URL/v1/memory/flush" \
   -H 'content-type: application/json' \
   -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\"}"
 ```
