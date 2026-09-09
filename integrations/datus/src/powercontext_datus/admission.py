@@ -52,7 +52,13 @@ def read_document(path: Path) -> tuple[bytes, Any]:
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 8 * 1024 * 1024:
         raise IntegrityError("bounded regular admission document required")
     data = path.read_bytes()
-    return data, json.loads(data)
+    try:
+        return data, json.loads(data)
+    except (ValueError, RecursionError):
+        # Includes JSON syntax, encoding, integer-size and nesting failures.
+        # Normalize at the parser so post-worker checks cannot lose its result;
+        # never expose decoder payloads through a chained exception.
+        raise IntegrityError("invalid JSON evidence document") from None
 
 
 def receipt(ref: Any) -> tuple[str, Any]:

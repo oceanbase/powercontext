@@ -19,7 +19,9 @@ import hashlib
 import io
 import json
 import ssl
+import sys
 import time
+import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -294,6 +296,150 @@ def test_formal_midrun_drift_retains_denominator_and_stops_dispatch(live, tmp_pa
     assert report["formal_state"] == "aborted" and not report["state_valid"]
     assert report["real_formal_runs"] == {"native": 1, "enhanced": 0}
     assert not any(arm["accepted"] for arm in report["arms"].values())
+
+
+@pytest.mark.parametrize("worker_outcome", ["completed", "timeout_partial"])
+@pytest.mark.parametrize("damage", ["receipt_json", "receipt_utf8", "admission_json", "valid_json_drift"])
+def test_gen11_post_worker_parse_failure_preserves_case_and_aborted_report(
+    live, tmp_path, monkeypatch, damage, worker_outcome
+):
+    plan, sandbox, anchor = live
+    dispatches = []
+    returned, _ = decimal_run("1.00")
+    if worker_outcome == "timeout_partial":
+        returned["records"] = returned["records"][:-3]
+        returned.update(returncode=None, timeout=True, malformed_output=True)
+    returned.update(
+        stdout="\n".join(json.dumps(record) for record in returned["records"])
+        + ("\n{partial" if worker_outcome == "timeout_partial" else "\n"),
+        process_started=True,
+        not_started=False,
+        state_valid=True,
+        stderr_bytes=17,
+        wall_seconds=0.125,
+    )
+    original = copy.deepcopy(returned)
+    monkeypatch.setattr(paired, "credentials_for", lambda _: {})
+
+    def dispatch(self, request, **kwargs):
+        if request["prepare_only"]:
+            return {
+                "returncode": 0,
+                "malformed_output": False,
+                "records": [{"kind": "effective_config", "effective_sha256": "synthetic"}],
+            }
+        dispatches.append(request["task"]["task_id"])
+        target = Path(plan["admission_file"]) if damage == "admission_json" else tmp_path / "external.json"
+        target.write_bytes(
+            {
+                "receipt_json": b'{"unfinished":',
+                "receipt_utf8": b"\xff",
+                "admission_json": b'{"unfinished":',
+                "valid_json_drift": b'{"changed":true}',
+            }[damage]
+        )
+        return returned
+
+    monkeypatch.setattr(Sandbox, "run", dispatch)
+    manifest = paired.freeze_plan(plan, sandbox, approval_sha256=anchor)
+    output = tmp_path / "gen11-evidence"
+    report = paired.run_pair(manifest, sandbox, output, approval_sha256=anchor)
+    assert dispatches == [plan["tasks"][0]["task_id"]]
+    paths = sorted(output.glob("case-*.json"))
+    assert len(paths) == len(report["cases"]) == 92
+    first = paired.read_json(paths[0])
+    # Started evidence is not replaced by the unstarted placeholder, even when
+    # the worker timed out and the last stdout line was incomplete.
+    assert first == {
+        "arm": "native",
+        "task_id": plan["tasks"][0]["task_id"],
+        **original,
+        "state_valid": False,
+        "control_failure": "leakage/state_drift",
+    }
+    for path in paths[1:]:
+        case = paired.read_json(path)
+        assert not case["process_started"] and case["not_started"] and not case["records"]
+    assert report["formal_state"] == "aborted" and not report["state_valid"]
+    assert paired.read_json(output / "report.json") == json.loads(json.dumps(report))
+    assert report["real_formal_runs"] == {"native": 1, "enhanced": 0}
+    assert all(
+        arm["total"] == arm["results_present"] == 46 and not arm["accepted"] and arm["total_steps"] is None
+        for arm in report["arms"].values()
+    )
+    assert paired.read_json(tmp_path / "private-runner/single-grant.json")["state"] == "started"
+
+
+@pytest.mark.parametrize("reader", [admission.read_document, paired.read_json], ids=["admission", "paired"])
+@pytest.mark.parametrize("damage", ["syntax", "utf8", "integer_limit", "depth"])
+def test_gen11_document_parse_errors_have_bounded_integrity_diagnostics(tmp_path, reader, damage):
+    path = tmp_path / "document.json"
+    payload = b"SYNTHETIC_DOCUMENT_CONTENT"
+    path.write_bytes(
+        {
+            "syntax": b'{"value":"' + payload,
+            "utf8": b"\xff" + payload,
+            "integer_limit": b"1" * 641,
+            "depth": b"[" * 10000 + b"]" * 10000,
+        }[damage]
+    )
+    previous = sys.get_int_max_str_digits()
+    try:
+        sys.set_int_max_str_digits(640)
+        with pytest.raises(IntegrityError) as caught:
+            reader(path)
+    finally:
+        sys.set_int_max_str_digits(previous)
+    assert str(caught.value) == "invalid JSON evidence document"
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+    assert payload.decode() not in "".join(traceback.format_exception(caught.value))
+
+
+@pytest.mark.parametrize("damage", ["syntax", "utf8"])
+def test_gen11_preflight_parse_failure_reads_no_secret_and_claims_no_grant(live, tmp_path, monkeypatch, damage):
+    plan, sandbox, anchor = live
+    calls = []
+    monkeypatch.setattr(paired, "credentials_for", lambda _: calls.append("secret"))
+    monkeypatch.setattr(Sandbox, "run", lambda *a, **k: calls.append("worker"))
+    Path(plan["admission_file"]).write_bytes(b"{" if damage == "syntax" else b"\xff")
+    with pytest.raises(IntegrityError):
+        paired.freeze_plan(plan, sandbox, approval_sha256=anchor)
+    assert not calls and not (tmp_path / "private-runner/single-grant.json").exists()
+
+
+@pytest.mark.parametrize("damage", ["syntax", "utf8"])
+def test_gen11_final_validation_parse_failure_still_writes_complete_report(live, tmp_path, monkeypatch, damage):
+    plan, sandbox, anchor = live
+    calls = []
+    monkeypatch.setattr(paired, "credentials_for", lambda _: {})
+
+    def dispatch(self, request, **kwargs):
+        if request["prepare_only"]:
+            return {
+                "returncode": 0,
+                "malformed_output": False,
+                "records": [{"kind": "effective_config", "effective_sha256": "synthetic"}],
+            }
+        calls.append(request["task"]["task_id"])
+        return decimal_run("1.00")[0]
+
+    monkeypatch.setattr(Sandbox, "run", dispatch)
+    manifest = paired.freeze_plan(plan, sandbox, approval_sha256=anchor)
+    original_write = paired.write_json
+
+    def write(path, value):
+        original_write(path, value)
+        if path.name == "case-0091.json":
+            Path(plan["admission_file"]).write_bytes(b"{" if damage == "syntax" else b"\xff")
+
+    monkeypatch.setattr(paired, "write_json", write)
+    output = tmp_path / "final-validation"
+    report = paired.run_pair(manifest, sandbox, output, approval_sha256=anchor)
+    assert len(calls) == len(report["cases"]) == len(list(output.glob("case-*.json"))) == 92
+    assert report["formal_state"] == "aborted" and not report["state_valid"]
+    assert report["real_formal_runs"] == {"native": 46, "enhanced": 46}
+    assert all(arm["total"] == 46 and not arm["accepted"] for arm in report["arms"].values())
+    assert paired.read_json(output / "report.json") == json.loads(json.dumps(report))
 
 
 def test_live_sample_safety_path_without_transport(live, tmp_path, monkeypatch):

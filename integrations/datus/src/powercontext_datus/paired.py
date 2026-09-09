@@ -51,7 +51,12 @@ ARMS = ("native", "enhanced")
 
 
 def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, RecursionError):
+        # Final admission validation must take the same controlled-abort path
+        # as receipt validation, without changing this reader's UTF-8 contract.
+        raise IntegrityError("invalid JSON evidence document") from None
 
 
 def write_json(path: Path, value: Any) -> None:

@@ -142,7 +142,14 @@ worker lifetime is bounded by both the plan timeout and approval expiry.
    area and needs a redaction review before export.
 
 Per-case trust/expiry/runtime drift aborts subsequent dispatch and invalidates
-the pair. The default fixture profile remains a clearly labeled synthetic path
+the pair. JSON syntax/encoding and parser integer-size/nesting failures are
+bounded integrity failures, including in transitive receipts and final validation.
+After a worker returns, such a failure preserves its records, raw/partial stdout,
+exit/timeout and timing metadata, writes the started case and all unstarted slots,
+and emits an aborted report with the full denominator. Decoder payloads are not
+included in diagnostics. Filesystem errors retain their existing classification;
+unrelated programming exceptions and process cancellation are not swallowed.
+The default fixture profile remains a clearly labeled synthetic path
 and never claims a live score. Simulator tests may exercise the formal branch
 under a forged **test-only** operator but are not deliverable benchmark results.
 
