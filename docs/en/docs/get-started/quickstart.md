@@ -1,16 +1,16 @@
 ---
 title: Quick Start
-description: Install PowerContext, connect one Agent, and recover a saved decision in a new session.
+description: Install PowerContext, connect Codex, and recover a saved decision in a new session.
 ---
 
 # Quick Start
 
-Use one running PowerContext Server to keep project context across Agent sessions. This path uses explicit Memory
-writes; it needs no generation model or embedding provider.
+Use one running PowerContext Server to keep project context across Agent sessions. This example uses Codex and explicit
+Memory writes; it needs no generation model or embedding provider.
 
 ## 1. Install and start
 
-You need Python 3.11+, Git, uv, and an installed Agent. PowerContext supports macOS and Linux;
+You need Python 3.11+, Git, uv, and an installed Codex. PowerContext supports macOS and Linux;
 Windows support is `experimental`. Host and optional database requirements are listed in
 [Install and run](install-and-run.md). The commands below use the current, unreleased `master` integration:
 
@@ -25,24 +25,31 @@ database, and serves the Dashboard at `/` and MCP at `/mcp`.
 For the tagged release installation, see [Install and run](install-and-run.md#choose-a-version).
 Keep the Server package and integration on the same tag or commit.
 
-## 2. Connect an Agent
+## 2. Connect Codex
 
-Choose your host from [Connect Agents](../integrations/index.md), follow its installation, connection, and verification
-steps, then start a new Agent session. For example, use the [Codex guide](../integrations/codex.md) for Codex plugin setup.
+In another terminal, install the plugin and verify the integration:
+
+```bash
+powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext doctor codex
+```
+
+Open a new Codex session in your project to load the plugin. Connection, authentication, and other settings are covered
+in the [Codex guide](../integrations/codex.md). For another host, follow its [integration guide](../integrations/index.md).
 
 Different projects do not automatically receive separate Scopes. Use [Scopes and access control](../workflows/scopes-and-access.md)
 when projects need isolated data.
 
 ## 3. Save and recover one decision
 
-Ask the Agent to save an explicit, non-sensitive decision:
+Ask Codex to save an explicit, non-sensitive decision:
 
 ```text
 Remember this project decision in PowerContext: use uv for Python dependency management.
 ```
 
 Ask it to search PowerContext for that decision. A successful write and read should return the decision with its
-Memory citation. Then open a new Agent session in the same project and ask:
+Memory citation. Then open a new Codex session in the same project and ask:
 
 ```text
 Search PowerContext: which tool does this project use for Python dependency management?

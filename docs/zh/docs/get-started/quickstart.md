@@ -1,16 +1,16 @@
 ---
 title: 快速开始
-description: 安装 PowerContext、接入一个 Agent，并在新会话中恢复已保存的决策。
+description: 安装 PowerContext、接入 Codex，并在新会话中恢复已保存的决策。
 ---
 
 # 快速开始
 
-通过一个持续运行的 PowerContext Server，在 Agent 会话之间保留项目上下文。本页使用显式 Memory 写入，
+通过一个持续运行的 PowerContext Server，在 Agent 会话之间保留项目上下文。本页以 Codex 为例，使用显式 Memory 写入，
 不需要生成模型或 Embedding 服务。
 
 ## 1. 安装并启动
 
-需要 Python 3.11+、Git、uv 和已安装的 Agent。PowerContext 支持 macOS 和 Linux；Windows 支持为 `experimental`。
+需要 Python 3.11+、Git、uv 和已安装的 Codex。PowerContext 支持 macOS 和 Linux；Windows 支持为 `experimental`。
 宿主和可选数据库的要求见[安装与运行](install-and-run.md)。以下命令使用当前尚未发布的 `master` 集成：
 
 ```bash
@@ -23,23 +23,30 @@ powercontext server run
 
 安装带 tag 的发布版见[安装与运行](install-and-run.md#选择版本)。Server 包与集成应使用相同的 tag 或 commit。
 
-## 2. 接入 Agent
+## 2. 接入 Codex
 
-从[接入 Agent](../integrations/index.md)选择你使用的宿主，按对应文档完成安装、连接与验证，然后启动新的 Agent 会话。
-例如，Codex 的插件安装和配置见 [Codex](../integrations/codex.md)。
+在另一个终端中安装插件并验证集成：
+
+```bash
+powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext doctor codex
+```
+
+在项目中打开新的 Codex 会话以加载插件。连接、认证等详细配置见 [Codex 文档](../integrations/codex.md)。
+使用其他宿主时，请按[对应的集成文档](../integrations/index.md)完成接入。
 
 不同项目不会自动获得独立 Scope；需要隔离项目时，按[Scope 与访问控制](../workflows/scopes-and-access.md)建立边界。
 
 ## 3. 保存并恢复一条决策
 
-请 Agent 显式保存一条不含敏感信息的决策：
+请 Codex 显式保存一条不含敏感信息的决策：
 
 ```text
 Remember this project decision in PowerContext: use uv for Python dependency management.
 ```
 
 请它从 PowerContext 搜索该决策。成功的写入和读取应返回决策及其 Memory citation。
-随后在同一项目中打开新的 Agent 会话，询问：
+随后在同一项目中打开新的 Codex 会话，询问：
 
 ```text
 Search PowerContext: which tool does this project use for Python dependency management?
