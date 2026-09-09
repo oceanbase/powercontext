@@ -133,6 +133,7 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         )
         ctx["data"]["notes"] = window["items"]
         ctx["notes_pager"] = list_links(ctx, "notes", window)
+        ctx["notes_page_size"] = PAGE_SIZE
         await select_note(api, request, ctx)
     elif page == "handoff":
         await load_collection(api, request, ctx, "handoff")

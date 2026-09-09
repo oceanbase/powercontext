@@ -20,9 +20,12 @@ async function checkReadingBounds(page, route) {
       const bounds = scroll ? { left: 0, right: scroll.scrollWidth } : card?.getBoundingClientRect();
       const range = document.createRange();
       range.selectNodeContents(node);
+      const clip = style.textOverflow === 'ellipsis' && ['hidden', 'clip'].includes(style.overflowX) ? element.getBoundingClientRect() : null;
       for (const rect of range.getClientRects()) {
-        const left = scroll ? rect.left - scroll.getBoundingClientRect().left + scroll.scrollLeft : rect.left;
-        const right = left + rect.width;
+        const visibleLeft = clip ? Math.max(rect.left, clip.left) : rect.left;
+        const visibleRight = clip ? Math.min(rect.right, clip.right) : rect.right;
+        const left = scroll ? visibleLeft - scroll.getBoundingClientRect().left + scroll.scrollLeft : visibleLeft;
+        const right = left + visibleRight - visibleLeft;
         if (bounds && (left < bounds.left - 2 || right > bounds.right + 2)) issues.push(node.textContent.slice(0, 80));
         if (!scroll && (left < -2 || right > innerWidth + 2)) issues.push(node.textContent.slice(0, 80));
       }
@@ -387,7 +390,7 @@ async function main() {
     await page.goto(`${base}/dashboard/notes?scope=${readingScope}&lang=en`);
     const geometry = () => page.evaluate(() => ({
       height: document.documentElement.scrollHeight,
-      panels: [...document.querySelectorAll('.collection-panel')].map(element => {
+      panels: [...document.querySelectorAll('.collection-panel, .memory-directory')].map(element => {
         const rect = element.getBoundingClientRect();
         return [rect.x, rect.y + scrollY, rect.width, rect.height].map(Math.round);
       }),
@@ -397,12 +400,25 @@ async function main() {
       }),
     }));
     const firstLayout = await geometry();
+    const checkMemoryDirectory = async () => {
+      const directory = page.locator('.memory-items');
+      assert(await directory.evaluate(element => element.scrollHeight <= element.clientHeight + 1), 'Memory directory requires internal scrolling');
+      for (const item of await directory.locator('a').all()) {
+        assert(await item.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          const parent = element.parentElement.getBoundingClientRect();
+          return bounds.top >= parent.top - 1 && bounds.bottom <= parent.bottom + 1;
+        }), 'Memory entry falls outside its directory');
+      }
+    };
+    await checkMemoryDirectory();
     let following = page.getByRole('link', { name: 'Next page', exact: true });
     while (await following.count()) {
       const destination = await following.getAttribute('href');
       await following.click();
       await page.waitForURL(base + destination);
       assert.deepEqual(await geometry(), firstLayout, `Pagination shifted the reading layout at ${width}`);
+      await checkMemoryDirectory();
       following = page.getByRole('link', { name: 'Next page', exact: true });
     }
   }

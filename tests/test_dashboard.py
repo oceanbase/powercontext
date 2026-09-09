@@ -70,7 +70,7 @@ def test_language_survives_navigation_without_translating_records(dashboard: Tes
     response = dashboard.get("/dashboard/home", params={"lang": "en", "scope": scope["scope_id"], "period": "30d"})
     assert response.status_code == 200
     assert '<html lang="en">' in response.text
-    assert "Experiences &amp; skills" in response.text
+    assert "Experiences &amp; Skills" in response.text
     assert "Work on Release work" in response.text
     chinese_link = re.search(r'href="([^"]+)" lang="zh-CN"', response.text)
     assert chinese_link is not None
