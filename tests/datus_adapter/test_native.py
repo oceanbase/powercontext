@@ -37,7 +37,7 @@ def runtime_python():
 
 def probe(runtime_python, root, *names):
     source = Path(__file__).resolve().parents[2] / "integrations/datus/src"
-    env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(source)}
+    env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(source), "PYTHONDONTWRITEBYTECODE": "1"}
     command = [str(runtime_python), "-m", "powercontext_datus.native", "--skill-root", str(root)]
     for name in names:
         command.extend(["--expected-skill", name])

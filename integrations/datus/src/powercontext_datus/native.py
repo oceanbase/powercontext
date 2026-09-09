@@ -31,8 +31,11 @@ import logging
 import os
 import platform
 import re
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from powercontext_datus import DATUS_COMMIT
 from powercontext_datus.freeze import IntegrityError, snapshot, verify_snapshot
@@ -128,12 +131,35 @@ def database_smoke() -> dict[str, object]:
         return {
             "success": success,
             "sql": "SELECT 1 AS adapter_smoke",
-            "row_count": result.row_count,
-            "result": result.sql_return if success else None,
+            # Never forward arbitrary connector metadata, even on success.
+            "row_count": 1 if success else None,
+            "result": [{"adapter_smoke": 1}] if success else None,
             "error": None if success else "native_query_failed",
         }
     finally:
         connector.close()
+
+
+@contextmanager
+def _discard_third_party_output() -> Iterator[TextIO]:
+    """Process-owned CLI boundary, not safe for concurrent in-process callers.
+
+    Python stream redirection alone misses DBAPI/native writes and inherited
+    child descriptors. Keep FD 1/2 discarded through process shutdown as C stdio
+    buffers and atexit callbacks can write after the body. The non-inheritable
+    duplicate is exclusively for the bounded report and closes before shutdown.
+    """
+    previous_streams = (sys.stdout, sys.stderr)
+    for stream in previous_streams:
+        stream.flush()
+    with (
+        os.fdopen(os.dup(1), "w") as report_channel,
+        open(os.devnull, "w") as discarded,
+    ):
+        os.dup2(discarded.fileno(), 1)
+        os.dup2(discarded.fileno(), 2)
+        with redirect_stdout(discarded), redirect_stderr(discarded):
+            yield report_channel
 
 
 def main() -> None:
@@ -145,19 +171,25 @@ def main() -> None:
     # No third-party debug logs or connection exceptions may reveal a URL/password.
     logging.disable(logging.CRITICAL)
     report: dict[str, object] = {"evidence_kind": "native_component_smoke", "native_agent_qa_runs": 0}
-    try:
-        structlog = importlib.import_module("structlog")
-        structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL))
-        report["runtime"] = verify_runtime()
-        report["skills"] = skill_smoke(args.skill_root, args.expected_skill)
-        database = database_smoke() if args.db else {"status": "not_requested"}
-        report["database"] = database
-        report["status"] = "passed" if not args.db or database["success"] else "failed"
-    except Exception as error:
-        report.update(status="failed", error_type=type(error).__name__)
-    print(json.dumps(report, sort_keys=True, allow_nan=False))
+    failure_exit_code = 1
+    with _discard_third_party_output() as report_channel:
+        try:
+            structlog = importlib.import_module("structlog")
+            structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL))
+            report["runtime"] = verify_runtime()
+            report["skills"] = skill_smoke(args.skill_root, args.expected_skill)
+            database = database_smoke() if args.db else {"status": "not_requested"}
+            report["database"] = database
+            report["status"] = "passed" if not args.db or database["success"] else "failed"
+        except BaseException as error:
+            # CLI boundary only: even SystemExit/interrupt messages from an imported
+            # component must not become an interpreter traceback containing secrets.
+            report.update(status="failed", error_type=type(error).__name__)
+            if isinstance(error, KeyboardInterrupt):
+                failure_exit_code = 130
+        print(json.dumps(report, sort_keys=True, allow_nan=False), file=report_channel, flush=True)
     if report["status"] != "passed":
-        raise SystemExit(1)
+        raise SystemExit(failure_exit_code)
 
 
 if __name__ == "__main__":

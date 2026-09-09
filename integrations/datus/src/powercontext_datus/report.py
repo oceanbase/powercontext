@@ -88,7 +88,7 @@ def summarize(task_ids: list[str], verdicts: list[CaseVerdict], *, data_version_
             cases.append({"task_id": task_id, "correct": False, "joint_pass": False, "failures": ["trace_missing"]})
             continue
         failures = _case_failures(case, data_version_verified=data_version_verified)
-        if case.trace_complete and case.steps is not None:
+        if case.steps is not None and "trace_missing" not in failures:
             known_steps.append(case.steps)
         correct = case.correct and case.native_execution and case.answer_grounded and case.oracle_consistent
         correct_count += int(correct)
@@ -105,6 +105,14 @@ def summarize(task_ids: list[str], verdicts: list[CaseVerdict], *, data_version_
     run_state_valid = data_version_verified and all(
         case.state_valid and "leakage/state_drift" not in case.failures for case in verdicts
     )
+    oracle_valid = len(verdicts) == total and all(
+        case.oracle_consistent and "oracle_conflict" not in case.failures for case in verdicts
+    )
+    # Failed cases still consume the full-roster budget. Missing evidence is
+    # unknown, never a zero-step failure or a reason to shrink the denominator.
+    total_steps = sum(known_steps) if len(known_steps) == total else None
+    step_budget = 2 * total
+    step_budget_pass = total_steps is not None and total_steps <= step_budget
     return {
         "total": total,
         "results_present": len(verdicts),
@@ -112,10 +120,14 @@ def summarize(task_ids: list[str], verdicts: list[CaseVerdict], *, data_version_
         "accuracy": correct_count / total,
         "joint_pass": joint_count,
         "joint_rate": joint_count / total,
-        "mean_steps": sum(known_steps) / total if len(known_steps) == total else None,
+        "total_steps": total_steps,
+        "step_budget": step_budget,
+        "step_budget_pass": step_budget_pass,
+        "mean_steps": total_steps / total if total_steps is not None else None,
         "step_coverage": len(known_steps) / total,
         "data_version_verified": data_version_verified,
         "run_state_valid": run_state_valid,
-        "accepted": run_state_valid and joint_count * 10 >= total * 9 and len(known_steps) == total,
+        "oracle_valid": oracle_valid,
+        "accepted": run_state_valid and oracle_valid and joint_count * 10 >= total * 9 and step_budget_pass,
         "cases": cases,
     }

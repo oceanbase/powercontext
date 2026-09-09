@@ -370,9 +370,44 @@ is committed. Earlier diagnostics processed reference SQL for EXPLAIN and expose
 aggregate structure to the designer. Retain that exposure ledger; do not claim
 absolute non-exposure or replace the benchmark. Formal admission remains a
 separate coordinator decision after implementation, real development evidence,
-independent review and final freeze. The agreed formal gate remains at least
-42/46 correct with 1–2 online logical steps, plus the full-roster average; unknown
-steps cannot be excluded or filled with zero.
+independent review and final freeze. DESIGN-4 requires **both** at least 42/46
+correct with 1–2 online logical steps **and** at most 92 online steps across all
+46 questions (full-roster mean at most 2). Unknown steps cannot be excluded or
+filled with zero. Failed questions' observed attempts still consume the budget.
+
+The shared aggregator exposes `total_steps`, `step_budget=2*N`,
+`step_budget_pass`, and `oracle_valid` alongside the existing diagnostic fields.
+It certifies neither the total nor the mean if any question lacks complete step
+evidence. An oracle conflict invalidates the batch even when the remaining cases
+meet the joint count. For example, 42 correct cases at 2 steps and 4 failed cases
+at 3 steps is 96 steps and **fails**. Totals of 92/93 straddle the budget boundary;
+42 correct cases at 1 step and 4 failed cases at 3 steps is 54 and may pass.
+Passing synthetic aggregation tests does not open formal admission or certify a
+real run. Formal dispatch remains disabled pending its implementation and live
+learning/development, authorization, isolation and freeze evidence.
+
+### Security smoke prerequisites
+
+The `native` CLI discards third-party Python stdout/stderr, direct file-descriptor
+writes and inherited child output during import, construction, query and close.
+FD 1/2 remain discarded through process shutdown (including C stdio buffers and
+`atexit` callbacks); a private non-inheritable duplicate emits the bounded JSON
+report and then closes. Errors, including third-party interrupts/SystemExit,
+expose their type, not their message or connector metadata. This is a process-owned
+CLI boundary, not an
+in-process concurrency API or general trace-redaction mechanism. In particular,
+the learning/paired workflow's raw tool and result evidence needs separate
+secret-leak fault injection and review before use with real credentials.
+
+Do not infer verified TLS from the pinned MySQL adapter's default configuration:
+it exposes no verified-TLS option and the driver can fall back to a connection
+without TLS. `--db` is not a transport or principal authorization check. Before
+sending authentication, the controlled runner must establish a verified TLS
+route or task-authorized protected network, plus model-service authorization,
+read-only principal rights and a common immutable data version. A no-authentication
+greeting probe can establish that a server does not advertise TLS; it cannot
+prove account grants or qualify an unprotected network. Do not use another
+task's secret references to satisfy this prerequisite.
 
 ## Tests
 
