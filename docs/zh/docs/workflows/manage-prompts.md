@@ -25,5 +25,8 @@ Prompt 自定义功能位于当前 `master`。它修改一个 Scope 内的操作
 在 enforced 模式下，创建、替换、切换 Auto 和恢复都需要当前 `scope.admin` 权限。
 Scope 角色被撤销后，拥有 Prompt Artifact 也不能继续修改它。
 
+要在另一个 Scope 中复用指令，请使用已注册的 `prompt_key` 创建或替换目标 Scope 的 Prompt。
+通用 Artifact 发布接口会拒绝 Prompt，返回 `422 / artifact_publication_unsupported`，目标 Scope 保持不变。
+
 应用可通过 `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` 读取生效配置，再使用带条件写入的
 [Artifact API](artifacts.md)保存版本。支持的 key、请求结构和示例生成见 [HTTP API](../develop/http-api.md)。

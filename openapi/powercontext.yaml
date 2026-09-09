@@ -319,6 +319,8 @@ paths:
       summary: Publish one exact Artifact revision into another Scope
       description: >-
         Memory publication is rejected until its complete family-owned state can be created atomically in the target Scope.
+        Prompt publication is rejected because Prompt identities must be registered operation keys.
+        Configure the target Scope through the Artifact Create and Replace APIs instead.
         Profile artifacts cannot be copied or published across Scopes, whether or not the target already has a Profile.
         Requests for these families return HTTP 422 with code artifact_publication_unsupported and details.family.
         Rejection creates no target Artifact or publication record; other supported families retain their existing behavior.

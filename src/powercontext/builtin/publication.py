@@ -83,7 +83,7 @@ class ArtifactPublicationConflictError(PowerContextError, RuntimeError):
 
 
 class ArtifactPublicationUnsupportedError(PowerContextError, RuntimeError):
-    """Report an Artifact family that cannot yet form a complete target revision."""
+    """Report an Artifact family that cannot be delivered by generic publication."""
 
     def __init__(self, family: str) -> None:
         self.family = family
@@ -125,7 +125,7 @@ class ArtifactPublicationApplication:
         request: ArtifactPublicationRequest,
     ) -> ArtifactPublication:
         source = await self._artifacts.get(connection, request.source.scope_id, request.source.artifact)
-        if source.family in {"memory", "profile"}:
+        if source.family in {"memory", "profile", "prompt"}:
             raise ArtifactPublicationUnsupportedError(source.family)
         existing = await self._find_request(connection, request.target_scope_id, request.idempotency_key)
         if existing is not None:

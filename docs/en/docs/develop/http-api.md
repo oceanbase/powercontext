@@ -173,6 +173,11 @@ target Scope. Consequently, one logical sharing grant covers earlier and later s
 publication still records the exact copied Revision and its provenance. Host-local Dashboard projection remains an
 operational surface protected by the corresponding Scope and Artifact checks.
 
+Prompt publication returns `422 / artifact_publication_unsupported` without creating a target Artifact. To configure
+a Prompt in another Scope, use `POST /v1/scopes/{scope_id}/artifacts` with `family=prompt` and a registered `prompt_key`,
+or update it through `PUT /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}` with `If-Match`. These operations preserve
+the fixed Prompt identity and validate its content.
+
 The standard Skill lifecycle uses the same Access boundary. Library listing requires `scope.read`; lifecycle changes
 require `artifact.write`; package manifest/download requires `artifact.read`; package proposals require
 `scope.contribute` and, when replacing an existing Skill, `artifact.write`; usage capture requires both

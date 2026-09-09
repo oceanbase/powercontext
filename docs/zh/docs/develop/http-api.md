@@ -157,6 +157,10 @@ Access wire contract 只使用 `server`、`scope` 和 `artifact` 三种 Resource
 可以覆盖 source 的历史与后续 Revision，而每次 publication 仍会记录实际复制的精确 Revision 和 provenance。
 host-local Dashboard projection 属于运维界面，由对应的 Scope 与 Artifact 权限保护。
 
+Prompt 发布返回 `422 / artifact_publication_unsupported`，不会创建目标 Artifact。要在另一个 Scope 中配置 Prompt，
+请使用 `POST /v1/scopes/{scope_id}/artifacts`，指定 `family=prompt` 和已注册的 `prompt_key`；更新时使用
+`PUT /v1/scopes/{scope_id}/artifacts/prompt/{prompt_key}` 并携带 `If-Match`。这些操作会保留 Prompt 的固定身份并校验内容。
+
 标准 Skill 生命周期复用同一 Access 边界：Library 列表要求 `scope.read`，生命周期变更要求 `artifact.write`，
 package manifest/download 要求 `artifact.read`，package proposal 要求 `scope.contribute`，替换已有 Skill 时还要求
 `artifact.write`；usage capture 同时要求 `scope.contribute` 与 `artifact.read`。远端 target 管理要求

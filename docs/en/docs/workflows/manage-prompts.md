@@ -28,6 +28,9 @@ the current built-in guidance, not a frozen copy of an older deployment.
 In enforced mode, creation, replacement, switching to Auto, and restoration require current `scope.admin` authority.
 Owning a Prompt Artifact does not permit changes after that Scope role is revoked.
 
+To reuse instructions in another Scope, create or replace its Prompt using a registered `prompt_key`.
+Generic Artifact publication rejects Prompts with `422 / artifact_publication_unsupported` and leaves the target Scope unchanged.
+
 For applications, read effective configuration through `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` and use the
 [Artifact API](artifacts.md) with conditional writes to save revisions. See the [HTTP API](../develop/http-api.md)
 for supported keys, request shapes, and demonstration generation.
