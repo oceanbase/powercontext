@@ -1416,8 +1416,8 @@ def test_service_install_cli_prompts_for_login_autostart(monkeypatch: pytest.Mon
     assert "POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
     assert "the value is never printed" in result.output
     assert "Inference capability notice" in result.output
-    assert "未配置 generation model" in result.output
-    assert "未配置 embedding model" in result.output
+    assert "可能影响部分制品功能" in result.output
+    assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in result.output
 
 
 def test_service_install_cli_reports_the_environment_file_without_credentials(

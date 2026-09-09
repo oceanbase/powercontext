@@ -90,9 +90,10 @@ file override same-named process values; inherited `POWERCONTEXT_SERVER_*` varia
 are ignored. `config init` creates a model-free base configuration; see the [Full-capability Quick Start](full-capability-runtime.md)
 when you need to add inference models and enable the full capability set.
 
-Whether the Server runs in the foreground, in Docker, or as a personal service, startup or installation output lists
-the unavailable or degraded capabilities whenever the generation or embedding model is missing, together with the
-configuration entry point. The notice is omitted when both models are configured.
+Whether the Server runs in the foreground, in Docker, or as a personal service, startup or installation output warns
+that missing models may affect some artifact features and links to the
+[configuration reference](https://powercontext.oceanbase.io/en/docs/reference/configuration/).
+The notice is omitted when both generation and embedding models are configured.
 
 ## Run with Docker
 

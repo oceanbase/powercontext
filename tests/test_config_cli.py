@@ -39,8 +39,8 @@ def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp
     assert "Generation API key" not in result.output
     assert "Embedding model" not in result.output
     assert "Inference capability notice" in result.output
-    assert "Source 自动抽取 Memory" in result.output
-    assert "向量检索和 hybrid 检索" in result.output
+    assert "可能影响部分制品功能" in result.output
+    assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in result.output
     assert f"Path          {environment.resolve()} (mode 0600)" in result.output
     assert "POWERCONTEXT_SERVER_AUTH_TOKEN" in result.output
     assert "the value is never printed" in result.output

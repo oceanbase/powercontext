@@ -168,17 +168,6 @@ AGENTS: dict[str, tuple[str, str, str]] = {
     ),
 }
 
-_AGENT_MODEL_IMPACTS: dict[str, str] = {
-    "codex": "显式 Memory、Source 采集和已有 Handoff 可用; 自动 Memory 抽取和语义检索会退化。",
-    "claude-code": "显式 Memory、Source 采集和已有 Handoff 可用; 自动 Memory 抽取和语义检索会退化。",
-    "dsh": "显式 Memory、Source 采集和已有 Handoff 可用; 自动抽取、Experience/Skill 生成和语义检索不可用或退化。",
-    "opencode": "显式 Memory、Source 采集和已有 Handoff 可用; Experience/Skill 生成不可用, 语义检索会退化。",
-    "pi": "显式 Memory、Source 采集和已有 Handoff 可用; 自动抽取和语义检索会退化。",
-    "openclaw": "显式 Memory 和 Source 采集可用; 自动 Memory 抽取不可用, 语义检索会退化。",
-    "hermes": "显式 Memory、Source 采集和 Handoff 可用; 自动抽取、Experience/Skill 生成和语义检索不可用或退化。",
-    "workbuddy": "显式 Memory、Source 采集和已有 Handoff 可用; 自动 Memory 抽取和语义检索会退化。",
-}
-
 # Input hints only, not a provider allowlist. Unknown prefixes can attach arbitrary variables.
 _MODEL_ENVIRONMENT_HINTS: dict[str, tuple[str, ...]] = {
     "openai": ("OPENAI_API_KEY",),
@@ -989,19 +978,14 @@ def _print_next_steps(path: Path) -> None:
         " the value is never printed."
     )
     typer.echo(f"\nStart Server:\n  powercontext server run --env-file {quoted}")
-    write_inference_capability_notice(generation_model=None, embedding_model=None, env_file=path)
+    write_inference_capability_notice(generation_model=None, embedding_model=None)
     typer.secho("\nSupported Coding Agents (choose one):", bold=True, fg=typer.colors.CYAN)
-    for agent_id, (name, setup, launch) in AGENTS.items():
+    for name, setup, launch in AGENTS.values():
         typer.echo(f"\n{name}:\n  {setup}")
         if launch.startswith("重启"):
             typer.echo(f"  {launch}")
         else:
             typer.echo(f"  set -a; . {quoted}; set +a; {launch}")
-        typer.echo(f"  {_AGENT_MODEL_IMPACTS[agent_id]}")
-    typer.echo(
-        "\n其他 Python 适配器(Pydantic AI、LangChain、LangGraph 和 Bub)也会遵循同一 Server 能力状态;"
-        "它们的模型调用仍由应用自己负责。"
-    )
 
 
 def _fail(message: str) -> Never:

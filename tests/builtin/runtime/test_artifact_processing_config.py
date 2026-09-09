@@ -185,8 +185,8 @@ def test_server_cli_routes_background_role_without_starting_http(monkeypatch) ->
 
     assert result.exit_code == 0, result.output
     assert "Inference capability notice" in result.output
-    assert "未配置 generation model" in result.output
-    assert "未配置 embedding model" in result.output
+    assert "可能影响部分制品功能" in result.output
+    assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in result.output
     run_server.assert_not_called()
     run_background.assert_called_once()
     assert run_background.call_args.args[0].runtime.artifact_processing_role == "background"

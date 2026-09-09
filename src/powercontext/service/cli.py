@@ -97,7 +97,6 @@ def install(
     write_inference_capability_notice(
         generation_model=generation_model,
         embedding_model=embedding_model,
-        env_file=env_file,
     )
     _write_status(status, json_output=False)
 

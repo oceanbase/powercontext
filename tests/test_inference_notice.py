@@ -12,30 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
-
 import pytest
 
 from powercontext.cli.inference_notice import write_inference_capability_notice
 
 
-def test_notice_reports_only_the_missing_embedding_capability(
+@pytest.mark.parametrize("generation_model,embedding_model", [(None, None), ("test", None), (None, "test")])
+def test_notice_links_to_configuration_when_any_model_is_missing(
     capsys: pytest.CaptureFixture[str],
-    tmp_path: Path,
+    generation_model: str | None,
+    embedding_model: str | None,
 ) -> None:
-    environment = tmp_path / "powercontext.env"
-
     write_inference_capability_notice(
-        generation_model="openai-chat:test-generation",
-        embedding_model=None,
-        env_file=environment,
+        generation_model=generation_model,
+        embedding_model=embedding_model,
     )
 
     output = capsys.readouterr().out
     assert "Inference capability notice" in output
-    assert "未配置 embedding model" in output
-    assert "未配置 generation model:" not in output
-    assert str(environment.resolve()) in output
+    assert "可能影响部分制品功能" in output
+    assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in output
 
 
 def test_notice_is_silent_when_all_models_are_configured(capsys: pytest.CaptureFixture[str]) -> None:
