@@ -50,6 +50,7 @@ class DashboardAPI:
     """Use an in-process HTTP transport with the incoming user's credentials."""
 
     def __init__(self, request: Request) -> None:
+        self.app = request.app
         headers = authentication_headers(request.scope)
         headers = {key: value for key, value in headers.items() if key in {"authorization", "cookie"}}
         self.client = httpx.AsyncClient(
@@ -142,4 +143,26 @@ class DashboardAPI:
         return {
             "items": list(await asyncio.gather(*(load(item) for item in page["items"]))),
             "next_cursor": page["next_cursor"],
+        }
+
+    async def topic_memory_search(self, scope: str, query: str) -> dict[str, Any]:
+        return await self.read("/v1/topic-memory/search", {"scope_id": scope, "query": query})
+
+    async def topic_memory_get(self, scope: str, artifact: dict[str, Any]) -> dict[str, Any]:
+        return await self.read("/v1/topic-memory/get", {"scope_id": scope, "artifact": artifact})
+
+    async def topic_memory_browse(self, scope: str, *, limit: int = 50) -> dict[str, Any]:
+        application = getattr(self.app.state, "application", None)
+        if application is None:
+            raise ReadError(503, "service_unavailable")
+        items = await application.topic_memory.for_scope(scope).browse(limit=limit)
+        return {
+            "items": [
+                {
+                    **item.model_dump(mode="json"),
+                    "artifact": item.artifact_ref.model_dump(mode="json"),
+                }
+                for item in items
+            ],
+            "next_cursor": None,
         }

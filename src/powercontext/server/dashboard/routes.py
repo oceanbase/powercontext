@@ -32,7 +32,7 @@ from powercontext.server.dashboard.presenters import source_view
 ROOT = Path(__file__).parent
 LABELS = CATALOGS["zh"]
 PARENTS = {"handoff-detail": "handoff", "experience": "methods", "skill": "methods"}
-PAGES = {"home", "handoff", "notes", "methods", "usage", "entry", *RECORDS}
+PAGES = {"home", "handoff", "notes", "methods", "topics", "usage", "entry", *RECORDS}
 ENV = Environment(
     loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(), undefined=StrictUndefined
 )
@@ -80,6 +80,9 @@ def links(request: Request, ctx: dict[str, Any]):
                     "experience_cursor",
                     "skill_cursor",
                     "q",
+                    "topic_q",
+                    "topic_artifact",
+                    "topic_revision",
                     "notes_page",
                     "skill_page",
                     "experience_history",
@@ -129,6 +132,9 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "period": request.query_params.get("period", "7d"),
         "method_kind": method_kind,
         "search_query": request.query_params.get("q", "").strip() or None,
+        "artifact_query": request.query_params.get("topic_q", "").strip() or None,
+        "topic_artifact": request.query_params.get("topic_artifact"),
+        "topic_revision": request.query_params.get("topic_revision"),
         "search_limited": False,
         "data": {
             "title": "PowerContext",
@@ -137,6 +143,8 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
             "handoff": None,
             "experience": None,
             "skill": None,
+            "topic_memory": [],
+            "topic_memory_selected": None,
         },
         "scopes": [],
         "scope_descriptor": None,
