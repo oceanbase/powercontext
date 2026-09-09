@@ -851,7 +851,7 @@ def test_server_command_can_disable_default_dotenv_discovery(
     assert received == [(8000, None)]
 
 
-def test_server_command_rejects_env_file_with_no_env_file(tmp_path: Path) -> None:
+def test_server_command_rejects_env_file_with_no_env_file(tmp_path: Path, _wide_error_panel: None) -> None:
     environment = tmp_path / "server.env"
     environment.write_text("POWERCONTEXT_SERVER_HTTP_PORT=8130\n", encoding="utf-8")
 
