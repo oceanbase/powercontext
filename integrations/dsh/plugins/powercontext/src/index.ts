@@ -40,7 +40,9 @@ export const Config = {
     validate(value: unknown) {
       try {
         const input = value && typeof value === 'object' ? value as PluginConfig : {}
-        return { value: resolveConfig(input) }
+        resolveConfig(input)
+        // Keep original inputs so runtime resolution can identify defaults and overrides.
+        return { value: input }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         return { issues: [{ message }] }

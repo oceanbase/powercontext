@@ -9,11 +9,7 @@ repos:
       - id: check-json
         exclude: ^.devcontainer/devcontainer.json
       - id: pretty-format-json
-        exclude: ^(?:\.devcontainer/devcontainer\.json|benchmark/locomo/dataset/locomo10\.json|src/powercontext/server/dashboard/labels(?:\.en)?\.json)$
-        args: [--autofix, --no-sort-keys]
-      - id: pretty-format-json
-        name: format dashboard translations
-        files: ^src/powercontext/server/dashboard/labels(?:\.en)?\.json$
+        exclude: ^(?:\.devcontainer/devcontainer\.json|benchmark/locomo/dataset/locomo10\.json)$
         args: [--autofix, --no-sort-keys, --no-ensure-ascii]
       - id: end-of-file-fixer
         exclude: ^benchmark/locomo/dataset/locomo10\.json$

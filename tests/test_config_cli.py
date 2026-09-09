@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -45,14 +46,29 @@ def test_init_asks_for_protocol_endpoint_key_and_plain_model_name(tmp_path: Path
     assert "OpenRouter" not in result.output
     assert "Configuration" in result.output
     assert "Supported Coding Agents (choose one)" in result.output
-    for name, setup, launch in config_cli.AGENTS.values():
+    for host, (name, setup, launch) in config_cli.AGENTS.items():
         assert name in result.output
-        assert setup in result.output
+        if host != "dsh":
+            assert setup in result.output
         assert launch in result.output
     values = config_cli.parse_environment(environment.read_text(encoding="utf-8"))
     assert values["OPENAI_API_KEY"] == "shared-secret"
     assert values["OPENAI_BASE_URL"] == "https://api.openai.com/v1"
     assert values["POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL"] == "openai-chat:gpt-4.1-mini"
+
+
+@pytest.mark.parametrize("installed", ["0.2.0", "0.2.1.dev1+g1234567"])
+def test_init_matches_dsh_setup_to_installed_server(installed: str, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(config_cli, "version", lambda _name: installed)
+    monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: _configuration())
+    result = CliRunner().invoke(config_cli.app, ["init", "--output", str(tmp_path / "server.env")], input="\n")
+    assert result.exit_code == 0
+    command = next(line.strip() for line in result.output.splitlines() if "powercontext setup dsh" in line)
+    if installed == "0.2.0":
+        assert command.endswith("--ref powercontext-v0.2.0")
+    else:
+        assert "--source /path/to/matching-powercontext-checkout" in command
+    assert "--ref master" not in command
 
 
 def test_arbitrary_model_providers_and_environment_variables_are_not_rejected() -> None:
@@ -106,7 +122,8 @@ def test_init_validate_and_show_round_trip_managed_environment(
     )
 
     assert generated.exit_code == 0
-    assert environment.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # Windows does not implement POSIX owner/group permission bits.
+        assert environment.stat().st_mode & 0o777 == 0o600
     generated_text = environment.read_text(encoding="utf-8")
     assert config_cli.MANAGED_BEGIN in generated_text
     assert "# generation-environment=OPENAI_API_KEY" in generated_text

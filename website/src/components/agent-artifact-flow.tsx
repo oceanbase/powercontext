@@ -37,56 +37,56 @@ const agents: Agent[] = [
       'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/codex-color.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/codex-color.png?size=120',
     name: 'Codex',
-    slug: 'configure-codex',
+    slug: 'codex',
   },
   {
     darkLogo:
       'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/claudecode-color.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/claudecode-color.png?size=120',
     name: 'Claude Code',
-    slug: 'configure-claude-code',
+    slug: 'claude-code',
   },
   {
     darkLogo:
       'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/deepseek-color.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/deepseek-color.png?size=120',
     name: 'DeepSeek Harness',
-    slug: 'configure-dsh',
+    slug: 'dsh',
   },
   {
     darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/hermesagent.png?raw=true&size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/hermesagent.png?raw=true&size=120',
     name: 'Hermes Agent',
-    slug: 'configure-hermes',
+    slug: 'hermes',
   },
   {
     darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/opencode.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/opencode.png?size=120',
     name: 'OpenCode',
-    slug: 'configure-opencode',
+    slug: 'opencode',
   },
   {
     darkLogo:
       'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/openclaw-color.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/openclaw-color.png?size=120',
     name: 'OpenClaw',
-    slug: 'configure-openclaw',
+    slug: 'openclaw',
   },
   {
     darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/pi.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/pi.png?size=120',
     name: 'Pi Coding Agent',
-    slug: 'configure-pi',
+    slug: 'pi',
   },
   {
     darkLogo: 'https://thesvg.org/icons/workbuddy/default.svg?size=120',
     logo: 'https://thesvg.org/icons/workbuddy/default.svg?size=120',
     name: 'WorkBuddy',
-    slug: 'configure-workbuddy',
+    slug: 'workbuddy',
   },
   {
     darkLogo: 'https://github.com/bubbuild.png?size=120',
-    href: 'https://github.com/oceanbase/powercontext/tree/master/integrations/bub',
+    slug: 'evaluation',
     logo: 'https://github.com/bubbuild.png?size=120',
     name: 'Bub',
   },
@@ -94,20 +94,20 @@ const agents: Agent[] = [
     darkLogo: 'https://thesvg.org/icons/pydantic/default.svg?size=120',
     logo: 'https://thesvg.org/icons/pydantic/default.svg?size=120',
     name: 'Pydantic AI',
-    slug: 'configure-pydantic-ai',
+    slug: 'pydantic-ai',
   },
   {
     darkLogo:
       'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langchain-color.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langchain-color.png?size=120',
     name: 'LangChain',
-    slug: 'configure-langchain',
+    slug: 'langchain',
   },
   {
     darkLogo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langgraph.png?size=120',
     logo: 'https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langgraph.png?size=120',
     name: 'LangGraph',
-    slug: 'configure-langgraph',
+    slug: 'langgraph',
   },
 ];
 
@@ -159,19 +159,21 @@ function AgentLink({
   className?: string;
   lang: Language;
 }) {
+  const status = agent.slug === 'codex' ? 'official' : agent.slug === 'evaluation' ? 'evaluation' : 'community';
   const external = Boolean(agent.href);
-  const href = agent.href ?? `/${lang}/docs/how-to/${agent.slug}`;
+  const href = agent.href ?? `/${lang}/docs/integrations/${agent.slug}`;
 
   return (
     <Link
-      aria-label={ariaLabel}
-      className={className}
+      aria-label={`${ariaLabel}: ${status}`}
+      className={`${className ?? ''} flex-col gap-1`}
       href={href}
       rel={external ? 'noreferrer' : undefined}
       target={external ? '_blank' : undefined}
-      title={agent.name}
+      title={`${agent.name}: ${status}`}
     >
       {children}
+      <span className="rounded border px-1 text-[10px] text-fd-muted-foreground">{status}</span>
     </Link>
   );
 }
@@ -203,7 +205,7 @@ export function AgentArtifactFlow({ content, lang }: { content: HomeContent['eco
           <Link
             aria-label={content.all_agents_label}
             className="flex min-h-18 items-center justify-center bg-fd-muted/50 text-2xl text-fd-muted-foreground hover:bg-fd-accent hover:text-fd-foreground"
-            href={`/${lang}/docs/reference/integration-capabilities`}
+            href={`/${lang}/docs/integrations`}
             title={content.all_agents_label}
           >
             <span aria-hidden="true">…</span>

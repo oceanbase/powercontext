@@ -1,0 +1,24 @@
+{
+  "title": "接入 Agent",
+  "pages": [
+    "index",
+    "---Plugins, MCP & Skills---",
+    "agent-plugin",
+    "---Agent Hosts---",
+    "codex",
+    "claude-code",
+    "dsh",
+    "hermes",
+    "openclaw",
+    "opencode",
+    "pi",
+    "workbuddy",
+    "---Python Agent 框架---",
+    "pydantic-ai",
+    "langchain",
+    "langgraph",
+    "---评测与能力---",
+    "evaluation",
+    "capabilities"
+  ]
+}

@@ -488,6 +488,22 @@ ARTIFACT_PROCESSING_BINDING_STATES_TABLE = Table(
     Column("last_auto_wave_completed_at", DateTime(timezone=False)),
 )
 
+TOPIC_MEMORY_WORK_BUDGETS_TABLE = Table(
+    "pc_topic_memory_work_budgets",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("source_after", BigInteger, primary_key=True),
+    Column("source_through", BigInteger, nullable=False),
+    Column("attempt_id", identity_string(36), nullable=False),
+    Column("attempts", Integer, nullable=False),
+    Column("requests", BigInteger, nullable=False),
+    Column("tokens", BigInteger, nullable=False),
+    Column("failure_code", String(64), nullable=False),
+    CheckConstraint("source_after >= 0 AND source_through > source_after", name="ck_pc_topic_budget_window"),
+    CheckConstraint("attempts > 0 AND requests >= 0 AND tokens >= 0", name="ck_pc_topic_budget_usage"),
+)
+
 
 TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE = Table(
     "pc_topic_memory_revision_publications",
@@ -807,6 +823,7 @@ SHARED_TABLES = (
     SOURCE_CURSORS_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
+    TOPIC_MEMORY_WORK_BUDGETS_TABLE,
     ARTIFACT_PROCESSING_PENDING_TABLE,
     ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,

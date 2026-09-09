@@ -77,8 +77,12 @@ class TopicMemoryRepository:
         self.artifacts = ArtifactRepository((TopicMemory,)) if artifacts is None else artifacts
         self.index = NoTopicMemoryIndex() if index is None else index
 
-    async def initialize(self, connection: AsyncConnection, /) -> None:
-        """Initialize indexes and reject incomplete historical Topic projections."""
+    async def initialize(self, connection: AsyncConnection, /, *, configure_retrieval_shape: bool = True) -> None:
+        """Initialize indexes and reject incomplete historical Topic projections.
+
+        Only deployment startup may configure an empty store. Workers must
+        reuse an existing shape and fail closed if it is absent or mismatched.
+        """
 
         missing_publication = (
             await connection.execute(
@@ -104,7 +108,10 @@ class TopicMemoryRepository:
         if missing_publication is not None:
             raise TopicMemoryStorageInvariantError("missing-publication", tuple(missing_publication))
 
-        await self._ensure_retrieval_shape(connection)
+        if configure_retrieval_shape:
+            await self._ensure_retrieval_shape(connection, allow_empty_change=True)
+        else:
+            await self._check_retrieval_shape(connection)
         await self.index.initialize(connection)
 
         orphan_active = (
@@ -150,24 +157,52 @@ class TopicMemoryRepository:
         if orphan_chunk is not None:
             raise TopicMemoryStorageInvariantError("active-chunk-not-head", tuple(orphan_chunk))
 
-        active_rows = (
-            await connection.execute(
-                select(
-                    ARTIFACT_HEADS_TABLE.c.scope_id,
-                    ARTIFACT_HEADS_TABLE.c.artifact_id,
-                    ARTIFACT_HEADS_TABLE.c.revision,
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision.label("active_revision"),
-                )
-                .outerjoin(
-                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
-                    (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id == ARTIFACT_HEADS_TABLE.c.scope_id)
-                    & (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.family == ARTIFACT_HEADS_TABLE.c.family)
-                    & (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id == ARTIFACT_HEADS_TABLE.c.artifact_id),
-                )
-                .where(ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family)
+        # Check each Head and its chunks in the same statement snapshot. A
+        # Worker may use READ COMMITTED (or SQLite legacy SELECT mode), where a
+        # later query could otherwise see an already-replaced active Revision.
+        chunk_count = (
+            select(func.count())
+            .select_from(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE)
+            .where(
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == ARTIFACT_HEADS_TABLE.c.scope_id,
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.family == ARTIFACT_HEADS_TABLE.c.family,
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == ARTIFACT_HEADS_TABLE.c.artifact_id,
+                TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == ARTIFACT_HEADS_TABLE.c.revision,
             )
-        ).mappings()
-        for row in active_rows:
+            .correlate(ARTIFACT_HEADS_TABLE)
+            .scalar_subquery()
+        )
+        invalid_head = (
+            (
+                await connection.execute(
+                    select(
+                        ARTIFACT_HEADS_TABLE.c.scope_id,
+                        ARTIFACT_HEADS_TABLE.c.artifact_id,
+                        ARTIFACT_HEADS_TABLE.c.revision,
+                        TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision.label("active_revision"),
+                    )
+                    .outerjoin(
+                        TOPIC_MEMORY_ACTIVE_TOPICS_TABLE,
+                        (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.scope_id == ARTIFACT_HEADS_TABLE.c.scope_id)
+                        & (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.family == ARTIFACT_HEADS_TABLE.c.family)
+                        & (TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id == ARTIFACT_HEADS_TABLE.c.artifact_id),
+                    )
+                    .where(
+                        ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family,
+                        or_(
+                            TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision.is_(None),
+                            TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.revision != ARTIFACT_HEADS_TABLE.c.revision,
+                            chunk_count == 0,
+                        ),
+                    )
+                    .limit(1)
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if invalid_head is not None:
+            row = invalid_head
             ref = ArtifactRef(
                 family=TopicMemory.family,
                 artifact_id=str(row["artifact_id"]),
@@ -175,25 +210,12 @@ class TopicMemoryRepository:
             )
             if row["active_revision"] is None or int(row["active_revision"]) != ref.revision:
                 raise TopicMemoryStorageInvariantError("head-not-active", (str(row["scope_id"]), ref))
-            chunk_count = int(
-                await connection.scalar(
-                    select(func.count())
-                    .select_from(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE)
-                    .where(
-                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.scope_id == row["scope_id"],
-                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.family == TopicMemory.family,
-                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.artifact_id == ref.artifact_id,
-                        TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.c.revision == ref.revision,
-                    )
-                )
-                or 0
-            )
-            if chunk_count == 0:
-                raise TopicMemoryStorageInvariantError("missing-active-chunks", (str(row["scope_id"]), ref))
-            if self.index.capabilities.vector and not await self.index.vector_complete(
-                connection, str(row["scope_id"]), ref
-            ):
-                raise TopicMemoryStorageInvariantError("incomplete-vector", (str(row["scope_id"]), ref))
+            raise TopicMemoryStorageInvariantError("missing-active-chunks", (str(row["scope_id"]), ref))
+
+        await self.index.validate_current(connection)
+
+        if not configure_retrieval_shape:
+            await self._check_retrieval_shape(connection)
 
     async def publish_create(
         self,
@@ -257,6 +279,7 @@ class TopicMemoryRepository:
 
         if ref.family != TopicMemory.family:
             raise InvalidRepositoryArgumentError("artifact_ref", "must reference topic-memory")
+        await self._check_retrieval_shape(connection)
         topic = await self.artifacts.get(connection, scope_id, ref)
         if not isinstance(topic, TopicMemory):
             raise TopicMemoryStorageInvariantError("artifact-type", ref)
@@ -280,6 +303,7 @@ class TopicMemoryRepository:
         if active_revision is None:
             raise TopicMemoryStorageInvariantError("missing-active-head", (scope_id, ref.artifact_id))
         current = ArtifactRef(family=TopicMemory.family, artifact_id=ref.artifact_id, revision=int(active_revision))
+        await self._check_retrieval_shape(connection)
         return PublishedTopicMemory(
             topic=topic,
             published_at=_aware_utc(published_at),
@@ -300,6 +324,7 @@ class TopicMemoryRepository:
 
         if not 1 <= limit <= 100:
             raise InvalidRepositoryArgumentError("limit", "must be between 1 and 100")
+        await self._check_retrieval_shape(connection)
         statement = (
             select(
                 TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id,
@@ -356,6 +381,7 @@ class TopicMemoryRepository:
                 ).limit(limit)
             )
         ).mappings()
+        await self._check_retrieval_shape(connection)
         return tuple(
             TopicMemoryCurrentItem(
                 artifact_ref=ArtifactRef(
@@ -406,6 +432,7 @@ class TopicMemoryRepository:
                 f"must contain at most {MAX_TOPIC_MEMORY_QUERY_TERMS} distinct Analyzer terms",
             )
         query_vector = self._canonical_query_vector(used_mode, query_vector)
+        await self._check_retrieval_shape(connection)
         if not analyzed and used_mode == "fts":
             return TopicMemorySearchResult(mode=used_mode, hits=())
         request = TopicMemorySearchRequest(
@@ -417,6 +444,7 @@ class TopicMemoryRepository:
             embedding_profile=embedding_profile,
         )
         channels = await self.index.search(connection, scope_id, request)
+        await self._check_retrieval_shape(connection)
         return TopicMemorySearchResult(
             mode=used_mode,
             hits=fuse_topic_memory_rankings(query, channels, limit, mode=used_mode),
@@ -538,13 +566,55 @@ class TopicMemoryRepository:
             }
         )
 
-    async def _ensure_retrieval_shape(self, connection: AsyncConnection) -> None:
+    def _configured_retrieval_shape(self) -> tuple[str, str | None]:
         capabilities = self.index.capabilities
-        if not capabilities.fts:
-            return
         shape = "hybrid" if capabilities.vector else "fts"
         profile = capabilities.embedding_profile
         fingerprint = None if profile is None else topic_memory_embedding_profile_fingerprint(profile)
+        return shape, fingerprint
+
+    def _require_retrieval_shape(self, stored_shape: str, stored_fingerprint: str | None) -> None:
+        shape, fingerprint = self._configured_retrieval_shape()
+        if (stored_shape, stored_fingerprint) != (shape, fingerprint):
+            stored_label = stored_shape if stored_fingerprint is None else f"{stored_shape}:{stored_fingerprint[:12]}"
+            configured_label = shape if fingerprint is None else f"{shape}:{fingerprint[:12]}"
+            raise TopicMemoryCapabilityError(
+                "retrieval-shape",
+                f"database requires {stored_label}; runtime configured {configured_label}",
+            )
+
+    async def _check_retrieval_shape(self, connection: AsyncConnection) -> None:
+        # Reads must neither initialize/reconfigure the store nor take its write
+        # lock. Check before and after hydration: SQLite's legacy SELECT mode
+        # need not hold a read snapshot across statements. A newly published
+        # Topic freezes the shape, so a racing switch cannot silently label
+        # another profile's results with this runtime's startup capabilities.
+        if not self.index.capabilities.fts:
+            return
+        stored = (
+            await connection.execute(
+                select(
+                    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.shape,
+                    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.profile_fingerprint,
+                ).where(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.singleton == 1)
+            )
+        ).one_or_none()
+        if stored is None:
+            raise TopicMemoryStorageInvariantError("missing-retrieval-shape", 1)
+        self._require_retrieval_shape(str(stored[0]), None if stored[1] is None else str(stored[1]))
+
+    async def _ensure_retrieval_shape(self, connection: AsyncConnection, *, allow_empty_change: bool = False) -> None:
+        if not self.index.capabilities.fts:
+            return
+        shape, fingerprint = self._configured_retrieval_shape()
+        # Serialize empty-store reconfiguration with publication. An already
+        # open runtime must not publish its old shape after another one changes
+        # it. SQLite needs a write lock; SELECT FOR UPDATE is a no-op there.
+        await connection.execute(
+            update(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE)
+            .where(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.singleton == 1)
+            .values(shape=TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.shape)
+        )
         stored = (
             await connection.execute(
                 select(
@@ -591,25 +661,23 @@ class TopicMemoryRepository:
         stored_shape = str(stored[0])
         stored_fingerprint = None if stored[1] is None else str(stored[1])
         if (stored_shape, stored_fingerprint) != (shape, fingerprint):
-            # A configuration becomes binding only once Topic evidence has been published.
-            changed = await connection.execute(
-                update(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE)
-                .where(
-                    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.singleton == 1,
-                    ~select(ARTIFACTS_TABLE.c.artifact_id)
+            if allow_empty_change:
+                # A locking read sees publications committed before we obtained
+                # the shape lock even on MySQL REPEATABLE READ connections.
+                existing = await connection.scalar(
+                    select(ARTIFACTS_TABLE.c.artifact_id)
                     .where(ARTIFACTS_TABLE.c.family == TopicMemory.family)
-                    .exists(),
+                    .limit(1)
+                    .with_for_update()
                 )
-                .values(shape=shape, profile_fingerprint=fingerprint)
-            )
-            if changed.rowcount == 1:
-                return
-            stored_label = stored_shape if stored_fingerprint is None else f"{stored_shape}:{stored_fingerprint[:12]}"
-            configured_label = shape if fingerprint is None else f"{shape}:{fingerprint[:12]}"
-            raise TopicMemoryCapabilityError(
-                "retrieval-shape",
-                f"database requires {stored_label}; runtime configured {configured_label}",
-            )
+                if existing is None:
+                    await connection.execute(
+                        update(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE)
+                        .where(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.singleton == 1)
+                        .values(shape=shape, profile_fingerprint=fingerprint)
+                    )
+                    return
+            self._require_retrieval_shape(stored_shape, stored_fingerprint)
 
     def _select_mode(
         self,

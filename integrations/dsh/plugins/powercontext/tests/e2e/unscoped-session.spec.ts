@@ -236,12 +236,14 @@ describe('plugin runtime with header.cwd === undefined', () => {
     expect(status.kind).toBe('error')
     expect(status.text).toContain('scope=unresolved')
     const doctor = await command({ ...invocation(), rawInput: 'doctor' })
-    expect(doctor.kind).toBe('success')
-    expect(JSON.parse(doctor.text).data).toMatchObject({ live: { ok: true }, ready: { ok: true } })
+    expect(doctor.kind).toBe('error')
+    expect(JSON.parse(doctor.text).checks).toMatchObject({
+      liveness: { state: 'ok' }, readiness: { state: 'ok' },
+      scope: { state: 'failed', code: 'scope_not_found' },
+      prepare: { state: 'skipped', code: 'scope_unavailable' },
+    })
     expect((await command({ ...invocation(), rawInput: 'capabilities' })).kind).toBe('success')
-    expect(calls.map(call => call.path)).toEqual([
-      '/v1/scope-bindings/resolve', '/v1/scope-bindings/resolve', '/v1/scope-bindings/resolve',
-      '/health/live', '/health/ready', '/v1/capabilities',
-    ])
+    expect(calls.some(call => call.path === '/v1/context/prepare')).toBe(false)
+    expect(calls.some(call => call.path === '/v1/sources/content')).toBe(false)
   })
 })

@@ -39,6 +39,35 @@ def test_dashboard_assets_revalidate_after_an_update(dashboard: TestClient) -> N
         assert cached.headers["Cache-Control"] == "no-cache"
 
 
+def test_personal_dashboard_opens_without_models_or_saved_content(dashboard: TestClient) -> None:
+    default = dashboard.get("/v1/scopes/default").json()
+    home = dashboard.get("/")
+    assert home.status_code == 200
+    assert home.url.path == "/dashboard/home"
+    assert f'value="{default["scope_id"]}" selected' in home.text
+    for page in ("home", "notes", "methods", "handoff", "usage"):
+        assert dashboard.get(f"/dashboard/{page}").status_code == 200
+    saved = dashboard.post(
+        "/v1/memory/remember",
+        json={"scope_id": default["scope_id"], "kind": "fact", "text": "Use uv for dependency management."},
+    )
+    assert saved.status_code == 200
+    assert "Use uv for dependency management." in dashboard.get("/dashboard/notes").text
+
+
+def test_dashboard_favicons_use_square_viewports(dashboard: TestClient) -> None:
+    home = dashboard.get("/")
+    icons = re.findall(r'<link rel="icon"[^>]*href="([^"]+)"', home.text)
+    assert icons
+    for link in icons:
+        icon = dashboard.get(link)
+        assert icon.status_code == 200
+        assert icon.headers["content-type"].startswith("image/svg+xml")
+        viewbox = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', icon.text)
+        assert viewbox is not None
+        assert float(viewbox[1]) == float(viewbox[2])
+
+
 def create_scope(client: TestClient, title: str, parent: str | None = None) -> dict[str, Any]:
     result = client.post(
         "/v1/scopes",
@@ -516,6 +545,14 @@ def test_scope_viewer_reads_without_server_observation_rights(tmp_path: Path) ->
         admin.headers["Authorization"] = f"Bearer {token}"
         allowed = create_scope(admin, "Visible")
         denied = create_scope(admin, "Confidential")
+        child = create_scope(admin, "Private child", allowed["scope_id"])
+        assert (
+            admin.post(
+                "/v1/memory/remember",
+                json={"scope_id": allowed["scope_id"], "kind": "fact", "text": "A shared project decision."},
+            ).status_code
+            == 200
+        )
         grant = admin.post(
             "/v1/access/bindings/create",
             json={
@@ -551,12 +588,22 @@ def test_scope_viewer_reads_without_server_observation_rights(tmp_path: Path) ->
     with TestClient(app) as viewer:
         viewer.headers["Authorization"] = f"Bearer {viewer_token}"
         assert viewer.get("/v1/capabilities").status_code == 403
+        entry = viewer.get("/dashboard/home")
+        assert entry.status_code == 403
+        assert viewer.get("/v1/scopes").status_code == 403
+        assert viewer.get("/v1/scopes/default").status_code == 403
+        assert "Confidential" not in entry.text
+        assert "Private child" not in entry.text
         for page in ("home", "notes", "handoff", "methods", "usage"):
             response = viewer.get("/dashboard/" + page, params={"scope": allowed["scope_id"]})
             assert response.status_code == 200
             assert "Work on Visible" in response.text or "Visible" in response.text
             assert "Confidential" not in response.text
         assert viewer.get("/dashboard/home", params={"scope": denied["scope_id"]}).status_code in {403, 404}
+        assert viewer.get("/dashboard/home", params={"scope": child["scope_id"]}).status_code in {403, 404}
+        notes = viewer.get("/dashboard/notes", params={"scope": allowed["scope_id"], "q": "shared"})
+        assert notes.status_code == 200
+        assert "A shared project decision." in notes.text
         response = viewer.get(
             "/dashboard/handoff-detail",
             params={"scope": denied["scope_id"], "artifact": record["artifact_id"], "revision": record["revision"]},
@@ -564,3 +611,14 @@ def test_scope_viewer_reads_without_server_observation_rights(tmp_path: Path) ->
         assert response.status_code == 200
         assert "Continue the review." in response.text
         assert "Confidential" not in response.text
+        source = viewer.get(
+            "/dashboard/evidence/review",
+            params={
+                "scope": denied["scope_id"],
+                "artifact": record["artifact_id"],
+                "revision": record["revision"],
+                "origin": "handoff-detail",
+                "source_type": "content",
+            },
+        )
+        assert source.status_code in {403, 404}

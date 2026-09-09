@@ -16,13 +16,15 @@
 
 import { loader } from 'fumadocs-core/source';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
+import { statusBadgesPlugin } from 'fumadocs-core/source/status-badges';
 import { defineDocs } from 'fumadocs-mdx/macro';
+import { createElement } from 'react';
 import { i18n } from './i18n';
 
 const docs = defineDocs({
   dir: 'content/docs',
   docs: {
-    schema: pageSchema,
+    schema: pageSchema.extend({ status: pageSchema.shape.title.optional() }),
     postprocess: {
       includeProcessedMarkdown: true,
     },
@@ -36,4 +38,10 @@ export const source = loader({
   baseUrl: '/',
   i18n,
   source: docs.toFumadocsSource(),
+  plugins: [statusBadgesPlugin({
+    renderBadge: (status) => createElement('span', {
+      className: 'ms-auto rounded border px-1 text-[10px] font-normal text-fd-muted-foreground',
+      'data-status': status,
+    }, status),
+  })],
 });

@@ -1,0 +1,12 @@
+{
+  "title": "Deploy and operate",
+  "pages": [
+    "index",
+    "deploy-server",
+    "observability",
+    "trace-with-phoenix",
+    "trace-with-langfuse",
+    "troubleshoot",
+    "configuration"
+  ]
+}

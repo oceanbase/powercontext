@@ -1,0 +1,188 @@
+---
+title: Deploy the Server
+description: Run PowerContext with persistent data, health checks, authentication, and a safe network boundary.
+---
+
+# Deploy the Server
+
+Windows support is `experimental`.
+
+`powercontext server run` is a foreground process. On a personal macOS, Linux, or Windows workstation, PowerContext can register
+that same Server runner with the native current-user service manager. Managed deployments should continue to use a
+container platform or an administrator-owned service manager.
+
+## Run a persistent personal Server
+
+Install and start the optional current-user service:
+
+```bash
+powercontext service install
+powercontext service status
+```
+
+On Windows, the command asks whether to enable startup at the current user's next login when neither
+`--start-on-login` nor `--no-start-on-login` is supplied; pressing Enter keeps login auto-start disabled. Use either
+option for a non-interactive choice.
+
+Linux uses `systemd --user` and writes logs to the user journal. macOS uses a per-user LaunchAgent, and Windows uses a current-user Task Scheduler task; both write stdout and stderr below the PowerContext user data directory. `service status` reports the exact log selector or path.
+
+For an explicit Server configuration, protect the environment file before installing:
+
+```bash
+chmod 600 /path/to/powercontext.env
+powercontext config validate --env-file /path/to/powercontext.env
+powercontext service install --env-file /path/to/powercontext.env
+```
+
+On Windows, remove inherited access and grant the file only to the current user, `SYSTEM`, and local `Administrators` before validation, for example:
+
+```powershell
+icacls $env:USERPROFILE\powercontext.env /inheritance:r /grant:r "${env:USERNAME}:(F)" "SYSTEM:(F)" "Administrators:(F)"
+```
+
+The native definition stores only the absolute file path and non-content file identity metadata. On Windows this
+includes the current user's owner SID, which is revalidated whenever the launcher starts. It does not copy
+credentials or the caller's shell environment. Re-run `service install` after upgrading PowerContext or changing the
+environment file. Remove the registration without deleting Server data or logs with:
+
+```bash
+powercontext service uninstall
+```
+
+## Choose the network boundary
+
+The default Server listens on `127.0.0.1:8000` without authentication. This is suitable for clients on the same
+machine. Do not change the listener to a non-loopback address while authentication is disabled.
+
+For access from another machine:
+
+1. enable bearer authentication;
+2. keep the Server behind a TLS-terminating reverse proxy or private network boundary;
+3. provide the token through a secret manager or protected process environment;
+4. allow access to the data directory only for the Server operator.
+
+The built-in command serves HTTP and has no TLS options. Terminate HTTPS outside PowerContext.
+
+## Run from an installed tool
+
+Install PowerContext as described in [Install and run](../get-started/install-and-run.md), then choose a persistent data directory:
+
+```bash
+export POWERCONTEXT_HOME=/srv/powercontext
+powercontext server run
+```
+
+The process must be able to create and update this directory. The default SQLite database and scheduler state are
+stored below it. Supply the same environment variables whenever your service manager restarts the process.
+
+PowerContext does not search for a `.env` file automatically. Export the variables, configure them in the service
+manager or container platform, or pass one explicit file:
+
+```bash
+powercontext config validate --env-file /etc/powercontext/powercontext.env
+powercontext server run --env-file /etc/powercontext/powercontext.env
+```
+
+The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
+file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
+are ignored. See the [Enable extraction and vector search](../get-started/configure-models.md) to generate a validated file
+interactively.
+
+## Run with Docker
+
+Build the image from the repository root:
+
+```bash
+POWERCONTEXT_VERSION=$(uvx --from hatchling --with hatch-vcs hatchling version)
+docker build \
+  --file docker/Dockerfile \
+  --build-arg "POWERCONTEXT_VERSION=${POWERCONTEXT_VERSION}" \
+  --tag powercontext-server:local \
+  .
+```
+
+Run it with a named volume and publish the port only on the host loopback interface:
+
+```bash
+docker run --rm \
+  --name powercontext-server \
+  --publish 127.0.0.1:8000:8000 \
+  --volume powercontext-data:/data \
+  powercontext-server:local
+```
+
+The image listens on `0.0.0.0:8000` inside the container, so the host-side address in `--publish` is important. The
+named volume persists the SQLite database and scheduler state after the container stops.
+
+## Enable authentication
+
+Load a strong token from your secret manager into the Server process environment:
+
+```bash
+export POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_DEPLOYMENT_TOKEN"
+powercontext server run
+```
+
+For Docker, pass the already-loaded variables without putting the token value in the command:
+
+```bash
+docker run --rm \
+  --name powercontext-server \
+  --publish 127.0.0.1:8000:8000 \
+  --volume powercontext-data:/data \
+  --env POWERCONTEXT_SERVER_ACCESS_MODE=enforced \
+  --env POWERCONTEXT_SERVER_AUTH_TOKEN \
+  powercontext-server:local
+```
+
+Clients then send `Authorization: Bearer <token>`. The liveness and readiness endpoints remain public so an
+orchestrator can probe them. API, MCP, metrics, and `/openapi.json` require authentication. The `/docs` shell remains
+public, but requests made from the interactive reference require authentication.
+
+When the Server requires authentication, `/dashboard/home` displays a token sign-in form. Enter a Bearer credential
+accepted by this Server, not a model provider API key. The browser stores it in an HttpOnly, SameSite=Strict Cookie
+restricted to `/dashboard`, for up to eight hours. HTTPS also sets Secure. Sign in again after expiry. A reverse proxy
+must preserve the external scheme and host so the sign-in request passes its same-origin check.
+
+A static `AUTH_TOKEN` gives every holder the same administrator identity. To separate team members, the deployment
+must establish distinct Principals through `create_server_app(authentication_provider=...)` and configure their access.
+Setting `ACCESS_MODE=enforced` alone does not create team accounts. The Dashboard has no account registration, SSO
+redirect, member invitation, or role management pages. Browser token sign-in works when the deployment Provider accepts
+Bearer credentials; other identity schemes need deployment integration. See
+[Scopes and access control](../workflows/scopes-and-access.md).
+
+## Check the deployment
+
+Use liveness to determine whether the process can answer HTTP requests:
+
+```bash
+curl --fail http://127.0.0.1:8000/health/live
+```
+
+Use readiness before sending application traffic:
+
+```bash
+curl --fail http://127.0.0.1:8000/health/ready
+```
+
+Readiness returns HTTP 503 when a required runtime or database binding is unavailable. An optional inference provider
+can make the response `degraded` with HTTP 200 while database-backed operations remain available.
+
+After enabling authentication, verify a protected endpoint as well:
+
+```bash
+curl --fail \
+  --header "Authorization: Bearer ${POWERCONTEXT_DEPLOYMENT_TOKEN}" \
+  http://127.0.0.1:8000/v1/capabilities
+```
+
+See [HTTP API](../develop/http-api.md) for request examples and [Configuration](configuration.md) for
+all Server settings.
+
+## Protect and back up data
+
+- Back up the directory selected by `POWERCONTEXT_HOME`, or the Docker volume mounted at `/data`.
+- Stop writes or stop the Server while taking a filesystem-level SQLite backup.
+- Keep database backups and bearer tokens out of the repository.
+- Test restoration before relying on a backup procedure.

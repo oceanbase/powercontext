@@ -27,6 +27,13 @@ construction, model request assembly, and session persistence are not replaced. 
 scripted OpenAI-compatible streaming replies and Server inference decisions. A loopback proxy can inject HTTP
 failures at individual PowerContext endpoints.
 
+The setup scenario first runs `powercontext setup dsh --source <this checkout>` with the pinned DSH executable
+and a clean DSH home. It verifies Web-profile registration through `powercontext doctor dsh --json`, then loads
+that installed package's distributable files into the SDK profile. The Server and plugin use the same checkout.
+A test-only loopback adapter invokes the real host command service because the pinned SDK protocol only exposes
+prompts. It verifies `/pc doctor` with an environment URL overriding an unusable patch URL, preserves health when
+Scope authentication fails, and confirms that Doctor makes no capture or flush requests.
+
 A test observer subscribes to the real Cordis logger's public exporter API and writes only PowerContext diagnostics
 to the isolated home. This verifies native logging without replacing the logger. Default host profiles need an
 exporter with warning level enabled before these records appear in a terminal.
@@ -34,6 +41,7 @@ exporter with warning level enabled before these records appear in a terminal.
 The scenarios cover:
 
 - automatic Source capture, Server processing into Memory, fresh-session recall, model input, and durable snapshot metadata;
+- clean CLI installation, standalone observation limits, and in-host Doctor configuration/route/authentication checks;
 - Source idempotency, no duplicate snapshot injection, and matching section/content text;
 - Scope business and route failures, authentication failure, unavailable Server, continued conversation, and a real named tool result;
 - independent prepare/capture/flush failure, recovery, host restart, and configured Scope isolation.

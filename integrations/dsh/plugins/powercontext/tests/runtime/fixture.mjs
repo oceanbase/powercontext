@@ -162,15 +162,18 @@ export async function environment({ realModel } = {}) {
   }
   const { scope_id: scopeId } = await api('/v1/scopes/default')
   const harnesses = []
-  function harness(config = {}) {
+  function harness(config = {}, options = {}) {
     const dshHome = mkdtempSync(join(home, 'host-'))
     const workspace = join(dshHome, 'workspace')
     mkdirSync(workspace)
     // Copy the distributable files, not TypeScript source or development peers.
     const installed = join(dshHome, 'profiles/sdk/node_modules/powercontext-dsh')
     mkdirSync(installed, { recursive: true })
-    for (const entry of ['lib', 'package.json', 'cordis.patch.yml']) cpSync(join(pluginRoot, entry), join(installed, entry), { recursive: true })
+    for (const entry of ['lib', 'package.json', 'cordis.patch.yml']) cpSync(join(options.plugin ?? pluginRoot, entry), join(installed, entry), { recursive: true })
     const patch = join(dshHome, 'test.patch.json')
+    const commandAddress = join(dshHome, 'command-address.txt')
+    const commandObserver = join(dshHome, 'command-observer.mjs')
+    if (options.commands) cpSync(join(import.meta.dirname, 'command-observer.mjs'), commandObserver)
     const diagnosticsFile = join(dshHome, 'diagnostics.jsonl')
     const loggerObserver = join(dshHome, 'logger-observer.mjs')
     // Observe the real Cordis logger through its public exporter API.
@@ -185,6 +188,10 @@ export function apply(ctx) {
 }`)
     writeFileSync(patch, JSON.stringify([
       { insert: [{ id: 'diagnostic-observer', name: pathToFileURL(loggerObserver).href }] },
+      ...options.commands ? [{ insert: [{ id: 'command-observer',
+        name: pathToFileURL(commandObserver).href,
+        config: { addressFile: commandAddress },
+      }] }] : [],
       { id: 'skill-filesystem', config: { includeDefaultRoots: false, watch: false } },
       { id: 'session-persistence-jsonl', config: { root: join(dshHome, 'sessions'), compression: 'none' } },
       { id: 'llm-deepseek', config: { baseURL: model.url + '/v1', apiKeyEnv: 'DEEPSEEK_API_KEY', thinking: 'disabled' } },
@@ -194,7 +201,7 @@ export function apply(ctx) {
     ]))
     const processEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('POWERCONTEXT_DSH_')))
     const env = { ...processEnv, DSH_HOME: dshHome, DSH_PROFILE: 'sdk', DEEPSEEK_API_KEY: 'runtime-fixture',
-      DEEPSEEK_BASE_URL: model.url + '/v1', DSH_TELEMETRY_DISABLED: '1' }
+      DEEPSEEK_BASE_URL: model.url + '/v1', DSH_TELEMETRY_DISABLED: '1', ...options.env }
     const instance = new DeepSeekHarness({
       dshBin: process.env.DSH_TEST_BIN ?? dshBin, dshHome, patches: [patch], cwd: workspace, processCwd: workspace,
       provider: 'deepseek-official', model: realModel?.model ?? 'deepseek-v4-flash', maxTokens: 128,
@@ -204,10 +211,16 @@ export function apply(ctx) {
     harnesses.push(instance)
     const diagnostics = () => existsSync(diagnosticsFile)
       ? readFileSync(diagnosticsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : []
-    return { instance, dshHome, workspace, installed, patch, env, diagnostics }
+    const doctor = async sessionId => {
+      const response = await fetch(readFileSync(commandAddress, 'utf8') + '/?session=' + encodeURIComponent(sessionId))
+      if (!response.ok) throw new Error(await response.text())
+      const result = await response.json()
+      return { kind: result.kind, ...JSON.parse(result.text) }
+    }
+    return { instance, dshHome, workspace, installed, patch, env, diagnostics, doctor }
   }
   return {
-    home, api, scopeId, calls, modelRequests, harness,
+    home, api, scopeId, calls, modelRequests, harness, baseUrl: proxy.url,
     setFault(value) { fault = value },
     async close() {
       const results = await Promise.allSettled(harnesses.map(instance => instance.close()))
