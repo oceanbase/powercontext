@@ -71,11 +71,12 @@ def install(
     if not start_on_login and sys.platform != "win32":
         typer.echo("--no-start-on-login is currently supported only on Windows.", err=True)
         raise typer.Exit(code=2)
+    expanded_env_file = env_file.expanduser() if env_file is not None else None
     try:
-        with server_settings_context(env_file=env_file) as settings:
+        with server_settings_context(env_file=expanded_env_file) as settings:
             generation_model = settings.inference.generation_model
             embedding_model = settings.inference.embedding_model
-        status = _controller().install(env_file=env_file, start_on_login=start_on_login)
+        status = _controller().install(env_file=expanded_env_file, start_on_login=start_on_login)
     except (OSError, ServerConfigurationError, ServiceError) as error:
         typer.echo(f"PowerContext personal service installation failed: {error}", err=True)
         if isinstance(error, ServiceError) and error.status is not None:
@@ -93,7 +94,7 @@ def install(
         else "PowerContext personal service installed without login auto-start."
     )
     typer.echo(message)
-    _write_environment_guidance(env_file)
+    _write_environment_guidance(expanded_env_file)
     write_inference_capability_notice(
         generation_model=generation_model,
         embedding_model=embedding_model,

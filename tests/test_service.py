@@ -1449,6 +1449,37 @@ def test_service_install_cli_reports_the_environment_file_without_credentials(
     assert "Inference capability notice" in result.output
 
 
+def test_service_install_cli_expands_the_environment_file_home_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.ACTIVE,
+        server_liveness=LivenessState.LIVE,
+        endpoint="http://127.0.0.1:8000",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    environment = tmp_path / "powercontext.env"
+    environment.write_text("POWERCONTEXT_SERVER_ACCESS_MODE=disabled\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        service_app,
+        ["install", "--env-file", "~/powercontext.env", "--start-on-login"],
+    )
+
+    assert result.exit_code == 0
+    controller.install.assert_called_once_with(env_file=environment, start_on_login=True)
+    assert f"environment file: {environment.resolve()} (mode 0600)" in result.output
+
+
 def test_service_install_cli_omits_inference_notice_when_models_are_configured(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
