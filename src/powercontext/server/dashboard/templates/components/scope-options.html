@@ -38,30 +38,22 @@
   {% endif %}
 </select>
 <span id="scope-switch-hint" class="visually-hidden">{{ t.scope_switch_hint }}</span>
+{% set scope_input %}<input type="text" aria-label="{{ t.scope_label }}">{% endset %}
 <script>
-  {
-    const component = me();
-    const select = me('select', component);
-    const body = me('body');
-    let picker;
-    const initialize = event => {
-      if (!event.detail.elt.contains(component)) return;
-      body.off('htmx:load', initialize);
-      picker = new TomSelect(select, {
-        allowEmptyOption: true,
-        maxOptions: null,
-        lockOptgroupOrder: true,
-        render: {
-          no_results: (data, escape) => `<div class="no-results">${escape(component.dataset.noResults)}</div>`,
-        },
-      });
-    };
-    body.on('htmx:load', initialize);
-    component.on('htmx:beforeCleanupElement', event => {
-      if (event.detail.elt !== component) return;
-      body.off('htmx:load', initialize);
-      picker?.destroy();
+  me().run(component => {
+    const picker = new TomSelect(me('select', component), {
+      plugins: ['dropdown_input'],
+      controlInput: {{ scope_input|tojson }},
+      allowEmptyOption: true,
+      maxOptions: null,
+      lockOptgroupOrder: true,
+      render: {
+        no_results: (data, escape) => `<div class="no-results">${escape(component.dataset.noResults)}</div>`,
+      },
     });
-  }
+    component.on('htmx:beforeCleanupElement', event => {
+      if (event.detail.elt === component) picker.destroy();
+    });
+  });
 </script>
 </div>

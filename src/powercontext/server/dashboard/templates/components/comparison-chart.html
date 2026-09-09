@@ -13,6 +13,7 @@
       const compact = element.dataset.compact === 'true';
       const singleDay = days.length === 1;
       const style = getComputedStyle(document.documentElement);
+      const numbers = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
       const chart = new ApexCharts(element, {
         chart: {
           type: 'bar', height: compact ? 160 : 240, fontFamily: 'inherit', background: 'transparent',
@@ -24,21 +25,24 @@
           name: labels[index], data: days.map(day => singleDay ? day[field] : { x: Date.parse(`${day.date}T00:00:00Z`), y: day[field] }),
         })),
         colors: [style.getPropertyValue('--tblr-gray-400').trim(), style.getPropertyValue('--tblr-primary').trim()],
-        plotOptions: { bar: { dataLabels: { position: 'top' } } },
-        dataLabels: {
-          enabled: days.length <= 7, offsetY: -16,
-          formatter: value => value ? `${Number((value / 1000).toFixed(1))}k` : '',
-          style: { colors: [style.getPropertyValue('--tblr-body-color').trim()] },
+        plotOptions: { bar: { columnWidth: '50%' } },
+        dataLabels: { enabled: false },
+        legend: {
+          show: true, position: 'bottom',
+          markers: { width: 10, height: 10, radius: 100 },
+          itemMargin: { horizontal: 8, vertical: 8 },
         },
-        legend: { show: false },
         grid: { show: !compact, borderColor: style.getPropertyValue('--tblr-border-color').trim(), strokeDashArray: 4 },
         xaxis: {
           type: singleDay ? 'category' : 'datetime',
           categories: singleDay ? days.map(day => day.label) : [],
-          axisTicks: { show: false }, labels: { rotate: 0, hideOverlappingLabels: true, datetimeUTC: true, format: 'M/d' },
+          tooltip: { enabled: false }, axisBorder: { show: false }, axisTicks: { show: false }, labels: { rotate: 0, hideOverlappingLabels: true, datetimeUTC: true, format: 'M/d' },
         },
-        yaxis: { show: !compact, min: 0, labels: { formatter: value => `${Number((value / 1000).toFixed(1))}k` } },
-        tooltip: { x: { format: 'yyyy-MM-dd' }, y: { formatter: value => `${value.toLocaleString()} tokens` } },
+        yaxis: { show: !compact, min: 0, labels: { formatter: value => numbers.format(value) } },
+        tooltip: {
+          fixed: { enabled: true, position: 'topLeft' },
+          x: { format: 'yyyy-MM-dd' }, y: { formatter: value => `${value.toLocaleString()} tokens` },
+        },
       });
       chart.render();
       element.on('htmx:beforeCleanupElement', event => {

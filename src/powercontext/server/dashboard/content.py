@@ -111,7 +111,7 @@ async def load_record(api: DashboardAPI, request: Request, ctx: dict[str, Any]) 
     record = await api.record(scope, family, artifact, revision_number)
     ctx["data"][family] = record
     ctx["source_record"] = record
-    ctx["related_sources"] = record["sources"]
+    ctx["related_sources"] = [source for source in record["sources"] if source["source_type"] == "content"]
 
 
 async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
@@ -128,6 +128,14 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
             ctx["data"]["notes"], request.query_params.get("notes_page"), request.query_params.get("entry")
         )
         ctx["data"]["notes"] = window["items"]
+        if ctx["search_query"]:
+            entries = await asyncio.gather(
+                *(
+                    api.read("/v1/memory/entries/get", {"scope_id": ctx["scope"], "citation": hit["citation"]})
+                    for hit in window["items"]
+                )
+            )
+            ctx["data"]["notes"] = memory_view({"entries": entries})
         ctx["notes_pager"] = list_links(ctx, "notes", window)
         ctx["notes_page_size"] = PAGE_SIZE
         await select_note(api, request, ctx)

@@ -1,16 +1,22 @@
 <div class="skill-reading">
 {% include 'components/reading-style.html' %}
 {% from 'components/record-references.html' import record_references %}
-<a class="back-link d-inline-block mb-4" href="{{ link('methods', kind='skill') }}">← {{ t.back_methods }}</a>
+{% from 'macros.html' import evidence_link with context %}
 {% if data.skill %}
-<article class="reading-sheet reading-sheet-single">
+<article class="reading-sheet">
+  <div>
+  <a class="back-link d-block mb-4" href="{{ link('methods', kind='skill') }}">← {{ t.back_methods }}</a>
   <header class="reading-heading"><span class="method-type text-secondary small">{{ t.skill_reading }} · {{ data.title }} · {{ t.revision }} {{ data.skill.revision }}</span><h1>{{ data.skill.name }}</h1><p>{{ data.skill.description }}</p></header>
     <div class="reading-body">
       <section><h2>{{ t.skill_instructions }}</h2><p class="source-text">{{ data.skill.instructions or t.skill_body_unavailable }}</p></section>
       {% if data.skill.validation %}<section><h2>{{ t.validation }}</h2><ul>{% for check in data.skill.validation %}<li>{{ check }}</li>{% endfor %}</ul></section>{% endif %}
-      {{ record_references(data.skill, 'skill') }}
+      {% call record_references(data.skill, 'skill') %}
+        {% include 'components/record-sources.html' %}
+      {% endcall %}
     </div>
+  </div>
 </article>
+{% include 'components/evidence-modal.html' %}
 {% else %}
 <section class="card"><div class="empty"><h1>{{ t.methods_empty }}</h1><p>{{ t.methods_empty_body }}</p></div></section>
 {% endif %}

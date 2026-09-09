@@ -5,12 +5,4 @@
   me .reading-body { padding-block: var(--tblr-spacer-4); min-width: 0; }
   me .reading-body section { margin-bottom: var(--tblr-spacer-4); }
   me .reading-body p { white-space: pre-wrap; }
-  me .reading-sheet-single { max-width: 80ch; }
-  @media (min-width: 1400px) {
-    me .reading-margin { border-inline-start: 1px solid var(--tblr-border-color); position: sticky; top: var(--tblr-page-padding-y); align-self: flex-start; height: calc(100dvh - 2 * var(--tblr-page-padding-y)); display: flex; flex-direction: column; }
-    me .reading-margin > h2 { flex-shrink: 0; }
-    me .reading-margin .source-links { overflow-y: auto; min-height: 0; }
-    me .reading-margin:has(.source-content-view) .source-links { display: none; }
-  }
-  @media (max-width: 1399.98px) { me .reading-margin { border-top: 1px solid var(--tblr-border-color); padding-top: var(--tblr-spacer-4); } }
 </style>

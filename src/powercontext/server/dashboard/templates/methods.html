@@ -1,9 +1,12 @@
 <div class="methods-view text-break">
+{% set family = method_kind %}
+{% set collection = collections.get(family, {}) %}
+{% set pager = collection.get('pager', {}) %}
 
 <style>
-  me .method-grid { grid-template-rows: repeat({{ collection_page_size }}, 1fr); min-height: 65dvh; }
+  me .method-grid { grid-template-rows: repeat({{ collection_page_size if pager.get('previous') or pager.get('next') else collection.get('items', [])|length or 1 }}, 1fr); }
   me .method-row { min-width: 0; }
-  me .collection-empty { grid-row: 1 / -1; }
+  me .collection-empty { min-height: 65dvh; }
 </style>
 {% from 'components/page-heading.html' import page_heading %}
 {% from 'components/pagination.html' import pagination %}
@@ -13,8 +16,6 @@
   {% for value, label in [('experience', 'experience'), ('skill', 'skill_reading')] %}<a class="nav-link {% if method_kind == value %}active{% endif %}" href="{{ link('methods', kind=value, q=none, skill_page=none, experience_cursor=none, experience_history=none) }}" {% if method_kind == value %}aria-current="page"{% endif %}>{{ t[label] }}</a>{% endfor %}
 </nav>
 {% if method_kind == 'skill' %}{{ search_form(t.search_skills, 2000, 'skill') }}{% endif %}
-{% set family = method_kind %}
-{% set collection = collections.get(family, {}) %}
 {% if collection.get('search_limited') %}<p class="text-secondary">{{ t.skills_limit }}</p>{% endif %}
 {% from 'components/read-error.html' import read_error with context %}
 {% if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endif %}
@@ -30,6 +31,6 @@
     {% endfor %}
     {% if not data[family] and not errors.get(family) %}<section class="card collection-empty"><div class="empty">{% if search_query and family == 'skill' %}<h2>{{ t.skills_no_match }}</h2>{% else %}<h2>{{ t.experience_empty if family == 'experience' else t.skills_empty }}</h2>{% endif %}</div></section>{% endif %}
   </div>
-  <div class="collection-footer">{{ pagination(collection.get('pager'), t) }}</div>
+  <div class="collection-footer">{{ pagination(collection.get('pager'), t, always=family == 'skill') }}</div>
 </section>
 </div>

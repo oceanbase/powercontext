@@ -5,8 +5,8 @@
 {% if not data.experience %}
   <div class="card"><div class="empty"><h1>{{ t.methods_empty }}</h1><p>{{ t.methods_empty_body }}</p><a href="{{ link('home') }}">{{ t.back_home }}</a></div></div>
 {% else %}
-<article class="reading-sheet row row-cards">
-  <div class="col-xxl-7">
+<article class="reading-sheet">
+  <div>
   <div class="reading-heading">
     <a class="back-link d-block mb-4" href="{{ link('methods') }}">← {{ t.back_methods }}</a>
     <span class="method-type text-secondary small">{{ t.experience }} · {{ data.title }}</span>
@@ -16,11 +16,13 @@
       {% for field in ['situation', 'action', 'outcome'] %}
       <section><h2>{{ t[field] }}</h2><p>{{ data.experience[field] }}</p></section>
       {% endfor %}
-      {{ record_references(data.experience, 'experience') }}
+      {% call record_references(data.experience, 'experience') %}
+        {% include 'components/record-sources.html' %}
+      {% endcall %}
     </div>
   </div>
-  {% include 'components/record-sources.html' %}
 </article>
+{% include 'components/evidence-modal.html' %}
 {% endif %}
 
 </div>

@@ -4,7 +4,8 @@
   <script src="/dashboard/static/vendor/tabler-theme.min.js"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="htmx-config" content='{"historyCacheSize":0,"includeIndicatorStyles":false}'>
+  {# Scoped styles generate classes after insertion; attribute settling must not overwrite them. #}
+  <meta name="htmx-config" content='{"historyCacheSize":0,"attributesToSettle":[]}'>
   <link rel="icon" type="image/svg+xml" href="/dashboard/static/brand/favicon-color.svg" media="(prefers-color-scheme: light)">
   <link rel="icon" type="image/svg+xml" href="/dashboard/static/brand/favicon-reverse.svg" media="(prefers-color-scheme: dark)">
   <title>{{ t[page] }} · PowerContext</title>
@@ -17,7 +18,7 @@
   <script defer src="/dashboard/static/vendor/htmx.min.js"></script>
   <script src="/dashboard/static/vendor/tabler.min.js"></script>
   <script src="/dashboard/static/vendor/apexcharts.min.js"></script>
-  <script src="/dashboard/static/vendor/tom-select.base.min.js"></script>
+  <script src="/dashboard/static/vendor/tom-select.complete.min.js"></script>
   <noscript><style>.collapse { display: block; } .htmx-indicator { display: none; }</style></noscript>
 </head>
 <body>

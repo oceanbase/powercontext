@@ -135,6 +135,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "status": 200,
         "stats": None,
         "selected_note": None,
+        "requested_entry": request.query_params.get("entry"),
         "collections": {},
         "related_sources": [],
         "source_record": None,

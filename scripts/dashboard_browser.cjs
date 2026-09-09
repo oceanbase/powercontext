@@ -35,9 +35,28 @@ async function checkReadingBounds(page, route) {
   assert.deepEqual(overflow, [], `Reading content exceeds its page or card: ${route}`);
 }
 
+async function checkChartTooltip(page, chart) {
+  const legend = chart.locator('.apexcharts-legend-series').first();
+  await legend.click();
+  await legend.click();
+  for (const bar of await chart.locator('.apexcharts-bar-area').all()) {
+    const bounds = await bar.boundingBox();
+    if (!bounds || bounds.width < 2 || bounds.height < 2) continue;
+    await bar.hover();
+    const tooltip = chart.locator('.apexcharts-tooltip.apexcharts-active');
+    await tooltip.waitFor();
+    await page.waitForFunction(() => {
+      const reading = document.querySelector('.apexcharts-tooltip.apexcharts-active')?.getBoundingClientRect();
+      return reading && reading.left >= 0 && reading.right <= innerWidth + 1;
+    });
+    return;
+  }
+}
+
 async function clickNavigation(page, selector) {
   const target = page.locator(selector);
-  if (!await target.isVisible()) await page.locator('.navbar-toggler').click();
+  const toggle = page.locator('.navbar-toggler');
+  if (await toggle.isVisible() && !await page.locator('#dashboard-navigation').isVisible()) await toggle.click();
   await target.click();
 }
 
@@ -55,13 +74,13 @@ async function checkScopePicker(page, base, parent, child) {
         await page.goto(`${base}/dashboard/home?scope=${parent.scope_id}&period=30d&lang=${lang}&theme=${theme}`);
         await clickNavigation(page, '.scope-picker .ts-control');
         const picker = page.locator('.scope-picker');
-        const input = picker.locator('input[role="combobox"]');
+        const input = picker.locator('.dropdown-input');
         const location = page.url();
         await input.fill('no-matching-scope-query');
         await picker.locator('.no-results').waitFor();
         assert.equal(page.url(), location, 'Filtering scopes navigated away');
         await input.press('Escape');
-        assert.equal(await input.getAttribute('aria-expanded'), 'false');
+        assert.equal(await picker.locator('.ts-control').getAttribute('aria-expanded'), 'false');
         await clickNavigation(page, '.scope-picker .ts-control');
         await input.fill(child.title);
         await picker.locator(`[role="option"].active[data-value="${child.scope_id}"]`).waitFor();
@@ -95,6 +114,8 @@ async function changePreference(page, key, value) {
   })), 'Display options are clipped by navigation scrolling');
   await menu.locator(`.dropdown-item[href*="${key}=${value}"]`).click();
   await page.waitForURL(url => url.searchParams.get(key) === value);
+  const selectedTheme = page.locator('.display-preferences [data-theme-value][aria-current="true"]');
+  assert.equal(await selectedTheme.getAttribute('data-theme-value'), await page.evaluate(() => document.documentElement.dataset.bsTheme || 'light'));
 }
 
 async function displayLayout(page) {
@@ -125,17 +146,27 @@ async function displayLayout(page) {
   return layout;
 }
 
+async function openSourceReader(page, trigger, keyboard = false) {
+  await page.evaluate(() => {
+    window.sourceReaderReady = new Promise(resolve => {
+      document.querySelector('#evidence').addEventListener('shown.bs.modal', () => resolve(true), { once: true });
+    });
+  });
+  if (keyboard) await trigger.press('Enter');
+  else await trigger.click();
+  await page.evaluate(() => window.sourceReaderReady);
+}
+
 async function checkSourceReading(page, base, route, api) {
   await page.goto(base + '/dashboard/' + route);
   const opener = page.locator('[data-evidence]').first();
   if (!await opener.count()) return;
   const sourceURL = new URL(await opener.getAttribute('href'), base);
   const before = await page.evaluate(() => document.documentElement.scrollHeight);
-  await opener.click();
+  await openSourceReader(page, opener);
   const text = page.locator('.original-content');
   await text.waitFor();
-  const mobile = await page.locator('#evidence').evaluate(element => getComputedStyle(element).position === 'fixed');
-  if (mobile) await page.locator('#evidence.show').waitFor();
+  await page.locator('#evidence.show').waitFor();
   await page.waitForFunction(() => {
     const rect = document.querySelector('.original-content').getBoundingClientRect();
     return rect.left >= 0 && rect.right <= innerWidth + 1;
@@ -159,36 +190,94 @@ async function checkSourceReading(page, base, route, api) {
       return element.scrollHeight - element.scrollTop - element.clientHeight < 2;
     });
   }
-  const tabs = page.locator('.source-content-view .nav-link');
-  if (await tabs.count() > 1) {
-    await tabs.nth(1).click();
-    await page.waitForFunction(() => document.querySelector('.source-content-view .nav-link:nth-child(2)').classList.contains('active'));
+  const sources = page.locator('.source-content-view .dropdown-item');
+  if (await sources.count() > 1) {
+    const destination = await sources.nth(1).getAttribute('href');
+    await page.locator('#evidence-source-picker').click();
+    await sources.nth(1).click();
+    await page.waitForFunction(href => document.querySelector('.source-content-view [aria-current="true"]')?.getAttribute('href') === href, destination);
     assert.equal(await text.evaluate(element => element.scrollTop), 0);
+    await page.waitForFunction(() => document.querySelector('#evidence')?.contains(document.activeElement));
   }
-  if (mobile) {
-    await page.locator('#evidence .btn-close').click();
-    await page.waitForFunction(() => !document.body.style.overflow);
-  } else {
-    const url = page.url();
-    const position = await page.evaluate(() => scrollY);
-    const returnButton = page.getByRole('button', { name: /Back to sources|返回材料列表/ });
-    for (let index = 0; index < 2; index++) {
-      await page.context().setOffline(true);
-      try {
-        await returnButton.focus();
-        await page.keyboard.press('Enter');
-        await opener.waitFor({ state: 'visible' });
-      } finally {
-        await page.context().setOffline(false);
-      }
-      assert(await opener.evaluate(element => element === document.activeElement), 'Returning to sources lost keyboard focus');
-      assert.equal(page.url(), url);
-      assert.equal(await page.evaluate(() => scrollY), position);
-      assert(await page.evaluate(() => document.documentElement.scrollHeight) <= before + 1);
-      await opener.press('Enter');
-      await text.waitFor();
+  const url = page.url();
+  const position = await page.evaluate(() => scrollY);
+  for (const key of ['Escape', 'Enter']) {
+    await page.context().setOffline(true);
+    try {
+      if (key === 'Enter') await page.locator('#evidence .btn-close').focus();
+      await page.keyboard.press(key);
+      await page.waitForFunction(() => !document.body.style.overflow);
+      assert(await opener.evaluate(element => element === document.activeElement), 'Closing the source lost keyboard focus');
+    } finally {
+      await page.context().setOffline(false);
+    }
+    assert.equal(page.url(), url);
+    assert.equal(await page.evaluate(() => scrollY), position);
+    assert(await page.evaluate(() => document.documentElement.scrollHeight) <= before + 1);
+    if (key === 'Escape') {
+      await openSourceReader(page, opener, true);
     }
   }
+}
+
+async function checkMemoryAccordion(page) {
+  const accordion = page.locator('#memory-accordion');
+  if (!await accordion.isVisible()) return;
+  const buttons = accordion.locator('.accordion-button');
+  const location = page.url();
+  await page.context().setOffline(true);
+  try {
+    for (const button of (await buttons.all()).slice(0, 2)) {
+      if (await button.getAttribute('aria-expanded') !== 'true') {
+        await button.focus();
+        await button.press('Enter');
+      }
+      const panel = page.locator(await button.getAttribute('data-bs-target'));
+      await panel.locator('.source-text').waitFor();
+      await page.waitForFunction(() => document.querySelectorAll('#memory-accordion .accordion-collapse.show').length === 1 && !document.querySelector('#memory-accordion .collapsing'));
+      assert((await panel.innerText()).trim(), 'Expanded memory has no text');
+      assert(await panel.evaluate(element => element.scrollHeight <= element.clientHeight + 1), 'Expanded memory requires internal scrolling');
+    }
+    const expanded = accordion.locator('.accordion-button[aria-expanded="true"]');
+    if (await expanded.count()) {
+      await expanded.press('Enter');
+      await page.waitForFunction(() => !document.querySelector('#memory-accordion .show, #memory-accordion .collapsing'));
+    }
+    assert.equal(page.url(), location, 'Expanding a memory navigated away');
+  } finally {
+    await page.context().setOffline(false);
+  }
+}
+
+async function checkSourceRecovery(page) {
+  await page.context().setOffline(true);
+  try {
+    await openSourceReader(page, page.locator('[data-evidence]').first());
+    await page.locator('#evidence [data-source-error]:not([hidden])').waitFor();
+  } finally {
+    await page.context().setOffline(false);
+  }
+  await page.locator('#evidence [data-source-retry]').click();
+  const text = page.locator('.original-content');
+  await text.waitFor();
+  const sources = page.locator('#evidence .dropdown-item');
+  if (await sources.count() > 1) {
+    const original = await text.textContent();
+    const destination = await sources.nth(1).getAttribute('href');
+    await page.locator('#evidence-source-picker').click();
+    await page.context().setOffline(true);
+    try {
+      await sources.nth(1).click();
+      await page.locator('#evidence [data-source-error]:not([hidden])').waitFor();
+      assert.equal(await text.textContent(), original, 'A failed source switch discarded the readable source');
+    } finally {
+      await page.context().setOffline(false);
+    }
+    await page.locator('#evidence [data-source-retry]').click();
+    await page.waitForFunction(href => document.querySelector('#evidence [aria-current="true"]')?.getAttribute('href') === href, destination);
+  }
+  await page.locator('#evidence .btn-close').click();
+  await page.waitForFunction(() => !document.body.classList.contains('modal-open'));
 }
 
 async function main() {
@@ -234,7 +323,7 @@ async function main() {
         }
         if (name === 'notes') {
           assert(await page.locator('.memory-directory').isVisible());
-          assert(await page.locator('#note-reading').isVisible());
+          assert(await page.locator(width < 1200 ? '#memory-accordion' : '#note-reading').isVisible());
         }
         if (name === 'usage') {
           assert(await page.locator('.usage-sheet').isVisible());
@@ -331,8 +420,10 @@ async function main() {
       }
     });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `chart at ${width}`);
+    const chart = page.locator('[data-comparison-chart]');
+    if (await chart.count()) await checkChartTooltip(page, chart);
   }
-  for (const width of [390, 1536]) {
+  for (const width of [320, 390, 1536]) {
     await page.setViewportSize({ width, height: 900 });
     for (const period of ['today', '7d', '30d']) {
       await page.goto(`${base}/dashboard/usage?scope=${readingScope}&period=${period}`);
@@ -345,6 +436,7 @@ async function main() {
       assert(visible.length, `Missing chart dates for ${period} at ${width}px`);
       for (const label of visible) assert(days.some(day => day.label === label), `Chart date ${label} is outside ${period}`);
       if (days.length === 1) assert.deepEqual(visible, [days[0].label]);
+      if (period === '7d') await checkChartTooltip(page, chart);
     }
   }
   for (const width of [320, 390, 600, 768, 991, 992, 1024, 1199, 1200, 1280, 1399, 1400, 1536, 1920]) {
@@ -439,26 +531,34 @@ async function main() {
     await page.goto(base + '/dashboard/' + experience);
     const source = page.locator('[data-evidence]').first();
     if (await source.count()) {
-      await source.click();
-      await page.locator('#evidence.show').waitFor();
-      assert(await page.locator('#evidence-content').innerText());
-      await page.setViewportSize({ width: 1400, height: 1024 });
-      await page.waitForFunction(() => !document.querySelector('#evidence').classList.contains('show'));
-      await page.setViewportSize({ width: 1399, height: 1024 });
-      await source.click();
-      await page.locator('#evidence.show').waitFor();
+      await checkSourceRecovery(page);
+      await openSourceReader(page, source);
+      await page.locator('.original-content').waitFor();
+      for (const width of [1400, 1399]) {
+        await page.setViewportSize({ width, height: 1024 });
+        await page.locator('#evidence.show').waitFor();
+        const reader = await page.locator('#evidence .modal-dialog').boundingBox();
+        assert(reader.x >= 0 && reader.x + reader.width <= width + 1);
+        assert(reader.width >= width * 0.7, 'Source reader is too narrow');
+        assert(reader.y >= 0 && reader.y + reader.height <= page.viewportSize().height);
+      }
       await page.locator('#evidence .btn-close').click();
       await page.waitForFunction(() => !document.body.style.overflow);
       await clickNavigation(page, '.navbar-nav a[href*="/usage?"]');
       await page.waitForURL(url => url.pathname.endsWith('/usage'));
-      assert.equal(await page.locator('.offcanvas-backdrop').count(), 0);
+      assert.equal(await page.locator('.modal-backdrop').count(), 0);
       await page.goBack();
       await page.locator('[data-evidence]').first().waitFor();
+      await openSourceReader(page, page.locator('[data-evidence]').first());
+      await page.goForward();
+      await page.waitForURL(url => url.pathname.endsWith('/usage'));
+      await page.waitForFunction(() => !document.body.classList.contains('modal-open'));
+      assert.equal(await page.locator('.modal-backdrop').count(), 0);
     }
   }
   for (const viewport of [{ width: 390, height: 700 }, { width: 844, height: 390 }, { width: 1400, height: 600 }, { width: 1536, height: 900 }]) {
     await page.setViewportSize(viewport);
-    for (const route of routes.filter(route => /^(experience|handoff-detail)\?/.test(route))) {
+    for (const route of routes.filter(route => /^(experience|skill|handoff-detail)\?/.test(route))) {
       await checkSourceReading(page, base, route, api);
     }
     await page.goto(`${base}/dashboard/usage?scope=${readingScope}&period=30d`);
@@ -484,6 +584,7 @@ async function main() {
   for (const width of [390, 1200, 1536]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`${base}/dashboard/notes?scope=${readingScope}&lang=en`);
+    await checkMemoryAccordion(page);
     const geometry = () => page.evaluate(() => ({
       height: document.documentElement.scrollHeight,
       panels: [...document.querySelectorAll('.collection-panel, .memory-directory')].map(element => {
@@ -513,9 +614,22 @@ async function main() {
       const destination = await following.getAttribute('href');
       await following.click();
       await page.waitForURL(base + destination);
-      assert.deepEqual(await geometry(), firstLayout, `Pagination shifted the reading layout at ${width}`);
+      const layout = await geometry();
+      if (width >= 1200) assert.deepEqual(layout, firstLayout, `Pagination shifted the reading layout at ${width}`);
+      else assert(await page.getByRole('navigation', { name: 'Pagination', exact: true }).isVisible());
       await checkMemoryDirectory();
       following = page.getByRole('link', { name: 'Next page', exact: true });
+    }
+    const selected = page.locator('.note-selector').last();
+    if (await selected.count() && await selected.isVisible()) {
+      const destination = await selected.getAttribute('href');
+      await selected.click();
+      await page.waitForURL(base + destination);
+      await page.waitForFunction(() => document.activeElement?.id === 'note-reading');
+      await page.waitForFunction(() => {
+        const reading = document.querySelector('#note-reading').getBoundingClientRect();
+        return reading.top >= -1 && reading.bottom <= innerHeight + 1;
+      });
     }
   }
   const entries = (await api('/v1/memory/entries/list', { scope_id: readingScope })).entries;
@@ -527,7 +641,11 @@ async function main() {
     await page.waitForURL(url => url.searchParams.get('q') === query && !url.searchParams.has('notes_page'));
     const expected = new Set(hits.map(hit => hit.citation.entry_id));
     const seen = new Set();
+    let resultPage = 1;
     while (true) {
+      const pagination = page.getByRole('navigation', { name: 'Pagination', exact: true });
+      assert(await pagination.isVisible(), 'Search pagination is hidden');
+      assert(await pagination.getByText(`Page ${resultPage}`, { exact: true }).isVisible());
       for (const id of await page.locator('.note-selector').evaluateAll(links => links.map(link => new URL(link.href).searchParams.get('entry')))) {
         assert(expected.has(id));
         assert(!seen.has(id));
@@ -538,11 +656,27 @@ async function main() {
       const destination = await following.getAttribute('href');
       await following.click();
       await page.waitForURL(base + destination);
+      resultPage++;
     }
     assert.deepEqual(seen, expected);
+    await page.setViewportSize({ width: 390, height: 900 });
+    await checkMemoryAccordion(page);
     await page.getByRole('link', { name: 'Clear search', exact: true }).click();
     await page.waitForURL(url => !url.searchParams.has('q') && !url.searchParams.has('notes_page'));
     assert(await page.locator('.note-selector').count());
+  }
+  for (const route of ['notes', 'methods?kind=skill']) {
+    const url = new URL(`${base}/dashboard/${route}`);
+    url.searchParams.set('scope', readingScope);
+    url.searchParams.set('lang', 'en');
+    url.searchParams.set('q', 'no-matching-dashboard-pagination-result');
+    await page.goto(url.href);
+    const pagination = page.getByRole('navigation', { name: 'Pagination', exact: true });
+    assert(await pagination.isVisible(), 'Empty search pagination is hidden');
+    for (const label of ['Previous', 'Page 1', 'Next page']) {
+      assert(await pagination.getByText(label, { exact: true }).isVisible());
+    }
+    assert.equal(await pagination.getByRole('link').count(), 0, 'Empty search has an available page link');
   }
   await page.goto(`${base}/dashboard/methods?scope=${readingScope}&lang=en`);
   await page.locator('.nav-tabs').getByRole('link', { name: 'Skill', exact: true }).click();
@@ -552,6 +686,7 @@ async function main() {
     await page.getByRole('searchbox').fill(skills[0].content.name);
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await page.waitForURL(url => url.searchParams.get('q') === skills[0].content.name);
+    assert(await page.getByRole('navigation', { name: 'Pagination', exact: true }).isVisible());
     await page.getByRole('link', { name: skills[0].content.name, exact: true }).click();
     await page.waitForURL(url => url.pathname.endsWith('/skill'));
     await page.locator('.back-link').click();
@@ -567,6 +702,6 @@ async function main() {
   assert.deepEqual(errors, []);
   fs.writeFileSync(path.join(output, 'browser-report.json'), JSON.stringify(report, null, 2) + '\n');
   await browser.close();
-  console.log(`Verified ${report.pages.length} scope pages, ${routes.length} responsive pages, navigation, drawer and recovery.`);
+  console.log(`Verified ${report.pages.length} scope pages, ${routes.length} responsive pages, navigation, source reader and recovery.`);
 }
 main().catch(error => { console.error(error); process.exit(1); });

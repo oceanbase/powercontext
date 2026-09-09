@@ -1,9 +1,10 @@
 {% macro record_references(record, family) %}
-{% if record.artifact_id or record.sources or record.artifacts %}
+{% if record.artifact_id or record.sources or record.artifacts or caller is defined %}
 <footer class="record-references text-secondary border-top pt-3">
   <style>
     me { overflow-wrap: anywhere; }
   </style>
+  {% if caller is defined %}{{ caller() }}{% endif %}
   {% if record.artifact_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ family }}/{{ record.artifact_id }}{% if record.revision %}@{{ record.revision }}{% endif %}</code>{% endif %}
   {% for source in record.sources if source.source_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ source.source_type }}/{{ source.source_id }}</code>{% endfor %}
   {% for artifact in record.artifacts if artifact.artifact_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ artifact.family }}/{{ artifact.artifact_id }}{% if artifact.revision %}@{{ artifact.revision }}{% endif %}</code>{% endfor %}

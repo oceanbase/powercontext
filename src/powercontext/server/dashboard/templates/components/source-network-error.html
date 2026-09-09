@@ -1,0 +1,3 @@
+<div class="alert alert-warning mt-3 mb-0" role="alert" hidden data-source-error>
+  {{ t.loading_error }} <a href="{{ link() }}" data-source-retry hx-boost="true" hx-target="#evidence-content" hx-select="unset" hx-swap="innerHTML" hx-push-url="false" hx-indicator="#evidence-loading">{{ t.retry }}</a>
+</div>

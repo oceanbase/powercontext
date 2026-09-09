@@ -166,6 +166,17 @@ def test_memory_search_preserves_scope_citations_and_result_pagination(dashboard
     assert hits
     first = dashboard.get("/dashboard/notes", params={"scope": scope, "q": "Release"})
     assert first.status_code == 200
+    assert LABELS["constraint"] in first.text
+    assert LABELS["page_number"].format(page=1) in first.text
+    second = dashboard.get(page_link(first.text, LABELS["next_page"]))
+    assert second.status_code == 200
+    assert second.url.params["q"] == "Release"
+    assert second.url.params["scope"] == scope
+    assert LABELS["page_number"].format(page=2) in second.text
+    previous = dashboard.get(page_link(second.text, LABELS["previous_page"]))
+    assert record_links(previous.text, "/dashboard/notes", "entry") == record_links(
+        first.text, "/dashboard/notes", "entry"
+    )
     assert collect_pages(dashboard, first.text, "/dashboard/notes", "entry") == {
         hit["citation"]["entry_id"] for hit in hits
     }
@@ -188,7 +199,12 @@ def test_memory_search_preserves_scope_citations_and_result_pagination(dashboard
         empty = dashboard.get("/dashboard/notes", params={"scope": target, "q": query})
         assert empty.status_code == 200
         assert LABELS["notes_no_match"] in empty.text
+        assert LABELS["page_number"].format(page=1) in empty.text
         assert not record_links(empty.text, "/dashboard/notes", "entry")
+    single = dashboard.get("/dashboard/notes", params={"scope": scope, "q": "Invoices"})
+    assert LABELS["page_number"].format(page=1) in single.text
+    assert LABELS["previous_page"] in single.text
+    assert LABELS["next_page"] in single.text
     restored = dashboard.get(page_link(first.text, LABELS["clear_search"]))
     assert restored.status_code == 200
     assert not restored.url.params.get("q")
@@ -196,6 +212,24 @@ def test_memory_search_preserves_scope_citations_and_result_pagination(dashboard
     assert collect_pages(dashboard, restored.text, "/dashboard/notes", "entry") == {
         item["citation"]["entry_id"] for item in expected
     }
+
+
+def test_collection_errors_return_to_a_readable_list(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Recoverable collections")["scope_id"]
+    for page, selection, empty_label in [
+        ("notes", {"notes_page": "99"}, "notes_empty"),
+        ("notes", {"notes_page": "invalid"}, "notes_empty"),
+        ("methods", {"kind": "skill", "skill_page": "99"}, "skills_empty"),
+        ("methods", {"kind": "experience", "experience_history": "invalid"}, "experience_empty"),
+        ("handoff", {"handoff_history": "invalid"}, "handoff_empty"),
+    ]:
+        response = dashboard.get(f"/dashboard/{page}", params={"scope": scope, "period": "30d", **selection})
+        assert LABELS["back_list"] in response.text
+        restored = dashboard.get(page_link(response.text, LABELS["back_list"]))
+        assert restored.status_code == 200
+        assert restored.url.params["scope"] == scope
+        assert restored.url.params["period"] == "30d"
+        assert LABELS[empty_label] in restored.text
 
 
 @pytest.mark.parametrize("family", ["experience", "skill"])
@@ -299,7 +333,7 @@ def test_skill_with_usage_provenance_is_readable_and_searchable(dashboard: TestC
         json={
             "scope_id": scope,
             "proposal": {**proposal, "instructions": "Read the report and retain unknown outcomes."},
-            "source_refs": [usage.json()["source"]],
+            "source_refs": [usage.json()["source"], source],
             "artifact_refs": [approved],
             "target": approved,
         },
@@ -321,6 +355,17 @@ def test_skill_with_usage_provenance_is_readable_and_searchable(dashboard: TestC
     assert detail.status_code == 200
     assert "retain unknown outcomes" in detail.text
     assert "skill-usage/review-observation" in detail.text
+    material_links = {
+        unescape(value)
+        for value in re.findall(r'href="([^"]+)"', detail.text)
+        if urlsplit(unescape(value)).path.startswith("/dashboard/evidence/")
+    }
+    assert material_links
+    for link in material_links:
+        material = dashboard.get(link)
+        assert material.status_code == 200
+        assert "The report leaves unsupported outcomes unknown." in material.text
+        assert material.url.params["origin"] == "skill"
     assert (
         "review-report"
         not in dashboard.get("/dashboard/methods", params={"scope": scope, "kind": "skill", "q": "unrelated"}).text

@@ -1,14 +1,15 @@
 {% macro icon(name) %}
 <span class="nav-symbol nav-link-icon" aria-hidden="true">
-  <img src="/dashboard/static/vendor/icons/{{ {'home':'home','handoff':'arrows-exchange','notes':'notes','methods':'book','usage':'chart-bar'}[name] }}.svg" alt="">
+  <img class="w-100 h-100" src="/dashboard/static/vendor/icons/{{ {'home':'home','handoff':'arrows-exchange','notes':'notes','methods':'book','usage':'chart-bar'}[name] }}.svg" alt="">
 </span>
 {% endmacro %}
 
 {% macro evidence_link(index=0, label='') %}
 
-<a class="evidence-link" href="{{ link('evidence/' ~ related_sources[index].source_id, origin='handoff-detail' if page == 'handoff-detail' else 'experience', source_type=related_sources[index].source_type) }}"
-   hx-get="{{ link('evidence/' ~ related_sources[index].source_id, origin='handoff-detail' if page == 'handoff-detail' else 'experience', source_type=related_sources[index].source_type) }}" hx-target="#evidence-content"
-   hx-select="unset" hx-swap="innerHTML" hx-push-url="false" data-evidence>
+<a class="evidence-link" href="{{ link('evidence/' ~ related_sources[index].source_id, origin=page, source_type=related_sources[index].source_type) }}"
+   hx-get="{{ link('evidence/' ~ related_sources[index].source_id, origin=page, source_type=related_sources[index].source_type) }}" hx-target="#evidence-content"
+   hx-select="unset" hx-swap="innerHTML" hx-push-url="false" hx-indicator="#evidence-loading"
+   data-bs-toggle="modal" data-bs-target="#evidence" data-evidence>
   {{ label or t.evidence_open }}
 </a>
 {% endmacro %}
@@ -47,10 +48,10 @@
 
 {% macro disclosure(identifier, title) %}
 <div class="accordion accordion-flush" id="{{ identifier }}">
+  <div class="accordion-item">
   <style>
     me .accordion-body { max-height: 60dvh; overflow: auto; overscroll-behavior: contain; }
   </style>
-  <div class="accordion-item">
     <h2 class="accordion-header">
       <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
               data-bs-target="#{{ identifier }}-body" aria-expanded="false" aria-controls="{{ identifier }}-body">{{ title }}

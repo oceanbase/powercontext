@@ -1,24 +1,14 @@
 {% from "macros.html" import icon with context %}
-<aside class="navbar navbar-vertical navbar-expand-lg position-relative w-100" aria-label="{{ t.scope_label }}">
+<aside class="navbar navbar-vertical navbar-expand-lg" aria-label="{{ t.scope_label }}">
   <style>
-    me .navbar-brand { justify-content: flex-start; }
-    me .navbar-nav .nav-link { justify-content: flex-start; min-height: calc(2lh + 1rem); }
-    me .nav-symbol img { width: 1.25rem; height: 1.25rem; }
     [data-bs-theme="dark"] me .nav-symbol img { filter: invert(1); }
-    @media (min-width: 992px) {
-      me { max-height: 100dvh; overflow-y: auto; }
-      me.navbar-vertical > .container-fluid { min-height: 100dvh; }
-    }
-    @media (max-width: 991.98px) { me > .container-fluid { display: block; } }
   </style>
-  <div class="container-fluid py-3 px-lg-3">
-    <div class="d-flex align-items-center justify-content-between">
-      <a class="navbar-brand m-0 py-0" href="{{ link('home') }}">{% include 'components/brand.html' %}</a>
-      <button class="navbar-toggler d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#dashboard-navigation" aria-controls="dashboard-navigation" aria-expanded="false" aria-label="{{ t.navigation }}"><span class="navbar-toggler-icon"></span></button>
-    </div>
+  <div class="container-fluid">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#dashboard-navigation" aria-controls="dashboard-navigation" aria-expanded="false" aria-label="{{ t.navigation }}"><span class="navbar-toggler-icon"></span></button>
+    <a class="navbar-brand" href="{{ link('home') }}">{% include 'components/brand.html' %}</a>
     <div class="collapse d-lg-flex flex-column flex-fill w-100" id="dashboard-navigation">
     <div class="navbar-collapse">
-    <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form my-4 w-100"
+    <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form my-3 px-3 w-100"
           hx-get="/dashboard/{{ parent_page or page }}" hx-trigger="change[target.id === 'scope'], submit" hx-push-url="true">
       <label for="scope" class="visually-hidden">{{ t.scope_label }}</label>
       <input type="hidden" name="period" value="{{ period }}">
@@ -27,18 +17,16 @@
       <noscript><button class="btn mt-2" type="submit">{{ t.apply }}</button></noscript>
       {% if errors.get('scopes') %}<p class="small mt-2">{{ t.scope_list_unavailable }}</p>{% endif %}
     </form>
-    <nav class="navbar-nav w-100" aria-label="{{ t.navigation }}">
-      <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-1 g-1">
+    <ul class="navbar-nav w-100" aria-label="{{ t.navigation }}">
       {% for item in ['home', 'handoff', 'notes', 'methods', 'usage'] %}
       {% set active = page == item or parent_page == item %}
-      <div class="col nav-item {% if active %}active{% endif %}"><a href="{{ link(item) }}" class="nav-link h-100 gap-2 {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
-        {{ icon(item) }}<span>{{ t[item] }}</span>
-      </a></div>
+      <li class="nav-item {% if active %}active{% endif %}"><a href="{{ link(item) }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
+        {{ icon(item) }}<span class="nav-link-title">{{ t[item] }}</span>
+      </a></li>
       {% endfor %}
-      </div>
-    </nav>
+    </ul>
     </div>
-    <div class="mt-auto pt-4">{% with preferences_placement='top-start' %}{% include 'components/preferences.html' %}{% endwith %}</div>
+    <div class="mt-auto p-3 w-100">{% with preferences_placement='top-start' %}{% include 'components/preferences.html' %}{% endwith %}</div>
     </div>
 
   </div>

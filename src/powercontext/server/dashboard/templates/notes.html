@@ -2,6 +2,7 @@
 {% include 'components/collection-style.html' %}
 <style>
   me .note-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  [data-bs-theme="dark"] me .accordion-button-toggle img { filter: invert(1); }
 </style>
 {% from 'components/pagination.html' import pagination %}
 {% from 'components/page-heading.html' import page_heading %}
@@ -14,18 +15,20 @@
 <div class="row row-cards">
   <aside class="col-xl-4"><div class="card memory-directory">
     <style>
-      me { min-height: 65dvh; }
-      me .memory-items { display: grid; grid-template-rows: repeat({{ notes_page_size }}, 1fr); flex: 1; }
+      me .memory-items { display: grid; grid-template-rows: repeat({{ notes_page_size }}, minmax(calc(2lh + 2 * var(--tblr-list-group-item-padding-y) + var(--tblr-spacer-2) + var(--tblr-list-group-border-width)), 1fr)); flex: 1; }
+      me .memory-empty { grid-row: 1 / -1; }
       me .note-selector { min-width: 0; }
+      @media (min-width: 1200px) { me { min-height: 65dvh; } }
     </style>
-    <nav class="list-group list-group-flush {{ 'memory-items' if data.notes else 'flex-fill' }}" aria-label="{{ t.notes_list }}">
-      {% for item in data.notes %}<a class="list-group-item list-group-item-action note-selector {% if selected_note and selected_note.entry_id == item.entry_id %}active{% endif %}" href="{{ link('notes', entry=item.entry_id, fragment='note-reading') }}" {% if selected_note and selected_note.entry_id == item.entry_id %}aria-current="true"{% endif %}>
+    <nav class="list-group list-group-flush memory-items d-none d-xl-grid" aria-label="{{ t.notes_list }}">
+      {% for item in data.notes %}<a class="list-group-item list-group-item-action note-selector {% if selected_note and selected_note.entry_id == item.entry_id %}active{% endif %}" href="{{ link('notes', entry=item.entry_id, fragment='note-reading') }}" hx-swap="outerHTML show:#note-reading:top" {% if selected_note and selected_note.entry_id == item.entry_id %}aria-current="true"{% endif %}>
         {% if item.kind is defined %}<span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span>{% endif %}<span class="note-summary d-block text-truncate fw-normal">{{ item.text|truncate(48, true) }}</span>
-      </a>{% else %}<div class="empty"><h2 class="empty-title">{{ t.notes_no_match if search_query else t.notes_empty }}</h2></div>{% endfor %}
+      </a>{% else %}<div class="empty memory-empty d-flex flex-column justify-content-center"><h2 class="empty-title">{{ t.notes_no_match if search_query else t.notes_empty }}</h2></div>{% endfor %}
     </nav>
-    {% if notes_pager.previous or notes_pager.next %}<div class="card-footer collection-footer">{{ pagination(notes_pager, t, compact=true) }}</div>{% endif %}
+    {% include 'components/memory-accordion.html' %}
+    <div class="card-footer collection-footer">{{ pagination(notes_pager, t, compact=true, always=true) }}</div>
   </div></aside>
-  <section class="col-xl-8 d-flex flex-column" id="note-reading" aria-label="{{ t.note_reading }}"><article class="card collection-panel flex-fill">
+  <section class="col-xl-8 d-none d-xl-flex flex-column" id="note-reading" tabindex="-1" aria-label="{{ t.note_reading }}"><article class="card collection-panel flex-fill">
     <div class="card-body note-reading collection-content" tabindex="0" role="region" aria-label="{{ t.notes }}">
       {% if selected_note %}
       <p class="note-text">{{ selected_note.text }}</p>

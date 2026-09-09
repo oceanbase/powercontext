@@ -1,5 +1,5 @@
-{% macro pagination(pager, t, compact=false) %}
-{% if pager and (pager.previous or pager.next) %}
+{% macro pagination(pager, t, compact=false, always=false) %}
+{% if pager and (pager.previous or pager.next or always) %}
 <nav aria-label="{{ t.pagination }}" class="{{ '' if compact else 'mt-3' }}">
   <ul class="pagination justify-content-between align-items-center mb-0">
     <li class="page-item {{ '' if pager.previous else 'disabled' }}">{% if pager.previous %}<a class="page-link" href="{{ pager.previous }}">{{ t.previous_page }}</a>{% else %}<span class="page-link">{{ t.previous_page }}</span>{% endif %}</li>

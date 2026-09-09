@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/dashboard/static/vendor/tabler.min.css">
   <link rel="stylesheet" href="/dashboard/static/layout.css">
   <script src="/dashboard/static/vendor/css-scope-inline.js"></script>
+  <script src="/dashboard/static/vendor/surreal.js"></script>
   <script src="/dashboard/static/vendor/tabler.min.js"></script>
 </head>
 <body>
@@ -17,11 +18,15 @@
     <style>
       me.standalone-source { height: 100dvh; display: flex; flex-direction: column; }
       me > :not(.source-content-view) { flex-shrink: 0; }
+      me .source-content-view { min-height: 0; }
+      me .modal-body { min-height: 0; overflow-y: auto; }
     </style>
     <div class="d-flex justify-content-end mb-3">{% include 'components/preferences.html' %}</div>
     <a href="{{ link(origin) }}">← {{ t[origin] }}</a>
     <h1 class="mt-4">{{ t.source_label }}</h1>
-    {% include 'evidence.html' %}
+    <section class="source-content-view d-flex flex-column flex-fill">
+      {% with standalone=true %}{% include 'evidence.html' %}{% endwith %}
+    </section>
   </main>
 </body>
 </html>

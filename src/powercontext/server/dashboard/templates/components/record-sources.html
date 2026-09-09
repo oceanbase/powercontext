@@ -1,8 +1,5 @@
-<aside class="col-xxl-5 reading-margin">
-  <h2>{{ t.source_label }}</h2>
-  {% if not related_sources %}<p>{{ t.sources_empty }}</p>{% endif %}
-  <div class="source-links">
-    {% for source in related_sources %}<div class="source-index my-3">{{ evidence_link(loop.index0, t.read_material ~ ' ' ~ loop.index) }}</div>{% endfor %}
-  </div>
-  {% include 'components/evidence-drawer.html' %}
-</aside>
+{% if related_sources %}
+  <ul class="list-inline mb-3" aria-label="{{ t.source_label }}">
+    {% for source in related_sources %}<li class="list-inline-item my-1">{{ evidence_link(loop.index0, t.read_material ~ ' ' ~ loop.index) }}</li>{% endfor %}
+  </ul>
+{% endif %}

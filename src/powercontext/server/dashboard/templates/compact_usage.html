@@ -14,9 +14,6 @@
       <small class="d-block text-secondary mt-3">{{ t.compact_estimate_notice }}</small>
     </div>
     <div class="col-lg-8 col-xxl-9 compact-chart">
-      <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-        <div class="compact-legend small"><span class="legend bg-gray-400 me-1"></span>{{ t.baseline }} <span class="legend bg-primary ms-3"></span>{{ t.recalled }}</div>
-      </div>
       {{ comparison_chart(compact=true) }}
     </div>
   </div>
