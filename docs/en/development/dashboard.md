@@ -1,127 +1,174 @@
-# Dashboard development and verification
+# Dashboard design principles
 
-The Server includes a read-only Dashboard at `/dashboard/home`. It presents scope selection, handoffs, memories, experiences, skills and usage through existing HTTP APIs. `openapi/powercontext.yaml` and the Server implementation define what the pages can claim.
+The Dashboard is where users view saved content and usage in PowerContext. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.
 
-## Pages and contracts
+## What the Dashboard helps users do
 
-| Page | Public API | Presentation rule |
-| --- | --- | --- |
-| Scope selection | Scope list, default and descriptor GET endpoints | An absent scope uses the Server default; an explicit empty value opens the chooser; unknown scopes produce an error |
-| Home | Memory entries, exact Artifact revisions and statistics | Each section loads independently; content existence does not determine usage existence |
-| Memories | `/v1/memory/entries/list`, `/v1/memory/search`, `/v1/memory/entries/get` | Search up to 50 full-text matches; preserve complete text and line breaks with the complete MemoryCitation |
-| Handoffs | Scoped handoff Artifact list and revision GET endpoints | Present the recorded state and next action; list order does not imply recency |
-| Experiences and skills | Experience list, `/v1/experience/get`, `/v1/skill/library`, `/v1/skill/get` | Browse experiences and skills separately, opening experiences by default; search skills with the library's 200-result limit; preserve exact content and provenance |
-| Source material | Scoped source GET endpoint | Verify membership in the selected record before reading; a source failure does not replace the record |
-| Usage | `/v1/stats` | Use reported periods, totals, daily values, purposes and comparison coverage |
+A user may open the Dashboard to check an agreement, find an experience relevant to a similar problem, or resume interrupted work. The page needs to make the current scope clear, help them find the relevant record, and provide access to source material when they need to check it.
 
-The Dashboard does not call generation endpoints or require Handoff Report, capabilities or global administration access. Existing tools and APIs own writing, review, generation and distribution. There are no placeholder actions for these operations.
+The core experience for 1.0 is reading saved content. Memories, experiences, skills and handoffs can exist independently. A scope containing only memories should work normally, and an empty scope should still have a clear entry point and page structure. Existing tools and APIs handle generation, review and saving. Reading their results should not require generation configuration or global administrator access.
 
-Validate Artifact HTTP content in JSON mode. Strict domain tuples are arrays in JSON and cannot be validated as Python dictionaries without accounting for that representation.
+Scope names, summaries and saved content supply the business topic. A payment service, customer interviews and personal research can use the same interface without separate navigation for each domain. Before adding a section, explain which task it helps the user complete and whether the available data supports what it claims.
 
-## Scope semantics
+## What content and scopes mean
 
-An absent `scope` query reads the Server default. Select any scope through the dropdown. Switching the selector changes only the URL, clears record identities and cursors, and returns detail pages to their collection, retaining the experience or skill category. It does not change tool bindings or the default save destination.
+### What each content type tells the user
 
-Selecting a scope immediately submits the form through HTMX’s `change` event; without scripts, a submit button is available. Selection options show their own title before the readable ancestor path and group parents, children and other scopes using `parent_scope_id`. Content pages read one exact scope. Usage explicitly offers `exact` and `subtree` selections.
-
-`context_references` governs explicit context preparation references. It is separate from hierarchy: parent content is not inherited by a child collection, and referenced scopes are not automatically part of subtree statistics.
-
-A denied scope list must not prevent trying an explicitly supplied readable scope. An exact Artifact detail can be read with an Artifact grant even when its scope metadata is unavailable. Unknown or denied records remain errors; they must never fall back to an unrelated record or an empty-state message.
-
-## Product language and evidence
-
-The Chinese navigation uses “交接”, “记忆”, “经验与技能” and “用量”. Scope titles and summaries supply the business topic. Do not add evaluation labels, sample content, promotional copy or status explanations that do not help the user act.
-
-A historical assistant report is evidence that the assistant made that claim. It is not independent evidence of completion. Review extracted candidates against the actual conversation window before approval, keeping requested changes and unfinished work distinct from verified results.
-
-Home may shorten excerpts and link to complete records. Detail pages preserve text instead of inventing titles, conclusions or citations by splitting or rewriting it. Keep native heading levels and allow long titles to wrap.
-
-Usage distinguishes zero, unreported values, unavailable comparisons and read failures. Render `null` as unreported. Preserve unknown purpose names and Server totals. Compute percentages only from the comparable baseline and reduction; show negative reduction as an increase. Keep generation and embedding usage separate. Estimated differences are not billing savings.
-
-Charts and daily tables share the same UTC response data. Do not construct historical dates or values in the browser. Home and usage share the same presenter.
-
-## Implementation ownership
-
-Runtime files live in `src/powercontext/server/dashboard/`.
-
-| File | Responsibility |
+| Content | What the user learns |
 | --- | --- |
-| `routes.py` | URLs, scopes, exact references, complete and partial HTML |
-| `api.py` | Existing HTTP calls with incoming credentials, content validation and stable read errors |
-| `content.py` | Per-page loading and independent section failures |
-| `presenters.py` | Contract responses projected into template contexts |
-| `session.py` | Browser credential transport and authentication recovery |
-| `templates/components/` | Navigation, headings, reading layout, sources, charts and errors |
-| `preferences.py` | Interface language, preference links and cookie |
-| `pagination.py` | Complete-list paging and backward navigation over opaque API cursors |
-| `labels.json`, `labels.en.json` | Chinese and English interface copy, without business data; write Chinese directly rather than Unicode escapes |
-| `static/` | Shared layout variables, pinned assets and licenses |
+| Memories | Saved agreements, preferences, facts and decisions |
+| Experiences | What happened in a particular situation, what was learned, and the conditions and evidence behind that lesson |
+| Skills | Reusable practices, steps and checks |
+| Handoffs | The objective, progress and next action recorded for a piece of work |
+| Usage | Estimated changes in prepared context size and PowerContext's own model usage |
 
-Experience details use `/v1/experience/get`. Skills use `/v1/skill/library` and `/v1/skill/get`, retaining named provenance such as skill-usage. The generic Artifact response currently restricts SourceTypeReference to content and cannot represent those records completely. Never relabel or drop provenance to make a response fit. The public source-body endpoint currently supports content only; preserve other source identities without inventing readable body links.
+Experiences need their original context, skills need their conditions of use, and handoffs describe the state at the time of saving. Related records may support different conclusions. A record's claim that a fix is complete still needs to be checked against the relevant evidence.
 
-Memory search uses the existing `fts` mode without requiring a vector model. Retain API ranking and exact citations, and prompt for narrower keywords at the 50-result limit. Skill search uses the library’s `query`. Experience has no public HTTP search endpoint and provides paged browsing; do not present filtering one page as a complete search or use context preparation for collection lookup.
+Home and collection pages may shorten previews; detail pages preserve the full text. The presentation layer shows existing information rather than deriving new conclusions by splitting or rewriting sentences. Source references let users check the content. Link to source text when it is readable, and retain the reference when only its identity is available.
 
-The skill library shows available heads, with exact access retained for retired revisions. Its maximum is 200 results; prompt for a narrower search at that limit rather than inventing a total or pagination cursor.
+### Scopes determine what the user is viewing
 
-The in-process HTTP transport calls the same Server and forwards incoming credentials through its authentication and authorization checks. Templates must not read the runtime or database directly. Never inject a deployment administrator token on behalf of the browser.
+A scope defines content membership and selects what the user reads. An entry point without an explicit scope uses the Server's configured default. Choosing another scope in the dropdown changes the browsing location, not the default save destination or tool bindings.
 
-A submitted Bearer credential is stored in an HttpOnly, SameSite Strict cookie scoped to `/dashboard`, with Secure on HTTPS. Session submissions require the same origin. API endpoints do not accept this cookie directly. HTML uses `no-store`; HTMX history caching is disabled so restored pages read the Server again.
+Users need to distinguish scopes with similar names. The selector shows each scope's name and recorded ancestry, using the Server's parent-child relationships. A child collection does not automatically include its parent's content. Explicit references to other scopes during context preparation are also separate from hierarchy.
 
-## Components and visual baseline
+Content collections read the current scope. Usage can cover that scope alone or include its descendants, and the user must be able to tell which selection the statistics cover. For example, an empty child may have no memories even when its parent has some. That is a valid state; the page must not fill the child with the parent's content.
 
-Reuse Tabler navigation, Collapse, Dropdown, cards, lists, forms, buttons, Accordion, Offcanvas, Alert, Spinner and Table. Charts use its ApexCharts integration. HTMX owns navigation and fragment replacement; Surreal handles necessary event connections between those frameworks.
+### What the data supports
 
-Pinned assets are Tabler Core 1.4.0, Tabler Icons 3.31.0, HTMX 2.0.4, ApexCharts 3.54.1 and Tom Select 2.4.3 from the Tabler 1.4.0 package. Surreal 1.3.4 uses commit `cd8f18d34067e073d0aa25675cc0649e304292a3`; css-scope-inline 1.1.0 uses `14e835ebe3b8596d0f3ee456162edf63bddc95ba`. Licenses ship beside the assets.
+No records, no comparable data, unreported values and read failures need distinct presentation. Show zero only when the API reports zero. If a scope or record cannot be read, explain the failure and offer an available recovery action instead of silently substituting other content.
 
-Scope selection uses Tabler’s bundled Tom Select, with its Bootstrap 5 base stylesheet loaded before Tabler styles. Component-local variables map the Bootstrap color and border tokens used by the picker to Tabler theme tokens. Keep native option groups, filtering and keyboard navigation; translate only the no-results message through the documented renderer. Tom Select updates the original select; HTMX listens to that select’s change event. Typing alone does not switch scope. Initialize on `htmx:load`, after HTMX restores the incoming attributes, and destroy the instance when HTMX removes its component.
+Prepared-context estimates cover only comparable records. A reduction percentage describes a change in text size. It does not establish completeness, content quality or billing savings. Show estimated increases as increases. List model input, output and embedding usage separately, and leave missing values as unreported.
 
-Use `me()`, `on()` and `off()` as described by [Surreal](https://github.com/gnat/surreal). Place styles within their component root and use `me` according to [css-scope-inline](https://github.com/gnat/css-scope-inline). Do not implement another selector or component system.
+Home summaries, daily charts and detail tables use the same statistical definitions. The Server supplies the reporting period and daily attribution; the interface does not invent historical data.
 
-Narrow screens use Tabler Collapse for the scope selector and menu; the desktop sidebar stays sticky beside the page. Pages start with their main heading, and details retain a return link to their collection. The selector identifies the scope. Loading status floats in a page corner without taking space from the content.
+## How pages organize reading
 
-Follow Tabler's [page layout](https://docs.tabler.io/ui/layout/page-layouts) and [typography](https://docs.tabler.io/ui/base/typography) conventions against the pinned 1.4.0 stylesheet. Use native grid columns for the sidebar and main content: 3/9 from lg and 2/10 from xxl. Keep the sidebar in `sticky-lg-top` with navigation filling its column, and share `container-xl` between page headings and content. Organize content with `row`, `row-cards` and the 12-column grid. The native `row-cards` gutter follows page padding so negative margins stay inside narrow containers. Home uses 6/6 columns from xl, memory uses 4/8, detail reading uses 7/5 from xxl, and usage uses 4/8 from xl. Compact home usage uses 4/8 from lg and 3/9 from xxl. Stack below each breakpoint rather than reducing body text to fit two columns.
+### Home provides an overview and entry points
 
-Use Tabler 1.4.0's default font stack, sizes, line heights and weights. At the default root size, body text is 14 px, `page-title-lg` is 24 px, section headings are 20 px and `card-title` is 16 px. Entries use `fw-normal`; other text keeps component weights. Usage percentages use native `display-3` without squeezing labels, period controls or charts. Period controls use the native small button group and must fit English labels on narrow screens.
+Home shows usage first, memories alongside experiences and skills next, and handoffs last. Usage provides an overview of activity. Memories and reusable content are available for reference, while handoffs lead into specific work records.
 
-Show record references as secondary information when present, without a separate heading or disclosure. Omit empty references. Reference lists follow document flow without their own scroll region. Memory text and expanded usage details use bounded scroll regions with complete content and keyboard access.
+Each section has a clear heading and a link to its collection or details. Excerpts are previews. Wide screens place memories beside experiences and skills; narrow screens preserve the reading order in a single column. When a content type has no records, its empty state stays in its own section.
 
-Sources use Tabler `offcanvas-xxl`: side-by-side reading on large screens and a native drawer on smaller screens. Tabler owns breakpoint behavior. The desktop source column uses the viewport height minus native top and bottom page padding and stays sticky beside the document. Headings and controls keep their natural height; Flex allocates the remaining space to independently scrolling source text. Source tabs scroll horizontally when necessary. Opening or switching a source must not lengthen the page. On smaller screens, keep the native Offcanvas with accessible headings, tabs, and source text. Standalone source pages also keep reading within the viewport. Error regions scroll when necessary so recovery controls remain accessible. Explicit hide/dispose cleanup is reserved for HTMX removing a node before the closing transition restores scrolling. Destroy charts when their owning node is removed. On wide screens, “Back to sources” clears the source content locally and restores focus to its link. Returning works without a network connection and preserves the record and page position. Smaller screens use the native Tabler close button.
+Users can also open records directly from a collection, a bookmark or an exact reference.
 
-Use `align-content-start` on the outer grid so short mobile pages do not distribute spare viewport height into the navigation row and shift the content down. Populated, empty and unmatched search states share containers, headings, grids and section boundaries. Keep the memory directory and reading pane, the minimum height of handoff and method lists, and the usage summary, chart region and model usage table. Empty charts use Tabler's `chart` or `chart-lg` dimensions and explain their state within that region. Home previews reserve line-height space for titles, progress excerpts and experience text; longer content grows naturally. Display API values and place empty-state messages in the relevant content region.
+### Collections support finding; details support reading
 
-After HTMX swaps a page, css-scope-inline applies component styles through a MutationObserver. Capture the chart owner with Surreal `run`, then `await tick()` before constructing ApexCharts; skip construction if that node was removed. Measuring before scoped layout is ready causes a visibly oversized first render. Place the compact chart in a native grid column that can shrink with its container. Do not add custom resize listeners. Match chart heights to native `chart` and `chart-lg`, inherit the page font and read colors from theme variables. Use the native ApexCharts datetime axis with UTC dates and automatic label density. A single day uses a category axis to show only the selected date.
+Collections help users identify and select entries. Pagination limits how much they need to scan at once, and search narrows the results. Search coverage and result limits must match the API. Filtering the current page must not appear to search the entire collection.
 
-Keep the white background, blue actions, fine borders, left navigation and split reading layout. Set brand colors through theme variables and keep native borders and gutters; allocate sidebar and content widths through grid columns. Check widths from 320 to 1920 pixels, including both sides of the 991/992, 1199/1200, and 1399/1400 breakpoints. Use the CSS viewport after browser zoom: a 1536-pixel window at 200% corresponds to a 768-pixel layout. Check text within page and card boundaries, not only document scrollWidth. Reject leftover backdrops and scroll locks.
+Memories use a list and reading pane. Experiences, skills and handoffs lead from a collection to a detail page containing the full record and related material. Summaries may be shortened when there are many entries, but users must still have a way to read the full text.
 
-Global CSS contains only the white page background and primary brand color variables. Buttons, forms, cards, corner radii, focus and transitions retain Tabler defaults. Avoid global element selectors that restyle components. Use framework utilities first; keep necessary equal-height, viewport and text-wrapping rules in component-local css-scope-inline styles. Logos use Tabler utilities.
+After opening a record, the user should be able to return to its collection. A new search starts on the first page. Switching scopes clears the previous scope's record selection and pagination position, returning detail pages to the corresponding collection. Changing only the language or theme preserves the scope, period and record being read.
 
-A shared “Display Settings” menu groups language and appearance with native Tabler Dropdown headers and a divider across every Dashboard page, standalone source view, and login page. The sidebar menu sits outside `.navbar-collapse` so Tabler does not treat it as expanding subnavigation. Public Dropdown `popperConfig` prefers upward placement and enables `applyStyles` and `preventOverflow.altAxis` for short-screen positioning; the default static navbar positioning can leave options outside the viewport. Opening the menu keeps its button and page content in place. Pages in the same browser load the shared preferences. Jinja2 selects interface copy; `lang=zh|en` sets a Dashboard-only preference cookie. Business records retain their original language. Preference links preserve scope, period and exact record identity and load a complete page so the root language agrees with HTMX fragments. Navigation uses stable column counts and row heights that accommodate two lines; display settings use one entry point. Responsive grid columns allocate space to titles and period controls. Usage extent options split into equal columns on narrow screens with room for wrapped labels. Translations may wrap naturally without changing navigation order, control grouping or main-column proportions. The source panel displays the complete text directly.
+### Source material supports checking in context
 
-Load Tabler 1.4.0's `tabler-theme.min.js` before styles. It owns `theme=light|dark`, local storage and `data-bs-theme`. Charts use that theme with a transparent background. Do not add a separate theme state machine or breakpoint listener.
+The relationship between a source and its record should be clear. Wide screens can show them side by side; small screens use a drawer so the user can check the evidence and return to the record. Opening a source, switching sources and returning to the list need visible controls, with the same actions available from the keyboard.
 
-Reuse the website's `website/assets/powercontext-color.png` and `powercontext-reverse.png`, switching them with Tabler's `hide-theme-dark` and `hide-theme-light`. The favicon uses a square SVG viewport over the original left-hand symbol; omit the wordmark and do not redraw the artwork. Memory, experience and skill rows use regular weight. List summaries and reading text inherit the default body size. Experience, handoff and skill details share the native heading hierarchy. Memories stack below the xl breakpoint. Model usage uses Tabler `table-mobile-sm` for labeled input and output values on narrow screens, with model type beneath purpose. Daily tables retain keyboard-accessible horizontal scrolling. Memory details show the text directly, without a reading heading, revision bar or record identity. Keep arrows for directional actions such as back navigation and new windows. There is no Getting Started page; legacy `/dashboard/guide` URLs redirect home with their parameters intact.
+Source text can be long. Size its reading area to the viewport, keep the heading and close control reachable, and let the text scroll within that area. Opening a source should not lengthen the whole page until the user loses their place. If one source fails to load, the open record remains readable.
 
-Home shows usage first, memories alongside experiences and skills next, and handoffs last. Each section has an external heading and navigation link. Headings remain visible for populated, empty and failed reads; the usage period belongs inside its card. Home memories use Tabler Card and List Group. Native grid and Flex utilities align the top and bottom card edges with the experiences and skills section. From xl, existing memory rows divide the card height equally; narrower screens use natural content heights. The memory directory reserves one row per pagination slot and uses Tabler text truncation for single-line summaries. Every entry on the page is visible without scrolling inside the directory. Pagination stays in the same position on shorter pages. Experience and skill directories also allocate rows by page capacity, using native cards and single-line summaries in document flow; detail pages show complete content. On large screens, memory text aligns with the directory height and long text scrolls within its card. Smaller screens stack the directory and a viewport-bounded reading area.
+## Keeping layout and interaction consistent
 
-Lists use six items per page and Tabler Pagination. Page the complete memory list, up to 50 memory search matches, and bounded skill-library results locally; retain Server cursors for experiences and handoffs, carrying visited cursors in navigation links for backward navigation. Do not infer totals from cursors. Memory deep links locate the selected entry's page. Page changes clear the preceding entry identity; scope changes clear pagination. Search and filter changes return to the first page. Lists may change after new saves while exact detail references remain stable.
+### Content changes preserve page organization
 
-## Test boundaries
+Populated, empty and unmatched search states keep the same heading hierarchy, main sections and reading order. An empty memory collection does not turn into a different full-page view, and a period without records does not remove the usage regions.
 
-Tests protect user-visible behavior and reproduced defects. Pagination checks cover complete traversal, returning to previous records, and opening the selected text. They do not freeze page size, CSS classes, or heading tags. Browser acceptance checks use actual API data to verify reading boundaries, scope and preference changes, source panels, and recovery. Click language and theme choices on each page and verify that scope, period, record references, and source text remain unchanged. Check expanded regions in both languages and themes, including short screens. Long sources must support wheel and keyboard reading to the end, and switching sources starts at the beginning. For the reproduced page-growth defect, compare page height before and after opening a source. Internal rewrites should preserve these tests when the experience stays the same.
+A stable layout reserves useful reading space without requiring every state to have identical pixel dimensions. Allow for the excerpt length, page capacity and available viewport; longer text can grow naturally. Pagination should remain easy to find when the last page has fewer entries. Short pages should not push the start of the content downward.
 
-Do not add coverage tests for straightforward scripts, enumerate internal errors normalized by one abstraction, or assert buffer sizes, private call order, or module ownership. Do not add tests whose only purpose is to assert that removed code, routes, or fields remain absent. Negative results remain appropriate for current authorization, isolation, and persistence contracts.
+### Choose columns and scrolling to suit the available space
 
-## Local verification
+Page containers, side margins and grid spacing follow Tabler's defaults. Use columns when both sides have enough width for reading. Stack them in order when space is limited, rather than reducing body text size to retain a split view.
+
+Lists usually scroll with the page, with the entries on each page directly visible. Local scrolling suits long text, source panels and wide tables where it helps preserve context. Add a scroll region when it helps the user keep their place, not merely to make cards look even.
+
+### Copy and visual treatment establish hierarchy
+
+Headings describe a page or section; buttons describe the action they perform. Preserve business content as written and use direct, specific interface copy. Explanatory text need not repeat what the navigation and content already make clear.
+
+Prefer Tabler's default typography, font weights, buttons and form states. Use regular weight for memory, experience and skill entries so every item does not compete for attention. Cards at the same level use consistent borders and spacing. Arrows belong to actions with a directional meaning.
+
+Chinese, English, light and dark settings apply across the Dashboard, including login and standalone source pages. Translations may wrap naturally, but should preserve navigation order, button groups and column proportions. Theme changes retain the information hierarchy and readability. Changing the interface language does not rewrite business content. Use existing brand assets for the full logo and only the graphic for the favicon.
+
+## Boundaries between design and implementation
+
+### Page capabilities come from existing APIs
+
+Pages show actual readable data, and actions correspond to existing capabilities. If one section fails, other independently readable content remains visible. Read errors, insufficient permissions and missing generation configuration have different meanings and must not collapse into an empty state.
+
+The Dashboard accesses the service as the current user. Permission to read one record need not include permission to list every scope, and reading a single scope should not require global observation access. Respect authorization boundaries while preserving the reading paths the user is allowed to use.
+
+Collections can change as users save and revise content; exact references still identify their historical versions. Handle missing or inaccessible references explicitly, without substituting the current version or a similar record.
+
+### Frameworks provide common behavior; pages compose content
+
+Tabler provides common capabilities such as navigation, selectors, cards, pagination, drawers and charts. Reuse available components, including their default typography, spacing, focus and responsive behavior.
+
+Jinja2 organizes content and page structure; HTMX handles navigation and fragment replacement. When an essential interaction needs additional code, use Surreal to connect events and css-scope-inline to keep supplementary styles within the owning component. Global styles cover only the necessary theme adjustments.
+
+Define component boundaries around shared user behavior. Scope selection works the same way on every page, charts and summaries share statistical meaning, and source readers share opening, return and recovery behavior. Keep data interpretation separate from interface interaction so changing the presentation of one record type does not affect unrelated pages.
+
+Departures from framework defaults need a specific reason. For example, replacing a page fragment may remove a drawer before it finishes closing, requiring cleanup through the component's public API. Additional code should address that side effect and have a corresponding behavior test. Routine menu positioning and visibility across breakpoints remain the framework's responsibility.
+
+## How to evaluate the design
+
+Start a review with the user's task. Can they tell which scope they are viewing, find the full content, check a source and continue reading after a failure? Those outcomes are more useful than the number of cards on the page.
+
+### Use ablation to check necessity
+
+Remove one piece of information, action or dependency at a time and observe which user task suffers. If a page remains clear without an explanation, reconsider whether that explanation is useful. Saved content should remain readable with generation configuration disabled, and collections should remain independently usable when another content type is absent.
+
+For content reduction, compare answers to the same question using the original text and prepared context at different budgets. Record missing constraints, next actions or references. A high reduction percentage alone does not show that the user still has the information needed to complete the task.
+
+### Check situations that can mislead users
+
+| Scenario | Acceptance focus |
+| --- | --- |
+| First use, only one content type, no search matches | Accurate states with recognizable layout and entry points |
+| Default scopes, duplicate names, empty children and explicit references | Clear reading and statistical boundaries; switching does not change the default |
+| Long lists, last pages, long sources and small viewports | Entries can be traversed, full text is readable, controls are reachable and reading position remains sensible |
+| Changing language or theme, or returning through browser history | Scope, record identity and information hierarchy remain consistent |
+| Unreported usage, incomparable data and partial read failures | Unknown values do not look like zero, and failures do not look like empty content |
+| Permission changes, network interruptions and service recovery | Authorized content remains readable, errors are clear and recovery works |
+
+Behavior tests exercise actual reading, lookup and navigation. Regression tests preserve cases where defects have occurred. Tests should allow internal refactoring when the visible behavior still holds. Buffer sizes, private call order and removed labels are not useful targets; current contracts such as access isolation still require tests for denied operations.
+
+### Check presentation against real data
+
+Save and generate verification data through existing APIs, using the database only for read-only checks. Pages, API responses and database records should correspond to the same scope, record and version. Retain clear evidence of configuration errors, failed requests and writes with unknown outcomes, and check existing results before resuming.
+
+Consecutive-day replay checks whether content remains readable and available for recall in later work. Check the previous day's references before importing new content, then verify the day's generation, revisions and usage attribution. Exercise memory extraction, experience and skill generation, and handoff generation and saving through actual APIs. Record failed generation or the absence of new candidates as such. Reviews may use only material available at that point in time; a completion claim in the text does not replace verification.
+
+Run replays in isolation and retain the input window, requests and results. Store screenshots and conversation content outside the repository. Simulated dates can test historical reads and daily attribution, but a few sessions cannot establish recall quality for arbitrary questions or the long-term reliability of production scheduling.
+
+## Appendix: APIs and verification entry points
+
+Use this section to locate the implementation. The code and API specification define the exact fields, limits and component configuration.
+
+### Pages and APIs
+
+| Page capability | API | Boundary to preserve |
+| --- | --- | --- |
+| Scope selection | `GET /v1/scopes`, `GET /v1/scopes/default`, `GET /v1/scopes/{scope_id}` | Treat defaults, explicit selection, hierarchy and readable scopes separately |
+| Memory collection and text | `POST /v1/memory/entries/list`, `POST /v1/memory/search`, `POST /v1/memory/entries/get` | Full-text search uses `fts`, with up to 50 matches; read text through a complete memory citation |
+| Handoff collection and text | `GET /v1/scopes/{scope_id}/artifacts/handoff` and exact revision reads | Retain cursors; list order does not imply chronological order |
+| Experience collection and text | `GET /v1/scopes/{scope_id}/artifacts/experience`, `POST /v1/experience/get` | Provide paged browsing; there is currently no public HTTP search endpoint |
+| Skill collection and text | `POST /v1/skill/library`, `POST /v1/skill/get` | Library queries return up to 200 entries; suggest a narrower query at the limit and preserve source identities |
+| Source material | `GET /v1/scopes/{scope_id}/sources/{source_type}/{source_id}` | Verify the source's relationship to the record; `content` is currently the source type with readable text |
+| Usage | `POST /v1/stats` | Distinguish `exact` from `subtree` and use Server reporting periods and statistical definitions |
+
+Home combines these reads. When an API provides bounded results or a cursor, the page does not infer an unreported total. Preserve complete record and source identities rather than dropping or rewriting them to fit a response format.
+
+### Code and checks
+
+The API specification is in `openapi/powercontext.yaml`, the Dashboard implementation in `src/powercontext/server/dashboard/`, behavior tests in `tests/test_dashboard.py`, and browser acceptance checks in `scripts/dashboard_browser.cjs`. The Dashboard's `static/vendor/` directory contains pinned frontend assets and their licenses.
+
+Run the basic checks from the repository root:
 
 ```bash
-uv sync
-uv run powercontext server --help
 make check
 uv run pytest tests/test_dashboard.py tests/test_server.py tests/test_access_http.py
-make contract-test
 ```
 
-With a configured Server running, verify readable scopes, responsive pages, navigation, sources and network recovery using real Chromium:
+Run browser acceptance checks against a configured, running Server:
 
 ```bash
 npm install --prefix /tmp/dashboard-browser playwright@1.61.1
@@ -132,67 +179,6 @@ NODE_PATH=/tmp/dashboard-browser/node_modules \
 node scripts/dashboard_browser.cjs
 ```
 
-Use `POWERCONTEXT_REPLAY_TOKEN` when authentication is required. Screenshots and logs may contain work content; store them in a private directory outside the repository.
+If authentication is required, supply the current user's credential through `POWERCONTEXT_REPLAY_TOKEN`. Keep the output directory outside the repository and apply the access restrictions appropriate to its work content.
 
-## Real sessions and consecutive days
-
-Start a Server with an isolated SQLite database and local provider configuration. Match model prefixes to the actual provider protocol, such as `openai-chat:` for Chat Completions. Configuration failures must not look like absent content.
-
-`scripts/dashboard_replay.py` reads complete user and assistant messages from an existing Codex JSONL, excluding analysis, tool output and injected environment instructions. It bounds the window by characters and records source paths, line numbers, hashes and responses. Content capture, memory extraction, experience generation and handoff preparation use existing APIs.
-
-```bash
-uv run python scripts/dashboard_replay.py \
-  --output /tmp/private-dashboard-replay \
-  --session /path/to/rollout.jsonl \
-  --title Dashboard \
-  --summary "Dashboard implementation and UI quality" \
-  --max-chars 16000
-```
-
-Review candidates against the source window before using revise/approve. Save handoffs through finalize/commit. Generate skills through the existing endpoint and review them; do not replace failed generation with hand-authored content presented as a model result.
-
-The consecutive-day experiment controls UTC time in an isolated process and restarts the Server against the same experiment database each day. It distributes complete chronological messages across three days, recalls prior content before ingesting the next window, then extracts, recalls and reads statistics. Time is a simulated condition; sources and model results use real APIs. This does not demonstrate three elapsed production days.
-
-Every day runs memory extraction, experience generation and review, handoff preparation and commit, and skill generation and review. Skills cover `source`, `experience` and `usage` origins. For usage, an isolated Codex consumer applies a skill to the transcript, then existing content and skill-observation APIs capture its actual report. The consumer has no code, browser or test tools; validation and outcome remain unknown. Preserve a generated `no_op` without manufacturing a candidate.
-
-`scripts/dashboard_review.py` uses the locally configured Codex CLI with tools, memories and plugins disabled. Its ephemeral review receives only the as-of-day window and records inputs, hashes, outputs, limitations and exact quotes. Rejected reviews or quotes absent from the transcript stop persistence. Inspect the failure, archive its review inputs and outputs together, then resume successful API checkpoints in the same directory. Never introduce future-day evidence. Model review does not replace human acceptance.
-
-Replay creates a separate business scope without changing the Server default. A fresh Server retains `Default`; an existing Server retains its configured selection. Open replay pages with an explicit scope and verify the implicit default and scope switching independently.
-
-```bash
-uv run python scripts/dashboard_multiday.py \
-  --output /tmp/private-dashboard-multiday \
-  --session /path/to/rollout.jsonl \
-  --last-line 1600 \
-  --start-date 2026-09-06 \
-  --env-file .env
-```
-
-Check prior citations after restart, 1024/8000-byte budgets, empty child isolation and UTC daily attribution. Use existing revise/retire operations to test current recall and historical addresses. Use scope updates to test explicit references separately from subtree statistics. All writes go through APIs; database inspection uses a read-only connection.
-
-Each day's model usage must contain memory extraction, experience generation, handoff generation and skill generation. Candidate revision requests must preserve the original target. Read yesterday's exact revisions and search the skill library before importing today's window; reading after ingestion does not establish next-day recall.
-
-Successful requests are cached in the replay journal. Changed payloads require a separate output directory. HTTP failures retain attempt records. Transport timeouts have unknown outcomes: reconcile through read APIs before retrying a potentially completed write.
-
-## Ablation and acceptance
-
-| Experiment | Required observation |
-| --- | --- |
-| Disable generation and Handoff Report | Saved content remains readable; generation fails explicitly |
-| Grant only one scope | Read that scope without global observation access or unrelated titles |
-| Deny source access | Keep the record visible and provide source-error recovery |
-| Fresh scope or memories only | Independent collection states without prerequisites on other families |
-| Same question with raw text, 8000 bytes and 1024 bytes | Record retained or lost constraints, next actions and citations; do not assume equivalence |
-| Broad continuation question versus business keyword | Record empty recall separately from keyword hits |
-| Next-day revision, retirement and reference changes | Current recall follows new state; exact historical citations remain readable |
-| Network, authentication or service failure and recovery | Errors differ from empty states; navigation and scrolling recover |
-
-A few sessions can expose specific failures but cannot establish recall quality for every question. Verification records should include configuration, bounded inputs, API requests and responses, screenshots, read-only database observations and conditions still unverified.
-
-## Replay verification and known limits
-
-Verify each generation family through its existing API, then read the saved records by exact reference. Before importing the next day's content, check prior recall and citations. Compare API entries, revisions and daily usage with read-only database observations.
-
-Check whether later instructions supersede earlier constraints. After revision through the API, current recall should reflect the correction while historical citations retain their original text. Reject writes using stale references. Compare full-source answers with budgeted context for retained constraints, next actions and citations; a high reduction percentage does not establish completeness. Keep experiment inputs and results outside the repository.
-
-Scope references, collection membership and subtree statistics must be checked separately. Include an unlinked empty child for fresh-start checks and preserve the configured default scope. Simulated dates exercise restart reads and daily attribution; they do not establish production scheduler reliability or recall quality for arbitrary questions.
+Use `scripts/dashboard_replay.py` for session replay and `scripts/dashboard_multiday.py` for consecutive-day verification. `scripts/dashboard_review.py` supports candidate review. Both replay scripts provide their arguments through `--help`. Replay configuration, operation logs and experiment results belong to individual verification records rather than page design principles.
