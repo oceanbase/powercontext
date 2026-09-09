@@ -1,6 +1,5 @@
 <div class="usage-view">
 <style>
-  me .scope-extent .nav-link { min-height: calc(2lh + 1rem); }
   me .usage-summary { border-inline-end: 1px solid var(--tblr-border-color); }
   me .comparison-values div { display: flex; justify-content: space-between; gap: var(--tblr-spacer-3); }
   me .table tfoot th { white-space: normal; }
@@ -18,9 +17,6 @@
     {% if stats %}<small class="d-block mt-2">{{ stats.start }} / {{ stats.end }} · UTC</small>{% endif %}
   </div>
 {% endcall %}
-<nav class="nav nav-pills row g-0 mb-3 small scope-extent" aria-label="{{ t.usage_extent }}">
-{% for value in ['exact', 'subtree'] %}<a class="col-6 col-sm-4 col-xl-3 nav-link d-flex align-items-center justify-content-center text-center {{ 'active' if extent == value else '' }}" href="{{ link('usage', extent=value) }}" {% if extent == value %}aria-current="page"{% endif %}>{{ t[value ~ '_scope'] }}</a>{% endfor %}
-</nav>
 {% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% else %}
 <section class="card usage-sheet">
   <div class="card-body">

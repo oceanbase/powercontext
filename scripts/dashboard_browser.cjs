@@ -116,7 +116,6 @@ async function displayLayout(page) {
       preferences: rects('.dropdown-toggle').map(rect => [rect[1], rect[3]]),
       content: rects('main').map(rect => [rect[0], rect[2]]),
       period: rects('.period-control').map(rect => [rect[0], rect[2]]),
-      extent: rects('.scope-extent .nav-link').map(rect => [rect[0], rect[2], rect[3]]),
     };
   });
   if (expand) {
@@ -257,11 +256,11 @@ async function main() {
   if (parent) {
     const child = scopes.find(scope => scope.parent_scope_id === parent.scope_id);
     await checkScopePicker(page, base, parent, child);
-    for (const extent of ['exact', 'subtree']) {
-      await page.goto(`${base}/dashboard/usage?scope=${parent.scope_id}&extent=${extent}`);
+    for (const scope of [parent, child]) {
+      await page.goto(`${base}/dashboard/usage?scope=${scope.scope_id}`);
       const response = await context.request.post(base + '/v1/stats', {
         data: {
-          selection: extent === 'exact' ? { mode: extent, scope_ids: [parent.scope_id] } : { mode: extent, root_scope_id: parent.scope_id },
+          selection: { mode: 'exact', scope_ids: [scope.scope_id] },
           period: '7d',
         },
       });

@@ -65,7 +65,6 @@ def links(request: Request, ctx: dict[str, Any]):
                     "cursor",
                     "experience_cursor",
                     "skill_cursor",
-                    "extent",
                     "q",
                     "notes_page",
                     "skill_page",
@@ -114,7 +113,6 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "parent_page": PARENTS.get(page),
         "scope": request.query_params.get("scope"),
         "period": request.query_params.get("period", "7d"),
-        "extent": request.query_params.get("extent", "exact"),
         "method_kind": method_kind,
         "search_query": request.query_params.get("q", "").strip() or None,
         "search_limited": False,
@@ -204,7 +202,6 @@ def validate_selection(page: str, ctx: dict[str, Any]) -> None:
         raise ReadError(404, "not_found")
     if (
         ctx["period"] not in {"today", "7d", "30d"}
-        or ctx["extent"] not in {"exact", "subtree"}
         or ctx["method_kind"] not in {"experience", "skill"}
         or len(ctx["search_query"] or "") > (8192 if page == "notes" else 2000)
     ):

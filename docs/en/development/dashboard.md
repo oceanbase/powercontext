@@ -32,7 +32,7 @@ A scope defines content membership and selects what the user reads. An entry poi
 
 Users need to distinguish scopes with similar names. The selector shows each scope's name and recorded ancestry, using the Server's parent-child relationships. A child collection does not automatically include its parent's content. Explicit references to other scopes during context preparation are also separate from hierarchy.
 
-Content collections read the current scope. Usage can cover that scope alone or include its descendants, and the user must be able to tell which selection the statistics cover. For example, an empty child may have no memories even when its parent has some. That is a valid state; the page must not fill the child with the parent's content.
+Content collections and usage both read the current scope and update when the user switches scopes. Usage for a parent does not automatically include its children. For example, an empty child may have no memories even when its parent has some. That is a valid state; the page must not fill the child with the parent's content.
 
 ### What the data supports
 
@@ -153,7 +153,7 @@ Use this section to locate the implementation. The code and API specification de
 | Experience collection and text | `GET /v1/scopes/{scope_id}/artifacts/experience`, `POST /v1/experience/get` | Provide paged browsing; there is currently no public HTTP search endpoint |
 | Skill collection and text | `POST /v1/skill/library`, `POST /v1/skill/get` | Library queries return up to 200 entries; suggest a narrower query at the limit and preserve source identities |
 | Source material | `GET /v1/scopes/{scope_id}/sources/{source_type}/{source_id}` | Verify the source's relationship to the record; `content` is currently the source type with readable text |
-| Usage | `POST /v1/stats` | Distinguish `exact` from `subtree` and use Server reporting periods and statistical definitions |
+| Usage | `POST /v1/stats` | Read the current scope with `exact` and use Server reporting periods and statistical definitions |
 
 Home combines these reads. When an API provides bounded results or a cursor, the page does not infer an unreported total. Preserve complete record and source identities rather than dropping or rewriting them to fit a response format.
 

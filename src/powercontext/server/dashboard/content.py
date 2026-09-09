@@ -56,12 +56,7 @@ async def load_notes(api: DashboardAPI, ctx: dict[str, Any]) -> None:
 
 
 async def load_stats(api: DashboardAPI, ctx: dict[str, Any]) -> None:
-    page, scope = ctx["page"], ctx["scope"]
-    selection = (
-        {"mode": "subtree", "root_scope_id": scope}
-        if page == "usage" and ctx["extent"] == "subtree"
-        else {"mode": "exact", "scope_ids": [scope]}
-    )
+    selection = {"mode": "exact", "scope_ids": [ctx["scope"]]}
     try:
         result = await api.read("/v1/stats", {"selection": selection, "period": ctx["period"]})
         ctx["stats"] = usage_view(result["usage"], result["recall"])
