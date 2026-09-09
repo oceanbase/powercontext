@@ -69,6 +69,11 @@ from powercontext.sources import Source
 _ACCESS_FAMILIES = "experience:enabled,handoff:enabled,memory:enabled,profile:enabled,prompt:enabled,skill:enabled"
 
 
+class _StartupOnlyAccessControl:
+    async def committed_receipt_identity(self, _scope_id: str, _source_id: str, /) -> None:
+        return None
+
+
 def _access_readiness_checks(
     *,
     mode: str = "disabled",
@@ -603,7 +608,7 @@ def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             mcp=McpConfig(enabled=False),
         ),
-        access_control=cast(AccessControlService, object()),
+        access_control=cast(AccessControlService, _StartupOnlyAccessControl()),
     )
     headers = {"Authorization": "Bearer server-secret"}
 
