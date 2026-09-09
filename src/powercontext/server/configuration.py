@@ -33,6 +33,12 @@ DEFAULT_SERVER_ENV_FILE = Path(".env")
 _SERVER_ENVIRONMENT_PREFIX = "POWERCONTEXT_SERVER_"
 
 
+def _is_server_environment_name(name: str) -> bool:
+    """Match Server settings the same way pydantic-settings matches environment names."""
+
+    return name.casefold().startswith(_SERVER_ENVIRONMENT_PREFIX.casefold())
+
+
 class ServerConfigurationError(ValueError):
     """Report a failure while loading or constructing Server settings."""
 
@@ -66,8 +72,13 @@ def server_settings_context(
     env_file: Path | None = None,
     environment: Mapping[str, str] | None = None,
     data_dir: Path | None = None,
+    process_environment_overrides: bool = False,
 ) -> Iterator[ServerSettings]:
-    """Load one reproducible Server configuration for the lifetime of a process operation."""
+    """Load one reproducible Server configuration for the lifetime of a process operation.
+
+    Explicit environment files remain authoritative by default for service and maintenance
+    entry points. ``server run`` opts into process-environment precedence explicitly.
+    """
 
     if env_file is not None and environment is not None:
         raise ServerConfigurationError(ValueError("env_file and environment are mutually exclusive"))
@@ -81,16 +92,23 @@ def server_settings_context(
         )
     except (EnvironmentFileError, OSError) as error:
         raise ServerConfigurationError(error) from error
-    server_environment = {name for name in os.environ if name.startswith(_SERVER_ENVIRONMENT_PREFIX)}
+    server_environment = {name for name in os.environ if _is_server_environment_name(name)}
     if env_file is not None:
-        # ServerSettings reads POWERCONTEXT_SERVER_* through pydantic-settings' dotenv source.
-        # Provider SDKs and path helpers still consume their own variables from os.environ, so
-        # expose only those non-Server assignments for the bounded runtime context. Existing
-        # process values win over dotenv values and everything is restored on exit.
-        runtime_environment = {
-            name: value for name, value in loaded.items() if not name.startswith(_SERVER_ENVIRONMENT_PREFIX)
-        }
-        loaded_context = environment_context(runtime_environment, override=False)
+        if process_environment_overrides:
+            # Use the project's strict parser for every assignment. Applying only names that
+            # are absent from the process environment gives ServerSettings the desired
+            # process > dotenv > default precedence without asking pydantic-settings to parse
+            # the same file a second time with python-dotenv semantics.
+            process_names = {name.casefold() for name in os.environ}
+            runtime_environment = {
+                name: value for name, value in loaded.items() if name.casefold() not in process_names
+            }
+            loaded_context = environment_context(runtime_environment, override=False)
+        else:
+            # Native services and maintenance commands must keep the historical file-authority
+            # behavior. Their launcher/controller also use this mode, so preflight and runtime
+            # resolve the same effective configuration.
+            loaded_context = environment_context(loaded, override=True, clear=server_environment)
     elif environment is not None or data_dir is not None:
         if data_dir is not None:
             loaded = {**loaded, POWERCONTEXT_HOME_ENV: str(data_dir.expanduser().resolve())}
@@ -110,8 +128,6 @@ def server_settings_context(
         if port is not None:
             http_overrides["port"] = port
         settings_kwargs: dict[str, Any] = {"http": http_overrides} if http_overrides else {}
-        if env_file is not None:
-            settings_kwargs.update(_env_file=env_file, _env_file_encoding="utf-8")
         try:
             settings = ServerSettings(**settings_kwargs)
         except (SettingsError, ValidationError) as error:

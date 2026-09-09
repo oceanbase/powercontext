@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from pathlib import Path
 from unittest.mock import patch
 
@@ -163,6 +164,29 @@ def test_validate_accepts_minimal_server_environment_without_inference_models(tm
         assert settings.database.kind == "seekdb"
         assert settings.http.host == "127.0.0.1"
         assert settings.http.port == 8888
+
+
+@pytest.mark.parametrize("token", ["literal-${PR1525_ABSENT}", "token'with-apostrophe"])
+def test_server_settings_context_preserves_strict_env_file_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    token: str,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "\n".join((
+            "POWERCONTEXT_SERVER_ACCESS_MODE=enforced",
+            f"POWERCONTEXT_SERVER_AUTH_TOKEN={shlex.quote(token)}",
+            "",
+        )),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("POWERCONTEXT_SERVER_ACCESS_MODE", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_SERVER_AUTH_TOKEN", raising=False)
+
+    with server_settings_context(env_file=environment, process_environment_overrides=True) as settings:
+        assert settings.auth.token is not None
+        assert settings.auth.token.get_secret_value() == token
 
 
 def test_server_settings_context_does_not_implicitly_discover_dotenv(

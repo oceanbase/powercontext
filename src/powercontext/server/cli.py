@@ -191,7 +191,15 @@ def run(
         )
     )
     try:
-        with role_context, server_settings_context(host=host, port=port, env_file=selected_env_file) as settings:
+        with (
+            role_context,
+            server_settings_context(
+                host=host,
+                port=port,
+                env_file=selected_env_file,
+                process_environment_overrides=True,
+            ) as settings,
+        ):
             if selected_env_file is not None:
                 typer.echo(f"Loaded environment file: {selected_env_file}")
             _run_configured_server(settings)

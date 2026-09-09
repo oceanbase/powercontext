@@ -738,6 +738,28 @@ def test_server_command_layers_process_environment_over_env_file(
     assert "POWERCONTEXT_SERVER_HTTP_PORT" not in os.environ
 
 
+def test_server_command_treats_server_environment_names_case_insensitively(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text("powercontext_server_http_port=8999\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "8123")
+    received_ports: list[int] = []
+    monkeypatch.setattr(
+        "powercontext.server.cli._run_configured_server",
+        lambda settings: received_ports.append(settings.http.port),
+    )
+
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "run", "--env-file", str(environment)],
+    )
+
+    assert result.exit_code == 0
+    assert received_ports == [8123]
+
+
 def test_server_command_discovers_dotenv_in_current_directory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -926,8 +948,10 @@ def test_server_command_restores_environment_after_runtime_failure(
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    def fail_after_configuration(_settings) -> None:
-        assert os.environ["POWERCONTEXT_SERVER_HTTP_PORT"] == "8123"
+    received_ports: list[int] = []
+
+    def fail_after_configuration(settings) -> None:
+        received_ports.append(settings.http.port)
         assert os.environ["OPENAI_API_KEY"] == "file-secret"
         raise OSError("simulated runtime startup failure")  # noqa: TRY003
 
@@ -939,6 +963,7 @@ def test_server_command_restores_environment_after_runtime_failure(
     )
 
     assert result.exit_code == 1
+    assert received_ports == [9000]
     assert os.environ["POWERCONTEXT_SERVER_HTTP_PORT"] == "9000"
     assert "OPENAI_API_KEY" not in os.environ
 
