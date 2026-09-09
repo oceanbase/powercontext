@@ -1,7 +1,6 @@
 <div class="home-view">
 <style>
   me { overflow-wrap: anywhere; }
-  me .handoff-sheet .card-body { padding: 19px 30px 12px; }
   me .handoff-sheet .row { --tblr-gutter-y: 12px; }
   me .handoff-title { font-size: clamp(24px, 2vw, 28px); margin: 10px 0 0; }
   me .handoff-state h3 { font-size: 18px; margin-bottom: 13px; color: var(--tblr-body-color); }
@@ -15,18 +14,16 @@
   me .history-note { font-size: 14px; margin: 12px 0 0; }
   me .home-columns { margin-top: 0; }
   me .home-columns > section { padding-top: 0; }
-  me .note-list .list-group-item { background: transparent; padding: 16px 22px; }
   me .note-list p { font-size: 16px; line-height: 1.6; margin: 2px 0 0; }
   me .note-list a { display: block; font-size: 17px; font-weight: 400; color: var(--pc-heading-color); }
-  me .card .note-list { padding: 0; }
-  me .experience-card .card-body { padding: 13px 22px; }
+  @media (min-width: 1200px) { me .note-list { display: grid; grid-auto-rows: 1fr; flex: 1; } }
+  @media (min-width: 1200px) { me .note-list .list-group-item { display: flex; align-items: center; } }
   me .experience-card h3 { font-size: 20px; font-weight: 400; margin: 4px 0 4px; }
   me .experience-card h3 a { color: var(--pc-heading-color); font-size: inherit; }
   me .experience-card p { font-size: 14px; line-height: 1.7; margin: 0 0 8px; }
   me .experience-card a { font-size: 14px; }
   me .source-trail { font-size: 13px; margin: 10px 0; }
   me .source-trail span { padding: 0 12px; }
-  @media (max-width: 600px) { me .handoff-sheet .card-body { padding: 20px; } }
   @media (max-width: 600px) { me .handoff-title { font-size: 24px; } }
   @media (max-width: 767px) { me .next-action { border-left: 0; border-top: 1px solid var(--tblr-border-color); padding: 20px 12px 0; } }
   @media (max-width: 767px) { me .next-action p { font-size: 18px; } }

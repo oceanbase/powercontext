@@ -3,7 +3,6 @@
   me .period-control { text-align: right; }
   @media (max-width: 575px) { me .scope-extent .nav-link { min-height: 56px; } }
   me .period-control small { display: block; font-size: 13px; margin-top: 8px; }
-  me .btn-group .active { background: var(--pc-active-bg); border-color: var(--tblr-border-color); color: var(--tblr-primary); }
   me .usage-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 30px; }
   me .usage-summary h2 { font-size: var(--tblr-font-size-h2); }
   me .big-number { font-size: 82px; letter-spacing: -4px; line-height: 1.25; color: var(--tblr-primary); font-weight: 600; margin: 12px 0 4px; font-variant-numeric: tabular-nums; }
@@ -18,9 +17,7 @@
   me .chart-legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; }
   me .bar-chart { padding: 0; }
   me .usage-caption { margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--tblr-border-color); font-size: 14px; }
-  me .table { --tblr-table-border-color: var(--tblr-border-color); font-size: 14px; }
   me .table tfoot th { font-size: 14px; white-space: normal; }
-  me .model-usage-table th, me .model-usage-table td { padding-inline: 8px; }
   @media (max-width: 1199px) { me .usage-summary { border-right: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: 22px; padding-right: 12px; } }
   @media (max-width: 600px) { me .period-control { margin-top: 16px; } }
   @media (max-width: 600px) { me .chart-legend { font-size: 11px; gap: 10px; } }
@@ -62,7 +59,7 @@
       </div>
       <div class="col-xl-8">
         <div class="section-heading"><h3>{{ t.daily_title }}</h3><span class="text-secondary small">tokens</span></div>
-        <div class="chart-legend"><span><i class="baseline-key"></i>{{ t.baseline }}</span><span><i class="recalled-key"></i>{{ t.recalled }}</span></div>
+        <div class="chart-legend"><span><i class="bg-gray-400"></i>{{ t.baseline }}</span><span><i class="bg-primary"></i>{{ t.recalled }}</span></div>
         <div class="bar-chart">{{ comparison_chart() }}</div>
       </div>
     </div>

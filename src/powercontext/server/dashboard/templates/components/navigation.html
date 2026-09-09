@@ -5,9 +5,6 @@
     me .container-fluid { padding: 30px 17px 24px; align-items: stretch; }
     me .navbar-brand { color: var(--pc-heading-color); padding: 0; justify-content: flex-start; }
     me .scope-form { margin: 24px 0; }
-    me .scope-form .form-label { display: none; }
-    me .scope-form .form-select { font-size: 16px; background-color: var(--tblr-bg-surface); box-shadow: none; }
-    me .scope-go { padding-inline: 10px; background: var(--tblr-bg-surface); }
     me .navbar-nav { width: 100%; }
     me .navbar-nav .nav-link { display: flex; gap: 12px; min-height: 56px; line-height: 1.25; padding: 8px 12px; color: var(--tblr-body-color); border-radius: 5px; font-size: 16px; }
     me .nav-link.active { color: var(--tblr-primary); background: var(--pc-active-bg); }
@@ -20,7 +17,7 @@
     @media (min-width: 992px) { me.navbar-expand-lg .container-fluid { min-height: 100vh; padding: 24px 16px; align-items: stretch; } }
     @media (min-width: 992px) { me.navbar-expand-lg .navbar-brand { justify-content: flex-start; margin: 0; padding: 0; } }
     @media (min-width: 992px) { me.navbar-expand-lg .navbar-nav .nav-link { justify-content: flex-start; padding: 8px 12px; } }
-    @media (max-width: 991px) { me .navbar-collapse.show { max-height: calc(100dvh - 80px); overflow-y: auto; } }
+    @media (max-width: 991px) { me #dashboard-navigation.show { max-height: calc(100dvh - 80px); overflow-y: auto; } }
     @media (max-width: 991px) { me .container-fluid { display: block; padding: 18px 22px 12px; } }
     @media (max-width: 991px) { me .scope-form { margin: 16px 0 10px; max-width: 350px; } }
     @media (max-width: 991px) { me .navbar-nav .nav-link { min-height: 44px; font-size: 14px; padding: 8px 12px; gap: 8px; } }
@@ -32,20 +29,15 @@
       <a class="navbar-brand" href="{{ link('home') }}">{% include 'components/brand.html' %}</a>
       <button class="navbar-toggler d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#dashboard-navigation" aria-controls="dashboard-navigation" aria-expanded="false" aria-label="{{ t.navigation }}"><span class="navbar-toggler-icon"></span></button>
     </div>
-    <div class="collapse navbar-collapse" id="dashboard-navigation">
-    <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form">
-      <label for="scope" class="form-label">{{ t.scope_label }}</label>
+    <div class="collapse d-lg-flex flex-column flex-fill w-100" id="dashboard-navigation">
+    <div class="navbar-collapse">
+    <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form"
+          hx-get="/dashboard/{{ parent_page or page }}" hx-trigger="change, submit" hx-push-url="true">
+      <label for="scope" class="visually-hidden">{{ t.scope_label }}</label>
       <input type="hidden" name="period" value="{{ period }}">
-      {% if page == 'methods' %}<input type="hidden" name="kind" value="{{ method_kind }}">{% endif %}
-      <div class="input-group">
-        <select id="scope" name="scope" class="form-select">
-          <option value="" {% if not scope %}selected{% endif %}>{{ t.scope_none }}</option>
-          {% for item in scopes %}
-          <option value="{{ item.scope_id }}" {% if scope == item.scope_id %}selected{% endif %}>{{ item.display_title }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn scope-go" aria-label="{{ t.apply }}">→</button>
-      </div>
+      {% if page == 'methods' or parent_page == 'methods' %}<input type="hidden" name="kind" value="{{ page if parent_page else method_kind }}">{% endif %}
+      {% include 'components/scope-options.html' %}
+      <noscript><button class="btn mt-2" type="submit">{{ t.apply }}</button></noscript>
       {% if errors.get('scopes') %}<p class="small mt-2">{{ t.scope_list_unavailable }}</p>{% endif %}
     </form>
     <nav class="navbar-nav" aria-label="{{ t.navigation }}">
@@ -58,7 +50,8 @@
       {% endfor %}
       </div>
     </nav>
-    <div class="mt-auto pt-4 px-1">{% include 'components/preferences.html' %}</div>
+    </div>
+    <div class="mt-auto pt-4">{% with preferences_placement='dropup' %}{% include 'components/preferences.html' %}{% endwith %}</div>
     </div>
 
   </div>

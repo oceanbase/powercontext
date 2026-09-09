@@ -39,9 +39,18 @@ async function clickNavigation(page, selector) {
 }
 
 async function changePreference(page, key, value) {
-  const menu = page.locator('.dropdown').nth(key === 'lang' ? 0 : 1);
-  if (!await menu.isVisible()) await page.locator('.navbar-toggler').click();
-  await menu.locator('.dropdown-toggle').click();
+  const menu = page.locator('.display-preferences');
+  if (!await menu.isVisible()) {
+    await page.locator('.navbar-toggler').click();
+    await page.locator('#dashboard-navigation.show').waitFor();
+  }
+  const toggle = menu.locator('.dropdown-toggle');
+  await toggle.scrollIntoViewIfNeeded();
+  const before = await toggle.boundingBox();
+  await toggle.click();
+  assert.deepEqual(await toggle.boundingBox(), before, 'Opening display settings moved its button');
+  const bounds = await menu.locator('.dropdown-menu').boundingBox();
+  assert(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= page.viewportSize().width + 1 && bounds.y + bounds.height <= page.viewportSize().height + 1, 'Display settings exceed the viewport');
   await menu.locator(`.dropdown-item[href*="${key}=${value}"]`).click();
   await page.waitForURL(url => url.searchParams.get(key) === value);
 }
@@ -174,7 +183,6 @@ async function main() {
   const alternative = scopes.find(scope => scope.scope_id !== defaultScope);
   if (alternative) {
     await page.locator('#scope').selectOption(alternative.scope_id);
-    await page.locator('.scope-go').click();
     await page.waitForURL(url => url.searchParams.get('scope') === alternative.scope_id);
     assert.equal((await api('/v1/scopes/default')).scope_id, defaultScope);
   }
@@ -213,6 +221,25 @@ async function main() {
     }
   }
   routes = routes.map(route => `${route}${route.includes('?') ? '&' : '?'}scope=${encodeURIComponent(readingScope)}`);
+  const otherScope = scopes.find(scope => scope.scope_id !== readingScope);
+  if (otherScope) {
+    for (const route of routes) {
+      await page.goto(base + '/dashboard/' + route);
+      await page.locator('#scope').selectOption(otherScope.scope_id);
+      await page.waitForURL(url => url.searchParams.get('scope') === otherScope.scope_id);
+      const selected = new URL(page.url());
+      const family = route.split('?')[0];
+      const destination = { 'handoff-detail': 'handoff', experience: 'methods', skill: 'methods' }[family] || family;
+      assert.equal(selected.pathname, '/dashboard/' + destination);
+      assert.equal(await page.locator('#scope').inputValue(), otherScope.scope_id);
+      if (destination === 'methods') assert.equal(selected.searchParams.get('kind'), family === 'skill' || route.includes('kind=skill') ? 'skill' : 'experience');
+      await page.goBack();
+      await page.waitForURL(url => url.searchParams.get('scope') === readingScope);
+      await page.waitForFunction(scope => document.querySelector('#scope')?.value === scope, readingScope);
+      assert.equal(await page.locator('#scope').inputValue(), readingScope);
+    }
+    assert.equal((await api('/v1/scopes/default')).scope_id, defaultScope);
+  }
   const sourceRecord = routes.find(route => route.startsWith('experience?'));
   if (sourceRecord) {
     await page.goto(base + '/dashboard/' + sourceRecord);
@@ -244,6 +271,17 @@ async function main() {
       assert.equal(response.status(), 200, route);
       await page.waitForLoadState('load');
       await checkReadingBounds(page, `${route}, ${width}`);
+      if (route.startsWith('home?') && width >= 1200) {
+        const rows = await page.locator('.note-list .list-group-item').evaluateAll(items => items.map(item => item.getBoundingClientRect().height));
+        if (rows.length) assert(Math.max(...rows) - Math.min(...rows) <= 1, `Home memories have unequal row heights at ${width}px`);
+        const memories = await page.locator('#notes > .card').boundingBox();
+        const methods = page.locator('#methods > .card');
+        if (memories && await methods.count()) {
+          const first = await methods.first().boundingBox();
+          const last = await methods.last().boundingBox();
+          assert(Math.abs(memories.y - first.y) <= 1 && Math.abs(memories.y + memories.height - last.y - last.height) <= 1, `Home card edges do not align at ${width}px`);
+        }
+      }
       const family = route.startsWith('handoff-detail?') ? 'handoff' : route.match(/^(experience|skill)\?/)?.[1];
       if (family) {
         const reference = new URL(base + '/dashboard/' + route).searchParams;
@@ -298,7 +336,7 @@ async function main() {
   await page.waitForURL(url => url.searchParams.get('lang') === 'zh');
   assert.equal(await page.locator('html').getAttribute('lang'), 'zh-CN');
   assert.equal(await page.locator('#scope').inputValue(), currentScope);
-  await page.locator('.dropdown-toggle').nth(1).click();
+  await page.locator('.display-preferences .dropdown-toggle').click();
   await page.locator('.dropdown-item[href*="theme=light"]').click();
   await page.waitForURL(url => url.searchParams.get('theme') === 'light');
   assert.equal(await page.evaluate(() => document.documentElement.dataset.bsTheme || 'light'), 'light');

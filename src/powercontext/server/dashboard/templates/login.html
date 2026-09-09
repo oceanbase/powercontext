@@ -12,7 +12,7 @@
 </head>
 <body class="d-flex flex-column">
 <main id="workspace" class="page page-center"><div class="container container-tight py-4">
-  {% include 'components/preferences.html' %}
+  <div class="d-flex justify-content-end mb-3">{% include 'components/preferences.html' %}</div>
   <div class="mb-4">{% include 'components/brand.html' %}</div>
   <form class="card card-md" action="/dashboard/session" method="post" hx-boost="false"><div class="card-body">
     <h2>{{ t.login }}</h2><p>{{ t.login_body }}</p>

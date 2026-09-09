@@ -2,7 +2,6 @@
 <section class="card compact-usage">
   <style>
     me.compact-usage { margin-top: 20px; }
-    me.compact-usage .card-body { padding: 16px 24px; }
     me .compact-chart { min-width: 0; }
     me .compact-summary { border-right: 1px solid var(--tblr-border-color); padding-right: 24px; }
     me .compact-summary h3 { font-size: 18px; margin: 0 0 6px; }
@@ -24,7 +23,7 @@
     </div>
     <div class="col-lg-8 col-xxl-9 compact-chart">
       <div class="section-heading">
-        <div class="compact-legend"><i class="baseline-key"></i>{{ t.baseline }} <i class="recalled-key ms-3"></i>{{ t.recalled }}</div>
+        <div class="compact-legend"><i class="bg-gray-400"></i>{{ t.baseline }} <i class="bg-primary ms-3"></i>{{ t.recalled }}</div>
         <a href="{{ link('usage') }}">{{ t.view_usage }}</a>
       </div>
       {{ comparison_chart(compact=true) }}

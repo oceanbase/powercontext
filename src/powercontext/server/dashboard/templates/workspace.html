@@ -1,6 +1,5 @@
 <div id="workspace" class="page" hx-boost="true" hx-target="#workspace" hx-select="#workspace" hx-swap="outerHTML settle:0" hx-sync="#workspace:replace" hx-indicator="#request-status">
   <style>
-    me .topbar { min-height: 58px; padding: 12px 0; display: flex; align-items: center; justify-content: space-between; font-size: 16px; border-bottom: 1px solid var(--tblr-border-color); }
     me .page-body { overflow-wrap: anywhere; width: 100%; margin: 0; padding: 24px 0; }
     me .container-xl { padding-inline: var(--pc-page-gutter); }
     me .section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
@@ -9,11 +8,7 @@
     me .section-heading a { font-size: 16px; white-space: nowrap; }
     me .method-type { font-size: 13px; color: var(--tblr-secondary); }
     me .back-link { display: inline-block; font-size: 16px; margin: 5px 0 22px; }
-    me .feedback { background: var(--tblr-bg-surface); border-color: var(--tblr-border-color); color: var(--tblr-body-color); }
-    me .baseline-key { background: var(--tblr-gray-400); }
-    me .recalled-key { background: var(--tblr-primary); }
     me.htmx-request { cursor: progress; }
-    @media (max-width: 991px) { me .topbar { min-height: 53px; font-size: 13px; } }
     @media (max-width: 600px) { me .section-heading a { font-size: 13px; } }
     me .htmx-indicator { display: none; }
     me .htmx-request .htmx-indicator { display: inline; }
@@ -26,12 +21,9 @@
     </div>
     <div class="col-12 col-lg-9 col-xxl-10">
       <div class="page-wrapper">
-        <header class="topbar"><div class="container-xl d-flex align-items-center justify-content-between">
-          <ol class="breadcrumb mb-0"><li class="breadcrumb-item">{{ data.title }}</li>{% if parent_page %}<li class="breadcrumb-item"><a href="{{ link(parent_page) }}">{{ t[parent_page] }}</a></li>{% endif %}<li class="breadcrumb-item active" aria-current="page">{{ t[page] }}</li></ol>
-          <div class="text-secondary small"><span id="request-status" class="htmx-indicator" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ t.loading }}</span></div>
-        </div></header>
+        <div id="request-status" class="htmx-indicator position-fixed top-0 end-0 m-3 p-2 bg-surface rounded shadow-sm z-3 small" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ t.loading }}</div>
         <main class="page-body" id="main" tabindex="-1" data-title="{{ t[page] }} · PowerContext"><div class="container-xl">
-          <div id="network-error" class="alert feedback" role="alert" hidden>
+          <div id="network-error" class="alert alert-warning" role="alert" hidden>
             {{ t.loading_error }} <a href="{{ link() }}">{{ t.retry }}</a>
           </div>
           {% from 'components/read-error.html' import read_error with context %}
@@ -40,12 +32,6 @@
           {% elif (not scope_descriptor and not record_only) or page == 'entry' %}
             {% include 'entry.html' %}
           {% else %}
-            {% if parent_scope or children %}
-            <nav class="d-flex flex-wrap gap-3 mb-3 small" aria-label="{{ t.scope_relationships }}">
-              {% if parent_scope %}<a href="{{ link(parent_page or page, scope=parent_scope.scope_id, artifact=none, revision=none, cursor=none, entry=none, extent=none) }}">{{ t.parent_scope }}: {{ parent_scope.title }}</a>{% endif %}
-              {% for child in children %}<a href="{{ link(parent_page or page, scope=child.scope_id, artifact=none, revision=none, cursor=none, entry=none, extent=none) }}">{{ t.child_scope }}: {{ child.title }}</a>{% endfor %}
-            </nav>
-            {% endif %}
             {% include page ~ '.html' %}
           {% endif %}
         </div></main>

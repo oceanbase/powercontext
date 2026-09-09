@@ -18,7 +18,7 @@
       me.standalone-source { width: 100%; max-width: 850px; height: 100dvh; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; }
       me > :not(.source-content-view) { flex-shrink: 0; }
     </style>
-    {% include 'components/preferences.html' %}
+    <div class="d-flex justify-content-end mb-3">{% include 'components/preferences.html' %}</div>
     <a href="{{ link(origin) }}">← {{ t[origin] }}</a>
     <h1 class="mt-4">{{ t.source_label }}</h1>
     {% include 'evidence.html' %}

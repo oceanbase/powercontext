@@ -6,6 +6,8 @@
   "usage": "用量",
   "experience": "经验",
   "skill": "技能",
+  "other_scopes": "其他范围",
+  "scope_switch_hint": "选择后立即切换内容范围。",
   "scope_label": "内容范围",
   "navigation": "导航",
   "apply": "切换内容范围",
