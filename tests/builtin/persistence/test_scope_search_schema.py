@@ -109,12 +109,12 @@ def test_sqlite_scope_search_migration_backfills_legacy_rows_idempotently(tmp_pa
                 )
 
         assert scope == {
-            "scope_id_search": "scp_abc",
-            "title_search": "powercontext",
-            "summary_search": "design",
+            "scope_id_search": "scp_ABC",
+            "title_search": "\N{FULLWIDTH LATIN CAPITAL LETTER P}owerContext",
+            "summary_search": "Design",
         }
-        assert reference["value_search"] == "github/oceanbase"
-        assert binding["external_id_search"] == "workspace-one"
+        assert reference["value_search"] == "GitHub/OceanBase"
+        assert binding["external_id_search"] == "Workspace-ONE"
 
     asyncio.run(exercise())
 

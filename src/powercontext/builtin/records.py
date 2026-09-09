@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -213,6 +213,12 @@ class ArtifactRevisionPreconditionError(BaseAccessError):
 
 class RecordService(Protocol):
     """Persistence-backed base Source, Artifact, and Scope operations."""
+
+    async def migrate_handoff_receipts(
+        self,
+        identity_lookup: Callable[[str, str], Awaitable[object | None]],
+        /,
+    ) -> tuple[int, int]: ...
 
     async def create_source(
         self,

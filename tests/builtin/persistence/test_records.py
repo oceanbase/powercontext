@@ -80,6 +80,35 @@ def _memory_content() -> dict[str, JsonValue]:
     return {"entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}]}
 
 
+def test_receipt_migration_batches_and_recovers_missing_identity() -> None:
+    from powercontext.builtin.persistence.receipt_migration import migrate_handoff_receipts
+    from powercontext.builtin.persistence.tables import RECEIPT_MIGRATION_REVIEW_TABLE
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, sources = _services(profile)
+            marker = {"schema": "powercontext.handoff-receipt.v1"}
+            old = await records.create_source("scope", "content", marker)
+            ordinary = await records.create_source("scope", "content", marker)
+            trusted = set()
+
+            async def lookup(scope_id, source_id):
+                return object() if source_id in trusted else None
+
+            assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (0, 2)
+            trusted.add(old.source_id)
+            assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (1, 1)
+            assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (0, 1)
+            upgraded = await records.get_source("scope", "content", old.source_id)
+            assert upgraded.handoff_receipt and upgraded.model_dump() == old.model_dump()
+            assert not (await records.get_source("scope", "content", ordinary.source_id)).handoff_receipt
+            async with profile.database.transaction() as connection:
+                pending = (await connection.execute(select(RECEIPT_MIGRATION_REVIEW_TABLE))).mappings().all()
+                assert [row["source_id"] for row in pending] == [ordinary.source_id]
+
+    asyncio.run(scenario())
+
+
 def test_receipt_provenance_is_server_owned_and_legacy_replay_is_idempotent() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:

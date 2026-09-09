@@ -270,6 +270,9 @@ paths:
       summary: List observable Scopes
       description: >-
         Discover Scope descriptors with an explicit literal-substring field and exact relationship filters.
+        Query matches the selected original field using the database's native substring operation.
+        Regular expressions and wildcard syntax are not supported. Case, accent, and full-width/half-width
+        matching follow the underlying database collation; results need not be identical across backends.
         Requests without query parameters preserve the existing complete-list behavior.
       operationId: list_scopes
       x-powercontext-access: {action: server.observe, resource: {type: server}}

@@ -959,6 +959,19 @@ ARTIFACT_TAGS_TABLE = Table(
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
+RECEIPT_MIGRATION_REVIEW_TABLE = Table(
+    "pc_receipt_migration_review",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
+    Column("reason", String(64), nullable=False),
+)
+
 BUILTIN_TABLES = (
-    SCOPE_TABLES + SHARED_TABLES + TOPIC_MEMORY_TABLES + MEMORY_TABLES + STATISTICS_TABLES + (ARTIFACT_TAGS_TABLE,)
+    SCOPE_TABLES
+    + SHARED_TABLES
+    + TOPIC_MEMORY_TABLES
+    + MEMORY_TABLES
+    + STATISTICS_TABLES
+    + (ARTIFACT_TAGS_TABLE, RECEIPT_MIGRATION_REVIEW_TABLE)
 )

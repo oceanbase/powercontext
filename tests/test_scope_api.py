@@ -35,8 +35,8 @@ def test_scope_discovery_filters_one_explicit_field_in_sql_and_paginates(tmp_pat
         created = client.post(
             "/v1/scopes",
             json={
-                "title": "ＰowerContext title",  # noqa: RUF001 - exercises NFKC normalization
-                "summary": "Needle summary",
+                "title": "ＰowerContext title",  # noqa: RUF001 - preserve database-native width semantics
+                "summary": "Needle résumé 中文 %_*",
                 "external_references": [{"kind": "repository", "value": "https://github.com/OceanBase/PowerContext"}],
                 "idempotency_key": "needle",
             },
@@ -57,13 +57,23 @@ def test_scope_discovery_filters_one_explicit_field_in_sql_and_paginates(tmp_pat
 
         matched = client.get(
             "/v1/scopes",
-            params={"query": f"  {fragment.upper()}  ", "query_field": "scope_id"},
+            params={"query": f"  {fragment}  ", "query_field": "scope_id"},
         )
         assert [item["scope_id"] for item in matched.json()["items"]] == [scope_id]
-        assert client.get("/v1/scopes", params={"query": "powercontext", "query_field": "title"}).json()["items"]
+        assert client.get("/v1/scopes", params={"query": "ＰowerContext", "query_field": "title"}).json()["items"]  # noqa: RUF001
+        assert client.get("/v1/scopes", params={"query": "powercontext", "query_field": "title"}).json()["items"] == []
+        assert [
+            item["scope_id"]
+            for item in client.get("/v1/scopes", params={"query": "PowerContext", "query_field": "title"}).json()[
+                "items"
+            ]
+        ] == [second["scope_id"]]
+        for query in ("résumé", "中文", "%_*"):
+            assert client.get("/v1/scopes", params={"query": query, "query_field": "summary"}).json()["items"]
+        assert client.get("/v1/scopes", params={"query": "resume", "query_field": "summary"}).json()["items"] == []
         assert (
             client.get(
-                "/v1/scopes", params={"query": "oceanbase/powercontext", "query_field": "external_reference_value"}
+                "/v1/scopes", params={"query": "OceanBase/PowerContext", "query_field": "external_reference_value"}
             ).json()["items"][0]["scope_id"]
             == scope_id
         )
@@ -71,7 +81,7 @@ def test_scope_discovery_filters_one_explicit_field_in_sql_and_paginates(tmp_pat
             client.get(
                 "/v1/scopes",
                 params={
-                    "query": "workspace-powercontext",
+                    "query": "Workspace-PowerContext",
                     "query_field": "binding_external_id",
                     "binding_integration": "codex",
                     "binding_kind": "session",

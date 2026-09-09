@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Startup migration for portable Scope discovery projections."""
+"""Startup migration for legacy Scope search columns."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from powercontext.builtin.persistence.tables import (
     SCOPE_EXTERNAL_REFERENCES_TABLE,
     SCOPES_TABLE,
 )
-from powercontext.builtin.scope.search import normalize_scope_search
 
 _SEARCH_COLUMNS = {
     "pc_scopes": ("scope_id_search", "title_search", "summary_search"),
@@ -34,7 +33,7 @@ _SEARCH_COLUMNS = {
 
 
 async def ensure_scope_search_schema(connection: AsyncConnection, /) -> None:
-    """Add and backfill application-normalized Scope discovery columns."""
+    """Add and backfill compatibility columns without changing original text."""
 
     dialect = connection.dialect.name
     if dialect not in {"sqlite", "mysql"}:
@@ -103,9 +102,9 @@ async def _backfill_scopes(connection: AsyncConnection) -> None:
             update(SCOPES_TABLE)
             .where(SCOPES_TABLE.c.scope_id == row["scope_id"])
             .values(
-                scope_id_search=normalize_scope_search(str(row["scope_id"])),
-                title_search=normalize_scope_search(str(row["title"])),
-                summary_search=normalize_scope_search(str(row["summary"])),
+                scope_id_search=str(row["scope_id"]),
+                title_search=str(row["title"]),
+                summary_search=str(row["summary"]),
             )
         )
 
@@ -132,7 +131,7 @@ async def _backfill_external_references(connection: AsyncConnection) -> None:
                 SCOPE_EXTERNAL_REFERENCES_TABLE.c.scope_id == row["scope_id"],
                 SCOPE_EXTERNAL_REFERENCES_TABLE.c.ordinal == row["ordinal"],
             )
-            .values(value_search=normalize_scope_search(str(row["value"])))
+            .values(value_search=str(row["value"]))
         )
 
 
@@ -159,7 +158,7 @@ async def _backfill_bindings(connection: AsyncConnection) -> None:
                 SCOPE_BINDINGS_TABLE.c.kind == row["kind"],
                 SCOPE_BINDINGS_TABLE.c.external_id == row["external_id"],
             )
-            .values(external_id_search=normalize_scope_search(str(row["external_id"])))
+            .values(external_id_search=str(row["external_id"]))
         )
 
 

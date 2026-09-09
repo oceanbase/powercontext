@@ -47,7 +47,6 @@ from powercontext.builtin.scope.models import (
     ScopeSelection,
 )
 from powercontext.builtin.scope.repository import ScopeRepository
-from powercontext.builtin.scope.search import normalize_scope_search
 
 ScopeIdFactory = Callable[[], str]
 _CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz"
@@ -150,7 +149,7 @@ class ScopeApplication:
             "endpoint": "list_scopes",
             "authorization": "server_observe",
             "caller": caller,
-            "query": None if discovery.query is None else normalize_scope_search(discovery.query),
+            "query": discovery.query,
             "query_field": discovery.query_field,
             "parent_scope_id": discovery.parent_scope_id,
             "external_reference_kind": discovery.external_reference_kind,
@@ -159,9 +158,8 @@ class ScopeApplication:
             "limit": discovery.limit,
             "order": "scope_id:asc",
         }
-        # Normalization can expand a valid query manyfold. Bind the complete
-        # context by digest so the opaque cursor stays within the HTTP limit.
-        expected = {"version": 2, "context_digest": hashlib.sha256(rfc8785.dumps(expected)).hexdigest()}
+        # Bind the original query and filters without growing the opaque cursor.
+        expected = {"version": 3, "context_digest": hashlib.sha256(rfc8785.dumps(expected)).hexdigest()}
         after = self._cursor_codec.after_text(discovery.cursor, expected)
         async with self._database.transaction() as connection:
             items, has_more = await self._repository.discover(connection, discovery, after=after)

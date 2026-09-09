@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import aclosing
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -90,6 +90,15 @@ _SOURCE_PAGE_BUDGET_BYTES = 4 * 1024 * 1024
 
 class RelationalRecordService:
     """Serve fixed Source and Artifact paths over the shared relational tables."""
+
+    async def migrate_handoff_receipts(
+        self,
+        identity_lookup: Callable[[str, str], Awaitable[object | None]],
+        /,
+    ) -> tuple[int, int]:
+        from powercontext.builtin.persistence.receipt_migration import migrate_handoff_receipts
+
+        return await migrate_handoff_receipts(self._database, self._sources, identity_lookup)
 
     def __init__(
         self,

@@ -12,20 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Portable Scope discovery text normalization and SQL predicates."""
+"""Native database substring predicates for Scope discovery."""
 
 from __future__ import annotations
 
-import unicodedata
 from typing import Any
 
 from sqlalchemy import ColumnElement, func
-
-
-def normalize_scope_search(value: str) -> str:
-    """Return the application-owned search representation used by every database."""
-
-    return unicodedata.normalize("NFKC", value).casefold()
 
 
 def literal_contains(column: Any, query: str, dialect: str) -> ColumnElement[bool]:
@@ -38,4 +31,4 @@ def literal_contains(column: Any, query: str, dialect: str) -> ColumnElement[boo
     raise ValueError(f"unsupported Scope discovery dialect: {dialect}")  # noqa: TRY003
 
 
-__all__ = ["literal_contains", "normalize_scope_search"]
+__all__ = ["literal_contains"]
