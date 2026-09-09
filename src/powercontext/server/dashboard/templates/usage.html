@@ -65,7 +65,6 @@
     </div>
     <div class="usage-caption">{{ t.estimate_notice }}</div>
     {% if stats.token_reduction < 0 %}<p class="mt-3">{{ t.negative_notice }}</p>{% endif %}
-    {% call disclosure('calculation', t.calculation) %}<p>{{ t.calculation_body }}</p><p>{{ t.coverage_details.format(total=stats.preparations, comparable=stats.comparable_preparations) }}</p><p>{{ t.coverage_body }}</p>{% endcall %}
   </div>
 </section>
 {% else %}
