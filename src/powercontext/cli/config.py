@@ -223,6 +223,13 @@ _OPTIONAL_MANAGED_NAMES = {
     "POWERCONTEXT_SERVER_DATABASE_URL",
     "POWERCONTEXT_SERVER_DATABASE_PATH",
 }
+_INFERENCE_REPLACEMENT_NAMES = {
+    "POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS",
+    "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL",
+    "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL",
+    "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID",
+    "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION",
+}
 _ALL_FIXED_MANAGED_NAMES = (
     set(_BASE_ENVIRONMENT)
     | set(_EXPLICIT_SCOPE_NAMES)
@@ -270,14 +277,14 @@ def init_command(
     if output.exists() and not force:
         _fail(f"{output} already exists; use --force")
     try:
+        existing = output.read_text(encoding="utf-8") if output.exists() else ""
         configuration = collect_configuration(advanced=advanced)
         _validate_operational_configuration(configuration)
         _print_summary(configuration)
-        if not typer.confirm(f"Write {output}?", default=True):
+        content = update_environment_document(existing, configuration)
+        if not _confirm_environment_write(output, existing=existing, updated=content):
             typer.echo("No changes written.")
             return
-        existing = output.read_text(encoding="utf-8") if output.exists() else ""
-        content = update_environment_document(existing, configuration)
         backup = write_environment(output, content, backup=output.exists())
     except (ConfigError, EnvironmentFileError, OSError, UnicodeError, ValidationError) as error:
         _fail(str(error))
@@ -967,6 +974,31 @@ def _report_written(path: Path, backup: Path | None) -> None:
     typer.echo(f"Wrote {path.resolve()} with mode 0600.")
     if backup is not None:
         typer.echo(f"Backup: {backup.resolve()}")
+
+
+def _confirm_environment_write(path: Path, *, existing: str, updated: str) -> bool:
+    if not _removes_inference_configuration(existing, updated):
+        return typer.confirm(f"Write {path}?", default=True)
+    typer.secho(
+        f"\nWarning: replacing {path} will remove existing model, embedding, inference schedule, "
+        "or provider credential settings.",
+        bold=True,
+        fg=typer.colors.YELLOW,
+    )
+    typer.echo("A mode-0600 backup will be created before the file is replaced.")
+    return typer.confirm("Replace them with a model-free configuration?", default=False)
+
+
+def _removes_inference_configuration(existing: str, updated: str) -> bool:
+    if not existing:
+        return False
+    before = parse_environment(existing)
+    after = parse_environment(updated)
+    metadata = _managed_metadata(existing)
+    candidates = set(_INFERENCE_REPLACEMENT_NAMES) | _KNOWN_PROVIDER_NAMES
+    for key in ("generation-environment", "embedding-environment", "credentials"):
+        candidates.update(name for name in metadata.get(key, "").split(",") if name)
+    return any(name in before and name not in after for name in candidates)
 
 
 def _print_next_steps(path: Path) -> None:

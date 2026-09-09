@@ -17,6 +17,10 @@ The guided command writes a private file with mode `0600` and does not ask for m
 deployment. The default file can start the Server directly; add the required model, credential, embedding profile ID,
 and dimension when you need automatic extraction, model generation, or vector retrieval.
 
+When `--force` would remove existing model, embedding, inference schedule, or provider credential settings, the
+command identifies that impact and requires an explicit confirmation that defaults to no. After confirmation, it
+creates a mode-`0600` backup before replacing the file.
+
 On macOS and Linux, the guided command writes a private file with mode `0600`. Enter provider credentials through your environment or
 secret manager, not in command-line arguments.
 

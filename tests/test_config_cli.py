@@ -338,6 +338,48 @@ def test_init_refuses_to_replace_an_existing_environment_without_force(
     assert environment.read_text(encoding="utf-8") == "EXISTING=value\n"
 
 
+def test_init_force_defaults_to_preserving_existing_inference_configuration(tmp_path: Path) -> None:
+    environment = tmp_path / ".env"
+    original = config_cli.render_managed_block(_configuration())
+    environment.write_text(original, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        config_cli.app,
+        ["init", "--output", str(environment), "--force"],
+        input="\n",
+    )
+
+    assert result.exit_code == 0
+    assert "will remove existing model, embedding, inference schedule, or provider credential settings" in result.output
+    assert "A mode-0600 backup will be created" in result.output
+    assert "Replace them with a model-free configuration? [y/N]" in result.output
+    assert "initial-secret" not in result.output
+    assert "No changes written." in result.output
+    assert environment.read_text(encoding="utf-8") == original
+    assert not tuple(tmp_path.glob(".env.bak-*"))
+
+
+def test_init_force_replaces_inference_configuration_after_explicit_confirmation(tmp_path: Path) -> None:
+    environment = tmp_path / ".env"
+    original = config_cli.render_managed_block(_configuration())
+    environment.write_text(original, encoding="utf-8")
+
+    result = CliRunner().invoke(
+        config_cli.app,
+        ["init", "--output", str(environment), "--force"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    values = config_cli.parse_environment(environment.read_text(encoding="utf-8"))
+    assert "POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL" not in values
+    assert "POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL" not in values
+    assert "OPENAI_API_KEY" not in values
+    backups = tuple(tmp_path.glob(".env.bak-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+
+
 def test_environment_parser_rejects_duplicate_assignments() -> None:
     with pytest.raises(config_cli.EnvironmentFileError, match="duplicate environment name"):
         config_cli.parse_environment("VALUE=one\nVALUE=two\n")
