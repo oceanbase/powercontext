@@ -27,16 +27,22 @@
 <article class="card experience-card">
   <div class="card-body">
     <div class="method-type text-secondary small">{{ t.experience }}</div>
-    <h3 class="card-title fw-normal"><a class="text-reset" href="{{ link('experience') }}">{{ data.experience.lesson|truncate(120, true) }}</a></h3>
-    <p>{{ data.experience.situation|truncate(160, true) }}</p>
-    <div class="source-trail text-secondary small mb-3">{{ data.experience.sources|length }} {{ t.source_count }} </div>
+    <h3 class="card-title fw-normal experience-lesson">{% if data.experience %}<a class="text-reset" href="{{ link('experience') }}">{{ data.experience.lesson|truncate(120, true) }}</a>{% else %}{{ t.experience_empty }}{% endif %}</h3>
+    <p class="experience-situation">{{ data.experience.situation|truncate(160, true) if data.experience else t.methods_empty_body }}</p>
+    <div class="experience-footer">{% if data.experience %}
+    <div class="source-trail text-secondary small mb-3">{{ data.experience.sources|length }} {{ t.source_count }}</div>
     <a href="{{ link('experience') }}">{{ t.read_experience }}</a>
+    {% endif %}</div>
   </div>
 </article>
 {% endmacro %}
 
 {% macro comparison_chart(compact=false) %}
+{% if stats.estimator_available and stats.preparations > 0 %}
 {% include 'components/comparison-chart.html' %}
+{% else %}
+<div class="chart{{ ' chart-lg' if not compact else '' }} d-flex align-items-center justify-content-center"><p class="text-secondary text-center mb-0">{{ t.no_comparison if stats.estimator_available else t.no_estimates }}</p></div>
+{% endif %}
 {% endmacro %}
 
 {% macro disclosure(identifier, title) %}

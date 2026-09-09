@@ -21,23 +21,22 @@
 <nav class="nav nav-pills row g-0 mb-3 small scope-extent" aria-label="{{ t.usage_extent }}">
 {% for value in ['exact', 'subtree'] %}<a class="col-6 col-sm-4 col-xl-3 nav-link d-flex align-items-center justify-content-center text-center {{ 'active' if extent == value else '' }}" href="{{ link('usage', extent=value) }}" {% if extent == value %}aria-current="page"{% endif %}>{{ t[value ~ '_scope'] }}</a>{% endfor %}
 </nav>
-{% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats.empty %}
-<section class="card"><div class="empty"><h2>{{ t.usage_empty }}</h2><p class="empty-subtitle">{{ t.usage_empty_body }}</p><a class="btn" href="{{ link('home') }}">{{ t.back_home }}</a></div></section>
-{% else %}
-{% if stats.estimator_available %}
+{% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% else %}
 <section class="card usage-sheet">
   <div class="card-body">
     <div class="row row-cards">
       <div class="col-xl-4 usage-summary">
         <h2>{{ t.comparison }}{% if stats.percent is not none %}<br>{{ t.increased if stats.token_reduction < 0 else t.reduced }}{% endif %}</h2>
-        {% if stats.percent is not none %}
+        {% if not stats.estimator_available %}<h3 class="my-4">{{ t.no_estimates }}</h3><p class="text-secondary">{{ t.no_estimates_body }}</p>
+        {% elif stats.empty %}<h3 class="my-4">{{ t.usage_empty }}</h3>
+        {% elif stats.percent is not none %}
         <div class="big-number display-3 my-3 {{ 'text-body' if stats.token_reduction < 0 else 'text-primary' }}">{{ stats.percent }}<span>%</span><small class="fs-1 ms-2">{{ '↑' if stats.token_reduction < 0 else '↓' }}</small></div>
         <p>{{ t.more_tokens if stats.token_reduction < 0 else t.fewer_tokens }} {{ number(stats.token_reduction|abs) }} tokens</p>
         {% else %}<h3 class="my-4">{{ t.no_comparison }}</h3>{% endif %}
-        <dl class="comparison-values my-4">
+        {% if stats.estimator_available %}<dl class="comparison-values my-4">
           <div><dt class="fw-normal">{{ t.baseline }}</dt><dd class="mb-2">{{ number(stats.baseline_tokens) }}</dd></div>
           <div><dt class="fw-normal">{{ t.recalled }}</dt><dd class="mb-2">{{ number(stats.recalled_tokens) }}</dd></div>
-        </dl>
+        </dl>{% endif %}
         {% if stats.comparable_preparations > 0 %}<p class="text-secondary">{{ coverage_notice() }}</p>{% endif %}
       </div>
       <div class="col-xl-8">
@@ -46,19 +45,16 @@
         <div class="bar-chart">{{ comparison_chart() }}</div>
       </div>
     </div>
-    <div class="usage-caption border-top mt-3 pt-3 text-secondary">{{ t.estimate_notice }}</div>
+    {% if stats.estimator_available %}<div class="usage-caption border-top mt-3 pt-3 text-secondary">{{ t.estimate_notice }}</div>{% endif %}
     {% if stats.token_reduction < 0 %}<p class="mt-3">{{ t.negative_notice }}</p>{% endif %}
   </div>
 </section>
-{% else %}
-<section class="card"><div class="card-body"><h2>{{ t.no_estimates }}</h2><p class="mb-0 text-secondary">{{ t.no_estimates_body }}</p></div></section>
-{% endif %}
 <section class="mt-4">
     <div class="card"><div class="card-body">
       <h2>{{ t.model_usage }}</h2><p class="text-secondary">{{ t.model_note }}</p>
       <div class="table-responsive" tabindex="0" role="region" aria-label="{{ t.model_usage }}"><table class="table table-mobile-sm model-usage-table">
         <thead><tr><th scope="col">{{ t.purpose }}</th><th scope="col" class="text-end">{{ t.input }}</th><th scope="col" class="text-end">{{ t.output }}</th></tr></thead>
-        <tbody>{% for row in stats.model_usage %}<tr><td>{{ t.get(row.purpose, row.purpose) }}<span class="d-block text-secondary small">{{ t[row.operation] }}</span></td><td class="text-sm-end" data-label="{{ t.input }}">{{ number(row.input_tokens) }}</td><td class="text-sm-end" data-label="{{ t.output }}">{{ number(row.output_tokens) }}</td></tr>{% endfor %}</tbody>
+        <tbody>{% for row in stats.model_usage %}<tr><td>{{ t.get(row.purpose, row.purpose) }}<span class="d-block text-secondary small">{{ t[row.operation] }}</span></td><td class="text-sm-end" data-label="{{ t.input }}">{{ number(row.input_tokens) }}</td><td class="text-sm-end" data-label="{{ t.output }}">{{ number(row.output_tokens) }}</td></tr>{% else %}<tr><td colspan="3" class="text-secondary">{{ t.usage_empty }}</td></tr>{% endfor %}</tbody>
         <tfoot>{% for operation in ['generation', 'embedding'] %}<tr><th scope="row">{{ t[operation ~ '_total'] }}</th><td class="text-sm-end fw-bold" data-label="{{ t.input }}">{{ number(stats[operation].input_tokens) }}</td><td class="text-sm-end fw-bold" data-label="{{ t.output }}">{{ number(stats[operation].output_tokens) }}</td></tr>{% endfor %}</tfoot>
       </table></div>
       {% if stats.unknown_usage %}<p class="mt-3">{{ t.unknown_notice }}</p>{% endif %}

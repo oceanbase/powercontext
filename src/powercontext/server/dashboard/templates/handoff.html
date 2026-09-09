@@ -1,8 +1,13 @@
+<div class="handoff-view">
+<style>
+  me .handoff-list { min-height: 65dvh; }
+</style>
 {% from 'components/page-heading.html' import page_heading %}
 {% from 'components/pagination.html' import pagination %}
 {{ page_heading(t.handoff, t.handoff_subtitle) }}
 {% from 'components/read-error.html' import read_error with context %}
 {% if errors.get('handoff') %}{{ read_error(errors.handoff, t.handoff) }}{% endif %}
+<div class="handoff-list d-flex flex-column">
 {% for record in collections.get('handoff', {}).get('items', []) %}
 {% if 'error' not in record %}
 <section class="card mb-3"><div class="card-body">
@@ -14,6 +19,9 @@
 </div></section>
 {% endif %}
 {% else %}
-{% if not errors.get('handoff') %}<section class="card"><div class="empty"><h2>{{ t.handoff_empty }}</h2><p>{{ t.handoff_empty_body }}</p></div></section>{% endif %}
+{% if not errors.get('handoff') %}<section class="card flex-fill"><div class="empty"><h2>{{ t.handoff_empty }}</h2><p>{{ t.handoff_empty_body }}</p></div></section>{% endif %}
 {% endfor %}
+</div>
 {{ pagination(collections.get('handoff', {}).get('pager'), t) }}
+
+</div>

@@ -212,12 +212,37 @@ async function main() {
   const scopes = (await api('/v1/scopes')).items;
   const defaultScope = (await api('/v1/scopes/default')).scope_id;
   const report = { pages: [], scopes: scopes.map(scope => scope.scope_id), errors };
-  for (const scope of scopes) {
-    for (const name of ['home', 'handoff', 'notes', 'methods', 'usage']) {
-      const response = await page.goto(`${base}/dashboard/${name}?scope=${encodeURIComponent(scope.scope_id)}`);
-      assert.equal(response.status(), 200);
-      assert.equal(await page.locator('#scope').inputValue(), scope.scope_id);
-      report.pages.push({ page: name, scope: scope.scope_id, status: response.status() });
+  for (const width of [390, 1536]) {
+    await page.setViewportSize({ width, height: 1024 });
+    let contentTop;
+    for (const scope of scopes) {
+      for (const name of ['home', 'handoff', 'notes', 'methods', 'usage']) {
+        const response = await page.goto(`${base}/dashboard/${name}?scope=${encodeURIComponent(scope.scope_id)}`);
+        assert.equal(response.status(), 200);
+        assert.equal(await page.locator('#scope').inputValue(), scope.scope_id);
+        const main = await page.locator('main').boundingBox();
+        contentTop ??= main.y;
+        assert(Math.abs(main.y - contentTop) < 1, `Content shifted with page length: ${name} at ${width}px`);
+        if (name === 'home') {
+          const bounds = await page.locator('#usage, #notes, #methods, #handoff').evaluateAll(items => items.map(item => {
+            const rect = item.getBoundingClientRect();
+            return { id: item.id, top: rect.top, bottom: rect.bottom };
+          }));
+          const sections = Object.fromEntries(bounds.map(item => [item.id, item]));
+          assert(sections.usage.bottom <= sections.notes.top);
+          assert(sections.notes.top <= sections.methods.top);
+          assert(sections.methods.bottom <= sections.handoff.top);
+        }
+        if (name === 'notes') {
+          assert(await page.locator('.memory-directory').isVisible());
+          assert(await page.locator('#note-reading').isVisible());
+        }
+        if (name === 'usage') {
+          assert(await page.locator('.usage-sheet').isVisible());
+          assert(await page.locator('.model-usage-table').isVisible());
+        }
+        report.pages.push({ page: name, scope: scope.scope_id, width, status: response.status() });
+      }
     }
   }
   await page.goto(base + '/dashboard/home');
