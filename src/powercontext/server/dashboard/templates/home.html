@@ -2,15 +2,14 @@
 <style>
   me { overflow-wrap: anywhere; }
   me .handoff-sheet .row { --tblr-gutter-y: 12px; }
-  me .handoff-title { font-size: clamp(24px, 2vw, 28px); margin: 10px 0 0; }
-  me .handoff-state h3 { font-size: 18px; margin-bottom: 13px; color: var(--tblr-body-color); }
-  me .next-action h3 { font-size: 18px; margin-bottom: 13px; color: var(--tblr-body-color); }
+  me .handoff-title { font-size: clamp(24px, 2vw, 28px); margin: 0; }
+  me .handoff-state h4 { font-size: 18px; margin-bottom: 13px; color: var(--tblr-body-color); }
+  me .next-action h4 { font-size: 18px; margin-bottom: 13px; color: var(--tblr-body-color); }
   me .state-list { list-style: none; padding: 0; margin: 0; }
   me .state-list li { display: flex; align-items: baseline; gap: 14px; margin: 9px 0; font-size: 17px; }
   me .state-list li span { color: var(--tblr-body-color); }
   me .next-action { border-left: 1px solid var(--tblr-border-color); padding-left: 24px; }
   me .next-action p { font-size: 18px; line-height: 1.65; max-width: 340px; }
-  me .next-action h3 span { color: var(--tblr-primary); margin-left: 18px; }
   me .history-note { font-size: 14px; margin: 12px 0 0; }
   me .home-columns { margin-top: 0; }
   me .home-columns > section { padding-top: 0; }
@@ -33,22 +32,24 @@
 </style>
 {% from 'macros.html' import note_rows, experience_card with context %}
 {% from 'components/page-heading.html' import page_heading %}
+{% from 'components/section-heading.html' import section_heading %}
 {{ page_heading(data.title, data.summary) }}
 
+<section id="handoff">
+{{ section_heading(t.handoff, link('handoff'), t.view_all) }}
 {% if errors.get('handoff') %}{{ read_error(errors.handoff, t.handoff) }}{% elif data.handoff %}
-<article class="card handoff-sheet" id="handoff">
+<article class="card handoff-sheet">
   <div class="card-body">
-    <div class="section-heading"><span>{{ t.last_handoff }}</span><a href="{{ link('handoff-detail') }}">{{ t.read_handoff }}</a></div>
-    <h2 class="handoff-title">{{ data.handoff.objective|truncate(120, true) }}</h2>
+    <h3 class="handoff-title"><a class="text-reset" href="{{ link('handoff-detail') }}">{{ data.handoff.objective|truncate(120, true) }}</a></h3>
     <div class="row g-4 mt-1">
       <div class="col-md-7 handoff-state">
-        <h3>{{ t.recorded_state }}</h3>
+        <h4>{{ t.recorded_state }}</h4>
         <ul class="state-list">
           {% for statement in data.handoff.state[:3] %}<li><span aria-hidden="true">—</span>{{ statement.text|truncate(120, true) }}</li>{% endfor %}
         </ul>
       </div>
       <div class="col-md-5 next-action">
-        <h3>{{ t.next_action }} </h3><p>{{ data.handoff.next_action.text|truncate(80, true) if data.handoff.next_action else t.no_next_action }}</p>
+        <h4>{{ t.next_action }}</h4><p>{{ data.handoff.next_action.text|truncate(80, true) if data.handoff.next_action else t.no_next_action }}</p>
       </div>
     </div>
     {% if data.handoff.disposition in ['complete', 'blocked'] %}<p class="history-note">{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}
@@ -56,36 +57,40 @@
   </div>
 </article>
 {% else %}
-<section class="card" id="handoff"><div class="card-body">
-  <h2>{{ t.handoff_empty }}</h2>
+<div class="card"><div class="card-body">
+  <h3>{{ t.handoff_empty }}</h3>
   <p class="text-secondary mb-0">{{ t.handoff_empty_body }}</p>
-</div></section>
+</div></div>
 {% endif %}
+</section>
 <div class="row g-4 home-columns">
   <section class="col-xl-6 d-flex flex-column" id="notes">
-    <div class="section-heading"><h2>{{ t.remember_heading }}</h2><a href="{{ link('notes') }}">{{ t.view_notes }}</a></div>
+    {{ section_heading(t.remember_heading, link('notes'), t.view_notes) }}
     {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% elif data.notes %}{{ note_rows(data.notes[:3]) }}{% else %}
     <div class="card flex-fill"><div class="card-body"><h3>{{ t.notes_empty }}</h3><p class="text-secondary mb-0">{{ t.notes_empty_body }}</p></div></div>
     {% endif %}
   </section>
   <section class="col-xl-6 d-flex flex-column" id="methods">
-    <div class="section-heading"><h2>{{ t.methods_heading }}</h2><a href="{{ link('methods') }}">{{ t.view_methods }}</a></div>
+    {{ section_heading(t.methods_heading, link('methods'), t.view_methods) }}
     {% for family in ['experience', 'skill'] if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endfor %}
     {% if data.experience %}{{ experience_card() }}{% endif %}
     {% if not data.experience and not data.skill and not errors.get('experience') and not errors.get('skill') %}
     <div class="card"><div class="card-body"><h3>{{ t.methods_empty }}</h3><p class="text-secondary mb-0">{{ t.methods_empty_body }}</p></div></div>
     {% endif %}
     {% if data.skill %}
-    <a class="card card-link mt-2" href="{{ link('skill') }}" id="skill-summary">
+    <a class="card card-link {{ 'mt-2' if data.experience else '' }}" href="{{ link('skill') }}" id="skill-summary">
       <div class="card-body py-3 d-flex align-items-center gap-3"><span class="text-secondary">{{ t.skill }}</span><span>{{ data.skill.name }}</span></div>
     </a>
     {% endif %}
   </section>
 </div>
+<section id="usage" class="mt-4">
+{{ section_heading(t.usage, link('usage'), t.view_usage) }}
 {% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats %}
   {% if stats.empty or not stats.estimator_available %}
-  <section class="border-top mt-4 pt-3 d-flex flex-wrap justify-content-between gap-2"><div><h3>{{ t.usage_quiet }}</h3><p class="small text-secondary mb-0">{{ t.usage_quiet_body }}</p></div><a href="{{ link('usage') }}">{{ t.view_usage }}</a></section>
+  <div class="card"><div class="card-body"><h3>{{ t.usage_quiet }}</h3><p class="text-secondary mb-0">{{ t.usage_quiet_body }}</p></div></div>
   {% else %}{% include 'compact_usage.html' %}{% endif %}
 {% endif %}
+</section>
 
 </div>
