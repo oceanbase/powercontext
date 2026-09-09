@@ -1,19 +1,25 @@
 # PowerContext for Pydantic AI
 
+`community`
+
 This directory contains a preview `powercontext-pydantic-ai` adapter. It connects a Pydantic AI agent to a running
 PowerContext Server through the public asynchronous Python Client. It provides three tools, prepares relevant context
 before model requests, and can optionally capture bounded agent events and flush them into Memory.
 
-## Availability
+## Installation
 
-The adapter is not currently published on PyPI. Its source metadata requires a final `powercontext[client]>=0.0.3`,
-which the current public root package and the development version from `master` do not satisfy. Do not use the old
-PyPI command or a direct Git subdirectory install; both fail dependency resolution. Repository contributors can run
-the adapter tests through the root development environment.
+`experimental`
 
-The remaining sections document the preview API for development and review; they are not a supported installation
-path. The example uses OpenAI. For another provider, use the matching `pydantic-ai-slim` provider extra and change the
-model string after compatible packages are released.
+Install the Client and adapter from the same source ref in your application environment. This example uses OpenAI:
+
+```bash
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext-pydantic-ai @ git+https://github.com/oceanbase/powercontext.git@master#subdirectory=integrations/pydantic-ai"
+uv add "pydantic-ai-slim[openai]>=2.29,<3"
+```
+
+Start a separate PowerContext Server from the same ref. The source adapter requires `powercontext[client]>=0.0.3`.
+For another provider, replace the `openai` extra and model string.
 
 ```python
 from pydantic_ai import Agent

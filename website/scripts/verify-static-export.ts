@@ -151,17 +151,24 @@ for (const [locale, document] of Object.entries(docsDocuments)) {
   const apiReferenceLabel = locale === 'en' ? 'API Reference' : 'API 参考';
   const developerLabel = locale === 'en' ? 'Developer' : '开发者';
   const productLabel = locale === 'en' ? 'Product' : '产品';
-  const tutorialsLabel = locale === 'en' ? 'Tutorials' : '教程';
-  const howToLabel = locale === 'en' ? 'How to' : '操作指南';
-  const explanationLabel = locale === 'en' ? 'Explanation' : '概念说明';
-  const referenceLabel = locale === 'en' ? 'Reference' : '参考';
+  const journeyLabels = locale === 'en'
+    ? ['Get started', 'Connect Agents', 'Manage context', 'Deploy and operate', 'Develop with APIs']
+    : ['开始使用', '接入 Agent', '管理上下文', '部署与运维', '开发与 API'];
   const developmentLabel = locale === 'en' ? 'Development' : '开发';
   const productIndex = markup.indexOf(`>${productLabel}</p>`);
-  const tutorialsIndex = markup.indexOf(`>${tutorialsLabel}<`, productIndex);
-  const howToIndex = markup.indexOf(`>${howToLabel}<`, tutorialsIndex);
-  const explanationIndex = markup.indexOf(`>${explanationLabel}<`, howToIndex);
+  let journeyIndex = productIndex;
+  for (const label of journeyLabels) {
+    const index = markup.indexOf(`>${label}<`, journeyIndex);
+    if (index < journeyIndex) throw new Error(`Static ${locale} documentation is missing journey category ${label}.`);
+    journeyIndex = index;
+  }
+  const integrationMarkup = renderedMarkup(exportedDocuments.get(`/${locale}/docs/integrations/codex`)!);
+  for (const status of ['official', 'community', 'evaluation']) {
+    if (!integrationMarkup.includes(`data-status="${status}"`)) {
+      throw new Error(`Static ${locale} documentation is missing the ${status} integration badge.`);
+    }
+  }
   const apiReferenceIndex = markup.indexOf(`>${apiReferenceLabel}</p>`);
-  const referenceIndex = markup.indexOf(`>${referenceLabel}<`);
   const pythonApiIndex = markup.indexOf('>Python API</a>');
   const developerIndex = markup.indexOf(`>${developerLabel}</p>`);
   const rfcIndex = markup.indexOf('>RFCs<', developerIndex);
@@ -171,11 +178,7 @@ for (const [locale, document] of Object.entries(docsDocuments)) {
 
   if (
     productIndex === -1
-    || tutorialsIndex < productIndex
-    || howToIndex < tutorialsIndex
-    || explanationIndex < howToIndex
-    || referenceIndex < explanationIndex
-    || developerIndex < referenceIndex
+    || developerIndex < journeyIndex
     || rfcIndex < developerIndex
     || developmentIndex < rfcIndex
     || apiReferenceIndex < developmentIndex

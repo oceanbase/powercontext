@@ -319,8 +319,8 @@ def derived_profiles(capabilities: Iterable[IntegrationCapability]) -> frozenset
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPOSITORY_ROOT / "integrations" / "capabilities.toml"
 DOCUMENTATION_PATHS = {
-    "en": REPOSITORY_ROOT / "docs" / "en" / "docs" / "reference" / "integration-capabilities.md",
-    "zh": REPOSITORY_ROOT / "docs" / "zh" / "docs" / "reference" / "integration-capabilities.md",
+    "en": REPOSITORY_ROOT / "docs" / "en" / "docs" / "integrations" / "capabilities.md",
+    "zh": REPOSITORY_ROOT / "docs" / "zh" / "docs" / "integrations" / "capabilities.md",
 }
 
 

@@ -1,5 +1,7 @@
 # Claude Code integration
 
+`community`
+
 `plugins/powercontext` contains the PowerContext plugin distributed through the
 Claude Code marketplace at the repository root.
 

@@ -128,8 +128,8 @@ def test_agent_plugin_readme_documents_server_and_auth_boundaries() -> None:
 
 def test_agent_plugin_docs_include_verified_host_loading_procedure() -> None:
     for relative_path in (
-        "docs/en/docs/how-to/configure-agent-plugin.md",
-        "docs/zh/docs/how-to/configure-agent-plugin.md",
+        "docs/en/docs/integrations/agent-plugin.md",
+        "docs/zh/docs/integrations/agent-plugin.md",
     ):
         content = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
 

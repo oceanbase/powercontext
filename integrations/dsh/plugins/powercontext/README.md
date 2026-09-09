@@ -20,7 +20,7 @@ powercontext setup dsh --source .
 Run those development commands from the PowerContext repository root. Repeating remote setup with `--ref master`
 reuses the cached checkout without fetching; update a local checkout and reinstall both components to refresh it.
 
-Use [the DSH setup guide](../../../../docs/en/docs/how-to/configure-dsh.md) for generation/processing configuration.
+Use [the DSH setup guide](../../../../docs/en/docs/integrations/dsh.md) for generation/processing configuration.
 Run `powercontext server run --env-file powercontext.env` in one terminal, then set
 `POWERCONTEXT_DSH_BASE_URL` in another terminal and run `dsh web`. Restart DSH after changing installation or environment.
 Release 0.2.0 includes direct-operation Scope failure handling; the layered Doctor and snapshot behavior below

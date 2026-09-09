@@ -1,5 +1,7 @@
 # OpenClaw integration
 
+`community`
+
 `plugins/memory-powercontext` contains the PowerContext memory plugin for
 [OpenClaw](https://github.com/openclaw/openclaw). The plugin registers a `memory` capability backed by a running
 PowerContext Server: bounded recall before each prompt, capture of eligible user prompts as Source evidence, and
