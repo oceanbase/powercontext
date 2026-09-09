@@ -184,16 +184,16 @@ build-and-publish: build publish ## Build and publish.
 
 .PHONY: docs-install
 docs-install: ## Install the website dependencies.
-	@pnpm --dir website install --frozen-lockfile
+	@cd website && pnpm install --frozen-lockfile
 
 .PHONY: docs-build
 docs-build: docs-install ## Build the static website, including HTTP and Python API references.
-	@CI=true pnpm --dir website build
+	@cd website && CI=true pnpm build
 
 .PHONY: docs-test
 docs-test: docs-install ## Lint and build the static website.
-	@CI=true pnpm --dir website lint
-	@CI=true pnpm --dir website build
+	@cd website && CI=true pnpm lint
+	@cd website && CI=true pnpm build
 
 .PHONY: integration-manifest-docs
 integration-manifest-docs: ## Generate the checked-in integration capability matrix pages.
@@ -209,7 +209,7 @@ integration-manifest-check: integration-manifest-docs-check ## Verify the comple
 
 .PHONY: docs
 docs: docs-install ## Build and serve the website locally.
-	@pnpm --dir website dev -- $(ARGS)
+	@cd website && pnpm dev -- $(ARGS)
 
 .PHONY: help
 help:

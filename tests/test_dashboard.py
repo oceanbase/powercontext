@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -88,6 +89,32 @@ def test_dashboard_is_enabled_by_default_without_authentication_or_scopes(tmp_pa
     assert scopes.json()[0]["display_name"] == "Default"
     assert scopes.json()[0]["summary"] == "Default context"
     assert scopes.json()[0]["parent_scope_id"] is None
+
+
+def test_dashboard_uses_a_square_symbol_favicon_instead_of_the_wordmark(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'favicon.db'}"),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with TestClient(app) as client:
+        home = client.get("/")
+        favicon = client.get("/static/favicon.svg")
+
+    assert home.status_code == 200
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"].startswith("image/svg+xml")
+
+    icon_link = re.search(r'<link rel="icon"[^>]*>', home.text)
+    assert icon_link is not None
+    assert "favicon.svg" in icon_link.group(0)
+    assert "powercontext-color.png" not in icon_link.group(0)
+
+    view_box = re.search(r'viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"', favicon.text)
+    assert view_box is not None
+    assert view_box.group(1) == view_box.group(2)  # square proportions
 
 
 def test_dashboard_exposes_explicit_insecure_http_enrollment_guidance(tmp_path) -> None:

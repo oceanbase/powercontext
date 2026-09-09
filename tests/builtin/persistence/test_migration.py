@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from powercontext.builtin.persistence import migration as migration_module
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -35,6 +35,7 @@ from powercontext.builtin.persistence.tables import (
     MEMORY_TABLES,
     SHARED_TABLES,
     STATISTICS_TABLES,
+    TOPIC_MEMORY_WORK_BUDGETS_TABLE,
     WORK_ITEMS_TABLE,
 )
 
@@ -83,6 +84,23 @@ def test_clean_schema_migrates_to_head_idempotently(tmp_path) -> None:
             async with profile.database.transaction() as connection:
                 table_names = await connection.run_sync(lambda value: set(inspect(value).get_table_names()))
             assert WORK_ITEMS_TABLE.name in table_names
+
+    asyncio.run(scenario())
+
+
+def test_topic_memory_budget_is_added_to_existing_topic_schema(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'topic-v5.db'}")
+        async with SQLiteProfile.open(config, tables=(), create_schema=False) as profile:
+            await migrate_database(profile.database)
+            async with profile.database.transaction() as connection:
+                await connection.run_sync(TOPIC_MEMORY_WORK_BUDGETS_TABLE.drop)
+                await connection.execute(text("UPDATE pc_schema_revisions SET version_num = '0005_topic_memory'"))
+
+            assert await migrate_database(profile.database) == CURRENT_SCHEMA_REVISION
+            async with profile.database.transaction() as connection:
+                table_names = await connection.run_sync(lambda value: set(inspect(value).get_table_names()))
+            assert TOPIC_MEMORY_WORK_BUDGETS_TABLE.name in table_names
 
     asyncio.run(scenario())
 

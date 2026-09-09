@@ -19,17 +19,21 @@ from __future__ import annotations
 import hashlib
 from typing import Protocol
 
-from sqlalchemy import Table
+from sqlalchemy import Table, and_, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.sql import ColumnElement
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import (
+    TopicMemory,
     TopicMemoryCapabilities,
     TopicMemoryProjection,
     TopicMemorySearchChannels,
     TopicMemorySearchRequest,
+    TopicMemoryStorageInvariantError,
 )
+from powercontext.builtin.persistence.tables import TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE, TOPIC_MEMORY_ACTIVE_TOPICS_TABLE
 
 
 class TopicMemoryIndex(Protocol):
@@ -39,6 +43,8 @@ class TopicMemoryIndex(Protocol):
     tables: tuple[Table, ...]
 
     async def initialize(self, connection: AsyncConnection, /) -> None: ...
+
+    async def validate_current(self, connection: AsyncConnection, /) -> None: ...
 
     async def replace(
         self,
@@ -73,6 +79,9 @@ class NoTopicMemoryIndex:
     tables: tuple[Table, ...] = ()
 
     async def initialize(self, _connection: AsyncConnection, /) -> None:
+        pass
+
+    async def validate_current(self, _connection: AsyncConnection, /) -> None:
         pass
 
     async def replace(
@@ -126,6 +135,10 @@ class CompositeTopicMemoryIndex:
         for index in self.indexes:
             await index.initialize(connection)
 
+    async def validate_current(self, connection: AsyncConnection, /) -> None:
+        for index in self.indexes:
+            await index.validate_current(connection)
+
     async def replace(
         self,
         connection: AsyncConnection,
@@ -169,6 +182,87 @@ class CompositeTopicMemoryIndex:
             if not await index.vector_complete(connection, scope_id, topic_ref):
                 return False
         return True
+
+
+async def validate_current_topic_vectors(
+    connection: AsyncConnection,
+    topic_vectors: Table,
+    chunk_vectors: Table,
+    fingerprint: str,
+    *,
+    topic_present: ColumnElement[bool] | None = None,
+    chunk_present: ColumnElement[bool] | None = None,
+) -> None:
+    """Check current vector projections in one statement snapshot, including RC.
+
+    Never carry an active Revision into a later query: publication removes its
+    old projection atomically. Both directions of ordinal membership matter;
+    equal counts alone would accept a missing ordinal replaced by an extra one.
+    """
+
+    active = TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.alias("active")
+    expected = TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE.alias("expected")
+    expected_for_active = and_(
+        expected.c.scope_id == active.c.scope_id,
+        expected.c.family == active.c.family,
+        expected.c.artifact_id == active.c.artifact_id,
+        expected.c.revision == active.c.revision,
+    )
+    expected_for_vector = and_(
+        expected.c.scope_id == chunk_vectors.c.scope_id,
+        expected.c.artifact_id == chunk_vectors.c.artifact_id,
+        expected.c.revision == chunk_vectors.c.revision,
+        expected.c.chunk_ordinal == chunk_vectors.c.chunk_ordinal,
+    )
+    topic_complete = (
+        select(topic_vectors.c.artifact_id)
+        .where(
+            topic_vectors.c.scope_id == active.c.scope_id,
+            topic_vectors.c.artifact_id == active.c.artifact_id,
+            topic_vectors.c.revision == active.c.revision,
+            topic_vectors.c.profile_fingerprint == fingerprint,
+            true() if topic_present is None else topic_present,
+        )
+        .correlate(active)
+        .exists()
+    )
+    chunk_complete = (
+        select(chunk_vectors.c.chunk_ordinal)
+        .where(
+            expected_for_vector,
+            chunk_vectors.c.profile_fingerprint == fingerprint,
+            true() if chunk_present is None else chunk_present,
+        )
+        .correlate(expected)
+        .exists()
+    )
+    has_chunks = select(expected.c.chunk_ordinal).where(expected_for_active).correlate(active).exists()
+    missing_chunk = (
+        select(expected.c.chunk_ordinal).where(expected_for_active, ~chunk_complete).correlate(active).exists()
+    )
+    extra_chunk = (
+        select(chunk_vectors.c.chunk_ordinal)
+        .where(
+            chunk_vectors.c.scope_id == active.c.scope_id,
+            chunk_vectors.c.artifact_id == active.c.artifact_id,
+            chunk_vectors.c.revision == active.c.revision,
+            ~select(expected.c.chunk_ordinal).where(expected_for_vector).correlate(chunk_vectors).exists(),
+        )
+        .correlate(active)
+        .exists()
+    )
+    invalid = (
+        await connection.execute(
+            select(active.c.scope_id, active.c.artifact_id, active.c.revision)
+            .where(or_(~topic_complete, ~has_chunks, missing_chunk, extra_chunk))
+            .limit(1)
+        )
+    ).one_or_none()
+    if invalid is not None:
+        ref = ArtifactRef(
+            family=TopicMemory.family, artifact_id=str(invalid.artifact_id), revision=int(invalid.revision)
+        )
+        raise TopicMemoryStorageInvariantError("incomplete-vector", (str(invalid.scope_id), ref))
 
 
 def topic_memory_embedding_profile_fingerprint(profile: EmbeddingProfile, /) -> str:

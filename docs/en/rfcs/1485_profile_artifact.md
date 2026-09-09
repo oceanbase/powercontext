@@ -3,7 +3,7 @@
 - RFC PR: [oceanbase/powercontext#1485](https://github.com/oceanbase/powercontext/pull/1485)
 - Related RFCs: [Scope organization](1345_scope_organization_and_agent_integration.md),
   [Access control](1396_handoff_access_control.md), [Source and Artifact REST API](1437_source_artifact_rest_api.md),
-  [Candidate review](0050_artifact_candidate_review_inbox.md), [Topic Memory](0000_topic_memory.md)
+  [Candidate review](0050_artifact_candidate_review_inbox.md), [Topic Memory](1417_topic_memory.md)
 
 # Summary
 
@@ -854,7 +854,7 @@ general batch operations.
 - PowerContext [base REST API](1437_source_artifact_rest_api.md) supplies Source/Artifact identity, atomic commits,
   ETags, and lineage_only; the [Scope RFC](1345_scope_organization_and_agent_integration.md) supplies ordinary Scopes and Bindings.
 - The [Candidate Review RFC](0050_artifact_candidate_review_inbox.md) supplies candidate versions and review lifecycle;
-  [Topic Memory](0000_topic_memory.md) provides independent Source-window consumer references. This design does not depend on its proposed task tables.
+  [Topic Memory](1417_topic_memory.md) provides independent Source-window consumer references. This design does not depend on its proposed task tables.
 - [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory#technical-implementation) uses layered
   asynchronous processing, and [OpenViking Session](https://github.com/volcengine/OpenViking/tree/main/openviking/session)
   provides session-processing references for accumulating evidence into long-term memory. This RFC uses PowerContext's own Scope, Cursor, and transaction contracts.

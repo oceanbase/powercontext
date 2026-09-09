@@ -93,6 +93,95 @@ def test_prompt_configuration_previews_defaults_without_inference(
 
 
 @pytest.mark.parametrize("access_mode", ["disabled", "enforced"])
+def test_prompt_publication_is_rejected_without_target_state(tmp_path: Path, access_mode: str) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'publication.db'}"),
+            inference=InferenceConfig(generation_model="test"),
+            auth=BearerAuthConfig(
+                enabled=access_mode == "enforced",
+                token=SecretStr("prompt-test-token") if access_mode == "enforced" else None,
+            ),
+            access=AccessControlConfig.model_validate({"mode": access_mode}),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+                headers={"Authorization": "Bearer prompt-test-token"},
+            ) as transport,
+        ):
+            scopes = []
+            for label in ("Source", "Target"):
+                response = await transport.post(
+                    "/v1/scopes",
+                    json={"title": label, "summary": "Prompt publication", "idempotency_key": label},
+                )
+                assert response.status_code == 201, response.text
+                scopes.append(response.json()["scope_id"])
+            source_scope, target_scope = scopes
+            content = _content("Keep stable preferences.", mode="custom")
+            created = await transport.post(
+                f"/v1/scopes/{source_scope}/artifacts",
+                json={"family": "prompt", "prompt_key": "memory.extract", "content": content},
+            )
+            assert created.status_code == 201, created.text
+            publication = {
+                "source": {
+                    "scope_id": source_scope,
+                    "artifact": {"family": "prompt", "artifact_id": "memory.extract", "revision": 1},
+                },
+                "target_scope_id": target_scope,
+                "idempotency_key": "publish-prompt",
+            }
+            for _ in range(2):
+                rejected = await transport.post("/v1/artifact-publications", json=publication)
+                assert rejected.status_code == 422, rejected.text
+                assert rejected.json()["error"]["code"] == "artifact_publication_unsupported"
+                assert rejected.json()["error"]["details"] == {"family": "prompt"}
+            records = await transport.get(f"/v1/scopes/{target_scope}/artifacts/prompt")
+            assert records.status_code == 200, records.text
+            assert records.json()["items"] == []
+            configuration = await transport.get(f"/v1/scopes/{target_scope}/prompts/memory.extract")
+            assert configuration.status_code == 200, configuration.text
+            assert configuration.json()["mode"] == "auto"
+            assert configuration.json()["artifact"] is None
+
+            created = await transport.post(
+                f"/v1/scopes/{target_scope}/artifacts",
+                json={"family": "prompt", "prompt_key": "memory.extract", "content": content},
+            )
+            assert created.status_code == 201, created.text
+            assert created.json()["artifact_id"] == "memory.extract"
+            updated_content = _content("Keep explicit long-term preferences.", mode="custom")
+            replaced = await transport.put(
+                f"/v1/scopes/{target_scope}/artifacts/prompt/memory.extract",
+                headers={"If-Match": '"revision:1"'},
+                json={"content": updated_content},
+            )
+            assert replaced.status_code == 200, replaced.text
+            assert replaced.json()["revision"] == 2
+            rejected = await transport.post("/v1/artifact-publications", json=publication)
+            assert rejected.status_code == 422, rejected.text
+            configuration = await transport.get(f"/v1/scopes/{target_scope}/prompts/memory.extract")
+            assert configuration.status_code == 200, configuration.text
+            assert configuration.json()["mode"] == "custom"
+            assert configuration.json()["artifact"]["revision"] == 2
+            assert configuration.json()["effective"]["instructions"] == updated_content["instructions"]
+            records = await transport.get(f"/v1/scopes/{target_scope}/artifacts/prompt")
+            assert records.status_code == 200, records.text
+            assert [item["artifact_id"] for item in records.json()["items"]] == ["memory.extract"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("access_mode", ["disabled", "enforced"])
 def test_prompt_http_history_generation_and_scoped_inference(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, access_mode: str
 ) -> None:

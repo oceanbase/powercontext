@@ -1,5 +1,7 @@
 # PowerContext for LangChain
 
+`community`
+
 `powercontext-langchain` connects a LangChain `create_agent` application to a separately running PowerContext Server.
 It provides `PowerContextMiddleware`, which recalls bounded context before each model call and can capture the completed
 user/assistant turn as Source evidence after a successful agent run.

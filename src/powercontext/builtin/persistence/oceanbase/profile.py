@@ -44,7 +44,7 @@ WHERE TABLE_SCHEMA = DATABASE()
   AND DATA_TYPE = 'varchar'
 """
 _SCHEMA_RECREATION_GUIDE = (
-    "https://oceanbase.github.io/powercontext/en/docs/how-to/troubleshoot/"
+    "https://oceanbase.github.io/powercontext/en/docs/operate/troubleshoot/"
     "#oceanbase-startup-rejects-an-incompatible-schema"
 )
 

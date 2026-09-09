@@ -124,8 +124,8 @@ def test_documented_obloader_restore_layers_are_parent_first() -> None:
         "pc_scheduler_scans",
     }
     restore_guides = (
-        Path("docs/en/docs/how-to/troubleshoot.md"),
-        Path("docs/zh/docs/how-to/troubleshoot.md"),
+        Path("docs/en/docs/operate/troubleshoot.md"),
+        Path("docs/zh/docs/operate/troubleshoot.md"),
     )
     restore_plans = tuple(
         tuple(

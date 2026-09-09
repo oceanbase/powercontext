@@ -44,12 +44,35 @@ export class TransportError extends ClientError {
 
 export class UnavailableError extends TransportError {}
 
+export const RESPONSE_ISSUES = {
+  invalid_json: 'The response body is not valid JSON.',
+  redirect: 'The operation returned a redirect; the client does not follow redirects.',
+  response_too_large: 'The response body exceeds the 1 MiB client limit.',
+  unexpected_body: 'This status requires an empty response body.',
+  prepared_object: 'PreparedContext must be a JSON object.',
+  prepared_fields: 'PreparedContext must contain exactly schema, status, content and content_bytes.',
+  prepared_schema: 'PreparedContext.schema must be powercontext.prepared-context.v1.',
+  prepared_size: 'PreparedContext.content_bytes must be a non-negative integer.',
+  prepared_empty: 'An empty PreparedContext must have null content and content_bytes equal to zero.',
+  prepared_content: 'A ready PreparedContext must contain non-empty text.',
+  prepared_bytes: 'PreparedContext.content_bytes must match the UTF-8 content size and stay within the requested budget.',
+  liveness: 'Liveness requires HTTP 200 and a JSON object with status equal to ok.',
+  readiness: 'Readiness requires status ready/degraded with HTTP 200, or not_ready with HTTP 503, and a checks object of string values.',
+  capabilities: 'Capabilities requires HTTP 200, boolean memory_extraction/handoff_generation, and string arrays for source_types/artifact_families/search_modes/context_versions.',
+  openapi: 'API discovery requires HTTP 200, an OpenAPI 3.x version and a paths object.',
+  prepare_status: 'PreparedContext requires HTTP 200.',
+} as const
+
 export class InvalidResponseError extends ClientError {
   readonly path: string
+  readonly statusCode: number | undefined
+  readonly issue: keyof typeof RESPONSE_ISSUES | undefined
 
-  constructor(path: string, requestId?: string) {
+  constructor(path: string, requestId?: string, statusCode?: number, issue?: keyof typeof RESPONSE_ISSUES) {
     super(`response from ${path} violated the API schema`, requestId)
     this.path = path
+    this.statusCode = statusCode
+    this.issue = issue
   }
 }
 

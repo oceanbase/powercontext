@@ -3,7 +3,7 @@
 - RFC PR: [oceanbase/powercontext#1485](https://github.com/oceanbase/powercontext/pull/1485)
 - Related RFCs: [Scope organization](1345_scope_organization_and_agent_integration.md),
   [Access control](1396_handoff_access_control.md), [Source and Artifact REST API](1437_source_artifact_rest_api.md),
-  [Candidate review](0050_artifact_candidate_review_inbox.md), [Topic Memory](0000_topic_memory.md)
+  [Candidate review](0050_artifact_candidate_review_inbox.md), [Topic Memory](1417_topic_memory.md)
 
 # Summary
 
@@ -782,7 +782,7 @@ Source journal 和 Candidate 重建，因此不新增 pending、lease、projecti
 - PowerContext [基础 REST API](1437_source_artifact_rest_api.md)提供 Source/Artifact 身份、原子提交、ETag 和 lineage_only；
   [Scope RFC](1345_scope_organization_and_agent_integration.md)提供普通 Scope 与 Binding。
 - [Candidate Review RFC](0050_artifact_candidate_review_inbox.md)提供候选版本与审核生命周期；
-  [Topic Memory RFC](0000_topic_memory.md)提供独立 Source-window consumer 的参考。本设计不依赖其拟新增的任务表。
+  [Topic Memory RFC](1417_topic_memory.md)提供独立 Source-window consumer 的参考。本设计不依赖其拟新增的任务表。
 - [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory#technical-implementation)的分层异步处理，
   以及 [OpenViking Session](https://github.com/volcengine/OpenViking/tree/main/openviking/session)的会话处理，
   为证据累积后更新长期记忆提供参考；本设计采用 PowerContext 自己的 Scope、Cursor 和事务契约。

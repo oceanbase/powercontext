@@ -1,5 +1,7 @@
 # PowerContext integration for Hermes Agent
 
+`community`
+
 This directory contains a standard Hermes `MemoryProvider` backed by a running
 PowerContext server. It keeps Hermes responsible for memory lifecycle and Agent
 orchestration while PowerContext provides external storage, retrieval, context

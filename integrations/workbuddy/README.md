@@ -1,5 +1,7 @@
 # PowerContext integration for WorkBuddy
 
+`community`
+
 This directory contains a thin WorkBuddy integration backed by a running
 PowerContext server. It does not embed storage or start the server. WorkBuddy
 keeps the user interface and agent orchestration while PowerContext provides

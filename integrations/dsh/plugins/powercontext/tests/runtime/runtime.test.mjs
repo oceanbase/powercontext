@@ -19,11 +19,19 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { environment, injected, CANARY } from './fixture.mjs'
+import { installIntoCleanHome } from './setup-fixture.mjs'
 
-test('real DSH loads the built plugin and recalls processed Source in another session', { timeout: 120000 }, async () => {
+test('documented setup installs the matched plugin, diagnoses the running host and recalls processed Source', { timeout: 240000 }, async () => {
   const env = await environment()
   try {
-    const { instance, dshHome } = env.harness()
+    const installation = await installIntoCleanHome(env.home)
+    assert.ok(installation.setup.includes('powercontext-dsh'))
+    assert.equal(installation.doctor.checks.plugin.checks.registration, 'present')
+    assert.equal(installation.doctor.checks.plugin.checks.running_host_configuration, 'not_observed')
+    const { instance, dshHome, doctor } = env.harness({ baseUrl: 'http://127.0.0.1:1' }, {
+      plugin: installation.plugin, commands: true,
+      env: { POWERCONTEXT_DSH_BASE_URL: env.baseUrl },
+    })
     const first = await instance.run('For this project: ' + CANARY + ' Reply with an acknowledgement.')
     assert.ok(first.finalResponse)
     assert.equal(injected(first).length, 0)
@@ -31,6 +39,25 @@ test('real DSH loads the built plugin and recalls processed Source in another se
     assert.ok(env.calls.some(call => call.path === '/v1/memory/flush' && call.status === 200))
     const memory = await env.api('/v1/memory/entries/list', { scope_id: env.scopeId })
     assert.ok(JSON.stringify(memory).includes(CANARY))
+    const diagnosedAt = env.calls.length
+    const report = await doctor(first.sessionId)
+    assert.equal(report.ok, true, JSON.stringify(report))
+    assert.equal(report.kind, 'success')
+    assert.equal(report.configuration.endpoint.origin, env.baseUrl)
+    assert.equal(report.configuration.endpoint.source, 'environment')
+    assert.equal(report.configuration.authorization.source, 'default')
+    assert.equal(report.configuration.scope.source, 'default')
+    assert.equal(report.checks.capabilities.code, 'extraction_enabled')
+    assert.equal(report.checks.routes.code, 'routes_declared')
+    assert.ok(env.calls.slice(diagnosedAt).every(call => !['/v1/sources/content', '/v1/memory/flush'].includes(call.path)))
+    env.setFault({ path: '/v1/scope-bindings/resolve', status: 401 })
+    const denied = await doctor(first.sessionId)
+    assert.equal(denied.kind, 'error')
+    assert.equal(denied.checks.liveness.state, 'ok')
+    assert.equal(denied.checks.scope.code, 'authentication_failed')
+    assert.equal(denied.checks.scope.operation, 'resolve_scope_binding')
+    assert.equal(denied.checks.prepare.state, 'skipped')
+    env.setFault(undefined)
     const capture = env.calls.find(call => call.path === '/v1/sources/content')
     const replay = await env.api('/v1/sources/content', capture.body)
     assert.equal(replay.position, capture.result.position)

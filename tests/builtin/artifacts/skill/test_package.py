@@ -98,7 +98,6 @@ def test_different_zip_order_converges_on_the_same_canonical_package(tmp_path: P
     [
         ("../outside", b"bad"),
         (".env", b"SECRET=value"),
-        ("nested\\windows", b"bad"),
     ],
 )
 def test_archive_rejects_unsafe_paths(name: str, content: bytes) -> None:
@@ -108,6 +107,23 @@ def test_archive_rejects_unsafe_paths(name: str, content: bytes) -> None:
     ))
 
     with pytest.raises(SkillPackageError):
+        capture_skill_archive(archive)
+
+
+@pytest.mark.parametrize("name", ["nested\\windows", "nested\x00windows"])
+def test_archive_rejects_hostile_raw_entry_names(name: str) -> None:
+    archive = _zip_entries((
+        ("SKILL.md", b"---\nname: safe-skill\ndescription: Safe.\n---\n"),
+        (_raw_entry_name(name), b"bad"),
+    ))
+    # The fixture must keep the hostile bytes in the archive: zipfile
+    # normalizes backslashes on Windows and truncates names at NUL bytes on
+    # every platform while building the ZipInfo, so the names are assigned
+    # after construction and asserted against the raw archive names here.
+    with zipfile.ZipFile(io.BytesIO(archive)) as probe:
+        assert [item.orig_filename for item in probe.infolist()] == ["SKILL.md", name]
+
+    with pytest.raises(SkillPackageError, match="invalid path"):
         capture_skill_archive(archive)
 
 
@@ -259,3 +275,11 @@ def _zip_entries(entries) -> bytes:
         for name, content in entries:
             archive.writestr(name, content)
     return output.getvalue()
+
+
+def _raw_entry_name(name: str) -> zipfile.ZipInfo:
+    """Build an archive entry whose raw name bytes keep ``name`` verbatim."""
+
+    info = zipfile.ZipInfo("placeholder")
+    info.filename = name
+    return info
