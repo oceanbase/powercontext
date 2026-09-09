@@ -60,6 +60,8 @@ header:
     - 'theme/powercontext/assets/stylesheets/pygments-github-dark.css'
     - '**/py.typed'
     - 'src/powercontext/http/_generated/**'
+    # Vendored distributions retain their upstream licenses and copyright notices.
+    - 'src/powercontext/server/dashboard/static/vendor/**'
     - '.gitattributes'
     - '**/*.service.in'
     - '**/*.jsonl'

@@ -86,7 +86,7 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
 
         adapter.start(reload_definition=False)
         restarted = _wait_for_status(controller)
-        assert restarted.ok
+        assert restarted.ok, f"{restarted}\n{_server_error_tail(tmp_path)}"
 
         removed = controller.uninstall()
 
@@ -332,7 +332,8 @@ def _cleanup(adapter: NativeServiceAdapter) -> None:
     adapter.lock_path.unlink(missing_ok=True)
 
 
-def _wait_for_status(controller: ServiceController, *, timeout: float = 15) -> ServiceStatus:
+def _wait_for_status(controller: ServiceController, *, timeout: float = 30) -> ServiceStatus:
+    # Allow the same startup window as installation, including launchd scheduling.
     status = controller.status()
     deadline = time.monotonic() + timeout
     while not status.ok and time.monotonic() < deadline:
