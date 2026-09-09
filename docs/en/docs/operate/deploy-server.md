@@ -140,17 +140,17 @@ Clients then send `Authorization: Bearer <token>`. The liveness and readiness en
 orchestrator can probe them. API, MCP, metrics, and `/openapi.json` require authentication. The `/docs` shell remains
 public, but requests made from the interactive reference require authentication.
 
-When the Server requires authentication, `/dashboard/home` displays a token sign-in form. Enter a Bearer credential
-accepted by this Server, not a model provider API key. The browser stores it in an HttpOnly, SameSite=Strict Cookie
-restricted to `/dashboard`, for up to eight hours. HTTPS also sets Secure. Sign in again after expiry. A reverse proxy
-must preserve the external scheme and host so the sign-in request passes its same-origin check.
+Personal or demonstration deployments can additionally set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true` to expose
+`/dashboard/home` on the same port. It requires the static Bearer configuration above; startup fails clearly without a
+token. Browser sign-in uses the Server token, not a model API key. Credentials are stored in an HttpOnly,
+SameSite=Strict Cookie restricted to `/dashboard`, for up to eight hours. HTTPS sets Secure. Reverse proxies must
+preserve the external scheme and host for the sign-in same-origin check.
 
-A static `AUTH_TOKEN` gives every holder the same administrator identity. To separate team members, the deployment
-must establish distinct Principals through `create_server_app(authentication_provider=...)` and configure their access.
-Setting `ACCESS_MODE=enforced` alone does not create team accounts. The Dashboard has no account registration, SSO
-redirect, member invitation, or role management pages. Browser token sign-in works when the deployment Provider accepts
-Bearer credentials; other identity schemes need deployment integration. See
-[Scopes and access control](../workflows/scopes-and-access.md).
+All holders of the static token share one administrator identity. The Dashboard does not support multi-user RBAC or
+provide accounts, SSO, invitations, or grant management. Deployments injecting an Authentication Provider or
+AccessControlService must disable the Dashboard; an incompatible enabled configuration is rejected at startup.
+Disabling it does not affect team API or MCP access. For personal setup, see
+[Install and run](../get-started/install-and-run.md).
 
 ## Check the deployment
 

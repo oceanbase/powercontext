@@ -15,7 +15,7 @@ embedding、定时 Source 处理，并写入 metrics 和 tracing 设置。
 | Source capture | 启用 | 启用 |
 | Memory extraction | 关闭 | 启用 |
 | Search mode | `auto, fts` | `auto, fts, vector, hybrid` |
-| Dashboard | 可访问的已保存内容 | 可访问的已保存内容 |
+| Dashboard | 单独启用，要求静态 token | 单独启用，要求静态 token |
 | MCP endpoint | `/mcp` | `/mcp` |
 
 Server 首次启动时创建一个使用不透明 ID 的默认 Scope。Integration 可以把 Session 或 workspace 绑定到默认 Scope，

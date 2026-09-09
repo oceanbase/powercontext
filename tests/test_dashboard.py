@@ -14,18 +14,30 @@ from pydantic import SecretStr
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.server.dashboard.routes import LABELS
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import BearerAuthConfig, McpConfig, ServerSettings
+from powercontext.server.settings import (
+    AccessControlConfig,
+    BearerAuthConfig,
+    DashboardConfig,
+    McpConfig,
+    ServerSettings,
+)
 
 
 @pytest.fixture
 def dashboard(tmp_path: Path):
+    token = token_urlsafe(24)
     app = create_server_app(
         settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/data.db"), mcp=McpConfig(enabled=False)
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/data.db"),
+            mcp=McpConfig(enabled=False),
+            dashboard=DashboardConfig(enabled=True),
+            access=AccessControlConfig(mode="enforced"),
+            auth=BearerAuthConfig(token=SecretStr(token)),
         ),
         scheduler_path=tmp_path / "scheduler.db",
     )
     with TestClient(app) as client:
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client
 
 
@@ -433,7 +445,11 @@ def test_memory_exact_revision_and_cross_scope_isolation(dashboard: TestClient) 
         ).status_code
         == 422
     )
-    assert dashboard.get("/dashboard/notes", params={**query, "scope": other["scope_id"]}).status_code == 404
+    denied = dashboard.post("/v1/memory/entries/get", json={"scope_id": other["scope_id"], "citation": citation})
+    crossed = dashboard.get("/dashboard/notes", params={**query, "scope": other["scope_id"]})
+    assert denied.is_error
+    assert crossed.status_code == denied.status_code
+    assert "Review every migration" not in crossed.text
     assert "Review every migration" not in dashboard.get("/dashboard/notes", params={"scope": other["scope_id"]}).text
     partial = dashboard.get("/dashboard/notes", params=query, headers={"HX-Request": "true"})
     assert "<!doctype" not in partial.text
@@ -449,6 +465,7 @@ def test_authentication_recovers_without_exposing_credentials(tmp_path: Path) ->
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/auth.db"),
+            dashboard=DashboardConfig(enabled=True),
             auth=BearerAuthConfig(enabled=True, token=SecretStr(token)),
             mcp=McpConfig(enabled=False),
         ),
@@ -528,97 +545,48 @@ def test_committed_handoff_json_and_its_sources_are_readable(dashboard: TestClie
     )
 
 
-def test_scope_viewer_reads_without_server_observation_rights(tmp_path: Path) -> None:
+def test_dashboard_is_opt_in_and_requires_the_static_token_profile(tmp_path: Path, monkeypatch) -> None:
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
     from powercontext.server.authz import PrincipalRef
-    from powercontext.server.settings import AccessControlConfig
 
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", "false")
+    database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/disabled.db")
+    settings = ServerSettings(database=database, mcp=McpConfig(enabled=False))
+    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+        assert client.get("/health/ready").status_code == 200
+        assert client.get("/v1/scopes/default").status_code == 200
+        for path in ("/", "/dashboard/home", "/dashboard/static/layout.css"):
+            assert client.get(path).status_code == 404
+        assert client.post("/dashboard/session", data={"token": "unused"}).status_code == 404
+
+    monkeypatch.setenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", "true")
+    with pytest.raises(ValueError, match="DASHBOARD_ENABLED requires"):
+        ServerSettings(database=database)
     token = token_urlsafe(24)
-    viewer_token = token_urlsafe(24)
     settings = ServerSettings(
-        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/access.db"),
+        database=database,
         access=AccessControlConfig(mode="enforced"),
-        auth=BearerAuthConfig(enabled=True, token=SecretStr(token)),
+        auth=BearerAuthConfig(token=SecretStr(token)),
         mcp=McpConfig(enabled=False),
     )
-    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "admin-scheduler.db")) as admin:
-        admin.headers["Authorization"] = f"Bearer {token}"
-        allowed = create_scope(admin, "Visible")
-        denied = create_scope(admin, "Confidential")
-        child = create_scope(admin, "Private child", allowed["scope_id"])
-        assert (
-            admin.post(
-                "/v1/memory/remember",
-                json={"scope_id": allowed["scope_id"], "kind": "fact", "text": "A shared project decision."},
-            ).status_code
-            == 200
+    with pytest.raises(ValueError, match="built-in static Bearer profile"):
+        create_server_app(
+            settings=settings,
+            authentication_provider=StaticBearerAuthenticationProvider(token, PrincipalRef(type="user", id="member")),
         )
-        grant = admin.post(
-            "/v1/access/bindings/create",
-            json={
-                "subject": {"type": "user", "id": "viewer"},
-                "resource": {"type": "scope", "scope_id": allowed["scope_id"]},
-                "role": "scope.viewer",
-                "idempotency_key": "viewer-access",
-            },
-        )
-        assert grant.status_code == 201
-        record = commit_handoff(admin, denied["scope_id"])
-        grant = admin.post(
-            "/v1/access/bindings/create",
-            json={
-                "subject": {"type": "user", "id": "viewer"},
-                "resource": {
-                    "type": "artifact",
-                    "scope_id": denied["scope_id"],
-                    "identity": {"family": "handoff", "artifact_id": record["artifact_id"]},
-                },
-                "role": "handoff.viewer",
-                "idempotency_key": "single-record-access",
-            },
-        )
-        assert grant.status_code == 201
-    app = create_server_app(
-        settings=settings,
-        authentication_provider=StaticBearerAuthenticationProvider(
-            viewer_token, PrincipalRef(type="user", id="viewer")
-        ),
-        scheduler_path=tmp_path / "viewer-scheduler.db",
+
+
+def test_disabled_dashboard_does_not_offer_token_login(tmp_path: Path) -> None:
+    token = token_urlsafe(24)
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path}/disabled-auth.db"),
+        dashboard=DashboardConfig(enabled=False),
+        access=AccessControlConfig(mode="enforced"),
+        auth=BearerAuthConfig(token=SecretStr(token)),
+        mcp=McpConfig(enabled=False),
     )
-    with TestClient(app) as viewer:
-        viewer.headers["Authorization"] = f"Bearer {viewer_token}"
-        assert viewer.get("/v1/capabilities").status_code == 403
-        entry = viewer.get("/dashboard/home")
-        assert entry.status_code == 403
-        assert viewer.get("/v1/scopes").status_code == 403
-        assert viewer.get("/v1/scopes/default").status_code == 403
-        assert "Confidential" not in entry.text
-        assert "Private child" not in entry.text
-        for page in ("home", "notes", "handoff", "methods", "usage"):
-            response = viewer.get("/dashboard/" + page, params={"scope": allowed["scope_id"]})
-            assert response.status_code == 200
-            assert "Work on Visible" in response.text or "Visible" in response.text
-            assert "Confidential" not in response.text
-        assert viewer.get("/dashboard/home", params={"scope": denied["scope_id"]}).status_code in {403, 404}
-        assert viewer.get("/dashboard/home", params={"scope": child["scope_id"]}).status_code in {403, 404}
-        notes = viewer.get("/dashboard/notes", params={"scope": allowed["scope_id"], "q": "shared"})
-        assert notes.status_code == 200
-        assert "A shared project decision." in notes.text
-        response = viewer.get(
-            "/dashboard/handoff-detail",
-            params={"scope": denied["scope_id"], "artifact": record["artifact_id"], "revision": record["revision"]},
-        )
-        assert response.status_code == 200
-        assert "Continue the review." in response.text
-        assert "Confidential" not in response.text
-        source = viewer.get(
-            "/dashboard/evidence/review",
-            params={
-                "scope": denied["scope_id"],
-                "artifact": record["artifact_id"],
-                "revision": record["revision"],
-                "origin": "handoff-detail",
-                "source_type": "content",
-            },
-        )
-        assert source.status_code in {403, 404}
+    with TestClient(create_server_app(settings=settings, scheduler_path=tmp_path / "scheduler.db")) as client:
+        response = client.get("/dashboard/home")
+        assert response.status_code == 401
+        assert response.headers["content-type"].startswith("application/json")
+        assert client.get("/dashboard/home", headers={"Authorization": f"Bearer {token}"}).status_code == 404

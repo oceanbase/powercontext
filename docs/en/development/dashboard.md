@@ -1,12 +1,12 @@
 # Dashboard design principles
 
-The Dashboard is where users view saved content and usage in PowerContext. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.
+The Dashboard is a content viewer for personal use and demonstrations, authenticated by a static token and disabled by default. This document helps developers and reviewers decide what a page should show, how to organize reading, and whether a change preserves the behavior users need. The API contract in `openapi/powercontext.yaml` and the service implementation define the available capabilities.
 
 ## What the Dashboard helps users do
 
 A user may open the Dashboard to check an agreement, find an experience relevant to a similar problem, or resume interrupted work. The page needs to make the current scope clear, help them find the relevant record, and provide access to source material when they need to check it.
 
-The core experience for 1.0 is reading saved content. Memories, experiences, skills and handoffs can exist independently. A scope containing only memories should work normally, and an empty scope should still have a clear entry point and page structure. Existing tools and APIs handle generation, review and saving. Reading their results should not require generation configuration or global administrator access.
+The core experience for 1.0 is reading saved content. Memories, experiences, skills and handoffs can exist independently. A scope containing only memories should work normally, and an empty scope should still have a clear entry point and page structure. Existing tools and APIs handle generation, review and saving. Reading their results should not require generation configuration.
 
 Scope names, summaries and saved content supply the business topic. A payment service, customer interviews and personal research can use the same interface without separate navigation for each domain. Before adding a section, explain which task it helps the user complete and whether the available data supports what it claims.
 
@@ -96,7 +96,11 @@ Chinese, English, light and dark settings apply across the Dashboard, including 
 
 Pages show actual readable data, and actions correspond to existing capabilities. If one section fails, other independently readable content remains visible. Read errors, insufficient permissions and missing generation configuration have different meanings and must not collapse into an empty state.
 
-The Dashboard accesses the service as the current user. Permission to read one record need not include permission to list every scope, and reading a single scope should not require global observation access. Respect authorization boundaries while preserving the reading paths the user is allowed to use.
+The Dashboard supports the built-in static Bearer identity, with the same permissions for every token holder. Enabling it
+requires `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`, `ACCESS_MODE=enforced`, and `AUTH_TOKEN`. Team deployments that
+inject authentication or authorization Providers must disable it. Pages reuse the existing API and its access checks;
+they add no data endpoints or member and role management. See [Install and run](../docs/get-started/install-and-run.md)
+for personal setup.
 
 Collections can change as users save and revise content; exact references still identify their historical versions. Handle missing or inaccessible references explicitly, without substituting the current version or a similar record.
 
@@ -129,7 +133,7 @@ For content reduction, compare answers to the same question using the original t
 | Long lists, last pages, long sources and small viewports | Entries can be traversed, full text is readable, controls are reachable and reading position remains sensible |
 | Changing language or theme, or returning through browser history | Scope, record identity and information hierarchy remain consistent |
 | Unreported usage, incomparable data and partial read failures | Unknown values do not look like zero, and failures do not look like empty content |
-| Permission changes, network interruptions and service recovery | Authorized content remains readable, errors are clear and recovery works |
+| Credential expiry, network interruptions and service recovery | Errors are clear, and signing in or retrying restores reading |
 
 Behavior tests exercise actual reading, lookup and navigation. Regression tests preserve cases where defects have occurred. Tests should allow internal refactoring when the visible behavior still holds. Buffer sizes, private call order and removed labels are not useful targets; current contracts such as access isolation still require tests for denied operations.
 

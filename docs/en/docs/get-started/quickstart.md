@@ -20,7 +20,7 @@ powercontext server run
 ```
 
 Keep this terminal open. The default Server listens at `http://127.0.0.1:8000`, stores data in a persistent local SQLite
-database, and serves the Dashboard at `/` and MCP at `/mcp`.
+database, and serves MCP at `/mcp`. The personal Dashboard is disabled by default; see [Install and run](install-and-run.md) to enable it.
 
 For the tagged release installation, see [Install and run](install-and-run.md#choose-a-version).
 Keep the Server package and integration on the same tag or commit.

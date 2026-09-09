@@ -91,7 +91,7 @@ OceanBase 测试数据会保留在专用数据库中，关闭 Kernel 或清理�
 | [17 · 外部 Skill 与完整包](17_external_skill_packages.ipynb) | 扫描指纹、原样导入、逐文件校验、外部变更、真实模型 fork | Generation |
 | [18 · Skill 分发](18_skill_distribution.ipynb) | 独立 Receiver 安装、完整包审核更新、实际回执、冲突和撤回 | 无模型 |
 | [19 · MCP 与 Agent 工具](19_mcp_agent_tools.ipynb) | 独立 MCP 进程、真实工具发现和调用；Agent 主动搜索和记忆 | 工具调用模型 |
-| [20 · 团队审核与报告](20_team_dashboard_reports.ipynb) | API 审核、Chromium 阅读经验与技能、范围切换、交接报告导出与 JSON/Markdown 摘要 | Chromium |
+| [20 · 演示阅读与报告](20_team_dashboard_reports.ipynb) | 静态 token 登录、API 审核、Chromium 阅读与范围切换、交接报告导出 | Chromium |
 | [21 · 观测与故障恢复](21_observability_recovery.ipynb) | Metrics、真实 trace、模型连接失败后恢复；Agent 区分空结果与不可用 | Generation + 工具调用模型 |
 | [22 · 完整团队工作流](22_complete_team_workflow.ipynb) | 三次独立 Agent 执行、准确交接、真实修复和测试、审核、Receiver 安装、使用记录、团队共享 | Generation + 工具调用模型 |
 

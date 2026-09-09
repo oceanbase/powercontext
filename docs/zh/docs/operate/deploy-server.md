@@ -135,16 +135,14 @@ docker run --rm \
 此后客户端需要发送 `Authorization: Bearer <token>`。liveness 和 readiness endpoint 保持公开，便于编排系统探测；
 API、MCP、metrics 和 `/openapi.json` 需要鉴权。`/docs` 页面外壳保持公开，但在交互式参考页中发起的请求仍需鉴权。
 
-浏览器访问 `/dashboard/home` 时，如果 Server 要求认证，页面会显示 token 登录表单。输入的是当前 Server
-认可的 Bearer 凭据，不是模型 Provider 的 API key。凭据通过仅限 `/dashboard` 的 HttpOnly、SameSite=Strict
-Cookie 保存，最长八小时；HTTPS 下同时设置 Secure。失效后重新登录。反向代理应正确传递外部 scheme 和 host，
-否则登录的同源检查会拒绝请求。
+个人或演示部署可额外设置 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`，启用同一端口上的
+`/dashboard/home`。它要求上述静态 Bearer 配置；没有 token 时启动会明确失败。
+浏览器登录使用 Server token，不是模型 API key。凭据存入仅限 `/dashboard` 的 HttpOnly、SameSite=Strict
+Cookie，最长八小时；HTTPS 下设置 Secure。反向代理应正确传递外部 scheme 和 host，以通过登录同源检查。
 
-静态 `AUTH_TOKEN` 为持有者提供同一个管理员身份。团队需要按成员隔离权限时，部署方应通过
-`create_server_app(authentication_provider=...)` 建立不同 Principal，并配置对应授权；仅设置
-`ACCESS_MODE=enforced` 不会创建团队账号。Dashboard 当前没有账号注册、SSO 重定向、成员邀请或角色管理页面。
-浏览器 token 登录适用于部署 Provider 接受 Bearer 凭据的情况；其他身份方案需要部署侧适配。
-详见 [Scope 与访问控制](../workflows/scopes-and-access.md)。
+静态 token 的所有持有者具有同一个管理员身份。Dashboard 不支持多成员 RBAC，也不提供账号、SSO、邀请和授权管理。
+注入 Authentication Provider 或 AccessControlService 的部署必须关闭 Dashboard；不兼容的启用配置会在启动时被拒绝。
+关闭 Dashboard 不影响团队的 API 和 MCP。个人启用步骤见[安装和运行](../get-started/install-and-run.md)。
 
 ## 检查部署
 

@@ -60,16 +60,30 @@ powercontext server run
 
 按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
 
-在浏览器打开 `http://127.0.0.1:8000/dashboard/home`，或直接打开 Server 根地址。Dashboard 随 Server 提供，
-不需要额外安装前端、配置 Dashboard 开关或接入模型。更改端口后，使用实际监听端口。
+Dashboard 是个人使用和演示的可选内容查看器，默认关闭。它不需要单独安装前端或配置模型。
+需要使用时，在受保护的环境文件中设置以下值，并将 token 示例替换为自己的长随机凭据：
 
-第一次打开会选择 Server 的默认 Scope；尚未保存内容时，页面显示空状态。通过已连接的 Agent 或公开 API
-保存一条 Memory，再刷新同一 Scope 的记忆页，就能看到内容。经验、技能和交接显示已经保存的记录；
-Dashboard 不负责采集会话、运行生成或批准候选。用量来自实际记录，没有使用记录时不会填充示例数字。
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+```
 
-Dashboard 与 Agent 必须连接同一个 Server，并使用同一个 Scope。若页面没有预期内容，先核对两者的地址、
-数据目录和 Scope，再检查保存操作是否成功。仅启动 MCP 客户端或 Agent 插件不会产生独立的 Dashboard 服务。
+```bash
+chmod 600 /path/to/powercontext.env
+powercontext config validate --env-file /path/to/powercontext.env
+powercontext server run --env-file /path/to/powercontext.env
+```
 
+打开 `http://127.0.0.1:8000/dashboard/home`，输入同一个 token。更改端口后使用实际端口。
+该 token 同时用于 Server API 和 MCP，已连接的 Agent 也需配置它。CLI 不会自动读取目录中的 `.env` 文件。
+
+首次登录选择 Server 默认 Scope，未保存内容时显示空状态。通过 Agent 或公开 API 保存一条 Memory，
+再刷新同一 Scope 的记忆页即可查看。经验、技能、交接和用量也来自实际保存记录；页面不采集会话、不运行生成，
+也不批准候选。Dashboard 和 Agent 必须连接同一个 Server、使用同一个 Scope。
+
+所有 token 持有者使用同一个身份。多成员 RBAC 部署应保持 Dashboard 关闭，通过 API、MCP 或宿主集成访问内容。
+网络与凭据配置见[部署 Server](../operate/deploy-server.md)。
 
 这种最小启动方式不会启用依赖模型的抽取或向量搜索。如需生成并校验一份显式环境文件以启用这些能力，请继续阅读
 [启用提取与向量搜索](configure-models.md)。

@@ -47,9 +47,10 @@ _PUBLIC_PATHS = frozenset({
 class AuthenticationMiddleware:
     """Authenticate every protected external HTTP request through one Provider."""
 
-    def __init__(self, app: ASGIApp, *, provider: AuthenticationProvider) -> None:
+    def __init__(self, app: ASGIApp, *, provider: AuthenticationProvider, dashboard_enabled: bool = False) -> None:
         self.app = app
         self._provider = provider
+        self._dashboard_enabled = dashboard_enabled
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if is_internal_bridge() or _is_public(scope):
@@ -64,7 +65,15 @@ class AuthenticationMiddleware:
                 )
             )
         except AuthenticationRejectedError:
-            await _error_response("unauthorized", "A valid credential is required.", 401, scope, receive, send)
+            await _error_response(
+                "unauthorized",
+                "A valid credential is required.",
+                401,
+                scope,
+                receive,
+                send,
+                dashboard_enabled=self._dashboard_enabled,
+            )
             return
         except AuthenticationUnavailableError:
             await _error_response(
@@ -74,6 +83,7 @@ class AuthenticationMiddleware:
                 scope,
                 receive,
                 send,
+                dashboard_enabled=self._dashboard_enabled,
             )
             return
         except Exception:
@@ -84,6 +94,7 @@ class AuthenticationMiddleware:
                 scope,
                 receive,
                 send,
+                dashboard_enabled=self._dashboard_enabled,
             )
             return
         tokens = bind_authentication(result)
@@ -122,8 +133,10 @@ async def _error_response(
     scope: Scope,
     receive: Receive,
     send: Send,
+    *,
+    dashboard_enabled: bool = False,
 ) -> None:
-    if scope["path"].startswith("/dashboard/"):
+    if dashboard_enabled and scope["path"].startswith("/dashboard/"):
         await login_response(
             status_code, rejected="authorization" in authentication_headers(scope), request=Request(scope)
         )(scope, receive, send)

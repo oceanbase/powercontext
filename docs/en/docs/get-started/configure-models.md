@@ -15,7 +15,7 @@ The guided configuration enables generation, embeddings, scheduled Source proces
 | Source capture | Enabled | Enabled |
 | Memory extraction | Disabled | Enabled |
 | Search modes | `auto, fts` | `auto, fts, vector, hybrid` |
-| Dashboard | Accessible saved content | Accessible saved content |
+| Dashboard | Opt-in, static token required | Opt-in, static token required |
 | MCP endpoint | `/mcp` | `/mcp` |
 
 The Server creates one opaque default Scope on first startup. Integrations may bind a Session or workspace to that

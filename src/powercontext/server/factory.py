@@ -131,6 +131,8 @@ def create_server_app(  # noqa: C901
     """Build the Server process and mount MCP when configured."""
 
     resolved = ServerSettings() if settings is None else settings
+    if resolved.dashboard.enabled and (authentication_provider is not None or access_control is not None):
+        raise ValueError("Dashboard supports only the built-in static Bearer profile")  # noqa: TRY003
     if resolved.runtime.artifact_processing_role == "background":
         raise BackgroundRoleRequiresBackgroundRunnerError
     static_principal, configured_authentication, configured_access_control, legacy_static_admin = (
@@ -245,6 +247,7 @@ def create_server_app(  # noqa: C901
             Middleware(
                 AuthenticationMiddleware,
                 provider=configured_authentication,
+                dashboard_enabled=resolved.dashboard.enabled,
             ),
         )
 
@@ -292,7 +295,8 @@ def create_server_app(  # noqa: C901
             metrics=metrics,
             tracing=resolved_tracing,
         )
-    mount_dashboard(app)
+    if resolved.dashboard.enabled:
+        mount_dashboard(app)
     return app
 
 

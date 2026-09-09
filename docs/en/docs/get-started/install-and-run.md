@@ -64,19 +64,33 @@ With no environment variables, the Server:
 
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
 
-Open `http://127.0.0.1:8000/dashboard/home` in a browser, or open the Server root URL. The Server includes the Dashboard;
-there is no separate frontend installation, Dashboard switch, or model requirement. If you change the port, use the
-actual listener port.
+The Dashboard is an optional content viewer for personal use and demonstrations. It is disabled by default and needs
+no separate frontend installation or model configuration. To enable it, put these settings in a protected environment
+file and replace the token example with your own long random credential:
 
-The first visit selects the Server's default Scope. Pages are empty until content is saved. Save a Memory through a
-connected Agent or the public API, then refresh Memories in the same Scope. Experiences, skills, and handoffs show
-saved records. The Dashboard does not capture sessions, run generation, or approve candidates. Usage comes from
-recorded activity; an unused Server does not display sample numbers.
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+```
 
-The Dashboard and Agent must use the same Server and Scope. If expected content is missing, compare their addresses,
-data directories, and Scopes, then check whether the write succeeded. Starting an MCP client or Agent plugin alone
-does not create a separate Dashboard service.
+```bash
+chmod 600 /path/to/powercontext.env
+powercontext config validate --env-file /path/to/powercontext.env
+powercontext server run --env-file /path/to/powercontext.env
+```
 
+Open `http://127.0.0.1:8000/dashboard/home` and enter the same token. Use the actual port if you change it.
+The token also protects the Server API and MCP, so connected Agents need it too. The CLI does not automatically load
+a directory's `.env` file.
+
+The first sign-in selects the Server default Scope. Pages are empty until content is saved. Save a Memory through an
+Agent or public API, then refresh Memories in the same Scope. Experiences, skills, handoffs, and usage also come from
+saved records. The Dashboard does not capture sessions, run generation, or approve candidates. The Dashboard and Agent
+must use the same Server and Scope.
+
+All token holders use one identity. Multi-user RBAC deployments should leave the Dashboard disabled and use the API,
+MCP, or host integrations. See [Deploy the Server](../operate/deploy-server.md) for network and credential configuration.
 
 This minimal launch does not enable model-backed extraction or vector search. To generate and validate one explicit
 environment file for those capabilities, continue with the

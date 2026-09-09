@@ -57,11 +57,12 @@ def verify_artifacts(
         require(client.request(method, route, json=payload).status_code == 404, "Artifact crossed scope boundary")
 
 
-def replay(arguments: argparse.Namespace) -> None:
-    output = arguments.output.resolve()
-    output.mkdir(parents=True, exist_ok=True, mode=0o700)
-    load_dotenv(arguments.env_file)
+def replay_settings(env_file: Path, output: Path) -> tuple[ServerSettings, str]:
+    load_dotenv(env_file)
     settings = ServerSettings()
+    if not settings.dashboard.enabled or settings.auth.token is None:
+        raise ValueError("Enable DASHBOARD_ENABLED with ACCESS_MODE=enforced and AUTH_TOKEN in the env file")  # noqa: TRY003
+    token = settings.auth.token.get_secret_value()
     model = settings.inference.generation_model
     if not model:
         raise ValueError("Configure a real generation model in the env file")  # noqa: TRY003
@@ -77,6 +78,13 @@ def replay(arguments: argparse.Namespace) -> None:
             ),
         }
     )
+    return settings, token
+
+
+def replay(arguments: argparse.Namespace) -> None:
+    output = arguments.output.resolve()
+    output.mkdir(parents=True, exist_ok=True, mode=0o700)
+    settings, token = replay_settings(arguments.env_file, output)
     messages = [item for item in read_messages(arguments.session) if item[0] <= arguments.last_line]
     total = sum(len(item[2]) for item in messages)
     if not messages or total > 30000:
@@ -111,6 +119,7 @@ def replay(arguments: argparse.Namespace) -> None:
         with time_machine.travel(date, tick=True):
             app = create_server_app(settings=settings, scheduler_path=output / "scheduler.db")
             with TestClient(app, raise_server_exceptions=False) as client:
+                client.headers["Authorization"] = f"Bearer {token}"
                 default = call(client, directory, "server-default", "GET", "/v1/scopes/default")
                 scope = call(
                     client,
