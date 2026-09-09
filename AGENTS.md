@@ -53,6 +53,9 @@ before opening a PR. Tests may use plain `assert`; Ruff allows `S101` under `tes
 
 ## Deliverables
 
+Write page metadata and content as literal UTF-8 text. Use Chinese characters directly instead of Unicode escape
+sequences. Preserve non-ASCII text when serializing documentation metadata to JSON.
+
 Write deliverables as self-contained, final-state artifacts. Incorporate requested feedback directly into the
 artifact. Do not refer to drafts, versions, review rounds, prior wording, superseded decisions, or the editing
 process unless the user explicitly requests a changelog, history, or decision record.

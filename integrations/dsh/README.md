@@ -1,5 +1,7 @@
 # DeepSeek Harness integration
 
+`community`
+
 `plugins/powercontext` contains the PowerContext plugin for DeepSeek Harness.
 
 Install the PowerContext tool first, then configure the plugin from the same Git ref:

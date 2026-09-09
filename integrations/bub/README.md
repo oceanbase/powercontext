@@ -1,5 +1,7 @@
 # PowerContext for Bub
 
+`evaluation`
+
 This package connects Bub to a running PowerContext Server through the public Python client. It adds three tools:
 
 - `powercontext.remember` stores one durable decision, preference, constraint, or procedure.

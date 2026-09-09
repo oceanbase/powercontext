@@ -1,10 +1,11 @@
 {
   "title": "Documentation",
   "pages": [
-    "tutorials",
-    "how-to",
-    "explanation",
-    "reference",
+    "get-started",
+    "integrations",
+    "workflows",
+    "operate",
+    "develop",
     "---API Reference---",
     "[HTTP API](/api)",
     "[Python API](/en/modules)"

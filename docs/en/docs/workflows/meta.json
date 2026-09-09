@@ -1,0 +1,30 @@
+{
+  "title": "Manage context",
+  "pages": [
+    "index",
+    "---Memory and context---",
+    "memory-and-context",
+    "configure-vector-search",
+    "---Work continuity---",
+    "memory-and-handoff",
+    "codex-workflow",
+    "handoff-with-codex",
+    "use-handoff-report",
+    "---Experience and Skill---",
+    "experience-and-skill-lifecycle",
+    "create-and-review-experience",
+    "create-and-export-skill",
+    "configure-agent-skill-targets",
+    "---Sources and capture---",
+    "sources",
+    "ingest-text-files-with-opendal",
+    "---Scopes and governance---",
+    "scopes-and-access",
+    "use-profiles",
+    "review-candidates",
+    "---Artifact management---",
+    "artifacts",
+    "manage-artifact-tags",
+    "manage-prompts"
+  ]
+}

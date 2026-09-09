@@ -1,5 +1,7 @@
 # OpenCode integration
 
+`community`
+
 `plugins/powercontext` contains the native PowerContext plugin for OpenCode 1.x.
 
 Install PowerContext and the plugin from the same Git ref:

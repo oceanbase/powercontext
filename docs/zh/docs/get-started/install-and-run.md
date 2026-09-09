@@ -1,0 +1,138 @@
+---
+title: 安装和运行
+description: 从 Git 安装 PowerContext，并运行本地 Server。
+---
+
+# 安装和运行
+
+首次使用请从 [Quick Start](quickstart.md)开始。本页说明版本选择、平台要求、安装角色、启动、诊断和更新。
+
+## 平台支持
+
+| 平台 | 状态 |
+| --- | --- |
+| macOS、Linux | 支持 |
+| Windows | `experimental` |
+
+Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent Host 仍需满足自身的平台要求。
+使用 Bash 语法的示例需要 Bash 环境，不可直接粘贴到 PowerShell。嵌入式 seekDB 不支持 Windows。
+
+## 选择版本
+
+发布版与集成使用相同 tag。例如安装 `0.2.0`：
+
+```bash
+uv tool install "powercontext[cli,server]==0.2.0"
+```
+
+后续示例使用 `master`，包含尚未发布的能力。核对[能力矩阵](../integrations/capabilities.md)，
+不要将 `master_only` 或 `experimental` 能力当作发布版承诺。
+
+## 安装应用
+
+需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和
+[`uv`](https://docs.astral.sh/uv/)，然后从指定 Git ref 直接安装 PowerContext：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+```
+
+该命令不会留下需要自行管理的仓库工作副本。Git 会沿用本机的凭据配置，包括 credential helper 和 SSH 设置。
+如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。`--force` 还会从所选 Git ref 当前指向的 commit
+刷新已安装工具；如果不加该参数，`uv` 可能只提示相同 requirement 已安装，而不会获取更新后的 `master`。
+
+安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。
+Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integrations/index.md)，并使用与 Server 相同的 ref。
+
+## 运行本地 Server
+
+```bash
+powercontext server run
+```
+
+未设置环境变量时，Server 会：
+
+- 监听 `127.0.0.1:8000`；
+- 在 `/mcp` 启用 Streamable HTTP MCP；
+- 创建默认 Scope，并在 `/` 启用 Dashboard；
+- 在操作系统的用户数据目录中创建持久化 SQLite 数据库；
+- 无需推理服务即可支持显式 Memory 操作。
+
+启动成功后，终端会输出 Dashboard 地址，例如 `http://127.0.0.1:8000/`。Dashboard 与 HTTP API、MCP 共用 Server
+的监听地址和端口。Dashboard 初始化失败时，Server 会记录包含直接原因的 warning，并继续提供其他接口；可通过
+`POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` 显式关闭 Dashboard。
+
+按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
+
+这种最小启动方式不会启用依赖模型的抽取或向量搜索。如需生成并校验一份显式环境文件以启用这些能力，请继续阅读
+[启用提取与向量搜索](configure-models.md)。
+
+## 使用嵌入式 seekDB
+
+在有兼容 `pylibseekdb` wheel 的 Linux 和 macOS 系统上可以使用嵌入式 seekDB；Windows 不支持该嵌入式
+后端。安装或替换工具时加入可选的 seekDB extra：
+
+```bash
+uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+```
+
+从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的
+SQLAlchemy 数据库 URL。然后选择 seekDB 后端并启动 Server：
+
+```bash
+unset POWERCONTEXT_SERVER_DATABASE_URL
+export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
+powercontext server run
+```
+
+CLI 不会自动搜索 `.env` 文件。请在 shell 中导出这些值、在启动 Server 的进程管理器或容器中配置，或者通过
+`powercontext server run --env-file <path>` 显式传入文件。
+
+PowerContext 固定使用 seekDB 内置的 `test` 数据库。未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
+PowerContext 用户数据目录的 `seekdb` 子目录中；如果设置了 `POWERCONTEXT_HOME`，默认路径为
+`$POWERCONTEXT_HOME/seekdb`。只有需要其他位置时才设置 `POWERCONTEXT_SERVER_DATABASE_PATH`。
+
+在另一个终端确认 Server 和数据库已经就绪：
+
+```bash
+powercontext doctor
+powercontext ready
+powercontext capabilities
+```
+
+## 验证安装
+
+```bash
+powercontext doctor
+powercontext ready
+powercontext capabilities
+```
+
+`doctor` 检查已安装的包、Server 存活状态和 Server 就绪状态，不要求安装集成。Server 就绪检查涵盖数据库和
+每个已配置的推理服务。Runtime 或数据库故障返回 `not_ready`；推理服务故障返回 `degraded`，不会使数据库
+操作退出流量。`ready` 和 `capabilities` 用于查看运行中服务的就绪状态和已启用能力。
+Agent 诊断见[各自的集成文档](../integrations/index.md)；Server 状态解释和恢复步骤见[排查问题](../operate/troubleshoot.md)。
+
+需要长期运行进程、使用 Docker、启用鉴权或允许远程访问时，请继续阅读[部署 Server](../operate/deploy-server.md)。
+
+## 更新或替换安装
+
+使用指定 ref 替换现有工具：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
+```
+
+按[各自的集成文档](../integrations/index.md)更新已安装宿主，并使用同一个 ref。更新后重启 Server，再开启新的宿主会话。只要没有修改
+`POWERCONTEXT_HOME` 或数据库 URL，现有 SQLite 数据会继续保留。
+
+## 为 Python 项目安装角色
+
+如果应用需要导入异步 Client SDK，应把它加入该应用自己的环境：
+
+```bash
+uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+```
+
+进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用
+`cli`。只安装在 `uv tool` 隔离环境中的 extra 不能被另一个 Python 项目直接导入。

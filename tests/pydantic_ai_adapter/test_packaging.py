@@ -30,7 +30,7 @@ _PROJECTS = {
     "core": _ROOT,
     "pydantic-ai": _ROOT / "integrations" / "pydantic-ai",
 }
-_PYDANTIC_AI_HOW_TO = _ROOT / "docs" / "en" / "docs" / "how-to" / "configure-pydantic-ai.md"
+_PYDANTIC_AI_GUIDE = _ROOT / "docs" / "en" / "docs" / "integrations" / "pydantic-ai.md"
 
 
 def _build_wheel(project: Path, out_dir: Path) -> Path:
@@ -90,7 +90,7 @@ def test_documented_openai_agent_constructs_from_installed_wheels(
     )
     assert install.returncode == 0, f"wheel install failed:\n{install.stdout}\n{install.stderr}"
 
-    english_example = _first_python_example(_PYDANTIC_AI_HOW_TO)
+    english_example = _first_python_example(_PYDANTIC_AI_GUIDE)
     script = f"""
 import sys
 

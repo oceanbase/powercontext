@@ -23,7 +23,7 @@ docker run --rm \
 
 The image listens on `0.0.0.0:8000` inside the container. Keep the host-side publish address on loopback unless bearer
 authentication and a TLS-terminating network boundary are configured. See
-[`Deploy the Server`](../docs/en/docs/how-to/deploy-server.md) for the remote-access setup.
+[`Deploy the Server`](../docs/en/docs/operate/deploy-server.md) for the remote-access setup.
 
 The image stores its default data under `/data` and exposes a Docker health check backed
 by `GET /health/ready`. Runtime or database failures return `not_ready` with HTTP 503. A configured inference failure

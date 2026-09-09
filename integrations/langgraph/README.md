@@ -1,5 +1,7 @@
 # PowerContext for LangGraph
 
+`community`
+
 This package connects a [LangGraph](https://langchain-ai.github.io/langgraph/) graph to a running PowerContext
 Server through the public Python client. It integrates at the node and tool level, using LangGraph primitives that
 are stable public API, and provides three components:
