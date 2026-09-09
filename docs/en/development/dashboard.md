@@ -71,7 +71,9 @@ A submitted Bearer credential is stored in an HttpOnly, SameSite Strict cookie s
 
 Reuse Tabler navigation, Collapse, Dropdown, cards, lists, forms, buttons, Accordion, Offcanvas, Alert, Spinner and Table. Charts use its ApexCharts integration. HTMX owns navigation and fragment replacement; Surreal handles necessary event connections between those frameworks.
 
-Pinned assets are Tabler Core 1.4.0, Tabler Icons 3.31.0, HTMX 2.0.4 and ApexCharts 3.54.1. Surreal 1.3.4 uses commit `cd8f18d34067e073d0aa25675cc0649e304292a3`; css-scope-inline 1.1.0 uses `14e835ebe3b8596d0f3ee456162edf63bddc95ba`. Licenses ship beside the assets.
+Pinned assets are Tabler Core 1.4.0, Tabler Icons 3.31.0, HTMX 2.0.4, ApexCharts 3.54.1 and Tom Select 2.4.3 from the Tabler 1.4.0 package. Surreal 1.3.4 uses commit `cd8f18d34067e073d0aa25675cc0649e304292a3`; css-scope-inline 1.1.0 uses `14e835ebe3b8596d0f3ee456162edf63bddc95ba`. Licenses ship beside the assets.
+
+Scope selection uses Tabler’s bundled Tom Select, with its Bootstrap 5 base stylesheet loaded before Tabler styles. Component-local variables map the Bootstrap color and border tokens used by the picker to Tabler theme tokens. Keep native option groups, filtering and keyboard navigation; translate only the no-results message through the documented renderer. Tom Select updates the original select; HTMX listens to that select’s change event. Typing alone does not switch scope. Initialize on `htmx:load`, after HTMX restores the incoming attributes, and destroy the instance when HTMX removes its component.
 
 Use `me()`, `on()` and `off()` as described by [Surreal](https://github.com/gnat/surreal). Place styles within their component root and use `me` according to [css-scope-inline](https://github.com/gnat/css-scope-inline). Do not implement another selector or component system.
 

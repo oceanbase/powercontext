@@ -41,6 +41,41 @@ async function clickNavigation(page, selector) {
   await target.click();
 }
 
+async function chooseScope(page, scope) {
+  await clickNavigation(page, '.scope-picker .ts-control');
+  await page.locator(`.scope-picker [role="option"][data-value="${scope}"]`).click();
+}
+
+async function checkScopePicker(page, base, parent, child) {
+  const viewport = page.viewportSize();
+  for (const width of [390, 1536]) {
+    for (const lang of ['zh', 'en']) {
+      for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`${base}/dashboard/home?scope=${parent.scope_id}&period=30d&lang=${lang}&theme=${theme}`);
+        await clickNavigation(page, '.scope-picker .ts-control');
+        const picker = page.locator('.scope-picker');
+        const input = picker.locator('input[role="combobox"]');
+        const location = page.url();
+        await input.fill('no-matching-scope-query');
+        await picker.locator('.no-results').waitFor();
+        assert.equal(page.url(), location, 'Filtering scopes navigated away');
+        await input.press('Escape');
+        assert.equal(await input.getAttribute('aria-expanded'), 'false');
+        await clickNavigation(page, '.scope-picker .ts-control');
+        await input.fill(child.title);
+        await picker.locator(`[role="option"].active[data-value="${child.scope_id}"]`).waitFor();
+        await input.press('Enter');
+        await page.waitForURL(url => url.searchParams.get('scope') === child.scope_id);
+        await chooseScope(page, parent.scope_id);
+        await page.waitForURL(url => url.searchParams.get('scope') === parent.scope_id);
+        assert.equal(new URL(page.url()).searchParams.get('period'), '30d');
+      }
+    }
+  }
+  await page.setViewportSize(viewport);
+}
+
 async function changePreference(page, key, value) {
   const menu = page.locator('.display-preferences');
   if (!await menu.isVisible()) {
@@ -189,12 +224,14 @@ async function main() {
   assert.equal(await page.locator('#scope').inputValue(), defaultScope);
   const alternative = scopes.find(scope => scope.scope_id !== defaultScope);
   if (alternative) {
-    await page.locator('#scope').selectOption(alternative.scope_id);
+    await chooseScope(page, alternative.scope_id);
     await page.waitForURL(url => url.searchParams.get('scope') === alternative.scope_id);
     assert.equal((await api('/v1/scopes/default')).scope_id, defaultScope);
   }
   const parent = scopes.find(scope => scopes.some(child => child.parent_scope_id === scope.scope_id));
   if (parent) {
+    const child = scopes.find(scope => scope.parent_scope_id === parent.scope_id);
+    await checkScopePicker(page, base, parent, child);
     for (const extent of ['exact', 'subtree']) {
       await page.goto(`${base}/dashboard/usage?scope=${parent.scope_id}&extent=${extent}`);
       const response = await context.request.post(base + '/v1/stats', {
@@ -232,7 +269,7 @@ async function main() {
   if (otherScope) {
     for (const route of routes) {
       await page.goto(base + '/dashboard/' + route);
-      await page.locator('#scope').selectOption(otherScope.scope_id);
+      await chooseScope(page, otherScope.scope_id);
       await page.waitForURL(url => url.searchParams.get('scope') === otherScope.scope_id);
       const selected = new URL(page.url());
       const family = route.split('?')[0];

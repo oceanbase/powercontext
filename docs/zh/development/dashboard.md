@@ -68,7 +68,9 @@ HTTP 返回的 Artifact 内容使用 JSON 模式校验。严格领域模型中�
 
 Tabler 已有的组件直接复用：导航、Collapse、Dropdown、卡片、列表、表单、按钮、Accordion、Offcanvas、Alert、Spinner 和 Table。图表使用其 ApexCharts 集成。HTMX 负责导航和片段替换；Surreal 只承担框架之间必要的事件连接。
 
-资源固定为 Tabler Core 1.4.0、Tabler Icons 3.31.0、HTMX 2.0.4、ApexCharts 3.54.1。Surreal 1.3.4 固定到 `cd8f18d34067e073d0aa25675cc0649e304292a3`，css-scope-inline 1.1.0 固定到 `14e835ebe3b8596d0f3ee456162edf63bddc95ba`。许可证与资源一同打包。
+资源固定为 Tabler Core 1.4.0、Tabler Icons 3.31.0、HTMX 2.0.4、ApexCharts 3.54.1，以及 Tabler 1.4.0 随包提供的 Tom Select 2.4.3。Surreal 1.3.4 固定到 `cd8f18d34067e073d0aa25675cc0649e304292a3`，css-scope-inline 1.1.0 固定到 `14e835ebe3b8596d0f3ee456162edf63bddc95ba`。许可证与资源一同打包。
+
+范围选择使用 Tabler 随包的 Tom Select，先加载其 Bootstrap 5 基础样式，再加载 Tabler 样式。组件内将选择器使用的 Bootstrap 颜色和边框变量映射到 Tabler 主题变量。分组、筛选和键盘导航沿用插件行为，仅通过公开渲染接口翻译无匹配结果提示。Tom Select 更新原始 select，HTMX 只响应该 select 的 change 事件；输入搜索文字不会切换范围。在 `htmx:load` 中初始化，确保 HTMX 已恢复新元素的属性；移除组件时销毁实例。
 
 按 [Surreal 文档](https://github.com/gnat/surreal) 使用脚本所在组件的 `me()`、`on()` 和 `off()`；按 [css-scope-inline 文档](https://github.com/gnat/css-scope-inline) 将 `<style>` 放在组件根节点内，以 `me` 指向所属组件。不要自行解释选择器或重新实现组件系统。
 

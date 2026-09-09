@@ -7,6 +7,7 @@
   "experience": "Experience",
   "skill": "Skill",
   "other_scopes": "Other scopes",
+  "scope_no_match": "No matching scopes",
   "scope_switch_hint": "Selecting a scope opens its content immediately.",
   "scope_label": "Scope",
   "navigation": "Navigation",

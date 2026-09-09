@@ -1,6 +1,19 @@
 {% macro option(item) %}
 <option value="{{ item.scope_id }}" {% if scope == item.scope_id %}selected{% endif %}>{{ item.display_title }}</option>
 {% endmacro %}
+<div class="scope-picker" data-no-results="{{ t.scope_no_match }}">
+<style>
+  me {
+    --bs-body-bg: var(--tblr-body-bg);
+    --bs-body-color: var(--tblr-body-color);
+    --bs-border-color: var(--tblr-border-color);
+    --bs-border-color-translucent: var(--tblr-border-color-translucent);
+    --bs-border-radius: var(--tblr-border-radius);
+    --bs-border-width: var(--tblr-border-width);
+    --bs-secondary-bg: var(--tblr-secondary-bg);
+    --bs-tertiary-bg: var(--tblr-tertiary-bg);
+  }
+</style>
 <select id="scope" name="scope" class="form-select" aria-describedby="scope-switch-hint">
   <option value="" {% if not scope %}selected{% endif %}>{{ t.scope_none }}</option>
   {% if parent_scope or children %}
@@ -25,3 +38,30 @@
   {% endif %}
 </select>
 <span id="scope-switch-hint" class="visually-hidden">{{ t.scope_switch_hint }}</span>
+<script>
+  {
+    const component = me();
+    const select = me('select', component);
+    const body = me('body');
+    let picker;
+    const initialize = event => {
+      if (!event.detail.elt.contains(component)) return;
+      body.off('htmx:load', initialize);
+      picker = new TomSelect(select, {
+        allowEmptyOption: true,
+        maxOptions: null,
+        lockOptgroupOrder: true,
+        render: {
+          no_results: (data, escape) => `<div class="no-results">${escape(component.dataset.noResults)}</div>`,
+        },
+      });
+    };
+    body.on('htmx:load', initialize);
+    component.on('htmx:beforeCleanupElement', event => {
+      if (event.detail.elt !== component) return;
+      body.off('htmx:load', initialize);
+      picker?.destroy();
+    });
+  }
+</script>
+</div>

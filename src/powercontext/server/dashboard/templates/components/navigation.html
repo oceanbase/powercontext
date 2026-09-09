@@ -19,7 +19,7 @@
     <div class="collapse d-lg-flex flex-column flex-fill w-100" id="dashboard-navigation">
     <div class="navbar-collapse">
     <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form my-4 w-100"
-          hx-get="/dashboard/{{ parent_page or page }}" hx-trigger="change, submit" hx-push-url="true">
+          hx-get="/dashboard/{{ parent_page or page }}" hx-trigger="change[target.id === 'scope'], submit" hx-push-url="true">
       <label for="scope" class="visually-hidden">{{ t.scope_label }}</label>
       <input type="hidden" name="period" value="{{ period }}">
       {% if page == 'methods' or parent_page == 'methods' %}<input type="hidden" name="kind" value="{{ page if parent_page else method_kind }}">{% endif %}
