@@ -1,3 +1,4 @@
+- RFC ID: 1417
 - Proposal Name: `topic_memory`
 - Start Date: 2026-09-01
 - RFC PR: [oceanbase/powercontext#1417](https://github.com/oceanbase/powercontext/pull/1417)
@@ -191,6 +192,35 @@ tokens。一次实际 generation 请求仍必须满足：
 新 Source，也不占用新的 Journal 位置。全部片段处理成功后，Window 才统一发布并推进 Cursor；任一片段失败时，
 原 Source 与 Cursor 保持不变，供后续重试。
 
+分片结果使用同时受 20 个驻留项和阶段输入 token 预算约束的流式累加器，20 不是整条 Source 的结果总上限。
+完全相同的 Probe 先去重；累加器将溢出前，私有归并阶段把预算内的前缀合成一个中间结果。归并必须覆盖每个
+输入位置、保留 evidence IDs 的精确并集，不能选择历史身份或返回 NOOP。结果最多占阶段输入预算的八分之一。
+单项归并必须缩小估算体积，多项归并必须减少项数；每次压缩最多尝试“输入项数的两倍加一”次，防止模型造成
+无限压缩循环。所有调用继续使用现有阶段请求/输出限制与 Worker timeout。
+
+### 累计工作量与证据上限
+
+一个 Topic Window 最多接纳 100 条 Source（配置默认值仍为 10），canonical evidence 合计最多 4,194,304 个字符。
+每条 eligible Source 在 canonical JSON 序列化前限制访问的值/键总数不超过 65,536、深度不超过 32、文本字符总数
+不超过 4,194,304；最终序列化内容也必须满足字符上限。这是包含 metadata 的 Topic 处理边界，不是新的 capture
+API 限制。过大或过深的捕获内容仍保留，但 Topic 处理持久记录 `source_complexity_limit`。Selector 无法投影整个
+候选 Window 时先隔离最早的单条 Source，由 Worker 记录拒绝，避免每次发现任务都重复序列化失败内容。
+
+所有生成阶段（包括 temporary、reduction）、结构化重试和 Embedding 共用 `(scope_id, binding_name, source_after)`
+上的持久额度：跨全部重试最多 **3 次处理尝试、512 次预留 provider 请求、64,000,000 个预留 token 容量单位**。
+每次调用生成 delegate 前，先在短 fenced 事务中预留 `generation_max_requests` 次请求及同样数量的完整阶段 context
+容量，涵盖输入、schema、重试 transcript 与输出；快速空响应也不能绕过。Embedding 按每条输入文本预留一次请求及
+其估算输入 token，provider 批处理可以实际使用更少请求。token 数是保守估算容量，不是精确账单。未使用的额度、
+缺失 usage、异常、取消、timeout 和进程死亡都不退还已预留额度。
+
+Worker 使用由 OpenAI/Anthropic SDK 支持的 provider（含兼容端点），并禁用 SDK 内部 transport 重试。
+binding 装配及 Worker 启动时执行相同校验，拒绝不支持的 provider。Topic 生成设置只允许有界标量形式的采样、输出、timeout 和
+service-tier 参数；Embedding 只允许 `dimensions` 与 `truncate`。拒绝 `extra_body`、隐藏 response/conversation 历史、
+background 生成和 native tools，避免未计量工作。底层模型响应边界会拒绝 suspended response，阻止推理库把分别收费
+的 continuation 合并计为一次请求。普通非 Topic 推理保留既有行为；不兼容配置不注册 Topic Worker，并明确声明 Topic
+处理不可用（含 API-only 副本）。若显式配置了自动 Topic 调度，则启动时返回配置错误。模型设置、Source metadata、新 Worker、flush
+generation、Window 终点、换主和重启均不能提高或重置这些硬上限。
+
 ## Probe 与历史 Topic 选择
 
 Worker 首先读取当前 Source Window。服务端标记为 `lineage_only` 的 Source 在 token 估算与生成之前排除，其
@@ -261,7 +291,8 @@ Evolver 直接生成最终 Topic 内容。
 Work Item Source
   -> 拆成有界 Source Batch，必要时将单个超长 Source 分段
   -> 每个 Batch 在不加载历史 Topic 的情况下生成临时 Topics
-  -> 全部相关临时 Topics + 一个历史 Topic或空白目标
+  -> 对全部贡献的临时 Topics 做有界中间归并
+  -> 归并后的临时 Topics + 一个历史 Topic或空白目标
   -> 最终 CREATE / UPDATE / NOOP
 ~~~
 
@@ -269,8 +300,10 @@ Work Item Source
 结果的临时 Topics 所引用 SourceRef 的并集。临时 Topic 没有 identity，不写数据库，不参与检索，Worker 结束
 后即丢弃。
 
-如果“全部临时 Topic + 单个历史 Topic”仍超过模型上下文，首版不做递归压缩、历史 Topic 分片或自动拆分。这是
-已知但明确排除的极端输入。Source 分段不取消临时 Topic 数量、模型请求次数和最终历史上下文的独立上限。
+临时结果在数量或 token 溢出前增量归并，加入历史 Topic 前必要时再归并。归并不发布中间状态；遗漏输入覆盖、
+虚构证据或目标、结果超预算、无法缩小结果都会使 Window 失败并保留 Cursor。如果归并结果加单个历史 Topic
+仍不能适配上下文，则失败关闭，不拆分或截断历史内容，也不进入无限归并循环。这不保证模型摘要的语义质量，
+也不保证任意大的输入都能在 Worker timeout 内处理成功。
 
 ## 二次检索与相关组协调
 
@@ -512,7 +545,7 @@ Lease 过期后，成功通过原子更新接管的候选者递增 `supervisor_g
 binding 调度状态重新发现工作。未完成的显式 flush 立即恢复；普通 Pending 是否立即形成自动恢复波次，由对应 binding
 的 `last_auto_wave_completed_at` 与自动处理间隔决定。旧 Leader 在自动波次完成前退出时不会推进该时间，因此新 Leader
 会立即恢复已经到期但未完成的波次；最近已经完成的自动波次则只等待剩余间隔，不因换主提前执行。内存退避在接管后清空，
-因此失败 Scope 允许立即额外重试一次。旧 Leader 或孤儿 Worker 即使继续运行，其最终事务也会因 holder、generation 或
+但失败 Topic Scope 只有在持久工作额度仍可用时才能获得额外尝试。旧 Leader 或孤儿 Worker 即使继续运行，其最终事务也会因 holder、generation 或
 Lease 校验失败而整体回滚，不能写入 Artifact、projection、Cursor、Pending 或 binding 调度状态。
 
 SQLite 不提供多副本自动接管；进程重启就是它的恢复路径。新 Supervisor 启动时递增 generation，使旧孤儿 Worker
@@ -603,12 +636,23 @@ retry_states[(binding_name, scope_id)] = {
 }
 ~~~
 
-采用带抖动的指数退避：约 30 秒、1 分钟、2 分钟，直至约 30 分钟上限；不设置最大重试次数，也不自动跳过
-Source。主备切换或进程重启会丢失退避状态，并允许立即额外重试一次。
+采用带抖动的指数退避：约 30 秒、1 分钟、2 分钟，直至约 30 分钟上限。Supervisor 可继续检查失败键，但 Topic
+Worker 的持久额度限制整窗重算次数。尝试计数在 Source 投影前提交，provider 额度在调用前提交。第三次尝试可用剩余
+provider 额度完成工作，但不能再开始第四次。请求或 token 额度耗尽记录 `window_provider_budget_exceeded`，尝试次数
+耗尽报告 `window_attempt_limit`。Selector 在 materialize Source 或启动 Worker 前检查终止状态。
+
+终止的 frontier 保留 Source、Cursor、Pending 以及同 Scope 尾部；不会视为 NOOP、成功或跳过证据的授权。其他 Scope
+仍可处理。剩余额度内重试成功后仍按原合同发布，并继续处理尾部。不提供自动额度重置、retry/reset API 或 quarantine
+跳过操作；终止输入或重复失败需要运维明确修复，反复 flush 或重启不能重新授权模型成本。
+
+`pc_topic_memory_work_budgets` 保存 frontier、尝试过的最远终点、不透明 attempt ID、尝试次数、预留请求/token 与有界
+failure code，不保存 prompt、Source 原文或模型输出。可结合 Cursor 和结构化错误日志检查这些列，区分持久终止与暂时
+退避。同一任期内新尝试也会使旧尝试失去发布权。只有成功原子发布事务才能与 Cursor CAS、Topic/index 写入一起删除
+该记录；回滚会恢复额度记录。不创建分片 checkpoint 或持久 Job history。该新增表会在现有受支持数据库打开时创建。
 
 模型调用、输出校验、检索、启用后的 Embedding、数据库提交、Worker crash 和 timeout 等实际错误采用同一退避策略，
 但必须按 `stage` 和 `error_code` 写结构化日志。Cursor/Head CAS 冲突与 leadership lost 是控制信号，不增加
-普通失败次数。
+普通内存失败次数；已提交的 Topic 尝试及 provider 预留额度仍然消耗。
 Cursor 与 Head conflict 使用固定的短 retry deadline，而不是立即重新派发；冲突目标在延后期间释放当前页，使冻结
 尾页继续推进且不会形成热循环。
 
@@ -708,7 +752,7 @@ score，并交错填充结果。请求的 `max_bytes` 是最终输出的统一�
 | `runtime.artifact_processing_role` | `all` | `all / api / background` |
 | `inference.generation_model_context_window_tokens` | `125000` | 生成模型单次请求的总上下文窗口，包含输入和输出预留 |
 
-Source Window token 上限固定派生为 generation context window 的 80%；Topic 总请求预算为 100%。两个比例首版
+Source Window token 上限固定派生为 generation context window 的 80%；Topic 单请求 context 预算为 100%。两个比例首版
 不是公共配置。
 
 Topic Memory 复用现有 generation model、generation timeout 和 generation max requests。向量部署还复用现有
@@ -735,9 +779,9 @@ configuration error 失败；Runtime 不创建或回填这些历史向量，也�
 - 自动演进可能错误新建或错误更新主题；不可变 Revision 与 lineage 提供审计能力，但不能自动保证语义质量。
 - 只有完整索引才能激活 Revision，会增加写入延迟。
 - Pending dirty set 增加 Source 写事务的写放大。
-- 不持久化 Job、checkpoint 和 retry state 简化了系统，但失败后需要重算整个 Window，且无法查询单次任务进度。
+- 不保留分片 checkpoint 或持久 Job；失败可在持久额度内整窗重算，额度耗尽需要明确修复，同 Scope 尾部保留待处理。
 - `global` Supervisor 统一资源控制，但未来多个重型 Family 共用 Worker pool 时可能成为瓶颈。
-- Source 分段增加模型调用次数；“临时 Topic + 历史 Topic”仍可能超过上下文，对这部分材料的递归压缩不在首版范围。
+- Source 分段和中间归并增加模型调用次数；结构校验保护输入覆盖，但信息保真的措辞仍依赖模型，超长历史上下文仍可能失败关闭。
 
 # Rationale and alternatives
 
@@ -792,11 +836,11 @@ Revision 拥有不同通道数，融合排名不可比较，因此保留旧 acti
 
 以下边界已明确排除，不作为实现者自行选择的开放问题：
 
-- 临时 Topic 总内容加单个历史 Topic 仍超过上下文时的递归压缩或拆分策略；
+- 对历史 Topic 内容无限递归压缩或拆分的策略；
 - 两个已有 Topic identities 的自动合并；
 - 跨 Scope Topic 检索；
 - 用户手动管理 Topic 的 create/update/delete/retire API；
-- 可查询的后台任务、取消、checkpoint 或持久化 retry state；
+- 可查询的后台任务、取消、分片 checkpoint 或工作额度之外的持久 retry 调度；
 - 将已有 FTS-only Topic Heads 原地升级为向量部署，以及历史向量投影的离线回填；
 - 独立 Topic Supervisor group 与在线路由迁移。
 

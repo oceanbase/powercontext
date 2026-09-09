@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import Mock
 
 import pytest
@@ -125,7 +125,7 @@ def test_doctor_dsh_requires_the_plugin_id_field(monkeypatch) -> None:
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh"])
 
     assert result.exit_code == 1
-    assert "plugin: failed - PowerContext DSH plugin is not installed" in result.output
+    assert "plugin: failed - PowerContext DSH plugin is not registered" in result.output
 
 
 def test_doctor_dsh_reports_an_installed_plugin(monkeypatch) -> None:
@@ -143,8 +143,64 @@ def test_doctor_dsh_reports_an_installed_plugin(monkeypatch) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["ok"] is True
-    assert payload["checks"]["plugin"] == {
-        "ok": True,
-        "status": "ok",
-        "detail": "powercontext-dsh is installed",
-    }
+    plugin = payload["checks"]["plugin"]
+    assert plugin["ok"] is True
+    assert plugin["checks"]["registration"] == "present"
+    assert plugin["checks"]["running_host_configuration"] == "not_observed"
+    assert plugin["checks"]["server_readiness"] == "not_checked"
+    assert "/pc doctor" in plugin["detail"]
+
+
+def test_doctor_dsh_does_not_expose_host_config_or_claim_to_check_its_server(monkeypatch) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    marker = "private-dsh-config-marker"
+    monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
+    monkeypatch.setattr(
+        dsh_cli,
+        "_run_dsh",
+        lambda *_args: f"- id: powercontext-dsh\n  config:\n    baseUrl: http://unreachable/{marker}\n",
+    )
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
+    assert result.exit_code == 0
+    assert marker not in result.output
+    checks = json.loads(result.output)["checks"]["plugin"]["checks"]
+    assert checks["server_liveness"] == "not_checked"
+    assert checks["route_compatibility"] == "not_checked"
+
+
+def test_doctor_dsh_redacts_config_dump_failures(monkeypatch) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
+    monkeypatch.setattr(
+        dsh_cli,
+        "_run_dsh",
+        Mock(side_effect=SetupError.command_failed(["dsh", "--dump-config"], "private-dsh-config-marker")),
+    )
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh"])
+    assert result.exit_code == 1
+    assert "private-dsh-config-marker" not in result.output
+    assert "dump-config failed" in result.output
+
+
+@pytest.mark.parametrize("timeout", [False, True])
+def test_doctor_dsh_identifies_config_dump_exit_and_timeout(monkeypatch, timeout: bool) -> None:
+    import powercontext.cli.dsh as dsh_cli
+
+    monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
+    if timeout:
+        subprocess_run = Mock(side_effect=TimeoutExpired("dsh", 120, output="private-config"))
+    else:
+        subprocess_run = Mock(return_value=CompletedProcess(["dsh"], 7, "", "private-config"))
+    monkeypatch.setattr(dsh_cli.subprocess, "run", subprocess_run)
+    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
+    assert result.exit_code == 1
+    assert "private-config" not in result.output
+    check = json.loads(result.output)["checks"]["dsh"]
+    if timeout:
+        assert check["checks"]["dump_config"] == "timeout"
+        assert "120-second deadline" in check["detail"]
+    else:
+        assert check["checks"]["exit_code"] == "7"
+        assert "exited with code 7" in check["detail"]

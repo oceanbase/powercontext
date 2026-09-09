@@ -283,6 +283,28 @@ class TopicMemoryTemporaryOutput(_TopicMemoryStageModel):
     proposals: tuple[TopicMemoryProposal, ...] = Field(min_length=1, max_length=MAX_TOPIC_MEMORY_STAGE_ITEMS)
 
 
+class TopicMemoryReductionInput(_TopicMemoryStageModel):
+    """A bounded batch of intermediate results, never raw Source identities."""
+
+    probes: tuple[TopicMemoryProbe, ...] = Field(default=(), max_length=MAX_TOPIC_MEMORY_STAGE_ITEMS)
+    temporary: tuple[TopicMemoryProposal, ...] = Field(default=(), max_length=MAX_TOPIC_MEMORY_STAGE_ITEMS)
+    max_result_tokens: StrictInt = Field(ge=1)
+
+    @model_validator(mode="after")
+    def require_one_kind(self):
+        if bool(self.probes) == bool(self.temporary):
+            raise ValueError("reduction requires exactly one kind of intermediate material")  # noqa: TRY003
+        return self
+
+
+class TopicMemoryReductionOutput(_TopicMemoryStageModel):
+    """One summary accounting for every input position; no CREATE/UPDATE decision."""
+
+    covered_indices: tuple[StrictInt, ...] = Field(min_length=1, max_length=MAX_TOPIC_MEMORY_STAGE_ITEMS)
+    probe: TopicMemoryProbe | None = None
+    temporary: TopicMemoryProposal | None = None
+
+
 class TopicMemoryReconcileInput(_TopicMemoryStageModel):
     component_id: str = Field(min_length=1, max_length=64)
     proposals: tuple[TopicMemoryProposal, ...] = Field(min_length=1, max_length=MAX_TOPIC_MEMORY_STAGE_ITEMS)
@@ -299,6 +321,14 @@ TOPIC_MEMORY_PLANNER_INSTRUCTIONS = """Partition every probe exactly once into a
 Use only a candidate_id listed by every probe in its work item, and group every probe that lists a chosen candidate."""
 TOPIC_MEMORY_EVOLVE_INSTRUCTIONS = """Create or revise one topic. Return content and cited opaque evidence only."""
 TOPIC_MEMORY_TEMPORARY_INSTRUCTIONS = """Summarize an oversized work item into at most 20 temporary topics."""
+TOPIC_MEMORY_REDUCTION_INSTRUCTIONS = """Consolidate ALL supplied intermediate material into one bounded summary.
+For probes, return one semantic retrieval probe retaining the distinct concepts and keywords of every input.
+For temporary topics of one work item, return one temporary topic retaining all contributed facts, corrections,
+qualifications and evidence; do not load or choose a historical target. This is not a final publication or a NOOP.
+Return only the matching output kind. Cite the exact union of the supplied evidence_ids and include every zero-based
+input position exactly once in covered_indices. Never invent a candidate_id or proposal_id. Deduplicate repeated
+information, but never omit an input. The complete result must fit max_result_tokens; compress wording, not evidence.
+"""
 TOPIC_MEMORY_RECONCILE_INSTRUCTIONS = """Coordinate related proposals without merging two historical identities."""
 
 
@@ -346,6 +376,12 @@ def _topic_memory_minimum_stage_requests() -> tuple[str, ...]:
             TopicMemoryTemporaryInput(work_id="w", evidence=(evidence,)),
         ),
         (
+            TOPIC_MEMORY_REDUCTION_INSTRUCTIONS,
+            TopicMemoryReductionInput,
+            TopicMemoryReductionOutput,
+            TopicMemoryReductionInput(temporary=(proposal, proposal), max_result_tokens=128),
+        ),
+        (
             TOPIC_MEMORY_RECONCILE_INSTRUCTIONS,
             TopicMemoryReconcileInput,
             TopicMemoryReconcileOutput,
@@ -378,6 +414,7 @@ __all__ = [
     "TOPIC_MEMORY_PLANNER_INSTRUCTIONS",
     "TOPIC_MEMORY_PROBE_INSTRUCTIONS",
     "TOPIC_MEMORY_RECONCILE_INSTRUCTIONS",
+    "TOPIC_MEMORY_REDUCTION_INSTRUCTIONS",
     "TOPIC_MEMORY_TEMPORARY_INSTRUCTIONS",
     "BudgetedTopicMemoryGenerator",
     "TopicMemoryEvidence",
@@ -398,6 +435,8 @@ __all__ = [
     "TopicMemoryProposal",
     "TopicMemoryReconcileInput",
     "TopicMemoryReconcileOutput",
+    "TopicMemoryReductionInput",
+    "TopicMemoryReductionOutput",
     "TopicMemoryStageBudget",
     "TopicMemoryTemporaryInput",
     "TopicMemoryTemporaryOutput",

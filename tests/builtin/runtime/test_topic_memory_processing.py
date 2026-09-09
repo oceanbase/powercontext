@@ -26,8 +26,11 @@ from typing import Any, Generic, TypeVar, cast
 
 import pytest
 from pydantic import BaseModel, SecretStr
+from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.skill import ExternalSkillRegistration, ExternalSkillSnapshot, SkillPackageRef
 from powercontext.builtin.artifacts.topic_memory import (
@@ -78,9 +81,16 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTopicMemoryFTSIndex
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
-from powercontext.builtin.persistence.tables import BUILTIN_TABLES
+from powercontext.builtin.persistence.tables import (
+    BUILTIN_TABLES,
+    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,
+    TOPIC_MEMORY_WORK_BUDGETS_TABLE,
+)
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
-from powercontext.builtin.persistence.topic_memory_index import CompositeTopicMemoryIndex
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    topic_memory_embedding_profile_fingerprint,
+)
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
@@ -744,6 +754,10 @@ def test_tail_fence_recheck_rolls_back_topic_and_cursor() -> None:
                     await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
                     is None
                 )
+                # Tail-fence rollback restores the debit row deleted earlier
+                # in the same publication transaction; costs cannot be reset.
+                budget = (await connection.execute(select(TOPIC_MEMORY_WORK_BUDGETS_TABLE))).mappings().one()
+                assert budget["attempts"] == 1 and budget["requests"] == 4
         finally:
             await manager.__aexit__(None, None, None)
 
@@ -2139,6 +2153,24 @@ def test_worker_spec_pickle_and_repr_do_not_expose_secret() -> None:
     assert secret not in repr(restored)
 
 
+def _run_worker_without_general_fts_writes(spec, assignment):
+    # Install inside the real spawned child: an event hook in the parent would
+    # not observe the independent engine. This protects a per-Window I/O budget,
+    # not a particular sequence of private bootstrap calls.
+    def reject_general_fts_writes(_connection, _cursor, statement, _parameters, _context, _executemany):
+        sql = statement.lstrip().lower()
+        if sql.startswith(("insert", "delete", "update", "replace", "create virtual")) and any(
+            table in sql for table in ("pc_memory_entry_fts", "pc_memory_entry_vec", "pc_artifact_fts")
+        ):
+            raise AssertionError("Topic Worker must not rebuild unrelated search indexes")  # noqa: TRY003
+
+    event.listen(Engine, "before_cursor_execute", reject_general_fts_writes)
+    try:
+        return run_topic_memory_worker(spec, assignment)
+    finally:
+        event.remove(Engine, "before_cursor_execute", reject_general_fts_writes)
+
+
 def test_topic_worker_entrypoint_runs_and_sanitizes_failure_in_real_spawn_child(tmp_path) -> None:
     async def scenario() -> None:
         config = BuiltinConfig(
@@ -2153,7 +2185,7 @@ def test_topic_worker_entrypoint_runs_and_sanitizes_failure_in_real_spawn_child(
                 term = await contexts.repositories.processing_leases.start_single_process_term(connection, "holder")
             assignment = _assignment(term.fence("single-process"), through=1)
             launcher = SpawnArtifactProcessingWorkerLauncher(
-                partial(run_topic_memory_worker, TopicMemoryWorkerSpec(config=config))
+                partial(_run_worker_without_general_fts_writes, TopicMemoryWorkerSpec(config=config))
             )
 
             handle = await launcher.start(assignment)
@@ -2175,6 +2207,84 @@ def test_topic_worker_entrypoint_runs_and_sanitizes_failure_in_real_spawn_child(
                     TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
                 )
             assert cursor is None
+
+    asyncio.run(scenario())
+
+
+def test_stale_spawn_worker_cannot_reconfigure_the_current_runtime(tmp_path) -> None:
+    class Embedding:
+        profile = EmbeddingProfile(profile_id="current", model="test", dimension=2, distance="l2", normalization="unit")
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'stale-worker.db'}"),
+            inference=InferenceConfig(generation_model="test"),
+        )
+        async with open_builtin_contexts(config) as old:
+            spec = TopicMemoryWorkerSpec(config=config)
+            scope = await old.get("scope-a")
+            await scope.sources.capture(ContentCapture(source_id="source", content="Durable evidence"))
+            async with old.database.transaction() as connection:
+                term = await old.repositories.processing_leases.start_single_process_term(connection, "holder")
+            # Keep the old deployment/spec alive while a normal Runtime
+            # explicitly changes the empty Topic store from FTS to hybrid.
+            embedding = Embedding()
+            async with open_builtin_contexts(config, embedding_model=embedding) as current:
+                expected_shape = ("hybrid", topic_memory_embedding_profile_fingerprint(embedding.profile))
+                shape_query = select(
+                    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.shape,
+                    TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.profile_fingerprint,
+                )
+                async with current.database.transaction() as connection:
+                    assert tuple((await connection.execute(shape_query)).one()) == expected_shape
+                launcher = SpawnArtifactProcessingWorkerLauncher(partial(run_topic_memory_worker, spec))
+                handle = await launcher.start(_assignment(term.fence("single-process"), through=1))
+                try:
+                    with pytest.raises(RuntimeError) as error:
+                        await asyncio.wait_for(handle.wait(), timeout=30)
+                finally:
+                    await handle.terminate()
+
+                async with current.database.transaction() as connection:
+                    assert tuple((await connection.execute(shape_query)).one()) == expected_shape
+                    assert (
+                        await current.repositories.cursors.load(
+                            connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                        )
+                    ) is None
+                # Reject during bootstrap, not later at model-output validation.
+                assert cast(Any, error.value).failure.exception_type == "TopicMemoryCapabilityError"
+                assert (await current.search_topic_memories("scope-a", "evidence", mode="fts", limit=2)).hits == ()
+                assert await current.browse_topic_memories("scope-a", limit=2) == ()
+
+                content = TopicMemoryContent(title="Current", summary="Evidence", detail="Durable evidence")
+                chunks = prepare_topic_memory_projection(content).chunks
+                projection = prepare_topic_memory_projection(
+                    content,
+                    topic_embedding=(1.0, 0.0),
+                    chunk_embeddings=((1.0, 0.0),) * len(chunks),
+                    embedding_profile=embedding.profile,
+                )
+                async with current.database.transaction() as connection:
+                    published = await current.repositories.topic_memories.publish_create(
+                        connection, "scope-a", "current", TopicMemoryDraft(content=content), projection
+                    )
+                result = await current.search_topic_memories(
+                    "scope-a",
+                    "evidence",
+                    limit=2,
+                    query_vector=(1.0, 0.0),
+                    embedding_profile=embedding.profile,
+                )
+                assert result.mode == "hybrid"
+                assert [hit.artifact_ref for hit in result.hits] == [published.topic.as_ref()]
+                assert (await current.get_topic_memory("scope-a", published.topic.as_ref())).topic == published.topic
+                assert [item.artifact_ref for item in await current.browse_topic_memories("scope-a", limit=2)] == [
+                    published.topic.as_ref()
+                ]
 
     asyncio.run(scenario())
 

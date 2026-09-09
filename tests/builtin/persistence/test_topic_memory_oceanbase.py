@@ -49,7 +49,10 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
 )
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
-from powercontext.builtin.persistence.topic_memory_index import CompositeTopicMemoryIndex
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    topic_memory_embedding_profile_fingerprint,
+)
 
 
 def _embedding_profile() -> EmbeddingProfile:
@@ -254,6 +257,7 @@ def test_oceanbase_detail_vector_collapses_topics_before_the_channel_limit(mode)
             ann_selection = statement[: statement.index("APPROXIMATE")]
             assert "JOIN" not in ann_selection
             assert "WHERE v.scope_id = :scope_id" in ann_selection
+            assert "v.profile_fingerprint = :profile_fingerprint" in ann_selection
             assert statement.index("JOIN pc_topic_memory_active_topics") > statement.index("APPROXIMATE")
             assert statement.rfind("ORDER BY distance, artifact_id, revision DESC") > statement.index("APPROXIMATE")
         assert statements[0].index("LIMIT :candidate_limit") < statements[0].rfind("ORDER BY distance")
@@ -262,6 +266,10 @@ def test_oceanbase_detail_vector_collapses_topics_before_the_channel_limit(mode)
         assert statements[1].find("LIMIT :neighbor_limit") < statements[1].find("row_number() OVER")
         assert statements[1].rfind("LIMIT :candidate_limit") > statements[1].rfind("WHERE topic_rank = 1")
         assert connection.execute.await_args_list[1].args[1]["neighbor_limit"] == 400
+        for call in connection.execute.await_args_list:
+            assert call.args[1]["profile_fingerprint"] == topic_memory_embedding_profile_fingerprint(
+                _embedding_profile()
+            )
         assert result.topic_vector == ()
         assert result.detail_vector == ()
 
