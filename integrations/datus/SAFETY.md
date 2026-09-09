@@ -149,6 +149,11 @@ exit/timeout and timing metadata, writes the started case and all unstarted slot
 and emits an aborted report with the full denominator. Decoder payloads are not
 included in diagnostics. Filesystem errors retain their existing classification;
 unrelated programming exceptions and process cancellation are not swallowed.
+Once a batch has been invalidated, final reporting uses retained case evidence
+without revalidating the rejected admission document, even if it has become an
+empty object/array or is later restored. Batches not yet invalidated verify frozen
+input identity both before and after final validation. Drift found at either
+check invalidates the batch, and restoring inputs cannot revive an abort.
 The default fixture profile remains a clearly labeled synthetic path
 and never claims a live score. Simulator tests may exercise the formal branch
 under a forged **test-only** operator but are not deliverable benchmark results.

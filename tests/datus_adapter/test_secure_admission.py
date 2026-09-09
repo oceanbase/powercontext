@@ -299,11 +299,23 @@ def test_formal_midrun_drift_retains_denominator_and_stops_dispatch(live, tmp_pa
 
 
 @pytest.mark.parametrize("worker_outcome", ["completed", "timeout_partial"])
-@pytest.mark.parametrize("damage", ["receipt_json", "receipt_utf8", "admission_json", "valid_json_drift"])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "receipt_json",
+        "receipt_utf8",
+        "admission_json",
+        "valid_json_drift",
+        pytest.param("admission_object", id="gen12_admission_object"),
+        pytest.param("admission_array", id="gen12_admission_array"),
+        pytest.param("admission_restored", id="gen12_admission_restored"),
+    ],
+)
 def test_gen11_post_worker_parse_failure_preserves_case_and_aborted_report(
     live, tmp_path, monkeypatch, damage, worker_outcome
 ):
     plan, sandbox, anchor = live
+    original_admission = Path(plan["admission_file"]).read_bytes()
     dispatches = []
     returned, _ = decimal_run("1.00")
     if worker_outcome == "timeout_partial":
@@ -329,19 +341,31 @@ def test_gen11_post_worker_parse_failure_preserves_case_and_aborted_report(
                 "records": [{"kind": "effective_config", "effective_sha256": "synthetic"}],
             }
         dispatches.append(request["task"]["task_id"])
-        target = Path(plan["admission_file"]) if damage == "admission_json" else tmp_path / "external.json"
+        target = Path(plan["admission_file"]) if damage.startswith("admission_") else tmp_path / "external.json"
         target.write_bytes(
             {
                 "receipt_json": b'{"unfinished":',
                 "receipt_utf8": b"\xff",
                 "admission_json": b'{"unfinished":',
                 "valid_json_drift": b'{"changed":true}',
+                "admission_object": b"{}",
+                "admission_array": b"[]",
+                "admission_restored": b"{}",
             }[damage]
         )
         return returned
 
     monkeypatch.setattr(Sandbox, "run", dispatch)
     manifest = paired.freeze_plan(plan, sandbox, approval_sha256=anchor)
+    if damage == "admission_restored":
+        original_write = paired.write_json
+
+        def write(path, value):
+            original_write(path, value)
+            if path.name == "case-0091.json":
+                Path(plan["admission_file"]).write_bytes(original_admission)
+
+        monkeypatch.setattr(paired, "write_json", write)
     output = tmp_path / "gen11-evidence"
     report = paired.run_pair(manifest, sandbox, output, approval_sha256=anchor)
     assert dispatches == [plan["tasks"][0]["task_id"]]
@@ -407,7 +431,10 @@ def test_gen11_preflight_parse_failure_reads_no_secret_and_claims_no_grant(live,
     assert not calls and not (tmp_path / "private-runner/single-grant.json").exists()
 
 
-@pytest.mark.parametrize("damage", ["syntax", "utf8"])
+@pytest.mark.parametrize(
+    "damage",
+    ["syntax", "utf8", pytest.param("object", id="gen12_object"), pytest.param("array", id="gen12_array")],
+)
 def test_gen11_final_validation_parse_failure_still_writes_complete_report(live, tmp_path, monkeypatch, damage):
     plan, sandbox, anchor = live
     calls = []
@@ -430,7 +457,9 @@ def test_gen11_final_validation_parse_failure_still_writes_complete_report(live,
     def write(path, value):
         original_write(path, value)
         if path.name == "case-0091.json":
-            Path(plan["admission_file"]).write_bytes(b"{" if damage == "syntax" else b"\xff")
+            Path(plan["admission_file"]).write_bytes(
+                {"syntax": b"{", "utf8": b"\xff", "object": b"{}", "array": b"[]"}[damage]
+            )
 
     monkeypatch.setattr(paired, "write_json", write)
     output = tmp_path / "final-validation"
@@ -440,6 +469,42 @@ def test_gen11_final_validation_parse_failure_still_writes_complete_report(live,
     assert report["real_formal_runs"] == {"native": 46, "enhanced": 46}
     assert all(arm["total"] == 46 and not arm["accepted"] for arm in report["arms"].values())
     assert paired.read_json(output / "report.json") == json.loads(json.dumps(report))
+
+
+@pytest.mark.parametrize("error_type", [KeyError, TypeError, RuntimeError])
+def test_gen12_final_validation_does_not_swallow_programming_errors(live, tmp_path, monkeypatch, error_type):
+    plan, sandbox, anchor = live
+    monkeypatch.setattr(paired, "credentials_for", lambda _: {})
+
+    def dispatch(self, request, **kwargs):
+        if request["prepare_only"]:
+            return {
+                "returncode": 0,
+                "malformed_output": False,
+                "records": [{"kind": "effective_config", "effective_sha256": "synthetic"}],
+            }
+        return decimal_run("1.00")[0]
+
+    monkeypatch.setattr(Sandbox, "run", dispatch)
+    manifest = paired.freeze_plan(plan, sandbox, approval_sha256=anchor)
+    original_write = paired.write_json
+    marker = error_type("synthetic implementation failure")
+
+    def fail(*args, **kwargs):
+        raise marker
+
+    def write(path, value):
+        original_write(path, value)
+        if path.name == "case-0091.json":
+            monkeypatch.setattr(paired, "validate_plan", fail)
+
+    monkeypatch.setattr(paired, "write_json", write)
+    output = tmp_path / "programming-error"
+    with pytest.raises(error_type) as caught:
+        paired.run_pair(manifest, sandbox, output, approval_sha256=anchor)
+    assert caught.value is marker
+    assert len(list(output.glob("case-*.json"))) == 92
+    assert not (output / "report.json").exists()
 
 
 def test_live_sample_safety_path_without_transport(live, tmp_path, monkeypatch):

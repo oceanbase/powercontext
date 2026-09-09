@@ -439,12 +439,19 @@ def run_pair(  # noqa: C901 - retain the complete paired failure denominator
             index = len(evidence)
             evidence.append((arm, task["task_id"], result))
             write_json(output / f"case-{index:04d}.json", {"arm": arm, "task_id": task["task_id"], **result})
-    try:
-        validate_plan(plan, approval_sha256)
-        verify_inputs(plan, sandbox, manifest["inputs"])
-        state_valid = abort is None
-    except (IntegrityError, OSError):
-        state_valid = False
+    state_valid = False
+    if abort is None:
+        try:
+            # Check frozen identity before interpreting mutable evidence again;
+            # retain the post-validation check for changes during validation.
+            verify_inputs(plan, sandbox, manifest["inputs"])
+            validate_plan(plan, approval_sha256)
+            verify_inputs(plan, sandbox, manifest["inputs"])
+            state_valid = True
+        except (IntegrityError, OSError):
+            pass
+    # An already-invalid batch must still reach reporting from retained evidence,
+    # without reinterpreting the document that caused its controlled abort.
     task_ids = [task["task_id"] for task in plan["tasks"]]
     details = []
     for arm, task_id, run in evidence:
