@@ -112,6 +112,7 @@ from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWindowSelector,
     TopicMemoryWorkerSpec,
     run_topic_memory_worker,
+    validate_topic_memory_provider_settings,
 )
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
@@ -148,6 +149,7 @@ class BuiltinConfigurationError(RuntimeError):
                 "Topic Memory processing requires child-reconstructible inference resources"
             ),
             "topic-memory-generation-budget": "Topic Memory generation budget is not executable",
+            "topic-memory-provider-budget": "Topic Memory workers require OpenAI/Anthropic SDK providers with transport retries disabled and bounded stateless model settings",
             "topic-memory-generation": "Topic Memory processing requires a configured generation model",
             "topic-memory-database": "Topic Memory workers require file-backed SQLite; an in-memory database cannot be shared with spawned workers",
             "database": "unsupported built-in database",
@@ -493,6 +495,12 @@ def _topic_memory_processing_bindings(
         raise BuiltinConfigurationError("topic-memory-child-resources")
     if isinstance(config.database, SQLiteConfig) and config.database.is_in_memory:
         raise BuiltinConfigurationError("topic-memory-database")
+    if not _topic_memory_provider_available(config):
+        # Generic inference settings may be valid for other operations. Do not
+        # register an unusable Topic worker or reject those unrelated features.
+        if config.runtime.topic_memory_schedule_seconds is not None:
+            validate_topic_memory_provider_settings(config.inference)
+        return configured
     try:
         budget = topic_memory_stage_budget(
             context_window_tokens=config.inference.generation_model_context_window_tokens,
@@ -530,8 +538,18 @@ def _topic_memory_processing_available(
     """Report declared cross-role processing ability without probing worker liveness."""
 
     return any(binding.binding_name == TOPIC_MEMORY_SOURCE_WINDOW_BINDING for binding in bindings) or (
-        config.runtime.artifact_processing_role == "api" and config.inference.generation_model is not None
+        config.runtime.artifact_processing_role == "api"
+        and config.inference.generation_model is not None
+        and _topic_memory_provider_available(config)
     )
+
+
+def _topic_memory_provider_available(config: BuiltinConfig) -> bool:
+    try:
+        validate_topic_memory_provider_settings(config.inference)
+    except BuiltinConfigurationError:
+        return False
+    return True
 
 
 @asynccontextmanager
@@ -575,6 +593,7 @@ async def open_builtin_contexts(
     prompt_registry: PromptRegistry | None = None,
     prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
     handoff_verification_keys: tuple[bytes, ...] = (),
+    _topic_memory_worker: bool = False,
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
@@ -598,9 +617,16 @@ async def open_builtin_contexts(
             async with profile.database.transaction() as connection:
                 await ensure_skill_distribution_schema(connection)
                 await ensure_scope_search_schema(connection)
-                await index.initialize(connection)
-                await experience_index.initialize(connection)
-                await TopicMemoryRepository(index=topic_index).initialize(connection)
+                # A Topic child reuses its parent's schema. It never reads or
+                # writes Memory/Experience projections; rebuilding their FTS
+                # indexes here would take the shared SQLite write lock once
+                # per Window. Normal runtime startup retains index recovery.
+                if not _topic_memory_worker:
+                    await index.initialize(connection)
+                    await experience_index.initialize(connection)
+                await TopicMemoryRepository(index=topic_index).initialize(
+                    connection, configure_retrieval_shape=not _topic_memory_worker
+                )
             contexts = RelationalContexts(
                 database=profile.database,
                 index=index,
@@ -645,9 +671,12 @@ async def open_builtin_contexts(
         async with profile.database.transaction() as connection:
             await ensure_skill_distribution_schema(connection)
             await ensure_scope_search_schema(connection)
-            await index.initialize(connection)
-            await experience_index.initialize(connection)
-            await TopicMemoryRepository(index=topic_index).initialize(connection)
+            if not _topic_memory_worker:
+                await index.initialize(connection)
+                await experience_index.initialize(connection)
+            await TopicMemoryRepository(index=topic_index).initialize(
+                connection, configure_retrieval_shape=not _topic_memory_worker
+            )
         contexts = RelationalContexts(
             database=profile.database,
             index=index,
@@ -988,6 +1017,7 @@ async def _open_pydantic_ai_model(
     headers: Mapping[str, SecretStr],
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
+    disable_provider_retries: bool = False,
 ) -> tuple[Model, Model]:
     from pydantic_ai.models import infer_model
     from pydantic_ai.models.instrumented import InstrumentedModel
@@ -996,7 +1026,7 @@ async def _open_pydantic_ai_model(
         raise BuiltinConfigurationError("inference-endpoint-provider")
     inferred_model = (
         infer_model(model_name)
-        if base_url is None and not headers
+        if base_url is None and not headers and not disable_provider_retries
         else infer_model(
             model_name,
             provider_factory=_provider_factory(
@@ -1004,6 +1034,7 @@ async def _open_pydantic_ai_model(
                 headers,
                 workload="generation",
                 resources=resources,
+                disable_retries=disable_provider_retries,
             ),
         )
     )
@@ -1013,6 +1044,33 @@ async def _open_pydantic_ai_model(
 
 
 def _provider_factory(
+    base_url: AnyHttpUrl | None,
+    headers: Mapping[str, SecretStr],
+    *,
+    workload: Literal["generation", "embedding"],
+    resources: AsyncExitStack,
+    disable_retries: bool = False,
+) -> Callable[[str], Provider[Any]]:
+    create = _unbounded_provider_factory(base_url, headers, workload=workload, resources=resources)
+    if not disable_retries:
+        return create
+
+    def bounded(provider_name: str) -> Provider[Any]:
+        from anthropic import AsyncAnthropic
+        from openai import AsyncOpenAI
+
+        provider = create(provider_name)
+        client = provider.client
+        if not isinstance(client, (AsyncOpenAI, AsyncAnthropic)):
+            # No unmetered provider-specific retry policy in a Topic Worker.
+            raise BuiltinConfigurationError("topic-memory-provider-budget")
+        client.max_retries = 0
+        return provider
+
+    return bounded
+
+
+def _unbounded_provider_factory(
     base_url: AnyHttpUrl | None,
     headers: Mapping[str, SecretStr],
     *,
@@ -1091,6 +1149,8 @@ async def _embedding_models(
     settings: InferenceConfig,
     resources: AsyncExitStack,
     instrumentation: InstrumentationSettings | None,
+    *,
+    disable_provider_retries: bool = False,
 ) -> tuple[EmbeddingModel | None, EmbeddingModel | None]:
     if settings.embedding_model is None:
         return None, None
@@ -1107,6 +1167,7 @@ async def _embedding_models(
         settings.embedding_headers,
         workload="embedding",
         resources=resources,
+        disable_retries=disable_provider_retries,
     )
 
     def provider_factory(provider_name: str) -> Provider[Any]:

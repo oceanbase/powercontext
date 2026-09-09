@@ -49,6 +49,7 @@ from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.topic_memory_index import (
     SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE,
+    SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE,
     SQLiteTopicMemoryFTSIndex,
     SQLiteTopicMemoryVectorIndex,
 )
@@ -60,7 +61,11 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
 )
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
-from powercontext.builtin.persistence.topic_memory_index import CompositeTopicMemoryIndex, TopicMemoryIndex
+from powercontext.builtin.persistence.topic_memory_index import (
+    CompositeTopicMemoryIndex,
+    TopicMemoryIndex,
+    topic_memory_embedding_profile_fingerprint,
+)
 from powercontext.sources import SourceMaterialization, SourceRef
 from tests.builtin.persistence.contract import SOURCE_ADAPTERS, NoteSource
 
@@ -74,6 +79,9 @@ class _SwitchableIndex:
 
     async def initialize(self, connection: AsyncConnection, /) -> None:
         await self.delegate.initialize(connection)
+
+    async def validate_current(self, connection: AsyncConnection, /) -> None:
+        await self.delegate.validate_current(connection)
 
     async def replace(
         self,
@@ -673,10 +681,13 @@ def test_sqlite_fts_reopen_preserves_search_without_reindexing(tmp_path: Path, m
             SQLiteProfile.open(config, tables=BUILTIN_TABLES + index.tables) as profile,
             profile.database.transaction() as connection,
         ):
+            # Test index idempotency separately from the repository's shape
+            # fence, which deliberately obtains a write lock during startup.
             before = await connection.scalar(text("SELECT total_changes()"))
-            await repository.initialize(connection)
+            await index.initialize(connection)
             if missing_table is None:
                 assert await connection.scalar(text("SELECT total_changes()")) == before
+            await repository.initialize(connection)
             result = await repository.search(connection, "scope-b", "survives", limit=10)
             assert [hit.artifact_ref.artifact_id for hit in result.hits] == ["peer-topic"]
 
@@ -744,13 +755,14 @@ def test_retrieval_shape_is_persistent_and_rejects_bidirectional_downgrades(tmp_
             SQLiteProfile.open(fts_config, tables=BUILTIN_TABLES + fts_index.tables) as profile,
             profile.database.transaction() as connection,
         ):
-            await TopicMemoryRepository(index=fts_index).initialize(connection)
+            repository = TopicMemoryRepository(index=fts_index)
+            await repository.initialize(connection)
+            content = _content("FTS", "lexical")
+            await repository.publish_create(
+                connection, "scope-a", "topic-1", _draft(content), prepare_topic_memory_projection(content)
+            )
             shape = await connection.scalar(select(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE.c.shape))
             assert shape == "fts"
-            content = _content("Lexical", "durable")
-            await TopicMemoryRepository(index=fts_index).publish_create(
-                connection, "scope-a", "fts-topic", _draft(content), prepare_topic_memory_projection(content)
-            )
 
         async with SQLiteProfile.open(
             fts_config,
@@ -770,6 +782,86 @@ def test_retrieval_shape_is_persistent_and_rejects_bidirectional_downgrades(tmp_
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("initialized", [False, True])
+def test_worker_initialization_requires_an_existing_shape_without_writing_it(initialized: bool) -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            if initialized:
+                async with profile.database.transaction() as connection:
+                    await repository.initialize(connection)
+            async with profile.database.transaction() as connection:
+                await connection.exec_driver_sql("PRAGMA query_only = ON")
+                try:
+                    if initialized:
+                        await repository.initialize(connection, configure_retrieval_shape=False)
+                    else:
+                        with pytest.raises(TopicMemoryStorageInvariantError, match="missing-retrieval-shape"):
+                            await repository.initialize(connection, configure_retrieval_shape=False)
+                    assert (
+                        await connection.scalar(select(func.count()).select_from(TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE))
+                    ) == int(initialized)
+                finally:
+                    await connection.exec_driver_sql("PRAGMA query_only = OFF")
+
+    asyncio.run(scenario())
+
+
+def test_empty_shape_change_rejects_publication_from_an_already_open_runtime(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="topic-test", model="test", dimension=2, distance="l2", normalization="unit"
+        )
+        hybrid_index = CompositeTopicMemoryIndex(
+            SQLiteTopicMemoryFTSIndex(), SQLiteTopicMemoryVectorIndex(embedding_profile)
+        )
+        old_repository = TopicMemoryRepository(index=_fts_index())
+        new_repository = TopicMemoryRepository(index=hybrid_index)
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'shape-change.db'}")
+        async with SQLiteProfile.open(
+            config, tables=BUILTIN_TABLES + hybrid_index.tables, load_vector_extension=True
+        ) as profile:
+            async with profile.database.transaction() as connection:
+                await old_repository.initialize(connection)
+            async with profile.database.transaction() as connection:
+                await new_repository.initialize(connection)
+
+            content = _content("New", "shape")
+            projection = prepare_topic_memory_projection(content)
+            with pytest.raises(TopicMemoryCapabilityError, match="retrieval-shape"):
+                async with profile.database.transaction() as connection:
+                    await old_repository.publish_create(connection, "scope-a", "stale", _draft(content), projection)
+            async with profile.database.transaction() as connection:
+                assert await connection.scalar(select(func.count()).select_from(ARTIFACTS_TABLE)) == 0
+                assert (
+                    await connection.scalar(select(func.count()).select_from(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE))
+                    == 0
+                )
+                published = await new_repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "current",
+                    _draft(content),
+                    projection.model_copy(
+                        update={
+                            "topic_embedding": (1.0, 0.0),
+                            "chunk_embeddings": tuple((1.0, 0.0) for _ in projection.chunks),
+                            "embedding_profile": embedding_profile,
+                        }
+                    ),
+                )
+            with pytest.raises(TopicMemoryCapabilityError, match="retrieval-shape"):
+                async with profile.database.transaction() as connection:
+                    await old_repository.initialize(connection)
+            async with profile.database.transaction() as connection:
+                assert (
+                    await new_repository.get_exact(connection, "scope-a", published.topic.as_ref())
+                ).topic == published.topic
+
+    asyncio.run(scenario())
+
+
 def test_startup_rejects_a_topic_revision_without_publication_metadata() -> None:
     async def scenario() -> None:
         index = _fts_index()
@@ -783,6 +875,140 @@ def test_startup_rejects_a_topic_revision_without_publication_metadata() -> None
             with pytest.raises(TopicMemoryStorageInvariantError, match="missing-publication"):
                 async with profile.database.transaction() as connection:
                     await repository.initialize(connection)
+
+    asyncio.run(scenario())
+
+
+def test_search_rechecks_shape_after_a_concurrent_empty_store_switch(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="old", model="test", dimension=2, distance="l2", normalization="unit"
+        )
+        hybrid = CompositeTopicMemoryIndex(SQLiteTopicMemoryFTSIndex(), SQLiteTopicMemoryVectorIndex(embedding_profile))
+        current = TopicMemoryRepository(index=_fts_index())
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'read-race.db'}")
+        async with SQLiteProfile.open(
+            config, tables=BUILTIN_TABLES + hybrid.tables, load_vector_extension=True
+        ) as profile:
+
+            class SwitchDuringSearch(_SwitchableIndex):
+                async def search(self, connection, scope_id, request, /):
+                    # Reconfigure/first-publish on a second connection after
+                    # search starts but before its index has returned results.
+                    async with profile.database.transaction() as writer:
+                        await current.initialize(writer)
+                        content = _content("Current", "evidence")
+                        await current.publish_create(
+                            writer, scope_id, "new", _draft(content), prepare_topic_memory_projection(content)
+                        )
+                    return await super().search(connection, scope_id, request)
+
+            old = TopicMemoryRepository(index=SwitchDuringSearch(hybrid))
+            async with profile.database.transaction() as connection:
+                await old.initialize(connection)
+            with pytest.raises(TopicMemoryCapabilityError, match="retrieval-shape"):
+                async with profile.database.transaction() as reader:
+                    await old.search(
+                        reader,
+                        "scope-a",
+                        "evidence",
+                        limit=2,
+                        mode="hybrid",
+                        query_vector=(1.0, 0.0),
+                        embedding_profile=embedding_profile,
+                    )
+            async with profile.database.transaction() as reader:
+                result = await current.search(reader, "scope-a", "evidence", limit=2)
+                assert result.mode == "fts"
+                assert [hit.artifact_ref.artifact_id for hit in result.hits] == ["new"]
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_vector_candidates_filter_profiles_before_the_neighbor_budget() -> None:
+    async def scenario() -> None:
+        embedding_profile = EmbeddingProfile(
+            profile_id="current", model="test", dimension=2, distance="l2", normalization="unit"
+        )
+        wrong_profile = embedding_profile.model_copy(update={"profile_id": "other-space"})
+        vectors = SQLiteTopicMemoryVectorIndex(embedding_profile)
+        index = CompositeTopicMemoryIndex(SQLiteTopicMemoryFTSIndex(), vectors)
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=BUILTIN_TABLES + index.tables, load_vector_extension=True
+        ) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                for label, vector in (("wrong", (1.0, 0.0)), ("valid", (0.96, 0.28))):
+                    content = _content(label, "evidence")
+                    projection = prepare_topic_memory_projection(content)
+                    await repository.publish_create(
+                        connection,
+                        "scope-a",
+                        label,
+                        _draft(content),
+                        prepare_topic_memory_projection(
+                            content,
+                            topic_embedding=vector,
+                            chunk_embeddings=(vector,) * len(projection.chunks),
+                            embedding_profile=embedding_profile,
+                        ),
+                    )
+                for table in (SQLITE_TOPIC_MEMORY_VECTOR_TOPICS_TABLE, SQLITE_TOPIC_MEMORY_VECTOR_CHUNKS_TABLE):
+                    await connection.execute(
+                        update(table)
+                        .where(table.c.artifact_id == "wrong")
+                        .values(profile_fingerprint=topic_memory_embedding_profile_fingerprint(wrong_profile))
+                    )
+
+            async with profile.database.transaction() as connection:
+                # A closer vector in another space must not consume the sole
+                # candidate slot. The read guard itself must not write/lock.
+                await connection.exec_driver_sql("PRAGMA query_only = ON")
+                try:
+                    for mode in ("vector", "hybrid"):
+                        channels = await vectors.search(
+                            connection,
+                            "scope-a",
+                            TopicMemorySearchRequest(
+                                query="evidence",
+                                mode=mode,
+                                candidate_limit=1,
+                                query_vector=(1.0, 0.0),
+                                embedding_profile=embedding_profile,
+                            ),
+                        )
+                        for hits in (channels.topic_vector, channels.detail_vector):
+                            assert [hit.artifact_ref.artifact_id for hit in hits] == ["valid"]
+                    result = await repository.search(
+                        connection,
+                        "scope-a",
+                        "evidence",
+                        limit=1,
+                        mode="vector",
+                        query_vector=(1.0, 0.0),
+                        embedding_profile=embedding_profile,
+                    )
+                    assert [hit.artifact_ref.artifact_id for hit in result.hits] == ["valid"]
+                    assert (await repository.get_exact(connection, "scope-a", result.hits[0].artifact_ref)).is_current
+                    assert len(await repository.browse_current(connection, "scope-a", limit=2)) == 2
+                    # Direct use of an old adapter also fails closed even if
+                    # callers bypass the repository's persistent shape check.
+                    stale = SQLiteTopicMemoryVectorIndex(embedding_profile.model_copy(update={"profile_id": "stale"}))
+                    stale_channels = await stale.search(
+                        connection,
+                        "scope-a",
+                        TopicMemorySearchRequest(
+                            query="evidence",
+                            mode="vector",
+                            candidate_limit=1,
+                            query_vector=(1.0, 0.0),
+                            embedding_profile=stale.profile,
+                        ),
+                    )
+                    assert stale_channels.topic_vector == stale_channels.detail_vector == ()
+                finally:
+                    await connection.exec_driver_sql("PRAGMA query_only = OFF")
 
     asyncio.run(scenario())
 

@@ -5,23 +5,117 @@ description: 安装 PowerContext DeepSeek Harness 插件并控制其本地行为
 
 # 配置 DeepSeek Harness
 
-## 安装或刷新插件
+## 安装匹配的 Server 和插件
 
-先安装 DeepSeek Harness，并确保 web profile 可用。然后执行：
+先安装 DeepSeek Harness，并确保 Web profile 可用。真实宿主验收固定使用 DSH 0.1.2-rc.1。
+选择以下一种 PowerContext 安装方式，让 Server 和插件保持匹配。
 
-```bash
-powercontext setup dsh --source oceanbase/powercontext --ref master
-```
-
-该命令会从 `integrations/dsh/plugins/powercontext` 安装插件，并创建用户数据目录。该目录必须包含已构建的 `lib/index.js`。重复执行是安全的：有效 checkout 会复用，同一 ref 下的残缺 checkout 会被替换。`--ref` 应与安装 PowerContext 工具时使用的 ref 一致。`--source` 可以是 GitHub slug，也可以是 `https://github.com/...` URL。
-
-本地 checkout 同样可以：
+正式版 PowerContext 0.2.0：
 
 ```bash
-powercontext setup dsh --source .
+uv tool install --force "powercontext[cli,server]==0.2.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v0.2.0
 ```
 
-`setup dsh` 内部会执行 `dsh plugin --profile web add`。配置完成后重新打开 `dsh web`。
+0.2.0 已包含直接操作的 Scope 错误边界。下文的分层 Doctor 和自动 snapshot 展示需要当前开发版 checkout，
+不能将这些行为视为 0.2.0 已发布的能力。
+
+开发版从同一个 checkout 安装两个组件，并记录 commit：
+
+```bash
+git clone --branch master https://github.com/oceanbase/powercontext.git powercontext-dsh-dev
+git -C powercontext-dsh-dev rev-parse HEAD
+uv tool install --force "./powercontext-dsh-dev[cli,server]"
+powercontext setup dsh --source ./powercontext-dsh-dev
+```
+
+更新时执行 `git -C powercontext-dsh-dev pull --ff-only`，记录新的 commit，再重复两个安装命令。
+本地目录必须包含仓库提交的已构建文件 `lib/index.js`。
+`setup dsh --source oceanbase/powercontext --ref master` 会直接复用有效缓存 checkout，不会 fetch；
+重复运行不代表更新了移动分支。只有残缺 checkout 会被替换。
+
+`setup dsh` 调用 `dsh plugin --profile web add`，不会启动 Server。安装完成后重启 DSH。
+
+## 启动 Server 和宿主
+
+需要自动将 Source 提取为 Memory 时，生成并校验 Server 配置：
+
+```bash
+powercontext config init --output powercontext.env
+powercontext config validate --env-file powercontext.env
+powercontext server run --env-file powercontext.env
+```
+
+Server 是前台进程，保持这个终端运行。配置 generation 和定时处理；embedding 用于向量和混合检索，
+显式写入 Memory 和全文检索不依赖 embedding。无模型的 Server 可以健康运行，同时关闭自动提取并返回空召回。
+模型与处理配置参见[完整 Memory 闭环](full-capability-runtime.md)。
+
+在另一个终端指定同一个 Server，然后启动 DSH：
+
+```bash
+export POWERCONTEXT_DSH_BASE_URL=http://127.0.0.1:8000
+dsh web
+```
+
+PowerShell 使用 `$env:POWERCONTEXT_DSH_BASE_URL = "http://127.0.0.1:8000"`，然后运行 `dsh web`。
+Server 使用其他监听地址时同步修改 URL。鉴权使用 `POWERCONTEXT_DSH_AUTHORIZATION`，
+不要把 Server 的模型凭据复制到插件配置。使用 workspace binding 或 Server 默认 Scope 时不设置
+`POWERCONTEXT_DSH_SCOPE_ID`；需要覆盖时，指定一个已经存在的 Scope。
+
+环境变量优先于插件 patch 配置，patch 配置优先于默认值。环境变量必须存在于启动 DSH 的进程中；
+在其他终端修改变量不会更新已经运行的宿主。
+
+## 诊断运行中的配置
+
+在出现问题的 DSH 会话内运行 `/pc doctor`。报告显示配置来源，分别检查 liveness、readiness、运行能力、
+路由声明、当前 Scope 和只读 prepare 操作。Scope 失败不会遮蔽健康检查。
+端点摘要仅显示 origin、配置来源和是否存在路径前缀，不打印凭据、前缀正文、查询参数或 fragment。
+
+失败项提供操作名、稳定 code、可用的 HTTP status/request ID 和具体恢复操作。
+协议错误还提供 `protocol_issue`，指出 JSON、状态码或 PreparedContext 字段违反的具体规则。
+Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不透传 Server 原始错误文字和召回内容。
+`ok: true` 表示这些只读检查通过，并不代表已经采集或处理了数据。
+
+| 结果 | 含义和处理方式 |
+| --- | --- |
+| `invalid_endpoint` | 修正实际使用的 HTTP(S) base URL，移除 userinfo、query 和 fragment，凭据改用 Authorization。 |
+| `connection_refused` / `dns_lookup_failed` | 分别检查监听地址是否启动、配置的主机名能否解析。 |
+| `request_timeout` | 检查指定操作的 Server 延迟、依赖和实际请求超时设置。 |
+| `connection_failed` | 传输失败且未提供更具体原因；检查端点、代理、网络和 Server 日志。 |
+| `authentication_failed` / `authorization_failed` | 分别检查宿主凭据、当前主体对该操作和 Scope 的权限。 |
+| `not_ready` / `degraded` | 检查报告指出的依赖，例如 `database` 或 `inference.generation`，按该项恢复提示处理。 |
+| `required_route_missing` | 指定操作返回无业务码的 404；检查代理路由、base path 和版本匹配，404 本身不能确定是版本问题。 |
+| `required_route_undeclared` | Server 的 OpenAPI 文档缺少列出的操作声明。 |
+| `contract_unavailable` | 无法核对路由声明；通过同一 base path 提供 `/openapi.json`，或单独核对部署的契约。 |
+| `scope_not_found` / `unscoped` | 检查显式 Scope 覆盖、workspace binding 和 Server 默认 Scope；Doctor 不修改它们。 |
+| `invalid_response` | 响应未通过协议校验，即使 HTTP status 是 200。 |
+| `extraction_disabled` / prepare `empty` | 正常的受限能力或空结果，不能据此判断 hook 或 Server 故障。 |
+
+路由检查读取 Server 已有的 `/openapi.json`，区分“声明支持”和“实际探测通过”。
+Doctor 不执行 capture、remember、flush、binding 修改或注入。契约不可读时标为未检查；
+Scope 不可用时跳过 prepare 并说明原因。实际写入与处理由下方显式验收负责。
+
+独立 CLI 的 `powercontext doctor dsh` 仅检查 Web profile 注册，并明确报告没有观察到运行中宿主的配置，
+没有执行 Server 检查。退出成功只表示注册检查通过。
+`powercontext doctor` 使用自己的 `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`；
+对齐 URL 后可复用它的 service/health 诊断，但不能认为它观察到了 DSH 的覆盖配置。
+
+## 验证采集、处理和新会话召回
+
+这是会写入测试证据的显式验收。完成上述匹配安装和提取配置后：
+
+1. 运行 `/pc doctor`，确认健康、Scope 和 prepare 检查通过，自动提取已启用。
+2. 发送一个独特的项目事实，例如：“The aurora deployment color is violet-cedar-1457.”
+3. 分别核实 Source 接收和处理。等待已配置的 Scheduler，或显式运行 `/pc flush`。
+   按[Memory 闭环 API 检查](full-capability-runtime.md)确认处理游标达到 Source position，
+   并找到引用该 Source 的 Memory entry。flush 完成但没有生成 entry，不能证明提取成功。
+4. 在同一 workspace/Scope 下打开新会话，询问 aurora 的部署颜色，展开实际召回的 snapshot 检查事实。
+   仅凭模型回答正确，不能证明发生了召回。
+
+在同一 checkout 执行 `make dsh-runtime-test`，可运行不依赖外部模型服务的确定性验收。
+固定版本的真实宿主 fixture 分别检查 Source 接收、处理、新会话召回和 snapshot 持久化。
+模型响应是测试 fixture，不能证明外部推理服务的行为。
+详见[运行时验收说明](https://github.com/oceanbase/powercontext/blob/master/integrations/dsh/plugins/powercontext/tests/runtime/README.md)。
 
 ## 理解插件行为
 
@@ -43,7 +137,7 @@ Scope 解析失败时，具名工具和依赖 Scope 的 `/pc` 命令会返回受
 
 在 DeepSeek Harness 内：
 
-- `/pc doctor` 不依赖 Scope 解析，继续检查 liveness 和 readiness，并保留两个检查结果。
+- `/pc doctor` 独立检查健康、能力、路由和 Scope；Scope 解析失败时保留其他层的结果，并跳过 prepare。
 - `/pc capabilities` 直接查询 Server 能力，无需解析 Scope。
 - 未知子命令或缺少参数时，在本地返回用法说明，不访问 Server。
 - 裸 `/pc` 显示已解析的 Scope 和 Server origin。解析失败时返回错误，但仍显示 `scope=unresolved`、受控错误信息

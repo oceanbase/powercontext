@@ -1,3 +1,4 @@
+- RFC ID: 1417
 - Proposal Name: `topic_memory`
 - Start Date: 2026-09-01
 - RFC PR: [oceanbase/powercontext#1417](https://github.com/oceanbase/powercontext/pull/1417)
@@ -188,7 +189,7 @@ Topic Memory is the first consumer. This RFC does not migrate the existing Memor
 In Journal order, the Topic Window Policy selects the largest contiguous prefix after the Cursor that satisfies both
 limits:
 
-- no more than `runtime.topic_memory_source_window_limit` Sources, with a default of 10;
+- no more than `runtime.topic_memory_source_window_limit` Sources, with a default of 10 and a server ceiling of 100;
 - estimated Source tokens no greater than 80% of the generation model's context window.
 
 `inference.generation_model_context_window_tokens` defaults to 125,000, so the default Source Window limit is 100,000
@@ -211,6 +212,44 @@ including JSON escaping, instructions, and the output schema. Every character is
 original evidence ID and its character offsets; it does not become a new Source or a separate Journal position. All
 fragments must complete before the Window publishes and advances its Cursor. A failed fragment leaves the original
 Source and Cursor unchanged for retry.
+
+Fragment results use a streaming accumulator bounded by both 20 live items and the stage input token budget, not a
+20-item limit over the entire Source. Exact duplicate Probes are coalesced. Before the accumulator overflows, a private
+reduction stage consolidates a fitting prefix into one intermediate result. It must account for every input position,
+retain the exact union of evidence IDs, and cannot select a historical identity or return NOOP. The result is limited
+to one eighth of the stage input budget. A singleton reduction must decrease estimated size; other reductions must
+decrease item count. Each compaction has a fixed attempt bound of twice its input item count plus one, so a model cannot
+create an unbounded compression loop. All model calls use the stage request/output limits, durable cumulative budget,
+and Worker timeout.
+
+### Cumulative work and evidence ceilings
+
+A Topic Window admits at most 4,194,304 canonical evidence characters in total. Each eligible Source is checked before
+canonical JSON serialization for at most 65,536 visited values/keys, depth 32, and 4,194,304 text characters; the final
+serialized content must also fit the character ceiling. These are Topic processing limits, including metadata, not a
+new capture API limit. Oversized or excessively nested captured content remains stored, but Topic processing stops
+with `source_complexity_limit`. The selector isolates the earliest Source when projection cannot fit; the Worker
+persists rejection instead of repeatedly serializing it on every discovery pass.
+
+All generation stages (including temporary Topics and reduction), structured retries, and Embedding share a durable
+allowance at `(scope_id, binding_name, source_after)`: at most **3 processing attempts**, **512 reserved provider
+requests**, and **64,000,000 reserved token-capacity units** across all attempts. Before a generation delegate is
+called, a short fenced transaction reserves `generation_max_requests` requests and that many complete stage context
+windows. This includes input, schemas, retry transcript, and output capacity, even for fast empty outputs. Embedding
+reserves one request per input text and its estimated input tokens; provider batching may use fewer requests. The token
+figure is conservative estimated capacity, not exact provider billing. Neither successful underuse, missing usage,
+exceptions, cancellation, timeout, nor process death refunds a reservation.
+
+The Worker uses OpenAI/Anthropic SDK-backed providers with SDK transport retries disabled, including compatible
+endpoints. Binding assembly and Worker bootstrap validate the same policy. Topic model settings admit only bounded
+scalar sampling, output, timeout, and service-tier settings; Embedding admits only `dimensions` and `truncate`.
+`extra_body`, hidden response/conversation history, background generation, native tools, and unsupported providers are
+rejected before provider I/O. A suspended response is rejected at the raw model boundary, preventing the inference
+library from folding separately billed continuation segments into one logical request. Ordinary non-Topic inference
+retains its existing provider behavior. An incompatible configuration does not register a Topic Worker and reports
+Topic processing unavailable, including on API-only replicas. If automatic Topic scheduling was explicitly configured,
+startup fails with a configuration error instead. These ceilings cannot be raised by model settings, Source metadata, a new Worker, flush generation,
+window end, leadership term, or process restart.
 
 ## Probe and historical Topic selection
 
@@ -290,7 +329,8 @@ Item uses the temporary Topic path:
 Work Item Sources
   -> split into bounded Source Batches, fragmenting an oversized Source when necessary
   -> generate temporary Topics for each Batch without loading the historical Topic
-  -> all relevant temporary Topics + one historical Topic or an empty target
+  -> bounded intermediate reduction of all contributed temporary Topics
+  -> reduced temporary Topics + one historical Topic or an empty target
   -> final CREATE / UPDATE / NOOP
 ~~~
 
@@ -299,10 +339,12 @@ its evidence IDs. Final lineage is the union of SourceRefs referenced by the tem
 to the result. A temporary Topic has no identity, is not written to the database, does not participate in retrieval,
 and is discarded when the Worker ends.
 
-If all temporary Topics plus one historical Topic still exceed the model context, the first release does not perform
-recursive compression, split the historical Topic, or split the topic automatically. This is a known but explicitly
-excluded extreme input. Source fragmentation does not remove the separate bounds on temporary Topic count,
-provider requests, or final historical context.
+Temporary results are reduced incrementally before count or token overflow, and again if needed before adding the
+historical Topic. Reduction never publishes intermediate state. Missing input coverage, invented evidence or targets,
+an oversized result, or failure to make progress aborts the Window with its Cursor unchanged. If even a reduced result
+plus the historical Topic cannot fit, the Worker fails closed; it does not split or truncate historical content or
+start an unlimited reduction loop. This does not guarantee semantic summary quality or successful processing of
+arbitrarily large input within the Worker timeout.
 
 ## Second retrieval and related-group reconciliation
 
@@ -565,7 +607,7 @@ immediately. Whether ordinary Pending immediately forms an automatic recovery wa
 `last_auto_wave_completed_at` and automatic processing interval. If the old Leader exits before an automatic wave
 completes, it does not advance that time, so the new Leader immediately resumes a wave that is due but unfinished. A
 recently completed automatic wave waits only its remaining interval and does not run early merely because leadership
-changed. In-memory backoff resets on takeover, so a failed Scope may receive one immediate extra retry. Even if an old
+changed. In-memory backoff resets on takeover, but a Topic Scope receives an extra attempt only if its durable work allowance remains available. Even if an old
 Leader or orphan Worker keeps running, its final transaction rolls back on holder, generation, or Lease validation and
 cannot change Artifacts, projections, Cursors, Pending, or binding scheduling state.
 
@@ -674,12 +716,29 @@ retry_states[(binding_name, scope_id)] = {
 ~~~
 
 Retries use jittered exponential backoff at approximately 30 seconds, 1 minute, and 2 minutes, up to a cap of about 30
-minutes. There is no maximum retry count, and the system never skips a Source automatically. Leader failover or process
-restart loses the backoff state and permits one immediate extra retry.
+minutes. The Supervisor may continue checking a failed key, but Topic Worker's durable allowance caps recomputation.
+The attempt counter is committed before Source projection; each provider reservation is committed before I/O. The
+third attempt may finish using the remaining provider budget; a subsequent attempt is refused. An exhausted request
+or token allowance records `window_provider_budget_exceeded`, and an exhausted attempt count is reported as
+`window_attempt_limit`. The selector reads terminal frontiers before materializing Sources or spawning another Worker.
+
+A terminal frontier retains its Sources, Cursor, Pending, and later same-Scope Sources. It is not a NOOP, success, or
+permission to skip evidence. Other Scope keys remain processable. A retry that succeeds within the remaining allowance
+publishes normally and can process the tail. There is no automatic allowance reset, retry/reset API, or quarantine
+skip operation; terminal input or repeated failures require deliberate operator remediation. Repeated flushes and
+restarts cannot authorize additional model cost.
+
+`pc_topic_memory_work_budgets` stores the frontier, furthest attempted end, opaque attempt ID, attempt count, reserved
+requests/tokens, and a bounded failure code; it stores no prompts, Source text, or model outputs. Inspect these columns
+together with the Cursor and structured error logs to distinguish terminal work from transient backoff. A new attempt
+supersedes publication authority from an earlier attempt in the same leadership term. The row is removed only in the
+successful atomic publication transaction alongside Cursor CAS and Topic/index writes; rollback restores it. No
+fragment checkpoint or persistent job history is created. The table is additive and is created when an existing
+supported database opens.
 
 Actual errors—including model calls, output validation, retrieval, enabled Embedding, database commit, Worker crash, and
 timeout—use the same backoff strategy but must produce structured logs by `stage` and `error_code`. Cursor/Head CAS
-conflicts and leadership loss are control signals and do not increase the ordinary failure count.
+conflicts and leadership loss are control signals and do not increase the ordinary in-memory failure count. Any already committed Topic attempt or provider reservation remains consumed.
 Cursor and Head conflicts use a fixed short retry deadline rather than immediate redispatch. The conflicting target
 releases its current page while delayed, so frozen suffix targets continue to make progress without a hot loop.
 
@@ -782,7 +841,7 @@ The first release adds or uses these deployment-level settings:
 | `runtime.artifact_processing_role` | `all` | `all / api / background` |
 | `inference.generation_model_context_window_tokens` | `125000` | Total context window for one generation-model request, including input and output reservation |
 
-The Source Window token limit is fixed at 80% of the generation context window; the total Topic request budget is
+The Source Window token limit is fixed at 80% of the generation context window; the per-request Topic context budget is
 100%. Neither ratio is public configuration in the first release.
 
 Topic Memory reuses the existing generation model, generation timeout, and generation max requests. A vector-enabled
@@ -818,12 +877,12 @@ should use consistent settings and record effective values in startup logs.
   but cannot guarantee semantic quality automatically.
 - Requiring complete indexes before activating a Revision increases write latency.
 - The Pending dirty set adds write amplification to Source write transactions.
-- Avoiding persistent Jobs, checkpoints, and retry state simplifies the system, but a failure requires recomputing the
-  whole Window and the progress of an individual task cannot be queried.
+- No fragment checkpoints or persistent Jobs are kept. A failure may require whole-Window recomputation within the
+  durable allowance; terminal exhaustion requires remediation and leaves the same-Scope tail pending.
 - The `global` Supervisor centralizes resource control, but it may become a bottleneck if several heavyweight Families
   share the Worker pool in the future.
-- Source fragmentation adds generation calls. Temporary Topics plus a historical Topic may still exceed context;
-  recursive compression of that material remains outside the first release.
+- Source fragmentation and intermediate reduction add generation calls. Reduction coverage is checked structurally,
+  but information-preserving wording still depends on the model. Oversized historical context can still fail closed.
 
 # Rationale and alternatives
 
@@ -889,11 +948,11 @@ The current scope has no unresolved design questions that block acceptance of th
 
 The following boundaries are explicitly excluded rather than left as open choices for implementers:
 
-- recursive compression or splitting when temporary Topic content plus one historical Topic still exceeds context;
+- unbounded recursive compression or splitting of historical Topic content;
 - automatic merging of two existing Topic identities;
 - cross-Scope Topic retrieval;
 - user-facing APIs to create, update, delete, or retire Topics manually;
-- queryable background tasks, cancellation, checkpoints, or persistent retry state;
+- queryable background tasks, cancellation, fragment checkpoints, or persistent retry scheduling beyond the work allowance;
 - in-place conversion of existing FTS-only Topic Heads to a vector-enabled deployment and offline backfill of their
   vector projections;
 - an independent Topic Supervisor group and online routing migration.
