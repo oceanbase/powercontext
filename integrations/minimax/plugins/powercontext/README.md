@@ -2,6 +2,8 @@
 
 Context for work that humans and agents hand off and continue.
 
+[Website](https://powercontext.oceanbase.io/) · [Documentation](https://powercontext.oceanbase.io/en/docs/) · [Source](https://github.com/oceanbase/powercontext)
+
 PowerContext keeps project decisions and current progress available across conversations. In MiniMax Code, you can recall why a decision was made, save a constraint for later, or hand off unfinished work with the evidence and next steps someone needs to continue.
 
 ## Pick up where the work left off
@@ -54,10 +56,11 @@ If PowerContext is unavailable, check that the server is running and that MiniMa
 
 An empty search means no matching memory was found. Ask to save the relevant decision or constraint if you want it available later. A failed save remains incomplete; the plugin reports the failure so you can retry after resolving the connection or server issue.
 
-## Learn more
+## Support
 
-- [PowerContext documentation](https://powercontext.oceanbase.io/en/docs/)
 - [Manage context](https://powercontext.oceanbase.io/en/docs/workflows/)
 - [Report an issue](https://github.com/oceanbase/powercontext/issues)
+
+Maintained by PowerContext Team. Contact: [open_oceanbase@oceanbase.com](mailto:open_oceanbase@oceanbase.com).
 
 PowerContext is licensed under the [Apache License 2.0](LICENSE).
