@@ -26,7 +26,7 @@ integrations/agent-plugin/powercontext/
 - `plugin.json`：可移植 Agent Plugin metadata。
 - `mcp.json`：指向 PowerContext Streamable HTTP endpoint 的 MCP
   configuration。
-- `skills/powercontext-project-context/SKILL.md`：用于 Memory 和 Handoff 工作流的可复用指令。
+- `skills/project-context/SKILL.md`：用于 Memory 和 Handoff 工作流的可复用指令。
 
 加载 package 前，先启动 PowerContext Server：
 
@@ -59,7 +59,7 @@ VS Code 支持通过 `chat.pluginLocations` 加载本地 Agent Plugin 目录。�
 
 3. 重新加载 VS Code。
 4. 确认 PowerContext plugin 出现在 Agent Plugins view 中，并且 chat 可以使用
-   `powercontext-project-context` skill 和 `powercontext` MCP server。
+   `project-context` skill 和 `powercontext` MCP server。
 
 注册路径必须指向包含 `plugin.json`、`mcp.json` 和 `skills/` 的 package root。
 

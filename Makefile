@@ -19,7 +19,7 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: integration-manifest-check minimax-plugin-drift-check ## Run code quality tools.
+check: integration-manifest-check ## Run code quality tools.
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"
 	@uv lock --locked
 	@echo "🚀 Linting code: Running prek"
@@ -194,18 +194,6 @@ docs-build: docs-install ## Build the static website, including HTTP and Python 
 docs-test: docs-install ## Lint and build the static website.
 	@cd website && CI=true pnpm lint
 	@cd website && CI=true pnpm build
-
-.PHONY: minimax-plugin
-minimax-plugin: ## Generate the MiniMax package from the canonical Agent Plugin.
-	@uv run python scripts/build_minimax_plugin.py
-
-.PHONY: minimax-plugin-check
-minimax-plugin-check: minimax-plugin-drift-check ## Verify MiniMax package drift and its public contract.
-	@uv run pytest tests/agent_plugin tests/minimax_plugin tests/e2e/test_minimax_plugin.py
-
-.PHONY: minimax-plugin-drift-check
-minimax-plugin-drift-check: ## Verify the checked-in MiniMax plugin matches its maintained sources.
-	@uv run python scripts/build_minimax_plugin.py --check
 
 .PHONY: integration-manifest-docs
 integration-manifest-docs: ## Generate the checked-in integration capability matrix pages.
