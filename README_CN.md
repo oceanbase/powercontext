@@ -22,48 +22,86 @@ PowerContext 让上下文跟随工作，跨越不同的对话。你回来时，�
 
 你决定哪些信息以后仍然有用，哪些内容需要随任务交给下一位接手者。PowerContext 把长期信息保存为 Memory，把当前目标和状态组织成 Handoff。你可以把能够复用的做法记录为 Experience 或 Skill。PowerContext 将每项内容限定在对应的工作范围内，并保留它的来源和历史版本。
 
-## 开始使用
+## 与你使用的 Agent 一起工作
 
-安装发布版和匹配的 Codex 集成。让 Server 在独立终端中持续运行：
+安装最新发布的 [PowerContext](https://pypi.org/project/powercontext/)：
 
 ```bash
 uv tool install "powercontext[cli,server]==0.2.0"
+```
+
+在单独的终端中启动本地 Server：
+
+```bash
 powercontext server run
 ```
 
-在另一个终端执行：
+Server 默认将上下文保存到本地 SQLite 数据库。
+
+然后从同一个发布版本配置 Agent 集成。例如：
 
 ```bash
 powercontext setup codex --ref powercontext-v0.2.0
 ```
 
-需要 Python 3.11+。支持 macOS 和 Linux；Windows 为 `experimental`。
-当前 `master`、其他宿主和验证步骤见 [Quick Start](docs/zh/docs/get-started/quickstart.md)与
-[安装指南](docs/zh/docs/get-started/install-and-run.md)。包和集成应保持相同 ref。
+PowerContext 工具与 Agent 集成应始终使用同一个 Git ref。`master` 安装、其他 Agent 和个人服务配置见
+[Quick Start](https://powercontext.oceanbase.io/zh/docs/get-started/quickstart/)和
+[安装指南](https://powercontext.oceanbase.io/zh/docs/get-started/install-and-run/)。
+需要 Python 3.11+。支持 macOS 和 Linux；Windows 支持为 `experimental`。
 
-## 集成
+Codex 标为 `official`，其他宿主及 Python Agent 框架标为 `community`，Bub 标为 `evaluation`，仅用于评测。
+这些标签表示 PowerContext 集成的维护归属和用途，具体功能及可用状态见
+[能力矩阵](https://powercontext.oceanbase.io/zh/docs/integrations/capabilities/)。
 
-| 类型 | 集成 | 标签 |
-| --- | --- | --- |
-| Agent Host | Codex | `official` |
-| Agent Hosts | Claude Code、DeepSeek Harness、Hermes、OpenClaw、OpenCode、Pi、WorkBuddy | `community` |
-| Python Agent 框架 | Pydantic AI、LangChain、LangGraph | `community` |
-| 评测 | Bub | `evaluation` |
+<table>
+<tr>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/codex.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/codex-color.png?size=120" alt="Codex" width="48" height="48" /><br /><sub><b>Codex</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/claude-code.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/claudecode-color.png?size=120" alt="Claude Code" width="48" height="48" /><br /><sub><b>Claude Code</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/dsh.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/deepseek-color.png?size=120" alt="DeepSeek Harness" width="48" height="48" /><br /><sub><b>DeepSeek Harness</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/hermes/README.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/hermesagent.png?raw=true&size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/hermesagent.png?raw=true&size=120" alt="Hermes Agent" width="48" height="48" /></picture><br /><sub><b>Hermes Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/pi.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/pi.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/pi.png?size=120" alt="Pi Coding Agent" width="48" height="48" /></picture><br /><sub><b>Pi Coding Agent</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/openclaw.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/openclaw-color.png?size=120" alt="OpenClaw" width="48" height="48" /><br /><sub><b>OpenClaw</b></sub></a></td>
+</tr>
+<tr>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/opencode.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/opencode.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/opencode.png?size=120" alt="OpenCode" width="48" height="48" /></picture><br /><sub><b>OpenCode</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/workbuddy/README.md"><img src="https://thesvg.org/icons/workbuddy/default.svg?size=120" alt="WorkBuddy" width="48" height="48" /><br /><sub><b>WorkBuddy</b></sub></a></td>
+<td align="center" width="120"><a href="integrations/bub/README.md"><img src="https://github.com/bubbuild.png?size=120" alt="Bub" width="48" height="48" /><br /><sub><b>Bub</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/pydantic-ai.md"><img src="https://thesvg.org/icons/pydantic/default.svg?size=120" alt="Pydantic AI" width="48" height="48" /><br /><sub><b>Pydantic AI</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/langchain.md"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langchain-color.png?size=120" alt="LangChain" width="48" height="48" /><br /><sub><b>LangChain</b></sub></a></td>
+<td align="center" width="120"><a href="docs/zh/docs/integrations/langgraph.md"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/dark/langgraph.png?size=120"><img src="https://raw.githubusercontent.com/lobehub/lobe-icons/refs/heads/master/packages/static-png/light/langgraph.png?size=120" alt="LangGraph" width="48" height="48" /></picture><br /><sub><b>LangGraph</b></sub></a></td>
+</tr>
+</table>
 
-`official` 表示 PowerContext 项目维护，`community` 表示社区贡献，`evaluation` 表示仅用于评测。
-标签不代表宿主厂商背书或各集成能力相同。接入见 [Plugins、MCP、Skills 与安装](docs/zh/docs/integrations/index.md)，
-`released`、`master_only` 和 `experimental` 状态见[能力矩阵](docs/zh/docs/integrations/capabilities.md)。
+应用还可以通过异步 Python Client、HTTP API、MCP 或进程内 Core SDK 使用 PowerContext。请参考[接口说明](https://powercontext.oceanbase.io/zh/docs/develop/interfaces/)选择入口。
 
-## 文档
+想用 Python 逐步体验？从 [22 篇 Jupyter 教程与完整团队工作流](examples/jupyter/README.md)开始，亲手运行 Memory、上下文、交接、Experience、Skill 和真实 Agent。前七篇不需要模型或 API Key。
 
-- [管理上下文](docs/zh/docs/workflows/index.md)：Memory、Handoff、Experience、Skill、Sources、Scope 和 Artifact。
-- [部署与运维](docs/zh/docs/operate/index.md)：个人服务、日志、指标、Tracing 与恢复。
-- [开发与 API](docs/zh/docs/develop/index.md)：HTTP、Python 与应用接入。
-- [基准测试](https://powercontext.oceanbase.io/zh/benchmarks/)：方法、结果与限制。
-- [参与贡献](CONTRIBUTING.md)。
+## 使用 PowerContext 后有什么变化
 
-PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后继项目。
+![PowerContext 在 LoCoMo 和 SWE-bench Pro 上的紧凑对比图](docs/assets/readme-benchmark-summary.svg)
+
+这些对比的评测方法、完整结果和适用边界请见[官网评测页](https://powercontext.oceanbase.io/zh/benchmarks/)。
+
+## 参与构建 PowerContext
+
+```bash
+make install
+make check
+make test
+```
+
+完整开发流程请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 进一步了解
+
+- [开始使用](https://powercontext.oceanbase.io/zh/docs/get-started/)
+- [接入 Agent](https://powercontext.oceanbase.io/zh/docs/integrations/)
+- [管理上下文](https://powercontext.oceanbase.io/zh/docs/workflows/)
+- [部署与运维](https://powercontext.oceanbase.io/zh/docs/operate/)
+- [开发与 API](https://powercontext.oceanbase.io/zh/docs/develop/)
+
+PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
 
 ## 许可证
 
-PowerContext 使用 [Apache License 2.0](LICENSE) 许可证。
+PowerContext 基于 [Apache License 2.0](LICENSE) 发布。
