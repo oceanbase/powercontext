@@ -1,0 +1,10 @@
+{
+  "title": "\u5f00\u59cb\u4f7f\u7528",
+  "pages": [
+    "quickstart",
+    "install-and-run",
+    "configure-server-environment",
+    "configure-models",
+    "core-concepts"
+  ]
+}

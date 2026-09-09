@@ -20,8 +20,8 @@ import pytest
 @pytest.mark.parametrize(
     "document",
     [
-        "docs/en/docs/how-to/full-capability-runtime.md",
-        "docs/zh/docs/how-to/full-capability-runtime.md",
+        "docs/en/docs/get-started/configure-models.md",
+        "docs/zh/docs/get-started/configure-models.md",
     ],
 )
 def test_full_capability_guide_binds_memory_evidence_to_the_captured_source(document: str) -> None:

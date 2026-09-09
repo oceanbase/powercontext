@@ -1,0 +1,10 @@
+{
+  "title": "Get started",
+  "pages": [
+    "quickstart",
+    "install-and-run",
+    "configure-server-environment",
+    "configure-models",
+    "core-concepts"
+  ]
+}

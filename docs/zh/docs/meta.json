@@ -1,10 +1,11 @@
 {
   "title": "\u6587\u6863",
   "pages": [
-    "tutorials",
-    "how-to",
-    "explanation",
-    "reference",
+    "get-started",
+    "integrations",
+    "workflows",
+    "operate",
+    "develop",
     "---API \u53c2\u8003---",
     "[HTTP API](/api)",
     "[Python API](/zh/modules)"

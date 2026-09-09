@@ -1,0 +1,22 @@
+{
+  "title": "\u63a5\u5165 Agent",
+  "pages": [
+    "---Plugins, MCP & Skills---",
+    "agent-plugin",
+    "---Agent Hosts---",
+    "codex",
+    "claude-code",
+    "dsh",
+    "hermes",
+    "openclaw",
+    "opencode",
+    "pi",
+    "workbuddy",
+    "---Python Agent \u6846\u67b6---",
+    "pydantic-ai",
+    "langchain",
+    "langgraph",
+    "---\u8bc4\u6d4b\u4e0e\u80fd\u529b---",
+    "capabilities"
+  ]
+}
