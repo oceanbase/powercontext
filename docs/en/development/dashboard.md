@@ -62,7 +62,7 @@ After opening a record, the user should be able to return to its collection. A n
 
 ### Source material supports checking in context
 
-The relationship between a source and its record should be clear. Wide screens can show them side by side; small screens use a drawer so the user can check the evidence and return to the record. Opening a source, switching sources and returning to the list need visible controls, with the same actions available from the keyboard.
+Sources appear after the record's text and can be opened directly from an experience, skill or handoff. They use Tabler's large modal, which fills the screen on smaller devices. A menu switches between sources. Closing the reader returns to the user's place in the record. The same actions are available from the keyboard.
 
 Source text can be long. Size its reading area to the viewport, keep the heading and close control reachable, and let the text scroll within that area. Opening a source should not lengthen the whole page until the user loses their place. If one source fails to load, the open record remains readable.
 
@@ -77,6 +77,8 @@ A stable layout reserves useful reading space without requiring every state to h
 ### Choose columns and scrolling to suit the available space
 
 Page containers, side margins and grid spacing follow Tabler's defaults. Use columns when both sides have enough width for reading. Stack them in order when space is limited, rather than reducing body text size to retain a split view.
+
+On smaller screens, memories expand within the list. Opening another entry closes the previous one. Desktop screens use a directory beside the text. Search results follow the same reading pattern. Previous, current page and next controls remain visible, with unavailable directions disabled.
 
 Lists usually scroll with the page, with the entries on each page directly visible. Local scrolling suits long text, source panels and wide tables where it helps preserve context. Add a scroll region when it helps the user keep their place, not merely to make cards look even.
 
@@ -106,7 +108,7 @@ Jinja2 organizes content and page structure; HTMX handles navigation and fragmen
 
 Define component boundaries around shared user behavior. Scope selection works the same way on every page, charts and summaries share statistical meaning, and source readers share opening, return and recovery behavior. Keep data interpretation separate from interface interaction so changing the presentation of one record type does not affect unrelated pages.
 
-Departures from framework defaults need a specific reason. For example, replacing a page fragment may remove a drawer before it finishes closing, requiring cleanup through the component's public API. Additional code should address that side effect and have a corresponding behavior test. Routine menu positioning and visibility across breakpoints remain the framework's responsibility.
+Departures from framework defaults need a specific reason. For example, replacing a page fragment may remove a modal before it finishes closing, requiring cleanup through the component's public API. Additional code should address that side effect and have a corresponding behavior test. Routine menu positioning and visibility across breakpoints remain the framework's responsibility.
 
 ## How to evaluate the design
 
