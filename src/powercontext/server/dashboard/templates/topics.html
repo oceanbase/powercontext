@@ -15,6 +15,7 @@
 -->
 
 {% from 'components/page-heading.html' import page_heading %}
+{% from 'components/pagination.html' import pagination %}
 {{ page_heading(t.topic_memory, t.topics_subtitle) }}
 
 <form class="mb-4" action="/dashboard/topics" method="get" role="search" aria-label="{{ t.search_topic_memory }}">
@@ -31,11 +32,12 @@
         <div class="d-flex justify-content-between gap-2"><strong>{{ item.title }}</strong><code>@{{ item.artifact.revision }}</code></div><p class="text-secondary mb-0 mt-1">{{ item.summary|truncate(140, true) }}</p>
       </a>{% endfor %}</div>
     {% else %}<div class="card-body"><h3>{{ t.topic_memory_empty }}</h3><p class="text-secondary mb-0">{{ t.topic_memory_empty_body }}</p></div>{% endif %}
+    {{ pagination(topic_memory_pager, t) }}
   </div></section>
   <section class="col-lg-7" aria-labelledby="topic-detail-heading"><div class="card"><div class="card-body">
     {% if errors.get('topic_memory_selected') %}{{ read_error(errors.topic_memory_selected, t.topic_memory) }}
     {% elif data.topic_memory_selected %}{% set topic = data.topic_memory_selected %}
-      <div class="d-flex justify-content-between gap-3"><div><h2 class="card-title mb-1" id="topic-detail-heading">{{ topic.title }}</h2><code>topic-memory/{{ topic.artifact.artifact_id }}@{{ topic.artifact.revision }}</code></div><span class="badge bg-green-lt">{{ t.current_revision }}</span></div>
+      <div class="d-flex justify-content-between gap-3"><div><h2 class="card-title mb-1" id="topic-detail-heading">{{ topic.title }}</h2><code>topic-memory/{{ topic.artifact.artifact_id }}@{{ topic.artifact.revision }}</code></div><span class="badge {{ 'bg-green-lt' if topic.is_current else 'bg-yellow-lt' }}">{{ t.current_revision if topic.is_current else t.historical_revision }}</span></div>
       <p class="text-secondary mt-3">{{ topic.summary }}</p><h3>{{ t.full_detail }}</h3><pre class="page-body-pre text-break">{{ topic.detail }}</pre>
       <hr><h3>{{ t.source_references }}</h3>{% if topic.source_refs %}<ul>{% for source in topic.source_refs %}<li><code>{{ source.name }}/{{ source.source_id }}</code></li>{% endfor %}</ul>{% else %}<p class="text-secondary">{{ t.no_sources }}</p>{% endif %}
     {% else %}<div class="empty"><h2>{{ t.select_topic }}</h2><p class="empty-subtitle text-secondary">{{ t.select_topic_hint }}</p></div>{% endif %}

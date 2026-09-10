@@ -11,6 +11,7 @@
   "select_topic": "Select a topic to inspect its exact revision",
   "select_topic_hint": "Full detail, publication state and source references appear here.",
   "current_revision": "Current revision",
+  "historical_revision": "Historical revision",
   "full_detail": "Full detail",
   "source_references": "Source references",
   "no_sources": "No direct Source references",

@@ -160,14 +160,14 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
     elif page == "usage":
         await load_stats(api, ctx)
     elif page == "topics":
-        await load_topics(api, ctx)
+        await load_topics(api, request, ctx)
     elif page == "profile":
         await load_profile(api, ctx)
     elif page in RECORDS:
         await load_record(api, request, ctx)
 
 
-async def load_topics(api: DashboardAPI, ctx: dict[str, Any]) -> None:
+async def load_topics(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
     """Load Topic Memory browse/search results and an exact selected revision."""
     query = ctx["artifact_query"]
     if query:
@@ -183,7 +183,11 @@ async def load_topics(api: DashboardAPI, ctx: dict[str, Any]) -> None:
             ctx["errors"]["topic_memory"] = error
     else:
         try:
-            ctx["data"]["topic_memory"] = (await api.topic_memory_browse(ctx["scope"]))["items"]
+            result = await api.topic_memory_browse(
+                ctx["scope"], cursor=request.query_params.get("topic_memory_cursor")
+            )
+            ctx["data"]["topic_memory"] = result["items"]
+            ctx["topic_memory_pager"] = cursor_links(request, ctx, "topic_memory", result["next_cursor"])
         except ReadError as error:
             ctx["errors"]["topic_memory"] = error
     if ctx["topic_artifact"] and ctx["topic_revision"]:

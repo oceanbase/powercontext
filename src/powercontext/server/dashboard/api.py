@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from contextlib import suppress
 from typing import Any
@@ -29,6 +30,8 @@ from pydantic import ValidationError
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.topic_memory import TopicMemoryBrowseCursor
+from powercontext.builtin.runtime import GetTopicMemoryRequest
 from powercontext.server.dashboard.session import authentication_headers
 
 CONTENT_MODELS = {"handoff": HandoffContent, "experience": ExperienceContent, "skill": SkillContent}
@@ -152,13 +155,43 @@ class DashboardAPI:
         return await self.read(f"/v1/scopes/{segment(scope)}/profile-policy")
 
     async def topic_memory_get(self, scope: str, artifact: dict[str, Any]) -> dict[str, Any]:
-        return await self.read("/v1/topic-memory/get", {"scope_id": scope, "artifact": artifact})
+        result = await self.read("/v1/topic-memory/get", {"scope_id": scope, "artifact": artifact})
+        application = getattr(self.app.state, "application", None)
+        if application is not None:
+            published = await application.topic_memory.for_scope(scope).get(
+                GetTopicMemoryRequest.model_validate({"artifact": artifact})
+            )
+            result["is_current"] = published.is_current
+            result["current_artifact"] = published.current_artifact.model_dump(mode="json")
+        return result
 
-    async def topic_memory_browse(self, scope: str, *, limit: int = 50) -> dict[str, Any]:
+    async def topic_memory_browse(self, scope: str, *, limit: int = 50, cursor: str | None = None) -> dict[str, Any]:
         application = getattr(self.app.state, "application", None)
         if application is None:
             raise ReadError(503, "service_unavailable")
-        items = await application.topic_memory.for_scope(scope).browse(limit=limit)
+        after = None
+        if cursor:
+            try:
+                encoded = cursor + "=" * (-len(cursor) % 4)
+                after = TopicMemoryBrowseCursor.model_validate_json(
+                    base64.urlsafe_b64decode(encoded.encode()).decode()
+                )
+            except (ValueError, TypeError) as error:
+                raise ReadError(422, "invalid_request") from error
+        items = await application.topic_memory.for_scope(scope).browse(limit=limit, after=after)
+        next_cursor = None
+        if len(items) == limit and items:
+            last = items[-1]
+            next_cursor = base64.urlsafe_b64encode(
+                json.dumps(
+                    {
+                        "published_at": last.published_at.isoformat(),
+                        "artifact_id": last.artifact_ref.artifact_id,
+                        "revision": last.artifact_ref.revision,
+                    },
+                    separators=(",", ":"),
+                ).encode()
+            ).decode().rstrip("=")
         return {
             "items": [
                 {
@@ -167,5 +200,5 @@ class DashboardAPI:
                 }
                 for item in items
             ],
-            "next_cursor": None,
+            "next_cursor": next_cursor,
         }
