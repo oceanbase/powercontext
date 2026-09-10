@@ -5,7 +5,9 @@ description: PowerContext 路径、Server、Client 和推理环境变量。
 
 # 配置选项
 
-Windows 支持为 `experimental`。
+本页汇总公开的部署配置；模型 provider 的凭据由对应 SDK 读取，见[配置模型](../get-started/configure-models.md)。
+以下 shell 示例适用于 Bash/Zsh。Windows 支持为 `experimental`；在 PowerShell 中请使用 `$env:变量名 = '值'`
+设置当前进程环境变量，或使用[配置 Server 环境](../get-started/configure-server-environment.md)中的环境文件流程。
 
 PowerContext 进程启动时从环境变量读取配置。当前工作目录存在 `.env` 时，`server run` 会自动加载该文件。使用
 `--env-file <path>` 可改为加载指定文件且不再合并 `.env`；使用 `--no-env-file` 可禁用文件加载。`server run` 的配置
@@ -29,14 +31,17 @@ export POWERCONTEXT_HOME=/srv/powercontext
 
 - Linux：`$XDG_DATA_HOME/powercontext`，未设置时为 `~/.local/share/powercontext`；
 - macOS：`~/Library/Application Support/powercontext`；
-- Windows：`%LOCALAPPDATA%\\powercontext`。
+- Windows：`%LOCALAPPDATA%\powercontext`。
 
 默认 SQLite 数据库是该目录下的 `powercontext.db`。四类后台处理器的意图与调度检查点保存在同一数据库中。
-已有部署须先完成[停机迁移](artifact-processing-migration.md)。
+从旧 Topic Memory 后台处理实现升级已有数据库，或切换 Supervisor 的 `global`/`dedicated` 模式时，
+须先完成[停机迁移](artifact-processing-migration.md)。全新空数据库自动初始化；仅调整调度周期、Worker 数量或超时无需模式迁移。
 
 ## Server
 
 Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
+
+### 监听与访问控制
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
@@ -56,38 +61,20 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | 显式允许远端技能接收端接口和注册引导使用明文 HTTP |
 | `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK` | `false` | 在鉴权关闭时显式允许绑定非 loopback 地址 |
 | `POWERCONTEXT_SERVER_HANDOFF_REPORT_ENABLED` | `true` | 启用 Handoff Report 及其 API route |
-| `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | operational log 级别 |
-| `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` 或结构化 `json` 输出 |
-| `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | 记录外部 HTTP 和逻辑 MCP request completion |
-| `POWERCONTEXT_SERVER_METRICS_ENABLED` | `true` | 在 `/metrics` 暴露 Prometheus metrics |
-| `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | 启用 span recording 和 OTLP export |
 | `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` | 本地持久化密钥 | 用于签名 REST 分页 cursor 的共享密钥，至少 32 字节 |
+
+### 数据库
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekDB 不设置 |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekDB 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
-| `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
-| `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
-| `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | 显式 `assembly.sections[].limit` 之和的上限；正整数，各类别单独上限仍适用 |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES` | `20` | 处理时考虑的历史 Topic 候选上限 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` | `70` | 归一化到 `0..100` 的 RRF 接受阈值 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | 达到阈值的候选过少时保证的最小历史召回数 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_MAX_WORKERS` | `10` | Topic 独立 Worker 额度；`ARTIFACT_PROCESSING_MAX_WORKERS` 是其兼容别名 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | 包括启动的 Scope 调用总超时；旧 `ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` 是其兼容别名 |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | 进程角色：`all`、`api` 或 `background` |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_SUPERVISOR_MODE` | `global` | `global` 一条 Lease；`dedicated` 每个注册 Family 一条 Lease |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | 根据模型推导 | JSON Family 列表；API 端可无模型凭据地声明处理能力 |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Memory 独立 Worker 额度 |
-| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_MAX_WORKERS` | `1` | Experience 独立 Worker 额度 |
-| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS` | `4` | Profile 独立 Worker 额度；别名 `PROFILE_MAX_CONCURRENCY` |
-| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
-| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
-| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Profile Scope 总超时 |
+
+### 模型与推理
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation client 静态 header JSON object；value 按 secret 处理 |
@@ -105,13 +92,87 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_TIMEOUT_SECONDS` | `30` | 单次 embedding 请求的超时秒数 |
 | `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_BATCH_SIZE` | `10` | 单次 embedding 请求最多发送的文本数量 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` | generation model | LLM rerank 可选的独立 Pydantic AI model |
-| `POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL` | 继承值或 provider 默认值 | 自定义 LLM reranker provider base URL |
+| `POWERCONTEXT_SERVER_INFERENCE_RERANK_BASE_URL` | 继承值或 provider 默认值 | 自定义 LLM reranker provider base URL；必须同时设置 `RERANK_MODEL` |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_HEADERS` | `{}` | LLM reranker client 静态 header JSON object；value 按 secret 处理 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS` | `{}` | Pydantic AI reranker model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_TIMEOUT_SECONDS` | generation 超时 | LLM reranker 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
-| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 自动准入间隔；未设置时保留已接受工作，停止新的自动准入 |
+
+### Runtime 与后台调度
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
+| `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | 显式 `assembly.sections[].limit` 之和的上限；正整数，各类别单独上限仍适用 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小，整数 1～100 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动调度间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动调度间隔；未设置时不接纳新的自动调用 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES` | `20` | 处理时考虑的历史 Topic 候选上限 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` | `70` | 归一化 RRF 接受阈值，整数 0～100 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | 达到阈值的候选过少时保证的最小历史召回数；不得大于 `HISTORY_MAX_CANDIDATES` |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_MAX_WORKERS` | `10` | Topic 独立最大并发 Worker 数；`ARTIFACT_PROCESSING_MAX_WORKERS` 是其兼容别名 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | 包括启动的 Scope 调用总超时；旧 `ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` 是其兼容别名 |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | `all`、`api` 或 `background`；SQLite 与嵌入式 seekDB 仅支持 `all`，OceanBase 支持拆分角色 |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_SUPERVISOR_MODE` | `global` | `global` 一条 Lease；`dedicated` 每个注册 Family 一条 Lease |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | 根据模型推导 | JSON Family 列表；API 端可无模型凭据地声明处理能力 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Memory 独立最大并发 Worker 数 |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_MAX_WORKERS` | `1` | Experience 独立最大并发 Worker 数 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS` | `4` | Profile 独立最大并发 Worker 数；别名 `PROFILE_MAX_CONCURRENCY` |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Profile Scope 总超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 自动调度间隔；未设置时保留已接受工作，停止新的自动准入 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED` | `false` | 启用 Profile 自动调度；关闭后仍保留已接受的工作 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_CRON` | `0 2 * * *` | Profile 调度的五字段 cron 表达式，默认每天 02:00，按 `PROFILE_TIMEZONE` 解释 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_TIMEZONE` | `Asia/Shanghai` | Profile 调度使用的 IANA 时区 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_SOURCES_PER_WINDOW` | `32` | Profile 每个窗口最多处理的 Source 数量，整数 1～32 |
+
+### 日志、指标与 tracing
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | operational log 级别 |
+| `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` 或结构化 `json` 输出 |
+| `POWERCONTEXT_SERVER_LOGGING_ACCESS` | `true` | 记录外部 HTTP 和逻辑 MCP request completion |
+| `POWERCONTEXT_SERVER_METRICS_ENABLED` | `true` | 在 `/metrics` 暴露 Prometheus metrics |
+| `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | 启用 span recording 和 OTLP export |
+
+### Agent Skill 目标配置
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
+
+## 配置规则与示例
+
+### 值类型与关联配置
+
+布尔值使用 `true` 或 `false`。headers、model settings 和 `EXTERNAL_SKILLS` 使用 JSON 对象，
+`ARTIFACT_PROCESSING_FAMILIES` 使用 JSON 数组；不能用逗号分隔字符串代替 JSON。
+
+以下示例设置模型输出上限，需要先按[配置模型](../get-started/configure-models.md)配置 generation model：
+
+```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"max_tokens":4096}'
+```
+
+未设置 `ARTIFACT_PROCESSING_FAMILIES` 时，根据模型配置推导处理能力；显式设置空数组会关闭内置后台 Family：
+
+```bash
+export POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES='[]'
+```
+
+该空数组适用于不需要内置后台处理的部署，不应添加到需要后台提取的示例中。Generation 的 base URL、headers 和
+model settings 要求先配置 generation model；Embedding 的 model、profile ID、dimension 必须一起设置，覆盖其
+base URL、headers 或 model settings 也要求完整的 embedding 配置。关联配置不完整时会在启动校验阶段报错。
+
+表格中的 JSON 默认值表示字段本身未配置时的值；rerank 最终生效值还受下文的继承规则影响。
+
+### Topic Memory 处理限制
 
 Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
 64,000,000 个估算 token 容量单位。Window 的 canonical evidence（包含 metadata）最多 4,194,304 个字符，并限制
@@ -126,10 +187,14 @@ background、隐藏历史、native tools 和 `extra_body` 会使 Topic 处理不
 `openai-responses`、`anthropic`、`azure`、`azure-responses`、`deepseek`、`openrouter`，以及本地 `test` 模型；Embedding
 还必须受其 SDK adapter 支持。Topic 禁用 SDK transport 重试和自动 continuation，非 Topic 推理保留既有设置行为。
 
+### 分页 cursor 签名
+
 未设置 cursor 签名密钥时，使用文件 SQLite 的 Server 会在数据库旁创建权限受限的密钥文件；其他持久化后端会在
 PowerContext 用户数据目录创建密钥。内存 SQLite 使用进程内密钥。多副本部署必须为所有副本配置相同的
 `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET`，这样重启或下一请求落到其他副本后，已签发 cursor 仍然有效。
 在已签发 cursor 仍需有效期间，不要泄漏或轮换该值。
+
+### 访问控制与传输安全
 
 Access Control 默认关闭。在 `enforced` 模式下，API 和 MCP 请求必须通过所选 Authentication Provider 建立 Principal；
 liveness 和 readiness endpoint 仍然公开。内置 `static-bearer` Provider 接受
@@ -171,17 +236,9 @@ Supervisor 实例重建而重置。
 导出和安装不再引入单独的 Access action：接收者先获得逻辑 Skill identity 上的 `artifact.read`，再自行决定是否以及如何
 安装一个精确 Revision。
 
-内置 Access schema 使用配置好的 SQLite、seekDB 或 OceanBase，但由 Server 独立持有，不进入 Runtime 领域。自定义部署
-可以向 `create_server_app` 注入 `AccessControlService`。内置的可写外部 adapter `CasbinAuthorizationProvider` 使用
-embedded Casbin 判定固定 action vocabulary，并把 canonical Binding Store 作为持久化 adapter，因此在不维护第二份影子
-策略的前提下支持 point/batch check、safe resource filter、create/revoke、过期和 CAS。组装时将它同时作为 decision
-provider 与 `relationships`，relational repository 仍作为 audit store。
-
-`AuthZenAuthorizationProvider` 是对接 OpenID AuthZEN Authorization API 1.0 `evaluation`/`evaluations` endpoint 的
-decision-only adapter。其 capability 应配置为 `multi_requirement_check=true`、`relationship_management=false` 和
-`safe_resource_filtering=false`；此时 self-service Binding mutation 和授权资源列表会返回 503，而不会虚报不安全的能力。
-该 adapter 只接受 HTTPS endpoint 或 loopback HTTP，拒绝 URL 内嵌 credential，也不会把 PDP response body 或原始错误
-暴露出去。authentication middleware 仍必须绑定不透明的 `PrincipalRef`；`scope_id` 只用于资源分区，不能建立身份。
+内置 Access schema 使用配置好的 SQLite、seekDB 或 OceanBase，由 Server 独立管理。
+自定义 Authentication/Authorization Provider、Casbin 和 AuthZEN adapter 的接入方式及能力限制见
+[RFC 1396：访问控制](../../rfcs/1396_handoff_access_control.md)。
 
 Python Client 和 CLI 对一般出站请求应用相同规则：配置的明文 `http://` Server URL 仅接受 loopback 主机；远端 Skill
 Receiver 的内部 PoC 显式例外见下文。当代码的 `http://` base URL 只是路由标签、实际传输是安全的，例如进程内 ASGI
@@ -190,13 +247,16 @@ Receiver 的内部 PoC 显式例外见下文。当代码的 `http://` base URL �
 
 安全的 Docker 和远程访问配置见[部署 Server](deploy-server.md)。
 
+### Workspace 与远端技能接收端
+
 Server 默认把启动目录作为 workspace，并自动提供两个可写的本机项目级目标：Codex 使用
 `<workspace>/.agents/skills`，Claude Code 使用 `<workspace>/.claude/skills`。目录不存在时不会报错，只有显式发布操作
 才会创建目录。以 systemd、容器或其他不保证工作目录的方式启动时，应设置一次
 `POWERCONTEXT_SERVER_WORKSPACE`。
 
 远端技能接收端需要通过稳定的外部入口连接时，在 Server 上配置
-`POWERCONTEXT_SERVER_PUBLIC_URL`。否则注册命令可以使用远端命令行已经配置的服务地址。
+`POWERCONTEXT_SERVER_PUBLIC_URL`。该值仅声明外部可达地址，不会修改 `HTTP_HOST` 或 `HTTP_PORT`；
+直连时端口应与监听端口一致，使用反向代理时则填写代理入口。否则注册命令可以使用远端命令行已经配置的服务地址。
 
 一期 PoC 如果运行在受保护的内部测试网络，可以让 Server 和 Receiver 双端显式同意直连 HTTP：Server 设置
 `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`，并用 `POWERCONTEXT_SERVER_PUBLIC_URL` 公布 `http://` 地址；
@@ -208,6 +268,7 @@ unit 文件不需要保存凭据或额外参数。该开关不提供 TLS、网�
 
 ```bash
 export POWERCONTEXT_SERVER_HTTP_HOST=0.0.0.0
+export POWERCONTEXT_SERVER_HTTP_PORT=8765
 export POWERCONTEXT_SERVER_PUBLIC_URL=http://powercontext.internal.example:8765
 export POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true
 export POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK=true
@@ -223,6 +284,13 @@ Server 级 Bearer token 时可达。部署条件允许时，应优先启用鉴�
 
 Handoff Report API route 独立默认启用。Selection、检查和导出步骤见
 [使用 Handoff Report](../workflows/use-handoff-report.md)。
+
+### 后台进程与调度
+
+`MEMORY_SCHEDULE_SECONDS`、`TOPIC_MEMORY_SCHEDULE_SECONDS` 和 `EXPERIENCE_SCHEDULE_SECONDS` 的单位为秒，
+设置时必须大于 `0`。关闭自动调度时应移除对应配置，不能用 `0` 代替；已接受的工作仍会恢复执行。
+Profile 使用独立的 `PROFILE_SCHEDULE_ENABLED`、`PROFILE_CRON` 和 `PROFILE_TIMEZONE`，
+配置示例见[使用 Profile](../workflows/use-profiles.md)。
 
 默认 `all` 角色会启动 Artifact Processing Supervisor。OceanBase 部署可以拆分 `api` 和 `background`；
 `powercontext server run --role background` 不启动 HTTP、MCP 或 Dashboard listener，多个后台候选者通过数据库 Lease
@@ -240,23 +308,20 @@ Memory/Experience 检索投影；Topic 索引校验与发布守卫仍然执行�
 profile，应使用相同配置重新打开已有 Runtime；旧 Runtime 会以 retrieval-shape 错误拒绝 Topic 搜索、精确读取和
 当前 Head 浏览，而不是读取另一个向量空间。
 
-普通 Runtime 启动会初始化并恢复所配置的检索索引。Topic Worker 复用该数据库，不再为每个 Window 重建无关的
-Memory/Experience 检索投影；Topic 索引校验与发布守卫仍然执行。如果空库切换了 Topic 检索形态或 Embedding
-profile，应使用相同配置重新打开已有 Runtime；旧 Runtime 会以 retrieval-shape 错误拒绝 Topic 搜索、精确读取和
-当前 Head 浏览，而不是读取另一个向量空间。
-
 指定 SQLite 路径并启用定时提取的示例：
 
 ```bash
 export POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:////srv/powercontext/runtime.db
-export POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=30
+export POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS=30
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:model-name
 powercontext server run
 ```
 
 `OPENAI_API_KEY` 等 provider 凭据由所配置的推理 provider 读取。不要把密钥放入命令行参数、文档或
 Memory。请把 `provider:model-name` 替换为 Pydantic AI 支持的模型标识。定时提取需要同时配置 generation
-model 和 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`；显式 Memory 写入不需要这两项配置。
+model 和 `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS`；显式 Memory 写入不需要这两项配置。
+
+### Memory 抽取与 rerank
 
 默认的 `coding` 抽取 profile 保留跨任务工作上下文，例如偏好、决策、约束、昂贵事实和未完成进度。当产品
 需要从对话证据中保留可独立回答的人物事实、关系、事件、精确日期、列表和历史状态时，可选择
@@ -283,8 +348,12 @@ search request 最终 `limit` 的结果。它不会修改已存储 Memory 或索
 [RFC 0080](/zh/rfcs/0080_memory_search_reranking/)。
 
 内置 reranker 是 LLM listwise reranker，不是独立的 cross-encoder protocol。默认复用 generation model 及其 provider
-settings。设置 `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 后，该 LLM operation 可以使用独立的 model、base URL、
-headers、settings、timeout 和 request limit。
+settings。未设置 `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL` 时，rerank headers 和 model settings 会覆盖合并到
+对应的 generation 配置中。设置独立的 `RERANK_MODEL` 后，不再继承 generation 的 base URL、headers 和 model settings；
+其中 base URL 默认由 provider 决定，headers 和 model settings 默认是空对象。设置 `RERANK_BASE_URL` 必须同时设置
+`RERANK_MODEL`。两种模式下，未设置 rerank timeout 和 request limit 时，均继承 generation 的对应值。
+
+### Experience 与 Skill 推理
 
 同一个 generation model 也控制显式 Experience generation、managed Skill generation，以及语义化的 Skill
 fork/evolution。External Skill 精确导入和完整 package 上传不使用模型：PowerContext 会校验并保存 canonical package
@@ -350,6 +419,8 @@ host contract。已有的
 command name 对比，并返回带原因的 Assessment。Assessment 不会授予 network、filesystem、dependency install 或
 environment 访问权。
 
+### Tracing 导出
+
 Server 始终创建 non-recording OpenTelemetry request context，从 inbound span 派生 `X-PowerContext-Request-ID`。如需为
 CLI 管理的 Server 启用 recording 和 export，请安装 `powercontext[cli,server,tracing-otlp]`、启用 tracing，
 并使用 `OTEL_EXPORTER_OTLP_ENDPOINT`、`OTEL_EXPORTER_OTLP_HEADERS` 和 `OTEL_SERVICE_NAME` 等标准
@@ -359,6 +430,8 @@ OpenTelemetry 环境变量进行配置。不使用 `powercontext` command 的 pr
 启用 tracing 后，PowerContext 自己构造的 generation 与 embedding 调用也会产生 span，且不记录 prompt、模型响应、
 Memory 内容或向量。可运行的配置见 [用 Phoenix 查看 trace](trace-with-phoenix.md)；需要通过
 `OTEL_EXPORTER_OTLP_HEADERS` 为 exporter 鉴权的后端示例见 [用 Langfuse 查看 trace](trace-with-langfuse.md)。
+
+### OceanBase 连接
 
 使用 OceanBase 时，通过环境或 secret manager 提供 URL：
 
