@@ -15,8 +15,27 @@
  */
 
 import { createFromSource } from 'fumadocs-core/search/server';
+import { notFound } from 'next/navigation';
+import { isLanguage, languages } from '@/lib/i18n';
 import { source } from '@/lib/source';
 
 export const dynamic = 'force-static';
+export const dynamicParams = false;
 
-export const { staticGET: GET } = createFromSource(source);
+export function generateStaticParams() {
+  return languages.map((lang) => ({ lang }));
+}
+
+export async function GET(_request: Request, { params }: { params: Promise<{ lang: string }> }) {
+  const { lang } = await params;
+  if (!isLanguage(lang)) notFound();
+
+  const search = createFromSource({
+    ...source,
+    getPages: () => source.getPages(lang),
+  }, {
+    sort: { enabled: false },
+  });
+
+  return search.staticGET();
+}
