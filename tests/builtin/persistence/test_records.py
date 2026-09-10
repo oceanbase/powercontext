@@ -432,12 +432,12 @@ def test_artifact_create_is_atomic_and_binds_its_system_source() -> None:
                 projection = (await connection.execute(select(MEMORY_ENTRY_HEADS_TABLE))).mappings().one()
                 assert projection["searchable_text"]
 
+            stored_memory = await records.get_artifact("scope-a", "memory", created.artifact_id)
+            foreign = artifacts.draft("memory", stored_memory.content, sources=created.sources)
             async with profile.database.transaction() as connection:
                 assert await connection.scalar(select(func.count()).select_from(SOURCES_TABLE)) == 1
                 assert await connection.scalar(select(func.count()).select_from(ARTIFACTS_TABLE)) == 1
                 assert await connection.scalar(select(func.count()).select_from(ARTIFACT_HEADS_TABLE)) == 1
-                stored_memory = await records.get_artifact("scope-a", "memory", created.artifact_id)
-                foreign = artifacts.draft("memory", stored_memory.content, sources=created.sources)
                 with pytest.raises(SourceNotEligibleError):
                     await artifacts.create(connection, "scope-a", "mem-foreign", foreign)
 

@@ -516,8 +516,8 @@ const OPERATIONS = {
 		scopeMode: "current",
 		pathParameters: [],
 		queryParams: [],
-		headerParams: [],
-		successStatuses: [200],
+		headerParams: ["Prefer"],
+		successStatuses: [200, 202],
 		emptyStatuses: []
 	},
 	remember_memory: {
@@ -944,6 +944,56 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "selection",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_operations: {
+		method: "GET",
+		path: "/v1/operations",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [
+			"scope_id",
+			"kind",
+			"status",
+			"cursor",
+			"limit"
+		],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_operation: {
+		method: "GET",
+		path: "/v1/operations/{operation_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["operation_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	cancel_operation: {
+		method: "POST",
+		path: "/v1/operations/{operation_id}/cancel",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["operation_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	retry_operation: {
+		method: "POST",
+		path: "/v1/operations/{operation_id}/retry",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["operation_id"],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],

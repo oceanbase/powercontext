@@ -29,8 +29,14 @@ from powercontext.builtin.artifacts.experience import Experience, ExperienceCont
 from powercontext.builtin.artifacts.skill import Skill, SkillContent
 from powercontext.builtin.persistence.artifact_governance import ArtifactLifecycleState
 from powercontext.builtin.persistence.experience_index import ensure_artifact_head_searchable_text
-from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, BUILTIN_TABLES
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_HEADS_TABLE,
+    BUILTIN_TABLES,
+    MEMORY_TABLES,
+    SHARED_TABLES,
+    STATISTICS_TABLES,
+)
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.sources import ContentCapture
 
@@ -63,21 +69,29 @@ def test_artifact_head_search_projection_schema_is_mysql_compilable() -> None:
 
 def test_sqlite_startup_upgrades_legacy_artifact_heads_without_searchable_text(tmp_path) -> None:
     database = tmp_path / "legacy.db"
-    with sqlite3.connect(database) as connection:
-        connection.execute(
-            """
-            CREATE TABLE pc_artifact_heads (
-                scope_id VARCHAR(256) NOT NULL,
-                family VARCHAR(128) NOT NULL,
-                artifact_id VARCHAR(128) NOT NULL,
-                revision INTEGER NOT NULL,
-                PRIMARY KEY (scope_id, family, artifact_id)
-            )
-            """
-        )
 
     async def scenario() -> None:
-        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"))
+        sqlite_config = SQLiteConfig(url=f"sqlite+aiosqlite:///{database}")
+        config = BuiltinConfig(database=sqlite_config)
+        async with SQLiteProfile.open(
+            sqlite_config,
+            tables=SHARED_TABLES + MEMORY_TABLES + STATISTICS_TABLES,
+        ):
+            pass
+        with sqlite3.connect(database) as connection:
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.execute("DROP TABLE pc_artifact_heads")
+            connection.execute(
+                """
+                CREATE TABLE pc_artifact_heads (
+                    scope_id VARCHAR(256) NOT NULL,
+                    family VARCHAR(128) NOT NULL,
+                    artifact_id VARCHAR(128) NOT NULL,
+                    revision INTEGER NOT NULL,
+                    PRIMARY KEY (scope_id, family, artifact_id)
+                )
+                """
+            )
         for _ in range(2):
             async with (
                 open_builtin_contexts(config) as contexts,

@@ -11,7 +11,7 @@ docker build \
   .
 ```
 
-Run the Server with persistent SQLite and scheduler data:
+Run the Server with persistent SQLite application and Work Ledger data:
 
 ```bash
 docker run --rm \
@@ -33,6 +33,11 @@ are cached for 300 seconds; `timeout` and `unavailable` results are retried afte
 requests share one refresh. Checks use the Runtime's credentials and never expose them in the response. Configure
 another database or inference provider with the same `POWERCONTEXT_SERVER_*` environment variables used by a regular
 Server installation.
+
+For a role-separated OceanBase topology, use `docker/compose.distributed.yaml` as a deployment template. It runs a
+one-shot migrator, two API replicas, two fenced Scheduler replicas, and two lease-based Worker replicas. Replace the
+example database credentials, authentication token, and provider configuration before starting it; only Workers need
+model credentials.
 
 ## Network exposure
 

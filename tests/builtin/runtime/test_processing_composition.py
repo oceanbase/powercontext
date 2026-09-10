@@ -35,7 +35,7 @@ from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_PROCESSING_PENDING_TABLE,
     ARTIFACT_PROCESSING_SCHEMA_TABLE,
-    SHARED_TABLES,
+    BUILTIN_TABLES,
     SOURCE_JOURNAL_HEADS_TABLE,
 )
 from powercontext.builtin.runtime import BuiltinConfig, InferenceConfig, RuntimeConfig, composition
@@ -68,7 +68,7 @@ def _sqlite(path: Path) -> SQLiteConfig:
 async def _seed_partial_migration(config: BuiltinConfig) -> None:
     assert isinstance(config.database, SQLiteConfig)
     async with (
-        SQLiteProfile.open(config.database, tables=SHARED_TABLES) as profile,
+        SQLiteProfile.open(config.database, tables=BUILTIN_TABLES) as profile,
         profile.database.transaction() as connection,
     ):
         progress = await apply_processing_migration(connection, config_manifest=canonical_processing_manifest(config))
@@ -107,7 +107,7 @@ def test_nonempty_legacy_sqlite_is_rejected_without_importing_or_discarding_work
     async def scenario() -> None:
         database = _sqlite(tmp_path / "legacy.db")
         async with (
-            SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
+            SQLiteProfile.open(database, tables=BUILTIN_TABLES) as profile,
             profile.database.transaction() as connection,
         ):
             await connection.execute(insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project", position=2))
@@ -120,7 +120,7 @@ def test_nonempty_legacy_sqlite_is_rejected_without_importing_or_discarding_work
             async with open_builtin_runtime(BuiltinConfig(database=database), scheduler_path=tmp_path / "scheduler.db"):
                 pytest.fail("legacy work must not be accepted as a fresh database")
         async with (
-            SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
+            SQLiteProfile.open(database, tables=BUILTIN_TABLES) as profile,
             profile.database.transaction() as connection,
         ):
             assert await connection.scalar(select(ARTIFACT_PROCESSING_SCHEMA_TABLE.c.singleton)) is None
@@ -142,8 +142,8 @@ def test_partial_migration_refuses_split_role_startup(
         # Exercise the OceanBase role's real startup gate against a real SQLite
         # transaction. A failed gate must run before dialect-specific indexes.
         @asynccontextmanager
-        async def local_profile(_config, *, tables):
-            async with SQLiteProfile.open(database, tables=tables) as profile:
+        async def local_profile(_config, *, tables, create_schema=True):
+            async with SQLiteProfile.open(database, tables=tables, create_schema=create_schema) as profile:
                 yield profile
 
         monkeypatch.setattr(composition.OceanBaseProfile, "open", local_profile)

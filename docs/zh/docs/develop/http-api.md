@@ -85,6 +85,25 @@ curl --fail \
   "$POWERCONTEXT_URL/v1/memory/search"
 ```
 
+## 通过持久 Operation 执行 flush
+
+Memory flush 可以在当前请求内完成，也可以由任意 Worker 继续执行。不希望等待时，显式请求立即返回句柄：
+
+```bash
+curl --fail-with-body --include \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --header 'Prefer: respond-async' \
+  --header "$POWERCONTEXT_AUTH_HEADER" \
+  --data '{"scope_id":"project:example"}' \
+  "$POWERCONTEXT_URL/v1/memory/flush"
+```
+
+HTTP `200` 返回已经完成的 `FlushMemoryResponse`；HTTP `202` 返回 operation ID，并携带相对 `Location` 和
+`Retry-After` header。`Prefer: wait=N` 最多等待 30 秒。通过 `GET /v1/operations/{operation_id}` 轮询；取消 queued
+或 running operation，以及恢复被阻塞的 failed operation 时，必须把响应中的 `state_version` 作为
+`expected_version` 传回。同一逻辑窗口失败后，后续 flush 返回 `409 operation_blocked`，直到 operator retry 或 cancel。
+
 ## Scope 内的操作提示词
 
 操作提示词使用 `family=prompt`，遵循 Artifact 的 Scope 权限边界。启用 Access 后，创建提示词和生成示例需要
@@ -186,6 +205,7 @@ Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策�
 | 外部 Skill | `/v1/external-skills/*` | 扫描已配置 target，解析或导入 package |
 | Handoff Report | `/v1/handoff-reports/*` | 按 Scope selection 生成只读报告 |
 | 统计 | `/v1/stats` | 读取指定 scope 的使用统计 |
+| 持久 Operation | `/v1/operations/*` | 检查、列出、取消或恢复 Memory/Experience 后台任务 |
 
 完整路径、schema、限制和状态码以 OpenAPI 契约为准。高层工作流和 Python 示例见[接口](interfaces.md)。
 
@@ -209,6 +229,7 @@ Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策�
 | --- | --- |
 | `401` | Server 要求有效的 Bearer token |
 | `403` | 已认证 Principal 无权对目标资源执行请求的 action |
+| `429` | 共享请求窗口已耗尽；按 `Retry-After` 等待 |
 | `404` | 请求的不可变值不存在 |
 | `409` | 请求与当前不可变状态或 expected version 冲突 |
 | `413` | 选中的 Handoff Report 超过输出限制 |

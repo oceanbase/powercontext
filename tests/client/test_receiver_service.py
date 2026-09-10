@@ -26,6 +26,11 @@ from powercontext.client.receiver_service import (
 from powercontext.client.skill_receiver import RemoteSkillReceiverConfig
 
 
+@pytest.fixture(autouse=True)
+def _linux_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(service_module.sys, "platform", "linux")
+
+
 def _config(tmp_path: Path) -> RemoteSkillReceiverConfig:
     return RemoteSkillReceiverConfig(
         server_url="https://powercontext.example.com",

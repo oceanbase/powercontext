@@ -66,5 +66,4 @@ def test_path_and_header_parameters_do_not_create_a_query_model_for_no_content_s
     assert "DELETE_WIDGET = Operation[None, None](" in source
     assert "request_type=None" in source
     assert "request_location=None" in source
-    assert "response_type=None" in source
-    assert "success_status=204" in source
+    assert "success_response_types={204: None}" in source

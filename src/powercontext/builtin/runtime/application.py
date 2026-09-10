@@ -21,8 +21,6 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from datetime import UTC, datetime
-from pathlib import Path
-from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, JsonValue, ValidationError
@@ -261,10 +259,9 @@ from powercontext.errors import ArtifactNotFoundError, RevisionConflictError, So
 from powercontext.sources import ConnectorBinding, SourceDefinitionManifest, SourceRef
 
 if TYPE_CHECKING:
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
     from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
+    from powercontext.builtin.runtime.operations import OperationManager
 
 TopicMemorySearch = Callable[..., Awaitable[TopicMemorySearchResult]]
 TopicMemoryGet = Callable[[str, ArtifactRef], Awaitable[PublishedTopicMemory]]
@@ -281,7 +278,6 @@ _MEMORY_SEARCH_MEMORY_PRESENT = "powercontext.memory.search.memory_present"
 _MEMORY_SEARCH_MODE = "powercontext.memory.search.mode"
 _MEMORY_SEARCH_RESULT_COUNT = "powercontext.memory.search.result_count"
 
-ScopeIds = Callable[[], Awaitable[tuple[str, ...]]]
 ReviewServiceFactory = Callable[[str], ReviewService]
 GenerationServiceFactory = Callable[[str], ReviewedGenerationService]
 ExternalSkillRegistryFactory = Callable[[str], ExternalSkillRegistryService]
@@ -303,9 +299,8 @@ SkillPackageUploader = Callable[[str, bytes, str | None, ArtifactRef | None], Aw
 SkillUsageRecorder = Callable[[str, SkillUsageCapture], Awaitable[SourceReceipt]]
 StatisticsServiceFactory = Callable[[str], RelationalScopedStatistics]
 RecallTokenEstimator = Callable[[str, PreparedContextBuild], Awaitable[RecallTokenMeasurement | None]]
+MemoryFlusher = Callable[[str, int], Awaitable[MemoryFlushResult]]
 Clock = Callable[[], datetime]
-ScheduledSourceRunner = Callable[[str, "BuiltinRuntime"], Awaitable[MemoryFlushResult]]
-ScheduledExperienceRunner = Callable[[str, "BuiltinRuntime"], Awaitable[ExperienceIncubationResult]]
 _MEMORY_SEARCH_ATTEMPTS = 3
 
 
@@ -325,7 +320,6 @@ class _RuntimeStateError(RuntimeError):
             "review": "Candidate Review services are not configured",
             "records": "Base Source and Artifact access is not configured",
             "remote-skill-distribution": "Remote Skill distribution services are not configured",
-            "scheduler": "Built-in Runtime scheduler is already started",
             "scope": "Scope services are not configured",
             "skill-publication": "Managed Skill publication services are not configured",
             "skill-provenance": "Managed Skill provenance services are not configured",
@@ -1845,19 +1839,29 @@ class ScopedMemoryApplication:
             )
 
     async def flush(self, /, *, limit: int | None = None) -> MemoryFlushResult:
-        async with self._runtime._context(
-            self.scope_id,
-            generation_purpose=ModelUsagePurpose.MEMORY_EXTRACTION,
-            embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
-        ) as context:
-            window_limit = self._runtime.source_window_limit if limit is None else limit
-            async with self._runtime._locked(self.scope_id):
+        window_limit = self._runtime.source_window_limit if limit is None else limit
+        if self._runtime._memory_flusher is not None:
+            async with self._runtime._scope_operation(self.scope_id):
                 with self._runtime._stage("memory.flush", attributes={}) as span:
-                    result = await context.triggers.flush(limit=window_limit)
+                    result = await self._runtime._memory_flusher(self.scope_id, window_limit)
                     if span is not None:
                         span.set_attributes({"powercontext.memory.flush.source_count": result.source_count})
                         span.set_outcome("success" if result.processed else "noop")
                     return result
+        async with (
+            self._runtime._context(
+                self.scope_id,
+                generation_purpose=ModelUsagePurpose.MEMORY_EXTRACTION,
+                embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING,
+            ) as context,
+            self._runtime._locked(self.scope_id),
+        ):
+            with self._runtime._stage("memory.flush", attributes={}) as span:
+                result = await context.triggers.flush(limit=window_limit)
+                if span is not None:
+                    span.set_attributes({"powercontext.memory.flush.source_count": result.source_count})
+                    span.set_outcome("success" if result.processed else "noop")
+                return result
 
     async def cursor(self) -> SourceCursor:
         async with self._runtime._context(self.scope_id) as context:
@@ -2027,150 +2031,6 @@ class TopicMemoryApplication:
         return ScopedTopicMemoryApplication(self._runtime, scope_id)
 
 
-class ScheduledSourceProcessor:
-    """Map APScheduler activations to scoped Source-window policies."""
-
-    def __init__(self, runtime: BuiltinRuntime, scope_ids: ScopeIds) -> None:
-        self._runtime = runtime
-        self._scope_ids = scope_ids
-
-    async def run(self) -> None:
-        async with self._runtime._processor_lock:
-            if self._runtime._closing or self._runtime._closed:
-                return
-            for scope_id in await self._scope_ids():
-                if self._runtime._closing or self._runtime._closed:
-                    return
-                started_at = perf_counter()
-                with self._runtime._background(
-                    "scheduled.process_source_window",
-                    operation="process_source_window",
-                ) as span:
-                    try:
-                        runner = self._runtime._scheduled_source_runner
-                        result = (
-                            await self._runtime.memory.for_scope(scope_id).flush()
-                            if runner is None
-                            else await runner(scope_id, self._runtime)
-                        )
-                    except asyncio.CancelledError:
-                        _log_scheduled_processing(
-                            "cancelled",
-                            operation="process_source_window",
-                            started_at=started_at,
-                        )
-                        raise
-                    except Exception as error:
-                        _log_scheduled_processing(
-                            "failure",
-                            operation="process_source_window",
-                            started_at=started_at,
-                            error=error,
-                        )
-                        if span is not None:
-                            span.set_outcome("failure")
-                    else:
-                        outcome = "success" if result.processed else "noop"
-                        _log_scheduled_processing(
-                            outcome,
-                            operation="process_source_window",
-                            started_at=started_at,
-                            source_count=result.source_count,
-                        )
-                        if span is not None:
-                            span.set_outcome(outcome)
-                            span.set_attributes({"powercontext.background.source_count": result.source_count})
-
-
-class ScheduledExperienceProcessor:
-    """Map APScheduler activations to scoped Experience incubation windows."""
-
-    def __init__(self, runtime: BuiltinRuntime, scope_ids: ScopeIds) -> None:
-        self._runtime = runtime
-        self._scope_ids = scope_ids
-
-    async def run(self) -> None:
-        async with self._runtime._processor_lock:
-            if self._runtime._closing or self._runtime._closed:
-                return
-            for scope_id in await self._scope_ids():
-                if self._runtime._closing or self._runtime._closed:
-                    return
-                started_at = perf_counter()
-                with self._runtime._background(
-                    "scheduled.incubate_experience_candidates",
-                    operation="incubate_experience_candidates",
-                ) as span:
-                    try:
-                        runner = self._runtime._scheduled_experience_runner
-                        result = (
-                            await self._runtime.experience.for_scope(scope_id).incubate()
-                            if runner is None
-                            else await runner(scope_id, self._runtime)
-                        )
-                    except asyncio.CancelledError:
-                        _log_scheduled_processing(
-                            "cancelled",
-                            operation="incubate_experience_candidates",
-                            started_at=started_at,
-                        )
-                        raise
-                    except Exception as error:
-                        _log_scheduled_processing(
-                            "failure",
-                            operation="incubate_experience_candidates",
-                            started_at=started_at,
-                            error=error,
-                        )
-                        if span is not None:
-                            span.set_outcome("failure")
-                    else:
-                        outcome = "success" if result.processed else "noop"
-                        _log_scheduled_processing(
-                            outcome,
-                            operation="incubate_experience_candidates",
-                            started_at=started_at,
-                            source_count=result.source_count,
-                            candidate_count=result.candidate_count,
-                        )
-                        if span is not None:
-                            span.set_outcome(outcome)
-                            span.set_attributes({
-                                "powercontext.background.source_count": result.source_count,
-                                "powercontext.background.candidate_count": result.candidate_count,
-                            })
-
-
-def _log_scheduled_processing(
-    outcome: str,
-    *,
-    operation: str,
-    started_at: float,
-    error: Exception | None = None,
-    source_count: int | None = None,
-    candidate_count: int | None = None,
-) -> None:
-    extra = {
-        "event": "background.operation.completed",
-        "operation": operation,
-        "outcome": outcome,
-        "unit": "background",
-        "duration_ms": max(perf_counter() - started_at, 0) * 1_000,
-    }
-    if source_count is not None:
-        extra["source_count"] = source_count
-    if candidate_count is not None:
-        extra["candidate_count"] = candidate_count
-    level = logging.ERROR if error is not None else logging.INFO
-    log_safely(
-        logger,
-        level,
-        "Scheduled background processing completed" if error is None else "Scheduled background processing failed",
-        exc_info=error,
-        extra=extra,
-    )
-
-
 class BuiltinRuntime:
     """Add business-specific operations over composed built-in contexts."""
 
@@ -2184,7 +2044,6 @@ class BuiltinRuntime:
         scope_cache_size: int = DEFAULT_SCOPE_CACHE_SIZE,
         scope_evictor: ScopeEvictor | None = None,
         scope_cache_observer: ScopeCacheObserver | None = None,
-        scope_ids: ScopeIds | None = None,
         review_service: ReviewServiceFactory | None = None,
         profiles: RelationalProfileService | None = None,
         subject_sources: SubjectSourceService | None = None,
@@ -2215,13 +2074,13 @@ class BuiltinRuntime:
         record_service: RecordService | None = None,
         prompt_service: PromptService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
+        memory_flusher: MemoryFlusher | None = None,
+        operations: OperationManager | None = None,
         publication_application: ArtifactPublicationApplication | None = None,
         scope_application: ScopeApplication | None = None,
         readiness: RuntimeReadinessChecks | None = None,
         clock: Clock | None = None,
         tracing: RuntimeTracing | None = None,
-        scheduled_source_runner: ScheduledSourceRunner | None = None,
-        scheduled_experience_runner: ScheduledExperienceRunner | None = None,
         remote_ingestion: RemoteIngestion | None = None,
     ) -> None:
         if source_window_limit < 1:
@@ -2262,13 +2121,12 @@ class BuiltinRuntime:
         self._record_service = record_service
         self._prompt_service = prompt_service
         self._recall_token_estimator = recall_token_estimator
+        self._memory_flusher = memory_flusher
         self.publications = publication_application
         self.scopes = scope_application
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
         self._clock = _utc_now if clock is None else clock
         self._tracing = tracing
-        self._scheduled_source_runner = scheduled_source_runner
-        self._scheduled_experience_runner = scheduled_experience_runner
         self.source_window_limit = source_window_limit
         self.context_assembly_max_entries = context_assembly_max_entries
         self._scope_cache = ScopeCache(
@@ -2276,15 +2134,12 @@ class BuiltinRuntime:
             evictor=scope_evictor,
             observer=scope_cache_observer,
         )
-        self._processor_lock = asyncio.Lock()
         self._close_lock = asyncio.Lock()
         self._lifecycle = asyncio.Condition()
         self._active_operations = 0
         self._operation_depths: dict[asyncio.Task[Any], int] = {}
         self._closing = False
         self._closed = False
-        self._scheduler: AsyncIOScheduler | None = None
-        self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
         self.ingestion = RemoteIngestionApplication(self, remote_ingestion)
         self.context = ContextApplication(self)
@@ -2300,12 +2155,9 @@ class BuiltinRuntime:
         self.skill = SkillApplication(self)
         self.remote_skills = RemoteSkillApplication(self)
         self.statistics = StatisticsApplication(self)
+        self.operations = operations
         self.handoff_report: HandoffReportApplication | None = None
         self.artifact_processing_supervisor: ArtifactProcessingSupervisors | None = None
-        self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
-        self.experience_processor = (
-            None if scope_ids is None or experience_incubator is None else ScheduledExperienceProcessor(self, scope_ids)
-        )
 
     async def __aenter__(self) -> BuiltinRuntime:
         return self
@@ -2347,109 +2199,17 @@ class BuiltinRuntime:
             },
         )
 
-    def start_scheduler(  # noqa: C901
-        self,
-        scheduler_path: str | Path,
-        schedule_seconds: float | None,
-        *,
-        experience_schedule_seconds: float | None = None,
-        profile_cron: str | None = None,
-        profile_timezone: str = "Asia/Shanghai",
-        profile_max_concurrency: int = 4,
-    ) -> None:
-        """Start the APScheduler time adapter for this Runtime."""
-
-        if schedule_seconds is None and experience_schedule_seconds is None and profile_cron is None:
-            raise _RuntimeConfigurationError("schedule_seconds")
-        if schedule_seconds is not None and schedule_seconds <= 0:
-            raise _RuntimeConfigurationError("schedule_seconds")
-        if experience_schedule_seconds is not None and experience_schedule_seconds <= 0:
-            raise _RuntimeConfigurationError("experience_schedule_seconds")
-        if schedule_seconds is not None and self.processor is None:
-            raise _RuntimeConfigurationError("scope_ids")
-        if experience_schedule_seconds is not None and self.experience_processor is None:
-            raise _RuntimeStateError("experience-incubation")
-        if self._scheduler is not None or self.artifact_processing_supervisor is not None:
-            raise _RuntimeStateError("scheduler")
-        from powercontext.builtin.runtime.scheduler import (
-            configure_experience_incubation_job,
-            configure_profile_job,
-            configure_source_window_job,
-            create_scheduler,
-            register_processors,
-            scheduler_runtime_key,
-            unregister_processor,
-        )
-
-        runtime_key = scheduler_runtime_key(scheduler_path)
-        scheduler: AsyncIOScheduler | None = None
-
-        async def process_profiles():
-            async with self._operation():
-                if self.profiles is not None:
-                    await self.profiles.scan(max_concurrency=profile_max_concurrency)
-
-        register_processors(
-            runtime_key,
-            profile=process_profiles if profile_cron is not None else None,
-            source_window=None if schedule_seconds is None or self.processor is None else self.processor.run,
-            experience_incubation=(
-                None
-                if experience_schedule_seconds is None or self.experience_processor is None
-                else self.experience_processor.run
-            ),
-        )
-        self._scheduler_runtime_key = runtime_key
-        try:
-            scheduler = create_scheduler(scheduler_path)
-            self._scheduler = scheduler
-            scheduler.start(paused=True)
-            configure_source_window_job(
-                scheduler,
-                runtime_key=runtime_key,
-                schedule_seconds=schedule_seconds,
-            )
-            configure_experience_incubation_job(
-                scheduler,
-                runtime_key=runtime_key,
-                schedule_seconds=experience_schedule_seconds,
-            )
-            configure_profile_job(scheduler, runtime_key=runtime_key, cron=profile_cron, timezone=profile_timezone)
-            scheduler.resume()
-        except BaseException:
-            if scheduler is not None and scheduler.running:
-                scheduler.shutdown(wait=False)
-            unregister_processor(runtime_key)
-            self._scheduler_runtime_key = None
-            self._scheduler = None
-            raise
-
     async def close(self) -> None:
         """Stop accepting work and await in-flight operations without closing the provider."""
 
         async with self._close_lock:
             if self._closed:
                 return
-            if self._scheduler is not None and self._scheduler.running:
-                self._scheduler.pause()
             async with self._lifecycle:
                 self._closing = True
                 await self._lifecycle.wait_for(lambda: self._active_operations == 0)
             if self.artifact_processing_supervisor is not None:
                 await self.artifact_processing_supervisor.close()
-            async with self._processor_lock:
-                pass
-            try:
-                if self._scheduler is not None and self._scheduler.running:
-                    self._scheduler.shutdown(wait=False)
-                    await asyncio.sleep(0)
-            finally:
-                if self._scheduler_runtime_key is not None:
-                    from powercontext.builtin.runtime.scheduler import unregister_processor
-
-                    unregister_processor(self._scheduler_runtime_key)
-                    self._scheduler_runtime_key = None
-                self._scheduler = None
             self._scope_cache.clear()
             self._closed = True
 
@@ -2551,16 +2311,6 @@ class BuiltinRuntime:
         if self._tracing is None:
             return nullcontext(None)
         return self._tracing.stage(name, attributes=attributes)
-
-    def _background(
-        self,
-        name: str,
-        *,
-        operation: str,
-    ) -> AbstractContextManager[RuntimeSpan | None]:
-        if self._tracing is None:
-            return nullcontext(None)
-        return self._tracing.background(name, operation=operation, attributes={})
 
     def _review(self, scope_id: str) -> ReviewService:
         if self._review_service is None:

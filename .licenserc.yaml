@@ -64,6 +64,8 @@ header:
     - 'src/powercontext/server/dashboard/static/vendor/**'
     - '.gitattributes'
     - '**/*.service.in'
+    # license-eye cannot determine the comment style of Alembic's Mako template.
+    - 'src/powercontext/builtin/persistence/migrations/script.py.mako'
     - '**/*.jsonl'
     # license-eye cannot determine the comment style of patch files.
     - '**/*.patch'

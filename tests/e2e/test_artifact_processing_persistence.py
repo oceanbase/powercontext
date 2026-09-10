@@ -37,6 +37,7 @@ from powercontext.builtin.runtime import (
     CaptureSource,
     open_builtin_runtime,
 )
+from powercontext.builtin.runtime.composition import migrate_builtin_database
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, SourceCursor
 
@@ -122,6 +123,7 @@ def test_runtime_capture_persists_idempotent_scope_isolated_pending(tmp_path: Pa
 def test_runtime_capture_rolls_back_source_when_pending_write_fails(tmp_path: Path) -> None:
     async def scenario() -> None:
         config = _sqlite_config(tmp_path / "rollback.db")
+        await migrate_builtin_database(BuiltinConfig(database=config))
         async with (
             SQLiteProfile.open(config, tables=SHARED_TABLES) as profile,
             profile.database.transaction() as connection,

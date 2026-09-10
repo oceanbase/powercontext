@@ -1620,9 +1620,9 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'builtin'", specifier = ">=0.22,<1" },
     { name = "aiosqlite", marker = "extra == 'seekdb'", specifier = ">=0.22,<1" },
     { name = "aiosqlite", marker = "extra == 'server'", specifier = ">=0.22,<1" },
-    { name = "apscheduler", marker = "extra == 'builtin'", specifier = ">=3.11,<4" },
-    { name = "apscheduler", marker = "extra == 'seekdb'", specifier = ">=3.11,<4" },
-    { name = "apscheduler", marker = "extra == 'server'", specifier = ">=3.11,<4" },
+    { name = "alembic", marker = "extra == 'builtin'", specifier = ">=1.14,<2" },
+    { name = "alembic", marker = "extra == 'seekdb'", specifier = ">=1.14,<2" },
+    { name = "alembic", marker = "extra == 'server'", specifier = ">=1.14,<2" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115,<1" },
     { name = "fastmcp", marker = "extra == 'server'", specifier = ">=3.4,<4" },
     { name = "httpx", marker = "extra == 'server'", specifier = ">=0.28,<1" },
@@ -1675,6 +1675,9 @@ requires-dist = [
     { name = "sqlite-vec", marker = "extra == 'server'", specifier = ">=0.1.9,<0.2" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16,<1" },
     { name = "typing-extensions", specifier = ">=4.12,<5" },
+    { name = "tzdata", marker = "sys_platform == 'win32' and extra == 'builtin'", specifier = ">=2025.2" },
+    { name = "tzdata", marker = "sys_platform == 'win32' and extra == 'seekdb'", specifier = ">=2025.2" },
+    { name = "tzdata", marker = "sys_platform == 'win32' and extra == 'server'", specifier = ">=2025.2" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34,<1" },
 ]
 provides-extras = ["builtin", "cli", "client", "seekdb", "server", "tracing-otlp"]

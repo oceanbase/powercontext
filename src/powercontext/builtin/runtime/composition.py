@@ -16,20 +16,29 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
 from datetime import timedelta
 from functools import partial
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast
 
 from pydantic import AnyHttpUrl, JsonValue, SecretStr
+from sqlalchemy import Table
+from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
 from powercontext._logging import log_safely
-from powercontext.builtin.artifacts.experience import ExperienceCandidatePipeline, ExperienceGenerator
+from powercontext.builtin.artifacts.experience import (
+    EXPERIENCE_INCUBATION_WINDOW_LIMIT,
+    ExperienceCandidatePipeline,
+    ExperienceGenerator,
+)
 from powercontext.builtin.artifacts.handoff import (
     DefaultHandoffEvidenceProjector,
     HandoffGenerationPipeline,
@@ -37,6 +46,7 @@ from powercontext.builtin.artifacts.handoff import (
 from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     DefaultMemoryEvidenceProjector,
+    EmbeddingProfile,
     MemoryCapabilities,
     MemoryHit,
     MemoryRerankDecision,
@@ -65,7 +75,10 @@ from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
 )
+from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
+from powercontext.builtin.persistence.migration import migrate_database, require_current_schema
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
     OceanBaseMemoryFTSIndex,
@@ -80,6 +93,7 @@ from powercontext.builtin.persistence.processing_migration import (
     assert_processing_schema_ready,
     bootstrap_processing_schema,
 )
+from powercontext.builtin.persistence.schema import create_tables
 from powercontext.builtin.persistence.scope_search_schema import ensure_scope_search_schema
 from powercontext.builtin.persistence.seekdb.profile import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.skill_distribution_schema import ensure_skill_distribution_schema
@@ -96,8 +110,9 @@ from powercontext.builtin.persistence.topic_memory_index import (
     CompositeTopicMemoryIndex,
     TopicMemoryIndex,
 )
+from powercontext.builtin.persistence.work import StoredWork, WorkClaim
 from powercontext.builtin.runtime._scope_cache import ScopeCacheObserver
-from powercontext.builtin.runtime.application import BuiltinRuntime, ScheduledExperienceRunner, ScheduledSourceRunner
+from powercontext.builtin.runtime.application import BuiltinRuntime
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
@@ -105,8 +120,11 @@ from powercontext.builtin.runtime.artifact_processing import (
     SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.durable_scheduler import DurableScheduler, WorkDiscoverer
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
+from powercontext.builtin.runtime.membership import RuntimeMembership
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
+from powercontext.builtin.runtime.operations import OperationManager
 from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider, enabled_profile_scopes
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest, processing_capabilities
 from powercontext.builtin.runtime.protocols import RuntimeTracing
@@ -123,10 +141,20 @@ from powercontext.builtin.runtime.topic_memory_processing import (
     run_topic_memory_worker,
     validate_topic_memory_provider_settings,
 )
-from powercontext.builtin.sources import (
-    BUILTIN_SOURCE_REGISTRY,
-    TEXT_EVIDENCE_PROJECTION_KEY,
+from powercontext.builtin.runtime.work_handlers import (
+    ExperienceWorkDiscoverer,
+    ExperienceWorkHandler,
+    MemoryWorkDiscoverer,
+    MemoryWorkHandler,
+    OperationMaintenanceDiscoverer,
+    OperationMaintenanceHandler,
+    ProfileWorkDiscoverer,
+    ProfileWorkHandler,
+    ProfileWorkRunner,
 )
+from powercontext.builtin.runtime.work_observability import WorkObserver
+from powercontext.builtin.runtime.worker import DurableWorker, WorkHandler
+from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY, TEXT_EVIDENCE_PROJECTION_KEY
 from powercontext.errors import InvalidSourceProjectionError, SourceProjectionNotFoundError
 from powercontext.sources import Source, SourceDefinitionRegistry, SourceProjectionKey
 
@@ -142,6 +170,26 @@ ValueT = TypeVar("ValueT")
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class _RuntimeStorage:
+    database: AsyncDatabase
+    index: CompositeMemoryIndex
+    topic_memory_index: TopicMemoryIndex
+    experience_index: ExperienceIndex
+
+
+class _SchemaVerifier(Protocol):
+    async def verify(self, connection: AsyncConnection, /) -> None: ...
+
+
+class WorkExecutionHooks(Protocol):
+    """Server-owned checks and relationship updates around durable work."""
+
+    async def authorize(self, contexts: RelationalContexts, claim: WorkClaim, /) -> None: ...
+
+    async def succeeded(self, contexts: RelationalContexts, work: StoredWork, /) -> None: ...
+
+
 class BuiltinConfigurationError(RuntimeError):
     """Report a configuration that cannot assemble the built-in runtime."""
 
@@ -155,6 +203,8 @@ class BuiltinConfigurationError(RuntimeError):
             "memory-reranker": "Memory reranking requires a configured generation or rerank model, or injected reranker",
             "scheduled-experience-pipeline": "scheduled Experience incubation requires a candidate pipeline",
             "scheduled-pipeline": "scheduled Source processing requires a candidate pipeline",
+            "scheduled-profile-generator": "scheduled Profile processing requires a generation model or generator",
+            "worker-pipeline": "the worker role requires a configured Memory candidate pipeline",
             "scheduled-profile-generation": "scheduled Profile processing requires reconstructible generation",
             "topic-memory-child-resources": (
                 "Topic Memory processing requires child-reconstructible inference resources"
@@ -253,18 +303,26 @@ async def open_builtin_runtime(
     scope_cache_observer: ScopeCacheObserver | None = None,
     topic_memory_search_observer: Callable[[str, bool], None] | None = None,
     tracing: RuntimeTracing | None = None,
+    work_observer: WorkObserver | None = None,
+    work_execution_hooks: WorkExecutionHooks | None = None,
+    profile_work_runner: ProfileWorkRunner | None = None,
+    schema_extension_tables: tuple[Table, ...] = (),
     artifact_processing_bindings: Sequence[ArtifactProcessingBinding] = (),
     worker_security: dict[str, Any] | None = None,
-    scheduled_source_runner: ScheduledSourceRunner | None = None,
-    scheduled_experience_runner: ScheduledExperienceRunner | None = None,
-    scheduled_profile_runner: Any = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
     handoff_verification_keys: tuple[bytes, ...] = (),
 ) -> AsyncIterator[BuiltinRuntime]:
-    """Open the selected database, inference adapters, and built-in runtime."""
+    """Open the selected database, inference adapters, and built-in runtime.
+
+    ``scheduler_path`` is retained for bridge-release source compatibility and
+    is ignored because scheduling state now lives in the primary database.
+    """
+
+    del scheduler_path
 
     async with AsyncExitStack() as resources:
+        scheduler_only = config.deployment.role == "scheduler"
         configured_source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         _validate_processing_source_registry(config, artifact_processing_bindings, configured_source_registry)
         prompt_demonstrators: dict[str, DemonstrationGenerator] = {}
@@ -287,7 +345,8 @@ async def open_builtin_runtime(
                 configured_source_registry,
                 prompt_demonstrators=prompt_demonstrators,
             )
-            if (
+            if not scheduler_only
+            and (
                 profile_generator is None
                 or candidate_pipeline is None
                 or experience_pipeline is None
@@ -298,12 +357,25 @@ async def open_builtin_runtime(
             )
             else (None, None, None, None, None, None, None, None, None)
         )
-        configured_pipeline = generated_memory if candidate_pipeline is None else candidate_pipeline
-        configured_incubation = generated_incubation if experience_pipeline is None else experience_pipeline
-        configured_experience = generated_experience if experience_generator is None else experience_generator
-        configured_skill = generated_skill if skill_generator is None else skill_generator
-        configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
-        configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
+        configured_profile = (
+            None if scheduler_only else generated_profile if profile_generator is None else profile_generator
+        )
+        configured_pipeline = (
+            None if scheduler_only else generated_memory if candidate_pipeline is None else candidate_pipeline
+        )
+        configured_incubation = (
+            None if scheduler_only else generated_incubation if experience_pipeline is None else experience_pipeline
+        )
+        configured_experience = (
+            None if scheduler_only else generated_experience if experience_generator is None else experience_generator
+        )
+        configured_skill = None if scheduler_only else generated_skill if skill_generator is None else skill_generator
+        configured_handoff = (
+            None if scheduler_only else generated_handoff if handoff_pipeline is None else handoff_pipeline
+        )
+        configured_reranker = (
+            None if scheduler_only else generated_reranker if memory_reranker is None else memory_reranker
+        )
         components = (
             ("memory.extract", candidate_pipeline, generated_memory),
             ("memory.rerank", memory_reranker, generated_reranker),
@@ -315,7 +387,10 @@ async def open_builtin_runtime(
         prompt_registry = _prompt_registry(config.runtime, components)
         if configured_reranker is not None and tracing is not None:
             configured_reranker = _TracingMemoryReranker(configured_reranker, tracing)
-        if embedding_model is None:
+        if scheduler_only:
+            configured_embedding_source = None
+            readiness_embedding = None
+        elif embedding_model is None:
             configured_embedding_source, readiness_embedding = await _embedding_models(
                 config.inference,
                 resources,
@@ -331,11 +406,13 @@ async def open_builtin_runtime(
                 else embedding_model
             )
         configured_embedding = _usage_reporting_embedding_model(configured_embedding_source)
-        configured_external_skills = (
-            _external_skill_provider(config.external_skills)
-            if external_skill_provider is None
-            else external_skill_provider
-        )
+        configured_external_skills = None
+        if not scheduler_only:
+            configured_external_skills = (
+                _external_skill_provider(config.external_skills)
+                if external_skill_provider is None
+                else external_skill_provider
+            )
         contexts = await resources.enter_async_context(
             open_builtin_contexts(
                 config,
@@ -350,36 +427,58 @@ async def open_builtin_runtime(
                 memory_reranker=configured_reranker,
                 source_registry=configured_source_registry,
                 cursor_secret=cursor_secret,
+                schema_extension_tables=schema_extension_tables,
                 prompt_registry=prompt_registry,
                 prompt_demonstrators=prompt_demonstrators,
                 handoff_verification_keys=handoff_verification_keys,
             )
         )
-        contexts.profiles.generator = generated_profile if profile_generator is None else profile_generator
+        contexts.profiles.generator = configured_profile
         contexts.profiles.max_sources = config.runtime.profile_max_sources_per_window
-        if scheduled_profile_runner is not None:
-
-            async def run_profile(scope_id, high):
-                return await scheduled_profile_runner(scope_id, high, contexts.profiles)
-
-            contexts.profiles.scheduled_runner = run_profile
-        readiness_probes: dict[str, ReadinessProbeDefinition] = {
-            "database": ReadinessProbeDefinition(
-                probe=dependency_readiness_probe(contexts.database.ping),
-                blocking=True,
-            ),
-        }
-        inference_readiness = (
-            ("inference.generation", generation_readiness),
-            ("inference.rerank", rerank_readiness),
-            (
-                "inference.embedding",
-                None if readiness_embedding is None else _embedding_readiness_probe(readiness_embedding),
-            ),
+        _validate_work_configuration(
+            config,
+            configured_pipeline,
+            configured_incubation,
+            configured_profile,
+            configured_reranker,
         )
-        for name, readiness_probe in inference_readiness:
-            if readiness_probe is not None:
-                readiness_probes[name] = ReadinessProbeDefinition(probe=readiness_probe, blocking=False)
+        membership = RuntimeMembership(
+            database=contexts.database,
+            deployment=config.deployment,
+            coordination=config.coordination,
+            build_version=_package_version(),
+            observer=work_observer,
+        )
+        await membership.start()
+        membership_task = asyncio.create_task(membership.run(), name="powercontext-membership")
+        resources.push_async_callback(_stop_background_component, membership, membership_task)
+        local_worker, operation_manager = _work_services(
+            config,
+            contexts,
+            membership.instance_id,
+            claim_readiness=generation_readiness if config.deployment.role == "worker" else None,
+            execution_hooks=work_execution_hooks,
+            profile_runner=profile_work_runner,
+            observer=work_observer,
+            tracing=tracing,
+        )
+        local_scheduler = _scheduler_service(
+            config,
+            contexts,
+            membership.instance_id,
+            observer=work_observer,
+            tracing=tracing,
+        )
+        readiness_probes = _runtime_readiness_probes(
+            config,
+            contexts,
+            membership,
+            worker=local_worker,
+            scheduler=local_scheduler,
+            generation=generation_readiness,
+            rerank=rerank_readiness,
+            embedding=None if readiness_embedding is None else _embedding_readiness_probe(readiness_embedding),
+        )
         processing_bindings = _artifact_processing_bindings(
             config,
             contexts,
@@ -437,7 +536,6 @@ async def open_builtin_runtime(
                 scope_cache_size=config.runtime.scope_cache_size,
                 scope_evictor=contexts.evict,
                 scope_cache_observer=scope_cache_observer,
-                scope_ids=contexts.scope_ids,
                 review_service=contexts.review,
                 profiles=contexts.profiles,
                 subject_sources=contexts.subject_sources,
@@ -468,12 +566,14 @@ async def open_builtin_runtime(
                 record_service=contexts.records,
                 prompt_service=contexts.prompts,
                 recall_token_estimator=contexts.estimate_recall_tokens,
+                memory_flusher=(lambda scope_id, limit: operation_manager.flush_memory(scope_id, limit=limit))
+                if config.deployment.role == "all"
+                else None,
+                operations=operation_manager,
                 publication_application=contexts.publications,
                 scope_application=contexts.scopes,
                 readiness=RuntimeReadinessChecks(readiness_probes),
                 tracing=tracing,
-                scheduled_source_runner=scheduled_source_runner,
-                scheduled_experience_runner=scheduled_experience_runner,
                 remote_ingestion=contexts,
             )
         )
@@ -486,9 +586,228 @@ async def open_builtin_runtime(
                 contexts.scopes,
                 RuntimeHandoffReadAdapter(runtime.handoff),
             )
-        if config.runtime.memory_rerank_enabled and configured_reranker is None:
-            raise BuiltinConfigurationError("memory-reranker")
+        _start_work_background(local_worker, local_scheduler, resources)
         yield runtime
+
+
+async def _stop_background_component(component: Any, task: asyncio.Task[None]) -> None:
+    await component.stop()
+    await task
+
+
+def _validate_work_configuration(
+    config: BuiltinConfig,
+    memory: CandidatePipeline | None,
+    experience: ExperienceCandidatePipeline | None,
+    profile: ProfileGenerator | None,
+    reranker: MemoryReranker | None,
+) -> None:
+    if config.runtime.schedule_seconds is not None and memory is None and config.deployment.role == "all":
+        raise BuiltinConfigurationError("scheduled-pipeline")
+    if (
+        config.runtime.experience_schedule_seconds is not None
+        and experience is None
+        and config.deployment.role == "all"
+    ):
+        raise BuiltinConfigurationError("scheduled-experience-pipeline")
+    if config.runtime.memory_rerank_enabled and reranker is None:
+        raise BuiltinConfigurationError("memory-reranker")
+    if config.runtime.profile_schedule_enabled and profile is None and config.deployment.role in {"all", "worker"}:
+        raise BuiltinConfigurationError("scheduled-profile-generator")
+    if config.deployment.role == "worker" and memory is None:
+        raise BuiltinConfigurationError("worker-pipeline")
+
+
+def _work_services(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    owner_id: str,
+    *,
+    claim_readiness: ReadinessProbe | None,
+    execution_hooks: WorkExecutionHooks | None,
+    profile_runner: ProfileWorkRunner | None,
+    observer: WorkObserver | None,
+    tracing: RuntimeTracing | None,
+) -> tuple[DurableWorker | None, OperationManager]:
+    hooks = cast(WorkExecutionHooks, execution_hooks)
+
+    async def authorize(claim: WorkClaim) -> None:
+        await hooks.authorize(contexts, claim)
+
+    async def observe_success(work: StoredWork) -> None:
+        await hooks.succeeded(contexts, work)
+
+    handlers: list[WorkHandler] = [
+        MemoryWorkHandler(contexts),
+        OperationMaintenanceHandler(
+            retention_days=config.operations.retention_days,
+            batch_size=config.operations.cleanup_batch_size,
+        ),
+    ]
+    if contexts.experience_incubation:
+        handlers.append(ExperienceWorkHandler(contexts))
+    if config.runtime.profile_schedule_enabled and contexts.profiles.generator is not None:
+        handlers.append(
+            ProfileWorkHandler(
+                contexts.profiles,
+                max_concurrency=config.runtime.profile_max_concurrency,
+                runner=profile_runner,
+            )
+        )
+    local_worker = (
+        DurableWorker(
+            database=contexts.database,
+            worker_id=owner_id,
+            handlers=handlers,
+            config=config.worker,
+            claim_readiness=claim_readiness,
+            authorizer=None if execution_hooks is None else authorize,
+            succeeded_observer=None if execution_hooks is None else observe_success,
+            observer=observer,
+            tracing=tracing,
+        )
+        if config.deployment.role in {"all", "worker"}
+        else None
+    )
+    return local_worker, OperationManager(
+        contexts=contexts,
+        operations=config.operations,
+        worker=config.worker,
+        local_worker=local_worker,
+        payload_version=config.coordination.emit_payload_version,
+        memory_window_limit=config.runtime.source_window_limit,
+        observer=observer,
+        tracing=tracing,
+    )
+
+
+def _scheduler_service(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    owner_id: str,
+    *,
+    observer: WorkObserver | None,
+    tracing: RuntimeTracing | None,
+) -> DurableScheduler | None:
+    discoverers = _work_discoverers(config, contexts)
+    if not discoverers or config.deployment.role not in {"all", "scheduler"}:
+        return None
+    return DurableScheduler(
+        database=contexts.database,
+        scheduler_id=owner_id,
+        discoverers=discoverers,
+        config=config.coordination,
+        observer=observer,
+        tracing=tracing,
+    )
+
+
+def _start_work_background(
+    worker: DurableWorker | None,
+    scheduler: DurableScheduler | None,
+    resources: AsyncExitStack,
+) -> None:
+    if worker is not None:
+        worker_task = asyncio.create_task(worker.run(), name="powercontext-worker")
+        resources.push_async_callback(_stop_background_component, worker, worker_task)
+    if scheduler is None:
+        return
+    scheduler_task = asyncio.create_task(scheduler.run(), name="powercontext-scheduler")
+    resources.push_async_callback(_stop_background_component, scheduler, scheduler_task)
+
+
+def _package_version() -> str:
+    try:
+        return version("powercontext")
+    except PackageNotFoundError:
+        return "0+unknown"
+
+
+def _runtime_readiness_probes(
+    config: BuiltinConfig,
+    contexts: RelationalContexts,
+    membership: RuntimeMembership,
+    *,
+    worker: DurableWorker | None,
+    scheduler: DurableScheduler | None,
+    generation: ReadinessProbe | None,
+    rerank: ReadinessProbe | None,
+    embedding: ReadinessProbe | None,
+) -> dict[str, ReadinessProbeDefinition]:
+    probes = {
+        "database": ReadinessProbeDefinition(
+            probe=dependency_readiness_probe(contexts.database.ping),
+            blocking=True,
+        ),
+    }
+    if config.deployment.mode == "distributed":
+        probes["runtime.membership"] = ReadinessProbeDefinition(probe=membership.readiness, blocking=True)
+    if config.deployment.role == "api":
+        probes["runtime.scheduler"] = ReadinessProbeDefinition(
+            probe=lambda: membership.role_readiness("scheduler"),
+            blocking=False,
+        )
+        probes["runtime.worker"] = ReadinessProbeDefinition(
+            probe=lambda: membership.role_readiness("worker"),
+            blocking=False,
+        )
+    if config.deployment.mode == "distributed" and worker is not None:
+        probes["worker.handlers"] = ReadinessProbeDefinition(probe=worker.readiness, blocking=True)
+    if config.deployment.mode == "distributed" and scheduler is not None:
+        probes["scheduler.discovery"] = ReadinessProbeDefinition(probe=scheduler.readiness, blocking=True)
+    for name, probe in (
+        ("inference.generation", generation),
+        ("inference.rerank", rerank),
+        ("inference.embedding", embedding),
+    ):
+        if probe is not None:
+            probes[name] = ReadinessProbeDefinition(
+                probe=probe,
+                blocking=config.deployment.role == "worker" and name == "inference.generation",
+            )
+    return probes
+
+
+def _work_discoverers(config: BuiltinConfig, contexts: RelationalContexts) -> list[WorkDiscoverer]:
+    discoverers: list[WorkDiscoverer] = [
+        OperationMaintenanceDiscoverer(
+            interval_seconds=config.operations.cleanup_interval_seconds,
+            max_attempts=config.worker.max_attempts,
+        )
+    ]
+    if config.deployment.mode == "single_node":
+        return discoverers
+    if config.runtime.schedule_seconds is not None:
+        discoverers.append(
+            MemoryWorkDiscoverer(
+                contexts,
+                interval_seconds=config.runtime.schedule_seconds,
+                window_limit=config.runtime.source_window_limit,
+                max_attempts=config.worker.max_attempts,
+                payload_version=config.coordination.emit_payload_version,
+            )
+        )
+    if config.runtime.experience_schedule_seconds is not None:
+        discoverers.append(
+            ExperienceWorkDiscoverer(
+                contexts,
+                interval_seconds=config.runtime.experience_schedule_seconds,
+                window_limit=EXPERIENCE_INCUBATION_WINDOW_LIMIT,
+                max_attempts=config.worker.max_attempts,
+                payload_version=config.coordination.emit_payload_version,
+            )
+        )
+    if config.runtime.profile_schedule_enabled:
+        discoverers.append(
+            ProfileWorkDiscoverer(
+                contexts,
+                cron=config.runtime.profile_cron,
+                timezone=config.runtime.profile_timezone,
+                max_attempts=config.worker.max_attempts,
+                payload_version=config.coordination.emit_payload_version,
+            )
+        )
+    return discoverers
 
 
 def _validate_processing_source_registry(
@@ -498,7 +817,7 @@ def _validate_processing_source_registry(
 ) -> None:
     """Reject unsupported child Sources before database bootstrap commits deployment identity."""
 
-    if config.runtime.artifact_processing_role == "api":
+    if config.deployment.mode == "distributed" or config.runtime.artifact_processing_role == "api":
         return
     registered = {binding.artifact_family for binding in bindings}
     if all(family in registered for family in processing_capabilities(config)):
@@ -528,6 +847,8 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
 ) -> tuple[ArtifactProcessingBinding, ...]:
     configured = list(bindings)
     _validate_processing_registrations(configured)
+    if config.deployment.mode == "distributed":
+        return ()
     capabilities = processing_capabilities(config)
     canonical = {**FAMILY_BINDINGS, "topic-memory": TOPIC_MEMORY_SOURCE_WINDOW_BINDING}
     registered = {binding.artifact_family for binding in configured}
@@ -680,6 +1001,7 @@ async def open_builtin_contexts(
     memory_reranker: MemoryReranker | None = None,
     source_registry: SourceDefinitionRegistry | None = None,
     cursor_secret: bytes | None = None,
+    schema_extension_tables: tuple[Table, ...] = (),
     prompt_registry: PromptRegistry | None = None,
     prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
     handoff_verification_keys: tuple[bytes, ...] = (),
@@ -687,95 +1009,20 @@ async def open_builtin_contexts(
 ) -> AsyncIterator[RelationalContexts]:
     """Open the selected database and expose scope-bound PowerContext providers."""
 
-    database = config.database
     configured_token_estimator = character_token_estimator() if token_estimator is None else token_estimator
-    if isinstance(database, SQLiteConfig):
-        experience_index = SQLiteExperienceFTSIndex()
-        indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
-        if embedding_model is not None:
-            indexes.append(SQLiteMemoryVectorIndex(embedding_model.profile))
-        index = CompositeMemoryIndex(*indexes)
-        topic_indexes: list[TopicMemoryIndex] = [SQLiteTopicMemoryFTSIndex()]
-        if embedding_model is not None:
-            topic_indexes.append(SQLiteTopicMemoryVectorIndex(embedding_model.profile))
-        topic_index = CompositeTopicMemoryIndex(*topic_indexes)
-        async with SQLiteProfile.open(
-            database,
-            tables=BUILTIN_TABLES + index.tables + topic_index.tables,
-            load_vector_extension=embedding_model is not None,
-        ) as profile:
-            async with profile.database.transaction() as connection:
-                await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
-                await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
-                await ensure_skill_distribution_schema(connection)
-                await ensure_scope_search_schema(connection)
-                # A Topic child reuses its parent's schema. It never reads or
-                # writes Memory/Experience projections; rebuilding their FTS
-                # indexes here would take the shared SQLite write lock once
-                # per Window. Normal runtime startup retains index recovery.
-                if not _topic_memory_worker:
-                    await index.initialize(connection)
-                    await experience_index.initialize(connection)
-                await TopicMemoryRepository(index=topic_index).initialize(
-                    connection, configure_retrieval_shape=not _topic_memory_worker
-                )
-            contexts = RelationalContexts(
-                database=profile.database,
-                index=index,
-                topic_memory_index=topic_index,
-                experience_index=experience_index,
-                candidate_pipeline=candidate_pipeline,
-                experience_pipeline=experience_pipeline,
-                experience_generator=experience_generator,
-                skill_generator=skill_generator,
-                external_skill_provider=external_skill_provider,
-                handoff_pipeline=handoff_pipeline,
-                embedding_model=embedding_model,
-                token_estimator=configured_token_estimator,
-                memory_reranker=memory_reranker,
-                memory_rerank_candidate_limit=config.runtime.memory_rerank_candidate_limit,
-                prompt_registry=prompt_registry,
-                prompt_demonstrators=prompt_demonstrators,
-                handoff_verification_keys=handoff_verification_keys,
-                source_registry=source_registry,
-                cursor_secret=cursor_secret,
-            )
-            await contexts.scopes.bootstrap_default()
-            yield contexts
-        return
-    experience_index = OceanBaseExperienceFTSIndex()
-    indexes = [OceanBaseMemoryFTSIndex()]
-    if embedding_model is not None:
-        indexes.append(OceanBaseMemoryVectorIndex(embedding_model.profile))
-    index = CompositeMemoryIndex(*indexes)
-    topic_indexes: list[TopicMemoryIndex] = [OceanBaseTopicMemoryFTSIndex()]
-    if embedding_model is not None:
-        topic_indexes.append(OceanBaseTopicMemoryVectorIndex(embedding_model.profile))
-    topic_index = CompositeTopicMemoryIndex(*topic_indexes)
-    tables = BUILTIN_TABLES + index.tables + topic_index.tables
-    if isinstance(database, OceanBaseConfig):
-        profile_context = OceanBaseProfile.open(database, tables=tables)
-    elif isinstance(database, SeekDBConfig):
-        profile_context = SeekDBProfile.open(database, tables=tables)
-    else:
-        raise BuiltinConfigurationError("database")
-    async with profile_context as profile:
-        async with profile.database.transaction() as connection:
-            await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
-            await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
-            await ensure_skill_distribution_schema(connection)
-            await ensure_scope_search_schema(connection)
-            if not _topic_memory_worker:
-                await index.initialize(connection)
-                await experience_index.initialize(connection)
-            await TopicMemoryRepository(index=topic_index).initialize(
-                connection, configure_retrieval_shape=not _topic_memory_worker
-            )
+    embedding_profile = None if embedding_model is None else embedding_model.profile
+    async with _open_runtime_storage(config, embedding_profile=embedding_profile) as storage:
+        await _prepare_runtime_schema(
+            config,
+            storage,
+            schema_extension_tables=schema_extension_tables,
+            topic_memory_worker=_topic_memory_worker,
+        )
         contexts = RelationalContexts(
-            database=profile.database,
-            index=index,
-            topic_memory_index=topic_index,
-            experience_index=experience_index,
+            database=storage.database,
+            index=storage.index,
+            topic_memory_index=storage.topic_memory_index,
+            experience_index=storage.experience_index,
             candidate_pipeline=candidate_pipeline,
             experience_pipeline=experience_pipeline,
             experience_generator=experience_generator,
@@ -794,6 +1041,112 @@ async def open_builtin_contexts(
         )
         await contexts.scopes.bootstrap_default()
         yield contexts
+
+
+async def migrate_builtin_database(
+    config: BuiltinConfig,
+    /,
+    *,
+    embedding_profile: EmbeddingProfile | None = None,
+) -> str:
+    """Migrate the configured store using the same physical layout as the runtime."""
+
+    async with _open_runtime_storage(config, embedding_profile=embedding_profile) as storage:
+        return await migrate_database(storage.database, provision=_schema_provisioner(config, storage))
+
+
+@asynccontextmanager
+async def _open_runtime_storage(
+    config: BuiltinConfig,
+    *,
+    embedding_profile: EmbeddingProfile | None,
+) -> AsyncIterator[_RuntimeStorage]:
+    database = config.database
+    if isinstance(database, SQLiteConfig):
+        experience_index: ExperienceIndex = SQLiteExperienceFTSIndex()
+        indexes: list[MemoryIndex] = [SQLiteMemoryFTSIndex()]
+        if embedding_profile is not None:
+            indexes.append(SQLiteMemoryVectorIndex(embedding_profile))
+        index = CompositeMemoryIndex(*indexes)
+        topic_indexes: list[TopicMemoryIndex] = [SQLiteTopicMemoryFTSIndex()]
+        if embedding_profile is not None:
+            topic_indexes.append(SQLiteTopicMemoryVectorIndex(embedding_profile))
+        topic_index = CompositeTopicMemoryIndex(*topic_indexes)
+        async with SQLiteProfile.open(
+            database,
+            tables=BUILTIN_TABLES + index.tables + topic_index.tables,
+            load_vector_extension=embedding_profile is not None,
+            create_schema=False,
+        ) as profile:
+            yield _RuntimeStorage(profile.database, index, topic_index, experience_index)
+        return
+
+    experience_index = OceanBaseExperienceFTSIndex()
+    indexes = [OceanBaseMemoryFTSIndex()]
+    if embedding_profile is not None:
+        indexes.append(OceanBaseMemoryVectorIndex(embedding_profile))
+    index = CompositeMemoryIndex(*indexes)
+    topic_indexes = [OceanBaseTopicMemoryFTSIndex()]
+    if embedding_profile is not None:
+        topic_indexes.append(OceanBaseTopicMemoryVectorIndex(embedding_profile))
+    topic_index = CompositeTopicMemoryIndex(*topic_indexes)
+    tables = BUILTIN_TABLES + index.tables + topic_index.tables
+    if isinstance(database, OceanBaseConfig):
+        profile_context = OceanBaseProfile.open(database, tables=tables, create_schema=False)
+    elif isinstance(database, SeekDBConfig):
+        profile_context = SeekDBProfile.open(database, tables=tables, create_schema=False)
+    else:
+        raise BuiltinConfigurationError("database")
+    async with profile_context as profile:
+        yield _RuntimeStorage(profile.database, index, topic_index, experience_index)
+
+
+async def _prepare_runtime_schema(
+    config: BuiltinConfig,
+    storage: _RuntimeStorage,
+    *,
+    schema_extension_tables: tuple[Table, ...] = (),
+    topic_memory_worker: bool = False,
+) -> None:
+    if config.deployment.mode == "distributed":
+        await require_current_schema(storage.database)
+        async with storage.database.transaction() as connection:
+            await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
+            if not topic_memory_worker:
+                await storage.index.verify(connection)
+                await cast(_SchemaVerifier, storage.experience_index).verify(connection)
+        return
+    await migrate_database(
+        storage.database,
+        provision=_schema_provisioner(config, storage, topic_memory_worker=topic_memory_worker),
+        known_extension_tables=(table.name for table in schema_extension_tables),
+    )
+
+
+def _schema_provisioner(
+    config: BuiltinConfig,
+    storage: _RuntimeStorage,
+    *,
+    topic_memory_worker: bool = False,
+) -> Callable[[AsyncConnection], Awaitable[None]]:
+    async def provision(connection: AsyncConnection) -> None:
+        await ensure_skill_distribution_schema(connection)
+        await ensure_scope_search_schema(connection)
+        await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
+        await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
+        if storage.index.tables:
+            await create_tables(connection, storage.index.tables)
+        if storage.topic_memory_index.tables:
+            await create_tables(connection, storage.topic_memory_index.tables)
+        if not topic_memory_worker:
+            await storage.index.initialize(connection)
+            await storage.experience_index.initialize(connection)
+        await TopicMemoryRepository(index=storage.topic_memory_index).initialize(
+            connection,
+            configure_retrieval_shape=not topic_memory_worker,
+        )
+
+    return provision
 
 
 def _register_prompt_demonstrators(
@@ -1085,7 +1438,7 @@ async def preflight_builtin_runtime(config: BuiltinConfig) -> None:
     """Validate Runtime composition without opening persistence or making requests."""
 
     async with AsyncExitStack() as resources:
-        await _generation_pipelines(
+        profile, memory, incubation, _, _, _, reranker, _, _ = await _generation_pipelines(
             config.inference,
             config.runtime,
             resources,
@@ -1094,14 +1447,7 @@ async def preflight_builtin_runtime(config: BuiltinConfig) -> None:
         )
         if config.inference.embedding_model is not None:
             await _embedding_models(config.inference, resources, None)
-        if config.runtime.schedule_seconds is not None and config.inference.generation_model is None:
-            raise BuiltinConfigurationError("scheduled-pipeline")
-        if config.runtime.experience_schedule_seconds is not None and config.inference.generation_model is None:
-            raise BuiltinConfigurationError("scheduled-experience-pipeline")
-        if config.runtime.memory_rerank_enabled and (
-            config.inference.generation_model is None and config.inference.rerank_model is None
-        ):
-            raise BuiltinConfigurationError("memory-reranker")
+        _validate_work_configuration(config, memory, incubation, profile, reranker)
 
 
 async def _open_pydantic_ai_model(
@@ -1359,4 +1705,10 @@ def _search_modes(capabilities: MemoryCapabilities) -> tuple[MemorySearchMode, .
     return tuple(modes)
 
 
-__all__ = ["BuiltinConfigurationError", "open_builtin_contexts", "open_builtin_runtime", "preflight_builtin_runtime"]
+__all__ = [
+    "BuiltinConfigurationError",
+    "migrate_builtin_database",
+    "open_builtin_contexts",
+    "open_builtin_runtime",
+    "preflight_builtin_runtime",
+]

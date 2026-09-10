@@ -35,9 +35,7 @@ from multiprocessing.process import BaseProcess
 from random import SystemRandom
 from typing import Protocol
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
-from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
@@ -59,6 +57,7 @@ from powercontext.builtin.persistence.supervision import (
     database_utc_now,
 )
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE, ARTIFACT_PROCESSING_LEASES_TABLE
+from powercontext.builtin.runtime.cron import CronSchedule
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkAssignment,
     ArtifactProcessingWorkerCompletion,
@@ -138,7 +137,7 @@ class ArtifactProcessingBinding:
             if self.cron is not None:
                 raise ValueError("interval and cron cannot both be enabled")  # noqa: TRY003
         if self.cron is not None:
-            CronTrigger.from_crontab(self.cron, timezone=ZoneInfo(self.timezone))
+            CronSchedule.parse(self.cron, self.timezone)
 
 
 @dataclass(slots=True)
@@ -1099,11 +1098,8 @@ def _schedule_deadline(
         return (now if now >= next_time else None), next_time
     if binding.cron is None:
         return None, now
-    trigger = CronTrigger.from_crontab(binding.cron, timezone=ZoneInfo(binding.timezone))
-    first = trigger.get_next_fire_time(None, (checkpoint + timedelta(microseconds=1)).replace(tzinfo=UTC))
-    if first is None:
-        return None, datetime.max.replace(tzinfo=None)
-    first = first.astimezone(UTC).replace(tzinfo=None)
+    schedule = CronSchedule.parse(binding.cron, binding.timezone)
+    first = schedule.next_after(checkpoint)
     if first > now:
         return None, first
     # Binary search avoids replaying an unbounded number of missed cron fires.
@@ -1112,16 +1108,13 @@ def _schedule_deadline(
         if (hi - lo).total_seconds() < 0.000001:
             break
         mid = lo + (hi - lo) / 2
-        candidate = trigger.get_next_fire_time(None, mid.replace(tzinfo=UTC))
-        if candidate is not None and candidate.astimezone(UTC).replace(tzinfo=None) <= now:
-            latest = candidate.astimezone(UTC).replace(tzinfo=None)
+        candidate = schedule.next_after(mid)
+        if candidate <= now:
+            latest = candidate
             lo = mid
         else:
             hi = mid
-    following = trigger.get_next_fire_time(None, (latest + timedelta(microseconds=1)).replace(tzinfo=UTC))
-    return latest, datetime.max.replace(tzinfo=None) if following is None else following.astimezone(UTC).replace(
-        tzinfo=None
-    )
+    return latest, schedule.next_after(latest)
 
 
 class ArtifactProcessingSupervisors:

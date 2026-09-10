@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import date as date_aliased
 from enum import StrEnum
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import (
     AwareDatetime,
@@ -1379,6 +1380,113 @@ class ImportExternalSkillRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
 
 
+class OperationStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    RETRY_WAIT = "retry_wait"
+    CANCELLING = "cancelling"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class OperationKind(StrEnum):
+    MEMORY_FLUSH = "memory_flush"
+    EXPERIENCE_INCUBATION = "experience_incubation"
+
+
+class Type(StrEnum):
+    MEMORY_FLUSH = "memory_flush"
+
+
+class MemoryOperationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["memory_flush"]
+    previous_cursor: Annotated[StrictInt, Field(ge=0)]
+    high_watermark: Annotated[StrictInt, Field(ge=0)]
+    current_cursor: Annotated[StrictInt, Field(ge=0)]
+    processed_source_count: Annotated[StrictInt, Field(ge=0)]
+    memory: ArtifactReference | None = None
+
+
+class Type1(StrEnum):
+    EXPERIENCE_INCUBATION = "experience_incubation"
+
+
+class ExperienceOperationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["experience_incubation"]
+    previous_cursor: Annotated[StrictInt, Field(ge=0)]
+    high_watermark: Annotated[StrictInt, Field(ge=0)]
+    current_cursor: Annotated[StrictInt, Field(ge=0)]
+    processed_source_count: Annotated[StrictInt, Field(ge=0)]
+    candidate_count: Annotated[StrictInt, Field(ge=0)]
+
+
+class OperationError(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+    code: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+
+
+class OperationRecord(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation_id: UUID
+    kind: OperationKind
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    status: OperationStatus
+    attempt_count: Annotated[StrictInt, Field(ge=0)]
+    state_version: Annotated[StrictInt, Field(ge=1)]
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    completed_at: AwareDatetime | None = None
+    result: Annotated[MemoryOperationResult | ExperienceOperationResult | None, Field(discriminator="type")] = None
+    error: OperationError | None = None
+
+
+class OperationAccepted(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation_id: UUID
+    status: OperationStatus
+    status_url: Annotated[StrictStr, Field(pattern="^/v1/operations/[0-9a-f-]{36}$")]
+
+
+class OperationPage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: Annotated[list[OperationRecord], Field(max_length=100)]
+    next_cursor: StrictStr | None = None
+
+
+class ListOperationsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1)] = None
+    kind: OperationKind | None = None
+    status: OperationStatus | None = None
+    cursor: StrictStr | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+
+
+class OperationMutationRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
 class Family1(StrEnum):
     PROMPT = "prompt"
 
@@ -1461,7 +1569,7 @@ class TagTargetType(StrEnum):
     MEMORY_ENTRY = "memory_entry"
 
 
-class Type(StrEnum):
+class Type2(StrEnum):
     ARTIFACT = "artifact"
 
 
@@ -1474,7 +1582,7 @@ class ArtifactTagTarget(BaseModel):
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
 
 
-class Type1(StrEnum):
+class Type3(StrEnum):
     MEMORY_ENTRY = "memory_entry"
 
 
@@ -1940,7 +2048,7 @@ class PreparedHandoffSchema(StrEnum):
     POWERCONTEXT_PREPARED_HANDOFF_V1 = "powercontext.prepared-handoff.v1"
 
 
-class Type2(StrEnum):
+class Type4(StrEnum):
     USER = "user"
     SERVICE = "service"
 
@@ -1954,7 +2062,7 @@ class AccessPrincipal(BaseModel):
     description: Annotated[StrictStr | None, Field(max_length=255, min_length=1)] = None
 
 
-class Type3(StrEnum):
+class Type5(StrEnum):
     GROUP = "group"
 
 
@@ -2015,7 +2123,7 @@ class AccessResourceType(StrEnum):
     ARTIFACT = "artifact"
 
 
-class Type4(StrEnum):
+class Type6(StrEnum):
     SERVER = "server"
 
 
@@ -2027,7 +2135,7 @@ class ServerAccessResource(BaseModel):
     deployment_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
-class Type5(StrEnum):
+class Type7(StrEnum):
     SCOPE = "scope"
 
 
@@ -2039,7 +2147,7 @@ class ScopeAccessResource(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
 
 
-class Type6(StrEnum):
+class MemoryEntryAccessSelectorType(StrEnum):
     MEMORY_ENTRY = "memory_entry"
 
 
@@ -2047,7 +2155,7 @@ class MemoryEntryAccessSelector(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    type: Type6
+    type: MemoryEntryAccessSelectorType
     entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
@@ -2059,7 +2167,7 @@ class AccessArtifactIdentity(BaseModel):
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
-class Type7(StrEnum):
+class Type8(StrEnum):
     ARTIFACT = "artifact"
 
 

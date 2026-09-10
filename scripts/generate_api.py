@@ -209,14 +209,17 @@ def _generate_operations(
             if request_model is not None:
                 imports.add(request_model[:2])
 
-            success_status, success_response = _success_response(operation.responses, path)
-            response_model = (
-                None
-                if success_response.content is None
-                else _model_for_json_content(success_response.content, schemas, path)
+            success_responses = _success_responses(operation.responses, path)
+            response_models = tuple(
+                (
+                    status,
+                    None if response.content is None else _model_for_json_content(response.content, schemas, path),
+                )
+                for status, response in success_responses
             )
-            if response_model is not None:
-                imports.add(response_model[:2])
+            for _, response_model in response_models:
+                if response_model is not None:
+                    imports.add(response_model[:2])
             operations.append(
                 _render_operation(
                     constant_name=operation_id.upper(),
@@ -225,11 +228,12 @@ def _generate_operations(
                     operation_id=operation_id,
                     request_model=None if request_model is None else request_model[1],
                     request_location=None if request_model is None else request_model[2],
-                    response_model=None if response_model is None else response_model[1],
                     path_parameters=tuple(
                         parameter.name for parameter in parameters if parameter.in_ is ParameterInType.path
                     ),
-                    success_status=success_status,
+                    response_models=tuple(
+                        (status, None if model is None else model[1]) for status, model in response_models
+                    ),
                     summary=operation.summary,
                     tags=tuple(operation.tags or ()),
                     scope_mode=_scope_mode(operation),
@@ -247,7 +251,7 @@ def _generate_operations(
 
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar, cast
 
 from pydantic import BaseModel, JsonValue
 
@@ -268,14 +272,25 @@ class Operation(BaseModel, Generic[RequestT, ResponseT]):
     operation_id: str
     request_type: type[RequestT] | None
     request_location: Literal["body", "query"] | None
-    response_type: type[ResponseT] | None
     path_parameters: tuple[str, ...]
-    success_status: int
+    success_response_types: dict[int, type[BaseModel] | None]
     summary: str
     tags: tuple[str, ...]
     scope_mode: Literal["none", "current", "selection"]
     responses: dict[int | str, dict[str, JsonValue]]
     access: AccessRequirement | None
+
+    @property
+    def success_statuses(self) -> tuple[int, ...]:
+        return tuple(sorted(self.success_response_types))
+
+    @property
+    def success_status(self) -> int:
+        return self.success_statuses[0]
+
+    @property
+    def response_type(self) -> type[ResponseT] | None:
+        return cast(type[ResponseT] | None, self.success_response_types[self.success_status])
 
 
 class AccessRequirement(BaseModel):
@@ -403,19 +418,20 @@ def _operation_parameters(path_item: PathItem, operation: OpenAPIOperation) -> t
     return tuple(parameters)
 
 
-def _success_response(
+def _success_responses(
     responses: dict[str, Response | object],
     path: str,
-) -> tuple[int, Response]:
-    successes = [
-        (int(code), response) for code, response in responses.items() if code.isdecimal() and 200 <= int(code) < 300
-    ]
-    if len(successes) != 1:
+) -> tuple[tuple[int, Response], ...]:
+    successes: list[tuple[int, Response]] = []
+    for code, response in responses.items():
+        if not code.isdecimal() or not 200 <= int(code) < 300:
+            continue
+        if not isinstance(response, Response):
+            raise ContractGenerationError("success response reference", path)  # noqa: TRY003
+        successes.append((int(code), response))
+    if not successes:
         raise ContractGenerationError("success response", path)  # noqa: TRY003
-    success_status, response = successes[0]
-    if not isinstance(response, Response):
-        raise ContractGenerationError("success response reference", path)  # noqa: TRY003
-    return success_status, response
+    return tuple(sorted(successes, key=lambda item: item[0]))
 
 
 def _model_for_json_content(
@@ -494,9 +510,8 @@ def _render_operation(
     operation_id: str,
     request_model: str | None,
     request_location: Literal["body", "query"] | None,
-    response_model: str | None,
     path_parameters: tuple[str, ...],
-    success_status: int,
+    response_models: tuple[tuple[int, str | None], ...],
     summary: str,
     tags: tuple[str, ...],
     scope_mode: Literal["none", "current", "selection"],
@@ -504,7 +519,10 @@ def _render_operation(
     access: _AccessRequirement | None,
 ) -> str:
     request_type = "None" if request_model is None else request_model
-    response_type = "None" if response_model is None else response_model
+    response_type = " | ".join(dict.fromkeys("None" if model is None else model for _, model in response_models))
+    success_response_types = (
+        "{" + ", ".join(f"{status}: {'None' if model is None else model}" for status, model in response_models) + "}"
+    )
     rendered_access = (
         "None"
         if access is None
@@ -521,8 +539,7 @@ def _render_operation(
     request_type={request_type},
     request_location={request_location!r},
     path_parameters={path_parameters!r},
-    response_type={response_type},
-    success_status={success_status},
+    success_response_types={success_response_types},
     summary={summary!r},
     tags={tags!r},
     scope_mode={scope_mode!r},

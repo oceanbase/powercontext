@@ -17,13 +17,61 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import Table, insert
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from powercontext.builtin.persistence.errors import DatabaseClosedError
+from powercontext.builtin.persistence.errors import DatabaseClosedError, InvalidStoredColumnError
+
+
+async def database_now(connection: AsyncConnection, /) -> datetime:
+    """Return normalized UTC-naive database time for coordination decisions."""
+
+    statement = "SELECT UTC_TIMESTAMP(6)" if connection.dialect.name == "mysql" else "SELECT CURRENT_TIMESTAMP"
+    value = (await connection.exec_driver_sql(statement)).scalar_one()
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if not isinstance(value, datetime):
+        raise InvalidStoredColumnError("CURRENT_TIMESTAMP", "a datetime")
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+async def insert_if_absent(
+    connection: AsyncConnection,
+    table: Table,
+    values: Mapping[str, Any],
+    /,
+) -> bool:
+    """Insert validated values without aborting the transaction on a unique-key race.
+
+    OceanBase's async dialect deliberately leaves ``do_begin`` empty.  A
+    zero-row locking update therefore may not establish a server transaction,
+    which makes a SAVEPOINT-based insert race unsafe.  The supported SQL
+    dialects provide a conflict-tolerant insert that starts the real
+    transaction and reports whether this caller created the row.
+    """
+
+    statement = insert(table).values(**values)
+    if connection.dialect.name == "mysql":
+        result = await connection.execute(statement.prefix_with("IGNORE"))
+        return result.rowcount == 1
+    if connection.dialect.name == "sqlite":
+        result = await connection.execute(statement.prefix_with("OR IGNORE"))
+        return result.rowcount == 1
+
+    try:
+        async with connection.begin_nested():
+            await connection.execute(statement)
+    except IntegrityError:
+        return False
+    return True
 
 
 class AsyncDatabase:

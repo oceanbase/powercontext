@@ -5,6 +5,10 @@
 > **Note:** PowerContext now uses bundled sqlite-vec for SQLite vector search. Statements about Vec1 in this RFC no
 > longer apply and remain only as a record of the original design.
 
+> **Execution update:** [RFC 1430](1430_distributed_server_workers.md) replaces the APScheduler sidecar and
+> single-process execution assumptions with one database-backed Work Ledger for local and distributed modes. This RFC
+> remains authoritative for Source window, cursor, Memory, and domain commit semantics.
+
 # Summary
 
 This RFC proposes backend-neutral Runtime storage contracts and a built-in SQLite profile. The Runtime uses the

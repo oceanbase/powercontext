@@ -36,7 +36,9 @@ Without an override, the default is:
 - Windows: `%LOCALAPPDATA%\\powercontext`.
 
 The default SQLite database is `powercontext.db` in this directory. The four built-in background processors persist
-intents and scheduling checkpoints in the same database. Existing installations require [offline migration](artifact-processing-migration.md).
+intents and scheduling checkpoints there, alongside distributed Work Ledger leases and operation state. The former
+`scheduler.db` sidecar is no longer part of execution. Existing installations require
+[offline migration](artifact-processing-migration.md).
 
 ## Server
 
@@ -69,6 +71,33 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekDB |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekDB path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_MODE` | `single_node` | `single_node` or `distributed` process topology |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ROLE` | `all` | `all`, `api`, `scheduler`, or `worker`; distributed mode forbids `all` |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ID` | `local` | Non-secret operator instance label; boot ownership remains unique |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION` | `default` | Non-secret rollout compatibility revision shared by all replicas |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_LEASE_SECONDS` | `30` | Scheduler leader lease duration using database time |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_RENEW_SECONDS` | `10` | Scheduler renewal interval; at most one third of the lease |
+| `POWERCONTEXT_SERVER_COORDINATION_SCAN_PAGE_SIZE` | `100` | Maximum scopes inspected in one discoverer page |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_TTL_SECONDS` | `30` | Runtime member advertisement lifetime |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_HEARTBEAT_SECONDS` | `10` | Runtime member heartbeat interval |
+| `POWERCONTEXT_SERVER_COORDINATION_EMIT_PAYLOAD_VERSION` | `1` | Work payload version emitted during a rolling deployment |
+| `POWERCONTEXT_SERVER_WORKER_CONCURRENCY` | `4` | Maximum attempts executed concurrently by one Worker |
+| `POWERCONTEXT_SERVER_WORKER_LEASE_SECONDS` | `120` | Worker claim lease duration |
+| `POWERCONTEXT_SERVER_WORKER_HEARTBEAT_SECONDS` | `30` | Claim heartbeat interval; less than one third of the lease |
+| `POWERCONTEXT_SERVER_WORKER_SHUTDOWN_GRACE_SECONDS` | `90` | Maximum graceful drain time; less than the lease |
+| `POWERCONTEXT_SERVER_WORKER_MAX_ATTEMPTS` | `5` | Automatic attempt budget before operator recovery is required |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_BASE_SECONDS` | `2` | Full-jitter exponential retry base |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_MAX_SECONDS` | `300` | Full-jitter retry ceiling |
+| `POWERCONTEXT_SERVER_WORKER_POLL_SECONDS` | `1` | Idle claim polling interval |
+| `POWERCONTEXT_SERVER_OPERATIONS_DEFAULT_WAIT_SECONDS` | `10` | Default HTTP Memory flush wait |
+| `POWERCONTEXT_SERVER_OPERATIONS_MAXIMUM_WAIT_SECONDS` | `30` | Maximum accepted `Prefer: wait=N` value |
+| `POWERCONTEXT_SERVER_OPERATIONS_POLL_SECONDS` | `0.2` | Local operation completion polling interval |
+| `POWERCONTEXT_SERVER_OPERATIONS_RETENTION_DAYS` | `30` | Successful and cancelled operation history retention |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_BATCH_SIZE` | `500` | Maximum records removed by one maintenance attempt |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_INTERVAL_SECONDS` | `3600` | Durable maintenance discovery interval |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_ENABLED` | `false` | Enable shared database fixed-window limiting |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_REQUESTS` | `120` | Requests allowed for one principal and policy window |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_WINDOW_SECONDS` | `60` | Shared rate-limit window duration |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | Maximum sum of explicit `assembly.sections[].limit`; positive integer. Per-family limits still apply. |
@@ -83,7 +112,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | Minimum historical recall count when the threshold returns too few candidates |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_MAX_WORKERS` | `10` | Topic Worker quota; `ARTIFACT_PROCESSING_MAX_WORKERS` is its compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Total Scope invocation timeout, including child startup; old `ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` is its alias |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | Process role: `all`, `api`, or `background` |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | Single-node Supervisor role: `all`, `api`, or `background`; distributed mode requires `all` because `DEPLOYMENT_ROLE` owns process separation |
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_SUPERVISOR_MODE` | `global` | `global` owns one Lease; `dedicated` owns one Lease per registered Family |
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | inferred from models | JSON Family list; API-only instances can declare capabilities without model credentials |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Independent Memory Worker quota |
@@ -245,18 +274,24 @@ terminating TLS in front of a loopback-bound Server whenever the deployment perm
 Handoff Report API routes are independently enabled by default. See
 [Use Handoff Report](../workflows/use-handoff-report.md) for selection, inspection, and export.
 
-The Artifact Processing Supervisor is enabled by the default `all` role. OceanBase deployments may run `api` and
-`background` separately; `powercontext server run --role background` starts no HTTP, MCP, or Dashboard listener, and
-multiple background candidates use the database Lease to elect one active Leader. SQLite and embedded seekDB support
-only the single-process `all` role. Automatic Topic Memory waves remain disabled until a positive interval is set;
-explicit flush work remains recoverable regardless of that interval. Topic workers need file-backed SQLite: configuring
-a generation model with an in-memory SQLite database is rejected before processing is advertised. Use a persistent
-`POWERCONTEXT_SERVER_DATABASE_URL`, such as `sqlite+aiosqlite:////srv/powercontext/runtime.db`.
-Memory, Topic Memory, Experience, and Profile all use the Supervisor. OceanBase permits their schedules in split roles.
-SQLite and embedded seekDB retain one `all` host. Every Family has its own quota and timeout in both modes; spare quota
-is not shared. Disabling automatic admission preserves already accepted requests. The API and background instances must
-agree on mode, registered Families and trigger capabilities. Model resources are only required by workers. Changing modes
-requires [coordinated offline migration](artifact-processing-migration.md); mixed modes cannot start.
+The Artifact Processing Supervisor is enabled by the default `all` role in `single_node` deployment mode. A single-node
+OceanBase deployment may split that Supervisor into `api` and `background` runtime roles;
+`powercontext server run --role background` starts no HTTP, MCP, or Dashboard listener, and multiple background
+candidates use the database Lease to elect one active Leader. This split is distinct from
+`POWERCONTEXT_SERVER_DEPLOYMENT_MODE=distributed`, where `DEPLOYMENT_ROLE` selects `api`, `scheduler`, or `worker`, and
+`ARTIFACT_PROCESSING_ROLE` must remain `all`.
+
+In single-node mode, Memory, Topic Memory, Experience, and Profile use the Supervisor. In distributed mode, Memory,
+Experience, and Profile use the Work Ledger instead; Topic Memory processing is not supported in distributed v1 and a
+configured Topic Memory schedule is rejected at startup. SQLite and embedded seekDB support only the single-process
+`all` role. Automatic Topic Memory waves remain disabled until a positive interval is set; explicit flush work remains
+recoverable regardless of that interval. Topic workers need file-backed SQLite: configuring a generation model with an
+in-memory SQLite database is rejected before processing is advertised. Use a persistent
+`POWERCONTEXT_SERVER_DATABASE_URL`, such as `sqlite+aiosqlite:////srv/powercontext/runtime.db`. Every Supervisor Family
+has its own quota and timeout; spare quota is not shared. Disabling automatic admission preserves already accepted
+requests. Split Supervisor API and background instances must agree on mode, registered Families, and trigger
+capabilities. Model resources are only required by execution processes. Changing Supervisor modes requires
+[coordinated offline migration](artifact-processing-migration.md); mixed modes cannot start.
 Conflicting explicit old/new configuration aliases fail startup; equal values are accepted.
 
 Normal Runtime startup initializes and recovers the configured search indexes. Topic Workers reuse that database
@@ -315,9 +350,22 @@ Experience incubation has its own Supervisor binding and persisted Source cursor
 finite window controlled by `SOURCE_WINDOW_LIMIT` and exposes only Content Sources whose metadata contains
 `"kind": "task-outcome"` to the model. It creates pending Experience Candidates in the Review Inbox; it does not
 approve them, place them in PreparedContext, create a managed Skill, export it to an Agent target, or execute anything.
-Memory and Experience keep independent scheduling intervals, Worker quotas, and business cursors. Unsetting an interval
-stops new automatic admission for that Family while preserving accepted work.
+Memory and Experience keep independent scheduling intervals, Worker quotas, and business cursors. In distributed mode,
+their accepted operations use independent Work Ledger lanes and logical keys. Unsetting an interval stops new automatic
+admission for that Family while preserving accepted work.
 See [Create and review an Experience](../workflows/create-and-review-experience.md) for setup and verification steps.
+
+### Distributed roles and migrations
+
+Distributed mode requires OceanBase. Run `powercontext server migrate --env-file ...` with a DDL-capable account before
+starting any role. Role processes never create or alter schema. Start or roll forward in this order: migrate, Workers,
+Schedulers, then APIs. Use a new `POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION` when a rollout changes non-secret
+behavior that must not mix across replicas.
+
+An API replica can remain ready enough to accept durable work while Scheduler or Worker members are absent; readiness
+is `degraded` and names the missing role. Scheduler and Worker roles expose health and metrics only. Distributed MCP is
+stateless and needs no load-balancer affinity. Host-local External Skill targets are rejected because replicas could
+otherwise return different results.
 
 ### Agent Skill targets
 

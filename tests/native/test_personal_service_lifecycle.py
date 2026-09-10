@@ -48,6 +48,8 @@ from powercontext.service.model import (
     SupportState,
 )
 
+_TEST_MEMBER_TTL_SECONDS = 3
+
 pytestmark = [
     pytest.mark.native_service,
     pytest.mark.skipif(
@@ -84,6 +86,9 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
             assert adapter.loaded_registration().state is ManagerOwnershipState.OWNED
             assert adapter.manager_state() is ManagerState.INACTIVE
 
+        if isinstance(adapter, WindowsTaskSchedulerAdapter):
+            # schtasks /End cannot run the Server shutdown hook that releases the lease.
+            time.sleep(_TEST_MEMBER_TTL_SECONDS + 1)
         adapter.start(reload_definition=False)
         restarted = _wait_for_status(controller)
         assert restarted.ok, f"{restarted}\n{_server_error_tail(tmp_path)}"
@@ -275,6 +280,9 @@ def _environment_file(tmp_path: Path) -> Path:
         "\n".join((
             f"POWERCONTEXT_HOME={data_dir}",
             f"POWERCONTEXT_SERVER_HTTP_PORT={_unused_loopback_port()}",
+            "POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false",
+            f"POWERCONTEXT_SERVER_COORDINATION_MEMBER_TTL_SECONDS={_TEST_MEMBER_TTL_SECONDS}",
+            "POWERCONTEXT_SERVER_COORDINATION_MEMBER_HEARTBEAT_SECONDS=1",
             "",
         )),
         encoding="utf-8",

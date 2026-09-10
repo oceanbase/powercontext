@@ -178,8 +178,8 @@ so the previous database remains available for recovery:
 3. Export the PowerContext table data with OceanBase `obdumper` in CSV or SQL data mode **without `--ddl`**. Keep the
    export and the original database unchanged until the migration is verified. Supply credentials through your
    approved secret-handling process rather than placing them in logs or documentation.
-4. Create a new empty OceanBase MySQL-mode database and point `POWERCONTEXT_SERVER_DATABASE_URL` at it. Start the
-   current PowerContext version once to create tables with `utf8mb4_bin`, then stop it before restoring data.
+4. Create a new empty OceanBase MySQL-mode database, point `POWERCONTEXT_SERVER_DATABASE_URL` at it, and run
+   `powercontext server migrate`. Do not start an API, Scheduler, or Worker process before restoring the data.
 5. Import only the exported row data into the existing new tables with OceanBase `obloader`, again **without
    `--ddl`**. Keep foreign-key enforcement enabled and run these four layers separately. The examples use CSV; if
    you exported SQL data, replace `--csv` with `--sql` in all four commands. Fill in `<connection-options>` through
@@ -193,13 +193,16 @@ so the previous database remains available for recovery:
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
    `pc_skill_publications`), the Profile tables, `pc_topic_memory_work_budgets`, or
    `pc_receipt_migration_review`, remove the absent tables from their respective layers.
+   Do not import `pc_scheduler_leases`, `pc_scheduler_scans`, `pc_runtime_members`, or `pc_rate_limit_windows`.
+   They contain transient coordination state. The migration command owns its migration lease row, and the runtime
+   recreates the remaining rows after startup.
    When a work-budget table exists, restore it together with Cursors so failure allowances survive the migration.
 
    Layer 1 contains parents and tables without foreign keys:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_receipt_migration_review' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_receipt_migration_review,pc_work_lanes,pc_work_items,pc_work_keys,pc_work_attempts' \
      -f <export-directory>
    ```
 
@@ -230,7 +233,8 @@ so the previous database remains available for recovery:
    Wait for each invocation to complete successfully before starting the next. Treat any OBLoader error, bad record,
    or conflict record as a failed restore. Order within a layer is irrelevant because no table in a layer references
    another table in the same layer.
-6. If the installation has additional PowerContext-managed tables not listed above, these tested layers do not
+6. Except for the four transient tables intentionally excluded above, if the installation has additional
+   PowerContext-managed tables not listed above, these tested layers do not
    classify them. Inspect their foreign-key constraints and place each table after all of its parents; do not add
    them to an all-table invocation.
 7. Compare source and target row counts for every restored table, inspect the identity-column collations, and test

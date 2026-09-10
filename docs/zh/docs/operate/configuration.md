@@ -32,6 +32,7 @@ export POWERCONTEXT_HOME=/srv/powercontext
 - Windows：`%LOCALAPPDATA%\\powercontext`。
 
 默认 SQLite 数据库是该目录下的 `powercontext.db`。四类后台处理器的意图与调度检查点保存在同一数据库中。
+分布式 Work Ledger 的租约与 operation 状态也保存在这里；执行路径不再使用旧的 `scheduler.db` sidecar。
 已有部署须先完成[停机迁移](artifact-processing-migration.md)。
 
 ## Server
@@ -65,6 +66,33 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekDB 不设置 |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekDB 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_MODE` | `single_node` | `single_node` 或 `distributed` 进程拓扑 |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ROLE` | `all` | `all`、`api`、`scheduler` 或 `worker`；分布式模式禁止 `all` |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_ID` | `local` | 非敏感运维实例标签；启动 owner identity 仍然唯一 |
+| `POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION` | `default` | 所有副本共享的非敏感发布兼容版本 |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_LEASE_SECONDS` | `30` | 使用数据库时间的 Scheduler leader lease 时长 |
+| `POWERCONTEXT_SERVER_COORDINATION_SCHEDULER_RENEW_SECONDS` | `10` | Scheduler 续租间隔；不超过 lease 的三分之一 |
+| `POWERCONTEXT_SERVER_COORDINATION_SCAN_PAGE_SIZE` | `100` | discoverer 单页最多检查的 scope 数量 |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_TTL_SECONDS` | `30` | Runtime member 声明有效期 |
+| `POWERCONTEXT_SERVER_COORDINATION_MEMBER_HEARTBEAT_SECONDS` | `10` | Runtime member 心跳间隔 |
+| `POWERCONTEXT_SERVER_COORDINATION_EMIT_PAYLOAD_VERSION` | `1` | 滚动发布期间发出的 Work payload version |
+| `POWERCONTEXT_SERVER_WORKER_CONCURRENCY` | `4` | 单个 Worker 并发 attempt 上限 |
+| `POWERCONTEXT_SERVER_WORKER_LEASE_SECONDS` | `120` | Worker claim lease 时长 |
+| `POWERCONTEXT_SERVER_WORKER_HEARTBEAT_SECONDS` | `30` | Claim 心跳间隔；必须小于 lease 的三分之一 |
+| `POWERCONTEXT_SERVER_WORKER_SHUTDOWN_GRACE_SECONDS` | `90` | 最大优雅 drain 时间；必须小于 lease |
+| `POWERCONTEXT_SERVER_WORKER_MAX_ATTEMPTS` | `5` | 需要 operator 恢复前的自动 attempt 上限 |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_BASE_SECONDS` | `2` | full-jitter 指数退避基数 |
+| `POWERCONTEXT_SERVER_WORKER_RETRY_MAX_SECONDS` | `300` | full-jitter 退避上限 |
+| `POWERCONTEXT_SERVER_WORKER_POLL_SECONDS` | `1` | 空闲 claim 轮询间隔 |
+| `POWERCONTEXT_SERVER_OPERATIONS_DEFAULT_WAIT_SECONDS` | `10` | HTTP Memory flush 默认等待时间 |
+| `POWERCONTEXT_SERVER_OPERATIONS_MAXIMUM_WAIT_SECONDS` | `30` | `Prefer: wait=N` 最大允许值 |
+| `POWERCONTEXT_SERVER_OPERATIONS_POLL_SECONDS` | `0.2` | 本地 operation 完成轮询间隔 |
+| `POWERCONTEXT_SERVER_OPERATIONS_RETENTION_DAYS` | `30` | 成功和取消的 operation 历史保留天数 |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_BATCH_SIZE` | `500` | 单次 maintenance attempt 最大清理数量 |
+| `POWERCONTEXT_SERVER_OPERATIONS_CLEANUP_INTERVAL_SECONDS` | `3600` | 持久 maintenance discovery 间隔 |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_ENABLED` | `false` | 启用数据库共享固定窗口限流 |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_REQUESTS` | `120` | 每个 principal/policy 窗口允许的请求数 |
+| `POWERCONTEXT_SERVER_RATE_LIMIT_WINDOW_SECONDS` | `60` | 共享限流窗口时长 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | 显式 `assembly.sections[].limit` 之和的上限；正整数，各类别单独上限仍适用 |
@@ -79,7 +107,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | 达到阈值的候选过少时保证的最小历史召回数 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_MAX_WORKERS` | `10` | Topic 独立 Worker 额度；`ARTIFACT_PROCESSING_MAX_WORKERS` 是其兼容别名 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | 包括启动的 Scope 调用总超时；旧 `ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` 是其兼容别名 |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | 进程角色：`all`、`api` 或 `background` |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | 单机 Supervisor 角色：`all`、`api` 或 `background`；分布式模式由 `DEPLOYMENT_ROLE` 拆分进程，因此此项必须为 `all` |
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_SUPERVISOR_MODE` | `global` | `global` 一条 Lease；`dedicated` 每个注册 Family 一条 Lease |
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | 根据模型推导 | JSON Family 列表；API 端可无模型凭据地声明处理能力 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Memory 独立 Worker 额度 |
@@ -224,15 +252,20 @@ Server 级 Bearer token 时可达。部署条件允许时，应优先启用鉴�
 Handoff Report API route 独立默认启用。Selection、检查和导出步骤见
 [使用 Handoff Report](../workflows/use-handoff-report.md)。
 
-默认 `all` 角色会启动 Artifact Processing Supervisor。OceanBase 部署可以拆分 `api` 和 `background`；
-`powercontext server run --role background` 不启动 HTTP、MCP 或 Dashboard listener，多个后台候选者通过数据库 Lease
-自动选出一个 active Leader。SQLite 与嵌入式 seekDB 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次
-保持关闭；显式 flush 工作的恢复不依赖该间隔。Topic Worker 要求使用文件 SQLite；内存 SQLite 配合 generation
-model 的配置会在声明处理能力之前被拒绝。请通过 `POWERCONTEXT_SERVER_DATABASE_URL` 指定持久数据库路径，例如
-`sqlite+aiosqlite:////srv/powercontext/runtime.db`。Memory、Topic Memory、Experience、Profile 均使用统一 Supervisor，OceanBase 拆分角色也可启用其周期。
-SQLite 和 embedded seekDB 仍要求单宿主 `all`。两模式均保留逐 Family 独立额度和总超时，不借用其他 Family 空闲额度。
-关闭自动准入仍恢复已接受请求。API 与后台须保持 mode、注册 Family 和可触发能力一致；模型仅在执行端必需。
-切换模式须[协调停机迁移](artifact-processing-migration.md)，不能混用模式启动。
+在 `single_node` 部署模式中，默认 `all` 角色会启动 Artifact Processing Supervisor。单机 OceanBase 部署可以再把
+Supervisor 拆成 `api` 和 `background` runtime 角色；`powercontext server run --role background` 不启动 HTTP、MCP 或
+Dashboard listener，多个后台候选者通过数据库 Lease 自动选出一个 active Leader。这种拆分不同于
+`POWERCONTEXT_SERVER_DEPLOYMENT_MODE=distributed`：后者由 `DEPLOYMENT_ROLE` 选择 `api`、`scheduler` 或 `worker`，
+并要求 `ARTIFACT_PROCESSING_ROLE` 保持为 `all`。
+
+单机模式下 Memory、Topic Memory、Experience、Profile 使用统一 Supervisor；分布式模式下 Memory、Experience、
+Profile 改由 Work Ledger 执行。分布式 v1 不支持 Topic Memory processing，配置其周期会在启动时被拒绝。SQLite 与
+嵌入式 seekDB 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次保持关闭；显式 flush 工作的恢复不依赖
+该间隔。Topic Worker 要求使用文件 SQLite；内存 SQLite 配合 generation model 的配置会在声明处理能力之前被拒绝。
+请通过 `POWERCONTEXT_SERVER_DATABASE_URL` 指定持久数据库路径，例如
+`sqlite+aiosqlite:////srv/powercontext/runtime.db`。Supervisor 的每个 Family 保留独立额度和总超时，不借用其他 Family
+空闲额度。关闭自动准入仍恢复已接受请求。拆分的 Supervisor API 与后台须保持 mode、注册 Family 和可触发能力一致；
+模型仅在执行进程必需。切换 Supervisor mode 须[协调停机迁移](artifact-processing-migration.md)，不能混用模式启动。
 显式同时配置的新旧别名值不同时拒绝启动，同值接受。
 
 普通 Runtime 启动会初始化并恢复所配置的检索索引。Topic Worker 复用该数据库，不再为每个 Window 重建无关的
@@ -294,8 +327,20 @@ capability error；Review、package 检查与下载、精确导入、usage recor
 Experience 孵化使用独立的 Supervisor binding 和持久化 Source cursor。每次调用按 `SOURCE_WINDOW_LIMIT` 检查有限 Source 窗口，只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
 暴露给模型。该 job 会在 Review Inbox 中创建 pending Experience Candidate；它不会自动批准、进入
 PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行任何内容。Memory 与 Experience 保持独立的周期、
-Worker 额度和业务 Cursor；关闭某一间隔仅停止该 Family 的新自动准入，保留已接受工作。
+Worker 额度和业务 Cursor。分布式模式下，它们接受的 operation 使用相互独立的 Work Ledger lane 和 logical key。
+关闭某一间隔仅停止该 Family 的新自动准入，保留已接受工作。
 设置与验证步骤见[创建并审核 Experience](../workflows/create-and-review-experience.md)。
+
+### 分布式角色与迁移
+
+分布式模式要求 OceanBase。启动任何角色前，先使用有 DDL 权限的账号执行
+`powercontext server migrate --env-file ...`；角色进程不会创建或修改 schema。升级顺序固定为 migrate、Worker、
+Scheduler、API。当一次发布改变了不能混部的非敏感行为时，应为所有新副本设置新的
+`POWERCONTEXT_SERVER_DEPLOYMENT_BEHAVIOR_REVISION`。
+
+Scheduler 或 Worker member 缺失时，API 仍可接受持久任务和读取请求，但 readiness 会是 `degraded` 并标出缺失角色。
+Scheduler 与 Worker 角色只暴露 health 和 metrics。分布式 MCP 为 stateless，不需要负载均衡粘性。由于不同副本可能
+返回不同结果，分布式模式会拒绝 host-local External Skill target。
 
 ### Agent Skill 目标
 

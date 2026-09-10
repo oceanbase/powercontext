@@ -20,21 +20,24 @@ import asyncio
 import signal
 from contextlib import AsyncExitStack, nullcontext
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 import typer
 from pydantic import ValidationError
 
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.persistence.migration import SchemaMigrationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.processing_migration import (
+    ProcessingSchemaNotReadyError,
     apply_processing_migration,
     plan_processing_migration,
     verify_processing_migration,
 )
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.runtime.composition import open_builtin_runtime
-from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.builtin.runtime.composition import migrate_builtin_database, open_builtin_runtime
+from powercontext.builtin.runtime.config import InferenceConfig
 from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.cli.env_file import environment_context
 from powercontext.cli.inference_notice import write_inference_capability_notice
@@ -118,13 +121,7 @@ async def _processing_maintenance(
     migration_id: str,
     batch_size: int,
 ) -> bool:
-    config = BuiltinConfig(
-        runtime=settings.runtime,
-        database=settings.database,
-        inference=settings.inference,
-        handoff_report=settings.handoff_report,
-        external_skills=settings.external_skills,
-    )
+    config = settings.to_builtin_config()
     manifest = canonical_processing_manifest(config)
     database = settings.database
     if isinstance(database, SQLiteConfig):
@@ -218,6 +215,48 @@ def run(
         raise typer.BadParameter(_MISSING_BEARER_CLI_MESSAGE) from error
 
 
+@app.command()
+def migrate(
+    env_file: Annotated[
+        Path | None,
+        typer.Option(help="Load Server and database settings from this environment file."),
+    ] = None,
+) -> None:
+    """Upgrade the configured database through the forward-only schema chain."""
+
+    try:
+        with server_settings_context(env_file=env_file) as settings:
+            revision = asyncio.run(_migrate_configured_database(settings))
+    except ServerConfigurationError as error:
+        if isinstance(error.cause, ValidationError):
+            raise _friendly_bad_parameter(error.cause) from error
+        typer.echo(f"Invalid Server configuration: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    except (ProcessingSchemaNotReadyError, SchemaMigrationError) as error:
+        typer.echo(f"Schema migration failed: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"PowerContext database schema is at {revision}.")
+
+
+async def _migrate_configured_database(settings: ServerSettings) -> str:
+    return await migrate_builtin_database(
+        settings.to_builtin_config(),
+        embedding_profile=_configured_embedding_profile(settings.inference),
+    )
+
+
+def _configured_embedding_profile(settings: InferenceConfig) -> EmbeddingProfile | None:
+    if settings.embedding_model is None:
+        return None
+    return EmbeddingProfile(
+        profile_id=cast(str, settings.embedding_profile_id),
+        model=settings.embedding_model,
+        dimension=cast(int, settings.embedding_dimension),
+        distance="l2",
+        normalization=settings.embedding_normalization,
+    )
+
+
 def _run_configured_server(settings: ServerSettings) -> None:
     """Run one already-validated configuration in the current process."""
 
@@ -273,13 +312,7 @@ def _run_background(settings: ServerSettings, tracing: Any) -> None:
 
 
 async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
-    config = BuiltinConfig(
-        runtime=settings.runtime,
-        database=settings.database,
-        handoff_report=settings.handoff_report,
-        inference=settings.inference,
-        external_skills=settings.external_skills,
-    )
+    config = settings.to_builtin_config()
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     installed: list[signal.Signals] = []

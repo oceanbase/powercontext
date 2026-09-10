@@ -97,8 +97,9 @@ conflicts and persistence; the family service is responsible for its domain beha
 A `Trigger` is a policy over a signal and prior state. It returns a `PolicyTransition` containing the next state and
 zero or more actions. A Trigger should not open storage, schedule itself, or perform the action it selects.
 
-APScheduler belongs to the Builtin runtime lifecycle. It decides when to evaluate a policy. The Trigger decides what
-the observed signal means.
+The durable Scheduler belongs to the Builtin runtime lifecycle. It decides when to evaluate a policy and records work
+in the database ledger. The Trigger decides what the observed signal means; a fenced Worker performs the selected
+action.
 
 ## Ownership boundaries
 
@@ -109,7 +110,7 @@ the observed signal means.
 | Environment-backed process configuration | `powercontext.client.settings`, `powercontext.server.settings` |
 | HTTP lifecycle and optional MCP transport | `powercontext.server` |
 | Provider-specific generation and embedding | Inference integration |
-| Database and scheduler resource lifetime | Application entry point or Builtin runtime instance |
+| Database, Scheduler, and Worker resource lifetime | Application entry point or Builtin runtime instance |
 
 Core models use Pydantic `BaseModel`. Add a validator when the value has a real domain constraint. Do not add wrapper
 properties for stored fields, custom JSON value hierarchies, or a second definition object when the model or protocol

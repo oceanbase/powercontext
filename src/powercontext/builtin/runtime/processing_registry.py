@@ -28,6 +28,11 @@ from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 def processing_capabilities(config: BuiltinConfig) -> tuple[str, ...]:
     """Use explicit cross-role declarations or infer executable built-ins."""
 
+    # Distributed v1 executes Memory, Experience, and Profile work through the
+    # database-backed Work Ledger. The process-local Artifact Processing
+    # Supervisor remains the single-node execution engine.
+    if config.deployment.mode == "distributed":
+        return ()
     declared = config.runtime.artifact_processing_families
     if declared is not None:
         return tuple(sorted(declared))

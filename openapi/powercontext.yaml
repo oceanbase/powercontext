@@ -262,6 +262,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/Unavailable"
   /v1/scopes:
@@ -684,6 +686,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -839,6 +843,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -877,6 +883,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -915,6 +923,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -953,6 +963,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -991,6 +1003,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1027,6 +1041,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1062,6 +1078,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1097,6 +1115,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1134,6 +1154,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1169,6 +1191,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1287,6 +1311,13 @@ paths:
       operationId: flush_memory
       x-powercontext-access: {action: scope.contribute, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
+      parameters:
+        - name: Prefer
+          in: header
+          required: false
+          description: Use `respond-async` for an immediate handle or `wait=N` to wait at most 30 seconds.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1303,10 +1334,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FlushMemoryResponse"
+        "202":
+          description: The durable operation is still queued, running, or waiting to retry.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Location:
+              description: Relative URL of the accepted operation.
+              schema:
+                type: string
+            Retry-After:
+              description: Suggested polling delay in seconds.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationAccepted"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1343,6 +1395,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1379,6 +1433,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1417,6 +1473,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1453,6 +1511,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1491,6 +1551,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1529,6 +1591,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1565,6 +1629,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1601,6 +1667,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1637,6 +1705,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1673,6 +1743,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1709,6 +1781,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1745,6 +1819,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -1781,6 +1857,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2342,6 +2420,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2376,6 +2456,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2412,6 +2494,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2450,6 +2534,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2484,6 +2570,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2520,6 +2608,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2558,6 +2648,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2596,6 +2688,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2634,6 +2728,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
@@ -2672,12 +2768,186 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "503":
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/operations:
+    get:
+      tags: [operations]
+      summary: List durable operations visible to the caller
+      operationId: list_operations
+      x-powercontext-access: {resolver: operation_list_access}
+      parameters:
+        - name: scope_id
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: kind
+          in: query
+          schema:
+            $ref: "#/components/schemas/OperationKind"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/OperationStatus"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A bounded cursor page of authorized operations.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/operations/{operation_id}:
+    get:
+      tags: [operations]
+      summary: Get one durable operation
+      operationId: get_operation
+      x-powercontext-access: {resolver: operation_read_access}
+      parameters:
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The authorized operation and its safe result or error metadata.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/operations/{operation_id}/cancel:
+    post:
+      tags: [operations]
+      summary: Cancel one durable operation using optimistic concurrency
+      operationId: cancel_operation
+      x-powercontext-access: {resolver: operation_write_access}
+      parameters:
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OperationMutationRequest"
+      responses:
+        "200":
+          description: The updated operation.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/operations/{operation_id}/retry:
+    post:
+      tags: [operations]
+      summary: Recover one blocked failed operation using optimistic concurrency
+      operationId: retry_operation
+      x-powercontext-access: {resolver: operation_write_access}
+      parameters:
+        - name: operation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OperationMutationRequest"
+      responses:
+        "200":
+          description: The recovered queued operation.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/handoff-reports/get:
     post:
       tags: [handoff-reports]
@@ -2729,6 +2999,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "422":
           $ref: "#/components/responses/InvalidRequest"
         "413":
@@ -3986,6 +4258,19 @@ components:
     Unavailable:
       description: A required Runtime binding or dependency is unavailable.
       headers:
+        X-PowerContext-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: The shared request policy rejected this fixed-window request.
+      headers:
+        Retry-After:
+          description: Seconds until the current shared window expires.
+          schema:
+            type: integer
         X-PowerContext-Request-ID:
           $ref: "#/components/headers/RequestId"
       content:
@@ -8018,6 +8303,168 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SearchMemoryHit"
+    OperationStatus:
+      type: string
+      enum: [queued, running, retry_wait, cancelling, succeeded, failed, cancelled]
+    OperationKind:
+      type: string
+      enum: [memory_flush, experience_incubation]
+    MemoryOperationResult:
+      type: object
+      additionalProperties: false
+      required: [type, previous_cursor, high_watermark, current_cursor, processed_source_count]
+      properties:
+        type:
+          type: string
+          enum: [memory_flush]
+        previous_cursor:
+          type: integer
+          minimum: 0
+        high_watermark:
+          type: integer
+          minimum: 0
+        current_cursor:
+          type: integer
+          minimum: 0
+        processed_source_count:
+          type: integer
+          minimum: 0
+        memory:
+          $ref: "#/components/schemas/ArtifactReference"
+          nullable: true
+    ExperienceOperationResult:
+      type: object
+      additionalProperties: false
+      required: [type, previous_cursor, high_watermark, current_cursor, processed_source_count, candidate_count]
+      properties:
+        type:
+          type: string
+          enum: [experience_incubation]
+        previous_cursor:
+          type: integer
+          minimum: 0
+        high_watermark:
+          type: integer
+          minimum: 0
+        current_cursor:
+          type: integer
+          minimum: 0
+        processed_source_count:
+          type: integer
+          minimum: 0
+        candidate_count:
+          type: integer
+          minimum: 0
+    OperationError:
+      type: object
+      additionalProperties: false
+      required: [category, code]
+      properties:
+        category:
+          type: string
+          minLength: 1
+          maxLength: 64
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+    OperationRecord:
+      type: object
+      additionalProperties: false
+      required:
+        [operation_id, kind, scope_id, status, attempt_count, state_version, created_at, updated_at]
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/OperationKind"
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        status:
+          $ref: "#/components/schemas/OperationStatus"
+        attempt_count:
+          type: integer
+          minimum: 0
+        state_version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/MemoryOperationResult"
+            - $ref: "#/components/schemas/ExperienceOperationResult"
+          discriminator:
+            propertyName: type
+          nullable: true
+        error:
+          $ref: "#/components/schemas/OperationError"
+          nullable: true
+    OperationAccepted:
+      type: object
+      additionalProperties: false
+      required: [operation_id, status, status_url]
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OperationStatus"
+        status_url:
+          type: string
+          pattern: '^/v1/operations/[0-9a-f-]{36}$'
+    OperationPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/OperationRecord"
+        next_cursor:
+          type: string
+          nullable: true
+    ListOperationsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        kind:
+          $ref: "#/components/schemas/OperationKind"
+        status:
+          $ref: "#/components/schemas/OperationStatus"
+        cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    OperationMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_version]
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1
     TopicMemoryArtifact:
       type: object
       additionalProperties: false
@@ -8864,13 +9311,16 @@ components:
       properties:
         type: {type: string, enum: [scope]}
         scope_id: {type: string, minLength: 1, maxLength: 256, pattern: '.*\S.*'}
+    MemoryEntryAccessSelectorType:
+      type: string
+      enum: [memory_entry]
     MemoryEntryAccessSelector:
       type: object
       additionalProperties: false
       description: Logical Memory entry selector; the Binding covers the entry's existing and future versions.
       required: [type, entry_id]
       properties:
-        type: {type: string, enum: [memory_entry]}
+        type: {$ref: "#/components/schemas/MemoryEntryAccessSelectorType"}
         entry_id: {type: string, minLength: 1, maxLength: 128, pattern: '^[\x21-\x7E]+$'}
     AccessArtifactIdentity:
       type: object

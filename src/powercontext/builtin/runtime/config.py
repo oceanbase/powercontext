@@ -138,15 +138,14 @@ class RuntimeConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_profile_schedule(self):
-        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        from zoneinfo import ZoneInfoNotFoundError
 
-        from apscheduler.triggers.cron import CronTrigger
+        from powercontext.builtin.runtime.cron import CronSchedule
 
         try:
-            timezone = ZoneInfo(self.profile_timezone)
+            CronSchedule.parse(self.profile_cron, self.profile_timezone)
         except ZoneInfoNotFoundError as error:
             raise ValueError("invalid Profile schedule timezone") from error  # noqa: TRY003
-        CronTrigger.from_crontab(self.profile_cron, timezone=timezone)
         return self
 
     schedule_seconds: float | None = Field(default=None, gt=0)
@@ -183,6 +182,95 @@ class RuntimeConfig(BaseModel):
         ):
             raise ValueError("artifact_processing_families must contain unique, nonempty Family names")  # noqa: TRY003
         return self
+
+
+class DeploymentConfig(BaseModel):
+    """Process topology and non-sensitive compatibility identity."""
+
+    mode: Literal["single_node", "distributed"] = "single_node"
+    role: Literal["all", "api", "scheduler", "worker"] = "all"
+    id: str = Field(default="local", min_length=1, max_length=128)
+    behavior_revision: str = Field(default="default", min_length=1, max_length=128)
+
+    @field_validator("id", "behavior_revision")
+    @classmethod
+    def validate_trimmed_identifier(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("deployment identifiers must be trimmed")  # noqa: TRY003
+        return value
+
+
+class CoordinationConfig(BaseModel):
+    """Database-backed scheduler and member lease policy."""
+
+    scheduler_lease_seconds: int = Field(default=30, ge=3)
+    scheduler_renew_seconds: int = Field(default=10, ge=1)
+    scan_page_size: int = Field(default=100, ge=1, le=100)
+    member_ttl_seconds: int = Field(default=30, ge=3)
+    member_heartbeat_seconds: int = Field(default=10, ge=1)
+    emit_payload_version: int = Field(default=1, ge=1, le=1)
+
+    @model_validator(mode="after")
+    def validate_lease_intervals(self) -> CoordinationConfig:
+        if self.scheduler_renew_seconds * 3 > self.scheduler_lease_seconds:
+            raise ValueError(  # noqa: TRY003
+                "scheduler_renew_seconds must not exceed one third of scheduler_lease_seconds"
+            )
+        if self.member_heartbeat_seconds * 3 > self.member_ttl_seconds:
+            raise ValueError(  # noqa: TRY003
+                "member_heartbeat_seconds must not exceed one third of member_ttl_seconds"
+            )
+        return self
+
+
+class WorkerConfig(BaseModel):
+    """Worker claim, retry, heartbeat, and drain policy."""
+
+    concurrency: int = Field(default=4, ge=1, le=256)
+    lease_seconds: int = Field(default=120, ge=3)
+    heartbeat_seconds: int = Field(default=30, ge=1)
+    shutdown_grace_seconds: int = Field(default=90, ge=0)
+    max_attempts: int = Field(default=5, ge=1, le=100)
+    retry_base_seconds: float = Field(default=2.0, gt=0)
+    retry_max_seconds: float = Field(default=300.0, gt=0)
+    poll_seconds: float = Field(default=1.0, gt=0)
+
+    @model_validator(mode="after")
+    def validate_lease_intervals(self) -> WorkerConfig:
+        if self.heartbeat_seconds * 3 >= self.lease_seconds:
+            raise ValueError(  # noqa: TRY003
+                "heartbeat_seconds must be less than one third of lease_seconds"
+            )
+        if self.shutdown_grace_seconds >= self.lease_seconds:
+            raise ValueError("shutdown_grace_seconds must be less than lease_seconds")  # noqa: TRY003
+        if self.retry_max_seconds < self.retry_base_seconds:
+            raise ValueError("retry_max_seconds must not be less than retry_base_seconds")  # noqa: TRY003
+        return self
+
+
+class OperationsConfig(BaseModel):
+    """Synchronous wait facade and durable operation retention policy."""
+
+    default_wait_seconds: float = Field(default=10.0, ge=0, le=30)
+    maximum_wait_seconds: float = Field(default=30.0, ge=0, le=30)
+    poll_seconds: float = Field(default=0.2, gt=0)
+    retention_days: int = Field(default=30, ge=1)
+    cleanup_batch_size: int = Field(default=500, ge=1, le=500)
+    cleanup_interval_seconds: float = Field(default=3600.0, gt=0)
+
+    @model_validator(mode="after")
+    def validate_wait_policy(self) -> OperationsConfig:
+        if self.default_wait_seconds > self.maximum_wait_seconds:
+            raise ValueError("default_wait_seconds must not exceed maximum_wait_seconds")  # noqa: TRY003
+        return self
+
+
+class RateLimitConfig(BaseModel):
+    """Optional shared fixed-window request limit."""
+
+    enabled: bool = False
+    requests: int = Field(default=120, ge=1)
+    window_seconds: int = Field(default=60, ge=1)
 
 
 class HandoffReportConfig(BaseModel):
@@ -367,6 +455,10 @@ class BuiltinConfig(BaseModel):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+    deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
+    coordination: CoordinationConfig = Field(default_factory=CoordinationConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
 
     @model_validator(mode="before")
     @classmethod
@@ -374,7 +466,24 @@ class BuiltinConfig(BaseModel):
         return normalize_database_discriminator(value)
 
     @model_validator(mode="after")
-    def validate_artifact_processing_role(self) -> BuiltinConfig:
+    def validate_deployment(self) -> BuiltinConfig:
+        if self.deployment.mode == "single_node" and self.deployment.role != "all":
+            raise ValueError("single_node deployment role must be 'all'")  # noqa: TRY003
+        if self.deployment.mode == "distributed":
+            if not isinstance(self.database, OceanBaseConfig):
+                raise ValueError("distributed deployment requires OceanBase")  # noqa: TRY003
+            if self.deployment.role == "all":
+                raise ValueError("distributed deployment role must be api, scheduler, or worker")  # noqa: TRY003
+            if self.runtime.artifact_processing_role != "all":
+                raise ValueError(  # noqa: TRY003
+                    "distributed deployment does not use the process-local artifact processing role"
+                )
+            if self.runtime.topic_memory_schedule_seconds is not None:
+                raise ValueError("distributed deployment does not support Topic Memory processing")  # noqa: TRY003
+            if self.external_skills.agent_targets:
+                raise ValueError(  # noqa: TRY003
+                    "distributed deployment does not support host-local external Skill targets"
+                )
         if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
             raise ValueError(  # noqa: TRY003
                 "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
@@ -384,9 +493,14 @@ class BuiltinConfig(BaseModel):
 
 __all__ = [
     "BuiltinConfig",
+    "CoordinationConfig",
     "DatabaseConfig",
+    "DeploymentConfig",
     "ExternalSkillsConfig",
     "HandoffReportConfig",
     "InferenceConfig",
+    "OperationsConfig",
+    "RateLimitConfig",
     "RuntimeConfig",
+    "WorkerConfig",
 ]
