@@ -64,7 +64,7 @@ type HomeFrontmatter = {
 
 export async function getHomeContent(lang: Language): Promise<HomeContent> {
   const sourcePath = path.resolve(process.cwd(), '..', 'docs', lang, 'index.md');
-  const source = await readFile(sourcePath, 'utf8');
+  const source = (await readFile(sourcePath, 'utf8')).replace(/\r\n/g, '\n');
   const end = source.indexOf('\n---', 4);
 
   if (!source.startsWith('---\n') || end === -1) {
