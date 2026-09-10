@@ -58,6 +58,33 @@ Git ref; without it, `uv` may report the same requirement as already installed w
 To install another branch or tag, replace the ref after the final `@`. The `master` branch can include unreleased changes.
 Follow the [guide for each integration](../integrations/index.md) for Agent installation, connection options, and verification, using the same ref as the Server.
 
+### Install a release with the bootstrap script
+
+For release candidate `1.0.0rc2`, the script reuses existing uv and Python 3.11+ installations and downloads missing components.
+On macOS/Linux, use Bash and curl; on Windows, use Windows PowerShell 5.1 or newer:
+
+```bash tab="macOS / Linux"
+curl -fsSL https://powercontext.oceanbase.io/install.sh -o install.sh
+bash install.sh --no-hosts
+```
+
+```powershell tab="Windows"
+Invoke-WebRequest https://powercontext.oceanbase.io/install.ps1 -UseBasicParsing -OutFile install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --no-hosts
+```
+
+Apply the `PATH` command printed by the installer to your terminal. Use `--version <version>` for another release,
+`--host codex` to include an Agent integration, or `--help` for all options. Integrations also require Git.
+Then [generate a Server environment file](configure-server-environment.md) and
+[configure models](configure-models.md) if you need inference.
+
+The script preserves existing uv configuration. Otherwise, it checks the network country, tries the Tsinghua mirror
+first for CN and PyPI elsewhere, and falls back to the other index when necessary. Pass
+`--index-url https://pypi.tuna.tsinghua.edu.cn/simple` to select a mirror without automatic fallback.
+This does not write global index configuration or change uv/Python download servers. For those downloads,
+`POWERCONTEXT_UV_INSTALLER_URL` selects a platform-matching uv installer (`.sh` or `.ps1`);
+`UV_INSTALLER_GITHUB_BASE_URL` and `UV_PYTHON_INSTALL_MIRROR` configure uv binary and Python download mirrors.
+
 ## Run the local Server
 
 ```bash
