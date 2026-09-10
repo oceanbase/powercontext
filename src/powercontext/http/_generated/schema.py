@@ -3545,6 +3545,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                                 "experience.generate",
                                 "skill.generate",
                                 "handoff.generate",
+                                "profile.generate",
                             ],
                         },
                     },
@@ -7498,6 +7499,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "experience.generate",
                     "skill.generate",
                     "handoff.generate",
+                    "profile.generate",
                 ],
             },
             "PromptContent": {

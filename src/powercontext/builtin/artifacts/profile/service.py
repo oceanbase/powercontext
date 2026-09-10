@@ -61,6 +61,7 @@ from powercontext.builtin.sources import SourceCursor
 from powercontext.errors import RevisionConflictError
 
 if TYPE_CHECKING:
+    from powercontext.builtin.artifacts.prompt.service import PromptService
     from powercontext.builtin.runtime.processing_execution import ScopeInvocation
 
 
@@ -77,6 +78,14 @@ class ProfileGenerator(Protocol):
     async def generate(self, value: ProfileGenerationInput, /) -> str | None: ...
 
 
+def _profile_prompt_refs():
+    # Import locally because Prompt Definitions import the Profile generation contract.
+    from powercontext.builtin.artifacts.prompt.service import current_prompt
+
+    selection = current_prompt("profile.generate")
+    return () if selection is None or selection.artifact is None else (selection.artifact,)
+
+
 class RelationalProfileService:
     def __init__(
         self,
@@ -86,6 +95,7 @@ class RelationalProfileService:
         candidates: CandidateRepository,
         *,
         generator: ProfileGenerator | None = None,
+        prompt_service: PromptService | None = None,
         id_factory: Callable[[str], str] | None = None,
         max_sources: int = 32,
     ):
@@ -98,6 +108,7 @@ class RelationalProfileService:
         self.policies = ProfilePolicyRepository()
         self.cursors = SourceCursorRepository()
         self.generator = generator
+        self._prompt_service = prompt_service
         self.operation_context: Callable[[], AbstractAsyncContextManager[Any]] = nullcontext
         self.scheduled_runner: Callable[[str, int], Awaitable[ProfileFlushResult]] | None = None
         self.max_sources = max_sources
@@ -168,14 +179,24 @@ class RelationalProfileService:
         authorize_commit: Callable[[AsyncConnection, Profile | None], Awaitable[None]] | None = None,
     ) -> ProfileFlushResult:
         async with self.operation_context():
-            return await self._flush(
-                scope_id,
-                high_watermark=high_watermark,
-                authorize_snapshot=authorize_snapshot,
-                on_commit=on_commit,
-                processing=processing,
-                authorize_commit=authorize_commit,
-            )
+            if self._prompt_service is None:
+                return await self._flush(
+                    scope_id,
+                    high_watermark=high_watermark,
+                    authorize_snapshot=authorize_snapshot,
+                    on_commit=on_commit,
+                    processing=processing,
+                    authorize_commit=authorize_commit,
+                )
+            async with self._prompt_service.bind(scope_id, "profile.generate"):
+                return await self._flush(
+                    scope_id,
+                    high_watermark=high_watermark,
+                    authorize_snapshot=authorize_snapshot,
+                    on_commit=on_commit,
+                    processing=processing,
+                    authorize_commit=authorize_commit,
+                )
 
     async def _flush(  # noqa: C901
         self,
@@ -264,6 +285,7 @@ class RelationalProfileService:
                 updated = await self.policies.update(connection, policy)
                 refs = tuple(item.ref for item in evidence)
                 parents = () if current is None else (current.as_ref(),)
+                artifacts = (*parents, *_profile_prompt_refs())
                 source_window = SourceWindow(after=after, through=through)
                 candidate_id = None
                 candidate = None
@@ -283,7 +305,7 @@ class RelationalProfileService:
                             created_at=datetime.now(UTC),
                         ),
                         sources=refs,
-                        artifacts=parents,
+                        artifacts=artifacts,
                         target=None if current is None else current.as_ref(),
                         reason="New source evidence",
                     )
@@ -302,7 +324,7 @@ class RelationalProfileService:
                                 ),
                             ),
                             sources=refs,
-                            artifacts=parents,
+                            artifacts=artifacts,
                         )
                         artifact = (
                             await self.artifacts.create(connection, scope_id, PROFILE_ARTIFACT_ID, draft)

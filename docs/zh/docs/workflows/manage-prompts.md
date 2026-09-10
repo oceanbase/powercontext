@@ -8,6 +8,9 @@ description: 按 Scope 修改操作提示词、检查示例并恢复 Prompt 版�
 Prompt 自定义功能位于当前 `master`。它修改一个 Scope 内的操作提示词，不能改变输出结构、工具可用性或权限。
 采集的用户 Prompt 属于 [Source 证据](sources.md)，是另一条工作流。
 
+`profile.generate` 用于自定义自动或手动 flush 时的画像生成指令。自定义内容只影响后续处理窗口；
+画像的证据边界、人物归属、敏感属性禁止推断和输出契约仍由服务端固定。
+
 ## 编辑与验证
 
 1. 通过 `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` 读取当前配置、内置指令及操作状态。

@@ -305,6 +305,7 @@ async def open_builtin_runtime(
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
         components = (
+            ("profile.generate", profile_generator, generated_profile),
             ("memory.extract", candidate_pipeline, generated_memory),
             ("memory.rerank", memory_reranker, generated_reranker),
             ("experience.incubate", experience_pipeline, generated_incubation),
@@ -900,7 +901,14 @@ async def _generation_pipelines(
         )
         _register_prompt_demonstrators(
             prompt_demonstrators,
-            ("memory.extract", "experience.incubate", "experience.generate", "skill.generate", "handoff.generate"),
+            (
+                "profile.generate",
+                "memory.extract",
+                "experience.incubate",
+                "experience.generate",
+                "skill.generate",
+                "handoff.generate",
+            ),
             generation_model,
             generation_limits,
             generation_request_settings,
@@ -915,6 +923,7 @@ async def _generation_pipelines(
                     limits=generation_limits,
                     model_settings=generation_request_settings,
                     name="profile_generation",
+                    prompt_key="profile.generate",
                 )
             )
         )

@@ -36,6 +36,7 @@ PromptKey = Literal[
     "experience.generate",
     "skill.generate",
     "handoff.generate",
+    "profile.generate",
 ]
 PROMPT_KEYS: tuple[PromptKey, ...] = (
     "memory.extract",
@@ -44,6 +45,7 @@ PROMPT_KEYS: tuple[PromptKey, ...] = (
     "experience.generate",
     "skill.generate",
     "handoff.generate",
+    "profile.generate",
 )
 
 

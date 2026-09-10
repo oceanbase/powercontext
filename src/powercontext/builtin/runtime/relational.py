@@ -544,6 +544,7 @@ class RelationalContexts:
             self.repositories.artifacts,
             self.repositories.candidates,
             id_factory=id_factory,
+            prompt_service=self.prompts,
         )
         self.subject_sources = SubjectSourceService(database, self.repositories.sources)
         self.records = RelationalRecordService(

@@ -44,6 +44,14 @@ _EXPERIENCE = {
 
 
 def _case(key: str) -> dict[str, Any]:
+    if key == "profile.generate":
+        return {
+            "input": {
+                "previous_content": "# Profile\n\n- Uses Python.",
+                "sources": ['{"speaker":"user","text":"Prefers Chinese."}'],
+            },
+            "expected_output": {"content": "# Profile\n\n- Uses Python.\n- Prefers Chinese."},
+        }
     if key == "memory.extract":
         return {
             "input": {

@@ -95,6 +95,7 @@ async def _run_family_worker(
                 prompt_registry=_prompt_registry(
                     config.runtime,
                     (
+                        ("profile.generate", None, pipelines[0]),
                         ("memory.extract", None, pipelines[1]),
                         ("experience.incubate", None, pipelines[2]),
                     ),
