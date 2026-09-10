@@ -1,0 +1,72 @@
+identity:
+  name: capture_event
+  author: oceanbase
+  label:
+    en_US: Capture Event
+description:
+  human:
+    en_US: 'Persist one execution event as evidence. Request: event_id, event, sequence, payload, optional
+      metadata and max_bytes.'
+  llm: 'Persist one execution event as evidence. Request: event_id, event, sequence, payload, optional
+    metadata and max_bytes.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Persist one execution event as evidence. Request: event_id, event, sequence, payload, optional
+      metadata and max_bytes. Never include scope_id.'
+  llm_description: 'Persist one execution event as evidence. Request: event_id, event, sequence, payload,
+    optional metadata and max_bytes. Never include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties:
+      event_id:
+        maxLength: 256
+        minLength: 1
+        type: string
+      event:
+        enum:
+        - user_prompt
+        - model_response
+        - tool_call
+        - tool_result
+        - run_end
+        type: string
+      sequence:
+        minimum: 1
+        type: integer
+      payload:
+        additionalProperties: true
+        type: object
+      metadata:
+        additionalProperties: true
+        type: object
+      max_bytes:
+        default: 8192
+        maximum: 32768
+        minimum: 512
+        type: integer
+    required:
+    - event_id
+    - event
+    - sequence
+    - payload
+    type: object
+extra:
+  python:
+    source: tools/capture_event.py

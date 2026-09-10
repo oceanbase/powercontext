@@ -1,0 +1,33 @@
+version: 0.0.1
+type: plugin
+author: oceanbase
+name: powercontext_agent
+label:
+  en_US: PowerContext Agent
+  zh_Hans: PowerContext Agent
+description:
+  en_US: Automatic durable memory for Function Calling agents.
+  zh_Hans: 为 Function Calling Agent 自动召回与采集长期记忆。
+icon: icon.svg
+created_at: '2026-09-09T00:00:00Z'
+resource:
+  memory: 268435456
+  permission:
+    tool:
+      enabled: true
+    model:
+      enabled: true
+      llm: true
+plugins:
+  agent_strategies:
+  - provider/powercontext_agent.yaml
+meta:
+  version: 0.0.1
+  arch:
+  - amd64
+  - arm64
+  runner:
+    language: python
+    version: '3.12'
+    entrypoint: main
+  minimum_dify_version: 1.17.0

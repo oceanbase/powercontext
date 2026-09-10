@@ -1,0 +1,76 @@
+identity:
+  name: function_calling
+  author: oceanbase
+  label:
+    en_US: PowerContext Function Calling
+description:
+  en_US: Automatically recall and capture memory. Add PowerContext prepare_context
+    and capture_event to the selected tools, alongside business tools.
+features:
+- history-messages
+parameters:
+- name: model
+  type: model-selector
+  required: true
+  label:
+    en_US: Model
+  scope: tool-call&llm
+- name: tools
+  type: array[tools]
+  required: true
+  label:
+    en_US: Tools
+- name: query
+  type: string
+  required: true
+  label:
+    en_US: Query
+- name: instruction
+  type: string
+  required: true
+  label:
+    en_US: Instruction
+  template:
+    enabled: true
+- name: subject_kind
+  type: select
+  required: true
+  label:
+    en_US: Subject Kind
+  default: user
+  options:
+  - value: user
+    label:
+      en_US: User
+  - value: business
+    label:
+      en_US: Business
+- name: subject_id
+  type: string
+  required: false
+  label:
+    en_US: Subject Id
+- name: maximum_iterations
+  type: number
+  required: true
+  label:
+    en_US: Maximum Iterations
+  default: 20
+  min: 1
+  max: 100
+- name: max_bytes
+  type: number
+  required: true
+  label:
+    en_US: Max Bytes
+  default: 8000
+  min: 512
+  max: 32768
+- name: context_window
+  type: number
+  required: false
+  label:
+    en_US: Context Window
+extra:
+  python:
+    source: strategies/function_calling.py

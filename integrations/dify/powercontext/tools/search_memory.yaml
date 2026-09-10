@@ -1,0 +1,79 @@
+identity:
+  name: search_memory
+  author: oceanbase
+  label:
+    en_US: Search Memory
+description:
+  human:
+    en_US: 'Search durable memory. Request: query and optional search options.'
+  llm: 'Search durable memory. Request: query and optional search options.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Search durable memory. Request: query and optional search options. Never include scope_id.'
+  llm_description: 'Search durable memory. Request: query and optional search options. Never include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties:
+      tag_filter:
+        anyOf:
+        - additionalProperties: false
+          properties:
+            tags:
+              items:
+                maxLength: 64
+                minLength: 1
+                type: string
+              maxItems: 16
+              minItems: 1
+              type: array
+            match:
+              enum:
+              - all
+              - any
+              type: string
+              default: all
+          required:
+          - tags
+          type: object
+        - type: 'null'
+        default: null
+      query:
+        maxLength: 8192
+        minLength: 1
+        type: string
+      limit:
+        default: 10
+        maximum: 50
+        minimum: 1
+        type: integer
+      mode:
+        enum:
+        - auto
+        - fts
+        - vector
+        - hybrid
+        type: string
+        default: auto
+    required:
+    - query
+    type: object
+extra:
+  python:
+    source: tools/search_memory.py

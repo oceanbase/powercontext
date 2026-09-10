@@ -1,0 +1,78 @@
+identity:
+  name: get_memory_entry
+  author: oceanbase
+  label:
+    en_US: Get Memory Entry
+description:
+  human:
+    en_US: 'Read an exact memory entry. Request: citation from a prior result.'
+  llm: 'Read an exact memory entry. Request: citation from a prior result.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Read an exact memory entry. Request: citation from a prior result. Never include scope_id.'
+  llm_description: 'Read an exact memory entry. Request: citation from a prior result. Never include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties:
+      citation:
+        additionalProperties: false
+        properties:
+          memory_ref:
+            additionalProperties: false
+            properties:
+              family:
+                maxLength: 128
+                minLength: 1
+                pattern: ^[\x21-\x7E]+$
+                type: string
+              artifact_id:
+                maxLength: 128
+                minLength: 1
+                pattern: ^[\x21-\x7E]+$
+                type: string
+              revision:
+                minimum: 1
+                type: integer
+            required:
+            - family
+            - artifact_id
+            - revision
+            type: object
+          entry_id:
+            maxLength: 128
+            minLength: 1
+            pattern: ^[\x21-\x7E]+$
+            type: string
+          entry_version_id:
+            maxLength: 128
+            minLength: 1
+            pattern: ^[\x21-\x7E]+$
+            type: string
+        required:
+        - memory_ref
+        - entry_id
+        - entry_version_id
+        type: object
+    required:
+    - citation
+    type: object
+extra:
+  python:
+    source: tools/get_memory_entry.py

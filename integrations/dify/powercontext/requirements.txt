@@ -1,0 +1,2 @@
+dify_plugin==0.10.2
+powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@4043710abc5410f17c50d7e2a11d889732fbccd9

@@ -1,0 +1,26 @@
+[project]
+name = "powercontext-dify-development"
+version = "0.0.1"
+requires-python = ">=3.12,<3.13"
+dependencies = ["dify-plugin==0.10.2", "powercontext[client]"]
+
+[tool.uv.sources]
+powercontext = { path = "../..", editable = true }
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.15.7", "ty>=0.0.26"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S603", "S106"]
+"local/live_*.py" = ["S101"]
+
+[tool.ty.environment]
+python-version = "3.12"
+extra-paths = ["powercontext", "powercontext_agent"]
+
+[tool.ty.src]
+include = ["powercontext", "powercontext_agent"]

@@ -1,0 +1,96 @@
+identity:
+  name: revise_memory_entry
+  author: oceanbase
+  label:
+    en_US: Revise Memory Entry
+description:
+  human:
+    en_US: 'Revise an exact memory entry. Request: citation, kind, text, optional reason.'
+  llm: 'Revise an exact memory entry. Request: citation, kind, text, optional reason.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Revise an exact memory entry. Request: citation, kind, text, optional reason. Never include
+      scope_id.'
+  llm_description: 'Revise an exact memory entry. Request: citation, kind, text, optional reason. Never
+    include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties:
+      citation:
+        additionalProperties: false
+        properties:
+          memory_ref:
+            additionalProperties: false
+            properties:
+              family:
+                maxLength: 128
+                minLength: 1
+                pattern: ^[\x21-\x7E]+$
+                type: string
+              artifact_id:
+                maxLength: 128
+                minLength: 1
+                pattern: ^[\x21-\x7E]+$
+                type: string
+              revision:
+                minimum: 1
+                type: integer
+            required:
+            - family
+            - artifact_id
+            - revision
+            type: object
+          entry_id:
+            maxLength: 128
+            minLength: 1
+            pattern: ^[\x21-\x7E]+$
+            type: string
+          entry_version_id:
+            maxLength: 128
+            minLength: 1
+            pattern: ^[\x21-\x7E]+$
+            type: string
+        required:
+        - memory_ref
+        - entry_id
+        - entry_version_id
+        type: object
+      kind:
+        maxLength: 128
+        minLength: 1
+        type: string
+      text:
+        description: Must not exceed 8192 UTF-8 bytes after normalization.
+        minLength: 1
+        type: string
+      reason:
+        anyOf:
+        - maxLength: 512
+          type: string
+        - type: 'null'
+        default: null
+    required:
+    - citation
+    - kind
+    - text
+    type: object
+extra:
+  python:
+    source: tools/revise_memory_entry.py

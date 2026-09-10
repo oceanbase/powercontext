@@ -1,0 +1,12 @@
+identity:
+  author: oceanbase
+  name: powercontext_agent
+  label:
+    en_US: PowerContext Agent
+    zh_Hans: PowerContext Agent
+  description:
+    en_US: Automatic durable memory for Function Calling agents.
+    zh_Hans: 为 Function Calling Agent 自动召回与采集长期记忆。
+  icon: icon.svg
+strategies:
+- strategies/function_calling.yaml

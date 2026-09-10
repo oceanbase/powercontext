@@ -1,0 +1,60 @@
+identity:
+  name: remember_memory
+  author: oceanbase
+  label:
+    en_US: Remember Memory
+description:
+  human:
+    en_US: 'Remember an explicit fact. Request: kind, text, optional reason.'
+  llm: 'Remember an explicit fact. Request: kind, text, optional reason.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Remember an explicit fact. Request: kind, text, optional reason. Never include scope_id.'
+  llm_description: 'Remember an explicit fact. Request: kind, text, optional reason. Never include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties:
+      kind:
+        maxLength: 128
+        minLength: 1
+        type: string
+      text:
+        description: Must not exceed 8192 UTF-8 bytes after normalization.
+        minLength: 1
+        type: string
+      reason:
+        anyOf:
+        - maxLength: 512
+          type: string
+        - type: 'null'
+        default: null
+      expected_revision:
+        anyOf:
+        - minimum: 1
+          type: integer
+        - type: 'null'
+        default: null
+    required:
+    - kind
+    - text
+    type: object
+extra:
+  python:
+    source: tools/remember_memory.py

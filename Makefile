@@ -217,3 +217,14 @@ help:
 	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z0-9_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
 
 .DEFAULT_GOAL := help
+
+.PHONY: dify-test
+dify-test: ## Validate both standalone Dify plugin packages against this checkout.
+	@uv run --locked --project integrations/dify ruff check integrations/dify
+	@uv run --locked --project integrations/dify ty check --project integrations/dify
+	@uv run --locked --project integrations/dify python -m pytest -c integrations/dify/pytest.ini integrations/dify/tests
+	@uv run --locked python -m pytest tests/e2e/test_dify_chain.py
+
+.PHONY: dify-sources
+dify-sources: ## Build reviewable source archives; use the official Dify CLI for difypkg validation.
+	@python3 integrations/dify/package_sources.py

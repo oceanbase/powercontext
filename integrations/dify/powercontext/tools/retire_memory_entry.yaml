@@ -1,0 +1,84 @@
+identity:
+  name: retire_memory_entry
+  author: oceanbase
+  label:
+    en_US: Retire Memory Entry
+description:
+  human:
+    en_US: 'Retire an exact memory entry. Request: citation, optional reason.'
+  llm: 'Retire an exact memory entry. Request: citation, optional reason.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Retire an exact memory entry. Request: citation, optional reason. Never include scope_id.'
+  llm_description: 'Retire an exact memory entry. Request: citation, optional reason. Never include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties:
+      citation:
+        additionalProperties: false
+        properties:
+          memory_ref:
+            additionalProperties: false
+            properties:
+              family:
+                maxLength: 128
+                minLength: 1
+                pattern: ^[\x21-\x7E]+$
+                type: string
+              artifact_id:
+                maxLength: 128
+                minLength: 1
+                pattern: ^[\x21-\x7E]+$
+                type: string
+              revision:
+                minimum: 1
+                type: integer
+            required:
+            - family
+            - artifact_id
+            - revision
+            type: object
+          entry_id:
+            maxLength: 128
+            minLength: 1
+            pattern: ^[\x21-\x7E]+$
+            type: string
+          entry_version_id:
+            maxLength: 128
+            minLength: 1
+            pattern: ^[\x21-\x7E]+$
+            type: string
+        required:
+        - memory_ref
+        - entry_id
+        - entry_version_id
+        type: object
+      reason:
+        anyOf:
+        - maxLength: 512
+          type: string
+        - type: 'null'
+        default: null
+    required:
+    - citation
+    type: object
+extra:
+  python:
+    source: tools/retire_memory_entry.py
