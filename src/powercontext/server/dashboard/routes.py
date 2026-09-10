@@ -83,6 +83,8 @@ def links(request: Request, ctx: dict[str, Any]):
                     "topic_q",
                     "topic_artifact",
                     "topic_revision",
+                    "topic_cursor",
+                    "topic_history",
                     "notes_page",
                     "skill_page",
                     "experience_history",
@@ -135,6 +137,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "artifact_query": request.query_params.get("topic_q", "").strip() or None,
         "topic_artifact": request.query_params.get("topic_artifact"),
         "topic_revision": request.query_params.get("topic_revision"),
+        "topic_cursor": request.query_params.get("topic_cursor"),
         "search_limited": False,
         "data": {
             "title": "PowerContext",
@@ -163,6 +166,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "related_sources": [],
         "source_record": None,
         "source": None,
+        "topic_memory_pager": None,
     }
     ctx["link"] = links(request, ctx)
     return ctx

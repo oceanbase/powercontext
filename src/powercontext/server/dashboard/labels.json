@@ -25,6 +25,8 @@
   "select_topic": "请选择一个主题以查看其精确版本",
   "select_topic_hint": "这里会显示完整详情、发布状态和来源引用。",
   "current_revision": "当前版本",
+  "historical_revision": "历史版本",
+  "view_current_revision": "查看当前版本",
   "full_detail": "完整详情",
   "source_references": "来源引用",
   "no_sources": "没有直接来源引用",
