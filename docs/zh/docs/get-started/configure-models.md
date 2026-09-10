@@ -42,6 +42,16 @@ POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60
 其中 `generation-model` 负责自动抽取和生成，`embedding-model` 负责向量检索；定时 Source 处理也需要 generation model。
 本地 provider 忽略鉴权时，使用该 provider 接受的非秘密占位值。
 
+例如，使用 OpenAI provider 时，模型标识由 provider 前缀和模型名组成：
+
+```dotenv
+OPENAI_API_KEY=<从受保护的环境或 secret manager 提供>
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
+```
+
+`openai:gpt-4.1-mini` 是当前配置校验使用的 generation model 示例；实际可用模型仍取决于 provider 账户和区域。
+其他 provider 也使用相同的 `provider:model-name` 形式，请使用该 provider 支持的模型名，不要直接复制上面的 provider 配置。
+
 在不打印 credential 的情况下检查并校验配置：
 
 ```bash
