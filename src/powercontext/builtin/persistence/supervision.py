@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel
 from sqlalchemy import func, insert, select, update
@@ -29,6 +29,7 @@ from powercontext.builtin.persistence.errors import (
     ArtifactProcessingLeadershipLostError,
     InvalidRepositoryArgumentError,
 )
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,
@@ -71,7 +72,11 @@ class StoredArtifactProcessingBindingState(BaseModel):
     """The persisted scheduling baseline for one registered binding."""
 
     binding_name: str
-    last_auto_wave_completed_at: datetime | None
+    last_auto_wave_completed_at: datetime | None = None
+    last_schedule_checkpoint_at: datetime | None = None
+    scan_generation: int = 0
+    scan_in_progress: bool = False
+    scan_upper_pending_sequence: int | None = None
 
 
 class ArtifactProcessingLeaseRepository:
@@ -86,6 +91,14 @@ class ArtifactProcessingLeaseRepository:
         for_update: bool = False,
     ) -> StoredArtifactProcessingLease | None:
         _require_identifier("supervisor_group", supervisor_group, 64)
+        if for_update and connection.dialect.name == "sqlite":
+            # FOR UPDATE is omitted by SQLite. Obtain its real write lock
+            # BEFORE reading the term, also when the row does not exist yet.
+            await connection.execute(
+                update(ARTIFACT_PROCESSING_LEASES_TABLE)
+                .where(ARTIFACT_PROCESSING_LEASES_TABLE.c.supervisor_group == supervisor_group)
+                .values(holder_id=ARTIFACT_PROCESSING_LEASES_TABLE.c.holder_id)
+            )
         statement = select(ARTIFACT_PROCESSING_LEASES_TABLE).where(
             ARTIFACT_PROCESSING_LEASES_TABLE.c.supervisor_group == supervisor_group
         )
@@ -272,6 +285,12 @@ class ArtifactProcessingBindingStateRepository:
         for_update: bool = False,
     ) -> StoredArtifactProcessingBindingState | None:
         _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        if for_update and connection.dialect.name == "sqlite":
+            await connection.execute(
+                update(ARTIFACT_PROCESSING_BINDING_STATES_TABLE)
+                .where(ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.binding_name == binding_name)
+                .values(scan_generation=ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.scan_generation)
+            )
         statement = select(ARTIFACT_PROCESSING_BINDING_STATES_TABLE).where(
             ARTIFACT_PROCESSING_BINDING_STATES_TABLE.c.binding_name == binding_name
         )
@@ -279,6 +298,45 @@ class ArtifactProcessingBindingStateRepository:
             statement = statement.with_for_update()
         row = (await connection.execute(statement)).mappings().one_or_none()
         return None if row is None else _decode_binding_state(row)
+
+    async def start_scan(
+        self,
+        connection: AsyncConnection,
+        binding_name: str,
+        checkpoint_at: datetime | None = None,
+        /,
+    ) -> StoredArtifactProcessingBindingState:
+        """Freeze a bounded admission scan; caller must hold its valid fence."""
+
+        current = await self.load(connection, binding_name, for_update=True)
+        if current is not None and current.scan_in_progress:
+            return current
+        checkpoint = await database_utc_now(connection) if checkpoint_at is None else checkpoint_at
+        if checkpoint.tzinfo is not None:
+            checkpoint = checkpoint.astimezone(UTC).replace(tzinfo=None)
+        values = {
+            "last_schedule_checkpoint_at": checkpoint,
+            "scan_generation": 1 if current is None else current.scan_generation + 1,
+            "scan_in_progress": True,
+            "scan_upper_pending_sequence": await ArtifactProcessingIntentRepository().max_sequence(
+                connection, binding_name
+            ),
+        }
+        table = ARTIFACT_PROCESSING_BINDING_STATES_TABLE
+        if current is None:
+            await connection.execute(insert(table).values(binding_name=binding_name, **values))
+        else:
+            await connection.execute(update(table).where(table.c.binding_name == binding_name).values(**values))
+        return cast(StoredArtifactProcessingBindingState, await self.load(connection, binding_name))
+
+    async def finish_scan(self, connection: AsyncConnection, binding_name: str, /) -> None:
+        """End discovery without waiting for Workers; caller holds its fence."""
+
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        table = ARTIFACT_PROCESSING_BINDING_STATES_TABLE
+        await connection.execute(
+            update(table).where(table.c.binding_name == binding_name).values(scan_in_progress=False)
+        )
 
     async def mark_auto_wave_completed(
         self,
@@ -321,6 +379,11 @@ class ArtifactProcessingBindingStateRepository:
 async def database_utc_now(connection: AsyncConnection) -> datetime:
     """Read current UTC from the authoritative database connection."""
 
+    if connection.dialect.name == "sqlite":
+        value = await connection.scalar(select(func.strftime("%Y-%m-%d %H:%M:%f", "now")))
+        if isinstance(value, str):
+            return datetime.fromisoformat(value)
+        raise InvalidRepositoryArgumentError("database_time", "database did not return a timestamp")
     expression = func.utc_timestamp(6) if connection.dialect.name == "mysql" else func.current_timestamp()
     value = await connection.scalar(select(expression))
     if not isinstance(value, datetime):
@@ -343,6 +406,10 @@ def _decode_binding_state(row: Mapping[Any, Any]) -> StoredArtifactProcessingBin
     return StoredArtifactProcessingBindingState(
         binding_name=str(row["binding_name"]),
         last_auto_wave_completed_at=row["last_auto_wave_completed_at"],
+        last_schedule_checkpoint_at=row["last_schedule_checkpoint_at"],
+        scan_generation=int(row["scan_generation"]),
+        scan_in_progress=bool(row["scan_in_progress"]),
+        scan_upper_pending_sequence=row["scan_upper_pending_sequence"],
     )
 
 

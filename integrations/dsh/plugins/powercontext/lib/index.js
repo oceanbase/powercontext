@@ -184,10 +184,19 @@ const OPERATIONS = {
 	list_scopes: {
 		method: "GET",
 		path: "/v1/scopes",
-		location: null,
+		location: "query",
 		scopeMode: "none",
 		pathParameters: [],
-		queryParams: [],
+		queryParams: [
+			"query",
+			"query_field",
+			"parent_scope_id",
+			"external_reference_kind",
+			"binding_integration",
+			"binding_kind",
+			"limit",
+			"cursor"
+		],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
@@ -997,6 +1006,17 @@ const OPERATIONS = {
 		scopeMode: "selection",
 		pathParameters: [],
 		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_sources: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/sources",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: ["limit", "cursor"],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
@@ -2443,10 +2463,22 @@ function optionalText(value) {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : void 0;
 }
+function contextAssembly(raw, fallback) {
+	let value;
+	try {
+		value = raw === void 0 ? fallback : JSON.parse(raw);
+	} catch {
+		throw new Error("PowerContext context assembly must be a JSON object");
+	}
+	if (value === void 0) return void 0;
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("PowerContext context assembly must be a JSON object");
+	return structuredClone(value);
+}
 function resolveConfig(config = {}, env = process.env) {
 	const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes;
 	if (maxBytes < 512 || maxBytes > 32768) throw new Error("maxBytes must be between 512 and 32768");
 	return {
+		contextAssembly: contextAssembly(envString(env, "POWERCONTEXT_DSH_CONTEXT_ASSEMBLY"), config.contextAssembly),
 		sources: {
 			baseUrl: envString(env, "POWERCONTEXT_DSH_BASE_URL") ? "environment" : config.baseUrl ? "plugin" : "default",
 			authorization: envString(env, "POWERCONTEXT_DSH_AUTHORIZATION") ? "environment" : optionalText(config.authorization) ? "plugin" : "default",
@@ -2574,7 +2606,8 @@ async function recallContent(input, query, scopeId) {
 		const result = await input.client.request("prepare_context", {
 			scope_id: scopeId,
 			query,
-			max_bytes: input.config.maxBytes
+			max_bytes: input.config.maxBytes,
+			...input.config.contextAssembly === void 0 ? {} : { assembly: input.config.contextAssembly }
 		}, input.signal);
 		if (input.signal?.aborted) throw new TransportError("", input.signal.reason);
 		const prepared = validatePreparedContext(result.kind === "json" ? result.value : void 0, "/v1/context/prepare", input.config.maxBytes);
@@ -2938,7 +2971,8 @@ function contextTools(runtime, defineTool) {
 		} },
 		execute: (args, exec) => run(runtime, exec, "prepare_context", {
 			query: args.query,
-			max_bytes: runtime.config.maxBytes
+			max_bytes: runtime.config.maxBytes,
+			...runtime.config.contextAssembly === void 0 ? {} : { assembly: runtime.config.contextAssembly }
 		})
 	}), pcTool(defineTool, {
 		name: "pc_capture_source",

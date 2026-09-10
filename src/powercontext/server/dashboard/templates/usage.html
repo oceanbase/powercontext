@@ -1,0 +1,90 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="usage-view">
+<style>
+  me .usage-summary { border-inline-end: 1px solid var(--tblr-border-color); }
+  me .comparison-values div { display: flex; justify-content: space-between; gap: var(--tblr-spacer-3); }
+  me .table tfoot th { white-space: normal; }
+  @media (max-width: 1199.98px) { me .usage-summary { border-inline-end: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: var(--tblr-spacer-3); } }
+</style>
+{% from 'macros.html' import comparison_chart, number, disclosure, coverage_notice with context %}
+{% from 'components/page-heading.html' import page_heading %}
+{% call page_heading(t.usage, t.usage_subtitle) %}
+  <div class="period-control text-md-end">
+    <div class="dropdown">
+      <button class="btn dropdown-toggle w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">{{ t[period] }}</button>
+      <div class="dropdown-menu dropdown-menu-end w-100">
+      {% for value in ['today', '7d', '30d'] %}
+      <a class="dropdown-item {% if period == value %}active{% endif %}" href="{{ link('usage', period=value) }}" {% if period == value %}aria-current="true"{% endif %}>{{ t[value] }}</a>
+      {% endfor %}
+      </div>
+    </div>
+    {% if stats %}<small class="d-block mt-2">{{ stats.start }} / {{ stats.end }} · UTC</small>{% endif %}
+  </div>
+{% endcall %}
+{% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% else %}
+<section class="card usage-sheet">
+  <div class="card-body">
+    <div class="row row-cards">
+      <div class="col-xl-4 usage-summary">
+        <h2>{{ t.comparison }}{% if stats.percent is not none %}<br>{{ t.increased if stats.token_reduction < 0 else t.reduced }}{% endif %}</h2>
+        {% if not stats.estimator_available %}<h3 class="my-4">{{ t.no_estimates }}</h3><p class="text-secondary">{{ t.no_estimates_body }}</p>
+        {% elif stats.empty %}<h3 class="my-4">{{ t.usage_empty }}</h3>
+        {% elif stats.percent is not none %}
+        <div class="big-number display-3 my-3 {{ 'text-body' if stats.token_reduction < 0 else 'text-primary' }}">{{ stats.percent }}<span>%</span><small class="fs-1 ms-2">{{ '↑' if stats.token_reduction < 0 else '↓' }}</small></div>
+        <p>{{ t.more_tokens if stats.token_reduction < 0 else t.fewer_tokens }} {{ number(stats.token_reduction|abs) }} tokens</p>
+        {% else %}<h3 class="my-4">{{ t.no_comparison }}</h3>{% endif %}
+        {% if stats.estimator_available %}<dl class="comparison-values my-4">
+          <div><dt class="fw-normal">{{ t.baseline }}</dt><dd class="mb-2">{{ number(stats.baseline_tokens) }}</dd></div>
+          <div><dt class="fw-normal">{{ t.recalled }}</dt><dd class="mb-2">{{ number(stats.recalled_tokens) }}</dd></div>
+        </dl>{% endif %}
+        {% if stats.comparable_preparations > 0 %}<p class="text-secondary">{{ coverage_notice() }}</p>{% endif %}
+      </div>
+      <div class="col-xl-8">
+        <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"><h3>{{ t.daily_title }}</h3><span class="text-secondary small">tokens</span></div>
+        <div class="bar-chart">{{ comparison_chart() }}</div>
+      </div>
+    </div>
+    {% if stats.estimator_available %}<div class="usage-caption border-top mt-3 pt-3 text-secondary">{{ t.estimate_notice }}</div>{% endif %}
+    {% if stats.token_reduction < 0 %}<p class="mt-3">{{ t.negative_notice }}</p>{% endif %}
+  </div>
+</section>
+<section class="mt-4">
+    <div class="card"><div class="card-header d-block">
+      <h2 class="card-title">{{ t.model_usage }}</h2><p class="text-secondary mb-0">{{ t.model_note }}</p>
+      </div>
+      <div class="table-responsive" tabindex="0" role="region" aria-label="{{ t.model_usage }}"><table class="table card-table table-vcenter model-usage-table">
+        <thead><tr><th scope="col">{{ t.purpose }}</th><th scope="col" class="text-end">{{ t.input }}</th><th scope="col" class="text-end">{{ t.output }}</th></tr></thead>
+        <tbody>{% for row in stats.model_usage %}<tr><td>{{ t.get(row.purpose, row.purpose) }}<span class="d-block text-secondary small">{{ t[row.operation] }}</span></td><td class="text-end" data-label="{{ t.input }}">{{ number(row.input_tokens) }}</td><td class="text-end" data-label="{{ t.output }}">{{ number(row.output_tokens) }}</td></tr>{% else %}<tr><td colspan="3" class="text-secondary">{{ t.usage_empty }}</td></tr>{% endfor %}</tbody>
+        <tfoot>{% for operation in ['generation', 'embedding'] %}<tr><th scope="row">{{ t[operation ~ '_total'] }}</th><td class="text-end fw-bold" data-label="{{ t.input }}">{{ number(stats[operation].input_tokens) }}</td><td class="text-end fw-bold" data-label="{{ t.output }}">{{ number(stats[operation].output_tokens) }}</td></tr>{% endfor %}</tfoot>
+      </table></div>
+      {% if stats.unknown_usage %}<div class="card-footer text-secondary">{{ t.unknown_notice }}</div>{% endif %}
+    </div>
+</section>
+{% if stats.estimator_available %}<div class="card mt-4 daily-table"><div class="card-body">
+{% call disclosure('daily-summary', t.daily_details) %}
+  <div class="table-responsive mt-3" tabindex="0" role="region" aria-label="{{ t.daily_details }}"><table class="table card-table">
+    <caption>{{ t.daily_title }} · UTC · tokens</caption>
+    <thead><tr>{% for label in ['date', 'baseline', 'recalled', 'difference'] %}<th scope="col">{{ t[label] }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in stats.daily %}<tr><td>{{ row.date }}</td><td>{{ number(row.baseline_tokens) }}</td><td>{{ number(row.recalled_tokens) }}</td><td>{{ number(row.baseline_tokens - row.recalled_tokens) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+{% endcall %}
+</div></div>
+{% endif %}
+{% endif %}
+
+</div>

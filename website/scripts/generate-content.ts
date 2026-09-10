@@ -172,11 +172,11 @@ for (const moduleName of pythonModules) {
 
 await Promise.all([
   copyFile(
-    path.join(repositoryDir, 'src', 'powercontext', 'server', 'static', 'powercontext-color.png'),
+    path.join(websiteDir, 'assets', 'powercontext-color.png'),
     path.join(publicDir, 'powercontext-color.png'),
   ),
   copyFile(
-    path.join(repositoryDir, 'src', 'powercontext', 'server', 'static', 'powercontext-reverse.png'),
+    path.join(websiteDir, 'assets', 'powercontext-reverse.png'),
     path.join(publicDir, 'powercontext-reverse.png'),
   ),
 ]);

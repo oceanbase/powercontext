@@ -150,6 +150,12 @@ powercontext server run
 每次启动或诊断该实例时都应使用同一个环境变量。对于文件型 SQLite 数据库，PowerContext 会创建缺失的父
 目录。
 
+## 后台处理状态需要维护迁移
+
+如果启动错误提示 processing schema 尚未就绪，请按
+[迁移 Artifact 后台处理状态](artifact-processing-migration.md) 完成维护。已有 Topic Pending、Cursor
+和已接受调用必须迁移后才能启动新 Supervisor。不要通过删除旧处理表绕过检查。
+
 ## OceanBase 因 schema 不兼容而拒绝启动
 
 当前 PowerContext 使用 `utf8mb4_bin` 对不透明 identity column 进行逐字节比较。旧版本创建的数据库可能仍然
@@ -177,7 +183,7 @@ collation，但不会包含数据库 URL 或凭据。
    删除它。由于 `pc_scopes.parent_scope_id` 自引用 `pc_scopes`，导出的 `pc_scopes` 数据必须让祖先 Scope 记录排在
    后代记录之前。
    源数据库早于三张 Skill 生命周期表（`pc_skill_packages`、`pc_agent_skill_targets` 和
-   `pc_skill_publications`）或 Profile 表时，应从对应层删除缺失的表。
+   `pc_skill_publications`）、Profile 表或 `pc_receipt_migration_review` 时，应从对应层删除缺失的表。
    不要导入 `pc_scheduler_leases`、`pc_scheduler_scans`、`pc_runtime_members` 或 `pc_rate_limit_windows`。
    这些表保存临时协调状态；迁移命令拥有自己的 migration lease 记录，其余记录会在 runtime 启动后重建。
 
@@ -188,7 +194,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_work_lanes,pc_work_items,pc_work_keys,pc_work_attempts' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_receipt_migration_review,pc_work_lanes,pc_work_items,pc_work_keys,pc_work_attempts' \
      -f <export-directory>
    ```
 
@@ -316,8 +322,8 @@ component 为 `powercontext.claude_code.recall`：
 
 ## Claude Code MCP 认证失败
 
-Hook 与 MCP `headersHelper` 都从启动 Claude Code 的进程环境读取
-`POWERCONTEXT_CLAUDE_AUTHORIZATION`。停止当前进程，导出完整 header，再重新启动：
+Hook 从启动 Claude Code 的进程环境读取 `POWERCONTEXT_CLAUDE_AUTHORIZATION`，MCP 配置则把同一个值展开到
+`Authorization` header。停止当前进程，导出完整 header，再重新启动：
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"

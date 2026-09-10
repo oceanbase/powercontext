@@ -598,7 +598,7 @@ def create_remote_skill_target(
     context: typer.Context,
     scope_id: Annotated[str, typer.Option(help="Application scope authorized for the remote target.")],
     agent_kind: Annotated[RemoteAgentKind, typer.Option(help="Remote Agent integration kind.")],
-    name: Annotated[str, typer.Option(help="Human-readable remote machine name shown in the Dashboard.")],
+    name: Annotated[str, typer.Option(help="Human-readable remote machine name shown to operators.")],
 ) -> None:
     """Create a pending target and print its short-lived enrollment code once."""
 

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
@@ -47,6 +48,7 @@ class ClaudeCodePluginSettings:
     server_url: str = "http://127.0.0.1:8000"
     authorization: str | None = None
     scope_id: str | None = None
+    context_assembly: dict[str, object] | None = None
     capture_prompts: bool = True
     flush_on_capture: bool = False
     request_timeout_seconds: float = 1.0
@@ -74,6 +76,7 @@ class ClaudeCodePluginSettings:
             or "http://127.0.0.1:8000",
             authorization=_first_environment("POWERCONTEXT_CLAUDE_AUTHORIZATION"),
             scope_id=_first_environment("POWERCONTEXT_CLAUDE_SCOPE_ID"),
+            context_assembly=_environment_object("POWERCONTEXT_CLAUDE_CONTEXT_ASSEMBLY"),
             capture_prompts=_environment_bool(
                 "POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS",
                 "CLAUDE_PLUGIN_OPTION_CAPTURE_PROMPTS",
@@ -104,6 +107,19 @@ def _first_environment(*names: str) -> str | None:
         if value is not None:
             return value
     return None
+
+
+def _environment_object(name: str) -> dict[str, object] | None:
+    value = _first_environment(name)
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        raise ValueError("PowerContext context assembly must be a JSON object") from None  # noqa: TRY003
+    if not isinstance(parsed, dict):
+        raise ValueError("PowerContext context assembly must be a JSON object")  # noqa: TRY003, TRY004
+    return parsed
 
 
 def _environment_bool(*names: str, default: bool) -> bool:

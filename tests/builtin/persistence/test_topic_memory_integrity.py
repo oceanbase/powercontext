@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Statement-consistent integrity checks on real SQLite and opt-in OceanBase."""
+"""Statement-consistent integrity checks on SQLite and opt-in OceanBase/seekDB."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, cast
 from uuid import uuid4
 
@@ -45,6 +46,7 @@ from powercontext.builtin.persistence.oceanbase.topic_memory_index import (
     OceanBaseTopicMemoryFTSIndex,
     OceanBaseTopicMemoryVectorIndex,
 )
+from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.topic_memory_index import (
     SQLiteTopicMemoryFTSIndex,
@@ -56,6 +58,12 @@ from powercontext.builtin.persistence.topic_memory_index import CompositeTopicMe
 
 _LIVE_URL = os.environ.get("POWERCONTEXT_TEST_OCEANBASE_URL")
 _OB = pytest.param("oceanbase", marks=pytest.mark.skipif(not _LIVE_URL, reason="requires test OceanBase URL"))
+_SEEKDB = pytest.param(
+    "seekdb",
+    marks=pytest.mark.skipif(
+        os.environ.get("POWERCONTEXT_TEST_SEEKDB") != "1", reason="requires POWERCONTEXT_TEST_SEEKDB=1"
+    ),
+)
 _PROFILE = EmbeddingProfile(profile_id="integrity", model="test", dimension=3, distance="l2", normalization="unit")
 _VECTOR = (1.0, 0.0, 0.0)
 
@@ -67,6 +75,7 @@ class _Store:
     repository: TopicMemoryRepository
     first: TopicMemory
     index: CompositeTopicMemoryIndex
+    seekdb_config: SeekDBConfig | None = None
 
     async def publish(self, connection: AsyncConnection, previous: TopicMemory | None, scope: str) -> TopicMemory:
         content = TopicMemoryContent(title="Recovery", summary="Durable evidence", detail="Evidence " * 400)
@@ -89,6 +98,7 @@ class _Store:
 @asynccontextmanager
 async def _open_store(tmp_path: Path, backend: str, *, vector: bool) -> AsyncIterator[_Store]:
     async with AsyncExitStack() as stack:
+        seekdb_config = None
         if backend == "sqlite":
             index = CompositeTopicMemoryIndex(
                 SQLiteTopicMemoryFTSIndex(), *((SQLiteTopicMemoryVectorIndex(_PROFILE),) if vector else ())
@@ -99,6 +109,21 @@ async def _open_store(tmp_path: Path, backend: str, *, vector: bool) -> AsyncIte
             )
             reader = await stack.enter_async_context(
                 SQLiteProfile.open(config, tables=BUILTIN_TABLES + index.tables, load_vector_extension=vector)
+            )
+        elif backend == "seekdb":
+            pytest.importorskip("pylibseekdb")
+            # Unix socket paths must fit sockaddr_un even in deeply nested CI
+            # workspaces. Both profiles own separate engines and native handles.
+            directory = stack.enter_context(TemporaryDirectory(prefix="pc-integrity-", dir="/tmp"))
+            seekdb_config = SeekDBConfig(path=Path(directory) / "db")
+            index = CompositeTopicMemoryIndex(
+                OceanBaseTopicMemoryFTSIndex(), *((OceanBaseTopicMemoryVectorIndex(_PROFILE),) if vector else ())
+            )
+            profile = await stack.enter_async_context(
+                SeekDBProfile.open(seekdb_config, tables=BUILTIN_TABLES + index.tables)
+            )
+            reader = await stack.enter_async_context(
+                SeekDBProfile.open(seekdb_config, tables=BUILTIN_TABLES + index.tables)
             )
         else:
             assert _LIVE_URL is not None
@@ -126,7 +151,8 @@ async def _open_store(tmp_path: Path, backend: str, *, vector: bool) -> AsyncIte
                 OceanBaseProfile.open(ob_config, tables=BUILTIN_TABLES + index.tables)
             )
         repository = TopicMemoryRepository(index=index)
-        store = _Store(profile.database, reader.database, repository, cast(TopicMemory, None), index)
+        assert profile.database.engine is not reader.database.engine
+        store = _Store(profile.database, reader.database, repository, cast(TopicMemory, None), index, seekdb_config)
         async with profile.database.transaction() as connection:
             await repository.initialize(connection)
         async with profile.database.transaction() as connection:
@@ -204,7 +230,7 @@ async def _concurrent_revision(store: _Store, *, timing: str, vectors_only: bool
         assert [item.artifact_ref.revision for item in b] == [1]
 
 
-@pytest.mark.parametrize("backend", ["sqlite", _OB])
+@pytest.mark.parametrize("backend", ["sqlite", _OB, _SEEKDB])
 @pytest.mark.parametrize("timing", ["before", "after"])
 def test_worker_integrity_accepts_another_scopes_concurrent_revision(tmp_path: Path, backend: str, timing: str) -> None:
     async def scenario() -> None:
@@ -214,7 +240,7 @@ def test_worker_integrity_accepts_another_scopes_concurrent_revision(tmp_path: P
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("backend", ["sqlite", _OB])
+@pytest.mark.parametrize("backend", ["sqlite", _OB, _SEEKDB])
 @pytest.mark.parametrize("timing", ["before", "after"])
 def test_current_vector_integrity_uses_one_revision(tmp_path: Path, backend: str, timing: str) -> None:
     async def scenario() -> None:
@@ -234,7 +260,7 @@ def test_oceanbase_hybrid_bootstrap_accepts_concurrent_revision(tmp_path: Path, 
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("backend", ["sqlite", _OB])
+@pytest.mark.parametrize("backend", ["sqlite", _OB, _SEEKDB])
 def test_worker_integrity_still_rejects_missing_active_chunks(tmp_path: Path, backend: str) -> None:
     async def scenario() -> None:
         async with _open_store(tmp_path, backend, vector=False) as store:
@@ -251,7 +277,7 @@ def test_worker_integrity_still_rejects_missing_active_chunks(tmp_path: Path, ba
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("backend", ["sqlite", _OB])
+@pytest.mark.parametrize("backend", ["sqlite", _OB, _SEEKDB])
 @pytest.mark.parametrize(
     "corruption",
     ["topic-missing", "chunk-missing", "extra", "ordinal", "topic-profile", "chunk-profile", "extra-profile"],

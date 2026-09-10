@@ -49,6 +49,8 @@ from powercontext.http import (
     GetHandoffReportRequest,
     GetTopicMemoryRequest,
     ListArtifactsRequest,
+    ListSourcesRequest,
+    PrepareContextRequest,
     ReplaceAccessBindingRequest,
     ReplaceArtifactRequest,
     ReplaceMemoryArtifactContent,
@@ -56,6 +58,7 @@ from powercontext.http import (
     ReplaceMemoryArtifactRequest,
     ReportFormat,
     ScopeId,
+    ScopeQueryField,
     ScopeSelection,
     SearchTopicMemoryRequest,
     UpdateScopeRequest,
@@ -158,6 +161,50 @@ def test_flush_memory_reports_the_pending_operation_at_the_client_deadline() -> 
             with pytest.raises(OperationPendingError) as caught:
                 await client.flush_memory(FlushMemoryRequest(scope_id="project"))
         assert caught.value.operation_id == operation_id
+
+    asyncio.run(scenario())
+
+
+def test_prepare_client_preserves_omitted_and_explicit_assembly() -> None:
+    async def scenario() -> None:
+        bodies = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            bodies.append(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={
+                    "schema": "powercontext.prepared-context.v1",
+                    "status": "empty",
+                    "content": None,
+                    "content_bytes": 0,
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            await client.prepare_context(PrepareContextRequest(scope_id="scope", query="legacy"))
+            await client.prepare_context(
+                PrepareContextRequest.model_validate({
+                    "scope_id": "scope",
+                    "query": "text",
+                    "assembly": {},
+                })
+            )
+            await client.prepare_context(
+                PrepareContextRequest.model_validate({
+                    "scope_id": "scope",
+                    "query": "disabled",
+                    "assembly": {"sections": []},
+                })
+            )
+        assert "assembly" not in bodies[0]
+        assert bodies[1]["assembly"]["format"] == "markdown"
+        assert bodies[1]["assembly"]["sections"] == [
+            {"family": "memory", "limit": 6},
+            {"family": "experience", "limit": 2},
+        ]
+        assert bodies[2]["assembly"]["sections"] == []
 
     asyncio.run(scenario())
 
@@ -565,6 +612,48 @@ def test_client_serializes_scoped_artifact_paths_and_list_query() -> None:
         assert len(requests) == 1
         assert requests[0].url.path == "/v1/scopes/scope one/artifacts/memory"
         assert dict(requests[0].url.params) == {"limit": "7", "cursor": "cursor-1"}
+
+    asyncio.run(scenario())
+
+
+def test_client_serializes_scope_filter_and_source_page_query() -> None:
+    async def scenario() -> None:
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == "/v1/scopes":
+                return httpx.Response(200, json={"items": []})
+            return httpx.Response(200, json={"items": [], "next_cursor": None})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+            client = PowerContextClient("https://memory.example", http_client=http_client)
+            await client.list_scopes()
+            await client.list_scopes(
+                "powercontext",
+                query_field=ScopeQueryField.TITLE,
+                external_reference_kind="repository",
+                limit=7,
+                cursor="cursor-0",
+            )
+            await client.list_sources("scope one", ListSourcesRequest(limit=7, cursor="cursor-1"))
+            await client.list_scopes(limit=50)
+            await client.list_scopes("title", query_field=ScopeQueryField.TITLE)
+
+        assert requests[0].url.path == "/v1/scopes"
+        assert not requests[0].url.params
+        assert requests[1].url.path == "/v1/scopes"
+        assert dict(requests[1].url.params) == {
+            "query": "powercontext",
+            "query_field": "title",
+            "external_reference_kind": "repository",
+            "limit": "7",
+            "cursor": "cursor-0",
+        }
+        assert requests[2].url.path == "/v1/scopes/scope one/sources"
+        assert dict(requests[2].url.params) == {"limit": "7", "cursor": "cursor-1"}
+        assert dict(requests[3].url.params) == {"limit": "50"}
+        assert dict(requests[4].url.params) == {"query": "title", "query_field": "title", "limit": "50"}
 
     asyncio.run(scenario())
 

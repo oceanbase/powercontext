@@ -24,9 +24,14 @@ from bub import tool
 from pydantic import BaseModel, Field
 
 from powercontext.client import PowerContextClient
-from powercontext.http import PrepareContextRequest, RememberMemoryRequest, ScopeBindingKey, SearchMemoryRequest
+from powercontext.http import (
+    PrepareContextRequest,
+    RememberMemoryRequest,
+    ScopeBindingKey,
+    SearchMemoryRequest,
+)
 
-from .plugin import STATE_KEY, open_client
+from .plugin import STATE_KEY, ContextAssembly, open_client
 from .scope import resolve_scope_id
 
 
@@ -37,6 +42,8 @@ class ToolSettings(TypedDict):
     binding_keys: list[ScopeBindingKey]
     timeout: float
     trust_transport_security: bool
+    max_bytes: int
+    context_assembly: ContextAssembly | None
 
 
 class SearchInput(BaseModel):
@@ -102,7 +109,13 @@ async def prepare_context(query: str, *, context: Any) -> str:
     settings = _settings(context)
     async with _client(settings) as client:
         scope_id = await _scope_id(settings, client)
-        request = PrepareContextRequest(scope_id=scope_id, query=query)
+        assembly = settings.get("context_assembly")
+        request = PrepareContextRequest(
+            scope_id=scope_id,
+            query=query,
+            max_bytes=settings.get("max_bytes", 8000),
+            **({"assembly": assembly} if assembly is not None else {}),
+        )
         response = await client.prepare_context(request)
     return response.content or "(no relevant PowerContext context)"
 

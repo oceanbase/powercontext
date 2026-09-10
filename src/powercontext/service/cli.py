@@ -23,7 +23,9 @@ from typing import Annotated
 
 import typer
 
+from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server import cli as _server_role_dependency
+from powercontext.server.configuration import ServerConfigurationError, server_settings_context
 from powercontext.service.controller import ServiceController
 from powercontext.service.model import ServiceError, ServiceStatus
 
@@ -69,19 +71,34 @@ def install(
     if not start_on_login and sys.platform != "win32":
         typer.echo("--no-start-on-login is currently supported only on Windows.", err=True)
         raise typer.Exit(code=2)
+    expanded_env_file = env_file.expanduser() if env_file is not None else None
     try:
-        status = _controller().install(env_file=env_file, start_on_login=start_on_login)
-    except (OSError, ServiceError) as error:
+        with server_settings_context(env_file=expanded_env_file) as settings:
+            generation_model = settings.inference.generation_model
+            embedding_model = settings.inference.embedding_model
+        status = _controller().install(env_file=expanded_env_file, start_on_login=start_on_login)
+    except (OSError, ServerConfigurationError, ServiceError) as error:
         typer.echo(f"PowerContext personal service installation failed: {error}", err=True)
         if isinstance(error, ServiceError) and error.status is not None:
             _write_status(error.status, json_output=False)
-        raise typer.Exit(code=error.exit_code if isinstance(error, ServiceError) else 1) from error
+        if isinstance(error, ServiceError):
+            exit_code = error.exit_code
+        elif isinstance(error, ServerConfigurationError):
+            exit_code = 2
+        else:
+            exit_code = 1
+        raise typer.Exit(code=exit_code) from error
     message = (
         "PowerContext personal service installed with login auto-start."
         if start_on_login
         else "PowerContext personal service installed without login auto-start."
     )
     typer.echo(message)
+    _write_environment_guidance(expanded_env_file)
+    write_inference_capability_notice(
+        generation_model=generation_model,
+        embedding_model=embedding_model,
+    )
     _write_status(status, json_output=False)
 
 
@@ -141,6 +158,23 @@ def _write_status(status: ServiceStatus, *, json_output: bool) -> None:
         typer.echo(f"detail: {status.detail}")
     if status.recovery_action:
         typer.echo(f"action: {status.recovery_action}")
+
+
+def _write_environment_guidance(env_file: Path | None) -> None:
+    """Tell operators where persistent settings and optional credentials are stored."""
+
+    if env_file is None:
+        typer.echo("environment file: not configured (the service uses its process environment)")
+        typer.echo(
+            "token location: POWERCONTEXT_SERVER_AUTH_TOKEN in the service environment when authentication is enabled;"
+            " the value is never printed"
+        )
+        return
+    typer.echo(f"environment file: {env_file.expanduser().resolve()} (mode 0600)")
+    typer.echo(
+        "token location: POWERCONTEXT_SERVER_AUTH_TOKEN in this file when authentication is enabled;"
+        " the value is never printed"
+    )
 
 
 __all__ = ["app"]

@@ -104,12 +104,12 @@ def test_artifact_processing_configuration_rejects_invalid_bounds() -> None:
         ),
     ],
 )
-def test_split_roles_reject_legacy_scheduler_intervals(runtime_values: dict[str, object]) -> None:
-    with pytest.raises(ValidationError, match="require artifact_processing_role='all'"):
-        RuntimeConfig.model_validate(runtime_values)
+def test_split_roles_accept_migrated_family_schedules(runtime_values: dict[str, object]) -> None:
+    runtime = RuntimeConfig.model_validate(runtime_values)
+    assert runtime.artifact_processing_role == runtime_values["artifact_processing_role"]
 
 
-def test_all_role_remains_the_legacy_scheduler_owner() -> None:
+def test_all_role_preserves_schedule_alias_values() -> None:
     runtime = RuntimeConfig(
         artifact_processing_role="all",
         schedule_seconds=30,
@@ -184,13 +184,16 @@ def test_server_cli_routes_background_role_without_starting_http(monkeypatch) ->
     result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--role", "background"])
 
     assert result.exit_code == 0, result.output
+    assert "Inference capability notice" in result.output
+    assert "可能影响部分制品功能" in result.output
+    assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in result.output
     run_server.assert_not_called()
     run_background.assert_called_once()
     assert run_background.call_args.args[0].runtime.artifact_processing_role == "background"
     tracing.shutdown.assert_called_once()
 
 
-def test_server_cli_rejects_split_role_with_a_legacy_scheduler(monkeypatch) -> None:
+def test_server_cli_routes_split_role_with_a_migrated_schedule(monkeypatch) -> None:
     for name in tuple(os.environ):
         if name.startswith("POWERCONTEXT_SERVER_"):
             monkeypatch.delenv(name, raising=False)
@@ -198,8 +201,49 @@ def test_server_cli_rejects_split_role_with_a_legacy_scheduler(monkeypatch) -> N
     monkeypatch.setenv("POWERCONTEXT_SERVER_DATABASE_URL", OCEANBASE_URL)
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS", "30")
 
+    run_background = Mock()
+    monkeypatch.setattr("powercontext.server.cli._run_background", run_background)
     result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--role", "background"])
 
-    assert result.exit_code == 2
-    assert "schedule_seconds" in result.output
-    assert "artifact_processing_role" in result.output
+    assert result.exit_code == 0, result.output
+    assert run_background.call_args.args[0].runtime.memory_schedule_seconds == 30
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("schedule_seconds", "memory_schedule_seconds"),
+        ("profile_max_concurrency", "profile_max_workers"),
+        ("artifact_processing_max_workers", "topic_memory_max_workers"),
+        ("artifact_processing_worker_timeout_seconds", "topic_memory_worker_timeout_seconds"),
+    ],
+)
+def test_processing_aliases_accept_equivalent_values_and_reject_conflicts(old, new):
+    assert getattr(RuntimeConfig.model_validate({old: "12", new: 12.0}), new) == 12
+    assert getattr(RuntimeConfig.model_validate({new: 12}), old) == 12
+    with pytest.raises(ValidationError, match="conflicting artifact processing"):
+        RuntimeConfig.model_validate({old: 12, new: 13})
+
+
+@pytest.mark.parametrize(
+    "field", ["memory_max_workers", "topic_memory_max_workers", "experience_max_workers", "profile_max_workers"]
+)
+@pytest.mark.parametrize("value", [0, -1, 1.5, True])
+def test_each_family_requires_positive_integer_quota(field, value):
+    with pytest.raises(ValidationError):
+        RuntimeConfig.model_validate({field: value})
+
+
+def test_api_can_declare_topic_processing_without_inference_credentials():
+    config = BuiltinConfig(
+        database=OceanBaseConfig(url=SecretStr(OCEANBASE_URL)),
+        runtime=RuntimeConfig(artifact_processing_role="api", artifact_processing_families=("topic-memory",)),
+    )
+    assert _topic_memory_processing_available(config, ())
+
+
+def test_unknown_processing_mode_and_unregistered_schedule_fields_rejected():
+    with pytest.raises(ValidationError):
+        RuntimeConfig.model_validate({"artifact_processing_supervisor_mode": "custom"})
+    with pytest.raises(ValidationError):
+        RuntimeConfig.model_validate({"skill_schedule_seconds": 10})

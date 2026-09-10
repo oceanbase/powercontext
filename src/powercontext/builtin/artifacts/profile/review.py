@@ -28,6 +28,7 @@ from powercontext.builtin.artifacts.profile.models import (
 )
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.records import BaseValueConflictError
 from powercontext.builtin.review.errors import InvalidCandidateError
@@ -93,6 +94,7 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
         SourceCursor(sequence=proposal.source_window.through),
         expected_generation=None if cursor is None else cursor.generation,
     )
+    await ArtifactProcessingIntentRepository().mark_dirty(connection, service._scope_id, PROFILE_SOURCE_WINDOW_BINDING)
     return result
 
 

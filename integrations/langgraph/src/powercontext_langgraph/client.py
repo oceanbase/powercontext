@@ -28,7 +28,7 @@ from powercontext.client import PowerContextClient
 from powercontext.http import ResolveScopeBindingRequest
 
 from .scope import PowerContextScope
-from .settings import PowerContextLangGraphSettings
+from .settings import ContextAssembly, PowerContextLangGraphSettings
 
 # A shared HTTP client lets a long-running deployment reuse one connection pool across nodes and tools, and lets tests
 # route requests to an in-process ASGI app. When set, per-operation clients borrow it and never close it. The bool is the
@@ -51,6 +51,7 @@ class ResolvedConfig:
     token: str | None = field(repr=False)
     timeout: float
     max_bytes: int
+    context_assembly: ContextAssembly | None = None
 
 
 def resolve_config(
@@ -71,6 +72,7 @@ def resolve_config(
         token=token,
         timeout=scope.timeout if scope.timeout is not None else resolved_settings.timeout,
         max_bytes=resolved_settings.max_bytes,
+        context_assembly=resolved_settings.context_assembly,
     )
 
 

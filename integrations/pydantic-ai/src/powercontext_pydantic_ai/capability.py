@@ -221,6 +221,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             scope_id=state.require_scope_id(),
             query=query[:8192],
             max_bytes=self.settings.max_bytes,
+            **({"assembly": self.settings.context_assembly} if self.settings.context_assembly is not None else {}),
         )
         try:
             response = await self._toolset._require_client().prepare_context(request)

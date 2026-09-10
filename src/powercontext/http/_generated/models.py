@@ -198,6 +198,15 @@ class ScopePage(BaseModel):
         extra="forbid",
     )
     items: list[ScopeDescriptor]
+    next_cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ScopeQueryField(StrEnum):
+    SCOPE_ID = "scope_id"
+    TITLE = "title"
+    SUMMARY = "summary"
+    EXTERNAL_REFERENCE_VALUE = "external_reference_value"
+    BINDING_EXTERNAL_ID = "binding_external_id"
 
 
 class CreateScopeRequest(BaseModel):
@@ -585,7 +594,14 @@ class CaptureContentSourceRequest(BaseModel):
     )
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     source_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    content: Annotated[StrictStr, Field(max_length=200000, min_length=1)]
+    content: Annotated[
+        StrictStr,
+        Field(
+            description="Raw integration content. Server-reserved payload schemas, including handoff receipts, are rejected on this generic capture operation and must be created through their dedicated workflow.",
+            max_length=200000,
+            min_length=1,
+        ),
+    ]
     metadata: dict[str, Any] | None = None
 
 
@@ -1246,13 +1262,20 @@ class MemoryCitation(BaseModel):
     entry_version_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
-class PrepareContextRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
-    max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+class ContextAssemblyFamily(StrEnum):
+    MEMORY = "memory"
+    EXPERIENCE = "experience"
+    PROFILE = "profile"
+    TOPIC_MEMORY = "topic-memory"
+
+
+class ContextAssemblyFormat(StrEnum):
+    MARKDOWN = "markdown"
+
+
+class ContextAssemblyMetadata(StrEnum):
+    CONFIDENCE = "confidence"
+    RECALL_RANK = "recall_rank"
 
 
 class SkillGenerationOrigin(StrEnum):
@@ -1521,7 +1544,12 @@ class CreateSourceRequest(BaseModel):
         extra="forbid",
     )
     source_type: SourceType = SourceType.CONTENT
-    content: Annotated[Any, Field(description="JSON value persisted by the built-in content Source adapter.")]
+    content: Annotated[
+        Any,
+        Field(
+            description="JSON value persisted by the built-in content Source adapter. Server-reserved payload schemas, including handoff receipts, are rejected and must be created through their dedicated workflow."
+        ),
+    ]
 
 
 class TaggableArtifactFamily(StrEnum):
@@ -1664,6 +1692,28 @@ class ListArtifactsRequest(BaseModel):
 
 
 class ListArtifactRevisionsRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ListScopesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: Annotated[StrictStr | None, Field(max_length=256)] = None
+    query_field: ScopeQueryField | None = None
+    parent_scope_id: Annotated[StrictStr | None, Field(max_length=256, min_length=1, pattern=".*\\S.*")] = None
+    external_reference_kind: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern=".*\\S.*")] = None
+    binding_integration: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern=".*\\S.*")] = None
+    binding_kind: Annotated[StrictStr | None, Field(max_length=64, min_length=1, pattern=".*\\S.*")] = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    cursor: Annotated[StrictStr | None, Field(max_length=4096, min_length=1)] = None
+
+
+class ListSourcesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2855,6 +2905,40 @@ class MemoryRevisionChanges(BaseModel):
     changes: list[EntryChange]
 
 
+class ContextAssemblySection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: ContextAssemblyFamily
+    limit: Annotated[
+        StrictInt,
+        Field(
+            description="Maximum included entries. Each Profile entry is one Scope snapshot. Experience is limited to two. All section limits together must not exceed the Server's runtime.context_assembly_max_entries policy (default 8); exceeding it returns HTTP 422 before recall. The byte budget may reduce the actual output count.",
+            ge=1,
+            le=8,
+        ),
+    ]
+
+
+class ContextAssembly(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    format: ContextAssemblyFormat = ContextAssemblyFormat.MARKDOWN
+    sections: Annotated[
+        list[ContextAssemblySection],
+        Field(
+            description="Unique families in output and byte-budget priority order. Profile explicitly includes the latest committed snapshot from the current Scope and direct Context References, in that order, without query filtering or generation. Topic Memory searches only the current Scope and includes title, summary, and an optional matching snippet, with an exact revision citation. An empty array disables candidate recall.",
+            max_length=4,
+            validate_default=True,
+        ),
+    ] = [
+        ContextAssemblySection.model_validate({"family": "memory", "limit": 6}),
+        ContextAssemblySection.model_validate({"family": "experience", "limit": 2}),
+    ]
+    show: Annotated[list[ContextAssemblyMetadata], Field(max_length=2)] = []
+
+
 class ProposeExperienceRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3139,6 +3223,14 @@ class SourceRecord(BaseModel):
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
 
 
+class SourcePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[SourceRecord]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
+
+
 class ArtifactFamilyAccessCapability(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3317,6 +3409,16 @@ class ListMemoryEntriesResponse(BaseModel):
     )
     memory: ArtifactReference | None = None
     entries: list[MemoryEntry]
+
+
+class PrepareContextRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
+    max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+    assembly: ContextAssembly | None = None
 
 
 class GeneratedCandidateResponse(BaseModel):

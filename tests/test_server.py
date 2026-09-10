@@ -63,13 +63,17 @@ from powercontext.server.factory import _work_access, create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
     BearerAuthConfig,
-    DashboardConfig,
     McpConfig,
     ServerSettings,
 )
 from powercontext.sources import Source
 
 _ACCESS_FAMILIES = "experience:enabled,handoff:enabled,memory:enabled,profile:enabled,prompt:enabled,skill:enabled"
+
+
+class _StartupOnlyAccessControl:
+    async def committed_receipt_identity(self, _scope_id: str, _source_id: str, /) -> None:
+        return None
 
 
 def _access_readiness_checks(
@@ -125,8 +129,14 @@ class _SequencedEmbeddingModel:
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
 
 
+@pytest.mark.parametrize("limit", ["0", "-1"])
+def test_configured_assembly_total_limit_rejects_nonpositive_values(monkeypatch, limit):
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES", limit)
+    with pytest.raises(ValidationError, match="context_assembly_max_entries"):
+        ServerSettings()
+
+
 def test_settings_load_server_environment(monkeypatch) -> None:
-    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
     monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", " https://powercontext.example.com/base/ ")
@@ -136,6 +146,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     )
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE", "64")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT", "25")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES", "16")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE", "conversation")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED", "true")
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT", "40")
@@ -181,6 +192,7 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.database.url == "sqlite+aiosqlite:////var/lib/powercontext/test.db"
     assert settings.runtime.scope_cache_size == 64
     assert settings.runtime.source_window_limit == 25
+    assert settings.runtime.context_assembly_max_entries == 16
     assert settings.runtime.memory_extraction_profile is MemoryExtractionProfile.CONVERSATION
     assert settings.runtime.memory_rerank_enabled is True
     assert settings.runtime.memory_rerank_candidate_limit == 40
@@ -202,7 +214,6 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.inference.generation_model_context_window_tokens == 64_000
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
-    assert settings.dashboard.enabled is True
     assert settings.external_skills.host_id == "workstation-1"
     assert settings.external_skills.targets[0].target_id == "codex-project"
     assert settings.external_skills.targets[0].path.as_posix() == "/srv/project/.agents/skills"
@@ -354,7 +365,6 @@ def test_env_example_loads_server_settings(monkeypatch) -> None:
     settings = ServerSettings()
 
     assert isinstance(settings.database, SQLiteConfig)
-    assert settings.dashboard.enabled is True
     assert settings.runtime.schedule_seconds == 60
     assert settings.runtime.topic_memory_schedule_seconds == 60
     assert settings.runtime.artifact_processing_role == "all"
@@ -421,15 +431,15 @@ def test_server_settings_reject_custom_embedded_seekdb_database(tmp_path, monkey
         ServerSettings()
 
 
-def test_server_scheduler_uses_the_primary_work_ledger_without_a_sidecar(tmp_path, monkeypatch) -> None:
+def test_background_processing_uses_primary_database_without_scheduler_sidecar(tmp_path, monkeypatch) -> None:
     data_dir = tmp_path / "powercontext-data"
     monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
     app = create_server_app(
         settings=ServerSettings(
             runtime=RuntimeConfig(experience_schedule_seconds=3_600),
+            inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),
         ),
-        experience_pipeline=_NoopExperiencePipeline(),
     )
 
     with TestClient(app):
@@ -620,11 +630,10 @@ def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp
         settings=ServerSettings(
             auth=BearerAuthConfig(token=SecretStr("server-secret")),
             access=AccessControlConfig(mode="enforced"),
-            dashboard=DashboardConfig(enabled=True),
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             mcp=McpConfig(enabled=False),
         ),
-        access_control=cast(AccessControlService, object()),
+        access_control=cast(AccessControlService, _StartupOnlyAccessControl()),
     )
     headers = {"Authorization": "Bearer server-secret"}
 
@@ -634,16 +643,6 @@ def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp
         protected = (
             client.get("/v1/capabilities", headers=headers),
             client.get("/metrics", headers=headers),
-            client.get("/dashboard/scopes", headers=headers),
-            client.post(
-                "/dashboard/skill-projections/status",
-                headers=headers,
-                json={
-                    "scope_id": "scope-a",
-                    "candidate_id": "candidate-a",
-                    "artifact": {"family": "skill", "artifact_id": "skill-a", "revision": 1},
-                },
-            ),
         )
 
     assert readiness.status_code == 503
@@ -739,7 +738,7 @@ def test_server_factory_reports_database_failure_as_not_ready(monkeypatch, tmp_p
         "checks": {
             "runtime": "ready",
             "database": "unavailable",
-            "artifact_processing_supervisor": "leader",
+            "artifact_processing_supervisor": "disabled",
             **_access_readiness_checks(),
         },
     }
@@ -784,6 +783,10 @@ def test_server_factory_reports_database_and_configured_generation_readiness(mon
             "database": "ready",
             "inference.generation": "ready",
             "artifact_processing_supervisor": "leader",
+            "artifact_processing.memory": "leader",
+            "artifact_processing.experience": "leader",
+            "artifact_processing.profile": "leader",
+            "artifact_processing.topic-memory": "leader",
             **_access_readiness_checks(),
         },
     }
@@ -848,6 +851,9 @@ def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_
             "database": "ready",
             "inference.generation": "unavailable",
             "artifact_processing_supervisor": "leader",
+            "artifact_processing.memory": "leader",
+            "artifact_processing.experience": "leader",
+            "artifact_processing.profile": "leader",
             **_access_readiness_checks(),
         },
     }
@@ -879,7 +885,7 @@ def test_server_factory_caches_and_redacts_degraded_embedding_readiness(caplog, 
                 "runtime": "ready",
                 "database": "ready",
                 "inference.embedding": "misconfigured",
-                "artifact_processing_supervisor": "leader",
+                "artifact_processing_supervisor": "disabled",
                 **_access_readiness_checks(),
             },
         }
@@ -909,7 +915,7 @@ def test_server_factory_reports_a_rejected_embedding_request_with_a_redacted_rea
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": "misconfigured: provider-rejected (HTTP 400)",
-            "artifact_processing_supervisor": "leader",
+            "artifact_processing_supervisor": "disabled",
             **_access_readiness_checks(),
         },
     }
@@ -945,7 +951,7 @@ def test_server_factory_reports_transient_embedding_failures_as_degraded(
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": expected_status,
-            "artifact_processing_supervisor": "leader",
+            "artifact_processing_supervisor": "disabled",
             **_access_readiness_checks(),
         },
     }
@@ -1051,7 +1057,7 @@ def test_server_factory_reports_missing_embedding_api_prefix_as_degraded(caplog,
                 "runtime": "ready",
                 "database": "ready",
                 "inference.embedding": "misconfigured: provider-rejected (HTTP 404)",
-                "artifact_processing_supervisor": "leader",
+                "artifact_processing_supervisor": "disabled",
                 **_access_readiness_checks(),
             },
         }

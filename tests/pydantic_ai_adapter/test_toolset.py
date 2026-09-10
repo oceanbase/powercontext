@@ -98,7 +98,8 @@ def test_toolset_exposes_exact_schemas_instructions_request_mapping_and_full_res
         "reason": "shared contract",
         "expected_revision": None,
     }
-    assert client.prepare_requests[0].model_dump(mode="json") == {
+    assert "assembly" not in client.prepare_requests[0].model_fields_set
+    assert client.prepare_requests[0].model_dump(mode="json", exclude_unset=True) == {
         "scope_id": "project:tools",
         "query": "what is current?",
         "max_bytes": 8000,

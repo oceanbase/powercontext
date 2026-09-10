@@ -24,11 +24,13 @@ from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Generic, TypeVar, cast
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
 from powercontext._logging import log_safely
@@ -91,7 +93,7 @@ from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError, GenerationConflictError
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
-from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
+from powercontext.builtin.persistence.supervision import ArtifactProcessingFence, ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_budget import (
@@ -100,12 +102,12 @@ from powercontext.builtin.persistence.topic_memory_budget import (
     TopicMemoryWorkBudget,
     require_topic_memory_work_available,
 )
-from powercontext.builtin.runtime.artifact_processing import (
+from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
+from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkAssignment,
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
 )
-from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
 from powercontext.builtin.source_eligibility import is_generation_eligible
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_NAME,
@@ -152,6 +154,35 @@ class _ReservedTopicMemoryGenerator(Generic[InputT, OutputT]):
 UsageReporter = Callable[[ModelUsagePurpose, ModelUsageOperation, Any], Awaitable[None]]
 
 
+class ArtifactProcessingWaveKind(StrEnum):
+    """Legacy Topic window metadata; generic supervision has no waves."""
+
+    EXPLICIT = "explicit"
+    AUTOMATIC = "automatic"
+
+
+@dataclass(frozen=True, slots=True)
+class TopicMemoryWindowAssignment:
+    """A private finite window used only by the Topic domain pipeline."""
+
+    binding_name: str
+    scope_id: str
+    source_after: int
+    source_through: int
+    wave_target: int
+    claimed_flush_generation: int
+    cursor_generation: int | None
+    wave_kind: ArtifactProcessingWaveKind
+    fence: ArtifactProcessingFence
+    worker_id: str
+
+
+TopicMemoryCommitAuthorizer = Callable[
+    [AsyncConnection, str, Sequence["PreparedTopicMemoryOperation"]], Awaitable[None]
+]
+TopicMemoryCommitHook = Callable[[AsyncConnection], Awaitable[None]]
+
+
 @dataclass(frozen=True, slots=True)
 class TopicMemoryStageSet:
     """Injected stage ports; arbitrary generator instances remain process-local."""
@@ -188,6 +219,7 @@ class TopicMemoryWorkerSpec(BaseModel):
     """Picklable child bootstrap configuration with a permanently redacted repr."""
 
     config: BuiltinConfig = Field(repr=False)
+    worker_security: dict[str, Any] | None = Field(default=None, repr=False)
 
     @override
     def __repr__(self) -> str:
@@ -272,21 +304,24 @@ class TopicMemoryAtomicPublisher:
         *,
         cursors: SourceCursorRepository | None = None,
         leases: ArtifactProcessingLeaseRepository | None = None,
+        commit_authorizer: TopicMemoryCommitAuthorizer | None = None,
     ) -> None:
         self._database = database
         self._sources = sources
         self._topics = topics
         self._cursors = SourceCursorRepository() if cursors is None else cursors
         self._leases = ArtifactProcessingLeaseRepository() if leases is None else leases
+        self._commit_authorizer = commit_authorizer
 
     async def publish(  # noqa: C901
         self,
-        assignment: ArtifactProcessingWorkAssignment,
+        assignment: TopicMemoryWindowAssignment,
         evidence: Mapping[str, StoredSource],
         operations: Sequence[PreparedTopicMemoryOperation],
         /,
         *,
         work_budget: TopicMemoryWorkBudget | None = None,
+        commit_hook: TopicMemoryCommitHook | None = None,
     ) -> None:
         if (
             assignment.binding_name != TOPIC_MEMORY_SOURCE_WINDOW_BINDING
@@ -357,6 +392,8 @@ class TopicMemoryAtomicPublisher:
                 cited_sources = {(item.source_type, item.source_id) for item in operation.draft.sources}
                 if not cited_sources or not cited_sources <= allowed_sources:
                     raise TopicMemoryGenerationError("invalid_evidence")
+            if self._commit_authorizer is not None:
+                await self._commit_authorizer(connection, assignment.scope_id, operations)
             if work_budget is not None:
                 await work_budget.complete(connection)
             await self._cursors.save(
@@ -383,6 +420,8 @@ class TopicMemoryAtomicPublisher:
                         operation.draft,
                         operation.projection,
                     )
+            if commit_hook is not None:
+                await commit_hook(connection)
             await self._leases.require_fence(connection, assignment.fence)
 
 
@@ -432,7 +471,13 @@ class TopicMemoryProcessor:
         self._history_min = history_min_candidates
         self._id_factory = (lambda: str(uuid4())) if id_factory is None else id_factory
 
-    async def process(self, assignment: ArtifactProcessingWorkAssignment, /) -> ArtifactProcessingWorkerCompletion:
+    async def process(
+        self,
+        assignment: TopicMemoryWindowAssignment,
+        /,
+        *,
+        commit_hook: TopicMemoryCommitHook | None = None,
+    ) -> ArtifactProcessingWorkerCompletion:
         if (
             assignment.binding_name != TOPIC_MEMORY_SOURCE_WINDOW_BINDING
             or not 0 <= assignment.source_after < assignment.source_through <= assignment.wave_target
@@ -456,7 +501,9 @@ class TopicMemoryProcessor:
                 projected = await _project_window(stored, self._sources)
                 proposals, candidates = await self._generate(assignment.scope_id, projected) if projected else ((), {})
                 operations = await self._prepare_operations(assignment.scope_id, proposals, candidates, evidence)
-                await self._publisher.publish(assignment, evidence, operations, work_budget=budget)
+                await self._publisher.publish(
+                    assignment, evidence, operations, work_budget=budget, commit_hook=commit_hook
+                )
             except TopicMemoryGenerationError as error:
                 if error.code == "source_complexity_limit":
                     await budget.fail(error.code)
@@ -506,7 +553,7 @@ class TopicMemoryProcessor:
         )
         return await self._embedding_model.embed(texts)
 
-    async def _read_window(self, assignment: ArtifactProcessingWorkAssignment) -> tuple[StoredSource, ...]:
+    async def _read_window(self, assignment: TopicMemoryWindowAssignment) -> tuple[StoredSource, ...]:
         if assignment.source_through - assignment.source_after > MAX_TOPIC_MEMORY_WINDOW_SOURCES:
             raise TopicMemoryGenerationError("source_complexity_limit")
         count = assignment.source_through - assignment.source_after
@@ -1593,14 +1640,28 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
                 datetime.now(UTC).date(),
             )
 
+        from powercontext.builtin.runtime.topic_memory_scope import TopicMemoryScopeProcessor
+
+        security = None
+        if spec.worker_security is not None:
+            # Runtime-only SDK workers do not require the optional Server adapter.
+            from powercontext.server.processing_security import open_worker_security
+
+            security = await resources.enter_async_context(
+                open_worker_security(spec.worker_security, contexts.database)
+            )
+        if security is not None:
+            await security.authorize_scope(scope_id)
+        commit_authorizer = None if security is None else security.topic_commit
         publisher = TopicMemoryAtomicPublisher(
             contexts.database,
             contexts.repositories.sources,
             contexts.repositories.topic_memories,
             cursors=contexts.repositories.cursors,
             leases=contexts.repositories.processing_leases,
+            commit_authorizer=commit_authorizer,
         )
-        yield TopicMemoryProcessor(
+        processor = TopicMemoryProcessor(
             database=contexts.database,
             sources=contexts.repositories.sources,
             topics=contexts.repositories.topic_memories,
@@ -1612,6 +1673,20 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             history_rrf_threshold=config.runtime.topic_memory_history_rrf_threshold,
             history_min_candidates=config.runtime.topic_memory_history_min_candidates,
         )
+        yield TopicMemoryScopeProcessor(
+            contexts.database,
+            processor,
+            TopicMemoryWindowSelector(
+                contexts.database,
+                contexts.repositories.sources,
+                contexts.token_estimator,
+                context_window_tokens=inference.generation_model_context_window_tokens,
+            ),
+            cursors=contexts.repositories.cursors,
+            leases=contexts.repositories.processing_leases,
+            commit_authorizer=commit_authorizer,
+            source_window_limit=config.runtime.topic_memory_source_window_limit,
+        )
 
 
 __all__ = [
@@ -1619,6 +1694,7 @@ __all__ = [
     "TopicMemoryAtomicPublisher",
     "TopicMemoryProcessor",
     "TopicMemoryStageSet",
+    "TopicMemoryWindowAssignment",
     "TopicMemoryWindowSelector",
     "TopicMemoryWorkerSpec",
     "run_topic_memory_worker",

@@ -15,14 +15,22 @@
 
 import asyncio
 from datetime import UTC, datetime
+from functools import partial
 
 import pytest
 from pydantic import ValidationError
 
+from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.profile.service import ProfileGenerationInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, RuntimeConfig, open_builtin_runtime
+from powercontext.builtin.runtime.artifact_processing import (
+    ArtifactProcessingBinding,
+    SpawnArtifactProcessingWorkerLauncher,
+)
+from powercontext.builtin.runtime.composition import open_builtin_contexts
 from powercontext.builtin.runtime.cron import CronSchedule
+from powercontext.builtin.runtime.family_processing import process_family_invocation
 from powercontext.builtin.scope import ScopeDraft
 
 
@@ -38,35 +46,64 @@ def test_profile_cron_defaults_and_validation():
         RuntimeConfig(profile_timezone="Not/A_Zone")
 
 
-def test_startup_scan_catches_up_profile_evidence(tmp_path):
-    class Generator:
-        def __init__(self):
-            self.called = asyncio.Event()
+class _ProfileGenerator:
+    async def generate(self, value: ProfileGenerationInput):
+        return "# Caught up"
 
-        async def generate(self, value: ProfileGenerationInput):
-            self.called.set()
-            return "# Caught up"
 
+def _profile_worker(config, assignment):
     async def run():
-        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"))
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "jobs.db") as runtime:
+        async with open_builtin_contexts(config) as contexts:
+            contexts.profiles.generator = _ProfileGenerator()
+            return await process_family_invocation(contexts, assignment, config=config)
+
+    return asyncio.run(run())
+
+
+def test_startup_scan_catches_up_profile_evidence(tmp_path):
+    async def run():
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=("profile",)),
+        )
+        # Register a reconstructible test child, with the production invocation
+        # and completion protocol. Scope data outlives the initial Runtime.
+        binding = ArtifactProcessingBinding(
+            PROFILE_SOURCE_WINDOW_BINDING,
+            "profile",
+            SpawnArtifactProcessingWorkerLauncher(partial(_profile_worker, config)),
+        )
+        async with open_builtin_runtime(config, artifact_processing_bindings=(binding,)) as runtime:
             assert runtime.scopes is not None and runtime.profiles is not None
             sid = (
                 await runtime.scopes.create(ScopeDraft(title="User", summary="User", idempotency_key="User"))
             ).scope_id
             await runtime.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
             await runtime.records.for_scope(sid).create_source("content", "Chinese")
-        generator = Generator()
-        async with open_builtin_runtime(
-            config.model_copy(update={"runtime": RuntimeConfig(profile_schedule_enabled=True)}),
-            profile_generator=generator,
-            scheduler_path=tmp_path / "jobs.db",
-        ) as runtime:
-            await asyncio.wait_for(generator.called.wait(), timeout=5)
-        # Runtime.close drains in-flight Profile work before disposing persistence.
-        async with open_builtin_runtime(config, scheduler_path=tmp_path / "jobs.db") as runtime:
+        scheduled = ArtifactProcessingBinding(
+            PROFILE_SOURCE_WINDOW_BINDING,
+            "profile",
+            binding.launcher,
+            cron="0 2 * * *",
+            timezone="Asia/Shanghai",
+        )
+        async with open_builtin_runtime(config, artifact_processing_bindings=(scheduled,)) as runtime:
+            from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+            from powercontext.builtin.runtime.relational import RelationalContexts
+
+            assert isinstance(runtime._provider, RelationalContexts)
+            async with asyncio.timeout(30):
+                while True:
+                    async with runtime._provider.database.transaction() as connection:
+                        intent = await ArtifactProcessingIntentRepository().load(
+                            connection, sid, PROFILE_SOURCE_WINDOW_BINDING
+                        )
+                    if intent is not None and intent.handled_generation >= 1:
+                        break
+                    await asyncio.sleep(0.02)
             saved = await runtime.records.for_scope(sid).get_artifact("profile", "profile")
             assert saved.revision == 1
+        assert not (tmp_path / "jobs.db").exists()
 
     asyncio.run(run())
 

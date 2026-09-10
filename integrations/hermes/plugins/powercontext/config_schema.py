@@ -61,6 +61,14 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             description="Bounded context returned by /v1/context/prepare.",
         ),
         ProviderField(
+            key="context_assembly",
+            label="Context text assembly (JSON)",
+            kind=KIND_TEXT,
+            env_key="POWERCONTEXT_HERMES_CONTEXT_ASSEMBLY",
+            default="",
+            description="Optional JSON object selecting context sections, order, limits, and metadata. Use {} for standard text.",
+        ),
+        ProviderField(
             key="timeout",
             label="HTTP timeout in seconds",
             kind=KIND_NUMBER,

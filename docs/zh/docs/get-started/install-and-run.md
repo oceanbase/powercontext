@@ -54,15 +54,36 @@ powercontext server run
 
 - 监听 `127.0.0.1:8000`；
 - 在 `/mcp` 启用 Streamable HTTP MCP；
-- 创建默认 Scope，并在 `/` 启用 Dashboard；
+- 创建默认 Scope；
 - 在操作系统的用户数据目录中创建持久化 SQLite 数据库；
 - 无需推理服务即可支持显式 Memory 操作。
 
-启动成功后，终端会输出 Dashboard 地址，例如 `http://127.0.0.1:8000/`。Dashboard 与 HTTP API、MCP 共用 Server
-的监听地址和端口。Dashboard 初始化失败时，Server 会记录包含直接原因的 warning，并继续提供其他接口；可通过
-`POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` 显式关闭 Dashboard。
-
 按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
+
+Dashboard 是个人使用和演示的可选内容查看器，默认关闭。它不需要单独安装前端或配置模型。
+需要使用时，在受保护的环境文件中设置以下值，并将 token 示例替换为自己的长随机凭据：
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+```
+
+```bash
+chmod 600 /path/to/powercontext.env
+powercontext config validate --env-file /path/to/powercontext.env
+powercontext server run --env-file /path/to/powercontext.env
+```
+
+打开 `http://127.0.0.1:8000/dashboard/home`，输入同一个 token。更改端口后使用实际端口。
+该 token 同时用于 Server API 和 MCP，已连接的 Agent 也需配置它。CLI 不会自动读取目录中的 `.env` 文件。
+
+首次登录选择 Server 默认 Scope，未保存内容时显示空状态。通过 Agent 或公开 API 保存一条 Memory，
+再刷新同一 Scope 的记忆页即可查看。经验、技能、交接和用量也来自实际保存记录；页面不采集会话、不运行生成，
+也不批准候选。Dashboard 和 Agent 必须连接同一个 Server、使用同一个 Scope。
+
+所有 token 持有者使用同一个身份。多成员 RBAC 部署应保持 Dashboard 关闭，通过 API、MCP 或宿主集成访问内容。
+网络与凭据配置见[部署 Server](../operate/deploy-server.md)。
 
 这种最小启动方式不会启用依赖模型的抽取或向量搜索。如需生成并校验一份显式环境文件以启用这些能力，请继续阅读
 [启用提取与向量搜索](configure-models.md)。
@@ -85,8 +106,9 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 powercontext server run
 ```
 
-CLI 不会自动搜索 `.env` 文件。请在 shell 中导出这些值、在启动 Server 的进程管理器或容器中配置，或者通过
-`powercontext server run --env-file <path>` 显式传入文件。
+当前目录存在 `.env` 时，`server run` 会自动加载该文件。可以在 shell 中导出变量来覆盖文件值，使用
+`--env-file <path>` 选择其他文件，或使用 `--no-env-file` 忽略环境文件。进程管理器和容器通常应提供显式环境，
+不要依赖其工作目录。
 
 PowerContext 固定使用 seekDB 内置的 `test` 数据库。未设置 `POWERCONTEXT_SERVER_DATABASE_PATH` 时，实例保存在
 PowerContext 用户数据目录的 `seekdb` 子目录中；如果设置了 `POWERCONTEXT_HOME`，默认路径为

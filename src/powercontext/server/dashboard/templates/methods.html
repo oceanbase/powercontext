@@ -1,0 +1,52 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="methods-view text-break">
+{% set family = method_kind %}
+{% set collection = collections.get(family, {}) %}
+{% set pager = collection.get('pager', {}) %}
+
+<style>
+  me .method-grid { grid-template-rows: repeat({{ collection_page_size if pager.get('previous') or pager.get('next') else collection.get('items', [])|length or 1 }}, 1fr); }
+  me .method-row { min-width: 0; }
+  me .collection-empty { min-height: 65dvh; }
+</style>
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/pagination.html' import pagination %}
+{% from 'components/search.html' import search_form with context %}
+{{ page_heading(t.methods, t.methods_subtitle) }}
+<nav class="nav nav-tabs mb-4" aria-label="{{ t.method_filter }}">
+  {% for value, label in [('experience', 'experience'), ('skill', 'skill_reading')] %}<a class="nav-link {% if method_kind == value %}active{% endif %}" href="{{ link('methods', kind=value, q=none, skill_page=none, experience_cursor=none, experience_history=none) }}" {% if method_kind == value %}aria-current="page"{% endif %}>{{ t[label] }}</a>{% endfor %}
+</nav>
+{% if method_kind == 'skill' %}{{ search_form(t.search_skills, 2000, 'skill') }}{% endif %}
+{% if collection.get('search_limited') %}<p class="text-secondary">{{ t.skills_limit }}</p>{% endif %}
+{% from 'components/read-error.html' import read_error with context %}
+{% if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endif %}
+<section>
+  <div class="method-grid d-grid gap-3" aria-label="{{ t[family] }}">
+    {% for record in collection.get('items', []) %}
+    {% if 'error' not in record %}<article class="card method-row"><div class="card-body">
+      <span class="method-type text-secondary small">{{ t[family] }} · {{ t.revision }} {{ record.revision }}</span>
+      <h2 class="card-title fw-normal"><a class="text-reset d-block text-truncate" href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ (record.lesson if family == 'experience' else record.name)|truncate(80, true) }}</a></h2>
+      <p class="text-secondary text-truncate">{{ (record.situation if family == 'experience' else record.description)|truncate(160, true) }}</p>
+      <a href="{{ link(family, artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_experience if family == 'experience' else t.read_skill }}</a>
+    </div></article>{% endif %}
+    {% endfor %}
+    {% if not data[family] and not errors.get(family) %}<section class="card collection-empty"><div class="empty">{% if search_query and family == 'skill' %}<h2>{{ t.skills_no_match }}</h2>{% else %}<h2>{{ t.experience_empty if family == 'experience' else t.skills_empty }}</h2>{% endif %}</div></section>{% endif %}
+  </div>
+  <div class="collection-footer">{{ pagination(collection.get('pager'), t, always=family == 'skill') }}</div>
+</section>
+</div>

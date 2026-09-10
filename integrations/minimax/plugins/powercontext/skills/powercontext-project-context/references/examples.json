@@ -1,0 +1,41 @@
+{
+  "resolve_scope_binding": {
+    "allow_default": true
+  },
+  "search_memory": {
+    "scope_id": "example-scope",
+    "query": "database migration rollback decision",
+    "mode": "auto",
+    "limit": 8
+  },
+  "remember_memory": {
+    "scope_id": "example-scope",
+    "kind": "decision",
+    "text": "Database migrations must include a verified rollback procedure."
+  },
+  "handoff_current_work": {
+    "scope_id": "example-scope",
+    "source_id": "example-handoff-001",
+    "handoff": {
+      "schema": "powercontext.current-work-handoff.v1",
+      "trust": "untrusted_input",
+      "objective": "Verify database migration rollback",
+      "state": [
+        {
+          "text": "The rollback procedure has been drafted but not executed.",
+          "basis": "declared",
+          "evidence": []
+        }
+      ],
+      "disposition": "continuable",
+      "next_action": {
+        "text": "Run the rollback procedure against the isolated test database.",
+        "basis": "declared",
+        "evidence": []
+      },
+      "omissions": [
+        "No runtime verification has been completed."
+      ]
+    }
+  }
+}

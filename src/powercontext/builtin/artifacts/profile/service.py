@@ -22,12 +22,13 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, nullcontext
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.artifacts.profile.models import (
     PROFILE_ARTIFACT_ID,
@@ -48,6 +49,7 @@ from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase, is_transaction_contention
 from powercontext.builtin.persistence.errors import GenerationConflictError, RepositoryNotFoundError
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.tables import PROFILE_POLICIES_TABLE
@@ -57,6 +59,9 @@ from powercontext.builtin.scope.repository import ScopeRepository
 from powercontext.builtin.source_eligibility import is_generation_eligible
 from powercontext.builtin.sources import SourceCursor
 from powercontext.errors import RevisionConflictError
+
+if TYPE_CHECKING:
+    from powercontext.builtin.runtime.processing_execution import ScopeInvocation
 
 
 class ProfileGenerationInput(BaseModel):
@@ -121,20 +126,28 @@ class RelationalProfileService:
                 if current is None:
                     if expected_version != 0:
                         raise BaseValueConflictError("profile_policy", (scope_id,))
-                    return await self.policies.create(
+                    updated = await self.policies.create(
                         connection,
                         scope_id,
                         enabled=generation_enabled,
                         activation_mode=activation_mode,
                     )
+                    await ArtifactProcessingIntentRepository().mark_dirty(
+                        connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING
+                    )
+                    return updated
                 elif current.version != expected_version or expected_version == 0:
                     raise BaseValueConflictError("profile_policy", (scope_id,))
-                return await self.policies.update(
+                updated = await self.policies.update(
                     connection,
                     current,
                     generation_enabled=generation_enabled,
                     activation_mode=activation_mode,
                 )
+                await ArtifactProcessingIntentRepository().mark_dirty(
+                    connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING
+                )
+                return updated
         except IntegrityError as error:
             raise BaseValueConflictError("profile_policy", (scope_id,)) from error
 
@@ -151,10 +164,17 @@ class RelationalProfileService:
         high_watermark: int | None = None,
         authorize_snapshot: Callable[[Profile | None], Awaitable[None]] | None = None,
         on_commit=None,
+        processing: ScopeInvocation | None = None,
+        authorize_commit: Callable[[AsyncConnection, Profile | None], Awaitable[None]] | None = None,
     ) -> ProfileFlushResult:
         async with self.operation_context():
             return await self._flush(
-                scope_id, high_watermark=high_watermark, authorize_snapshot=authorize_snapshot, on_commit=on_commit
+                scope_id,
+                high_watermark=high_watermark,
+                authorize_snapshot=authorize_snapshot,
+                on_commit=on_commit,
+                processing=processing,
+                authorize_commit=authorize_commit,
             )
 
     async def _flush(  # noqa: C901
@@ -164,8 +184,12 @@ class RelationalProfileService:
         high_watermark: int | None = None,
         authorize_snapshot: Callable[[Profile | None], Awaitable[None]] | None = None,
         on_commit=None,
+        processing: ScopeInvocation | None = None,
+        authorize_commit: Callable[[AsyncConnection, Profile | None], Awaitable[None]] | None = None,
     ) -> ProfileFlushResult:
         async with self.database.transaction() as connection:
+            if processing is not None:
+                await processing.start(connection)
             policy = await self.policies.get(connection, scope_id)
             cursor = await self.cursors.load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
             after = 0 if cursor is None else cursor.cursor.sequence
@@ -173,8 +197,12 @@ class RelationalProfileService:
             high = high if high_watermark is None else min(high, high_watermark)
             base: dict[str, Any] = {"previous_cursor": after, "current_cursor": after, "high_watermark": high}
             if policy is None or not policy.generation_enabled:
+                if processing is not None:
+                    await processing.complete(connection, remaining_work=after < high)
                 return ProfileFlushResult(status="disabled", **base)
             if policy.pending_candidate_id is not None:
+                if processing is not None:
+                    await processing.complete(connection, remaining_work=True)
                 return ProfileFlushResult(status="review_pending", candidate_id=policy.pending_candidate_id, **base)
             current = await self.latest(connection, scope_id)
             limit = min(self.max_sources, 32 if current is None else 31)
@@ -183,6 +211,8 @@ class RelationalProfileService:
                 for item in await self.sources.list(connection, scope_id, after=after, limit=limit)
                 if item.journal_position <= high
             )
+            if not window and processing is not None:
+                await processing.complete(connection, remaining_work=False)
         if not window:
             return ProfileFlushResult(status="noop", **base)
         # Authorize the exact Head used by generation. The commit CAS below also
@@ -215,6 +245,8 @@ class RelationalProfileService:
                     markdown = None
         try:
             async with self.database.transaction() as connection:
+                if processing is not None:
+                    await processing.guard(connection)
                 locked = await self.policies.get(connection, scope_id, for_update=True)
                 actual_cursor = await self.cursors.load(
                     connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True
@@ -226,6 +258,8 @@ class RelationalProfileService:
                     or (None if actual is None else actual.as_ref()) != (None if current is None else current.as_ref())
                 ):
                     raise BaseValueConflictError("profile_processing", (scope_id,))  # noqa: TRY301
+                if authorize_commit is not None:
+                    await authorize_commit(connection, current)
                 # CAS also serializes SQLite, whose SELECT FOR UPDATE is a no-op.
                 updated = await self.policies.update(connection, policy)
                 refs = tuple(item.ref for item in evidence)
@@ -284,6 +318,8 @@ class RelationalProfileService:
                     )
                 if on_commit is not None:
                     await on_commit(connection, artifact, candidate)
+                if processing is not None:
+                    await processing.complete(connection, remaining_work=candidate_id is not None or through < high)
                 return ProfileFlushResult(
                     status="review_pending" if candidate_id else ("updated" if artifact else "noop"),
                     previous_cursor=after,

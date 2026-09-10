@@ -21,6 +21,7 @@ import subprocess
 import sys
 from contextlib import AsyncExitStack
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
@@ -45,9 +46,9 @@ from powercontext.builtin.persistence.topic_memory_budget import (
 from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingWorkerOutcome
 from powercontext.builtin.runtime.composition import (
     BuiltinConfigurationError,
+    _artifact_processing_bindings,
     _provider_factory,
     _topic_memory_processing_available,
-    _topic_memory_processing_bindings,
 )
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.topic_memory_processing import (
@@ -407,13 +408,14 @@ def test_worker_and_binding_reject_unmetered_settings_before_opening_resources(w
             database=SQLiteConfig(url="sqlite+aiosqlite:///not-opened.sqlite3"),
             inference=InferenceConfig.model_validate(settings),
         )
-        assert _topic_memory_processing_bindings(config, cast(Any, None), ()) == ()
+        bindings = _artifact_processing_bindings(config, cast(Any, SimpleNamespace(database=None)), ())
+        assert all(binding.artifact_family != "topic-memory" for binding in bindings)
         assert not _topic_memory_processing_available(config, ())
         api = config.model_copy(update={"runtime": RuntimeConfig(artifact_processing_role="api")})
         assert not _topic_memory_processing_available(api, ())
         scheduled = config.model_copy(update={"runtime": RuntimeConfig(topic_memory_schedule_seconds=60)})
         with pytest.raises(BuiltinConfigurationError):
-            _topic_memory_processing_bindings(scheduled, cast(Any, None), ())
+            _artifact_processing_bindings(scheduled, cast(Any, None), ())
         spec = TopicMemoryWorkerSpec(config=config)
         with pytest.raises(BuiltinConfigurationError):
             async with _open_topic_memory_processor(spec, "scope-a"):
@@ -516,10 +518,10 @@ def test_unsupported_worker_provider_fails_when_binding_is_assembled():
     config = BuiltinConfig(
         database=SQLiteConfig(url="sqlite+aiosqlite:///not-opened.sqlite3"),
         inference=InferenceConfig(generation_model="google:test"),
-        runtime=RuntimeConfig(topic_memory_schedule_seconds=60),
+        runtime=RuntimeConfig(topic_memory_schedule_seconds=60, artifact_processing_families=("topic-memory",)),
     )
     with pytest.raises(BuiltinConfigurationError, match="bounded stateless"):
-        _topic_memory_processing_bindings(config, cast(Any, None), ())
+        _artifact_processing_bindings(config, cast(Any, None), ())
 
 
 def test_embedding_shares_exhausted_generation_budget_and_other_scope_can_progress(monkeypatch):

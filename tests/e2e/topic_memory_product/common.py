@@ -32,7 +32,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastmcp import Client
@@ -53,7 +52,6 @@ from powercontext.http import (
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     BearerAuthConfig,
-    DashboardConfig,
     McpConfig,
     ServerSettings,
 )
@@ -125,7 +123,6 @@ class ChainEvidence:
     search_mode: str
     prepared_context_bytes: int
     mcp_tools: tuple[str, ...]
-    web_routes: tuple[str, ...]
     access_timeline: tuple[dict[str, object], ...]
 
     def as_dict(self) -> dict[str, object]:
@@ -144,7 +141,6 @@ class ChainEvidence:
                 "full_detail_absent": True,
             },
             "mcp": {"tools": list(self.mcp_tools), "exact_ref": self.exact_ref.as_dict()},
-            "web": {"routes": list(self.web_routes), "exact_ref": self.exact_ref.as_dict()},
             "access_timeline": list(self.access_timeline),
         }
 
@@ -487,7 +483,7 @@ async def default_scope_id(base_url: str, *, token: str | None) -> str:
         return (await client.get_default_scope()).scope_id
 
 
-async def exercise_http_mcp_prepared_web_chain(  # noqa: C901
+async def exercise_http_mcp_prepared_chain(  # noqa: C901
     *,
     base_url: str,
     token: str,
@@ -500,7 +496,7 @@ async def exercise_http_mcp_prepared_web_chain(  # noqa: C901
     generation: FakeInference | None = None,
     search_timeout_seconds: float = 60.0,
 ) -> ChainEvidence:
-    """Exercise one exact ref through public HTTP, SDK, MCP, Prepared Context, and Web routes."""
+    """Exercise one exact ref through public HTTP, SDK, MCP, and Prepared Context."""
 
     authorization = f"Bearer {token}"
     async with PowerContextClient(base_url, token=token, timeout=10) as client:
@@ -605,29 +601,6 @@ async def exercise_http_mcp_prepared_web_chain(  # noqa: C901
             if not isinstance(get_ref_value, dict) or ArtifactIdentity.from_mapping(get_ref_value) != exact_ref:
                 raise ProductChainError("MCP exact get changed the search ref")
 
-    headers = {"Authorization": authorization}
-    async with httpx.AsyncClient(base_url=base_url, headers=headers, timeout=10) as web:
-        page = await web.get("/topics")
-        listed = await web.post("/dashboard/topic-memories/list", json={"scope_id": scope_id, "limit": 25})
-        detail = await web.post(
-            "/dashboard/topic-memories/get",
-            json={"scope_id": scope_id, "artifact": exact_ref.as_dict()},
-        )
-    if page.status_code != 200 or 'id="topics-library"' not in page.text:
-        raise ProductChainError("/topics did not render the real dashboard route")
-    if listed.status_code != 200 or detail.status_code != 200:
-        raise ProductChainError("private Topic dashboard routes did not return success")
-    list_items = listed.json().get("items")
-    detail_payload = detail.json()
-    if not isinstance(list_items, list) or not list_items:
-        raise ProductChainError("private Topic browse returned no current head")
-    listed_ref = list_items[0].get("artifact")
-    detail_ref = detail_payload.get("artifact")
-    if not isinstance(listed_ref, dict) or ArtifactIdentity.from_mapping(listed_ref) != exact_ref:
-        raise ProductChainError("private Topic browse changed the exact ref")
-    if not isinstance(detail_ref, dict) or ArtifactIdentity.from_mapping(detail_ref) != exact_ref:
-        raise ProductChainError("private Topic get changed the exact ref")
-
     returned_before_generation_completed = (
         generation.topic_generation_completed_after(flush_returned)
         if generation is not None
@@ -644,7 +617,6 @@ async def exercise_http_mcp_prepared_web_chain(  # noqa: C901
         search_mode=str(search.mode),
         prepared_context_bytes=prepared.content_bytes,
         mcp_tools=("search_topic_memory", "get_topic_memory"),
-        web_routes=("/topics", "/dashboard/topic-memories/list", "/dashboard/topic-memories/get"),
         access_timeline=timeline.snapshot(),
     )
 
@@ -686,7 +658,6 @@ def run_e0(directory: Path) -> dict[str, object]:
                 embedding_timeout_seconds=5,
             ),
             mcp=McpConfig(enabled=True),
-            dashboard=DashboardConfig(enabled=True),
         )
         app = create_server_app(
             settings=settings,
@@ -697,7 +668,7 @@ def run_e0(directory: Path) -> dict[str, object]:
         scope_id = asyncio.run(default_scope_id(powercontext_server.base_url, token=_E0_TOKEN))
         try:
             evidence = asyncio.run(
-                exercise_http_mcp_prepared_web_chain(
+                exercise_http_mcp_prepared_chain(
                     base_url=powercontext_server.base_url,
                     token=_E0_TOKEN,
                     scope_id=scope_id,
@@ -798,7 +769,7 @@ __all__ = [
     "RunningServer",
     "default_scope_id",
     "digest_text",
-    "exercise_http_mcp_prepared_web_chain",
+    "exercise_http_mcp_prepared_chain",
     "require_no_worker_failures",
     "run_e0",
     "start_loopback_server",

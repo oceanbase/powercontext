@@ -32,6 +32,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
 )
 from powercontext.builtin.inference import GenerationResult
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
@@ -47,6 +48,7 @@ from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryStageSet,
     TopicMemoryWindowSelector,
 )
+from powercontext.builtin.runtime.topic_memory_scope import TopicMemoryScopeProcessor
 from powercontext.builtin.sources import ContentCapture
 
 
@@ -60,8 +62,13 @@ class _QueueGenerator:
         return GenerationResult(output=self.outputs.popleft())
 
 
+class _OneSourceSelector(TopicMemoryWindowSelector):
+    async def select(self, scope_id, source_after, source_ceiling, /):
+        return await super().select(scope_id, source_after, min(source_after + 1, source_ceiling))
+
+
 class _Launcher:
-    def __init__(self, processor: TopicMemoryProcessor) -> None:
+    def __init__(self, processor: TopicMemoryScopeProcessor) -> None:
         self.processor = processor
 
     async def start(self, assignment: ArtifactProcessingWorkAssignment):
@@ -69,7 +76,7 @@ class _Launcher:
 
 
 class _Handle:
-    def __init__(self, processor: TopicMemoryProcessor, assignment: ArtifactProcessingWorkAssignment) -> None:
+    def __init__(self, processor: TopicMemoryScopeProcessor, assignment: ArtifactProcessingWorkAssignment) -> None:
         self.processor = processor
         self.assignment = assignment
 
@@ -100,6 +107,9 @@ def test_source_capture_to_multi_window_create_update_noop(tmp_path) -> None:
             pending = contexts.repositories.processing_pending
             async with contexts.database.transaction() as connection:
                 await pending.request_flush(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                await ArtifactProcessingIntentRepository().request(
+                    connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                )
 
             unexpected = _QueueGenerator()
             stages = TopicMemoryStageSet(
@@ -145,23 +155,26 @@ def test_source_capture_to_multi_window_create_update_noop(tmp_path) -> None:
             )
             binding = ArtifactProcessingBinding(
                 binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
-                source_window_limit=1,
-                launcher=_Launcher(processor),
-                window_selector=TopicMemoryWindowSelector(
-                    contexts.database,
-                    contexts.repositories.sources,
-                    contexts.token_estimator,
-                    context_window_tokens=10_000,
+                artifact_family="topic-memory",
+                max_workers=1,
+                worker_timeout_seconds=5,
+                launcher=_Launcher(
+                    TopicMemoryScopeProcessor(
+                        contexts.database,
+                        processor,
+                        _OneSourceSelector(
+                            contexts.database,
+                            contexts.repositories.sources,
+                            contexts.token_estimator,
+                            context_window_tokens=10_000,
+                        ),
+                    )
                 ),
             )
             async with ArtifactProcessingSupervisor(
                 database=contexts.database,
                 bindings=(binding,),
                 lease_mode="single-process",
-                max_workers=1,
-                worker_timeout_seconds=5,
-                pending=pending,
-                cursors=contexts.repositories.cursors,
                 leases=contexts.repositories.processing_leases,
                 binding_states=contexts.repositories.processing_binding_states,
                 retry_base_seconds=0.01,
@@ -229,6 +242,9 @@ def test_secondary_retrieval_reconciles_a_create_into_an_exact_update(tmp_path) 
             pending = contexts.repositories.processing_pending
             async with contexts.database.transaction() as connection:
                 await pending.request_flush(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                await ArtifactProcessingIntentRepository().request(
+                    connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                )
 
             provisional = TopicMemoryProposal(content=old_content, evidence_ids=("evidence-0001",))
             reconciled = provisional.model_copy(
@@ -265,23 +281,26 @@ def test_secondary_retrieval_reconciles_a_create_into_an_exact_update(tmp_path) 
             )
             binding = ArtifactProcessingBinding(
                 binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
-                source_window_limit=1,
-                launcher=_Launcher(processor),
-                window_selector=TopicMemoryWindowSelector(
-                    contexts.database,
-                    contexts.repositories.sources,
-                    contexts.token_estimator,
-                    context_window_tokens=10_000,
+                artifact_family="topic-memory",
+                max_workers=1,
+                worker_timeout_seconds=5,
+                launcher=_Launcher(
+                    TopicMemoryScopeProcessor(
+                        contexts.database,
+                        processor,
+                        _OneSourceSelector(
+                            contexts.database,
+                            contexts.repositories.sources,
+                            contexts.token_estimator,
+                            context_window_tokens=10_000,
+                        ),
+                    )
                 ),
             )
             async with ArtifactProcessingSupervisor(
                 database=contexts.database,
                 bindings=(binding,),
                 lease_mode="single-process",
-                max_workers=1,
-                worker_timeout_seconds=5,
-                pending=pending,
-                cursors=contexts.repositories.cursors,
                 leases=contexts.repositories.processing_leases,
                 binding_states=contexts.repositories.processing_binding_states,
                 retry_base_seconds=0.01,

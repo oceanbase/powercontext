@@ -28,6 +28,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import TopicMemoryGe
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.seekdb import SeekDBProfile
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
@@ -40,7 +41,7 @@ from powercontext.builtin.persistence.topic_memory_budget import (
 )
 from powercontext.builtin.runtime.topic_memory_processing import TopicMemoryAtomicPublisher
 from powercontext.builtin.sources import CONTENT_SOURCE_ADAPTER, ContentCapture
-from tests.builtin.persistence.test_topic_memory_integrity import _OB, _concurrent_revision, _open_store
+from tests.builtin.persistence.test_topic_memory_integrity import _OB, _SEEKDB, _concurrent_revision, _open_store
 from tests.builtin.runtime.test_topic_memory_processing import _assignment
 
 
@@ -50,7 +51,7 @@ class _FailAfterCursorSave(SourceCursorRepository):
         raise RuntimeError("injected publication rollback")  # noqa: TRY003
 
 
-@pytest.mark.parametrize("backend", ["sqlite", _OB])
+@pytest.mark.parametrize("backend", ["sqlite", _OB, _SEEKDB])
 @pytest.mark.parametrize("terminal", [None, "requests", "tokens"])
 def test_budget_reopen_supersession_and_publication_with_concurrent_integrity(tmp_path, backend, terminal):
     async def scenario():
@@ -116,13 +117,17 @@ def test_budget_reopen_supersession_and_publication_with_concurrent_integrity(tm
             url = store.reader.engine.url.render_as_string(hide_password=False)
             await store.reader.close()
             tables = BUILTIN_TABLES + store.index.tables
-            reopened = (
-                OceanBaseProfile.open(OceanBaseConfig(url=SecretStr(url)), tables=tables)
-                if backend == "oceanbase"
-                else SQLiteProfile.open(SQLiteConfig(url=url), tables=tables)
-            )
+            if backend == "seekdb":
+                assert store.seekdb_config is not None
+                reopened = SeekDBProfile.open(store.seekdb_config, tables=tables)
+            elif backend == "oceanbase":
+                reopened = OceanBaseProfile.open(OceanBaseConfig(url=SecretStr(url)), tables=tables)
+            else:
+                reopened = SQLiteProfile.open(SQLiteConfig(url=url), tables=tables)
             async with reopened as profile:
                 database = profile.database
+                assert database.engine is not store.reader.engine
+                assert database.engine is not store.database.engine
                 async with database.transaction() as connection:
                     await store.repository.initialize(connection, configure_retrieval_shape=False)
                 current = budget(database)

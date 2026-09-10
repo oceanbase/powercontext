@@ -1,0 +1,49 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% from "macros.html" import icon with context %}
+<aside class="navbar navbar-vertical navbar-expand-lg" aria-label="{{ t.scope_label }}">
+  <style>
+    [data-bs-theme="dark"] me .nav-symbol img { filter: invert(1); }
+  </style>
+  <div class="container-fluid">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#dashboard-navigation" aria-controls="dashboard-navigation" aria-expanded="false" aria-label="{{ t.navigation }}"><span class="navbar-toggler-icon"></span></button>
+    <a class="navbar-brand" href="{{ link('home') }}">{% include 'components/brand.html' %}</a>
+    <div class="collapse d-lg-flex flex-column flex-fill w-100" id="dashboard-navigation">
+    <div class="navbar-collapse">
+    <form action="/dashboard/{{ parent_page or page }}" method="get" class="scope-form my-3 px-3 w-100"
+          hx-get="/dashboard/{{ parent_page or page }}" hx-trigger="change[target.id === 'scope'], submit" hx-push-url="true">
+      <label for="scope" class="visually-hidden">{{ t.scope_label }}</label>
+      <input type="hidden" name="period" value="{{ period }}">
+      {% if page == 'methods' or parent_page == 'methods' %}<input type="hidden" name="kind" value="{{ page if parent_page else method_kind }}">{% endif %}
+      {% include 'components/scope-options.html' %}
+      <noscript><button class="btn mt-2" type="submit">{{ t.apply }}</button></noscript>
+      {% if errors.get('scopes') %}<p class="small mt-2">{{ t.scope_list_unavailable }}</p>{% endif %}
+    </form>
+    <ul class="navbar-nav w-100" aria-label="{{ t.navigation }}">
+      {% for item in ['home', 'handoff', 'notes', 'methods', 'usage'] %}
+      {% set active = page == item or parent_page == item %}
+      <li class="nav-item {% if active %}active{% endif %}"><a href="{{ link(item) }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
+        {{ icon(item) }}<span class="nav-link-title">{{ t[item] }}</span>
+      </a></li>
+      {% endfor %}
+    </ul>
+    </div>
+    <div class="mt-auto p-3 w-100">{% with preferences_placement='top-start' %}{% include 'components/preferences.html' %}{% endwith %}</div>
+    </div>
+
+  </div>
+</aside>

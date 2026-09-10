@@ -255,10 +255,22 @@ class PowerContextClient:
     def clear_scope_binding(self, key: dict[str, str]) -> dict[str, Any]:
         return self._request("/v1/scope-bindings/clear", {"key": key})
 
-    def prepare_context(self, scope_id: str, query: str, *, max_bytes: int) -> dict[str, Any]:
+    def prepare_context(
+        self,
+        scope_id: str,
+        query: str,
+        *,
+        max_bytes: int,
+        assembly: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         return self._request(
             "/v1/context/prepare",
-            {"scope_id": scope_id, "query": query, "max_bytes": max_bytes},
+            {
+                "scope_id": scope_id,
+                "query": query,
+                "max_bytes": max_bytes,
+                **({"assembly": assembly} if assembly is not None else {}),
+            },
         )
 
     def search_memory(self, scope_id: str, query: str, *, limit: int, mode: str) -> dict[str, Any]:

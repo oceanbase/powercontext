@@ -90,7 +90,7 @@ take the write lock, so they emit no `scope.lock` span:
 | `memory.search` | Memory lookup for `search_memory` or `prepare_context`; embedding and reranking spans, when present, are nested beneath it. |
 | `memory.rerank` | One actual reranker call; model-backed reranking nests `invoke_agent memory_rerank` beneath it. |
 | `experience.search` | Experience recall during `prepare_context`; emitted even when recall is not configured. |
-| `experience.incubation` | One Experience incubation run for a scheduled activation. |
+| `experience.incubation` | One in-process Experience incubation operation. |
 | `context.build` | The synchronous step that selects and renders the final prepared context from recalled candidates. |
 
 The other PowerContext generation tasks appear under the same convention: `experience_incubation`,
@@ -101,22 +101,28 @@ Spans are exported in batches, so allow a few seconds before refreshing. An MCP 
 `MCP mcp.tools.call` in place of the `HTTP` span. Readiness probes are deliberately not traced, so health checks do not
 create single-span traces.
 
-## Scheduled background spans
+## Background Worker spans
 
-When a scheduler interval is configured (`schedule_seconds` or `experience_schedule_seconds`), each scheduled activation
-starts its own trace instead of joining an unrelated request trace. The activation is the root span with
-`powercontext.operation.unit` set to `background`:
+Each Scope Worker invocation starts an independent trace, whether requested by a Family schedule or an explicit flush.
+Memory, Topic Memory, Experience, and Profile use the same lifecycle spans. The root has
+`powercontext.operation.unit` set to `background` and never inherits an HTTP or MCP request trace:
 
 | Span | Meaning |
 | --- | --- |
-| `scheduled.process_source_window` | One scheduled Source-window activation. Its outcome is `success`, `noop`, `failure`, or `cancelled`. |
-| `scheduled.incubate_experience_candidates` | One scheduled Experience incubation activation, with the same outcome vocabulary. |
-| `memory.flush` | The flush run beneath a Source-window activation; it also appears under `HTTP flush_memory`. |
-| `experience.incubation` | The incubation run beneath an Experience activation. |
+| `artifact_processing.worker` | One bounded Scope invocation, including process startup and durable completion acknowledgement. |
+| `artifact_processing.worker.start` | Spawn and start the isolated child process. |
+| `artifact_processing.worker.wait` | Wait for the child result or the invocation timeout. |
+| `artifact_processing.worker.acknowledge` | Verify the current fence and persisted acknowledgement of the assigned request generation. |
 
-Scheduled roots record only bounded counts — `powercontext.background.source_count` and
-`powercontext.background.candidate_count` — and never a `scope_id`, request ID, or Memory content. Inference spans created
-by a scheduled activation are nested beneath its root in the same trace.
+The root outcome is `success` only after durable acknowledgement, including a persisted NOOP. A child that exits
+successfully without acknowledging the request produces `failure`. Other outcomes include `failure`, `cancelled`,
+`cursor_conflict`, and `head_conflict`. Retry attempts create new independent roots.
+
+Lifecycle spans record `powercontext.artifact_processing.family`; failed roots add a bounded
+`powercontext.artifact_processing.failure` category such as `timeout`, `worker_failed`,
+`missing_durable_acknowledgement`, or `leadership_lost`. They exclude Scope IDs, request IDs, Source data, and model
+payloads. These parent-process spans describe Worker lifecycle and acknowledgement. Inference runs in isolated children
+and does not attach model spans to the parent lifecycle trace.
 
 ## What is not exported
 

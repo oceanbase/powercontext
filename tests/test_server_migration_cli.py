@@ -18,6 +18,7 @@ import sqlite3
 
 from typer.testing import CliRunner
 
+from powercontext.builtin.persistence.migration import CURRENT_SCHEMA_REVISION
 from powercontext.cli.app import create_cli
 from powercontext.server.cli import app as server_app
 
@@ -39,11 +40,11 @@ def test_server_migrate_runs_the_packaged_forward_only_chain(tmp_path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert "0006_topic_memory_budget" in result.output
+    assert CURRENT_SCHEMA_REVISION in result.output
     with sqlite3.connect(database) as connection:
         revision = connection.execute("SELECT version_num FROM pc_schema_revisions").fetchone()
         work_table = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pc_work_items'"
         ).fetchone()
-    assert revision == ("0006_topic_memory_budget",)
+    assert revision == (CURRENT_SCHEMA_REVISION,)
     assert work_table == ("pc_work_items",)

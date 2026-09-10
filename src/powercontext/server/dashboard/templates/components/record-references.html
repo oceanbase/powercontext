@@ -1,0 +1,29 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% macro record_references(record, family) %}
+{% if record.artifact_id or record.sources or record.artifacts or caller is defined %}
+<footer class="record-references text-secondary border-top pt-3">
+  <style>
+    me { overflow-wrap: anywhere; }
+  </style>
+  {% if caller is defined %}{{ caller() }}{% endif %}
+  {% if record.artifact_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ family }}/{{ record.artifact_id }}{% if record.revision %}@{{ record.revision }}{% endif %}</code>{% endif %}
+  {% for source in record.sources if source.source_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ source.source_type }}/{{ source.source_id }}</code>{% endfor %}
+  {% for artifact in record.artifacts if artifact.artifact_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ artifact.family }}/{{ artifact.artifact_id }}{% if artifact.revision %}@{{ artifact.revision }}{% endif %}</code>{% endfor %}
+</footer>
+{% endif %}
+{% endmacro %}

@@ -88,6 +88,7 @@ async function recallContent(input: RecallInput, query: string, scopeId: string)
       scope_id: scopeId,
       query,
       max_bytes: input.config.maxBytes,
+      ...(input.config.contextAssembly === undefined ? {} : { assembly: input.config.contextAssembly }),
     }, input.signal)
     if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
     const prepared = validatePreparedContext(

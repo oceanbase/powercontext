@@ -67,11 +67,22 @@ export function isPowerContextCapabilities(value: unknown): value is PowerContex
   );
 }
 
-export function isPreparedContext(value: unknown): value is PreparedContext {
+export function isPreparedContext(value: unknown, maxBytes?: number): value is PreparedContext {
   if (!value || typeof value !== "object") {
     return false;
   }
   const prepared = value as Partial<PreparedContext>;
+  if (maxBytes !== undefined) {
+    const keys = Object.keys(value).sort().join(",");
+    if (keys !== "content,content_bytes,schema,status") return false;
+    if (prepared.status === "empty") {
+      if (prepared.content !== null || prepared.content_bytes !== 0) return false;
+    } else {
+      if (typeof prepared.content !== "string" || !prepared.content) return false;
+      const actualBytes = Buffer.byteLength(prepared.content, "utf8");
+      if (actualBytes !== prepared.content_bytes || actualBytes > maxBytes) return false;
+    }
+  }
   return (
     prepared.schema === "powercontext.prepared-context.v1" &&
     (prepared.status === "ready" || prepared.status === "empty") &&

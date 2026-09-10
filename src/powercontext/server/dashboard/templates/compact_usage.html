@@ -1,0 +1,38 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% from 'macros.html' import comparison_chart, coverage_notice with context %}
+<section class="card compact-usage">
+  <style>
+    me .compact-chart { min-width: 0; }
+    me .compact-summary { border-inline-end: 1px solid var(--tblr-border-color); }
+    @media (max-width: 991.98px) { me .compact-summary { border-inline-end: 0; border-bottom: 1px solid var(--tblr-border-color); padding-bottom: var(--tblr-spacer-3); } }
+  </style>
+
+  <div class="card-body"><div class="row row-cards">
+    <div class="col-lg-4 col-xxl-3 compact-summary">
+      <h3>{{ t[period] }}</h3>
+      <p>{% if stats.percent is not none %}{{ t.compact_comparison }}{{ t.increased if stats.token_reduction < 0 else t.reduced }} <strong class="h1 text-primary">{{ stats.percent }}%</strong>{% else %}{{ t.no_comparison }}{% endif %}</p>
+      {% if stats.comparable_preparations > 0 %}<a href="{{ link('usage') }}">{{ coverage_notice() }}</a>{% endif %}
+      <small class="d-block text-secondary mt-3">{{ t.compact_estimate_notice }}</small>
+    </div>
+    <div class="col-lg-8 col-xxl-9 compact-chart">
+      {{ comparison_chart(compact=true) }}
+    </div>
+  </div>
+
+  </div>
+</section>

@@ -98,6 +98,9 @@ SCOPES_TABLE = Table(
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("title", String(MAX_SCOPE_TITLE_LENGTH), nullable=False),
     Column("summary", String(MAX_SCOPE_SUMMARY_LENGTH), nullable=False),
+    Column("scope_id_search", _entry_text_type(), nullable=False),
+    Column("title_search", _entry_text_type(), nullable=False),
+    Column("summary_search", _entry_text_type(), nullable=False),
     Column("parent_scope_id", identity_string(MAX_SCOPE_ID_LENGTH)),
     Column("version", Integer, nullable=False),
     ForeignKeyConstraint(
@@ -125,6 +128,7 @@ SCOPE_EXTERNAL_REFERENCES_TABLE = Table(
     Column("ordinal", Integer, primary_key=True),
     Column("kind", identity_string(MAX_SCOPE_EXTERNAL_REFERENCE_KIND_LENGTH), nullable=False),
     Column("value", String(MAX_SCOPE_EXTERNAL_REFERENCE_VALUE_LENGTH), nullable=False),
+    Column("value_search", _entry_text_type(), nullable=False),
     Column("value_digest", identity_string(64), nullable=False),
     ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
     UniqueConstraint("scope_id", "kind", "value_digest", name="uq_pc_scope_external_references_value"),
@@ -154,6 +158,7 @@ SCOPE_BINDINGS_TABLE = Table(
     Column("integration", identity_string(MAX_SCOPE_BINDING_INTEGRATION_LENGTH), primary_key=True),
     Column("kind", identity_string(MAX_SCOPE_BINDING_KIND_LENGTH), primary_key=True),
     Column("external_id", identity_string(MAX_SCOPE_BINDING_EXTERNAL_ID_LENGTH), primary_key=True),
+    Column("external_id_search", _entry_text_type(), nullable=False),
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
     ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="RESTRICT"),
 )
@@ -492,6 +497,85 @@ ARTIFACT_PROCESSING_BINDING_STATES_TABLE = Table(
     SHARED_METADATA,
     Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
     Column("last_auto_wave_completed_at", DateTime(timezone=False)),
+    Column("last_schedule_checkpoint_at", DateTime(timezone=False)),
+    Column("scan_generation", BigInteger, nullable=False, server_default="0"),
+    Column("scan_in_progress", Boolean, nullable=False, server_default="0"),
+    Column("scan_upper_pending_sequence", BigInteger),
+    CheckConstraint("scan_generation >= 0", name="ck_pc_processing_scan_generation"),
+)
+
+ARTIFACT_PROCESSING_SEQUENCES_TABLE = Table(
+    "pc_artifact_processing_sequences",
+    SHARED_METADATA,
+    Column("singleton", Integer, primary_key=True, autoincrement=False),
+    Column("sequence", BigInteger, nullable=False),
+    CheckConstraint("singleton = 1 AND sequence >= 0", name="ck_pc_processing_sequence"),
+)
+
+ARTIFACT_PROCESSING_INTENTS_TABLE = Table(
+    "pc_artifact_processing_intents",
+    SHARED_METADATA,
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("pending_sequence", BigInteger, nullable=False, unique=True),
+    Column("dirty_generation", BigInteger, nullable=False, server_default="0"),
+    Column("clean_generation", BigInteger, nullable=False, server_default="0"),
+    Column("requested_generation", BigInteger, nullable=False, server_default="0"),
+    Column("handled_generation", BigInteger, nullable=False, server_default="0"),
+    Column("last_auto_scan_generation", BigInteger, nullable=False, server_default="0"),
+    CheckConstraint("pending_sequence > 0", name="ck_pc_processing_intent_sequence"),
+    CheckConstraint(
+        "clean_generation >= 0 AND clean_generation <= dirty_generation",
+        name="ck_pc_processing_intent_dirty",
+    ),
+    CheckConstraint(
+        "handled_generation >= 0 AND handled_generation <= requested_generation",
+        name="ck_pc_processing_intent_request",
+    ),
+    CheckConstraint("last_auto_scan_generation >= 0", name="ck_pc_processing_intent_scan"),
+    Index("ix_pc_processing_intent_binding_sequence", "binding_name", "pending_sequence"),
+)
+
+TOPIC_MEMORY_PROCESSING_TARGETS_TABLE = Table(
+    "pc_topic_memory_processing_targets",
+    SHARED_METADATA,
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("target_request_generation", BigInteger, nullable=False),
+    Column("source_through", BigInteger, nullable=False),
+    Column("captured_flush_generation", BigInteger, nullable=False),
+    Column("observed_dirty_generation", BigInteger, nullable=False),
+    CheckConstraint(
+        "target_request_generation > 0 AND source_through >= 0 "
+        "AND captured_flush_generation >= 0 AND observed_dirty_generation >= 0",
+        name="ck_pc_topic_processing_target",
+    ),
+)
+
+# These are migration receipts, not execution or retry history. They are kept
+# after maintenance so a crash after legacy cleanup can still be verified.
+ARTIFACT_PROCESSING_SCHEMA_TABLE = Table(
+    "pc_artifact_processing_schema",
+    SHARED_METADATA,
+    Column("singleton", Integer, primary_key=True, autoincrement=False),
+    Column("schema_version", Integer, nullable=False),
+    Column("source_version", Integer, nullable=False, server_default="1490"),
+    Column("phase", identity_string(32), nullable=False),
+    Column("migration_id", identity_string(64), nullable=False),
+    Column("config_manifest", Text, nullable=False),
+    CheckConstraint("singleton = 1", name="ck_pc_processing_schema_singleton"),
+)
+
+ARTIFACT_PROCESSING_MIGRATION_RECEIPTS_TABLE = Table(
+    "pc_artifact_processing_migration_receipts",
+    SHARED_METADATA,
+    Column("migration_id", identity_string(64), primary_key=True),
+    Column("binding_name", identity_string(MAX_BINDING_NAME_LENGTH), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_snapshot", _canonical_payload_type(), nullable=False),
+    Column("requested_generation", BigInteger, nullable=False),
+    Column("dirty_generation", BigInteger, nullable=False),
+    Column("source_through", BigInteger, nullable=False),
 )
 
 TOPIC_MEMORY_WORK_BUDGETS_TABLE = Table(
@@ -832,6 +916,11 @@ SHARED_TABLES = (
     TOPIC_MEMORY_WORK_BUDGETS_TABLE,
     ARTIFACT_PROCESSING_PENDING_TABLE,
     ARTIFACT_PROCESSING_AUTO_WAVE_TARGETS_TABLE,
+    ARTIFACT_PROCESSING_SEQUENCES_TABLE,
+    ARTIFACT_PROCESSING_INTENTS_TABLE,
+    TOPIC_MEMORY_PROCESSING_TARGETS_TABLE,
+    ARTIFACT_PROCESSING_SCHEMA_TABLE,
+    ARTIFACT_PROCESSING_MIGRATION_RECEIPTS_TABLE,
     CONNECTOR_CHECKPOINTS_TABLE,
     SOURCE_DEFINITION_MANIFESTS_TABLE,
     EXTERNAL_SKILL_REGISTRATIONS_TABLE,
@@ -1134,6 +1223,14 @@ ARTIFACT_TAGS_TABLE = Table(
 
 STATISTICS_TABLES = (MODEL_USAGE_DAILY_TABLE, RECALL_TOKEN_DAILY_TABLE)
 
+RECEIPT_MIGRATION_REVIEW_TABLE = Table(
+    "pc_receipt_migration_review",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), primary_key=True),
+    Column("reason", String(64), nullable=False),
+)
+
 BUILTIN_TABLES = (
     SCOPE_TABLES
     + SHARED_TABLES
@@ -1142,5 +1239,5 @@ BUILTIN_TABLES = (
     + STATISTICS_TABLES
     + WORK_TABLES
     + COORDINATION_TABLES
-    + (ARTIFACT_TAGS_TABLE,)
+    + (ARTIFACT_TAGS_TABLE, RECEIPT_MIGRATION_REVIEW_TABLE)
 )

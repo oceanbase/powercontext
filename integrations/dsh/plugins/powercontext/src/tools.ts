@@ -168,7 +168,11 @@ function contextTools(runtime: PluginRuntime, defineTool: DefineTool): unknown[]
       description: 'Manually prepare bounded PowerContext for a query. Automatic recall already runs each step.',
       kind: 'search',
       parameters: { query: { type: 'string', required: true, description: 'Question to retrieve context for.' } },
-      execute: (args, exec) => run(runtime, exec, 'prepare_context', { query: args.query, max_bytes: runtime.config.maxBytes }),
+      execute: (args, exec) => run(runtime, exec, 'prepare_context', {
+        query: args.query,
+        max_bytes: runtime.config.maxBytes,
+        ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
+      }),
     }),
     pcTool(defineTool, {
       name: 'pc_capture_source',

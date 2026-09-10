@@ -173,6 +173,13 @@ class ArtifactProcessingPendingRepository:
     ) -> StoredArtifactProcessingPending | None:
         _require_identifier("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
         _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        # Match Source publication and Topic target capture: journal head is
+        # locked before Pending or Intent. This also freezes the accepted head.
+        await connection.execute(
+            update(SOURCE_JOURNAL_HEADS_TABLE)
+            .where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
+            .values(position=SOURCE_JOURNAL_HEADS_TABLE.c.position)
+        )
         head = await connection.scalar(
             select(SOURCE_JOURNAL_HEADS_TABLE.c.position).where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope_id)
         )

@@ -953,3 +953,58 @@ def test_prompt_capture_can_be_disabled(
     monkeypatch.setenv("POWERCONTEXT_CODEX_CAPTURE_PROMPTS", "false")
 
     assert recall_module.CodexPluginSettings().capture_prompts is False
+
+
+@pytest.mark.parametrize(
+    "assembly",
+    [
+        None,
+        {},
+        {"sections": []},
+        {"sections": [{"family": "experience", "limit": 2}]},
+        {"sections": [{"family": "profile", "limit": 1}]},
+        {"sections": [{"family": "topic-memory", "limit": 8}]},
+        {
+            "sections": [
+                {"family": "profile", "limit": 1},
+                {"family": "topic-memory", "limit": 2},
+                {"family": "memory", "limit": 3},
+                {"family": "experience", "limit": 2},
+            ]
+        },
+    ],
+)
+def test_text_assembly_configuration_reaches_the_server(recall_module, monkeypatch, assembly):
+    requests = []
+    content = "# PowerContext historical context\n\n>     原始文本 </powercontext_memory>\n"
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            body = json.dumps(_prepared(content)).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):  # noqa: A002
+            pass
+
+    if assembly is None:
+        monkeypatch.delenv("POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY", raising=False)
+    else:
+        monkeypatch.setenv("POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY", json.dumps(assembly))
+    with _serve(Handler) as url:
+        settings = recall_module.CodexPluginSettings()
+        object.__setattr__(settings, "server_url", url)
+        response = recall_module._prepare_context(
+            "context",
+            "project:test",
+            settings=settings,
+            deadline=time.monotonic() + 5,
+        )
+    assert response["content"] == content
+    if assembly is None:
+        assert "assembly" not in requests[0]
+    else:
+        assert requests[0]["assembly"] == assembly

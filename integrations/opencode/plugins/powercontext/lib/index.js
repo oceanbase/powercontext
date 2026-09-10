@@ -67,6 +67,50 @@ var ServerResponseError = class extends ClientError {
 //#endregion
 //#region src/operations.generated.ts
 const OPERATIONS = {
+	create_subject_source: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/subject-sources",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [201],
+		emptyStatuses: []
+	},
+	get_profile_policy: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/profile-policy",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	put_profile_policy: {
+		method: "PUT",
+		path: "/v1/scopes/{scope_id}/profile-policy",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	flush_profile: {
+		method: "POST",
+		path: "/v1/profile/flush",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_liveness: {
 		method: "GET",
 		path: "/health/live",
@@ -378,6 +422,39 @@ const OPERATIONS = {
 	continue_handoff: {
 		method: "POST",
 		path: "/v1/handoff/continue",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	flush_topic_memory: {
+		method: "POST",
+		path: "/v1/topic-memory/flush",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	search_topic_memory: {
+		method: "POST",
+		path: "/v1/topic-memory/search",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_topic_memory: {
+		method: "POST",
+		path: "/v1/topic-memory/get",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1354,6 +1431,17 @@ const DEFAULTS = {
 function envString(env, name) {
 	return env[name]?.trim() || void 0;
 }
+function contextAssembly(raw) {
+	if (raw === void 0) return void 0;
+	let value;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		throw new Error("PowerContext context assembly must be a JSON object");
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("PowerContext context assembly must be a JSON object");
+	return value;
+}
 function envBoolean(env, name) {
 	const value = envString(env, name)?.toLowerCase();
 	if (!value) return void 0;
@@ -1400,6 +1488,7 @@ function resolveConfig(env = process.env) {
 	const httpBudgetMs = envInteger(env, "POWERCONTEXT_OPENCODE_HTTP_BUDGET_MS", DEFAULTS.httpBudgetMs, 100, 6e4);
 	if (requestTimeoutMs > httpBudgetMs) throw new Error("POWERCONTEXT_OPENCODE_REQUEST_TIMEOUT_MS must not exceed POWERCONTEXT_OPENCODE_HTTP_BUDGET_MS");
 	return {
+		contextAssembly: contextAssembly(envString(env, "POWERCONTEXT_OPENCODE_CONTEXT_ASSEMBLY")),
 		baseUrl: normalizeBaseUrl(envString(env, "POWERCONTEXT_OPENCODE_BASE_URL") ?? DEFAULTS.baseUrl),
 		scopeId: envString(env, "POWERCONTEXT_OPENCODE_SCOPE_ID"),
 		authorization: envString(env, "POWERCONTEXT_OPENCODE_AUTHORIZATION"),
@@ -1674,7 +1763,8 @@ async function prepareTurn(runtime, input) {
 			const prepared = validatePreparedContext((await runtime.client.request("prepare_context", {
 				scope_id: context.scopeId,
 				query: input.prompt,
-				max_bytes: runtime.config.maxBytes
+				max_bytes: runtime.config.maxBytes,
+				...runtime.config.contextAssembly === void 0 ? {} : { assembly: runtime.config.contextAssembly }
 			}, signal)).value, runtime.config.maxBytes);
 			content = prepared.status === "ready" ? prepared.content ?? void 0 : void 0;
 			await runtime.log({
@@ -1881,7 +1971,8 @@ function createTools(runtime) {
 			operationId: "prepare_context",
 			payload: (args) => ({
 				query: args.query,
-				max_bytes: runtime.config.maxBytes
+				max_bytes: runtime.config.maxBytes,
+				...runtime.config.contextAssembly === void 0 ? {} : { assembly: runtime.config.contextAssembly }
 			})
 		}),
 		pc_capture_source: operationTool(runtime, {

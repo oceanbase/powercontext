@@ -96,6 +96,8 @@ from powercontext.http._generated.models import (
     ListOperationsRequest,
     ListRemoteSkillTargetsRequest,
     ListRemoteSkillTargetsResponse,
+    ListScopesRequest,
+    ListSourcesRequest,
     MemoryEntry,
     MemoryMutationResponse,
     OperationAccepted,
@@ -161,6 +163,7 @@ from powercontext.http._generated.models import (
     SkillPackageManifest,
     SourceDefinitionManifest,
     SourceObservationReceipt,
+    SourcePage,
     SourceRecord,
     SubmitSourceObservationRequest,
     TopicMemoryArtifact,
@@ -393,12 +396,12 @@ GET_CAPABILITIES = Operation[None, Capabilities](
     access=AccessRequirement(action="server.observe", resource="server", scope_id_field=None, resolver="static"),
 )
 
-LIST_SCOPES = Operation[None, ScopePage](
+LIST_SCOPES = Operation[ListScopesRequest, ScopePage](
     method="GET",
     path="/v1/scopes",
     operation_id="list_scopes",
-    request_type=None,
-    request_location=None,
+    request_type=ListScopesRequest,
+    request_location="query",
     path_parameters=(),
     success_response_types={200: ScopePage},
     summary="List observable Scopes",
@@ -406,9 +409,13 @@ LIST_SCOPES = Operation[None, ScopePage](
     scope_mode="none",
     responses={
         200: {"description": "Durable Scope metadata in deterministic identity order."},
+        400: {"$ref": "#/components/responses/BadRequest"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action="server.observe", resource="server", scope_id_field=None, resolver="static"),
 )
@@ -2314,6 +2321,34 @@ GET_HANDOFF_REPORT = Operation[GetHandoffReportRequest, HandoffReportResponse](
         500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="scope_selection_read_access"),
+)
+
+LIST_SOURCES = Operation[ListSourcesRequest, SourcePage](
+    method="GET",
+    path="/v1/scopes/{scope_id}/sources",
+    operation_id="list_sources",
+    request_type=ListSourcesRequest,
+    request_location="query",
+    path_parameters=("scope_id",),
+    success_response_types={200: SourcePage},
+    summary="List public Sources in one Scope",
+    tags=("sources",),
+    scope_mode="none",
+    responses={
+        200: {
+            "description": "One stable page of public Content Sources.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        400: {"$ref": "#/components/responses/BadRequest"},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        410: {"$ref": "#/components/responses/CursorExpired"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
 )
 
 CREATE_SOURCE = Operation[CreateSourceRequest, SourceRecord](

@@ -8,19 +8,19 @@ description: Configure models, start the Server, and verify the complete Memory 
 These steps use `master` and Bash. Windows support is `experimental`; see [platform requirements](install-and-run.md).
 
 `powercontext server run` works without model configuration, but model-backed extraction and vector search stay off.
-The guided configuration enables generation, embeddings, scheduled Source processing, metrics, and tracing settings.
+`config init` only creates a runnable base environment and does not ask for providers, credentials, or models during
+deployment. Add model configuration explicitly when you need the full capability set.
 
 | Capability | Minimal Server | Configured runtime |
 | --- | --- | --- |
 | Source capture | Enabled | Enabled |
 | Memory extraction | Disabled | Enabled |
 | Search modes | `auto, fts` | `auto, fts, vector, hybrid` |
-| Dashboard | Accessible Scopes | Accessible Scopes |
+| Dashboard | Opt-in, static token required | Opt-in, static token required |
 | MCP endpoint | `/mcp` | `/mcp` |
 
-The Server creates one opaque default Scope on first startup. The Dashboard discovers Scope descriptors from the
-Server; it does not use a configured list. Integrations may bind a Session or workspace to that default or to another
-existing Scope.
+The Server creates one opaque default Scope on first startup. Integrations may bind a Session or workspace to that
+default or to another existing Scope.
 
 ## 1. Install and configure
 
@@ -29,7 +29,19 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 powercontext config init --output .env
 ```
 
-Enter the provider connection and credential when prompted. For a local provider that ignores authentication, use a
+The command does not prompt for models or credentials. To enable the full capability set, edit `.env` and add at least
+the following values, plus the credential and Base URL required by the selected provider:
+
+```dotenv
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=provider:generation-model
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_MODEL=provider:embedding-model
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_PROFILE_ID=provider-embedding-model-1536-unit-v1
+POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_DIMENSION=1536
+POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS=60
+```
+
+`generation-model` powers automatic extraction and generation, while `embedding-model` powers vector retrieval;
+scheduled Source processing also requires a generation model. For a local provider that ignores authentication, use a
 non-secret placeholder accepted by that provider.
 
 Inspect and validate the generated file without printing credentials:
@@ -39,8 +51,9 @@ powercontext config show --env-file .env
 powercontext config validate --env-file .env
 ```
 
-The generated file contains Server, model, database, scheduler, and integration transport settings. Scope identity is
-owned by the running Server and is not invented by the Config Generator.
+The generated file contains Server, database, and integration transport settings; the Scheduler is enabled only after
+you explicitly add a generation model and its schedule. Scope identity is owned by the running Server and is not
+invented by the Config Generator.
 
 ## 2. Start and verify the Server
 
@@ -62,8 +75,7 @@ powercontext capabilities
 The full runtime is ready when readiness is `ready`, Memory extraction is enabled, and search modes include `vector`
 and `hybrid`. If only `auto, fts` appear, check the Embedding model, profile ID, dimension, credential, and Base URL.
 
-Open <http://127.0.0.1:8000/> and confirm that the default Scope is available. Retrieve its opaque ID for the following
-API checks:
+Retrieve the default Scope's opaque ID for the following API checks:
 
 ```bash
 SCOPE_ID="$(curl -fsS http://127.0.0.1:8000/v1/scopes/default \
@@ -144,7 +156,6 @@ or flush. The default Scope and its opaque ID also remain stable because they ar
 
 | Symptom | Action |
 | --- | --- |
-| A Scope is missing from Dashboard | Confirm it was created through the Scope API and refresh the page |
 | Readiness is `degraded` | Check model identifiers, credentials, and Base URLs |
 | No `vector` or `hybrid` mode | Configure Embedding model, profile ID, and dimension together |
 | Sources remain pending | Enable the Scheduler or call `/v1/memory/flush` |

@@ -15,6 +15,7 @@
  */
 
 export interface ResolvedConfig {
+  contextAssembly?: Record<string, unknown>
   baseUrl: string
   scopeId: string | undefined
   authorization: string | undefined
@@ -41,6 +42,20 @@ const DEFAULTS: ResolvedConfig = {
 function envString(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name]?.trim()
   return value || undefined
+}
+
+function contextAssembly(raw: string | undefined): Record<string, unknown> | undefined {
+  if (raw === undefined) return undefined
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    throw new Error('PowerContext context assembly must be a JSON object')
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('PowerContext context assembly must be a JSON object')
+  }
+  return value as Record<string, unknown>
 }
 
 function envBoolean(env: NodeJS.ProcessEnv, name: string): boolean | undefined {
@@ -112,6 +127,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
     throw new Error('POWERCONTEXT_PI_REQUEST_TIMEOUT_MS must not exceed POWERCONTEXT_PI_HTTP_BUDGET_MS')
   }
   return {
+    contextAssembly: contextAssembly(envString(env, 'POWERCONTEXT_PI_CONTEXT_ASSEMBLY')),
     baseUrl: normalizeBaseUrl(envString(env, 'POWERCONTEXT_PI_BASE_URL') ?? DEFAULTS.baseUrl),
     scopeId: envString(env, 'POWERCONTEXT_PI_SCOPE_ID'),
     authorization: envString(env, 'POWERCONTEXT_PI_AUTHORIZATION'),

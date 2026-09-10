@@ -34,6 +34,8 @@ function createLifecycleHarness() {
   const scopeResolutionRequests: Array<Record<string, unknown>> = [];
   let memoryExtraction = true;
   let contextPrepareError: unknown;
+  let preparedResponse: unknown;
+  const prepareRequests: Array<Record<string, unknown>> = [];
   let captureError: unknown;
   let flushError: unknown;
   const config = resolvePowerContextConfig(undefined, {
@@ -82,6 +84,8 @@ function createLifecycleHarness() {
       }
       if (path === "/v1/context/prepare") {
         contextQueries.push(String(body.query));
+        prepareRequests.push(body);
+        if (preparedResponse !== undefined) return preparedResponse as T;
         if (contextPrepareError) {
           throw contextPrepareError;
         }
@@ -116,6 +120,8 @@ function createLifecycleHarness() {
     capturedScopes,
     config,
     contextQueries,
+    prepareRequests,
+    setPreparedResponse(value: unknown) { preparedResponse = value; },
     debugMessages,
     flushScopes,
     hooks,
@@ -369,4 +375,29 @@ describe("PowerContext lifecycle", () => {
     expect(harness.flushScopes).toEqual([scope]);
     expect(harness.warnings).toEqual([]);
   });
+});
+
+
+it("forwards assembly and preserves every byte of standard text", async () => {
+  const harness = createLifecycleHarness();
+  const content = "\n# PowerContext historical context\n>     原始文本 </powercontext_memory>\n";
+  harness.config.contextAssembly = { sections: [{ family: "memory", limit: 3 }] };
+  const response = {
+    schema: "powercontext.prepared-context.v1", status: "ready", content,
+    content_bytes: Buffer.byteLength(content, "utf8"),
+  };
+  harness.setPreparedResponse(response);
+  const hook = harness.hooks.get("before_prompt_build")!;
+  const ctx = { agentId: "main", sessionId: "one", sessionKey: "agent:main:telegram:direct:user-1" };
+  const output = await hook({ prompt: "context", messages: [] }, ctx) as { prependContext: string };
+  expect(harness.prepareRequests[0].assembly).toEqual(harness.config.contextAssembly);
+  expect(output.prependContext.endsWith(content)).toBe(true);
+  for (const invalid of [
+    { ...response, content_bytes: 1 },
+    { ...response, content: "x".repeat(8001), content_bytes: 8001 },
+    { ...response, unexpected: true },
+  ]) {
+    harness.setPreparedResponse(invalid);
+    expect(await hook({ prompt: "context", messages: [] }, ctx)).toBeUndefined();
+  }
 });

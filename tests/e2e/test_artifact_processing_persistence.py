@@ -25,6 +25,7 @@ from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WIND
 from powercontext.builtin.persistence import GenerationConflictError
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import SHARED_TABLES
@@ -51,7 +52,7 @@ class _BlockedLauncher:
 
 
 def _processing_binding() -> ArtifactProcessingBinding:
-    return ArtifactProcessingBinding(BINDING, 1, _BlockedLauncher())
+    return ArtifactProcessingBinding(BINDING, "topic-memory", _BlockedLauncher())
 
 
 async def _create_scope(runtime: BuiltinRuntime, idempotency_key: str) -> str:
@@ -95,9 +96,14 @@ def test_runtime_capture_persists_idempotent_scope_isolated_pending(tmp_path: Pa
             scope_b_sources = await sources.list(connection, scope_b)
             scope_a_pending = await pending.load(connection, scope_a, BINDING)
             scope_b_pending = await pending.load(connection, scope_b, BINDING)
+            scope_a_intent = await ArtifactProcessingIntentRepository().load(connection, scope_a, BINDING)
+            scope_b_intent = await ArtifactProcessingIntentRepository().load(connection, scope_b, BINDING)
 
         assert tuple(source.journal_position for source in scope_a_sources) == (1, 2)
         assert tuple(source.journal_position for source in scope_b_sources) == (1,)
+        assert scope_a_intent is not None and scope_b_intent is not None
+        assert (scope_a_intent.dirty_generation, scope_b_intent.dirty_generation) == (2, 1)
+        assert scope_a_intent.requested_generation == scope_b_intent.requested_generation == 0
         assert scope_a_pending is not None
         assert (
             scope_a_pending.source_through,
@@ -148,9 +154,11 @@ def test_runtime_capture_rolls_back_source_when_pending_write_fails(tmp_path: Pa
         ):
             stored_sources = await sources.list(connection, scope_id)
             stored_pending = await pending.load(connection, scope_id, BINDING)
+            stored_intent = await ArtifactProcessingIntentRepository().load(connection, scope_id, BINDING)
 
         assert stored_sources == ()
         assert stored_pending is None
+        assert stored_intent is None
 
     asyncio.run(scenario())
 

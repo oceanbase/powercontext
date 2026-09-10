@@ -200,6 +200,7 @@ ACCESS_TABLES = (
 )
 _POLICY_HEAD = "authorization"
 _RECEIPT_IDENTITY_OPERATION = "handoff.receipt.identity"
+_RECEIPT_COMMITTED_OPERATION = "handoff.receipt.committed"
 _RECEIVER_IDENTITY_MATCHES = "receiver_identity_matches"
 _RECEIVER_IDENTITY_MISMATCH = "receiver_identity_mismatch"
 
@@ -212,12 +213,39 @@ class RelationalAccessRepository:
         self._bound_connection = connection
 
     async def get_receipt_identity(self, scope_id: str, source_id: str, /) -> HandoffReceiptIdentity | None:
+        return await self._get_receipt_identity_event(
+            scope_id,
+            source_id,
+            operation=_RECEIPT_IDENTITY_OPERATION,
+        )
+
+    async def get_committed_receipt_identity(self, scope_id: str, source_id: str, /) -> HandoffReceiptIdentity | None:
+        identity = await self.get_receipt_identity(scope_id, source_id)
+        if identity is None:
+            return None
+        committed = await self._get_receipt_identity_event(
+            scope_id,
+            source_id,
+            operation=_RECEIPT_COMMITTED_OPERATION,
+        )
+        if committed is not None and committed != identity:
+            raise AccessUnavailableError("receipt_identity_pending")
+        return committed
+
+    async def _get_receipt_identity_event(
+        self,
+        scope_id: str,
+        source_id: str,
+        *,
+        operation: str,
+    ) -> HandoffReceiptIdentity | None:
         async with self._database.connection(self._bound_connection) as connection:
             row = (
                 (
                     await connection.execute(
                         select(ACCESS_AUDIT_EVENTS_TABLE).where(
-                            ACCESS_AUDIT_EVENTS_TABLE.c.event_id == _receipt_identity_event_id(scope_id, source_id),
+                            ACCESS_AUDIT_EVENTS_TABLE.c.event_id
+                            == _receipt_identity_event_id(scope_id, source_id, operation=operation),
                         )
                     )
                 )
@@ -227,7 +255,7 @@ class RelationalAccessRepository:
         if row is None:
             return None
         if (
-            row["operation"] != _RECEIPT_IDENTITY_OPERATION
+            row["operation"] != operation
             or row["scope_id"] != scope_id
             or row["action"] != AccessAction.HANDOFF_ACKNOWLEDGE.value
             or not row["allowed"]
@@ -251,7 +279,11 @@ class RelationalAccessRepository:
         # and concurrent Principals. Retain this audit event with the Receipt.
         event = AccessAuditEvent(
             cursor=None,
-            event_id=_receipt_identity_event_id(identity.scope_id, identity.source_id),
+            event_id=_receipt_identity_event_id(
+                identity.scope_id,
+                identity.source_id,
+                operation=_RECEIPT_IDENTITY_OPERATION,
+            ),
             occurred_at=datetime.now(UTC),
             request_id=None,
             transport="server",
@@ -270,6 +302,45 @@ class RelationalAccessRepository:
             await self.append_audit(event)
         except IntegrityError:
             existing = await self.get_receipt_identity(identity.scope_id, identity.source_id)
+            if existing is None or existing != identity:
+                raise AccessConflictError("receipt-identity") from None
+            return existing
+        return identity
+
+    async def commit_receipt_identity(self, identity: HandoffReceiptIdentity, /) -> HandoffReceiptIdentity:
+        reserved = await self.get_receipt_identity(identity.scope_id, identity.source_id)
+        if reserved is None or reserved != identity:
+            raise AccessConflictError("receipt-identity")
+        existing = await self.get_committed_receipt_identity(identity.scope_id, identity.source_id)
+        if existing is not None:
+            if existing != identity:
+                raise AccessConflictError("receipt-identity")
+            return existing
+        event = AccessAuditEvent(
+            cursor=None,
+            event_id=_receipt_identity_event_id(
+                identity.scope_id,
+                identity.source_id,
+                operation=_RECEIPT_COMMITTED_OPERATION,
+            ),
+            occurred_at=datetime.now(UTC),
+            request_id=None,
+            transport="server",
+            operation=_RECEIPT_COMMITTED_OPERATION,
+            principal=identity.principal,
+            actor=None,
+            action=AccessAction.HANDOFF_ACKNOWLEDGE,
+            resource=ResourceRef.artifact(identity.scope_id, family="handoff", artifact_id="handoff"),
+            allowed=True,
+            reason_code=_RECEIVER_IDENTITY_MATCHES
+            if identity.receiver_identity_matches
+            else _RECEIVER_IDENTITY_MISMATCH,
+            policy_revision=None,
+        )
+        try:
+            await self.append_audit(event)
+        except IntegrityError:
+            existing = await self.get_committed_receipt_identity(identity.scope_id, identity.source_id)
             if existing is None or existing != identity:
                 raise AccessConflictError("receipt-identity") from None
             return existing
@@ -711,10 +782,8 @@ class RelationalAccessRepository:
         return int(current) + 1
 
 
-def _receipt_identity_event_id(scope_id: str, source_id: str) -> str:
-    return _digest(
-        json.dumps((_RECEIPT_IDENTITY_OPERATION, scope_id, source_id), ensure_ascii=False, separators=(",", ":"))
-    )
+def _receipt_identity_event_id(scope_id: str, source_id: str, *, operation: str) -> str:
+    return _digest(json.dumps((operation, scope_id, source_id), ensure_ascii=False, separators=(",", ":")))
 
 
 async def _binding_by_id(connection: Any, binding_id: str, *, for_update: bool = False) -> Mapping[Any, Any] | None:

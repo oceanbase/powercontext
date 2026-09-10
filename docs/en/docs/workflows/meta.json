@@ -4,6 +4,7 @@
     "index",
     "---Memory and context---",
     "memory-and-context",
+    "prepare-context-text",
     "configure-vector-search",
     "---Work continuity---",
     "memory-and-handoff",

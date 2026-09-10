@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,7 +25,7 @@ import httpx
 import pytest
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.server.authentication import AuthenticationResult, ProviderReadiness
 from powercontext.server.authz import AccessUnavailableError, PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control, open_casbin_access_control
@@ -52,6 +53,7 @@ async def _server(tmp_path: Path, backend="builtin", *, inference: InferenceConf
             settings=ServerSettings(
                 database=database,
                 inference=inference or InferenceConfig(),
+                runtime=RuntimeConfig(artifact_processing_families=()),
                 access=AccessControlConfig(mode="enforced", deployment_id="regressions"),
                 mcp=McpConfig(enabled=False),
                 metrics=MetricsConfig(enabled=False),
@@ -74,6 +76,71 @@ async def _scope(client):
     )
     assert result.status_code == 201, result.text
     return result.json()["scope_id"]
+
+
+@pytest.mark.parametrize("assembly", [None, {}, {"sections": [{"family": "profile", "limit": 2}]}])
+def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assembly):
+    async def scenario():
+        async with _server(tmp_path) as (_, client, _):
+            shared = await _scope(client)
+            remembered = await client.post(
+                "/v1/memory/remember",
+                json={
+                    "scope_id": shared,
+                    "kind": "fact",
+                    "text": "PRIVATE shared deployment contract.",
+                },
+            )
+            assert remembered.status_code == 200
+            profile = await client.post(
+                f"/v1/scopes/{shared}/artifacts",
+                json={"family": "profile", "content": {"content": "PRIVATE shared deployment contract."}},
+            )
+            assert profile.status_code == 201, profile.text
+            created = await client.post(
+                "/v1/scopes",
+                json={
+                    "title": "Current",
+                    "summary": "References shared evidence",
+                    "idempotency_key": "current",
+                    "context_references": [shared],
+                },
+            )
+            assert created.status_code == 201
+            current = created.json()["scope_id"]
+            await _grant(client, current, "bob", "scope.viewer")
+            payload = {"scope_id": current, "query": "PRIVATE"}
+            if assembly is not None:
+                payload["assembly"] = assembly
+            response = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
+            assert response.status_code == 403
+            assert "PRIVATE" not in response.text
+            disabled = await client.post(
+                "/v1/context/prepare",
+                headers={"Authorization": "Bearer bob"},
+                json={
+                    **payload,
+                    "assembly": {"sections": []},
+                },
+            )
+            assert disabled.status_code == 200 and disabled.json()["status"] == "empty"
+            grant = await _grant(client, shared, "bob", "scope.viewer")
+            allowed = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
+            assert allowed.status_code == 200
+            assert "PRIVATE shared deployment contract." in allowed.json()["content"]
+            revoked = await client.post(
+                "/v1/access/bindings/revoke",
+                json={
+                    "binding_id": grant["binding_id"],
+                    "expected_version": grant["version"],
+                    "idempotency_key": "revoke-shared-reader",
+                },
+            )
+            assert revoked.status_code == 200, revoked.text
+            denied = await client.post("/v1/context/prepare", headers={"Authorization": "Bearer bob"}, json=payload)
+            assert denied.status_code == 403 and "PRIVATE" not in denied.text
+
+    asyncio.run(scenario())
 
 
 async def _grant(client, scope_id, principal, role, resource=None):
@@ -174,13 +241,26 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
                 )
                 assert created.status_code == 503, created.text
             # The content is durably committed, but the owner did not commit.
+            referencing = await client.post(
+                "/v1/scopes",
+                json={
+                    "title": "Referencing scope",
+                    "summary": "Owner readiness across context references",
+                    "idempotency_key": "referencing-owner-pending",
+                    "context_references": [scope_id],
+                },
+            )
+            assert referencing.status_code == 201
+            current = referencing.json()["scope_id"]
             requests = [
+                ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE"}),
+                ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE", "assembly": {}}),
                 ("POST", "/v1/memory/entries/list", {"scope_id": scope_id}),
                 ("POST", "/v1/memory/search", {"scope_id": scope_id, "query": "PRIVATE"}),
                 ("POST", "/v1/context/prepare", {"scope_id": scope_id, "query": "PRIVATE"}),
                 ("GET", f"/v1/scopes/{scope_id}/artifacts/memory/memory", None),
                 ("GET", f"/v1/scopes/{scope_id}/artifacts/memory", None),
-                ("POST", "/dashboard/skills/library", {"scope_id": scope_id}),
+                ("POST", "/v1/skill/library", {"scope_id": scope_id}),
                 ("POST", "/v1/stats", {"selection": {"mode": "all"}}),
             ]
             for method, path, body in requests:
@@ -288,7 +368,7 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
                 json={"action": "artifact.read", "resource_type": "artifact", "family": "handoff"},
             )
             assert visible.json()["items"] == [resource]
-            body = await client.post("/dashboard/shared/read", headers=bob, json=resource)
+            body = await client.get(f"/v1/scopes/{scope_id}/artifacts/handoff/handoff", headers=bob)
             assert body.status_code == 200, body.text
             payload = {
                 "scope_id": scope_id,
@@ -337,6 +417,22 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             source = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
             assert source.status_code == 200, source.text
             assert source.json()["receipt_identity"] == identity
+
+            async def identity_missing(*args, **kwargs):
+                return None
+
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", identity_missing)
+                exact_missing = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
+                list_missing = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact_missing.status_code == 503, exact_missing.text
+                assert list_missing.status_code == 503, list_missing.text
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", identity_unavailable)
+                exact_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources/content/mismatch-receipt")
+                list_unavailable = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact_unavailable.status_code == 503, exact_unavailable.text
+                assert list_unavailable.status_code == 503, list_unavailable.text
             denied = await client.post(
                 "/v1/work/handoffs/acknowledge",
                 headers=bob,
@@ -361,7 +457,9 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
                 },
             )
             assert revoked.status_code == 200, revoked.text
-            assert (await client.post("/dashboard/shared/read", headers=bob, json=resource)).status_code == 403
+            assert (
+                await client.get(f"/v1/scopes/{scope_id}/artifacts/handoff/handoff", headers=bob)
+            ).status_code == 403
             assert (await client.post("/v1/work/handoffs/acknowledge", headers=bob, json=payload)).status_code == 403
             return scope_id, identity
 
@@ -374,6 +472,137 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
             assert response.json()["receipt_identity"] == identity
 
     asyncio.run(reopened())
+
+
+def test_startup_migrates_legacy_receipts_without_changing_public_source(tmp_path, monkeypatch):
+    import sqlite3
+
+    from powercontext.builtin.runtime.application import ScopedSourceApplication
+
+    original_capture = ScopedSourceApplication._capture
+
+    async def legacy_capture(self, value, /, *, handoff_receipt=False):
+        return await original_capture(self, value, handoff_receipt=False)
+
+    async def prepare():
+        async with _server(tmp_path) as (app, client, _):
+            scope_id = await _scope(client)
+            revision = await _handoff(client, scope_id)
+            with monkeypatch.context() as patch:
+                patch.setattr(ScopedSourceApplication, "_capture", legacy_capture)
+                created = await client.post(
+                    "/v1/work/handoffs/acknowledge",
+                    json={
+                        "scope_id": scope_id,
+                        "source_id": "legacy-receipt",
+                        "receiver": "admin",
+                        "status": "declined",
+                        "selection": "exact",
+                        "revision": revision,
+                        "message": "Upgrade test",
+                    },
+                )
+                assert created.status_code == 200, created.text
+            ordinary = await app.state.application.records.for_scope(scope_id).create_source(
+                "content",
+                {"schema": "powercontext.handoff-receipt.v1"},
+            )
+            reserved_only = await app.state.application.records.for_scope(scope_id).create_source(
+                "content",
+                {"schema": "powercontext.handoff-receipt.v1"},
+            )
+            conflicted = await client.post(
+                "/v1/work/handoffs/acknowledge",
+                json={
+                    "scope_id": scope_id,
+                    "source_id": reserved_only.source_id,
+                    "receiver": "admin",
+                    "status": "declined",
+                    "selection": "exact",
+                    "revision": revision,
+                    "message": "This write must conflict",
+                },
+            )
+            assert conflicted.status_code == 409, conflicted.text
+            before = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
+            return scope_id, ordinary.source_id, reserved_only.source_id, before.json()
+
+    scope_id, ordinary_id, reserved_only_id, before = asyncio.run(prepare())
+
+    async def check_upgrade():
+        async with _server(tmp_path) as (_, client, access):
+            exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
+            assert exact.status_code == 200 and exact.json() == before
+            ordinary = await client.get(f"/v1/scopes/{scope_id}/sources/content/{ordinary_id}")
+            assert ordinary.status_code == 200 and ordinary.json()["receipt_identity"] is None
+            reserved_only = await client.get(f"/v1/scopes/{scope_id}/sources/content/{reserved_only_id}")
+            assert reserved_only.status_code == 200 and reserved_only.json()["receipt_identity"] is None
+            page = await client.get(f"/v1/scopes/{scope_id}/sources", params={"limit": 100})
+            assert page.status_code == 200, page.text
+            by_source_id = {item["source_id"]: item for item in page.json()["items"]}
+            assert by_source_id[ordinary_id]["receipt_identity"] is None
+            assert by_source_id[reserved_only_id]["receipt_identity"] is None
+
+            async def missing(*args, **kwargs):
+                return None
+
+            with monkeypatch.context() as patch:
+                patch.setattr(access, "receipt_identity", missing)
+                exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/legacy-receipt")
+                page = await client.get(f"/v1/scopes/{scope_id}/sources")
+                assert exact.status_code == 503, exact.text
+                assert page.status_code == 503, page.text
+
+    for _ in range(2):
+        asyncio.run(check_upgrade())
+        with sqlite3.connect(tmp_path / "regressions.db") as connection:
+            pending = connection.execute(
+                "SELECT scope_id, source_id, reason FROM pc_receipt_migration_review"
+            ).fetchall()
+            assert set(pending) == {
+                (scope_id, ordinary_id, "missing_committed_receipt"),
+                (scope_id, reserved_only_id, "missing_committed_receipt"),
+            }
+
+
+def test_generic_receipt_markers_cannot_block_source_collection(tmp_path):
+    async def scenario():
+        async with _server(tmp_path) as (app, client, _):
+            scope_id = await _scope(client)
+            marker = {"schema": "powercontext.handoff-receipt.v1"}
+
+            created = await client.post(f"/v1/scopes/{scope_id}/sources", json={"content": marker})
+            captured = await client.post(
+                "/v1/sources/content",
+                json={
+                    "scope_id": scope_id,
+                    "source_id": "forged-receipt",
+                    "content": json.dumps(marker),
+                },
+            )
+            assert created.status_code == 422, created.text
+            assert captured.status_code == 422, captured.text
+
+            records = app.state.application.records.for_scope(scope_id)
+            legacy = await records.create_source("content", marker)
+            ordinary = await records.create_source("content", {"statement": "later source"})
+
+            exact = await client.get(f"/v1/scopes/{scope_id}/sources/content/{legacy.source_id}")
+            assert exact.status_code == 200, exact.text
+            assert exact.json()["receipt_identity"] is None
+
+            first = await client.get(f"/v1/scopes/{scope_id}/sources", params={"limit": 1})
+            assert first.status_code == 200, first.text
+            assert [item["source_id"] for item in first.json()["items"]] == [legacy.source_id]
+            assert first.json()["next_cursor"] is not None
+            second = await client.get(
+                f"/v1/scopes/{scope_id}/sources",
+                params={"limit": 1, "cursor": first.json()["next_cursor"]},
+            )
+            assert second.status_code == 200, second.text
+            assert [item["source_id"] for item in second.json()["items"]] == [ordinary.source_id]
+
+    asyncio.run(scenario())
 
 
 def test_concurrent_handoff_receipts_cannot_replace_the_authenticated_submitter(tmp_path):
@@ -422,46 +651,6 @@ def test_concurrent_handoff_receipts_cannot_replace_the_authenticated_submitter(
             assert source.json()["receipt_identity"] == identity
 
     asyncio.run(reopened())
-
-
-def test_shared_memory_resolves_only_the_granted_entry(tmp_path):
-    async def scenario():
-        async with _server(tmp_path) as (_, client, _):
-            scope_id = await _scope(client)
-            created = await client.post(
-                f"/v1/scopes/{scope_id}/artifacts",
-                json={
-                    "family": "memory",
-                    "content": {
-                        "entries": [{"kind": "fact", "text": "shared fact"}, {"kind": "fact", "text": "private fact"}]
-                    },
-                },
-            )
-            assert created.status_code == 201, created.text
-            artifact_id = created.json()["artifact_id"]
-            visible = await client.post(
-                "/v1/access/resources/list",
-                json={"action": "artifact.read", "resource_type": "artifact", "family": "memory"},
-            )
-            available = visible.json()["items"]
-            assert len(available) == 2, visible.text
-            resource = available[0]
-            assert resource["identity"]["artifact_id"] == artifact_id
-            await _grant(client, scope_id, "bob", "artifact.viewer", resource)
-            response = await client.post(
-                "/dashboard/shared/read", headers={"Authorization": "Bearer bob"}, json=resource
-            )
-            assert response.status_code == 200, response.text
-            text = response.json()["text"]
-            assert text in {"shared fact", "private fact"}
-            assert ("private fact" if text == "shared fact" else "shared fact") not in response.text
-            assert (
-                await client.post(
-                    "/v1/memory/entries/list", headers={"Authorization": "Bearer bob"}, json={"scope_id": scope_id}
-                )
-            ).status_code == 403
-
-    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("backend", ["builtin", "casbin"])

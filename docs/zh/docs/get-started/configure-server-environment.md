@@ -13,6 +13,12 @@ description: 通过显式环境文件生成、检查、校验并运行 PowerCont
 powercontext config init --output .env
 ```
 
+引导式命令会以 `0600` 权限写入私有文件，不会在部署过程中询问 model 或 provider 凭据。默认文件可以直接启动 Server；
+如果需要自动抽取、模型生成或向量检索，请在文件中补充对应的 model、credential、embedding profile ID 和 dimension。
+
+如果 `--force` 会删除已有的 model、embedding、推理调度或 provider 凭据配置，命令会明确提示影响，并要求一次默认选择
+“否”的确认。用户确认后，命令会先创建权限为 `0600` 的备份，再替换原文件。
+
 在 macOS 和 Linux 上，引导式命令会以 `0600` 权限写入私有文件。通过环境或 secret manager 提供 provider 凭据，不要把它们写入命令行参数。
 
 Windows 支持为 `experimental`。将文件用于个人服务前，按[部署 Server](../operate/deploy-server.md)限制其 ACL。
@@ -30,11 +36,11 @@ powercontext config validate --env-file .env
 ## 3. 使用同一份配置启动
 
 ```bash
-powercontext server run --env-file .env
+powercontext server run
 ```
 
-文件中的值会覆盖同名进程变量。文件中没有的继承 `POWERCONTEXT_SERVER_*` 变量会被忽略，因此校验和启动使用同一份
-Server 设置。
+`server run` 会发现当前目录的 `.env`。使用 `--env-file <path>` 可选择其他文件，使用 `--no-env-file` 可禁用文件加载。
+配置优先级依次为 CLI 参数、进程环境变量、所选文件和默认值。命令会显示实际加载文件的绝对路径，但不会输出凭据。
 
 Server 会按配置启动对应能力。使用 `powercontext ready` 和 `powercontext capabilities` 查看就绪状态和已启用功能。
 

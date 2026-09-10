@@ -196,7 +196,11 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     description: 'Manually prepare bounded project context for a focused query.',
     parameters: Type.Object({ query: Type.String({ description: 'Question to retrieve context for.' }) }),
     operationId: 'prepare_context',
-    payload: (params) => ({ query: params.query, max_bytes: runtime.config.maxBytes }),
+    payload: (params) => ({
+      query: params.query,
+      max_bytes: runtime.config.maxBytes,
+      ...(runtime.config.contextAssembly !== undefined ? { assembly: runtime.config.contextAssembly } : {}),
+    }),
   })
 
   registerOperationTool(pi, runtime, {

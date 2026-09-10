@@ -33,13 +33,13 @@ class BuiltinSources(Sources):
 
     journal: SourceJournal
 
-    async def capture(self, value: ContentCapture, /) -> tuple[ContentSource, int]:
+    async def capture(self, value: ContentCapture, /, *, handoff_receipt: bool = False) -> tuple[ContentSource, int]:
         """Resolve and persist one Content Source, returning its journal position."""
 
         resolved = await self.resolve(value)
         if type(resolved) is not ContentSource:
             raise TypeError("Content Source adapter returned an unexpected Source type")  # noqa: TRY003
-        source = await self.add(resolved)
+        source = await self.add(resolved.model_copy(update={"handoff_receipt": handoff_receipt}))
         if type(source) is not ContentSource:
             raise TypeError("Content Source adapter returned an unexpected Source type")  # noqa: TRY003
         return source, await self.journal.position(source)

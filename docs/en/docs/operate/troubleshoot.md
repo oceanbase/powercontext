@@ -154,6 +154,13 @@ powercontext server run
 Use the same environment variable whenever you start or diagnose that instance. PowerContext creates missing parent
 directories for a file-backed SQLite database.
 
+## Processing state requires maintenance
+
+If startup reports that the processing schema is not ready, follow
+[Migrate Artifact processing state](artifact-processing-migration.md). Existing
+Topic Pending, Cursor and accepted calls need explicit migration before the new
+Supervisor starts. Do not remove the old processing tables to bypass this check.
+
 ## OceanBase startup rejects an incompatible schema
 
 Current PowerContext releases compare opaque identity columns byte-for-byte with `utf8mb4_bin`. A database created by
@@ -184,8 +191,8 @@ so the previous database remains available for recovery:
    Because `pc_scopes.parent_scope_id` is self-referential, keep ancestor Scope rows before their descendants in the
    exported `pc_scopes` data.
    If the source predates the three Skill lifecycle tables (`pc_skill_packages`, `pc_agent_skill_targets`, and
-   `pc_skill_publications`), the Profile tables, or `pc_topic_memory_work_budgets`, remove the absent tables from their
-   respective layers.
+   `pc_skill_publications`), the Profile tables, `pc_topic_memory_work_budgets`, or
+   `pc_receipt_migration_review`, remove the absent tables from their respective layers.
    Do not import `pc_scheduler_leases`, `pc_scheduler_scans`, `pc_runtime_members`, or `pc_rate_limit_windows`.
    They contain transient coordination state. The migration command owns its migration lease row, and the runtime
    recreates the remaining rows after startup.
@@ -195,7 +202,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_work_lanes,pc_work_items,pc_work_keys,pc_work_attempts' \
+      --table 'pc_scopes,pc_source_journal_heads,pc_sources,pc_artifacts,pc_source_cursors,pc_artifact_processing_leases,pc_artifact_processing_binding_states,pc_artifact_processing_pending,pc_artifact_processing_auto_wave_targets,pc_artifact_processing_sequences,pc_artifact_processing_intents,pc_topic_memory_processing_targets,pc_artifact_processing_schema,pc_artifact_processing_migration_receipts,pc_topic_memory_work_budgets,pc_topic_memory_retrieval_shape,pc_connector_checkpoints,pc_source_definition_manifests,pc_external_skill_registrations,pc_skill_packages,pc_agent_skill_targets,pc_skill_publications,pc_model_usage_daily,pc_recall_token_daily,pc_receipt_migration_review,pc_work_lanes,pc_work_items,pc_work_keys,pc_work_attempts' \
      -f <export-directory>
    ```
 
@@ -335,8 +342,9 @@ of recall; a capture failure cannot suppress valid context, and a recall failure
 
 ## Claude Code MCP authentication fails
 
-The Hook and MCP `headersHelper` read `POWERCONTEXT_CLAUDE_AUTHORIZATION` from the environment that starts Claude
-Code. Stop the current process, export the complete header, and start it again:
+The Hook reads `POWERCONTEXT_CLAUDE_AUTHORIZATION` from the environment that starts Claude Code, and the MCP
+configuration expands the same value into its `Authorization` header. Stop the current process, export the complete
+header, and start it again:
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"

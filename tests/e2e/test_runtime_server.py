@@ -230,7 +230,7 @@ def test_server_databases_share_source_to_memory_search_behavior(
         assert readiness.checks == {
             "runtime": "ready",
             "database": "ready",
-            "artifact_processing_supervisor": "leader",
+            "artifact_processing_supervisor": "disabled",
             **_ACCESS_READINESS_CHECKS,
         }
         assert capabilities.source_types == ["content"]
@@ -389,7 +389,7 @@ def test_inference_failure_degrades_readiness_without_blocking_database_operatio
             "runtime": "ready",
             "database": "ready",
             "inference.embedding": "misconfigured",
-            "artifact_processing_supervisor": "leader",
+            "artifact_processing_supervisor": "disabled",
             **_ACCESS_READINESS_CHECKS,
         }
         assert captured.position == 1

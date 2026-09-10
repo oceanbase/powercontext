@@ -22,9 +22,12 @@ import secrets
 from collections import deque
 from collections.abc import Callable, Sequence
 
+import rfc8785
+from pydantic import JsonValue
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.builtin.persistence.cursor_codec import Clock, SignedCursorCodec
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.scope.errors import (
     ScopeBindingNotFoundError,
@@ -37,6 +40,8 @@ from powercontext.builtin.scope.models import (
     ScopeBinding,
     ScopeBindingKey,
     ScopeDescriptor,
+    ScopeDescriptorPage,
+    ScopeDiscovery,
     ScopeDraft,
     ScopeMutation,
     ScopeSelection,
@@ -55,10 +60,18 @@ class ScopeApplication:
         *,
         repository: ScopeRepository | None = None,
         id_factory: ScopeIdFactory | None = None,
+        cursor_secret: bytes | None = None,
+        cursor_ttl_seconds: int = 3_600,
+        clock: Clock | None = None,
     ) -> None:
         self._database = database
         self._repository = ScopeRepository() if repository is None else repository
         self._id_factory = generate_scope_id if id_factory is None else id_factory
+        self._cursor_codec = SignedCursorCodec(
+            secret=cursor_secret,
+            ttl_seconds=cursor_ttl_seconds,
+            clock=clock,
+        )
         self._write_lock = asyncio.Lock()
 
     async def bootstrap_default(self) -> ScopeDescriptor:
@@ -120,11 +133,38 @@ class ScopeApplication:
         async with self._database.transaction() as connection:
             return await self._required(connection, scope_id)
 
-    async def list(self, *, scope_ids: Sequence[str] | None = None) -> tuple[ScopeDescriptor, ...]:
+    async def list(
+        self,
+        *,
+        scope_ids: Sequence[str] | None = None,
+    ) -> tuple[ScopeDescriptor, ...]:
         async with self._database.transaction() as connection:
             if scope_ids is not None:
                 return await self._repository.get_many(connection, tuple(scope_ids))
             return await self._repository.list(connection)
+
+    async def discover(self, discovery: ScopeDiscovery, /, *, caller: str) -> ScopeDescriptorPage:
+        expected: dict[str, JsonValue] = {
+            "version": 1,
+            "endpoint": "list_scopes",
+            "authorization": "server_observe",
+            "caller": caller,
+            "query": discovery.query,
+            "query_field": discovery.query_field,
+            "parent_scope_id": discovery.parent_scope_id,
+            "external_reference_kind": discovery.external_reference_kind,
+            "binding_integration": discovery.binding_integration,
+            "binding_kind": discovery.binding_kind,
+            "limit": discovery.limit,
+            "order": "scope_id:asc",
+        }
+        # Bind the original query and filters without growing the opaque cursor.
+        expected = {"version": 3, "context_digest": hashlib.sha256(rfc8785.dumps(expected)).hexdigest()}
+        after = self._cursor_codec.after_text(discovery.cursor, expected)
+        async with self._database.transaction() as connection:
+            items, has_more = await self._repository.discover(connection, discovery, after=after)
+        next_cursor = self._cursor_codec.encode(expected, items[-1].scope_id) if has_more and items else None
+        return ScopeDescriptorPage(items=items, next_cursor=next_cursor)
 
     async def update(self, scope_id: str, mutation: ScopeMutation, /) -> ScopeDescriptor:
         async with self._write_lock:

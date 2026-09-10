@@ -46,7 +46,6 @@ from pydantic import AnyHttpUrl, SecretStr
 from sqlalchemy.engine import make_url
 from starlette.middleware import Middleware
 
-from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryEvolveOutput,
@@ -56,7 +55,6 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     TopicMemoryReconcileOutput,
     TopicMemoryTemporaryOutput,
 )
-from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
@@ -69,7 +67,6 @@ from powercontext.http import CaptureContentSourceRequest, FlushTopicMemoryReque
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     BearerAuthConfig,
-    DashboardConfig,
     McpConfig,
     ServerSettings,
 )
@@ -83,7 +80,7 @@ from tests.e2e.topic_memory_product.common import (
     ProductChainError,
     default_scope_id,
     digest_text,
-    exercise_http_mcp_prepared_web_chain,
+    exercise_http_mcp_prepared_chain,
     require_no_worker_failures,
     run_e0,
     start_loopback_server,
@@ -166,19 +163,16 @@ class _CodexMcpCall:
     status: str
 
 
-class _FallbackEmbedding:
-    """Deterministically inject one unavailable query embedding for E2."""
+def _unavailable_embedding_app() -> FastAPI:
+    """Fail at the HTTP provider boundary using the reconstructible adapter."""
 
-    def __init__(self, config: _RealEmbeddingConfig) -> None:
-        self.profile = EmbeddingProfile(
-            profile_id=config.profile_id,
-            model=config.model,
-            dimension=config.dimension,
-            normalization=config.normalization,
-        )
+    app = FastAPI()
 
-    async def embed(self, _texts: tuple[str, ...], /) -> EmbeddingResult:
-        raise InferenceUnavailableError("embed")
+    @app.post("/v1/embeddings")
+    async def embeddings() -> None:
+        raise HTTPException(status_code=503, detail="controlled embedding outage")
+
+    return app
 
 
 class _EmbeddingFallbackCapture(logging.Handler):
@@ -687,89 +681,6 @@ def _configure_installed_mcp(installed_path: Path, *, base_url: str) -> None:
     configuration_path.write_text(f"{json.dumps(configuration, indent=2)}\n", encoding="utf-8")
 
 
-def _browser_python() -> Path:
-    configured = os.environ.get("POWERCONTEXT_R8_PLAYWRIGHT_PYTHON")
-    if configured:
-        candidate = Path(configured)
-    else:
-        executable = shutil.which("playwright")
-        if executable is None:
-            raise ProductChainError("Playwright CLI is unavailable for E1 screenshot evidence")
-        first_line = Path(executable).read_text(encoding="utf-8").splitlines()[0]
-        if not first_line.startswith("#!"):
-            raise ProductChainError("Playwright CLI has no discoverable Python interpreter")
-        candidate = Path(first_line.removeprefix("#!"))
-    if not candidate.is_file():
-        raise ProductChainError("Playwright Python interpreter is unavailable")
-    return candidate
-
-
-def _browser_executable() -> Path:
-    configured = os.environ.get("POWERCONTEXT_R8_BROWSER_EXECUTABLE")
-    if configured:
-        candidate = Path(configured)
-    else:
-        candidates = sorted((Path.home() / ".cache" / "ms-playwright").glob("chromium-*/chrome-linux64/chrome"))
-        if not candidates:
-            raise ProductChainError("no preinstalled Chromium executable is available")
-        candidate = candidates[-1]
-    if not candidate.is_file() or not os.access(candidate, os.X_OK):
-        raise ProductChainError("configured Chromium executable is unavailable")
-    return candidate
-
-
-def _capture_browser_evidence(
-    *,
-    directory: Path,
-    base_url: str,
-    token: str,
-    artifact_ref: str,
-    source_ref: str,
-    environment: Mapping[str, str],
-) -> dict[str, object]:
-    desktop = directory / "topics-desktop-redacted.png"
-    narrow = directory / "topics-narrow-redacted.png"
-    audit = directory / "browser-audit.json"
-    try:
-        completed = _run(
-            (
-                str(_browser_python()),
-                str(Path(__file__).with_name("browser_capture.py")),
-                "--base-url",
-                base_url,
-                "--artifact-ref",
-                artifact_ref,
-                "--source-ref",
-                source_ref,
-                "--desktop",
-                str(desktop),
-                "--narrow",
-                str(narrow),
-                "--audit",
-                str(audit),
-            ),
-            cwd=PROJECT_ROOT,
-            env={
-                **environment,
-                "POWERCONTEXT_R8_BROWSER_TOKEN": token,
-                "POWERCONTEXT_R8_BROWSER_EXECUTABLE": str(_browser_executable()),
-            },
-            timeout=90,
-        )
-    except subprocess.CalledProcessError as exc:
-        raise ProductChainError(f"browser evidence failed: {exc.stderr[-2000:]}") from exc
-    if completed.stdout or completed.stderr:
-        # Browser output is intentionally discarded because it is not acceptance evidence.
-        pass
-    return {
-        "status": "PASS",
-        "desktop": desktop.name,
-        "narrow": narrow.name,
-        "audit": audit.name,
-        "generated_content_redacted": True,
-    }
-
-
 def _e1_subprocess_environment(source: Mapping[str, str]) -> dict[str, str]:
     """Allowlist the generic process environment and exclude all R8 layer inputs."""
 
@@ -869,7 +780,7 @@ def run_e1(  # noqa: C901
     codex_timeout: float,
     generation_timeout: float,
 ) -> dict[str, object]:
-    """Run real Codex, plugin hook, MCP, generation, HTTP, and browser acceptance."""
+    """Run real Codex, plugin hook, MCP, generation, and HTTP acceptance."""
 
     directory.mkdir(parents=True, exist_ok=True)
     if shutil.which("codex") is None:
@@ -944,7 +855,6 @@ def run_e1(  # noqa: C901
                     generation_max_requests=1,
                 ),
                 mcp=McpConfig(enabled=True),
-                dashboard=DashboardConfig(enabled=True),
             )
             app = create_server_app(
                 settings=settings,
@@ -1012,7 +922,7 @@ def run_e1(  # noqa: C901
 
             try:
                 chain = asyncio.run(
-                    exercise_http_mcp_prepared_web_chain(
+                    exercise_http_mcp_prepared_chain(
                         base_url=server.base_url,
                         token=token,
                         scope_id=scope_id,
@@ -1067,14 +977,6 @@ def run_e1(  # noqa: C901
                 exact_ref=chain.exact_ref,
             )
 
-            browser = _capture_browser_evidence(
-                directory=directory,
-                base_url=server.base_url,
-                token=token,
-                artifact_ref=chain.exact_ref.display(),
-                source_ref=chain.source_ref,
-                environment=environment,
-            )
             server.stop()
             port_closed = server.port_is_closed()
             server = None
@@ -1134,7 +1036,6 @@ def run_e1(  # noqa: C901
                         "full_detail_absent": True,
                     },
                 },
-                "browser": browser,
                 "auth_audit": auth_audit,
                 "generation_auth_audit": generation_auth_audit,
                 "redaction": {
@@ -1186,6 +1087,7 @@ def run_e2(  # noqa: C901
     timeline = AccessTimeline()
     server = None
     fallback_server = None
+    unavailable_embedding_server = None
     fallback_capture = _EmbeddingFallbackCapture()
     search_logger = logging.getLogger("powercontext.builtin.runtime.application")
     search_logger.addHandler(fallback_capture)
@@ -1220,7 +1122,6 @@ def run_e2(  # noqa: C901
                 embedding_timeout_seconds=config.timeout_seconds,
             ),
             mcp=McpConfig(enabled=True),
-            dashboard=DashboardConfig(enabled=True),
         )
         app = create_server_app(
             settings=settings,
@@ -1230,7 +1131,7 @@ def run_e2(  # noqa: C901
         server = start_loopback_server(app, startup_timeout=60)
         scope_id = asyncio.run(default_scope_id(server.base_url, token=_E2_TOKEN))
         chain = asyncio.run(
-            exercise_http_mcp_prepared_web_chain(
+            exercise_http_mcp_prepared_chain(
                 base_url=server.base_url,
                 token=_E2_TOKEN,
                 scope_id=scope_id,
@@ -1251,16 +1152,25 @@ def run_e2(  # noqa: C901
         if not server_closed:
             raise ProductChainError("E2 hybrid server port remained open")
 
+        unavailable_embedding_server = start_loopback_server(_unavailable_embedding_app())
         fallback_settings = ServerSettings(
             auth=BearerAuthConfig(enabled=True, token=SecretStr(_E2_TOKEN)),
             database=database,
-            inference=InferenceConfig(),
+            # The all-role restart retains the deployment's capabilities and
+            # uses a reconstructible provider adapter for the controlled outage.
+            runtime=settings.runtime,
+            inference=settings.inference.model_copy(
+                update={
+                    "embedding_base_url": AnyHttpUrl(f"{unavailable_embedding_server.base_url}/v1"),
+                    "embedding_headers": {},
+                    "embedding_timeout_seconds": 3,
+                }
+            ),
             mcp=McpConfig(enabled=False),
-            dashboard=DashboardConfig(enabled=False),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         fallback_server = start_loopback_server(
-            create_server_app(settings=fallback_settings, embedding_model=_FallbackEmbedding(config)),
+            create_server_app(settings=fallback_settings),
             startup_timeout=60,
         )
         fallback_search = asyncio.run(
@@ -1304,7 +1214,7 @@ def run_e2(  # noqa: C901
             },
             "hybrid_chain": chain.as_dict(),
             "controlled_fallback": {
-                "injection": "InferenceUnavailableError at query embedding boundary",
+                "injection": "HTTP 503 at the configured query embedding provider boundary",
                 "search_mode": "fts",
                 "exact_ref": fallback_ref.as_dict(),
                 "signal": expected_fallback,
@@ -1321,6 +1231,8 @@ def run_e2(  # noqa: C901
         search_logger.removeHandler(fallback_capture)
         if fallback_server is not None:
             fallback_server.stop()
+        if unavailable_embedding_server is not None:
+            unavailable_embedding_server.stop()
         if server is not None:
             server.stop()
         inference_server.stop()
@@ -1332,6 +1244,9 @@ def run_e2(  # noqa: C901
     result["cleanup"] = {
         "hybrid_server_port_closed": True,
         "fallback_server_port_closed": True,
+        "unavailable_embedding_port_closed": (
+            unavailable_embedding_server is not None and unavailable_embedding_server.port_is_closed()
+        ),
         "fake_generation_port_closed": inference_server.port_is_closed(),
         "temporary_runtime_removed": not runtime_directory.exists(),
     }
@@ -1571,7 +1486,6 @@ def run_e3(  # noqa: C901
                 generation_model_settings={"max_tokens": 1024},
             ),
             mcp=McpConfig(enabled=False),
-            dashboard=DashboardConfig(enabled=False),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         api_server = start_loopback_server(
@@ -1704,6 +1618,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
     timeline = AccessTimeline()
     server = None
     fts_server = None
+    unavailable_embedding_server = None
     temporary_openai_key = False
     result: dict[str, object] | None = None
     try:
@@ -1735,7 +1650,6 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
                 embedding_timeout_seconds=5,
             ),
             mcp=McpConfig(enabled=True),
-            dashboard=DashboardConfig(enabled=True),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         server = start_loopback_server(
@@ -1748,7 +1662,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
         )
         scope_id = asyncio.run(default_scope_id(server.base_url, token=_E4_TOKEN))
         chain = asyncio.run(
-            exercise_http_mcp_prepared_web_chain(
+            exercise_http_mcp_prepared_chain(
                 base_url=server.base_url,
                 token=_E4_TOKEN,
                 scope_id=scope_id,
@@ -1769,13 +1683,21 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
         if not hybrid_closed:
             raise ProductChainError("E4 hybrid server port remained open")
 
+        unavailable_embedding_server = start_loopback_server(_unavailable_embedding_app())
         fts_settings = ServerSettings(
             auth=BearerAuthConfig(enabled=True, token=SecretStr(_E4_TOKEN)),
             database=database,
-            runtime=RuntimeConfig(artifact_processing_role="all"),
-            inference=InferenceConfig(),
+            # Preserve the frozen hybrid retrieval shape and single-host all
+            # role; unavailable query embeddings exercise the allowed FTS fallback.
+            runtime=settings.runtime,
+            inference=settings.inference.model_copy(
+                update={
+                    "embedding_base_url": AnyHttpUrl(f"{unavailable_embedding_server.base_url}/v1"),
+                    "embedding_headers": {},
+                    "embedding_timeout_seconds": 3,
+                }
+            ),
             mcp=McpConfig(enabled=False),
-            dashboard=DashboardConfig(enabled=False),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         fts_server = start_loopback_server(create_server_app(settings=fts_settings), startup_timeout=90)
@@ -1807,6 +1729,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
             "dialect_checks": {
                 "hybrid_mode": "hybrid",
                 "fts_mode_after_restart": "fts",
+                "embedding_outage": "HTTP 503 with the original hybrid profile retained",
                 "same_exact_ref": fts_ref.as_dict(),
             },
             "redaction": {
@@ -1818,6 +1741,8 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
     finally:
         if fts_server is not None:
             fts_server.stop()
+        if unavailable_embedding_server is not None:
+            unavailable_embedding_server.stop()
         if server is not None:
             server.stop()
         inference_server.stop()
@@ -1829,6 +1754,9 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
     result["cleanup"] = {
         "hybrid_server_port_closed": True,
         "fts_server_port_closed": True,
+        "unavailable_embedding_port_closed": (
+            unavailable_embedding_server is not None and unavailable_embedding_server.port_is_closed()
+        ),
         "fake_provider_port_closed": inference_server.port_is_closed(),
         "temporary_seekdb_removed": not runtime_directory.exists(),
     }

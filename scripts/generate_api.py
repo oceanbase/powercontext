@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from pathlib import Path
 from pprint import pformat
 from typing import Literal, TypedDict
@@ -142,7 +143,47 @@ def _generate_models(
     if not isinstance(result, str):
         raise ContractGenerationError("model generator output", result)  # noqa: TRY003
     evidence_models = _candidate_evidence_models(transport_contract.components.schemas)
-    return _with_candidate_evidence_limits(f"{result.rstrip()}\n", evidence_models)
+    return _with_candidate_evidence_limits(_with_nested_model_defaults(f"{result.rstrip()}\n"), evidence_models)
+
+
+def _with_nested_model_defaults(source: str) -> str:
+    """Construct typed nested defaults instead of assigning raw JSON to list[Model].
+
+    Pydantic validates the generator's raw dictionaries with validate_default=True,
+    but static checkers correctly reject them as model instances. Validate each
+    nested default explicitly while preserving the OpenAPI values and omission.
+    """
+
+    lines = source.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+    replacements: list[tuple[int, int, str]] = []
+    tree = ast.parse(source)
+    model_names = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AnnAssign) or not isinstance(node.value, ast.List):
+            continue
+        value = node.value
+        annotation = node.annotation
+        if isinstance(annotation, ast.Subscript) and isinstance(annotation.slice, ast.Tuple):
+            annotation = annotation.slice.elts[0]
+        if not isinstance(annotation, ast.Subscript) or not isinstance(annotation.slice, ast.Name):
+            continue
+        model_name = annotation.slice.id
+        if model_name not in model_names:
+            continue
+        if not value.elts or not all(isinstance(item, ast.Dict) for item in value.elts):
+            continue
+        if value.end_lineno is None or value.end_col_offset is None:
+            continue
+        start = offsets[value.lineno - 1] + value.col_offset
+        end = offsets[value.end_lineno - 1] + value.end_col_offset
+        items = ", ".join(f"{model_name}.model_validate({ast.get_source_segment(source, item)})" for item in value.elts)
+        replacements.append((start, end, f"[{items}]"))
+    for start, end, replacement in sorted(replacements, reverse=True):
+        source = source[:start] + replacement + source[end:]
+    return source
 
 
 def _generate_operations(

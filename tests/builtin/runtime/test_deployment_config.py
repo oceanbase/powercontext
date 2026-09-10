@@ -23,8 +23,13 @@ from powercontext.builtin.runtime.config import (
     BuiltinConfig,
     CoordinationConfig,
     DeploymentConfig,
+    InferenceConfig,
+    RuntimeConfig,
     WorkerConfig,
 )
+from powercontext.builtin.runtime.processing_registry import processing_capabilities
+
+_OCEANBASE = OceanBaseConfig(url=SecretStr("mysql+aoceanbase://root@localhost:2881/powercontext?charset=utf8mb4"))
 
 
 def test_single_node_all_is_the_backwards_compatible_default() -> None:
@@ -45,10 +50,32 @@ def test_distributed_requires_oceanbase_and_one_process_role() -> None:
 
     with pytest.raises(ValidationError, match="distributed deployment role must be"):
         BuiltinConfig(
-            database=OceanBaseConfig(
-                url=SecretStr("mysql+aoceanbase://root@localhost:2881/powercontext?charset=utf8mb4")
-            ),
+            database=_OCEANBASE,
             deployment=DeploymentConfig(mode="distributed", role="all", id="all-a"),
+        )
+
+
+def test_distributed_uses_the_work_ledger_instead_of_process_local_supervisors() -> None:
+    deployment = DeploymentConfig(mode="distributed", role="worker", id="worker-a")
+    config = BuiltinConfig(
+        database=_OCEANBASE,
+        deployment=deployment,
+        inference=InferenceConfig(generation_model="test"),
+    )
+
+    assert processing_capabilities(config) == ()
+
+    with pytest.raises(ValidationError, match="process-local artifact processing role"):
+        BuiltinConfig(
+            database=_OCEANBASE,
+            deployment=deployment,
+            runtime=RuntimeConfig(artifact_processing_role="background"),
+        )
+    with pytest.raises(ValidationError, match="does not support Topic Memory processing"):
+        BuiltinConfig(
+            database=_OCEANBASE,
+            deployment=deployment,
+            runtime=RuntimeConfig(topic_memory_schedule_seconds=60),
         )
 
 

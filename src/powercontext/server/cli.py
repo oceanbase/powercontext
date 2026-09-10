@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from contextlib import nullcontext
+from contextlib import AsyncExitStack, nullcontext
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -27,12 +27,30 @@ from pydantic import ValidationError
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.persistence.migration import SchemaMigrationError
+from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
+from powercontext.builtin.persistence.processing_migration import (
+    ProcessingSchemaNotReadyError,
+    apply_processing_migration,
+    plan_processing_migration,
+    verify_processing_migration,
+)
+from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
+from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.runtime.composition import migrate_builtin_database, open_builtin_runtime
-from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig
+from powercontext.builtin.runtime.config import InferenceConfig
+from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest
 from powercontext.cli.env_file import environment_context
-from powercontext.server.configuration import ServerConfigurationError, server_settings_context
+from powercontext.cli.inference_notice import write_inference_capability_notice
+from powercontext.server.authz import PrincipalRef
+from powercontext.server.authz.composition import open_builtin_access_control
+from powercontext.server.configuration import (
+    ServerConfigurationError,
+    resolve_server_environment_file,
+    server_settings_context,
+)
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
+from powercontext.server.processing_security import build_worker_security
 from powercontext.server.settings import (
     MissingAuthenticationProviderError,
     MissingBearerTokenError,
@@ -73,6 +91,72 @@ def main() -> None:
     """Manage the PowerContext service process."""
 
 
+@app.command("processing-migrate")
+def processing_migrate(
+    action: Annotated[Literal["plan", "apply", "verify"], typer.Option(help="Offline migration action.")] = "plan",
+    env_file: Annotated[Path | None, typer.Option(help="Load deployment settings from this environment file.")] = None,
+    maintenance_confirmed: Annotated[
+        bool,
+        typer.Option(help="Confirm all old background candidates, Workers, writes and explicit triggers are stopped."),
+    ] = False,
+    migration_id: Annotated[
+        str, typer.Option(help="Stable resume ID; use a new ID for an offline mode switch.")
+    ] = "rfc1515",
+    batch_size: Annotated[int, typer.Option(min=1, max=10000, help="Maximum rows committed per migration step.")] = 100,
+) -> None:
+    """Plan, apply or verify the resumable artifact-processing schema migration."""
+
+    if action == "apply" and not maintenance_confirmed:
+        raise typer.BadParameter("apply requires --maintenance-confirmed after stopping old workers and writes")  # noqa: TRY003
+    with server_settings_context(env_file=env_file) as settings:
+        ready = asyncio.run(_processing_maintenance(settings, action, migration_id=migration_id, batch_size=batch_size))
+    if not ready:
+        raise typer.Exit(code=1)
+
+
+async def _processing_maintenance(
+    settings: ServerSettings,
+    action: Literal["plan", "apply", "verify"],
+    *,
+    migration_id: str,
+    batch_size: int,
+) -> bool:
+    config = settings.to_builtin_config()
+    manifest = canonical_processing_manifest(config)
+    database = settings.database
+    if isinstance(database, SQLiteConfig):
+        if database.is_in_memory:
+            raise typer.BadParameter("offline migration requires a persistent database")  # noqa: TRY003
+        opened = SQLiteProfile.open(database, tables=())
+    elif isinstance(database, OceanBaseConfig):
+        opened = OceanBaseProfile.open(database, tables=())
+    elif isinstance(database, SeekDBConfig):
+        opened = SeekDBProfile.open(database, tables=())
+    else:
+        raise typer.BadParameter("unsupported migration database")  # noqa: TRY003
+    async with opened as profile:
+        if action == "plan":
+            async with profile.database.transaction() as connection:
+                plan = await plan_processing_migration(connection, config_manifest=manifest)
+            typer.echo(plan.model_dump_json())
+            return True
+        if action == "apply":
+            while True:
+                async with profile.database.transaction() as connection:
+                    progress = await apply_processing_migration(
+                        connection,
+                        config_manifest=manifest,
+                        migration_id=migration_id,
+                        batch_size=batch_size,
+                    )
+                if progress.complete:
+                    break
+        async with profile.database.transaction() as connection:
+            verification = await verify_processing_migration(connection, config_manifest=manifest)
+        typer.echo(verification.model_dump_json())
+        return verification.ready
+
+
 @app.command()
 def run(
     host: Annotated[str | None, typer.Option(help="Address to bind.")] = None,
@@ -81,6 +165,10 @@ def run(
         Path | None,
         typer.Option(help="Load Server and provider settings from this environment file."),
     ] = None,
+    no_env_file: Annotated[
+        bool,
+        typer.Option("--no-env-file", help="Do not discover or load an environment file."),
+    ] = False,
     role: Annotated[
         Literal["all", "api", "background"] | None,
         typer.Option(help="Run all components, only APIs, or only background processing."),
@@ -88,6 +176,9 @@ def run(
 ) -> None:
     """Run the configured API and/or background service in the foreground."""
 
+    if env_file is not None and no_env_file:
+        raise typer.BadParameter("cannot be combined with --env-file", param_hint="--no-env-file")  # noqa: TRY003
+    selected_env_file = resolve_server_environment_file(env_file, discover=not no_env_file)
     role_context = (
         nullcontext()
         if role is None
@@ -97,12 +188,27 @@ def run(
         )
     )
     try:
-        with role_context, server_settings_context(host=host, port=port, env_file=env_file) as settings:
+        with (
+            role_context,
+            server_settings_context(
+                host=host,
+                port=port,
+                env_file=selected_env_file,
+                process_environment_overrides=True,
+            ) as settings,
+        ):
+            if selected_env_file is not None:
+                typer.echo(f"Loaded environment file: {selected_env_file}")
             _run_configured_server(settings)
     except ServerConfigurationError as error:
         if isinstance(error.cause, ValidationError):
             raise _friendly_bad_parameter(error.cause) from error
-        hint = "Invalid value for --env-file" if env_file is not None else "Invalid Server configuration"
+        if env_file is not None:
+            hint = "Invalid value for --env-file"
+        elif selected_env_file is not None:
+            hint = "Invalid default environment file"
+        else:
+            hint = "Invalid Server configuration"
         typer.echo(f"{hint}: {error}", err=True)
         raise typer.Exit(code=2) from error
     except MissingAuthenticationProviderError as error:
@@ -126,7 +232,7 @@ def migrate(
             raise _friendly_bad_parameter(error.cause) from error
         typer.echo(f"Invalid Server configuration: {error}", err=True)
         raise typer.Exit(code=2) from error
-    except SchemaMigrationError as error:
+    except (ProcessingSchemaNotReadyError, SchemaMigrationError) as error:
         typer.echo(f"Schema migration failed: {error}", err=True)
         raise typer.Exit(code=1) from error
     typer.echo(f"PowerContext database schema is at {revision}.")
@@ -157,27 +263,14 @@ def _run_configured_server(settings: ServerSettings) -> None:
     configure_server_logging(settings.logging)
     tracing = configure_server_tracing(settings.tracing)
     try:
+        write_inference_capability_notice(
+            generation_model=settings.inference.generation_model,
+            embedding_model=settings.inference.embedding_model,
+        )
         if settings.runtime.artifact_processing_role == "background":
-            _run_background(
-                BuiltinConfig(
-                    runtime=settings.runtime,
-                    database=settings.database,
-                    handoff_report=settings.handoff_report,
-                    inference=settings.inference,
-                    external_skills=settings.external_skills,
-                ),
-                tracing,
-            )
+            _run_background(settings, tracing)
             return
         application = create_server_app(settings=settings, tracing=tracing)
-        if settings.dashboard.enabled:
-            if application.state.dashboard_started:
-                typer.echo(f"PowerContext Dashboard: http://{settings.http.host}:{settings.http.port}/")
-            else:
-                typer.echo(
-                    f"PowerContext Dashboard failed to start: {application.state.dashboard_startup_error}",
-                    err=True,
-                )
         _run_server(
             application,
             host=settings.http.host,
@@ -212,13 +305,14 @@ def _run_server(application: Any, *, host: str, port: int) -> None:
     uvicorn.run(application, host=host, port=port, access_log=False, log_config=None)
 
 
-def _run_background(config: BuiltinConfig, tracing: Any) -> None:
+def _run_background(settings: ServerSettings, tracing: Any) -> None:
     """Run a Supervisor-only process until SIGINT or SIGTERM."""
 
-    asyncio.run(_run_background_async(config, tracing))
+    asyncio.run(_run_background_async(settings, tracing))
 
 
-async def _run_background_async(config: BuiltinConfig, tracing: Any) -> None:
+async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
+    config = settings.to_builtin_config()
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     installed: list[signal.Signals] = []
@@ -229,11 +323,30 @@ async def _run_background_async(config: BuiltinConfig, tracing: Any) -> None:
             continue
         installed.append(signum)
     try:
-        async with open_builtin_runtime(
-            config,
-            instrumentation=tracing.instrumentation,
-            tracing=tracing,
-        ):
+        async with AsyncExitStack() as resources:
+            principal = (
+                PrincipalRef(type="service", id="server-token", description="PowerContext static bearer")
+                if settings.auth.token is not None
+                else None
+            )
+            access = None
+            if settings.access.mode == "enforced":
+                access = await resources.enter_async_context(
+                    open_builtin_access_control(
+                        settings.database,
+                        bootstrap_administrators=() if principal is None else (principal,),
+                        deployment_id=settings.access.deployment_id,
+                    )
+                )
+            worker_security = build_worker_security(settings, access, legacy_static_principal=principal)
+            await resources.enter_async_context(
+                open_builtin_runtime(
+                    config,
+                    instrumentation=tracing.instrumentation,
+                    tracing=tracing,
+                    worker_security=worker_security,
+                )
+            )
             await stopped.wait()
     finally:
         for signum in installed:

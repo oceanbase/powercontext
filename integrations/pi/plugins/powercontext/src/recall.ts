@@ -82,6 +82,7 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
         scope_id: scopeId,
         query: prompt,
         max_bytes: input.runtime.config.maxBytes,
+        ...(input.runtime.config.contextAssembly === undefined ? {} : { assembly: input.runtime.config.contextAssembly }),
       }, signal)
       const prepared = validatePreparedContext(
         response.kind === 'json' ? response.value : undefined,

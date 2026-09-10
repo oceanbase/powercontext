@@ -82,6 +82,10 @@
         "minLength": 1,
         "maxLength": 256,
         "pattern": ".*\\S.*"
+      },
+      "contextAssembly": {
+        "type": "object",
+        "description": "Optional context assembly request. Omit for legacy output; use {} for standard text or set sections and show."
       }
     }
   },
@@ -97,6 +101,10 @@
     "scopeId": {
       "label": "Explicit Scope ID",
       "help": "Optional existing PowerContext Scope. When unset, the Server resolves durable OpenClaw bindings and then its default Scope."
+    },
+    "contextAssembly": {
+      "label": "Context text assembly",
+      "help": "Select Memory, Experience, and Profile sections and their order, limits, and displayed metadata."
     }
   }
 }

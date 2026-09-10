@@ -25,6 +25,9 @@ Host tool names differ; see [Connect Agents](../integrations/index.md). The
 Recall hooks ask the Server for bounded PreparedContext. An `empty` result is valid when no relevant information is
 available. Returned history does not override current instructions or live project state.
 
+Use [Prepare standard context text](prepare-context-text.md) to choose Memory, Experience, Profile, and Topic Memory
+sections, set their order and limits, and configure the total entry limit.
+
 Capturing a prompt creates Source evidence. It does not guarantee Memory extraction. Enable a generation model and
 Source processing through [model configuration](../get-started/configure-models.md); configure embeddings only
 when [vector or hybrid search](configure-vector-search.md) is needed. Review the host's prompt-capture switch before

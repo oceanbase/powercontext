@@ -249,3 +249,6 @@ integrations/pi/*.tgz
 integrations/pi/plugins/powercontext/node_modules/
 integrations/pi/plugins/powercontext/coverage/
 integrations/pi/plugins/powercontext/*.tgz
+
+# Local acceptance databases and redacted run artifacts
+.artifacts/

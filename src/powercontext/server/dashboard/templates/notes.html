@@ -1,0 +1,56 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="notes-view">
+{% include 'components/collection-style.html' %}
+<style>
+  me .note-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+  [data-bs-theme="dark"] me .accordion-button-toggle img { filter: invert(1); }
+</style>
+{% from 'components/pagination.html' import pagination %}
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/search.html' import search_form with context %}
+{{ page_heading(t.notes, t.notes_subtitle) }}
+{{ search_form(t.search_notes, 8192) }}
+{% if search_limited %}<p class="text-secondary">{{ t.notes_search_limit }}</p>{% endif %}
+{% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% endif %}
+{% if not errors.get('notes') or data.notes or selected_note %}
+<div class="row row-cards">
+  <aside class="col-xl-4"><div class="card memory-directory">
+    <style>
+      me .memory-items { display: grid; grid-template-rows: repeat({{ notes_page_size }}, minmax(calc(2lh + 2 * var(--tblr-list-group-item-padding-y) + var(--tblr-spacer-2) + var(--tblr-list-group-border-width)), 1fr)); flex: 1; }
+      me .memory-empty { grid-row: 1 / -1; }
+      me .note-selector { min-width: 0; }
+      @media (min-width: 1200px) { me { min-height: 65dvh; } }
+    </style>
+    <nav class="list-group list-group-flush memory-items d-none d-xl-grid" aria-label="{{ t.notes_list }}">
+      {% for item in data.notes %}<a class="list-group-item list-group-item-action note-selector {% if selected_note and selected_note.entry_id == item.entry_id %}active{% endif %}" href="{{ link('notes', entry=item.entry_id, fragment='note-reading') }}" hx-swap="outerHTML show:#note-reading:top" {% if selected_note and selected_note.entry_id == item.entry_id %}aria-current="true"{% endif %}>
+        {% if item.kind is defined %}<span class="small d-block mb-2">{{ t.get(item.kind, item.kind) }}</span>{% endif %}<span class="note-summary d-block text-truncate fw-normal">{{ item.text|truncate(48, true) }}</span>
+      </a>{% else %}<div class="empty memory-empty d-flex flex-column justify-content-center"><h2 class="empty-title">{{ t.notes_no_match if search_query else t.notes_empty }}</h2></div>{% endfor %}
+    </nav>
+    {% include 'components/memory-accordion.html' %}
+    <div class="card-footer collection-footer">{{ pagination(notes_pager, t, compact=true, always=true) }}</div>
+  </div></aside>
+  <section class="col-xl-8 d-none d-xl-flex flex-column" id="note-reading" tabindex="-1" aria-label="{{ t.note_reading }}"><article class="card collection-panel flex-fill">
+    <div class="card-body note-reading collection-content" tabindex="0" role="region" aria-label="{{ t.notes }}">
+      {% if selected_note %}
+      <p class="note-text">{{ selected_note.text }}</p>
+      {% elif data.notes %}<div class="empty"><h2>{{ t.not_found }}</h2><a class="btn" href="{{ link('notes') }}">{{ t.notes_list }}</a></div>{% else %}<div class="empty"><p class="empty-subtitle">{{ t.notes_no_match if search_query else t.notes_empty_body }}</p></div>{% endif %}
+    </div>
+  </article></section>
+</div>
+{% endif %}
+</div>

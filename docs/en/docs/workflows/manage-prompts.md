@@ -11,19 +11,17 @@ which is a separate workflow.
 
 ## Edit and verify
 
-1. Open the Server Dashboard, select **Prompts**, and choose the intended Scope and operation.
-2. Check the displayed capability. Customization requires a configured provider and an enabled operation. An injected
-   component may manage its own prompts and report customization as unsupported.
-3. Select **Custom**, edit the instructions, and add complete JSON input/output demonstrations if needed.
-   Generated demonstrations are suggestions; inspect them before saving.
-4. Choose **Save new revision**. A successful save creates an immutable Prompt Revision. If the head changed,
-   reload the current revision and reconcile your edits.
-5. Run the intended operation again and inspect its output. Saving a Prompt does not reprocess historical Sources
-   or rerun previous operations.
+1. Read current configuration, built-in instructions, and operation status through
+   `GET /v1/scopes/{scope_id}/prompts/{prompt_key}`. Disabled operations remain readable; saving configuration does not
+   enable them. Externally managed components may not expose built-in instructions.
+2. Set Custom instructions and complete JSON input/output demonstrations using the Prompt content contract.
+   Inspect generated demonstrations before saving them.
+3. Create or conditionally replace the Prompt through the Artifact API. A successful save creates an immutable Revision.
+   Read the current head again and reconcile edits if a version conflict occurs.
+4. Run the intended operation and inspect its output. Saving a Prompt does not reprocess historical Sources or rerun operations.
 
-Select **Auto** and save to use the currently deployed built-in guidance. **Restore as new revision** restores selected
-historical content by creating a new head; it does not remove intervening history. Restoring an Auto revision resolves
-the current built-in guidance, not a frozen copy of an older deployment.
+Save Auto mode to use the current deployment's built-in guidance. Restore historical content as a new Revision,
+preserving intervening history; restoring Auto uses current built-in instructions. The Dashboard has no Prompt editor.
 
 In enforced mode, creation, replacement, switching to Auto, and restoration require current `scope.admin` authority.
 Owning a Prompt Artifact does not permit changes after that Scope role is revoked.

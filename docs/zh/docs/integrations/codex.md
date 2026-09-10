@@ -61,6 +61,11 @@ Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`
 Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
 [理解 Memory 和 Handoff](../workflows/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](../workflows/handoff-with-codex.md)。
 
+## 选择标准上下文文本
+
+在启动 Codex 前，将 `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` 设置为 JSON 组装对象，即可选择 Memory/Experience
+的输出类别、顺序、条数和展示信息。完整示例与输出规则见[输出标准上下文文本](../workflows/prepare-context-text.md)。
+
 ## 控制提示词采集
 
 默认开启提示词采集。如果当前工作不应被记录，请在启动 Codex 前关闭：

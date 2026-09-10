@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "name": "powercontext",
+  "displayName": "PowerContext",
+  "version": "0.2.0",
+  "description": "Recall project decisions, maintain explicit memory, and hand off work with verifiable evidence.",
+  "author": "PowerContext Team",
+  "icon": "icon.png",
+  "category": "Code",
+  "exampleQueries": [
+    "Search prior project decisions about database migrations.",
+    "Remember this project constraint for future tasks.",
+    "Prepare a handoff of the current work with its evidence and next action."
+  ],
+  "apps": [],
+  "mcpServers": [
+    "powercontext.mcp.json"
+  ],
+  "skills": [
+    "skills/powercontext-project-context/SKILL.md"
+  ]
+}

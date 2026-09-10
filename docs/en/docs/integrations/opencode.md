@@ -39,8 +39,7 @@ captures eligible prompt text through `POST /v1/sources/content`. Prepared conte
 and inserted transiently before model dispatch; it is not stored in the OpenCode transcript.
 
 Named `pc_*` tools expose curated Memory, Handoff, Experience, Skill, and read-only Candidate operations. OpenCode
-asks for confirmation before a durable mutation. Candidate approval and rejection remain explicit human CLI or
-Dashboard actions.
+asks for confirmation before a durable mutation. Candidate approval and rejection remain explicit human CLI actions.
 
 ## Configure the connection
 

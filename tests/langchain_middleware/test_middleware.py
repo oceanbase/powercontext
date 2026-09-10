@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient
 from powercontext.http import (
@@ -117,6 +117,7 @@ def _server_app(tmp_path: Path) -> FastAPI:
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             inference=InferenceConfig(generation_model="test"),
+            runtime=RuntimeConfig(artifact_processing_families=()),
             mcp=McpConfig(enabled=False),
         ),
         candidate_pipeline=_ContentCandidatePipeline(),

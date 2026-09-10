@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
@@ -188,11 +188,51 @@ class MemorySearchPage(BaseModel):
     rerank: MemoryRerankTrace | None = None
 
 
+class ContextAssemblySection(_PreparedContextModel):
+    """One selected Artifact family and its maximum output count."""
+
+    family: Literal["memory", "experience", "profile", "topic-memory"]
+    limit: Annotated[int, Field(ge=1, le=8)]
+
+    @model_validator(mode="after")
+    def validate_limit(self) -> ContextAssemblySection:
+        if self.family == "experience" and self.limit > 2:
+            raise ValueError("Experience sections cannot include more than two entries")  # noqa: TRY003
+        return self
+
+
+class ContextAssembly(_PreparedContextModel):
+    """Request-local selection and presentation of historical context."""
+
+    format: Literal["markdown"] = "markdown"
+    sections: Annotated[tuple[ContextAssemblySection, ...], Field(max_length=4, strict=False)] = (
+        ContextAssemblySection(family="memory", limit=6),
+        ContextAssemblySection(family="experience", limit=2),
+    )
+    show: Annotated[tuple[Literal["confidence", "recall_rank"], ...], Field(max_length=2, strict=False)] = ()
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> ContextAssembly:
+        if len({section.family for section in self.sections}) != len(self.sections):
+            raise ValueError("Assembly families must be unique")  # noqa: TRY003
+        if len(set(self.show)) != len(self.show):
+            raise ValueError("Assembly metadata fields must be unique")  # noqa: TRY003
+        return self
+
+
 class PrepareContextRequest(_PreparedContextModel):
     """Prepare bounded context for one Agent turn."""
 
     query: Annotated[str, Field(min_length=1, max_length=8192)]
     max_bytes: Annotated[int, Field(ge=512, le=32768)] = 8000
+    assembly: ContextAssembly | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_null_assembly(cls, value: Any) -> Any:
+        if isinstance(value, Mapping) and "assembly" in value and value["assembly"] is None:
+            raise ValueError("assembly must be omitted or contain an object")  # noqa: TRY003
+        return value
 
     @field_validator("query")
     @classmethod

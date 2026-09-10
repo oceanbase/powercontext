@@ -30,12 +30,18 @@ import httpx
 from bub import Settings, config, ensure_config, hookimpl
 from bub.hooks.interception import LlmCallRequest, LlmCallResult, ToolCall, ToolCallResult
 from bub.turn import TurnState
-from pydantic import Field, HttpUrl
+from pydantic import Field, HttpUrl, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
 from powercontext.client.capture import render_capture_event
 from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest
+
+try:
+    from powercontext.http import ContextAssembly
+except ImportError:
+    # Older core releases support legacy recall but cannot accept assembly settings.
+    from types import NoneType as ContextAssembly
 
 from .scope import resolve_scope_id, workspace_binding_key
 
@@ -65,11 +71,22 @@ class PowerContextSettings(Settings):
     scope_id: str | None = Field(default=None, min_length=1)
     timeout: float = Field(default=10, gt=0)
     max_bytes: int = Field(default=8000, ge=512, le=32768)
+    context_assembly: ContextAssembly | None = None
     capture_events: bool = False
     capture_checkpoint_every: int = Field(default=5, ge=1, le=100)
     capture_max_bytes: int = Field(default=8192, ge=512, le=32768)
     capture_log: Path | None = None
     trust_transport_security: bool = False
+
+    @field_validator("context_assembly", mode="before")
+    @classmethod
+    def validate_assembly_support(cls, value: object) -> object:
+        if value is not None and ContextAssembly is type(None):
+            raise ValueError(  # noqa: TRY003
+                "context_assembly requires a PowerContext core with text assembly support; "
+                "install the core and adapter from the same checkout"
+            )
+        return value
 
 
 def open_client(
@@ -123,6 +140,8 @@ class PowerContextPlugin:
                 "binding_keys": binding_keys,
                 "timeout": self.settings.timeout,
                 "trust_transport_security": self.settings.trust_transport_security,
+                "max_bytes": self.settings.max_bytes,
+                "context_assembly": self.settings.context_assembly,
                 "capture_sequence": 0,
                 "captured_events": 0,
                 "captured_position": 0,
@@ -254,6 +273,7 @@ class PowerContextPlugin:
             scope_id=scope_id,
             query=query,
             max_bytes=self.settings.max_bytes,
+            **({"assembly": self.settings.context_assembly} if self.settings.context_assembly is not None else {}),
         )
         try:
             async with self._client() as client:

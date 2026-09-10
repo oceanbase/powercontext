@@ -5,7 +5,7 @@ description: Register explicit local Codex or Claude Code Skill directories for 
 
 # Install Skills in Agents
 
-Register a local target before scanning external Skills or publishing an approved managed Skill from the Server UI.
+Register a local target before scanning external Skills or publishing an approved managed Skill programmatically.
 
 ## 1. Set the target configuration
 

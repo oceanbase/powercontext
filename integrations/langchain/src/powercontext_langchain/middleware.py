@@ -139,6 +139,7 @@ class PowerContextMiddleware(AgentMiddleware[AgentState[ResponseT], PowerContext
                     scope_id=scope_id,
                     query=query[:_MAX_QUERY_CHARS],
                     max_bytes=config.max_bytes,
+                    **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
                 )
                 prepared = await client.prepare_context(request)
         except ValidationError:

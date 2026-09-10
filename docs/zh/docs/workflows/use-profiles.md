@@ -50,9 +50,13 @@ PUT /v1/scopes/S_GROUP/profile-policy
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED=true
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_CRON="0 2 * * *"
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_TIMEZONE="Asia/Shanghai"
-export POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_CONCURRENCY=4
+export POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS=4
 export POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_SOURCES_PER_WINDOW=32
 ```
+
+cron 自动准入只处理 Policy 中 `generation_enabled=true` 的 Scope。没有 Policy 或 Policy 已禁用时，
+保留原有 Source，不产生自动请求，也不启动 Worker；启用 Policy 后，原有输入可在后续 cron 处理。
+已经接受的显式请求仍遵守原有授权和完成语义。
 
 启用权限的后台任务使用已有 `POWERCONTEXT_SERVER_ACCESS_BACKGROUND_PRINCIPAL_ID` 配置；
 该服务 Principal 必须获得相关 Scope 和已有 Artifact 的写权限。静态本地管理员部署可复用原有后台身份。
@@ -62,7 +66,7 @@ export POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_SOURCES_PER_WINDOW=32
 返回 updated、noop、review_pending、disabled 或 conflict。模型请求遵守现有 generation timeout 和请求上限。
 失败不消费窗口；lineage_only Source 被过滤；正文没变化只推进 Cursor，不新增自动 Revision。
 
-每窗口最多 32 条原始 journal 记录；引用旧画像时最多 31 条。每 Scope 每轮最多 100 窗口。
+每窗口最多 32 条原始 journal 记录；引用旧画像时最多 31 条。每次准入的 Scope 调用处理一个有限窗口，剩余普通工作保留 dirty，等待后续 cron 准入。
 多实例可能重复调用模型，但 Policy/Cursor/Head 校验只允许一个结果提交。没有新 Source 就不重新生成。
 
 ## 审核、修改与回退
@@ -101,6 +105,13 @@ POST /v1/scopes/S_GROUP/artifacts
 无论目标是否已有画像，请求都返回 HTTP 422（`artifact_publication_unsupported`，`details.family=profile`），
 不创建或修改目标状态。应基于目标 Scope 自身的 Source 生成画像，或使用其已有 Create/Replace 接口。
 其他支持发布的制品保持原行为。
+
+## 在 PreparedContext 中输出画像
+
+调用 `POST /v1/context/prepare` 时，设置
+`assembly.sections: [{"family":"profile","limit":1},{"family":"memory","limit":6}]`，
+即可先输出正式画像，再输出相关记忆。选择 Profile 只读取已有快照，不触发生成；默认 prepare 请求不包含
+Profile。Scope 顺序、数量限制和插件配置见[输出标准上下文文本](prepare-context-text.md#加入-profile-画像)。
 
 ## 存储与升级边界
 

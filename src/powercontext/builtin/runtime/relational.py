@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
@@ -130,6 +130,7 @@ from powercontext.builtin.persistence.handoff import (
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.skill_publications import SkillPublicationRepository
@@ -214,6 +215,15 @@ from powercontext.sources import (
 )
 
 IdFactory = Callable[[str], str]
+
+
+if TYPE_CHECKING:
+    from powercontext.builtin.runtime.processing_execution import ScopeInvocation
+
+
+MemorySnapshotAuthorizer = Callable[[Memory | None], Awaitable[None]]
+MemoryCommitHook = Callable[[AsyncConnection, Memory | None, Memory | None], Awaitable[None]]
+ExperienceCommitHook = Callable[[AsyncConnection, tuple[ArtifactCandidate[ExperienceContent], ...]], Awaitable[None]]
 
 
 def _artifact_identity(ref: ArtifactRef) -> tuple[str, str, int]:
@@ -449,7 +459,7 @@ class RelationalContexts:
         handoff_verification_keys: tuple[bytes, ...] = (),
     ) -> None:
         self.database = database
-        self.scopes = ScopeApplication(database)
+        self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         self.index = NoMemoryIndex() if index is None else index
         self.topic_memory_index = NoTopicMemoryIndex() if topic_memory_index is None else topic_memory_index
@@ -731,6 +741,10 @@ class RelationalContexts:
                 scope,
                 TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
             )
+            if pending is not None:
+                await ArtifactProcessingIntentRepository().request(
+                    connection, scope, TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                )
         return pending is not None
 
     async def browse_topic_memories(
@@ -1141,7 +1155,31 @@ class RelationalContexts:
             ).scalars()
             return tuple(str(value) for value in values)
 
-    async def incubate_experience(self, scope_id: str, limit: int, /) -> ExperienceIncubationResult:
+    async def process_memory(
+        self,
+        scope_id: str,
+        limit: int,
+        /,
+        *,
+        processing: ScopeInvocation | None = None,
+        authorize_snapshot: MemorySnapshotAuthorizer | None = None,
+        on_commit: MemoryCommitHook | None = None,
+    ) -> MemoryFlushResult:
+        services = self._services_for(scope_id)
+        return await _RelationalTriggers(
+            services=services,
+            lock=self._activation_locks.setdefault(services.scope_id, asyncio.Lock()),
+        ).flush(limit=limit, processing=processing, authorize_snapshot=authorize_snapshot, on_commit=on_commit)
+
+    async def incubate_experience(
+        self,
+        scope_id: str,
+        limit: int,
+        /,
+        *,
+        processing: ScopeInvocation | None = None,
+        on_commit: ExperienceCommitHook | None = None,
+    ) -> ExperienceIncubationResult:
         """Process one independent Task Outcome Source window for Review."""
 
         services = self._services_for(scope_id)
@@ -1150,7 +1188,7 @@ class RelationalContexts:
         return await _RelationalExperienceIncubator(
             services=services,
             lock=self._experience_locks.setdefault(services.scope_id, asyncio.Lock()),
-        ).flush(limit=limit)
+        ).flush(limit=limit, processing=processing, on_commit=on_commit)
 
     async def get(
         self,
@@ -1423,9 +1461,18 @@ class _RelationalTriggers:
         return self._trigger.initial_state() if state is None else state.cursor
 
     @prompt_operation("memory.extract")
-    async def flush(self, *, limit: int) -> MemoryFlushResult:
+    async def flush(
+        self,
+        *,
+        limit: int,
+        processing: ScopeInvocation | None = None,
+        authorize_snapshot: MemorySnapshotAuthorizer | None = None,
+        on_commit: MemoryCommitHook | None = None,
+    ) -> MemoryFlushResult:
         async with self._lock:
             async with self._services.database.transaction() as connection:
+                if processing is not None:
+                    await processing.start(connection)
                 state_row = await self._services.repositories.cursors.load(
                     connection,
                     self._services.scope_id,
@@ -1439,6 +1486,8 @@ class _RelationalTriggers:
                 signal = SourceHighWatermark(sequence=high_watermark, limit=limit)
                 transition = self._trigger.activate(signal, state)
                 sources = () if not transition.actions else await self._sources(connection, transition.actions[0])
+                if not transition.actions and processing is not None:
+                    await processing.complete(connection, remaining_work=False)
             if not transition.actions:
                 return MemoryFlushResult(
                     previous_cursor=state.sequence,
@@ -1451,6 +1500,8 @@ class _RelationalTriggers:
             action = transition.actions[0]
             if not sources:
                 async with self._services.database.transaction() as connection:
+                    if processing is not None:
+                        await processing.guard(connection)
                     await self._services.repositories.cursors.save(
                         connection,
                         self._services.scope_id,
@@ -1458,6 +1509,8 @@ class _RelationalTriggers:
                         transition.state,
                         expected_generation=None if state_row is None else state_row.generation,
                     )
+                    if processing is not None:
+                        await processing.complete(connection, remaining_work=action.through < high_watermark)
                 return MemoryFlushResult(
                     previous_cursor=action.after,
                     high_watermark=high_watermark,
@@ -1465,8 +1518,10 @@ class _RelationalTriggers:
                     source_count=0,
                     memory_ref=None,
                 )
-            prepared = await self._prepare_memory(sources)
+            prepared = await self._prepare_memory(sources, authorize_snapshot=authorize_snapshot)
             async with self._services.database.transaction() as connection:
+                if processing is not None:
+                    await processing.guard(connection)
                 _, source_catalog = self._services.sources(connection)
                 updated = await self._services.memory(source_catalog, connection).apply(prepared)
                 await self._services.repositories.cursors.save(
@@ -1476,6 +1531,11 @@ class _RelationalTriggers:
                     transition.state,
                     expected_generation=None if state_row is None else state_row.generation,
                 )
+                if on_commit is not None:
+                    before = prepared.result if prepared.commit is None else prepared.commit.base
+                    await on_commit(connection, before, updated)
+                if processing is not None:
+                    await processing.complete(connection, remaining_work=action.through < high_watermark)
             return MemoryFlushResult(
                 previous_cursor=action.after,
                 high_watermark=high_watermark,
@@ -1499,13 +1559,17 @@ class _RelationalTriggers:
             row.value for row in rows if row.journal_position <= action.through and is_generation_eligible(row.value)
         )
 
-    async def _prepare_memory(self, sources: tuple[Source, ...]) -> MemoryWritePlan:
+    async def _prepare_memory(
+        self, sources: tuple[Source, ...], *, authorize_snapshot: MemorySnapshotAuthorizer | None = None
+    ) -> MemoryWritePlan:
         _, source_catalog = self._services.sources()
         service = self._services.memory(source_catalog)
         try:
             current = await service.head(self._services.memory_artifact_id)
         except ArtifactNotFoundError:
             current = None
+        if authorize_snapshot is not None:
+            await authorize_snapshot(current)
         return await service.plan_remember(memory=current, sources=sources, mode="extract")
 
 
@@ -1524,9 +1588,17 @@ class _RelationalExperienceIncubator:
         self._trigger = SourceWindowTrigger()
 
     @prompt_operation("experience.incubate")
-    async def flush(self, *, limit: int) -> ExperienceIncubationResult:
+    async def flush(  # noqa: C901
+        self,
+        *,
+        limit: int,
+        processing: ScopeInvocation | None = None,
+        on_commit: ExperienceCommitHook | None = None,
+    ) -> ExperienceIncubationResult:
         async with self._lock:
             async with self._services.database.transaction() as connection:
+                if processing is not None:
+                    await processing.start(connection)
                 state_row = await self._services.repositories.cursors.load(
                     connection,
                     self._services.scope_id,
@@ -1542,6 +1614,8 @@ class _RelationalExperienceIncubator:
                     state,
                 )
                 rows = () if not transition.actions else await self._sources(connection, transition.actions[0])
+                if not transition.actions and processing is not None:
+                    await processing.complete(connection, remaining_work=False)
             if not transition.actions:
                 return ExperienceIncubationResult(
                     previous_cursor=state.sequence,
@@ -1558,6 +1632,8 @@ class _RelationalExperienceIncubator:
             eligible_rows = tuple(row for row in rows if is_generation_eligible(row.value))
             if not eligible_rows:
                 async with self._services.database.transaction() as connection:
+                    if processing is not None:
+                        await processing.guard(connection)
                     await self._services.repositories.cursors.save(
                         connection,
                         self._services.scope_id,
@@ -1565,6 +1641,8 @@ class _RelationalExperienceIncubator:
                         transition.state,
                         expected_generation=None if state_row is None else state_row.generation,
                     )
+                    if processing is not None:
+                        await processing.complete(connection, remaining_work=action.through < high_watermark)
                 return ExperienceIncubationResult(
                     previous_cursor=action.after,
                     high_watermark=high_watermark,
@@ -1577,7 +1655,10 @@ class _RelationalExperienceIncubator:
             prompt_refs = () if selection is None or selection.artifact is None else (selection.artifact,)
             _validate_experience_plans(plans, eligible_rows)
             candidate_ids: list[str] = []
+            candidates: list[ArtifactCandidate[ExperienceContent]] = []
             async with self._services.database.transaction() as connection:
+                if processing is not None:
+                    await processing.guard(connection)
                 review = self._services.review(connection)
                 for plan in plans:
                     candidate = await review.propose_experience(
@@ -1588,6 +1669,7 @@ class _RelationalExperienceIncubator:
                         reason=plan.reason,
                     )
                     candidate_ids.append(candidate.candidate_id)
+                    candidates.append(candidate)
                 await self._services.repositories.cursors.save(
                     connection,
                     self._services.scope_id,
@@ -1595,6 +1677,10 @@ class _RelationalExperienceIncubator:
                     transition.state,
                     expected_generation=None if state_row is None else state_row.generation,
                 )
+                if on_commit is not None:
+                    await on_commit(connection, tuple(candidates))
+                if processing is not None:
+                    await processing.complete(connection, remaining_work=action.through < high_watermark)
             return ExperienceIncubationResult(
                 previous_cursor=action.after,
                 high_watermark=high_watermark,

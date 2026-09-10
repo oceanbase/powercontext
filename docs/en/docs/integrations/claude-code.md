@@ -151,10 +151,9 @@ export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 claude
 ```
 
-The Hook and MCP `headersHelper` read this process environment value. The helper emits no `Authorization` header when
-the variable is absent. It uses a Python 3 command that does not depend on plugin-path expansion, avoiding both Claude
-2.1.133's failure to expand `${CLAUDE_PLUGIN_ROOT}` in `headersHelper` and a `python` command that may resolve to
-Python 2. Never put the token in the Server URL, plugin options, `.mcp.json`, Source metadata, or logs.
+The Hook reads this process environment value directly, while the MCP configuration expands it into the
+`Authorization` header. The MCP header defaults to an empty value when the variable is absent. Never put the token in
+the Server URL, plugin options, `.mcp.json`, Source metadata, or logs.
 
 Plain HTTP is accepted only for `127.0.0.1`, `localhost`, or `::1`. Use HTTPS when Claude Code connects to a remote
 Server.

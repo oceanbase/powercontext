@@ -1,0 +1,78 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div id="workspace" class="page" hx-boost="true" hx-target="#workspace" hx-select="#workspace" hx-swap="outerHTML" hx-sync="#workspace:replace" hx-indicator="#request-status">
+  <style>
+    me .page-body { overflow-wrap: anywhere; }
+    me #main:focus, me #note-reading:focus { outline: none; }
+    me.htmx-request { cursor: progress; }
+    me .source-text { white-space: pre-wrap; }
+  </style>
+  {% include "components/navigation.html" %}
+  <div class="page-wrapper">
+    <div id="request-status" class="htmx-indicator pe-none position-fixed top-0 end-0 m-3 p-2 bg-surface rounded shadow-sm z-3 small" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ t.loading }}</div>
+    <main class="page-body" id="main" tabindex="-1" data-title="{{ t[page] }} · PowerContext"><div class="container-xl">
+      <div id="network-error" class="alert alert-warning" role="alert" hidden>
+        {{ t.loading_error }} <a href="{{ link() }}">{{ t.retry }}</a>
+      </div>
+      {% from 'components/read-error.html' import read_error with context %}
+      {% if page_error %}
+        {{ read_error(page_error) }}
+      {% elif (not scope_descriptor and not record_only) or page == 'entry' %}
+        {% include 'entry.html' %}
+      {% else %}
+        {% include page ~ '.html' %}
+      {% endif %}
+    </div></main>
+  </div>
+  <script>
+    {
+      const workspace = me();
+      const feedback = me('#network-error', workspace);
+      workspace.on('htmx:beforeRequest', event => {
+        feedback.attribute('hidden', '');
+        const sourceFeedback = event.detail.target?.querySelector('[data-source-error]');
+        if (sourceFeedback) me(sourceFeedback).attribute('hidden', '');
+      });
+      workspace.on('htmx:beforeSwap', event => {
+        if ([401, 403, 404, 409, 422, 500, 503].includes(event.detail.xhr.status) && event.detail.xhr.getResponseHeader('X-Dashboard-HTML') === '1') {
+          event.detail.shouldSwap = true;
+          event.detail.isError = false;
+        }
+      });
+      const main = me('#main', workspace);
+      document.title = main.dataset.title;
+      workspace.on('htmx:load', event => {
+        if (event.detail.elt !== workspace) return;
+        const reading = location.hash === '#note-reading' ? me('#note-reading', workspace) : null;
+        (reading || main).focus({ preventScroll: true });
+      });
+      for (const name of ['htmx:sendError', 'htmx:responseError']) {
+        workspace.on(name, event => {
+          const sourceFeedback = event.detail.target?.querySelector('[data-source-error]');
+          if (sourceFeedback) {
+            const retry = me('[data-source-retry]', sourceFeedback);
+            retry.attribute('href', event.detail.requestConfig.path);
+            htmx.process(retry);
+            me(sourceFeedback).attribute('hidden', null);
+          } else {
+            feedback.attribute('hidden', null);
+          }
+        });
+      }
+    }
+  </script>
+</div>

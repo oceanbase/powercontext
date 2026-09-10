@@ -7,8 +7,9 @@ description: PowerContext 路径、Server、Client 和推理环境变量。
 
 Windows 支持为 `experimental`。
 
-PowerContext 进程启动时从环境变量读取配置。CLI 不会自动搜索 `.env` 文件。接受 `--env-file` 的命令会从该文件加载环境变量（包括
-Server 与 provider 设置），并覆盖进程中的同名值。Agent 宿主可按自身规则加载环境文件。
+PowerContext 进程启动时从环境变量读取配置。当前工作目录存在 `.env` 时，`server run` 会自动加载该文件。使用
+`--env-file <path>` 可改为加载指定文件且不再合并 `.env`；使用 `--no-env-file` 可禁用文件加载。`server run` 的配置
+优先级为：CLI 参数、进程环境变量、所选环境文件、默认值。Agent 宿主可按自身规则加载环境文件。
 
 生成、脱敏查看、校验和启动配置文件的完整流程见[配置 Server 环境](../get-started/configure-server-environment.md)。所有环境
 文件都应视为包含机密的部署产物。
@@ -30,8 +31,9 @@ export POWERCONTEXT_HOME=/srv/powercontext
 - macOS：`~/Library/Application Support/powercontext`；
 - Windows：`%LOCALAPPDATA%\\powercontext`。
 
-默认 SQLite 数据库是该目录下的 `powercontext.db`。定时处理、租约和 operation 状态使用同一个数据库；执行路径
-不再使用旧的 `scheduler.db` sidecar。
+默认 SQLite 数据库是该目录下的 `powercontext.db`。四类后台处理器的意图与调度检查点保存在同一数据库中。
+分布式 Work Ledger 的租约与 operation 状态也保存在这里；执行路径不再使用旧的 `scheduler.db` sidecar。
+已有部署须先完成[停机迁移](artifact-processing-migration.md)。
 
 ## Server
 
@@ -44,6 +46,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP 路径 |
+| `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `false` | 个人与演示 Dashboard；要求静态 Bearer 鉴权，不支持注入认证或授权 Provider |
 | `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | 旧静态 Bearer 兼容开关；`true` 自动映射为 `ACCESS_MODE=enforced`，并要求设置 `AUTH_TOKEN` |
 | `POWERCONTEXT_SERVER_AUTH_TOKEN` | 未设置 | 旧静态 Bearer token；未注入 Authentication Provider 时作为兼容认证并映射为内置管理员 |
 | `POWERCONTEXT_SERVER_ACCESS_MODE` | `disabled` | 唯一正式 Access 开关：`disabled` 或 `enforced` |
@@ -53,7 +56,6 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_PUBLIC_URL` | 未设置 | 远端技能注册引导使用的可达基础地址；默认要求 HTTPS |
 | `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | 显式允许远端技能接收端接口和注册引导使用明文 HTTP |
 | `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK` | `false` | 在鉴权关闭时显式允许绑定非 loopback 地址 |
-| `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `true` | 在 Server 根路径 `/` 启用 Dashboard |
 | `POWERCONTEXT_SERVER_HANDOFF_REPORT_ENABLED` | `true` | 启用 Handoff Report 及其 API route |
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | operational log 级别 |
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` 或结构化 `json` 输出 |
@@ -93,18 +95,27 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RATE_LIMIT_WINDOW_SECONDS` | `60` | 共享限流窗口时长 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | 显式 `assembly.sections[].limit` 之和的上限；正整数，各类别单独上限仍适用 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
-| `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` | 未设置 | Scheduler 间隔；未设置即不启用 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 按 binding 的自动波次间隔；未设置即关闭自动波次 |
-| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 单个 Topic Memory Worker 最多处理的 Source 数量，硬上限为 100 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MAX_CANDIDATES` | `20` | 处理时考虑的历史 Topic 候选上限 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_RRF_THRESHOLD` | `70` | 归一化到 `0..100` 的 RRF 接受阈值 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_HISTORY_MIN_CANDIDATES` | `5` | 达到阈值的候选过少时保证的最小历史召回数 |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_MAX_WORKERS` | `10` | 所有 Artifact binding 共用的全局子 Worker 并发数 |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` | `600` | Supervisor 对单个有界 Source Window 子 Worker 的超时 |
-| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | 进程角色：`all`、`api` 或 `background` |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_MAX_WORKERS` | `10` | Topic 独立 Worker 额度；`ARTIFACT_PROCESSING_MAX_WORKERS` 是其兼容别名 |
+| `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | 包括启动的 Scope 调用总超时；旧 `ARTIFACT_PROCESSING_WORKER_TIMEOUT_SECONDS` 是其兼容别名 |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_ROLE` | `all` | 单机 Supervisor 角色：`all`、`api` 或 `background`；分布式模式由 `DEPLOYMENT_ROLE` 拆分进程，因此此项必须为 `all` |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_SUPERVISOR_MODE` | `global` | `global` 一条 Lease；`dedicated` 每个注册 Family 一条 Lease |
+| `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | 根据模型推导 | JSON Family 列表；API 端可无模型凭据地声明处理能力 |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Memory 独立 Worker 额度 |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_MAX_WORKERS` | `1` | Experience 独立 Worker 额度 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS` | `4` | Profile 独立 Worker 额度；别名 `PROFILE_MAX_CONCURRENCY` |
+| `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Profile Scope 总超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | 未设置 | 配置的 extraction、generation、Handoff 和 rerank 操作共用的 Pydantic AI 模型 |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider 默认值 | 自定义 generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | generation client 静态 header JSON object；value 按 secret 处理 |
@@ -127,7 +138,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MODEL_SETTINGS` | `{}` | Pydantic AI reranker model settings JSON object |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_TIMEOUT_SECONDS` | generation 超时 | LLM reranker 超时 |
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
-| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 孵化间隔；未设置即不启用该 job |
+| `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 自动准入间隔；未设置时保留已接受工作，停止新的自动准入 |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
 
 Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
@@ -167,12 +178,23 @@ Authentication 负责建立 Principal，Access Control 负责判断该 Principal
 用户 A 和用户 B。兼容静态 token 会为这个 Principal 显式写入 Server 与各 scope 所需的 role。需要让不同用户或 group
 获得不同权限时，应注入部署侧 Authentication Provider 与相应的 AccessControlService。
 
-定时 Source 处理和 Experience 孵化使用固定静态 Principal，或 `ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的 service Principal。
-该 Principal 必须在每个被处理的 scope 上拥有 `scope.contribute`；新 Memory Entry 和 Candidate 会保留它作为直接 owner 或
-`proposed_owner`。多用户 enforced 部署配置了 schedule 却未显式指定该 Principal 时，Server 会拒绝启动。
+Memory、Topic Memory、Experience、Profile 四类后台优先使用 `ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的 service Principal，
+缺省时回退到固定静态 Principal。该身份须在每个被处理的 scope 上拥有 `scope.contribute`，并拥有被修改的现有 Artifact 的写权限。
+新 Entry、Artifact 与 Candidate 的 owner 或 owner attestation 和处理完成确认同事务提交。
+enforced 部署启用后台能力时，若身份或授权 provider 无法在子进程重建，启动会失败；关闭自动 schedule 仍需恢复已接受的工作，
+因此不能免除此检查。内置 provider 支持重建；注入的 provider 和模型对象仍可用于关闭后台能力
+（`ARTIFACT_PROCESSING_FAMILIES=[]`）的同步 SDK/Server 操作。
 
-远程、多用户或共享 Dashboard 必须使用 `enforced`。此模式下，HTTP、MCP、Dashboard 数据路由和 metrics 共用同一个
-Server PEP；Dashboard 配置的 scope 会在返回前按当前 Principal 的 `scope.read` 判定过滤。`/v1/access/me` 返回
+未配置 Server 身份的 SDK Worker 不需要 Server 授权依赖。内置后台 Worker 使用内置 Source Definition。
+自定义 Source Registry 须为每个启用的 Family 提供自定义 processing binding，或通过
+`ARTIFACT_PROCESSING_FAMILIES=[]` 关闭内置后台 Family；否则启动在接受工作前失败。
+仅关闭 schedule 不足以满足要求，因为显式请求仍会启动 Worker。同步 SDK Context 和纯 API 组合仍支持自定义 Source Registry。
+
+受鉴权保护的 `/metrics` 暴露 `powercontext_server_artifact_processing_*` 指标，只使用 `family` 标签，涵盖 Worker 额度、
+ready/retry 队列、未确认 Scope 数、发现与调用耗时，以及完成、失败、超时次数。未确认数反映最近一次发现结果；计数器随
+Supervisor 实例重建而重置。
+
+远程和多用户部署必须使用 `enforced`。此模式下，HTTP、MCP 和 metrics 共用同一个 Server PEP。`/v1/access/me` 返回
 `server`/`scope`/`artifact` Resource Kind、Provider 的 batch/list/relationship 能力与 Family profile。Managed Skill 的
 导出和安装不再引入单独的 Access action：接收者先获得逻辑 Skill identity 上的 `artifact.read`，再自行决定是否以及如何
 安装一个精确 Revision。
@@ -196,22 +218,17 @@ Receiver 的内部 PoC 显式例外见下文。当代码的 `http://` base URL �
 
 安全的 Docker 和远程访问配置见[部署 Server](deploy-server.md)。
 
-Dashboard 默认启用，并与 HTTP API、MCP 共用监听地址和端口。它从 Server 发现默认 Scope 和所有已创建 Scope；
-Dashboard 初始化失败只记录包含直接原因的 warning，不影响 Server 的 HTTP API、MCP 和健康检查启动。
-
 Server 默认把启动目录作为 workspace，并自动提供两个可写的本机项目级目标：Codex 使用
-`<workspace>/.agents/skills`，Claude Code 使用 `<workspace>/.claude/skills`。目录不存在时不会报错；用户首次在
-Dashboard 中确认安装后才会创建目录。以 systemd、容器或其他不保证工作目录的方式启动时，应设置一次
-`POWERCONTEXT_SERVER_WORKSPACE`，之后页面不再要求用户填写 Skill 路径。
+`<workspace>/.agents/skills`，Claude Code 使用 `<workspace>/.claude/skills`。目录不存在时不会报错，只有显式发布操作
+才会创建目录。以 systemd、容器或其他不保证工作目录的方式启动时，应设置一次
+`POWERCONTEXT_SERVER_WORKSPACE`。
 
-远端技能接收端需要通过不同于当前 Dashboard 访问地址的外部入口连接时，只需在 Server 上配置一次
-`POWERCONTEXT_SERVER_PUBLIC_URL`。Skills Dashboard 会自动用它生成注册命令，不再要求每次添加目标时填写地址。
-未配置时，Dashboard 自动使用当前 HTTPS 来源；显式启用不安全开关后，也可以使用当前 HTTP 来源。两者都不可用时，
-注册命令使用远端命令行已经配置的服务地址。
+远端技能接收端需要通过稳定的外部入口连接时，在 Server 上配置
+`POWERCONTEXT_SERVER_PUBLIC_URL`。否则注册命令可以使用远端命令行已经配置的服务地址。
 
 一期 PoC 如果运行在受保护的内部测试网络，可以让 Server 和 Receiver 双端显式同意直连 HTTP：Server 设置
 `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`，并用 `POWERCONTEXT_SERVER_PUBLIC_URL` 公布 `http://` 地址；
-Receiver 注册时同时传入 `--allow-insecure-http`。Dashboard 会显示明文传输警告，并自动把该参数加入注册命令。
+Receiver 注册时同时传入 `--allow-insecure-http`。
 Server 未打开开关时，远端接口仍拒绝非 loopback HTTP；Receiver 未传参数时，CLI 会在发送一次性注册口令之前拒绝
 该 URL。许可会写入权限为 owner-only 的 Receiver 配置，因此 `remote-watch` 和 systemd user service 会沿用同一策略，
 unit 文件不需要保存凭据或额外参数。该开关不提供 TLS、网络隔离或防窃听能力，不能用于公网或不可信网络；长期部署
@@ -232,27 +249,29 @@ powercontext --server-url http://powercontext.internal.example:8765 \
 示例中的非 loopback opt-in 与 Receiver 传输例外彼此独立：它表示操作者接受该监听器上的所有 Server route 在没有
 Server 级 Bearer token 时可达。部署条件允许时，应优先启用鉴权，或在仅绑定 loopback 的 Server 前终止 TLS。
 
-使用兼容静态 Bearer 且 `enforced` 时，`/`、`/topics`、`/skills`、`/reviews`、`/handoff-reports` 的 HTML 外壳及其静态资源仍保持公开，以便
-浏览器渲染登录表单；数据请求仍受鉴权保护。在表单中输入 Server token 后，浏览器只把它保存在当前标签页的 session
-storage 中。如果连这些登录页也不能暴露，应同时关闭 Dashboard 和 Handoff Report。
+Handoff Report API route 独立默认启用。Selection、检查和导出步骤见
+[使用 Handoff Report](../workflows/use-handoff-report.md)。
 
-Dashboard scope 只是 UI discovery list，不是 authorization boundary。可选 Bearer token 是 Server-wide credential，而不是
-按用户或按 scope 的 token。Private Topic Memory support route 只接受配置好的 Dashboard scope；public API 继续使用既有
-scope 合同。需要 per-user 或 per-scope access control 的部署必须另行提供该安全边界。
+在 `single_node` 部署模式中，默认 `all` 角色会启动 Artifact Processing Supervisor。单机 OceanBase 部署可以再把
+Supervisor 拆成 `api` 和 `background` runtime 角色；`powercontext server run --role background` 不启动 HTTP、MCP 或
+Dashboard listener，多个后台候选者通过数据库 Lease 自动选出一个 active Leader。这种拆分不同于
+`POWERCONTEXT_SERVER_DEPLOYMENT_MODE=distributed`：后者由 `DEPLOYMENT_ROLE` 选择 `api`、`scheduler` 或 `worker`，
+并要求 `ARTIFACT_PROCESSING_ROLE` 保持为 `all`。
 
-Handoff Report 独立默认启用，路径为 `/handoff-reports`。没有任何 scope 包含 committed Handoff 时，页面显示无数据
-模板预览。Scope discovery、检查、Revision 写入和导出步骤见[使用 Handoff Report](../workflows/use-handoff-report.md)。
+单机模式下 Memory、Topic Memory、Experience、Profile 使用统一 Supervisor；分布式模式下 Memory、Experience、
+Profile 改由 Work Ledger 执行。分布式 v1 不支持 Topic Memory processing，配置其周期会在启动时被拒绝。SQLite 与
+嵌入式 seekDB 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次保持关闭；显式 flush 工作的恢复不依赖
+该间隔。Topic Worker 要求使用文件 SQLite；内存 SQLite 配合 generation model 的配置会在声明处理能力之前被拒绝。
+请通过 `POWERCONTEXT_SERVER_DATABASE_URL` 指定持久数据库路径，例如
+`sqlite+aiosqlite:////srv/powercontext/runtime.db`。Supervisor 的每个 Family 保留独立额度和总超时，不借用其他 Family
+空闲额度。关闭自动准入仍恢复已接受请求。拆分的 Supervisor API 与后台须保持 mode、注册 Family 和可触发能力一致；
+模型仅在执行进程必需。切换 Supervisor mode 须[协调停机迁移](artifact-processing-migration.md)，不能混用模式启动。
+显式同时配置的新旧别名值不同时拒绝启动，同值接受。
 
-默认 `all` 角色会启动 Artifact Processing Supervisor。OceanBase 部署可以拆分 `api` 和 `background`；
-`powercontext server run --role background` 不启动 HTTP、MCP 或 Dashboard listener，多个后台候选者通过数据库 Lease
-自动选出一个 active Leader。SQLite 与嵌入式 seekDB 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次
-保持关闭；显式 flush 工作的恢复不依赖该间隔。Topic Worker 要求使用文件 SQLite；内存 SQLite 配合 generation
-model 的配置会在声明处理能力之前被拒绝。请通过 `POWERCONTEXT_SERVER_DATABASE_URL` 指定持久数据库路径，例如
-`sqlite+aiosqlite:////srv/powercontext/runtime.db`。Memory、Experience 与 Profile APScheduler 作业只由 `all` 角色运行：
-任一 split role 与 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS`、
-`POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` 或启用的
-`POWERCONTEXT_SERVER_RUNTIME_PROFILE_SCHEDULE_ENABLED` 同时配置时，进程会在启动阶段明确拒绝。需要这些旧作业时应继续
-使用 `all`；把旧作业分配到独立进程不属于当前 split-role 合同。
+普通 Runtime 启动会初始化并恢复所配置的检索索引。Topic Worker 复用该数据库，不再为每个 Window 重建无关的
+Memory/Experience 检索投影；Topic 索引校验与发布守卫仍然执行。如果空库切换了 Topic 检索形态或 Embedding
+profile，应使用相同配置重新打开已有 Runtime；旧 Runtime 会以 retrieval-shape 错误拒绝 Topic 搜索、精确读取和
+当前 Head 浏览，而不是读取另一个向量空间。
 
 普通 Runtime 启动会初始化并恢复所配置的检索索引。Topic Worker 复用该数据库，不再为每个 Window 重建无关的
 Memory/Experience 检索投影；Topic 索引校验与发布守卫仍然执行。如果空库切换了 Topic 检索形态或 Embedding
@@ -305,12 +324,11 @@ fork/evolution。External Skill 精确导入和完整 package 上传不使用模
 bytes，再创建 package digest 完全相同的 pending Candidate。未配置模型时，语义生成会在持久化 Candidate 前返回
 capability error；Review、package 检查与下载、精确导入、usage recording 和 external Skill scan/list/resolve 仍可使用。
 
-Experience 孵化使用独立的持久 Work handler 和 Source cursor。每次 activation 固定检查最多 32 条 Source，并且只把
-metadata 包含 `"kind": "task-outcome"` 的 Content Source 暴露给模型。该 handler 会在 Review Inbox 中创建 pending
-Experience Candidate；它不会自动批准、进入
-PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行任何内容。Memory 和 Experience job 共用
-数据库 Work Ledger，但拥有独立 lane、logical key 和业务 cursor；取消其中一个 interval 只会关闭对应 discoverer，
-已经入队的 operation 仍可查询。
+Experience 孵化使用独立的 Supervisor binding 和持久化 Source cursor。每次调用按 `SOURCE_WINDOW_LIMIT` 检查有限 Source 窗口，只把 metadata 包含 `"kind": "task-outcome"` 的 Content Source
+暴露给模型。该 job 会在 Review Inbox 中创建 pending Experience Candidate；它不会自动批准、进入
+PreparedContext、创建 managed Skill、将它导出到 Agent target 或执行任何内容。Memory 与 Experience 保持独立的周期、
+Worker 额度和业务 Cursor。分布式模式下，它们接受的 operation 使用相互独立的 Work Ledger lane 和 logical key。
+关闭某一间隔仅停止该 Family 的新自动准入，保留已接受工作。
 设置与验证步骤见[创建并审核 Experience](../workflows/create-and-review-experience.md)。
 
 ### 分布式角色与迁移
@@ -363,18 +381,18 @@ export POWERCONTEXT_SERVER_EXTERNAL_SKILLS='{
 显式设置 `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` 会完整替换自动生成的两个项目级 target；设置为
 `{"host_id": null, "targets": []}` 可以关闭本机发现和发布。每个 target ID 必须唯一；`agent_kind` 支持 `codex` 和
 `claude_code`，installation scope 支持 `user`、`project` 和 `plugin`。PowerContext 只扫描默认或显式 target 的直接
-Skill package 子目录，不会推断用户 home 目录、安装 package 或授予执行权限。自动生成的两个项目级 target 允许用户
-在 Dashboard 中显式安装；自定义 target 的 `allow_managed_publish` 默认是 `false`，设为 `true` 后，authenticated Skills Library 或 Review
-页面可以把 approved managed Skill 显式创建或安全更新到该 target。页面仍不能提交任意路径，也不会覆盖外部或
-已被修改的 package。发布会物化 Review 通过的完整精确 package（包括 scripts 和 references），不会执行其中内容，
-也不会向 package 注入 sidecar。相同页面只能在 binding 与 tree digest 仍匹配时安全取消发布；本地漂移和外部内容
-会保持不动。`host_id`、locator 和 registration 都是本地环境状态，不是跨 host contract。已有的
+Skill package 子目录，不会推断用户 home 目录、安装 package 或授予执行权限。自定义 target 的
+`allow_managed_publish` 默认是 `false`；设为 `true` 后，显式发布操作可以把 approved managed Skill 安全创建或更新到该
+target。发布操作不能提交任意路径，也不会覆盖外部或已被修改的 package。发布会物化 Review 通过的完整精确 package
+（包括 scripts 和 references），不会执行其中内容，也不会向 package 注入 sidecar。只有 binding 与 tree digest 仍匹配
+时才能安全取消发布；本地漂移和外部内容会保持不动。`host_id`、locator 和 registration 都是本地环境状态，不是跨
+host contract。已有的
 `codex_roots` 配置继续作为 Codex-only 兼容格式被接受；新配置应使用 `targets`。
 
 可选的 `environment` object 只包含已观测且不含密钥的兼容性事实。Command value 是版本标签；
 `environment_names` 只记录名称，绝不记录值。PowerContext 不会为了构造该 profile 而探测或执行 package script。
 未配置时，包含 script 的 package 会显示未知兼容性；配置后，Skills Library 会把已知 script interpreter 与已观测
-command name 对比，并显示带原因的 Assessment。Assessment 不会授予 network、filesystem、dependency install 或
+command name 对比，并返回带原因的 Assessment。Assessment 不会授予 network、filesystem、dependency install 或
 environment 访问权。
 
 Server 始终创建 non-recording OpenTelemetry request context，从 inbound span 派生 `X-PowerContext-Request-ID`。如需为

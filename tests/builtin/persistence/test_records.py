@@ -56,6 +56,7 @@ from powercontext.builtin.persistence.tables import (
 from powercontext.builtin.records import (
     ArtifactRevisionPreconditionError,
     ArtifactWrite,
+    BaseValueConflictError,
     InvalidBaseAccessRequestError,
     InvalidCursorError,
 )
@@ -77,6 +78,64 @@ class _FailingExperienceIndex(NoExperienceIndex):
 
 def _memory_content() -> dict[str, JsonValue]:
     return {"entries": [{"kind": "preference", "text": "用户偏好使用中文回答"}]}
+
+
+def test_receipt_migration_batches_and_recovers_missing_commit_proof() -> None:
+    from powercontext.builtin.persistence.receipt_migration import migrate_handoff_receipts
+    from powercontext.builtin.persistence.tables import RECEIPT_MIGRATION_REVIEW_TABLE
+
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, sources = _services(profile)
+            marker = {"schema": "powercontext.handoff-receipt.v1"}
+            old = await records.create_source("scope", "content", marker)
+            ordinary = await records.create_source("scope", "content", marker)
+            deep_json = await records.create_source("scope", "content", "[" * 1_100 + "0" + "]" * 1_100)
+            committed = set()
+
+            async def lookup(scope_id, source_id):
+                return object() if source_id in committed else None
+
+            assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (0, 2)
+            committed.add(old.source_id)
+            assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (1, 1)
+            assert await migrate_handoff_receipts(profile.database, sources, lookup, batch_size=1) == (0, 1)
+            upgraded = await records.get_source("scope", "content", old.source_id)
+            assert upgraded.handoff_receipt and upgraded.model_dump() == old.model_dump()
+            assert not (await records.get_source("scope", "content", ordinary.source_id)).handoff_receipt
+            async with profile.database.transaction() as connection:
+                pending = (await connection.execute(select(RECEIPT_MIGRATION_REVIEW_TABLE))).mappings().all()
+                assert [row["source_id"] for row in pending] == [ordinary.source_id]
+                assert pending[0]["reason"] == "missing_committed_receipt"
+            assert (await records.get_source("scope", "content", deep_json.source_id)).content == deep_json.content
+
+    asyncio.run(scenario())
+
+
+def test_receipt_provenance_is_server_owned_and_legacy_replay_is_idempotent() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, _ = _services(profile)
+            metadata = {"handoff_receipt": True, "kind": "handoff_receipt"}
+            legacy = await records.capture_source("scope", "content", "receipt", "receipt body", metadata)
+            assert not legacy.handoff_receipt
+            attested = await records.capture_source(
+                "scope", "content", "receipt", "receipt body", metadata, handoff_receipt=True
+            )
+            assert attested.handoff_receipt
+            assert attested.model_dump() == legacy.model_dump()
+            replay = await records.capture_source(
+                "scope", "content", "receipt", "receipt body", metadata, handoff_receipt=True
+            )
+            assert replay == attested
+            read = await records.get_source("scope", "content", "receipt")
+            page = await records.list_sources("scope", limit=10, cursor=None)
+            assert read.handoff_receipt
+            assert len(page.items) == 1 and page.items[0].handoff_receipt
+            with pytest.raises(BaseValueConflictError):
+                await records.capture_source("scope", "content", "receipt", "changed", metadata, handoff_receipt=True)
+
+    asyncio.run(scenario())
 
 
 def test_empty_tag_set_has_one_concurrent_winner_across_connections(tmp_path: Path) -> None:
@@ -260,6 +319,7 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
             created = await records.create_source("scope-a", "content", {"fact": True})
             loaded = await records.get_source("scope-a", "content", "src-1")
             null_source = await records.create_source("scope-a", "content", None)
+            third_source = await records.create_source("scope-a", "content", "third")
 
             assert loaded == created
             assert created.content == {"fact": True}
@@ -275,6 +335,69 @@ def test_source_create_persists_json_without_public_internal_fields() -> None:
             }
             with pytest.raises(InvalidBaseAccessRequestError):
                 await records.create_source("scope-a", "private", "not public")
+
+            first_page = await records.list_sources("scope-a", limit=2, cursor=None, caller="user:one")
+            assert [item.source_id for item in first_page.items] == [created.source_id, null_source.source_id]
+            assert first_page.next_cursor is not None
+            late_source = await records.create_source("scope-a", "content", "late")
+            second_page = await records.list_sources(
+                "scope-a",
+                limit=2,
+                cursor=first_page.next_cursor,
+                caller="user:one",
+            )
+            assert [item.source_id for item in second_page.items] == [third_source.source_id]
+            assert second_page.next_cursor is None
+            refreshed = await records.list_sources("scope-a", limit=100, cursor=None, caller="user:one")
+            assert refreshed.items[-1].source_id == late_source.source_id
+            with pytest.raises(InvalidCursorError):
+                await records.list_sources(
+                    "scope-a",
+                    limit=1,
+                    cursor=first_page.next_cursor,
+                    caller="user:one",
+                )
+            with pytest.raises(InvalidCursorError):
+                await records.list_sources(
+                    "scope-a",
+                    limit=2,
+                    cursor=first_page.next_cursor,
+                    caller="user:two",
+                )
+
+    asyncio.run(scenario())
+
+
+def test_source_list_stops_decoding_when_the_response_budget_is_full(monkeypatch) -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as profile:
+            records, _, sources = _services(profile)
+            for index in range(8):
+                await records.create_source("scope-a", "content", f"{index}:" + "x" * 1_100_000)
+
+            decoded = 0
+            original_decode = sources._decode_row
+
+            def counting_decode(row):
+                nonlocal decoded
+                decoded += 1
+                return original_decode(row)
+
+            monkeypatch.setattr(sources, "_decode_row", counting_decode)
+            first = await records.list_sources("scope-a", limit=8, cursor=None, caller="user:one")
+
+            assert len(first.items) == 3
+            assert first.next_cursor is not None
+            assert decoded == len(first.items) + 1
+
+            second = await records.list_sources(
+                "scope-a",
+                limit=8,
+                cursor=first.next_cursor,
+                caller="user:one",
+            )
+            assert [item.position for item in second.items] == [4, 5, 6]
+            assert second.next_cursor is not None
 
     asyncio.run(scenario())
 

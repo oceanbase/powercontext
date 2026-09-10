@@ -313,3 +313,24 @@ def test_agent_reaches_end_when_server_unreachable() -> None:
         assert any(message.type == "ai" for message in result["messages"])
 
     asyncio.run(driver())
+
+
+def test_same_turn_refreshes_when_assembly_or_byte_budget_changes(tmp_path, monkeypatch):
+    app = _server_app(tmp_path)
+    hook = PowerContextRecall()
+    state = {"messages": [HumanMessage(content="How do we deploy the database?", id="same-turn")]}
+
+    async def scenario(client):
+        await _seed(client, await _default_scope_id(client))
+        monkeypatch.setenv("POWERCONTEXT_LANGGRAPH_CONTEXT_ASSEMBLY", "{}")
+        grouped = await hook(state)
+        assert "## Memory" in grouped["llm_input_messages"][0].text
+        monkeypatch.setenv("POWERCONTEXT_LANGGRAPH_CONTEXT_ASSEMBLY", '{"sections": []}')
+        disabled = await hook(state)
+        assert _system_texts(disabled["llm_input_messages"]) == []
+        monkeypatch.setenv("POWERCONTEXT_LANGGRAPH_CONTEXT_ASSEMBLY", "{}")
+        monkeypatch.setenv("POWERCONTEXT_LANGGRAPH_MAX_BYTES", "512")
+        bounded = await hook(state)
+        assert _system_texts(bounded["llm_input_messages"]) == []
+
+    _run(app, scenario)

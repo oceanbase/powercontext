@@ -13,6 +13,14 @@ Use an explicit environment file when the Server needs inference, scheduling, st
 powercontext config init --output .env
 ```
 
+The guided command writes a private file with mode `0600` and does not ask for models or provider credentials during
+deployment. The default file can start the Server directly; add the required model, credential, embedding profile ID,
+and dimension when you need automatic extraction, model generation, or vector retrieval.
+
+When `--force` would remove existing model, embedding, inference schedule, or provider credential settings, the
+command identifies that impact and requires an explicit confirmation that defaults to no. After confirmation, it
+creates a mode-`0600` backup before replacing the file.
+
 On macOS and Linux, the guided command writes a private file with mode `0600`. Enter provider credentials through your environment or
 secret manager, not in command-line arguments.
 
@@ -32,11 +40,12 @@ inference-dependent runtime features are configured, it also checks the Runtime 
 ## 3. Run the same configuration
 
 ```bash
-powercontext server run --env-file .env
+powercontext server run
 ```
 
-Values in the file override same-named process values. Inherited `POWERCONTEXT_SERVER_*` values missing from the file
-are ignored, so validation and launch use the same Server settings.
+`server run` discovers `.env` in the current directory. Use `--env-file <path>` to select a different file or
+`--no-env-file` to disable file loading. CLI options take precedence, followed by process environment variables, the
+selected file, and defaults. The command prints the resolved file path without printing credentials.
 
 The Server starts with the configured capabilities. Use `powercontext ready` and `powercontext capabilities` to check
 its readiness and enabled features.

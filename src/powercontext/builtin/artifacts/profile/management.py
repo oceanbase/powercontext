@@ -25,12 +25,14 @@ from typing_extensions import override
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.profile.models import (
     PROFILE_ARTIFACT_ID,
+    PROFILE_SOURCE_WINDOW_BINDING,
     Profile,
     ProfileContent,
     ProfileGeneration,
     ProfileWriteContent,
 )
 from powercontext.builtin.persistence.family_management import _RepositoryFamilyWriter
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.records import InvalidBaseAccessRequestError
 
@@ -55,6 +57,7 @@ class ProfileManagementWriter(_RepositoryFamilyWriter):
         policy = await policies.get(connection, scope_id, for_update=True)
         if policy is None:
             policy = await policies.create(connection, scope_id)
+        await ArtifactProcessingIntentRepository().mark_dirty(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
         return await policies.update(connection, policy)
 
     async def create(self, connection, scope_id, artifact_id, content, direct_source, /) -> Profile:

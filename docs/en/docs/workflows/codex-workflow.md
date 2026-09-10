@@ -111,15 +111,8 @@ powercontext server run
 Keep this process running. By default, the Server:
 
 - listens at `http://127.0.0.1:8000`;
-- serves the Dashboard at `http://127.0.0.1:8000/`;
 - serves Streamable HTTP MCP at `http://127.0.0.1:8000/mcp`;
 - creates a persistent SQLite database in the operating system's PowerContext user data directory.
-
-Startup should print a message similar to:
-
-```text
-PowerContext Dashboard: http://127.0.0.1:8000/
-```
 
 Return to **Terminal B** and run:
 
@@ -134,9 +127,7 @@ service readiness; and `capabilities` returns the currently enabled capabilities
 may be disabled when no inference provider is configured. That does not block the explicit Memory and Handoff steps
 in this tutorial.
 
-You can also open `http://127.0.0.1:8000/` in a browser. On first startup, PowerContext creates a persistent
-`Default` Scope automatically. The Dashboard initially displays all available Scopes; metrics may still be empty
-until the first project data has been written.
+On first startup, PowerContext creates a persistent `Default` Scope automatically.
 
 ## 4. Create a safe example project
 

@@ -40,3 +40,24 @@ describe('Pi configuration', () => {
     })
   })
 })
+
+
+it('opts into standard text only for explicit assembly configuration', () => {
+  expect(resolveConfig({}).contextAssembly).toBeUndefined()
+  for (const assembly of [
+    {},
+    { sections: [] },
+    { sections: [{ family: 'experience', limit: 2 }] },
+    { sections: [
+      { family: 'profile', limit: 1 },
+      { family: 'topic-memory', limit: 2 },
+      { family: 'memory', limit: 3 },
+      { family: 'experience', limit: 2 },
+    ] },
+  ]) {
+    expect(resolveConfig({ POWERCONTEXT_PI_CONTEXT_ASSEMBLY: JSON.stringify(assembly) }).contextAssembly).toEqual(assembly)
+  }
+  for (const value of ['null', '[]', 'private-invalid-input']) {
+    expect(() => resolveConfig({ POWERCONTEXT_PI_CONTEXT_ASSEMBLY: value })).toThrow('PowerContext context assembly must be a JSON object')
+  }
+})

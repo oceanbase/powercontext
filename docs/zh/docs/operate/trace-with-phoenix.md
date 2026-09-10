@@ -87,7 +87,7 @@ scope 相关操作还会在 application operation 之下添加以下内部 stage
 | `memory.search` | `search_memory` 或 `prepare_context` 中的 Memory 查询；存在 embedding 或 reranking span 时，它们嵌套在其下。 |
 | `memory.rerank` | 一次实际 reranker 调用；使用模型的 reranking 会在其下嵌套 `invoke_agent memory_rerank`。 |
 | `experience.search` | `prepare_context` 中的 Experience recall；未配置 recall 时也会产生。 |
-| `experience.incubation` | 一次 Experience incubation，出现在定时激活之下。 |
+| `experience.incubation` | 一次进程内 Experience incubation 操作。 |
 | `context.build` | 根据召回候选同步选择并渲染最终 prepared context 的步骤。 |
 
 其他 generation 任务遵循同样的命名约定：`experience_incubation`、`experience_generation`、`skill_generation`、
@@ -97,21 +97,26 @@ span 挂在触发它的操作之下。
 span 是批量导出的，刷新前请稍等几秒。MCP 请求会用 `MCP mcp.tools.call` 取代 `HTTP` span。readiness 探活被有意
 排除在 trace 之外，因此健康检查不会产生只含单个 span 的 trace。
 
-## 定时后台 span
+## 后台 Worker span
 
-配置了定时器间隔（`schedule_seconds` 或 `experience_schedule_seconds`）后，每次定时激活都会开启一条**独立**的
-trace，而不会并入无关的请求 trace。激活本身是根 span，其 `powercontext.operation.unit` 为 `background`：
+每次 Scope Worker 调用都会开启独立 trace，包括 Family 定时计划与显式 flush 触发的请求。Memory、Topic Memory、
+Experience 和 Profile 使用相同的生命周期 span。根 span 的 `powercontext.operation.unit` 为 `background`，
+不会继承 HTTP 或 MCP 请求的 trace：
 
 | Span | 含义 |
 | --- | --- |
-| `scheduled.process_source_window` | 一次定时 Source-window 激活，outcome 为 `success`、`noop`、`failure` 或 `cancelled`。 |
-| `scheduled.incubate_experience_candidates` | 一次定时 Experience incubation 激活，outcome 词表相同。 |
-| `memory.flush` | Source-window 激活下的 flush 执行；它也会出现在 `HTTP flush_memory` 之下。 |
-| `experience.incubation` | Experience 激活下的 incubation 执行。 |
+| `artifact_processing.worker` | 一次有界 Scope 调用，包含进程启动与持久化完成确认。 |
+| `artifact_processing.worker.start` | 创建并启动隔离的子进程。 |
+| `artifact_processing.worker.wait` | 等待子进程结果或本次调用超时。 |
+| `artifact_processing.worker.acknowledge` | 核对当前 fence，以及分配的请求代数是否已经持久化确认。 |
 
-定时根 span 只记录有界的计数——`powercontext.background.source_count` 与
-`powercontext.background.candidate_count`——绝不携带 `scope_id`、request ID 或 Memory 内容。定时激活产生的推理
-span 会作为其根 span 的子节点嵌套在同一条 trace 中。
+根 span 仅在请求持久化确认后记为 `success`，包括已持久化的 NOOP。子进程正常退出但没有确认请求时记为
+`failure`。其他 outcome 包括 `failure`、`cancelled`、`cursor_conflict` 和 `head_conflict`。每次重试产生新的独立根 span。
+
+生命周期 span 记录 `powercontext.artifact_processing.family`；失败根 span 还记录有界的
+`powercontext.artifact_processing.failure` 类别，例如 `timeout`、`worker_failed`、
+`missing_durable_acknowledgement` 或 `leadership_lost`。其中不含 Scope ID、request ID、Source 数据或模型正文。
+这些父进程 span 描述 Worker 生命周期和完成确认；推理在隔离子进程中执行，不会把模型 span 挂入父进程生命周期 trace。
 
 ## 哪些内容不会被导出
 

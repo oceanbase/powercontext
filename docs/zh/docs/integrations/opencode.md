@@ -37,7 +37,7 @@ opencode
 注入，不会写入 OpenCode 会话记录。
 
 具名 `pc_*` 工具提供精选的 Memory、Handoff、Experience、Skill 和只读 Candidate 操作。持久化变更前
-OpenCode 会要求确认；Candidate 的批准和拒绝仍由用户通过 CLI 或 Dashboard 显式执行。
+OpenCode 会要求确认；Candidate 的批准和拒绝仍由用户通过 CLI 显式执行。
 
 ## 配置连接
 

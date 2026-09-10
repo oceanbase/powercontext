@@ -218,6 +218,7 @@ class PowerContextToolset(FunctionToolset[AgentDepsT], Generic[AgentDepsT]):
             scope_id=self._require_state().require_scope_id(),
             query=query,
             max_bytes=self.settings.max_bytes,
+            **({"assembly": self.settings.context_assembly} if self.settings.context_assembly is not None else {}),
         )
         response = await self._call_client("context", lambda client: client.prepare_context(request))
         return _response_json(response)

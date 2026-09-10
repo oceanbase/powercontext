@@ -173,6 +173,7 @@ async function prepareTurn(
         scope_id: context.scopeId,
         query: input.prompt,
         max_bytes: runtime.config.maxBytes,
+        ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
       }, signal)
       const prepared = validatePreparedContext(result.value, runtime.config.maxBytes)
       content = prepared.status === 'ready' ? prepared.content ?? undefined : undefined
@@ -356,7 +357,11 @@ function createTools(runtime: Runtime) {
       description: 'Prepare one bounded PowerContext value for a focused query.',
       args: { query: z.string() },
       operationId: 'prepare_context',
-      payload: (args) => ({ query: args.query, max_bytes: runtime.config.maxBytes }),
+      payload: (args) => ({
+        query: args.query,
+        max_bytes: runtime.config.maxBytes,
+        ...(runtime.config.contextAssembly === undefined ? {} : { assembly: runtime.config.contextAssembly }),
+      }),
     }),
     pc_capture_source: operationTool(runtime, {
       description: 'Capture a content Source. Do not label an ordinary prompt as task-outcome.',

@@ -4,6 +4,7 @@
     "index",
     "---Memory 与上下文---",
     "memory-and-context",
+    "prepare-context-text",
     "configure-vector-search",
     "---工作连续性---",
     "memory-and-handoff",

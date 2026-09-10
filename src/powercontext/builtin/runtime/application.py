@@ -100,6 +100,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     MAX_TOPIC_MEMORY_QUERY_LENGTH,
     MAX_TOPIC_MEMORY_QUERY_TERMS,
     MAX_TOPIC_MEMORY_SEARCH_LIMIT,
+    TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
     PublishedTopicMemory,
     TopicMemory,
     TopicMemoryBrowseCursor,
@@ -134,6 +135,7 @@ from powercontext.builtin.records import (
     RecordService,
     ScopeSummaryPage,
     SourceRecord,
+    SourceRecordPage,
 )
 from powercontext.builtin.review.generation import GeneratedCandidateResult, ReviewedGenerationService
 from powercontext.builtin.review.service import ReviewService
@@ -194,6 +196,7 @@ from powercontext.builtin.runtime.prepared_context import (
     PreparedContextBuilder,
     PreparedExperienceCandidates,
     PreparedMemoryCandidates,
+    PreparedProfileCandidate,
 )
 from powercontext.builtin.runtime.protocols import (
     BuiltinTriggers,
@@ -257,7 +260,7 @@ from powercontext.sources import ConnectorBinding, SourceDefinitionManifest, Sou
 
 if TYPE_CHECKING:
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
-    from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisor
+    from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
     from powercontext.builtin.runtime.operations import OperationManager
 
 TopicMemorySearch = Callable[..., Awaitable[TopicMemorySearchResult]]
@@ -337,6 +340,9 @@ class ScopedSourceApplication:
         self.scope_id = validate_scope_id(scope_id)
 
     async def capture(self, value: CaptureSource, /) -> SourceReceipt:
+        return await self._capture(value)
+
+    async def _capture(self, value: CaptureSource, /, *, handoff_receipt: bool = False) -> SourceReceipt:
         if self._runtime._record_service is not None:
             try:
                 async with self._runtime._scope_operation(self.scope_id), self._runtime._locked(self.scope_id):
@@ -346,6 +352,7 @@ class ScopedSourceApplication:
                         value.source_id,
                         value.content,
                         value.metadata,
+                        handoff_receipt=handoff_receipt,
                     )
             except BaseValueConflictError as error:
                 raise SourceConflictError("identity", error.identity) from None
@@ -359,7 +366,8 @@ class ScopedSourceApplication:
                     source_id=value.source_id,
                     content=value.content,
                     metadata=value.model_dump(mode="json")["metadata"],
-                )
+                ),
+                handoff_receipt=handoff_receipt,
             )
             return SourceReceipt(source_ref=context.sources.catalog.as_ref(source), sequence=sequence)
 
@@ -397,6 +405,21 @@ class ScopedRecordApplication:
     async def get_source(self, source_type: str, source_id: str, /) -> SourceRecord:
         async with self._runtime._scope_operation(self.scope_id):
             return await self._runtime._records().get_source(self.scope_id, source_type, source_id)
+
+    async def list_sources(
+        self,
+        *,
+        limit: int,
+        cursor: str | None,
+        caller: str = "runtime",
+    ) -> SourceRecordPage:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._records().list_sources(
+                self.scope_id,
+                limit=limit,
+                cursor=cursor,
+                caller=caller,
+            )
 
     async def create_artifact(
         self,
@@ -673,13 +696,33 @@ class ScopedContextApplication:
         self._runtime = runtime
         self.scope_id = validate_scope_id(scope_id)
 
-    async def prepare(self, request: PrepareContextRequest, /) -> PreparedContext:
+    async def prepare(
+        self,
+        request: PrepareContextRequest,
+        /,
+        *,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+    ) -> PreparedContext:
+        if (
+            request.assembly is not None
+            and sum(section.limit for section in request.assembly.sections) > self._runtime.context_assembly_max_entries
+        ):
+            raise InvalidRuntimeRequestError("context-assembly-entry-limit")
         async with self._runtime._scope_operation(self.scope_id) as scope:
+            if request.assembly is not None and not request.assembly.sections:
+                return PreparedContextBuilder().empty()
+            if authorize_scopes is not None:
+                await authorize_scopes((self.scope_id, *scope.context_references))
             return await self._prepare(request, scope)
 
     async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
         builder = PreparedContextBuilder()
         scope_ids = [self.scope_id, *scope.context_references]
+        families = (
+            {section.family for section in request.assembly.sections}
+            if request.assembly is not None
+            else {"memory", "experience", "topic-memory"}
+        )
 
         memory_candidates: list[PreparedMemoryCandidates] = []
         experience_candidates: list[PreparedExperienceCandidates] = []
@@ -687,8 +730,8 @@ class ScopedContextApplication:
             memory, experiences = await self._recall_scope(
                 scope_id,
                 request,
-                memory_limit=builder.memory_candidate_limit,
-                experience_limit=builder.experience_candidate_limit,
+                memory_limit=builder.memory_candidate_limit if "memory" in families else 0,
+                experience_limit=builder.experience_candidate_limit if "experience" in families else 0,
             )
             memory_candidates.append(memory)
             experience_candidates.append(experiences)
@@ -697,7 +740,19 @@ class ScopedContextApplication:
             experience_candidates,
             builder.experience_candidate_limit,
         )
-        topic_memory_hits = await self._topic_memory_hits(request.query.strip(), builder.topic_memory_candidate_limit)
+        profile_candidates: list[PreparedProfileCandidate] = []
+        profiles = self._runtime.profiles
+        if "profile" in families and profiles is not None:
+            async with profiles.database.transaction() as connection:
+                for scope_id in scope_ids:
+                    profile = await profiles.latest(connection, scope_id)
+                    if profile is not None:
+                        profile_candidates.append(PreparedProfileCandidate(scope_id=scope_id, profile=profile))
+        topic_memory_hits = (
+            await self._topic_memory_hits(request.query.strip(), builder.topic_memory_candidate_limit)
+            if "topic-memory" in families
+            else ()
+        )
 
         with self._runtime._stage(
             "context.build",
@@ -710,6 +765,7 @@ class ScopedContextApplication:
                 "powercontext.context.build.experience_candidate_count": sum(
                     len(candidates.hits) for candidates in experience_candidates
                 ),
+                "powercontext.context.build.profile_candidate_count": len(profile_candidates),
             },
         ) as span:
             build = builder.build_scopes_result(
@@ -718,6 +774,7 @@ class ScopedContextApplication:
                 memory_candidates=memory_candidates,
                 topic_memory_hits=topic_memory_hits,
                 experience_candidates=experience_candidates,
+                profile_candidates=profile_candidates,
             )
             if span is not None:
                 span.set_attributes({
@@ -753,8 +810,13 @@ class ScopedContextApplication:
         memory_limit: int,
         experience_limit: int,
     ) -> tuple[PreparedMemoryCandidates, PreparedExperienceCandidates]:
+        context_manager = (
+            self._runtime._context(scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL)
+            if memory_limit > 0
+            else self._runtime._scoped_operation(scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL)
+        )
         async with (
-            self._runtime._context(scope_id, embedding_purpose=ModelUsagePurpose.MEMORY_RECALL) as context,
+            context_manager as context,
             self._runtime._locked(scope_id),
         ):
             with self._runtime._stage(
@@ -764,19 +826,21 @@ class ScopedContextApplication:
                     _MEMORY_SEARCH_LIMIT: memory_limit,
                 },
             ) as span:
-                service = context.artifacts.memory
-                current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                current = None
                 memory_hits = ()
                 search_mode: str | None = None
-                if current is not None and memory_limit > 0:
-                    result = await service.search(
-                        request.query,
-                        memories=(current,),
-                        limit=memory_limit,
-                        mode="auto",
-                    )
-                    memory_hits = result.hits
-                    search_mode = result.mode
+                if context is not None:
+                    service = context.artifacts.memory
+                    current = await _head_or_none(service, context.artifacts.memory_artifact_id)
+                    if current is not None:
+                        result = await service.search(
+                            request.query,
+                            memories=(current,),
+                            limit=memory_limit,
+                            mode="auto",
+                        )
+                        memory_hits = result.hits
+                        search_mode = result.mode
                 if span is not None:
                     attributes: dict[str, TraceAttribute] = {
                         _MEMORY_SEARCH_MEMORY_PRESENT: current is not None,
@@ -1464,12 +1528,13 @@ class ScopedWorkApplication:
             await self._runtime.handoff.for_scope(self.scope_id).validate_evidence(citations)
 
     async def _capture(self, kind: WorkSourceKind, source_id: str, value: BaseModel) -> WorkSourceReceipt:
-        receipt = await self._runtime.sources.for_scope(self.scope_id).capture(
+        receipt = await self._runtime.sources.for_scope(self.scope_id)._capture(
             CaptureSource(
                 source_id=source_id,
                 content=value.model_dump_json(by_alias=True, exclude_none=False, indent=2),
                 metadata={"kind": kind, "schema": value.model_dump(by_alias=True)["schema"]},
-            )
+            ),
+            handoff_receipt=kind == HANDOFF_RECEIPT_SOURCE_KIND,
         )
         return WorkSourceReceipt(
             kind=kind,
@@ -1940,7 +2005,7 @@ class ScopedTopicMemoryApplication:
             accepted = await self._runtime._topic_memory_flush(self.scope_id)
         if accepted and self._runtime.artifact_processing_supervisor is not None:
             try:
-                self._runtime.artifact_processing_supervisor.wake()
+                self._runtime.artifact_processing_supervisor.wake(TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
             except Exception as error:
                 log_safely(
                     logger,
@@ -1975,6 +2040,7 @@ class BuiltinRuntime:
         provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         capabilities: RuntimeCapabilities,
         source_window_limit: int = 100,
+        context_assembly_max_entries: int = 8,
         scope_cache_size: int = DEFAULT_SCOPE_CACHE_SIZE,
         scope_evictor: ScopeEvictor | None = None,
         scope_cache_observer: ScopeCacheObserver | None = None,
@@ -2019,6 +2085,8 @@ class BuiltinRuntime:
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
+        if context_assembly_max_entries < 1:
+            raise _RuntimeConfigurationError("context_assembly_max_entries")
         if scope_cache_size < 1:
             raise _RuntimeConfigurationError("scope_cache_size")
         self._provider = provider
@@ -2060,6 +2128,7 @@ class BuiltinRuntime:
         self._clock = _utc_now if clock is None else clock
         self._tracing = tracing
         self.source_window_limit = source_window_limit
+        self.context_assembly_max_entries = context_assembly_max_entries
         self._scope_cache = ScopeCache(
             scope_cache_size,
             evictor=scope_evictor,
@@ -2088,7 +2157,7 @@ class BuiltinRuntime:
         self.statistics = StatisticsApplication(self)
         self.operations = operations
         self.handoff_report: HandoffReportApplication | None = None
-        self.artifact_processing_supervisor: ArtifactProcessingSupervisor | None = None
+        self.artifact_processing_supervisor: ArtifactProcessingSupervisors | None = None
 
     async def __aenter__(self) -> BuiltinRuntime:
         return self
@@ -2119,6 +2188,14 @@ class BuiltinRuntime:
                 "runtime": ReadinessCheckStatus.READY,
                 **dependencies.checks,
                 "artifact_processing_supervisor": supervisor_status,
+                **(
+                    {}
+                    if self.artifact_processing_supervisor is None
+                    else {
+                        f"artifact_processing.{family}": str(details["status"])
+                        for family, details in self.artifact_processing_supervisor.family_status.items()
+                    }
+                ),
             },
         )
 

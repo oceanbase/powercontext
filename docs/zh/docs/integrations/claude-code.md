@@ -140,10 +140,8 @@ export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 claude
 ```
 
-Hook 与 MCP `headersHelper` 都读取该进程环境变量。变量不存在时，helper 不会发送 `Authorization` header。
-helper 使用不依赖插件路径展开的 Python 3 命令，避免 Claude 2.1.133 在 `headersHelper` 中不展开
-`${CLAUDE_PLUGIN_ROOT}`，也避免 `python` 可能指向 Python 2。
-不要把 token 放入 Server URL、插件选项、`.mcp.json`、Source metadata 或日志。
+Hook 会直接读取该进程环境变量，MCP 配置则把它展开到 `Authorization` header。变量不存在时，MCP header
+使用空值。不要把 token 放入 Server URL、插件选项、`.mcp.json`、Source metadata 或日志。
 
 明文 HTTP 只允许连接 `127.0.0.1`、`localhost` 或 `::1`。Claude Code 连接远程 Server 时必须使用 HTTPS。
 

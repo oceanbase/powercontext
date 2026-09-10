@@ -1,0 +1,39 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="skill-reading">
+{% include 'components/reading-style.html' %}
+{% from 'components/record-references.html' import record_references %}
+{% from 'macros.html' import evidence_link with context %}
+{% if data.skill %}
+<article class="reading-sheet">
+  <div>
+  <a class="back-link d-block mb-4" href="{{ link('methods', kind='skill') }}">← {{ t.back_methods }}</a>
+  <header class="reading-heading"><span class="method-type text-secondary small">{{ t.skill_reading }} · {{ data.title }} · {{ t.revision }} {{ data.skill.revision }}</span><h1>{{ data.skill.name }}</h1><p>{{ data.skill.description }}</p></header>
+    <div class="reading-body">
+      <section><h2>{{ t.skill_instructions }}</h2><p class="source-text">{{ data.skill.instructions or t.skill_body_unavailable }}</p></section>
+      {% if data.skill.validation %}<section><h2>{{ t.validation }}</h2><ul>{% for check in data.skill.validation %}<li>{{ check }}</li>{% endfor %}</ul></section>{% endif %}
+      {% call record_references(data.skill, 'skill') %}
+        {% include 'components/record-sources.html' %}
+      {% endcall %}
+    </div>
+  </div>
+</article>
+{% include 'components/evidence-modal.html' %}
+{% else %}
+<section class="card"><div class="empty"><h1>{{ t.methods_empty }}</h1><p>{{ t.methods_empty_body }}</p></div></section>
+{% endif %}
+</div>

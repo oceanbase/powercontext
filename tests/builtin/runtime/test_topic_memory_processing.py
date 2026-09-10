@@ -77,6 +77,7 @@ from powercontext.builtin.inference import (
 from powercontext.builtin.inference.usage import UsageReportingEmbeddingModel, UsageReportingStructuredGenerator
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTopicMemoryFTSIndex
@@ -94,20 +95,20 @@ from powercontext.builtin.persistence.topic_memory_index import (
 from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     ArtifactProcessingSupervisor,
-    ArtifactProcessingWaveKind,
-    ArtifactProcessingWorkAssignment,
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
     SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.composition import (
     BuiltinConfigurationError,
-    _topic_memory_processing_bindings,
+    _artifact_processing_bindings,
     open_builtin_contexts,
     open_builtin_runtime,
 )
 from powercontext.builtin.runtime.config import BuiltinConfig, InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.processing_contracts import ArtifactProcessingWorkAssignment as ScopeAssignment
 from powercontext.builtin.runtime.topic_memory_processing import (
+    ArtifactProcessingWaveKind,
     PreparedTopicMemoryOperation,
     TopicMemoryAtomicPublisher,
     TopicMemoryProcessor,
@@ -116,6 +117,10 @@ from powercontext.builtin.runtime.topic_memory_processing import (
     TopicMemoryWorkerSpec,
     run_topic_memory_worker,
 )
+from powercontext.builtin.runtime.topic_memory_processing import (
+    TopicMemoryWindowAssignment as ArtifactProcessingWorkAssignment,
+)
+from powercontext.builtin.runtime.topic_memory_scope import TopicMemoryScopeProcessor
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_ADAPTER,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -195,15 +200,15 @@ class _FenceRevokingTopicRepository(TopicMemoryRepository):
 
 
 class _ProcessorLauncher:
-    def __init__(self, processor: TopicMemoryProcessor) -> None:
+    def __init__(self, processor: TopicMemoryScopeProcessor) -> None:
         self.processor = processor
 
-    async def start(self, assignment: ArtifactProcessingWorkAssignment):
+    async def start(self, assignment: ScopeAssignment):
         return _ProcessorHandle(self.processor, assignment)
 
 
 class _ProcessorHandle:
-    def __init__(self, processor: TopicMemoryProcessor, assignment: ArtifactProcessingWorkAssignment) -> None:
+    def __init__(self, processor: TopicMemoryScopeProcessor, assignment: ScopeAssignment) -> None:
         self.processor = processor
         self.assignment = assignment
 
@@ -2079,6 +2084,9 @@ def test_r3_supervisor_drives_processor_and_clears_explicit_pending(tmp_path) ->
                     connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING, source.journal_position
                 )
                 await pending.request_flush(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                await ArtifactProcessingIntentRepository().request(
+                    connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                )
             processor = TopicMemoryProcessor(
                 database=profile.database,
                 sources=sources,
@@ -2094,22 +2102,26 @@ def test_r3_supervisor_drives_processor_and_clears_explicit_pending(tmp_path) ->
             )
             binding = ArtifactProcessingBinding(
                 binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
-                source_window_limit=10,
-                launcher=_ProcessorLauncher(processor),
-                window_selector=TopicMemoryWindowSelector(
-                    profile.database,
-                    sources,
-                    character_token_estimator(),
-                    context_window_tokens=10_000,
+                artifact_family="topic-memory",
+                max_workers=1,
+                worker_timeout_seconds=5,
+                launcher=_ProcessorLauncher(
+                    TopicMemoryScopeProcessor(
+                        profile.database,
+                        processor,
+                        TopicMemoryWindowSelector(
+                            profile.database,
+                            sources,
+                            character_token_estimator(),
+                            context_window_tokens=10_000,
+                        ),
+                    )
                 ),
             )
             async with ArtifactProcessingSupervisor(
                 database=profile.database,
                 bindings=(binding,),
                 lease_mode="single-process",
-                max_workers=1,
-                worker_timeout_seconds=5,
-                pending=pending,
                 retry_base_seconds=0.01,
                 retry_cap_seconds=0.01,
                 retry_jitter=lambda: 1.0,
@@ -2183,7 +2195,17 @@ def test_topic_worker_entrypoint_runs_and_sanitizes_failure_in_real_spawn_child(
             await scope.sources.capture(ContentCapture(source_id="spawn", content=secret))
             async with contexts.database.transaction() as connection:
                 term = await contexts.repositories.processing_leases.start_single_process_term(connection, "holder")
-            assignment = _assignment(term.fence("single-process"), through=1)
+                await ArtifactProcessingIntentRepository().request(
+                    connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+                )
+            assignment = ScopeAssignment(
+                binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                scope_id="scope-a",
+                artifact_family="topic-memory",
+                claimed_request_generation=1,
+                fence=term.fence("single-process"),
+                worker_id="worker-a",
+            )
             launcher = SpawnArtifactProcessingWorkerLauncher(
                 partial(_run_worker_without_general_fts_writes, TopicMemoryWorkerSpec(config=config))
             )
@@ -2241,7 +2263,16 @@ def test_stale_spawn_worker_cannot_reconfigure_the_current_runtime(tmp_path) -> 
                 async with current.database.transaction() as connection:
                     assert tuple((await connection.execute(shape_query)).one()) == expected_shape
                 launcher = SpawnArtifactProcessingWorkerLauncher(partial(run_topic_memory_worker, spec))
-                handle = await launcher.start(_assignment(term.fence("single-process"), through=1))
+                handle = await launcher.start(
+                    ScopeAssignment(
+                        binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                        scope_id="scope-a",
+                        artifact_family="topic-memory",
+                        claimed_request_generation=1,
+                        fence=term.fence("single-process"),
+                        worker_id="worker-a",
+                    )
+                )
                 try:
                     with pytest.raises(RuntimeError) as error:
                         await asyncio.wait_for(handle.wait(), timeout=30)
@@ -2343,30 +2374,100 @@ def test_composition_registers_complete_binding_only_with_generation_model(tmp_p
             inference=InferenceConfig(generation_model="test"),
         )
         async with open_builtin_contexts(config) as contexts:
-            bindings = _topic_memory_processing_bindings(config, contexts, ())
+            bindings = _artifact_processing_bindings(config, contexts, ())
             with pytest.raises(BuiltinConfigurationError, match="child-reconstructible"):
-                _topic_memory_processing_bindings(
+                _artifact_processing_bindings(
                     config,
                     contexts,
                     (),
                     injected_token_estimator=character_token_estimator(),
                 )
-        assert len(bindings) == 1
-        assert bindings[0].binding_name == TOPIC_MEMORY_SOURCE_WINDOW_BINDING
-        assert bindings[0].window_selector is not None
+        topic_bindings = tuple(binding for binding in bindings if binding.artifact_family == "topic-memory")
+        assert len(topic_bindings) == 1
+        assert topic_bindings[0].binding_name == TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 
         incomplete = BuiltinConfig(
             runtime=RuntimeConfig(topic_memory_schedule_seconds=30),
         )
         async with open_builtin_contexts(incomplete) as contexts:
-            with pytest.raises(BuiltinConfigurationError, match="generation model"):
-                _topic_memory_processing_bindings(incomplete, contexts, ())
+            with pytest.raises(BuiltinConfigurationError, match="configured generation model"):
+                _artifact_processing_bindings(incomplete, contexts, ())
 
         invalid_budget = config.model_copy(
             update={"inference": config.inference.model_copy(update={"generation_model_context_window_tokens": 1_000})}
         )
         async with open_builtin_contexts(invalid_budget) as contexts:
             with pytest.raises(BuiltinConfigurationError, match="budget"):
-                _topic_memory_processing_bindings(invalid_budget, contexts, ())
+                _artifact_processing_bindings(invalid_budget, contexts, ())
+
+    asyncio.run(scenario())
+
+
+def _run_topic_worker_without_server_imports(spec, assignment):
+    # Install inside the actual child; blocking imports in the parent does not
+    # constrain a spawned interpreter. Intercept cached modules as well.
+    import builtins
+
+    original_import = builtins.__import__
+
+    def reject_server_import(name, *args, **kwargs):
+        if name == "powercontext.server" or name.startswith("powercontext.server."):
+            raise ModuleNotFoundError("Server dependencies are unavailable in the builtin SDK", name=name)  # noqa: TRY003
+        return original_import(name, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(builtins, "__import__", reject_server_import)
+        return run_topic_memory_worker(spec, assignment)
+
+
+def test_topic_worker_without_server_dependencies_acknowledges_and_replays_in_spawn_child(tmp_path) -> None:
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'builtin-worker.db'}"),
+            inference=InferenceConfig(generation_model="test"),
+        )
+        async with open_builtin_contexts(config) as contexts:
+            scope = await contexts.get("scope-a")
+            intents = ArtifactProcessingIntentRepository()
+            async with contexts.database.transaction() as connection:
+                term = await contexts.repositories.processing_leases.start_single_process_term(connection, "holder")
+                accepted = await intents.request(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+            assignment = ScopeAssignment(
+                binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                scope_id="scope-a",
+                artifact_family="topic-memory",
+                claimed_request_generation=accepted.requested_generation,
+                fence=term.fence("single-process"),
+                worker_id="builtin-worker",
+            )
+            launcher = SpawnArtifactProcessingWorkerLauncher(
+                partial(_run_topic_worker_without_server_imports, TopicMemoryWorkerSpec(config=config))
+            )
+
+            async def invoke() -> None:
+                handle = await launcher.start(assignment)
+                try:
+                    completion = await asyncio.wait_for(handle.wait(), timeout=30)
+                finally:
+                    await handle.terminate()
+                assert completion.outcome is ArtifactProcessingWorkerOutcome.SUCCEEDED
+
+            await invoke()
+            async with contexts.database.transaction() as connection:
+                acknowledged = await intents.load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                assert acknowledged is not None
+                assert acknowledged.requested_generation == acknowledged.handled_generation == 1
+                assert acknowledged.dirty_generation == acknowledged.clean_generation == 0
+
+            # A replay of confirmed G1 must not consume newly captured input.
+            await scope.sources.capture(ContentCapture(source_id="later", content="Keep for the next request"))
+            await invoke()
+            async with contexts.database.transaction() as connection:
+                replayed = await intents.load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                cursor = await SourceCursorRepository().load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+                assert replayed is not None
+                assert replayed.requested_generation == replayed.handled_generation == 1
+                assert replayed.dirty_generation > replayed.clean_generation
+                assert cursor is None
 
     asyncio.run(scenario())

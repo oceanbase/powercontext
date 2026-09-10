@@ -67,6 +67,12 @@ another task, session, or model. It must be explicitly prepared, inspected, and 
 a few Memory entries. Read [Memory and Handoff](../workflows/memory-and-handoff.md) for the boundary and
 [Hand off work in Codex](../workflows/handoff-with-codex.md) for the procedure.
 
+## Choose standard context text
+
+Set `POWERCONTEXT_CODEX_CONTEXT_ASSEMBLY` to a JSON assembly object before starting Codex. This opts into
+readable text with configurable Memory/Experience sections, limits, and metadata. See
+[Prepare standard context text](../workflows/prepare-context-text.md) for a complete example and output rules.
+
 ## Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting Codex when the current work must not be recorded:

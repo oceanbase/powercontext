@@ -76,18 +76,28 @@ The process must be able to create and update this directory. The default SQLite
 Scheduler, Worker lease, and Operation state. Supply the same environment variables whenever your service manager
 restarts the process.
 
-PowerContext does not search for a `.env` file automatically. Export the variables, configure them in the service
-manager or container platform, or pass one explicit file:
+`server run` loads `.env` from its current directory when present. Managed deployments should export the variables,
+configure them in the service manager or container platform, or pass one explicit file so startup does not depend on
+the working directory:
 
 ```bash
 powercontext config validate --env-file /etc/powercontext/powercontext.env
 powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
 
-The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
-file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
-are ignored. See the [Enable extraction and vector search](../get-started/configure-models.md) to generate a validated file
-interactively.
+The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
+read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
+disabled by default, so no token is generated automatically.
+
+The file may contain provider credentials or a bearer token, so restrict it to the Server operator. For `server run`,
+process environment variables override same-named file values. `config init` creates a model-free base configuration; see
+[Enable extraction and vector search](../get-started/configure-models.md)
+when you need to add inference models and enable the full capability set.
+
+Whether the Server runs in the foreground, in Docker, or as a personal service, startup or installation output warns
+that missing models may affect some artifact features and links to the
+[configuration reference](https://powercontext.oceanbase.io/en/docs/reference/configuration/).
+The notice is omitted when both generation and embedding models are configured.
 
 ## Run with Docker
 
@@ -120,6 +130,10 @@ named volume persists the SQLite database and durable work state after the conta
 Distributed mode requires OceanBase and a schema migration before any role starts. The repository includes
 `docker/compose.distributed.yaml` as a topology example with two APIs, two Schedulers, and two Workers. One Scheduler is
 leader and the other remains ready to take over; both APIs and both Workers are active.
+
+The distributed Work Ledger schedules Memory, Experience, and Profile work. Topic Memory processing is not supported
+in distributed v1; leave its schedule unset. The single-node Artifact Processing Supervisor role must remain `all`
+because `POWERCONTEXT_SERVER_DEPLOYMENT_ROLE` owns process separation in this topology.
 
 Export secrets and deployment choices without writing them into Compose:
 
@@ -173,9 +187,18 @@ docker run --rm \
 Clients then send `Authorization: Bearer <token>`. The liveness and readiness endpoints remain public so an
 orchestrator can probe them. API, MCP, metrics, and `/openapi.json` require authentication. The `/docs` shell remains
 public, but requests made from the interactive reference require authentication.
-The Server's web-page shells and static assets remain public so they can show a sign-in form; they do not return
-protected data without the token. Open the Dashboard, Skills, Review, or Handoff Report page and enter the same token
-there. It remains in the current browser tab's session storage rather than being added to the URL.
+
+Personal or demonstration deployments can additionally set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true` to expose
+`/dashboard/home` on the same port. It requires the static Bearer configuration above; startup fails clearly without a
+token. Browser sign-in uses the Server token, not a model API key. Credentials are stored in an HttpOnly,
+SameSite=Strict Cookie restricted to `/dashboard`, for up to eight hours. HTTPS sets Secure. Reverse proxies must
+preserve the external scheme and host for the sign-in same-origin check.
+
+All holders of the static token share one administrator identity. The Dashboard does not support multi-user RBAC or
+provide accounts, SSO, invitations, or grant management. Deployments injecting an Authentication Provider or
+AccessControlService must disable the Dashboard; an incompatible enabled configuration is rejected at startup.
+Disabling it does not affect team API or MCP access. For personal setup, see
+[Install and run](../get-started/install-and-run.md).
 
 ## Check the deployment
 

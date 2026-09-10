@@ -18,6 +18,8 @@ import asyncio
 import json
 import logging
 import sqlite3
+from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from time import monotonic, sleep
 
@@ -50,8 +52,17 @@ from powercontext.builtin.artifacts.memory import (
 from powercontext.builtin.inference.pydantic_ai import PydanticAIEmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, RememberMemoryRequest, open_builtin_runtime
+from powercontext.builtin.runtime.artifact_processing import (
+    ArtifactProcessingBinding,
+    SpawnArtifactProcessingWorkerLauncher,
+)
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
-from powercontext.builtin.runtime.work_handlers import EXPERIENCE_WORK_KIND, MEMORY_WORK_KIND
+from powercontext.builtin.runtime.family_processing import FamilyWorkerSpec, process_family_invocation
+from powercontext.builtin.runtime.processing_contracts import (
+    ArtifactProcessingWorkAssignment,
+    ArtifactProcessingWorkerCompletion,
+)
+from powercontext.builtin.runtime.work_handlers import MEMORY_WORK_KIND
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import RevisionConflictError
 from powercontext.server.factory import create_server_app
@@ -115,6 +126,7 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.context.build.memory_candidate_count",
         "powercontext.context.build.topic_memory_candidate_count",
         "powercontext.context.build.experience_candidate_count",
+        "powercontext.context.build.profile_candidate_count",
         "powercontext.context.build.selected_count",
         "powercontext.context.build.status",
         "powercontext.context.build.content_bytes",
@@ -132,18 +144,23 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.experience.incubation.source_count",
         "powercontext.experience.incubation.candidate_count",
     },
-    "scheduled.process_source_window": {
+    "artifact_processing.worker": {
         "powercontext.operation.name",
         "powercontext.operation.unit",
         "powercontext.operation.outcome",
-        "powercontext.background.source_count",
+        "powercontext.artifact_processing.family",
+        "powercontext.artifact_processing.failure",
+        "error.type",
     },
-    "scheduled.incubate_experience_candidates": {
-        "powercontext.operation.name",
-        "powercontext.operation.unit",
-        "powercontext.operation.outcome",
-        "powercontext.background.source_count",
-        "powercontext.background.candidate_count",
+    **{
+        f"artifact_processing.worker.{stage}": {
+            "powercontext.operation.name",
+            "powercontext.operation.unit",
+            "powercontext.operation.outcome",
+            "powercontext.artifact_processing.family",
+            "error.type",
+        }
+        for stage in ("start", "wait", "acknowledge")
     },
     "work.commit": {
         "powercontext.operation.name",
@@ -625,6 +642,7 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert (ready_context.attributes or {})["powercontext.context.build.memory_candidate_count"] == 1
     assert (ready_context.attributes or {})["powercontext.context.build.topic_memory_candidate_count"] == 0
     assert (ready_context.attributes or {})["powercontext.context.build.experience_candidate_count"] == 0
+    assert (ready_context.attributes or {})["powercontext.context.build.profile_candidate_count"] == 0
     assert (ready_context.attributes or {})["powercontext.context.build.selected_count"] == 1
     assert (ready_context.attributes or {})["powercontext.context.build.status"] == "ready"
     ready_content_bytes = (ready_context.attributes or {})["powercontext.context.build.content_bytes"]
@@ -767,18 +785,116 @@ class _EmptyExperiencePipeline:
         return ()
 
 
-def test_scheduled_source_window_starts_an_independent_trace_root(tmp_path) -> None:
+def _traced_family_worker(
+    spec: FamilyWorkerSpec, assignment: ArtifactProcessingWorkAssignment, /
+) -> ArtifactProcessingWorkerCompletion:
+    """Rebuild deterministic processors inside a real spawn child."""
+    from powercontext.builtin.runtime.composition import open_builtin_contexts
+
+    async def run() -> ArtifactProcessingWorkerCompletion:
+        async with open_builtin_contexts(
+            spec.config,
+            candidate_pipeline=_EmptyCandidatePipeline(),
+            experience_pipeline=_EmptyExperiencePipeline(),
+            _topic_memory_worker=True,
+        ) as contexts:
+            return await process_family_invocation(contexts, assignment, config=spec.config)
+
+    return asyncio.run(run())
+
+
+def _unacknowledged_worker(
+    spec: FamilyWorkerSpec, assignment: ArtifactProcessingWorkAssignment, /
+) -> ArtifactProcessingWorkerCompletion:
+    del spec, assignment
+    return ArtifactProcessingWorkerCompletion()
+
+
+def _failed_worker(
+    spec: FamilyWorkerSpec, assignment: ArtifactProcessingWorkAssignment, /
+) -> ArtifactProcessingWorkerCompletion:
+    del spec, assignment
+    raise RuntimeError("private child failure evidence")  # noqa: TRY003
+
+
+def _protocol_acknowledging_worker(
+    config: BuiltinConfig, assignment: ArtifactProcessingWorkAssignment, /
+) -> ArtifactProcessingWorkerCompletion:
+    """Exercise the Family-neutral control protocol, without simulating domain work."""
+    from powercontext.builtin.runtime.composition import open_builtin_contexts
+    from powercontext.builtin.runtime.processing_execution import ScopeInvocation
+
+    async def run() -> ArtifactProcessingWorkerCompletion:
+        async with (
+            open_builtin_contexts(config, _topic_memory_worker=True) as contexts,
+            contexts.database.transaction() as connection,
+        ):
+            invocation = ScopeInvocation(assignment)
+            await invocation.start(connection)
+            await invocation.complete(connection, remaining_work=False)
+        return ArtifactProcessingWorkerCompletion()
+
+    return asyncio.run(run())
+
+
+@pytest.mark.parametrize("family", ["topic-memory", "profile"])
+def test_scope_worker_lifecycle_trace_is_family_neutral_and_detaches_ambient_http(tmp_path, family) -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    config = BuiltinConfig(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'protocol-tracing.db'}"),
+        runtime=RuntimeConfig.model_validate({"artifact_processing_families": (family,)}),
+    )
+    binding = ArtifactProcessingBinding(
+        f"{family}-source-window",
+        family,
+        SpawnArtifactProcessingWorkerLauncher(partial(_protocol_acknowledging_worker, config)),
+        automatic_processing_interval=timedelta(seconds=0.02),
+    )
+    content = "private source excluded from protocol traces"
+
+    async def run() -> tuple[str, ReadableSpan]:
+        # Starting the controller under an ambient HTTP span catches accidental
+        # context inheritance by its async scheduling task and child stages.
+        with provider.get_tracer(__name__).start_as_current_span("HTTP capture"):
+            async with open_builtin_runtime(
+                config, artifact_processing_bindings=(binding,), tracing=ServerTracing(provider)
+            ) as runtime:
+                assert runtime.scopes is not None
+                scope = await runtime.scopes.create(
+                    ScopeDraft(title="Trace", summary="Protocol trace", idempotency_key="protocol-trace")
+                )
+                await runtime.records.for_scope(scope.scope_id).create_source("content", content)
+                root = await asyncio.to_thread(
+                    _wait_for_named_span, exporter, "artifact_processing.worker", outcome="success", timeout=30
+                )
+                return scope.scope_id, root
+
+    scope_id, root = asyncio.run(run())
+    spans = list(exporter.get_finished_spans())
+    assert (root.attributes or {})["powercontext.artifact_processing.family"] == family
+    for stage_name in ("start", "wait", "acknowledge"):
+        stage = _only_child(spans, root, f"artifact_processing.worker.{stage_name}")
+        _assert_scheduled_background_trace(root, stage, spans, scope_id=scope_id, content=content)
+
+
+@pytest.mark.parametrize("family", ["memory", "experience"])
+def test_scheduled_family_worker_starts_an_independent_trace_root(monkeypatch, tmp_path, family) -> None:
+    monkeypatch.setattr("powercontext.builtin.runtime.composition.run_family_worker", _traced_family_worker)
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scheduled-tracing.db'}"),
-            runtime=RuntimeConfig(schedule_seconds=0.02),
+            runtime=RuntimeConfig.model_validate({
+                "artifact_processing_families": (family,),
+                f"{family}_schedule_seconds": 0.02,
+            }),
+            inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
-        candidate_pipeline=_EmptyCandidatePipeline(),
         tracing=ServerTracing(provider),
     )
     content = "private scheduled evidence"
@@ -790,27 +906,40 @@ def test_scheduled_source_window_starts_an_independent_trace_root(tmp_path) -> N
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
         )
         assert captured.status_code == 202
-        root = _wait_for_work_span(exporter, MEMORY_WORK_KIND)
+        root = _wait_for_named_span(exporter, "artifact_processing.worker", outcome="success", timeout=30)
         spans = list(exporter.get_finished_spans())
-        commit = _only_child(spans, root, "work.commit")
-        _assert_scheduled_background_trace(root, commit, spans, scope_id=scope_id, content=content)
+        assert (root.attributes or {})["powercontext.artifact_processing.family"] == family
+        for stage_name in ("start", "wait", "acknowledge"):
+            stage = _only_child(spans, root, f"artifact_processing.worker.{stage_name}")
+            _assert_scheduled_background_trace(root, stage, spans, scope_id=scope_id, content=content)
+            assert (stage.attributes or {})["powercontext.artifact_processing.family"] == family
 
 
-def test_scheduled_experience_starts_an_independent_trace_root(tmp_path) -> None:
+@pytest.mark.parametrize("failure", ["missing_durable_acknowledgement", "worker_failed", "timeout"])
+def test_scheduled_worker_failure_trace_requires_acknowledgement_and_excludes_payloads(
+    monkeypatch, tmp_path, failure
+) -> None:
+    monkeypatch.setattr(
+        "powercontext.builtin.runtime.composition.run_family_worker",
+        _failed_worker if failure == "worker_failed" else _unacknowledged_worker,
+    )
     exporter = InMemorySpanExporter()
     provider = TracerProvider(shutdown_on_exit=False)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     app = create_server_app(
         settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scheduled-experience-tracing.db'}"),
-            runtime=RuntimeConfig(experience_schedule_seconds=0.02),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'failed-worker-tracing.db'}"),
+            runtime=RuntimeConfig(
+                artifact_processing_families=("memory",),
+                memory_schedule_seconds=0.02,
+                memory_worker_timeout_seconds=0.01 if failure == "timeout" else 30,
+            ),
+            inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),
         ),
-        scheduler_path=tmp_path / "scheduler.db",
-        experience_pipeline=_EmptyExperiencePipeline(),
         tracing=ServerTracing(provider),
     )
-    content = "private scheduled incubation evidence"
+    content = "private child failure evidence"
 
     with TestClient(app) as client:
         scope_id = _get_default_scope_id(client)
@@ -819,10 +948,22 @@ def test_scheduled_experience_starts_an_independent_trace_root(tmp_path) -> None
             json={"scope_id": scope_id, "source_id": "task-1", "content": content},
         )
         assert captured.status_code == 202
-        root = _wait_for_work_span(exporter, EXPERIENCE_WORK_KIND)
+        root = _wait_for_named_span(exporter, "artifact_processing.worker", outcome="failure", timeout=30)
         spans = list(exporter.get_finished_spans())
-        commit = _only_child(spans, root, "work.commit")
-        _assert_scheduled_background_trace(root, commit, spans, scope_id=scope_id, content=content)
+        assert root.parent is None
+        assert (root.attributes or {})["powercontext.artifact_processing.failure"] == failure
+        assert root.status.status_code.name == "ERROR"
+        assert not any(
+            span.name == "artifact_processing.worker"
+            and (span.attributes or {}).get("powercontext.operation.outcome") == "success"
+            for span in spans
+        )
+        for span in spans:
+            if span.name.startswith("artifact_processing.worker"):
+                _assert_stage_attribute_keys(span)
+        exported = _exported_span_data(spans)
+        assert scope_id not in exported
+        assert content not in exported
 
 
 def test_vector_search_exports_embedding_under_memory_search_without_recording_text(monkeypatch, tmp_path) -> None:
@@ -1072,7 +1213,7 @@ def _assert_scheduled_background_trace(
     assert root.parent is None
     assert stage.parent is not None and stage.parent.span_id == root.context.span_id
     assert (root.attributes or {})["powercontext.operation.unit"] == "background"
-    assert (root.attributes or {})["powercontext.operation.outcome"] == "succeeded"
+    assert (root.attributes or {})["powercontext.operation.outcome"] == "success"
     assert (stage.attributes or {})["powercontext.operation.unit"] == "stage"
     _assert_stage_attribute_keys(root)
     _assert_stage_attribute_keys(stage)

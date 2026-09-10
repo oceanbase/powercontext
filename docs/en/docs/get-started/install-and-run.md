@@ -58,16 +58,39 @@ With no environment variables, the Server:
 
 - binds to `127.0.0.1:8000`;
 - enables Streamable HTTP MCP at `/mcp`;
-- creates a default Scope and enables the Dashboard at `/`;
+- creates a default Scope;
 - creates a persistent SQLite database in the operating system's user data directory;
 - supports explicit Memory operations without an inference provider.
 
-After startup, the terminal prints the Dashboard URL, such as `http://127.0.0.1:8000/`. The Dashboard shares the
-Server listener and port with the HTTP API and MCP. If Dashboard initialization fails, the Server logs a warning with
-the direct cause and continues serving the other interfaces. Set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` to
-disable the Dashboard explicitly.
-
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
+
+The Dashboard is an optional content viewer for personal use and demonstrations. It is disabled by default and needs
+no separate frontend installation or model configuration. To enable it, put these settings in a protected environment
+file and replace the token example with your own long random credential:
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+```
+
+```bash
+chmod 600 /path/to/powercontext.env
+powercontext config validate --env-file /path/to/powercontext.env
+powercontext server run --env-file /path/to/powercontext.env
+```
+
+Open `http://127.0.0.1:8000/dashboard/home` and enter the same token. Use the actual port if you change it.
+The token also protects the Server API and MCP, so connected Agents need it too. The CLI does not automatically load
+a directory's `.env` file.
+
+The first sign-in selects the Server default Scope. Pages are empty until content is saved. Save a Memory through an
+Agent or public API, then refresh Memories in the same Scope. Experiences, skills, handoffs, and usage also come from
+saved records. The Dashboard does not capture sessions, run generation, or approve candidates. The Dashboard and Agent
+must use the same Server and Scope.
+
+All token holders use one identity. Multi-user RBAC deployments should leave the Dashboard disabled and use the API,
+MCP, or host integrations. See [Deploy the Server](../operate/deploy-server.md) for network and credential configuration.
 
 This minimal launch does not enable model-backed extraction or vector search. To generate and validate one explicit
 environment file for those capabilities, continue with the
@@ -91,8 +114,9 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 powercontext server run
 ```
 
-The CLI does not search for a `.env` file automatically. Export these values in the shell, configure them in the
-process manager or container, or pass a specific file with `powercontext server run --env-file <path>`.
+`server run` loads `.env` from the current directory when present. Export values in the shell to override that file,
+pass `--env-file <path>` to select another file, or pass `--no-env-file` to ignore environment files. Process managers
+and containers should normally provide an explicit environment instead of relying on their working directory.
 
 PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
 the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the

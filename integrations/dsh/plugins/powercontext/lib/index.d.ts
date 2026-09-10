@@ -18,6 +18,7 @@ import { Context } from "@deepseek-ai/cordis";
 
 //#region src/config.d.ts
 interface PluginConfig {
+  contextAssembly?: Record<string, unknown>;
   baseUrl?: string;
   authorization?: string;
   scopeId?: string;

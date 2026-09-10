@@ -23,11 +23,9 @@ from typing import Any
 
 from .client import PowerContextError, PowerContextHTTPError
 from .helpers import (
-    DEFAULT_MAX_BYTES,
     DEFAULT_RETRIEVAL_LIMIT,
     as_int,
     citation_from_args,
-    config_value,
 )
 from .operations import OPERATION_REQUIRED_FIELDS, OPERATION_TOOL_MAP
 
@@ -125,15 +123,8 @@ def request_operation(provider: Any, operation: str, payload: dict[str, Any] | N
         raise ValueError(f"Missing required arguments: {', '.join(missing)}")  # noqa: TRY003
 
     if operation == "prepare_context":
-        operation_payload.setdefault(
-            "max_bytes",
-            as_int(
-                config_value(provider._config, "max_bytes", "POWERCONTEXT_HERMES_MAX_BYTES", DEFAULT_MAX_BYTES),
-                DEFAULT_MAX_BYTES,
-                minimum=512,
-                maximum=32768,
-            ),
-        )
+        for key, value in provider._prepare_options().items():
+            operation_payload.setdefault(key, value)
     elif operation == "capture_content_source":
         operation_payload.setdefault("metadata", {"origin": "hermes"})
     operation_payload["scope_id"] = provider._scope_id

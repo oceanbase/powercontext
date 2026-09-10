@@ -1,0 +1,24 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% macro page_heading(title, description='') %}
+<header class="page-header m-0 mb-4">
+  <div class="row align-items-center g-3">
+    <div class="{{ 'col-12 col-md-7 col-xl-8 col-xxl-9' if caller is defined else 'col-12' }}"><h1 class="page-title page-title-lg">{{ title }}</h1>{% if description %}<p class="text-secondary mt-2 mb-0">{{ description }}</p>{% endif %}</div>
+    {% if caller is defined %}<div class="col-12 col-md-5 col-xl-4 col-xxl-3">{{ caller() }}</div>{% endif %}
+  </div>
+</header>
+{% endmacro %}

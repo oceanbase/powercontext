@@ -100,6 +100,7 @@ class CodexPluginSettings(BaseSettings):
     server_url: str = Field(default="", repr=False)
     authorization: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = None
+    context_assembly: dict[str, Any] | None = None
     capture_prompts: bool = True
     flush_on_capture: bool = False
     request_timeout_seconds: float = Field(default=1.0, gt=0)

@@ -35,6 +35,7 @@ validated by Pydantic before the plugin starts.
 | `POWERCONTEXT_BUB_SCOPE_ID` | unset | Explicit Scope resolved and validated by the Server before use |
 | `POWERCONTEXT_BUB_TIMEOUT` | `10` | Client timeout in seconds |
 | `POWERCONTEXT_BUB_MAX_BYTES` | `8000` | Maximum prepared-context size |
+| `POWERCONTEXT_BUB_CONTEXT_ASSEMBLY` | unset | JSON object selecting prepared-context families and output options |
 | `POWERCONTEXT_BUB_CAPTURE_EVENTS` | `false` | Capture completed Bub events as Content Sources |
 | `POWERCONTEXT_BUB_CAPTURE_CHECKPOINT_EVERY` | `5` | Flush Memory after this many captured events |
 | `POWERCONTEXT_BUB_CAPTURE_MAX_BYTES` | `8192` | Maximum UTF-8 bytes stored for one captured event |
@@ -55,3 +56,7 @@ Install the package together with PowerContext and Bub:
 ```bash
 uv pip install -e . -e integrations/bub
 ```
+
+Legacy context retrieval remains available with `powercontext==0.2.0` when `context_assembly` is unset.
+Text assembly requires a core and Server that support it; install the core and plugin together from the same checkout
+using the command above. On an older core, configuring assembly raises an explicit upgrade message at startup.

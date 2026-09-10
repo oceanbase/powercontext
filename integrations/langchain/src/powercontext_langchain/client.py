@@ -28,7 +28,7 @@ from powercontext.client import PowerContextClient
 from powercontext.http import ResolveScopeBindingRequest
 
 from .scope import PowerContextScope
-from .settings import PowerContextLangChainSettings
+from .settings import ContextAssembly, PowerContextLangChainSettings
 
 _SHARED_HTTP_CLIENT: ContextVar[tuple[httpx.AsyncClient, bool] | None] = ContextVar(
     "powercontext_langchain_http_client", default=None
@@ -44,6 +44,7 @@ class ResolvedConfig:
     token: str | None = field(repr=False)
     timeout: float
     max_bytes: int
+    context_assembly: ContextAssembly | None = None
 
 
 def resolve_config(
@@ -62,6 +63,7 @@ def resolve_config(
         token=token,
         timeout=resolved_scope.timeout if resolved_scope.timeout is not None else resolved_settings.timeout,
         max_bytes=resolved_settings.max_bytes,
+        context_assembly=resolved_settings.context_assembly,
     )
 
 

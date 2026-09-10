@@ -110,7 +110,10 @@ async def powercontext_context(query: str) -> str:
         async with open_client(config) as client:
             scope_id = await resolve_server_scope(client, config)
             request = PrepareContextRequest(
-                scope_id=scope_id, query=query[:_MAX_QUERY_CHARS], max_bytes=config.max_bytes
+                scope_id=scope_id,
+                query=query[:_MAX_QUERY_CHARS],
+                max_bytes=config.max_bytes,
+                **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
             )
             response = await client.prepare_context(request)
     except ValidationError:

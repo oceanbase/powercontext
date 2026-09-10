@@ -16,10 +16,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.sources import SourceRef
@@ -44,6 +44,14 @@ class SourceRecord(_RecordModel):
     content: JsonValue
     position: int
     content_digest: str
+    handoff_receipt: bool = Field(default=False, exclude=True)
+
+
+class SourceRecordPage(_RecordModel):
+    """One stable page of public Sources."""
+
+    items: tuple[SourceRecord, ...]
+    next_cursor: str | None
 
 
 class ArtifactWrite(_RecordModel):
@@ -206,6 +214,12 @@ class ArtifactRevisionPreconditionError(BaseAccessError):
 class RecordService(Protocol):
     """Persistence-backed base Source, Artifact, and Scope operations."""
 
+    async def migrate_handoff_receipts(
+        self,
+        committed_identity_lookup: Callable[[str, str], Awaitable[object | None]],
+        /,
+    ) -> tuple[int, int]: ...
+
     async def create_source(
         self,
         scope_id: str,
@@ -222,9 +236,21 @@ class RecordService(Protocol):
         content: JsonValue,
         metadata: Mapping[str, JsonValue],
         /,
+        *,
+        handoff_receipt: bool = False,
     ) -> SourceRecord: ...
 
     async def get_source(self, scope_id: str, source_type: str, source_id: str, /) -> SourceRecord: ...
+
+    async def list_sources(
+        self,
+        scope_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+        caller: str = "runtime",
+    ) -> SourceRecordPage: ...
 
     async def create_artifact(
         self,

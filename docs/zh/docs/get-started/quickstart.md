@@ -19,7 +19,7 @@ powercontext server run
 ```
 
 保持该终端运行。默认 Server 监听 `http://127.0.0.1:8000`，将数据持久化到本地 SQLite，
-在 `/` 提供 Dashboard，在 `/mcp` 提供 MCP。
+在 `/mcp` 提供 MCP。个人 Dashboard 默认关闭，启用方式见[安装和运行](install-and-run.md)。
 
 安装带 tag 的发布版见[安装与运行](install-and-run.md#选择版本)。Server 包与集成应使用相同的 tag 或 commit。
 

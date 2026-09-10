@@ -26,7 +26,7 @@ from pydantic import SecretStr
 from powercontext.builtin.artifacts.handoff import HandoffDraft, HandoffGenerationRequest, HandoffStatement
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime.config import RuntimeConfig
+from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import ForbiddenResponseError, PowerContextClient, UnavailableResponseError
 from powercontext.http import (
@@ -58,7 +58,6 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
     BearerAuthConfig,
-    DashboardConfig,
     McpConfig,
     MetricsConfig,
     ServerSettings,
@@ -422,24 +421,42 @@ def test_base_source_and_artifact_routes_preserve_access_boundaries(tmp_path: Pa
     asyncio.run(scenario())
 
 
-def test_scheduled_memory_processing_uses_the_static_service_principal_as_owner(tmp_path: Path) -> None:
+def _scheduled_content_memory_worker(spec, assignment):
+    from powercontext.builtin.runtime.composition import open_builtin_contexts
+    from powercontext.builtin.runtime.family_processing import process_family_invocation
+    from powercontext.server.processing_security import open_worker_security
+
+    async def run():
+        async with (
+            open_builtin_contexts(spec.config, candidate_pipeline=_ContentMemoryPipeline()) as contexts,
+            open_worker_security(spec.worker_security, contexts.database) as security,
+        ):
+            return await process_family_invocation(contexts, assignment, config=spec.config, security=security)
+
+    return asyncio.run(run())
+
+
+def test_scheduled_memory_processing_uses_the_static_service_principal_as_owner(tmp_path: Path, monkeypatch) -> None:
+    # Only the model adapter is deterministic. Server identity reconstruction,
+    # spawned child, transaction hooks and public access checks are real.
+    monkeypatch.setattr("powercontext.builtin.runtime.composition.run_family_worker", _scheduled_content_memory_worker)
+
     async def scenario() -> None:
         token = "scheduled-static-token"  # noqa: S105 - test credential.
         app = create_server_app(
             settings=ServerSettings(
                 database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'scheduled-runtime.db'}"),
-                runtime=RuntimeConfig(schedule_seconds=0.02),
+                runtime=RuntimeConfig(memory_schedule_seconds=0.02, artifact_processing_families=("memory",)),
+                inference=InferenceConfig(generation_model="test"),
                 access=AccessControlConfig(
                     mode="enforced",
                     deployment_id="scheduled-access-e2e",
                 ),
                 auth=BearerAuthConfig(token=SecretStr(token)),
-                dashboard=DashboardConfig(enabled=False),
                 metrics=MetricsConfig(enabled=False),
                 mcp=McpConfig(enabled=False),
             ),
             scheduler_path=tmp_path / "scheduled-access.db",
-            candidate_pipeline=_ContentMemoryPipeline(),
         )
         async with _client(app, token) as client:
             scope = await client.create_scope(
@@ -457,7 +474,7 @@ def test_scheduled_memory_processing_uses_the_static_service_principal_as_owner(
                 )
             )
             entries = None
-            for _ in range(100):
+            for _ in range(1500):
                 try:
                     entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope.scope_id))
                 except UnavailableResponseError as error:
@@ -839,7 +856,6 @@ def _app(
                 mode="enforced",
                 deployment_id=DEPLOYMENT_ID,
             ),
-            dashboard=DashboardConfig(enabled=False),
             metrics=MetricsConfig(enabled=False),
             mcp=McpConfig(enabled=False),
         ),

@@ -22,6 +22,9 @@ Memory 保存持久的决策、约束和事实。PreparedContext 为单次请求
 召回 Hook 向 Server 请求有大小上限的 PreparedContext。没有相关信息时返回 `empty` 是正常结果。
 历史内容不能覆盖当前指令或项目现状。
 
+按[输出标准上下文文本](prepare-context-text.md)选择 Memory、Experience、Profile 和 Topic Memory，
+设置输出顺序、各类别条数及总条数上限。
+
 采集 Prompt 会创建 Source 证据，不保证提取出 Memory。按[模型配置](../get-started/configure-models.md)
 启用生成模型与 Source 处理；只有需要[向量或混合搜索](configure-vector-search.md)时才配置 Embedding。
 记录项目信息前，检查宿主的 Prompt 采集开关。

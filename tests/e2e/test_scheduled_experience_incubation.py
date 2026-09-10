@@ -19,10 +19,19 @@ from pathlib import Path
 from time import monotonic
 
 import httpx
+import pytest
 
-from powercontext.builtin.artifacts.experience import ExperienceCandidateInput, ExperienceContent
+from powercontext.builtin.artifacts.experience import (
+    EXPERIENCE_INCUBATION_CURSOR_NAME,
+    ExperienceCandidateInput,
+    ExperienceContent,
+)
+from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import RuntimeConfig
+from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.composition import open_builtin_contexts
+from powercontext.builtin.runtime.family_processing import process_family_invocation
+from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient
 from powercontext.http import (
@@ -32,6 +41,7 @@ from powercontext.http import (
     PrepareContextRequest,
 )
 from powercontext.server.factory import create_server_app
+from powercontext.server.processing_security import open_worker_security
 from powercontext.server.settings import McpConfig, ServerSettings
 from powercontext.sources import Source, SourceRef
 
@@ -53,19 +63,31 @@ class _TaskOutcomePipeline:
         )
 
 
-def _app(database: Path):
+def _experience_worker(spec, assignment):
+    async def run():
+        async with (
+            open_builtin_contexts(spec.config, experience_pipeline=_TaskOutcomePipeline()) as contexts,
+            open_worker_security(spec.worker_security, contexts.database) as security,
+        ):
+            return await process_family_invocation(contexts, assignment, config=spec.config, security=security)
+
+    return asyncio.run(run())
+
+
+def _app(database: Path, scheduler: Path):
     return create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database}"),
-            runtime=RuntimeConfig(experience_schedule_seconds=0.02),
+            runtime=RuntimeConfig(experience_schedule_seconds=0.02, artifact_processing_families=("experience",)),
+            inference=InferenceConfig(generation_model="test"),
             mcp=McpConfig(enabled=False),
         ),
-        experience_pipeline=_TaskOutcomePipeline(),
+        scheduler_path=scheduler,
     )
 
 
 async def _pending_experience(client: PowerContextClient, scope_id: str):
-    deadline = monotonic() + 3
+    deadline = monotonic() + 30
     while monotonic() < deadline:
         page = await client.list_artifact_candidates(
             ListArtifactCandidatesRequest(
@@ -79,10 +101,36 @@ async def _pending_experience(client: PowerContextClient, scope_id: str):
     raise AssertionError("scheduled Experience Candidate did not reach the Review Inbox")  # noqa: TRY003
 
 
-def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_path: Path) -> None:
+async def _wait_for_handled(app, scope_id: str, minimum_generation: int) -> int:
+    contexts = app.state.application._provider
+    assert isinstance(contexts, RelationalContexts)
+    async with asyncio.timeout(30):
+        while True:
+            async with contexts.database.transaction() as connection:
+                intent = await ArtifactProcessingIntentRepository().load(
+                    connection, scope_id, EXPERIENCE_INCUBATION_CURSOR_NAME
+                )
+            if (
+                intent is not None
+                and intent.handled_generation >= minimum_generation
+                and intent.handled_generation == intent.requested_generation
+                and intent.clean_generation == intent.dirty_generation
+            ):
+                return intent.handled_generation
+            await asyncio.sleep(0.02)
+
+
+def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The deterministic adapter is rebuilt in the spawned child. Discovery,
+    # the Scope invocation transaction, durable acknowledgement and Inbox are real.
+    monkeypatch.setattr("powercontext.builtin.runtime.composition.run_family_worker", _experience_worker)
+
     async def scenario() -> None:
         database = tmp_path / "powercontext.db"
-        app = _app(database)
+        scheduler = tmp_path / "scheduler.db"
+        app = _app(database, scheduler)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -101,6 +149,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
                 )
             )
             candidates = await _pending_experience(client, scope_id)
+            handled_generation = await _wait_for_handled(app, scope_id, 1)
             prepared = await client.prepare_context(
                 PrepareContextRequest(
                     scope_id=scope_id,
@@ -113,7 +162,7 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
             assert candidates[0].result_artifact is None
             assert prepared.status == "empty"
 
-        restored = _app(database)
+        restored = _app(database, scheduler)
         async with (
             restored.router.lifespan_context(restored),
             httpx.AsyncClient(
@@ -122,8 +171,16 @@ def test_scheduler_incubates_task_outcome_once_and_preserves_review_gating(tmp_p
             ) as transport,
         ):
             client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
-            await asyncio.sleep(0.08)
+            await client.capture_content_source(
+                CaptureContentSourceRequest(
+                    scope_id=scope_id,
+                    source_id="follow-up",
+                    content="The recorded outcome remains available after restarting the Server.",
+                )
+            )
+            await _wait_for_handled(restored, scope_id, handled_generation + 1)
             candidates = await _pending_experience(client, scope_id)
             assert len(candidates) == 1
+        assert not scheduler.exists()
 
     asyncio.run(scenario())

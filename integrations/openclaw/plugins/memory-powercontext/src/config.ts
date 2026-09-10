@@ -25,6 +25,7 @@ export type PowerContextConfig = {
   tokenEnv: string;
   timeoutMs: number;
   prepareMaxBytes: number;
+  contextAssembly?: Record<string, unknown>;
   autoRecall: boolean;
   autoCapture: boolean;
   captureMaxChars: number;
@@ -74,6 +75,10 @@ export function resolvePowerContextConfig(
 ): PowerContextConfig {
   const raw = readPluginConfig(config, fallback);
   const endpoint = normalizeEndpoint(raw.endpoint);
+  const assembly = raw.contextAssembly;
+  if (assembly !== undefined && (!assembly || typeof assembly !== "object" || Array.isArray(assembly))) {
+    throw new Error("PowerContext contextAssembly must be an object");
+  }
   const tokenEnv =
     typeof raw.tokenEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(raw.tokenEnv.trim())
       ? raw.tokenEnv.trim()
@@ -84,6 +89,7 @@ export function resolvePowerContextConfig(
     ...(endpoint ? { endpoint } : {}),
     ...(scopeId ? { scopeId } : {}),
     tokenEnv,
+    ...(assembly !== undefined ? { contextAssembly: structuredClone(assembly as Record<string, unknown>) } : {}),
     timeoutMs: boundedInteger(raw.timeoutMs, DEFAULT_CONFIG.timeoutMs, 250, 15000),
     prepareMaxBytes: boundedInteger(raw.prepareMaxBytes, DEFAULT_CONFIG.prepareMaxBytes, 512, 32768),
     autoRecall: raw.autoRecall !== false,

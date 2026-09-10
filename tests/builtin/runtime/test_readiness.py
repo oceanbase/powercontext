@@ -43,10 +43,9 @@ def test_builtin_runtime_reports_runtime_and_database_readiness(tmp_path: Path) 
         assert readiness.checks == {
             "runtime": ReadinessCheckStatus.READY,
             "database": ReadinessCheckStatus.READY,
-            "artifact_processing_supervisor": "leader",
+            "artifact_processing_supervisor": "disabled",
         }
-        assert supervisor is not None
-        assert supervisor.status.value == "standby"
+        assert supervisor is None
 
     asyncio.run(scenario())
 

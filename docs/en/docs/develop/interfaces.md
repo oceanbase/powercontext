@@ -75,8 +75,8 @@ For the complete Codex transfer and acknowledgement workflow, see
 Handoff Report is a read-only projection over a Scope selection. `all` includes every Scope, `exact` includes only the
 listed Scope IDs, and `subtree` includes an organization root and all descendants. Each included Scope contributes its
 latest exact Handoff address or an explicit `no_handoff` result; Parent does not imply Context visibility. Codex fixes
-ordinary Agent report reads to the current Session Scope. Broader selections belong to host and Dashboard views.
-See [Use Handoff Report](../workflows/use-handoff-report.md) for the report UI.
+ordinary Agent report reads to the current Session Scope. Explicit HTTP clients may request broader selections.
+See [Use Handoff Report](../workflows/use-handoff-report.md) for the report API.
 
 ## DeepSeek Harness plugin
 
@@ -159,8 +159,8 @@ powercontext external-skill import --scope-id "$POWERCONTEXT_SCOPE_ID" --fingerp
 All content commands call the configured Server. The optional `server` role adds `powercontext server run`; it does
 not create a second content profile inside the CLI.
 
-The `config` group creates, redacts, and validates an explicit environment file. The CLI never searches for that file
-implicitly; pass it to `config show`, `config validate`, or `server run` with `--env-file`. See
+The `config` group creates, redacts, and validates an explicit environment file. `server run` discovers `.env` in the
+current directory; pass `--env-file` to select another file or `--no-env-file` to disable discovery. See
 [Configuration](../operate/configuration.md) for precedence and credential-handling rules.
 
 Use `codex`, `claude-code`, `dsh`, `hermes`, `openclaw`, `opencode`, `pi`, or `workbuddy` for `<host>`.

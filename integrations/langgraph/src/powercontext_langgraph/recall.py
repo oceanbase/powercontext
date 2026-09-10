@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from typing import Any
 
@@ -108,10 +110,22 @@ class PowerContextRecall:
             async with open_client(config) as client:
                 scope_id = await resolve_server_scope(client, config)
                 key = _turn_key(scope_id, messages, query)
+                if key is not None:
+                    options = {
+                        "max_bytes": config.max_bytes,
+                        "assembly": config.context_assembly.model_dump(mode="json")
+                        if config.context_assembly is not None
+                        else None,
+                    }
+                    digest = hashlib.sha256(json.dumps(options, sort_keys=True).encode()).hexdigest()
+                    key = f"{key}\x00{digest}"
                 if key is not None and key in self._turn_cache:
                     return self._turn_cache[key]
                 request = PrepareContextRequest(
-                    scope_id=scope_id, query=query[:_MAX_QUERY_CHARS], max_bytes=config.max_bytes
+                    scope_id=scope_id,
+                    query=query[:_MAX_QUERY_CHARS],
+                    max_bytes=config.max_bytes,
+                    **({"assembly": config.context_assembly} if config.context_assembly is not None else {}),
                 )
                 prepared = await client.prepare_context(request)
         except ValidationError:
