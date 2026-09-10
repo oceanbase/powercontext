@@ -34,7 +34,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.memory_schema import ensure_memory_entry_version_scope_identity
 from powercontext.builtin.persistence.schema import create_tables
+from powercontext.builtin.persistence.tables import MEMORY_ENTRY_VERSIONS_TABLE
 
 _WARMUP_RETRY_SECONDS = 0.05
 _WARMUP_LOCKS: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]] = WeakKeyDictionary()
@@ -99,6 +101,8 @@ class SQLiteProfile:
             await _warm_sqlite(engine, config)
             async with database.transaction() as connection:
                 await create_tables(connection, tables)
+                if any(table is MEMORY_ENTRY_VERSIONS_TABLE for table in tables):
+                    await ensure_memory_entry_version_scope_identity(connection)
             yield profile
         finally:
             await database.close()
