@@ -181,6 +181,70 @@ def test_profile_generation_binds_custom_prompt_and_records_lineage():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("has_existing_profile", [False, True])
+def test_review_generation_reserves_candidate_evidence_capacity_for_custom_prompt(has_existing_profile):
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            registry = PromptRegistry(
+                builtin_prompt_definitions(),
+                supported=frozenset({"profile.generate"}),
+            )
+            ctx = RelationalContexts(database=db.database, prompt_registry=registry)
+            sid = await scope(ctx, f"Prompt Capacity {has_existing_profile}")
+            if has_existing_profile:
+                await ctx.records.create_artifact(
+                    sid,
+                    "profile",
+                    ArtifactWrite(content={"content": "# Existing Profile"}),
+                )
+                policy = await ctx.profiles.get_policy(sid)
+                await ctx.profiles.put_policy(
+                    sid,
+                    generation_enabled=True,
+                    activation_mode="review_required",
+                    expected_version=policy.version,
+                )
+                assert (await ctx.profiles.flush(sid)).status == "noop"
+            else:
+                await ctx.profiles.put_policy(
+                    sid,
+                    generation_enabled=True,
+                    activation_mode="review_required",
+                    expected_version=0,
+                )
+            expected_sources = 30 if has_existing_profile else 31
+            for index in range(expected_sources + 1):
+                await ctx.records.create_source(sid, "content", f"Lasting fact {index}")
+            prompt = await ctx.records.create_artifact(
+                sid,
+                "prompt",
+                ArtifactWrite(
+                    prompt_key="profile.generate",
+                    content={
+                        "schema_version": "powercontext.prompt.v1",
+                        "mode": "custom",
+                        "instructions": "Keep verified lasting facts.",
+                        "demonstrations": [],
+                    },
+                ),
+            )
+            ctx.profiles.generator = Generator("# Generated Profile")
+
+            result = await ctx.profiles.flush(sid)
+
+            assert result.status == "review_pending"
+            assert result.candidate_id is not None
+            candidate = await ctx.review(sid).get_candidate(result.candidate_id)
+            assert len(candidate.sources) == expected_sources
+            assert len(candidate.sources) + len(candidate.artifacts) == 32
+            assert any(
+                ref.family == "prompt" and ref.artifact_id == prompt.artifact_id and ref.revision == prompt.revision
+                for ref in candidate.artifacts
+            )
+
+    asyncio.run(run())
+
+
 def test_review_revise_approve_reject_and_resume():
     async def run():
         async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:

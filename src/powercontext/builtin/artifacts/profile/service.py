@@ -226,7 +226,9 @@ class RelationalProfileService:
                     await processing.complete(connection, remaining_work=True)
                 return ProfileFlushResult(status="review_pending", candidate_id=policy.pending_candidate_id, **base)
             current = await self.latest(connection, scope_id)
-            limit = min(self.max_sources, 32 if current is None else 31)
+            prompt_refs = _profile_prompt_refs()
+            reserved_artifacts = (0 if current is None else 1) + len(prompt_refs)
+            limit = min(self.max_sources, 32 - reserved_artifacts)
             window = tuple(
                 item
                 for item in await self.sources.list(connection, scope_id, after=after, limit=limit)
@@ -285,7 +287,7 @@ class RelationalProfileService:
                 updated = await self.policies.update(connection, policy)
                 refs = tuple(item.ref for item in evidence)
                 parents = () if current is None else (current.as_ref(),)
-                artifacts = (*parents, *_profile_prompt_refs())
+                artifacts = (*parents, *prompt_refs)
                 source_window = SourceWindow(after=after, through=through)
                 candidate_id = None
                 candidate = None
