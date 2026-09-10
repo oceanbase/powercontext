@@ -2718,7 +2718,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["artifacts"],
                 "summary": "List current Artifact heads",
-                "description": "List current heads for exactly one built-in Artifact family.",
+                "description": "List current heads for one registered Artifact family, including read-only families.",
                 "operationId": "list_artifacts",
                 "x-powercontext-access": {
                     "action": "scope.read",
@@ -2754,7 +2754,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/BaseArtifactFamily"},
                     },
                     {
                         "name": "limit",
@@ -2802,7 +2802,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/BaseArtifactFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -3301,7 +3301,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/BaseArtifactFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -3358,7 +3358,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/BaseArtifactFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -3963,6 +3963,28 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
                     "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "title": {
+                        "type": "string",
+                        "description": "Family-provided display title when available.",
+                        "nullable": True,
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Family-provided display summary when available.",
+                        "nullable": True,
+                    },
+                    "published_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Family-provided publication time when available.",
+                        "nullable": True,
+                    },
+                    "source_count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Family-provided number of direct Source inputs when available.",
+                        "nullable": True,
+                    },
                 },
                 "type": "object",
                 "required": ["scope_id", "family", "artifact_id", "revision", "sources", "artifacts", "content_digest"],
@@ -7766,7 +7788,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "CaptureStatus": {"type": "string", "enum": ["accepted"]},
             "BaseArtifactFamily": {
                 "type": "string",
-                "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt"],
+                "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
             },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile"]},

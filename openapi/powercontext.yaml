@@ -2947,7 +2947,7 @@ paths:
     get:
       tags: [artifacts]
       summary: List current Artifact heads
-      description: List current heads for exactly one built-in Artifact family.
+      description: List current heads for one registered Artifact family, including read-only families.
       operationId: list_artifacts
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       parameters:
@@ -2976,9 +2976,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema:
-            type: string
-            enum: [memory, experience, skill, handoff, prompt]
+          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
         - name: limit
           in: query
           required: false
@@ -3036,9 +3034,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema:
-            type: string
-            enum: [memory, experience, skill, handoff, prompt]
+          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
         - name: artifact_id
           in: path
           required: true
@@ -3419,9 +3415,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema:
-            type: string
-            enum: [memory, experience, skill, handoff, prompt]
+          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
         - name: artifact_id
           in: path
           required: true
@@ -3477,9 +3471,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema:
-            type: string
-            enum: [memory, experience, skill, handoff, prompt]
+          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
         - name: artifact_id
           in: path
           required: true
@@ -4255,6 +4247,24 @@ components:
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
+        title:
+          type: string
+          nullable: true
+          description: Family-provided display title when available.
+        summary:
+          type: string
+          nullable: true
+          description: Family-provided display summary when available.
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Family-provided publication time when available.
+        source_count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Family-provided number of direct Source inputs when available.
     ArtifactCreated:
       type: object
       required: [scope_id, family, artifact_id, revision, sources, artifacts]
@@ -8670,7 +8680,7 @@ components:
       enum: [accepted]
     BaseArtifactFamily:
       type: string
-      enum: [memory, experience, skill, handoff, profile, prompt]
+      enum: [memory, experience, skill, handoff, profile, prompt, topic-memory]
     StatsPeriod:
       type: string
       enum: [today, 7d, 30d]

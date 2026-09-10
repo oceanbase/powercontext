@@ -73,6 +73,7 @@ from powercontext.builtin.artifacts.prompt.service import (
     current_prompt,
     prompt_operation,
 )
+from powercontext.builtin.artifacts.registry import BUILTIN_ARTIFACT_FAMILY_REGISTRY
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProvider,
     ExternalSkillRegistryUnavailableError,
@@ -106,6 +107,7 @@ from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernanceRepository,
     ArtifactLifecycleState,
 )
+from powercontext.builtin.persistence.artifact_readers import TopicMemoryArtifactListReader
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.connectors import ConnectorCheckpointRepository
@@ -466,9 +468,10 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            (Handoff, Memory, Experience, Skill, Profile, Prompt, TopicMemory),
+            BUILTIN_ARTIFACT_FAMILY_REGISTRY,
             sources=source_repository,
         )
+        topic_memory_repository = TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index)
         self.repositories = _Repositories(
             sources=source_repository,
             artifacts=artifact_repository,
@@ -489,7 +492,7 @@ class RelationalContexts:
             processing_pending=ArtifactProcessingPendingRepository(),
             processing_leases=ArtifactProcessingLeaseRepository(),
             processing_binding_states=ArtifactProcessingBindingStateRepository(),
-            topic_memories=TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index),
+            topic_memories=topic_memory_repository,
         )
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self.prompt_registry = prompt_registry or PromptRegistry(
@@ -555,6 +558,13 @@ class RelationalContexts:
             cursor_secret=cursor_secret,
             processing_pending=self.repositories.processing_pending,
             source_processing_bindings=(TOPIC_MEMORY_SOURCE_WINDOW_BINDING,),
+            family_list_readers={
+                TopicMemory.family: TopicMemoryArtifactListReader(
+                    database=database,
+                    artifacts=artifact_repository,
+                    topics=topic_memory_repository,
+                )
+            },
         )
         self.publications = ArtifactPublicationApplication(
             database,

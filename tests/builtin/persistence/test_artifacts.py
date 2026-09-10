@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.registry import BUILTIN_ARTIFACT_FAMILY_REGISTRY
 from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemoryContent, TopicMemoryDraft
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.tables import (
@@ -41,6 +42,22 @@ from tests.builtin.persistence.contract import (
     ReportDraft,
     repository_profile,
 )
+
+
+def test_builtin_artifact_families_are_declared_in_one_registry() -> None:
+    assert BUILTIN_ARTIFACT_FAMILY_REGISTRY.families == {
+        "memory",
+        "experience",
+        "skill",
+        "handoff",
+        "profile",
+        "prompt",
+        "topic-memory",
+    }
+    topic_memory = BUILTIN_ARTIFACT_FAMILY_REGISTRY.definition_for("topic-memory")
+    assert topic_memory.standard_read
+    assert not topic_memory.standard_write
+    assert topic_memory.list_order == "published_at:desc"
 
 
 def test_two_artifact_families_share_revisions_and_ordered_direct_lineage() -> None:

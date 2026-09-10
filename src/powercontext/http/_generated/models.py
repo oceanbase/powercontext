@@ -1808,6 +1808,7 @@ class BaseArtifactFamily(StrEnum):
     HANDOFF = "handoff"
     PROFILE = "profile"
     PROMPT = "prompt"
+    TOPIC_MEMORY = "topic-memory"
 
 
 class StatsPeriod(StrEnum):
@@ -2352,6 +2353,14 @@ class ArtifactCollectionItem(BaseModel):
     sources: list[SourceTypeReference]
     artifacts: list[ArtifactReference]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    title: Annotated[StrictStr | None, Field(description="Family-provided display title when available.")] = None
+    summary: Annotated[StrictStr | None, Field(description="Family-provided display summary when available.")] = None
+    published_at: Annotated[
+        AwareDatetime | None, Field(description="Family-provided publication time when available.")
+    ] = None
+    source_count: Annotated[
+        StrictInt | None, Field(description="Family-provided number of direct Source inputs when available.", ge=0)
+    ] = None
 
 
 class ArtifactCreated(BaseModel):

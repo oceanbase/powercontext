@@ -2686,6 +2686,10 @@ def _artifact_collection_item_response(value: RuntimeArtifactCollectionItem) -> 
         sources=[mapping.source_type_reference(ref) for ref in value.sources],
         artifacts=[mapping.artifact_reference(ref) for ref in value.artifacts],
         content_digest=value.content_digest,
+        title=value.title,
+        summary=value.summary,
+        published_at=value.published_at,
+        source_count=value.source_count,
     )
 
 
@@ -4566,7 +4570,7 @@ def _path_artifact_read_access(
     payload: Mapping[str, Any],
     _deployment_id: str,
 ) -> tuple[tuple[AccessAction, ResourceRef], ...]:
-    if _path_artifact_family(payload) == BaseArtifactFamily.MEMORY.value:
+    if _path_artifact_family(payload) in {BaseArtifactFamily.MEMORY.value, "topic-memory"}:
         return _path_scope_access(payload, action=AccessAction.SCOPE_READ)
     return _path_artifact_access(payload, action=AccessAction.ARTIFACT_READ)
 

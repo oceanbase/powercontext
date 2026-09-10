@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -26,9 +27,10 @@ from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
     from powercontext.builtin.artifacts.memory import MemoryEntryVersion
+    from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
     from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 
-BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt"]
+BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"]
 
 
 class _RecordModel(BaseModel):
@@ -95,6 +97,10 @@ class ArtifactCollectionItem(_RecordModel):
     sources: tuple[SourceRef, ...]
     artifacts: tuple[ArtifactRef, ...]
     content_digest: str
+    title: str | None = None
+    summary: str | None = None
+    published_at: datetime | None = None
+    source_count: int | None = None
 
 
 class LogicalArtifactRecord(_RecordModel):
@@ -117,6 +123,23 @@ class ArtifactRevisionPage(_RecordModel):
 
     items: tuple[ArtifactCollectionItem, ...]
     next_cursor: str | None
+
+
+class ArtifactListReader(Protocol):
+    """Family-owned query adapter for a standard Artifact list."""
+
+    family: str
+
+    async def query(
+        self,
+        scope_id: str,
+        /,
+        *,
+        limit: int,
+        cursor: str | None,
+        tag_filter: TagFilter | None,
+        cursor_codec: SignedCursorCodec,
+    ) -> ArtifactRecordPage: ...
 
 
 class ScopeSummary(_RecordModel):

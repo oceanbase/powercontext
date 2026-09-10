@@ -16,13 +16,17 @@
 
 from powercontext.artifacts.models import Artifact, ArtifactAddress, ArtifactDraft, ArtifactLineage, ArtifactRef
 from powercontext.artifacts.protocols import ArtifactCatalog, ArtifactStore
+from powercontext.artifacts.registry import ArtifactFamilyDefinition, ArtifactFamilyRegistry, ArtifactListOrder
 
 __all__ = [
     "Artifact",
     "ArtifactAddress",
     "ArtifactCatalog",
     "ArtifactDraft",
+    "ArtifactFamilyDefinition",
+    "ArtifactFamilyRegistry",
     "ArtifactLineage",
+    "ArtifactListOrder",
     "ArtifactRef",
     "ArtifactStore",
 ]

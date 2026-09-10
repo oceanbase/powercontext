@@ -28,6 +28,7 @@ from powercontext.artifacts import (
     Artifact,
     ArtifactAddress,
     ArtifactDraft,
+    ArtifactFamilyRegistry,
     ArtifactLineage,
     ArtifactRef,
 )
@@ -70,11 +71,13 @@ class ArtifactRepository:
 
     def __init__(
         self,
-        artifact_types: Iterable[type[Artifact[Any]]],
+        artifact_types: Iterable[type[Artifact[Any]]] | ArtifactFamilyRegistry,
         /,
         *,
         sources: Any | None = None,
     ) -> None:
+        if isinstance(artifact_types, ArtifactFamilyRegistry):
+            artifact_types = artifact_types.artifact_types
         self._by_family = {artifact_type.family: artifact_type for artifact_type in artifact_types}
         self._content_types: dict[str, type[BaseModel]] = {}
         for family, artifact_type in self._by_family.items():
