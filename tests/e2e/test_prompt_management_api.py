@@ -256,7 +256,7 @@ def test_prompt_http_history_generation_and_scoped_inference(
                 for label in ("Alpha", "Beta")
             ]
             capabilities = (await transport.get("/v1/capabilities")).json()
-            assert len(capabilities["prompts"]) == 6
+            assert len(capabilities["prompts"]) == 13
             assert capabilities["prompts"]["memory.extract"]["status"] == "supported"
             scope = scopes[0]
             initial = await client.get_prompt_configuration(scope, "memory.extract")

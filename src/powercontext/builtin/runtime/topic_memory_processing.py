@@ -35,6 +35,7 @@ from typing_extensions import override
 
 from powercontext._logging import log_safely
 from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.prompt.service import current_prompt
 from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.artifacts.topic_memory import (
     MAX_TOPIC_MEMORY_QUERY_LENGTH,
@@ -1491,6 +1492,8 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
 
     from pydantic_ai.settings import ModelSettings
 
+    from powercontext.builtin.artifacts.prompt import PromptRegistry
+    from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
     from powercontext.builtin.artifacts.topic_memory.generation import (
         TOPIC_MEMORY_EVOLVE_INSTRUCTIONS,
         TOPIC_MEMORY_GLOBAL_INSTRUCTIONS,
@@ -1544,8 +1547,22 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
         raw_embedding, _ = await _embedding_models(inference, resources, None, disable_provider_retries=True)
         embedding = None if raw_embedding is None else UsageReportingEmbeddingModel(raw_embedding)
         contexts = await resources.enter_async_context(
-            open_builtin_contexts(config, embedding_model=embedding, _topic_memory_worker=True)
+            open_builtin_contexts(
+                config,
+                embedding_model=embedding,
+                _topic_memory_worker=True,
+                prompt_registry=PromptRegistry(
+                    builtin_prompt_definitions(config.runtime.memory_extraction_profile),
+                    supported=frozenset(
+                        f"topic_memory.{stage}"
+                        for stage in ("probe", "global", "planner", "evolve", "temporary", "reduce", "reconcile")
+                    ),
+                ),
+            )
         )
+
+        for stage_name in ("probe", "global", "planner", "evolve", "temporary", "reduce", "reconcile"):
+            await resources.enter_async_context(contexts.prompts.bind(scope_id, f"topic_memory.{stage_name}"))
 
         fixed_prompts: dict[str, str] = {}
 
@@ -1556,16 +1573,20 @@ async def _open_topic_memory_processor(spec: TopicMemoryWorkerSpec, scope_id: st
             name: str,
             stage_name: str,
         ):
-            fixed_prompt = topic_memory_stage_fixed_prompt(instructions, input_type, output_type)
+            prompt_key = f"topic_memory.{stage_name}"
+            selection = current_prompt(prompt_key)
+            selected_instructions = instructions if selection is None else selection.compiled_instructions
+            fixed_prompt = topic_memory_stage_fixed_prompt(selected_instructions, input_type, output_type)
             fixed_prompts[stage_name] = fixed_prompt
             raw = PydanticAIStructuredGenerator(
                 model=model,
-                instructions=instructions,
+                instructions=selected_instructions,
                 input_type=input_type,
                 output_type=output_type,
                 limits=limits,
                 model_settings=settings,
                 name=name,
+                prompt_key=prompt_key,
             )
             bounded = BudgetedTopicMemoryGenerator(
                 raw,

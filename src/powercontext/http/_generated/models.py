@@ -1620,6 +1620,13 @@ class PromptKey(StrEnum):
     EXPERIENCE_GENERATE = "experience.generate"
     SKILL_GENERATE = "skill.generate"
     HANDOFF_GENERATE = "handoff.generate"
+    TOPIC_MEMORY_PROBE = "topic_memory.probe"
+    TOPIC_MEMORY_GLOBAL = "topic_memory.global"
+    TOPIC_MEMORY_PLANNER = "topic_memory.planner"
+    TOPIC_MEMORY_EVOLVE = "topic_memory.evolve"
+    TOPIC_MEMORY_TEMPORARY = "topic_memory.temporary"
+    TOPIC_MEMORY_REDUCE = "topic_memory.reduce"
+    TOPIC_MEMORY_RECONCILE = "topic_memory.reconcile"
 
 
 class SchemaVersion(StrEnum):

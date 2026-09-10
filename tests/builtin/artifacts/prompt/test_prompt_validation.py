@@ -43,7 +43,7 @@ _EXPERIENCE = {
 }
 
 
-def _case(key: str) -> dict[str, Any]:
+def _case(key: str) -> dict[str, Any]:  # noqa: C901
     if key == "memory.extract":
         return {
             "input": {
@@ -84,6 +84,63 @@ def _case(key: str) -> dict[str, Any]:
         return {
             "input": {"evidence": [{"evidence_id": "source:1", "kind": "source", "content": "Verified preflight."}]},
             "expected_output": {"proposal": proposal},
+        }
+    if key == "topic_memory.probe":
+        return {
+            "input": {"evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}]},
+            "expected_output": {"probes": [{"query": "port checks", "evidence_ids": ["e1"]}]},
+        }
+    if key == "topic_memory.global":
+        return {
+            "input": {
+                "evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}],
+                "probes": [],
+            },
+            "expected_output": {"proposals": []},
+        }
+    if key == "topic_memory.planner":
+        return {
+            "input": {
+                "probes": [{"probe_id": "p1", "query": "port checks", "evidence_ids": ["e1"]}],
+            },
+            "expected_output": {"items": [{"probe_ids": ["p1"]}]},
+        }
+    if key == "topic_memory.evolve":
+        return {
+            "input": {
+                "work_id": "w1",
+                "evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}],
+            },
+            "expected_output": {"proposal": None},
+        }
+    if key == "topic_memory.temporary":
+        proposal = {
+            "content": {"title": "Port checks", "summary": "Ports are checked.", "detail": "Ports are checked."},
+            "evidence_ids": ["e1"],
+        }
+        return {
+            "input": {
+                "work_id": "w1",
+                "evidence": [{"evidence_id": "e1", "source_type": "source", "content": "Ports are checked."}],
+            },
+            "expected_output": {"proposals": [proposal]},
+        }
+    if key == "topic_memory.reduce":
+        return {
+            "input": {
+                "probes": [{"query": "port checks", "evidence_ids": ["e1"]}],
+                "max_result_tokens": 128,
+            },
+            "expected_output": {"covered_indices": [0], "probe": {"query": "port checks", "evidence_ids": ["e1"]}},
+        }
+    if key == "topic_memory.reconcile":
+        proposal = {
+            "content": {"title": "Port checks", "summary": "Ports are checked.", "detail": "Ports are checked."},
+            "evidence_ids": ["e1"],
+        }
+        return {
+            "input": {"component_id": "c1", "proposals": [proposal]},
+            "expected_output": {"proposals": []},
         }
     return {
         "input": {
