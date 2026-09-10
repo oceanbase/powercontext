@@ -1,6 +1,21 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Derive Dify's nested request schemas from the typed PC HTTP contract."""
 
 import sys
+from itertools import takewhile
 from pathlib import Path
 from typing import Any
 
@@ -48,10 +63,14 @@ def generate() -> None:
         schema["properties"].pop("scope_id", None)
         schema["required"] = [key for key in schema.get("required", []) if key != "scope_id"]
         path = ROOT / "powercontext" / "tools" / f"{name}.yaml"
-        declaration = yaml.safe_load(path.read_text())
+        content = path.read_text()
+        header = "".join(
+            takewhile(lambda line: line.startswith("#") or not line.strip(), content.splitlines(keepends=True))
+        )
+        declaration = yaml.safe_load(content)
         request = next(parameter for parameter in declaration["parameters"] if parameter["name"] == "request")
         request["input_schema"] = inline_schema(schema, schema.get("$defs", {}))
-        path.write_text(yaml.safe_dump(declaration, allow_unicode=True, sort_keys=False, width=100))
+        path.write_text(header + yaml.safe_dump(declaration, allow_unicode=True, sort_keys=False, width=100))
 
 
 if __name__ == "__main__":

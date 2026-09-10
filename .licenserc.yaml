@@ -69,3 +69,10 @@ header:
     - 'e2e/bub/source-overrides.txt'
 
   comment: on-failure
+
+  language:
+    DifyPluginMetadata:
+      filenames:
+        - '.difyignore'
+        - 'requirements.txt'
+      comment_style_id: Hashtag
