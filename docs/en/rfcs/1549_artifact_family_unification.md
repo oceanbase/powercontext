@@ -6,7 +6,7 @@ title: Unified Artifact Family Reads and Registration
 
 - Proposal Name: `artifact_family_unification`
 - Start Date: 2026-09-10
-- RFC PR: TBD
+- RFC PR: [#1549](https://github.com/oceanbase/powercontext/pull/1549)
 - Status: Proposed
 - Related RFCs: [1437](1437_source_artifact_rest_api.md), [1417](1417_topic_memory.md), [1485](1485_profile_artifact.md), [1515](1515_artifact_processing_supervisor.md)
 
