@@ -194,9 +194,7 @@ class DashboardAPI:
         payload = json.dumps(value.model_dump(mode="json"), separators=(",", ":")).encode()
         return base64.urlsafe_b64encode(payload).decode().rstrip("=")
 
-    async def topic_memory_browse(
-        self, scope: str, *, cursor: str | None = None, limit: int = 50
-    ) -> dict[str, Any]:
+    async def topic_memory_browse(self, scope: str, *, cursor: str | None = None, limit: int = 50) -> dict[str, Any]:
         application = getattr(self.app.state, "application", None)
         if application is None:
             raise ReadError(503, "service_unavailable")
