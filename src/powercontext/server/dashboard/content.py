@@ -159,5 +159,42 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         await load_collection(api, request, ctx, ctx["method_kind"])
     elif page == "usage":
         await load_stats(api, ctx)
+    elif page == "topics":
+        await load_topics(api, ctx)
     elif page in RECORDS:
         await load_record(api, request, ctx)
+
+
+async def load_topics(api: DashboardAPI, ctx: dict[str, Any]) -> None:
+    """Load Topic Memory browse/search results and an exact selected revision."""
+    query = ctx["artifact_query"]
+    if query:
+        try:
+            result = await api.topic_memory_search(ctx["scope"], query)
+            for hit in result["hits"]:
+                try:
+                    record = await api.topic_memory_get(ctx["scope"], hit["artifact"])
+                    ctx["data"]["topic_memory"].append({**hit, **record, "is_current": True})
+                except ReadError as error:
+                    ctx["errors"].setdefault("topic_memory", error)
+        except ReadError as error:
+            ctx["errors"]["topic_memory"] = error
+    else:
+        try:
+            ctx["data"]["topic_memory"] = (await api.topic_memory_browse(ctx["scope"]))["items"]
+        except ReadError as error:
+            ctx["errors"]["topic_memory"] = error
+    if ctx["topic_artifact"] and ctx["topic_revision"]:
+        try:
+            ctx["data"]["topic_memory_selected"] = await api.topic_memory_get(
+                ctx["scope"],
+                {
+                    "family": "topic-memory",
+                    "artifact_id": ctx["topic_artifact"],
+                    "revision": int(ctx["topic_revision"]),
+                },
+            )
+        except ValueError:
+            ctx["errors"]["topic_memory_selected"] = ReadError(422, "invalid_request")
+        except ReadError as error:
+            ctx["errors"]["topic_memory_selected"] = error

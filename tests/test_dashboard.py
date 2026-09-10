@@ -81,6 +81,14 @@ def test_personal_dashboard_opens_without_models_or_saved_content(dashboard: Tes
     assert "Use uv for dependency management." in dashboard.get("/dashboard/notes").text
 
 
+def test_topic_dashboard_opens_without_content(dashboard: TestClient) -> None:
+    topics = dashboard.get("/dashboard/topics", params={"lang": "en"})
+    assert topics.status_code == 200
+    assert "Topic Memory" in topics.text
+    assert "Prompt configuration" not in topics.text
+    assert "Artifacts" not in topics.text
+
+
 def test_dashboard_favicons_use_square_viewports(dashboard: TestClient) -> None:
     home = dashboard.get("/")
     icons = re.findall(r'<link rel="icon"[^>]*href="([^"]+)"', home.text)
