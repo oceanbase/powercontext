@@ -13,8 +13,12 @@
 # limitations under the License.
 
 import asyncio
+import json
 import logging
+import os
+import re
 from collections.abc import Callable, Coroutine
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Self, TypeVar
 
@@ -30,6 +34,34 @@ from powercontext.server.context import is_internal_bridge
 from powercontext.server.mcp import create_mcp_server, mount_mcp
 
 ResultT = TypeVar("ResultT")
+
+
+def test_mcp_guidance_is_visible_without_loading_a_skill() -> None:
+    async def inspect() -> tuple[str, list[Any]]:
+        async with Client(create_mcp_server(create_app())) as client:
+            assert client.initialize_result is not None
+            return client.initialize_result.instructions or "", await client.list_tools()
+
+    guidance, tools = asyncio.run(inspect())
+    assert guidance
+    names = {tool.name for tool in tools}
+    assert set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", guidance)) <= names
+    if directory := os.environ.get("POWERCONTEXT_GUIDANCE_EXPORT"):
+        root = Path(__file__).parents[1]
+        for host in ("codex", "claude-code", "workbuddy", "agent-plugin"):
+            plugin = root / "integrations" / host
+            plugin /= "powercontext" if host == "agent-plugin" else "plugins/powercontext"
+            content = (plugin / "skills/project-context/SKILL.md").read_text(encoding="utf-8")
+            catalog = {
+                "host": host,
+                "guidance": guidance,
+                "tools": [
+                    {"name": tool.name, "description": tool.description, "parameters": tool.inputSchema}
+                    for tool in tools
+                ],
+                "skill": {"name": "project-context", "content": content},
+            }
+            (Path(directory) / f"{host}.json").write_text(json.dumps(catalog, indent=2), encoding="utf-8")
 
 
 def run_async(operation: Callable[[], Coroutine[Any, Any, ResultT]]) -> ResultT:

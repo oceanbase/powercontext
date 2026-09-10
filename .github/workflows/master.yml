@@ -82,6 +82,24 @@ jobs:
       - name: Test Pi package
         run: make pi-test
 
+  opencode-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v2
+      - name: Test OpenCode package
+        run: make opencode-test
+
+  openclaw-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v2
+      # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
+      - run: mise install node@24.15.0
+      - name: Test OpenClaw package
+        run: mise exec node@24.15.0 -- make openclaw-plugin-test
+
   opendal-package:
     runs-on: ubuntu-latest
     steps:

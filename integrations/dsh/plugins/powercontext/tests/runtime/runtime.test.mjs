@@ -15,11 +15,12 @@
  */
 
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { environment, injected, CANARY } from './fixture.mjs'
 import { installIntoCleanHome } from './setup-fixture.mjs'
+import { registerSkill } from '../../src/skill.ts'
 
 test('documented setup installs the matched plugin, diagnoses the running host and recalls processed Source', { timeout: 240000 }, async () => {
   const env = await environment()
@@ -34,6 +35,22 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     })
     const first = await instance.run('For this project: ' + CANARY + ' Reply with an acknowledgement.')
     assert.ok(first.finalResponse)
+    const request = env.modelRequests.find(r => r.stream)
+    const catalog = new Set(request.tools.map(tool => tool.function.name))
+    const system = request.messages.filter(message => message.role === 'system')
+    const references = JSON.stringify(system).match(/\bpc_[a-z_]+\b/g) ?? []
+    assert.ok(references.length > 0, 'PowerContext guidance must reach the model before any Skill load')
+    for (const name of references) assert.ok(catalog.has(name), `guidance refers to unavailable DSH tool: ${name}`)
+    if (process.env.POWERCONTEXT_GUIDANCE_EXPORT) {
+      let skill
+      registerSkill({ get: () => ({ register(value) { skill = value } }) })
+      writeFileSync(join(process.env.POWERCONTEXT_GUIDANCE_EXPORT, 'dsh.json'), JSON.stringify({
+        host: 'dsh', catalog_source: 'real SDK model request',
+        guidance: system.map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n'),
+        skill,
+        tools: request.tools.map(tool => tool.function).filter(tool => tool.name.startsWith('pc_')),
+      }, null, 2))
+    }
     assert.equal(injected(first).length, 0)
     assert.ok(env.calls.some(call => call.path === '/v1/sources/content' && call.status === 202))
     assert.ok(env.calls.some(call => call.path === '/v1/memory/flush' && call.status === 200))

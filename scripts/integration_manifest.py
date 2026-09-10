@@ -501,14 +501,19 @@ def _read(root: Path, relative_path: str) -> str:
 
 def _typescript_operation_tools(path: Path, helper: str) -> set[str]:
     source = path.read_text(encoding="utf-8")
-    expression = (
-        rf"(?:name:\s*'(?P<name>pc_[a-z_]+)'|(?P<key>pc_[a-z_]+):\s*{helper})"
-        rf"[\s\S]{{0,900}}?(?:operationId:\s*'|run\(runtime, exec, ')(?P<operation>[a-z_]+)'"
+    registrations = list(
+        re.finditer(
+            rf"(?:name:\s*'(?P<name>pc_[a-z_]+)'|(?P<key>pc_[a-z_]+):\s*{helper})",
+            source,
+        )
     )
-    pairs = {
-        f"{match.group('name') or match.group('key')}:{match.group('operation')}"
-        for match in re.finditer(expression, source)
-    }
+    pairs = set()
+    for index, registration in enumerate(registrations):
+        end = registrations[index + 1].start() if index + 1 < len(registrations) else len(source)
+        # Descriptions have no fixed length; never borrow the following tool's operation.
+        operation = re.search(r"(?:operationId:\s*'|run\(runtime, exec, ')([a-z_]+)'", source[registration.end() : end])
+        if operation:
+            pairs.add(f"{registration.group('name') or registration.group('key')}:{operation[1]}")
     if not pairs:
         raise ValueError(f"could not extract {helper} registrations")
     return pairs

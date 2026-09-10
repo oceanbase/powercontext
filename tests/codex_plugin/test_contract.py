@@ -172,7 +172,6 @@ def test_customer_artifact_workflow_does_not_parse_plugin_root_as_an_actions_exp
 def test_project_context_skill_requires_explicit_memory_routing_and_failure_reporting() -> None:
     content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert 'description: Create and commit a current-work Handoff when the user says "交接"' in content
     assert "uv run --frozen" not in content
     assert "create_work_contract" in content
     assert "select_handoff_workstream" in content

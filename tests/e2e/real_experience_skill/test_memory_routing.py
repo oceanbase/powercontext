@@ -73,7 +73,14 @@ class _RunningServer:
             ),
             scheduler_path=tmp_path / "scheduler.db",
         )
-        self._server = uvicorn.Server(uvicorn.Config(app, log_level="critical", lifespan="on"))
+        self._server = uvicorn.Server(
+            uvicorn.Config(
+                app,
+                log_level="critical",
+                lifespan="on",
+                timeout_graceful_shutdown=3,
+            )
+        )
         self._thread = threading.Thread(
             target=self._server.run,
             kwargs={"sockets": [self._listener]},
@@ -160,6 +167,7 @@ def _run_codex(arguments: list[str], *, environment: dict[str, str], timeout: in
             env=environment,
             stdin=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
             capture_output=True,
             timeout=timeout,
             check=False,

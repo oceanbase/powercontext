@@ -48,6 +48,34 @@ def test_manifest_matches_setup_catalog_evidence_and_actual_tool_surfaces() -> N
     assert tool_surface_errors(manifest) == ()
 
 
+@pytest.mark.parametrize("missing_operation", [False, True])
+def test_tool_surface_probe_handles_long_descriptions_without_borrowing_operations(
+    tmp_path: Path,
+    missing_operation: bool,
+) -> None:
+    source_root = MANIFEST_PATH.parent.parent
+    source = source_root / "integrations/dsh/plugins/powercontext/src/tools.ts"
+    target = tmp_path / source.relative_to(source_root)
+    target.parent.mkdir(parents=True)
+    content = source.read_text(encoding="utf-8").replace(
+        "name: 'pc_skill_generate',",
+        "name: 'pc_skill_generate',\n      /* " + "long guidance " * 200 + " */",
+    )
+    if missing_operation:
+        content = content.replace("run(runtime, exec, 'generate_skill',", "unbound(runtime, exec, 'generate_skill',")
+    target.write_text(content, encoding="utf-8")
+    manifest = load_integration_manifest()
+    toolset = next(item for item in manifest.toolsets if item.id == "dsh-tools")
+    isolated = manifest.model_copy(update={"toolsets": (toolset,), "integrations": ()})
+    errors = tool_surface_errors(isolated, tmp_path)
+    if missing_operation:
+        assert errors == (
+            "dsh-tools: tool surface drift (missing ['pc_skill_generate:generate_skill']; unexpected [])",
+        )
+    else:
+        assert errors == ()
+
+
 def test_manifest_defines_each_availability_state() -> None:
     manifest = load_integration_manifest()
 

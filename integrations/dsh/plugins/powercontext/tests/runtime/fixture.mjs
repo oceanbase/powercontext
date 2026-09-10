@@ -163,6 +163,7 @@ export async function environment({ realModel } = {}) {
   const { scope_id: scopeId } = await api('/v1/scopes/default')
   const harnesses = []
   function harness(config = {}, options = {}) {
+    const { initializeTimeoutMs = 30000, maxTokens = 128 } = options
     const dshHome = mkdtempSync(join(home, 'host-'))
     const workspace = join(dshHome, 'workspace')
     mkdirSync(workspace)
@@ -204,8 +205,8 @@ export function apply(ctx) {
       DEEPSEEK_BASE_URL: model.url + '/v1', DSH_TELEMETRY_DISABLED: '1', ...options.env }
     const instance = new DeepSeekHarness({
       dshBin: process.env.DSH_TEST_BIN ?? dshBin, dshHome, patches: [patch], cwd: workspace, processCwd: workspace,
-      provider: 'deepseek-official', model: realModel?.model ?? 'deepseek-v4-flash', maxTokens: 128,
-      initializeTimeoutMs: 30000, requestTimeoutMs: realModel ? 120000 : 30000,
+      provider: 'deepseek-official', model: realModel?.model ?? 'deepseek-v4-flash', maxTokens,
+      initializeTimeoutMs, requestTimeoutMs: realModel ? 120000 : 30000,
       env,
     })
     harnesses.push(instance)

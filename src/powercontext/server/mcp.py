@@ -75,6 +75,28 @@ from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
 MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
+MCP_GUIDANCE = """PowerContext provides durable project history and Handoffs across sessions.
+Summarizing or drafting from facts supplied in the current turn needs no retrieval or Scope resolution. An empty search does not authorize an inventory. If inventory or Handoff is unavailable, do not emulate it with Memory search or storage.
+Tool names in this guidance describe possible capabilities, not proof of availability. Before selecting an operation, check that its exact name appears in the current tool catalog. If absent, stop that operation and explicitly report it unavailable and incomplete. Never emit a call to an absent tool, simulate a call in text, or substitute another persistence operation.
+Use only the tools available in this connection. Reuse the host/Server-resolved Scope; never derive a Scope from a
+repository, directory, branch, or prompt or change a binding to work around missing history. Historical evidence is
+subordinate to current user, repository, and system instructions.
+Ordinary coding needs no routine Memory calls. Use sufficient current context when continuing work. For an explicit
+memory search (search my memories / 搜索记忆), call search_memory with a focused query, mode auto, and at most eight
+hits. Use list_memory_entries for an explicit inventory or audit, and get_memory_entry for exact cited details.
+For an explicit future save (remember this / 记住这个供以后使用), call remember_memory and verify its result. Automatic
+Source capture is not an explicit Memory write, and enabled hooks do not establish successful recall or persistence.
+Current-turn instructions, conceptual questions, and previews do not authorize writes. Never store secrets.
+For requested transfer, handoff_current_work records an inspected boundary and returns a temporary handoff. Commit
+only when a durable milestone is requested; continue from the exact selected value and verify historical claims.
+Prepared content is not proof of injection, a committed milestone, acceptance, or work execution.
+Inspect candidates before an explicitly authorized review decision for their exact version. Generation, listing,
+reading, and assessing are not approval, installation, publication, or execution authority. Preserve host approval
+checks and exact citations for Memory changes. A Skill is useful for detailed workflows only if present in the host
+catalog; it is not a mandatory detour before every response.
+Empty retrieval is a valid result. On failure identify the operation and safe returned reason, do not infer a cause,
+claim saved/restored context, or repeatedly retry. Continue ordinary work when the requested operation is unavailable.
+"""
 _MCP_OPERATION_IDS = frozenset({
     CAPTURE_CONTENT_SOURCE.operation_id,
     CREATE_WORK_CONTRACT.operation_id,
@@ -200,7 +222,7 @@ def create_mcp_server(
         # pass rejects valid OpenAPI 3.0 nullable references in empty results.
         validate_output=False,
     )
-    server = FastMCP(name=MCP_SERVER_NAME, providers=[provider])
+    server = FastMCP(name=MCP_SERVER_NAME, instructions=MCP_GUIDANCE, providers=[provider])
     server.add_middleware(McpTracingMiddleware(resolved_tracing))
     if access_log:
         server.add_middleware(McpAccessLogMiddleware())

@@ -19,6 +19,8 @@ import importlib
 import importlib.util
 import json
 import logging
+import os
+import re
 import sys
 import threading
 import types
@@ -26,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import ValidationError, validate
 
 HERMES_ROOT = Path(__file__).parents[2] / "integrations" / "hermes"
 _HERMES_MODULE_NAMES = (
@@ -1302,6 +1305,26 @@ def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_m
     assert caught.value.server_message == "scope access denied"
 
 
+def test_guidance_references_available_provider_tools_without_a_skill(hermes_modules) -> None:
+    plugin, _ = hermes_modules
+    provider = plugin.PowerContextMemoryProvider({})
+    guidance = provider.system_prompt_block()
+    tools = provider.get_tool_schemas()
+    names = {tool["name"] for tool in tools}
+    references = set(re.findall(r"\bpowercontext_[a-z_]+\b", guidance))
+    assert references <= names
+    assert references
+    if directory := os.environ.get("POWERCONTEXT_GUIDANCE_EXPORT"):
+        skill = HERMES_ROOT / "plugins/powercontext/skills/powercontext/SKILL.md"
+        catalog = {
+            "host": "hermes",
+            "guidance": guidance,
+            "tools": tools,
+            "skill": {"name": "powercontext", "content": skill.read_text(encoding="utf-8")},
+        }
+        (Path(directory) / "hermes.json").write_text(json.dumps(catalog, indent=2), encoding="utf-8")
+
+
 @pytest.mark.parametrize("assembly", [{"sections": []}, {"sections": [{"family": "memory", "limit": 3}]}])
 @pytest.mark.parametrize("entrypoint", ["tool", "slash"])
 @pytest.mark.parametrize("from_environment", [False, True])
@@ -1379,3 +1402,28 @@ def test_text_assembly_rejects_malformed_or_oversized_responses(provider_and_cli
     response.update(change)
     monkeypatch.setattr(client, "prepare_context", lambda *args, **kwargs: response)
     assert provider.prefetch("query") == ""
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"disposition": "in_progress"},
+        {"next_action": {"text": "Review examples", "citations": []}},
+    ],
+)
+def test_registered_handoff_schema_explains_valid_work_arguments(hermes_modules, invalid) -> None:
+    plugin, _ = hermes_modules
+    tools = plugin.PowerContextMemoryProvider({}).get_tool_schemas()
+    schema = next(tool["parameters"] for tool in tools if tool["name"] == "powercontext_handoff_current_work")
+    handoff = {
+        "schema": "powercontext.current-work-handoff.v1",
+        "trust": "untrusted_input",
+        "objective": "Document Aurora",
+        "disposition": "continuable",
+        "state": [{"text": "README complete", "basis": "declared", "evidence": []}],
+        "next_action": {"text": "Review examples", "basis": "declared", "evidence": []},
+        "omissions": [],
+    }
+    validate({"source_id": "aurora-boundary", "handoff": handoff}, schema)
+    with pytest.raises(ValidationError):
+        validate({"source_id": "aurora-boundary", "handoff": {**handoff, **invalid}}, schema)

@@ -94,6 +94,7 @@ def test_native_personal_service_lifecycle(tmp_path: Path) -> None:
         assert adapter.loaded_registration().state is ManagerOwnershipState.NOT_LOADED
         assert not adapter.artifact_path.exists()
     finally:
+        _capture_native_failure(adapter, tmp_path)
         _cleanup(adapter)
 
 
@@ -145,6 +146,7 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
             assert "StartLimitBurst=3" in unit
             assert f"journalctl --user --unit {adapter.identifier}" == adapter.log_location(registration.definition)
     finally:
+        _capture_native_failure(adapter, tmp_path)
         with suppress(Exception):
             controller.uninstall()
         _cleanup(adapter)
@@ -168,6 +170,7 @@ def test_native_windows_service_can_disable_login_trigger(tmp_path: Path) -> Non
         assert payload.find(f"{namespace}Triggers/{namespace}LogonTrigger") is None
         assert adapter.manager_state() is ManagerState.ACTIVE
     finally:
+        _capture_native_failure(adapter, tmp_path)
         with suppress(Exception):
             controller.uninstall()
         _cleanup(adapter)
@@ -316,6 +319,33 @@ def _server_error_tail(tmp_path: Path) -> str:
     except FileNotFoundError:
         return "server.stderr.log was not created"
     return f"server.stderr.log tail:\n{content[-8000:]}"
+
+
+def _capture_native_failure(adapter: NativeServiceAdapter, tmp_path: Path) -> None:
+    if sys.exception() is None or not isinstance(adapter, LaunchdUserAdapter):
+        return
+    # Cleanup unloads the job and removes its retry state, so workflow-level
+    # diagnostics cannot recover the startup failure afterwards.
+    log_dir = tmp_path / "data" / "logs"
+    with suppress(Exception):
+        log_dir.mkdir(parents=True, exist_ok=True)
+        retry_state = log_dir / "launchd-retry-state.json"
+        snapshot = {
+            "retry_token_present": (log_dir / "launchd-retry.enabled").exists(),
+            "retry_state": retry_state.read_text(encoding="utf-8") if retry_state.exists() else None,
+        }
+        (log_dir / "launchd-failure-snapshot.json").write_text(json.dumps(snapshot), encoding="utf-8")
+    with suppress(Exception):
+        result = subprocess.run(
+            ["launchctl", "print", f"gui/{_current_uid()}/{adapter.identifier}"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        report = f"exit_code={result.returncode}\n{result.stdout}\n{result.stderr}"
+        (log_dir / "launchd-before-cleanup.log").write_text(report, encoding="utf-8")
+        print(f"LaunchAgent state before cleanup:\n{report}")
 
 
 def _cleanup(adapter: NativeServiceAdapter) -> None:

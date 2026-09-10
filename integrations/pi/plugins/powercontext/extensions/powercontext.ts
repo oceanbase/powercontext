@@ -23,6 +23,7 @@ import { createDiagnosticEmitter, failureEvent } from '../src/diagnostics.ts'
 import { recallBeforeAgentStart, type PluginRuntime } from '../src/recall.ts'
 import { resolveScopeId } from '../src/scope.ts'
 import { registerTools } from '../src/tools.ts'
+import { GUIDANCE } from '../src/guidance.ts'
 
 function createRuntime(): PluginRuntime {
   const config = resolveConfig()
@@ -64,15 +65,17 @@ export default function powercontextPi(pi: ExtensionAPI): void {
 
   pi.on('before_agent_start', async (event, ctx) => {
     if (!runtime) return undefined
-    return recallBeforeAgentStart({
+    const systemPrompt = `${event.systemPrompt}\n\n${GUIDANCE}`
+    const recalled = await recallBeforeAgentStart({
       prompt: event.prompt,
-      systemPrompt: event.systemPrompt,
+      systemPrompt,
       cwd: ctx.cwd,
       sessionId: ctx.sessionManager.getSessionId(),
       branch: ctx.sessionManager.getBranch(),
       signal: ctx.signal,
       runtime,
     })
+    return recalled ?? { systemPrompt }
   })
 
   pi.on('agent_end', (_event, ctx) => {

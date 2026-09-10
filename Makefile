@@ -147,6 +147,13 @@ dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a
 openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build
 
+.PHONY: openclaw-plugin-test
+openclaw-plugin-test: ## Install, test, type-check, and build with a Node runtime supported by the OpenClaw SDK.
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext test
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
+
 .PHONY: openclaw-plugin-pack
 openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext pack:local

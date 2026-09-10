@@ -5,6 +5,8 @@ description: 插件可见集成诊断 RFC 的约定。
 
 # 插件可见诊断约定
 
+Agent 如何解释操作结果，另见[工具选择与结果报告](integration-guidance.md)。
+
 本文记录 Host-visible integration diagnostics RFC 引入的约定，只覆盖本次诊断切片。共享 service state、service lifecycle、安装方式和平台 adapter
 约定属于各自的 RFC 与实现切片，不在本文定义。
 
