@@ -1,6 +1,7 @@
 + Proposal Name: `registry_driven_source_artifact_families`
 + Start Date: 2026-09-10
 + Status: Proposed
++ RFC PR: [oceanbase/powercontext#1547](https://github.com/oceanbase/powercontext/pull/1547)
 + Related RFCs: [Source 与 Artifact REST API](1437_source_artifact_rest_api.md)、[Topic Memory](1417_topic_memory.md)、[Profile Artifact](1485_profile_artifact.md)、[Artifact Processing Supervisor](1515_artifact_processing_supervisor.md)
 
 # Summary
