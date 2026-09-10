@@ -134,6 +134,8 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         POWERCONTEXT_HOME=str(tmp_path / "state"),
     )
     if sys.platform == "win32":
+        # Python inherits PowerShell 7 module paths, which Windows PowerShell cannot load.
+        env.pop("PSMODULEPATH", None)
         shell = shutil.which("powershell.exe")
         assert shell is not None
         installer = [
