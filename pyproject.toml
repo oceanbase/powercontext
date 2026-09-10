@@ -169,6 +169,7 @@ extra-paths = [
 exclude = [
     # Optional Jupyter dependencies and notebook state are validated by notebooks-test.
     "examples/jupyter",
+    "examples/workshops/agent-relay/*.ipynb",
     "e2e/bub",
     "integrations/bub",
     "integrations/pydantic-ai",
@@ -258,6 +259,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "examples/jupyter/*.ipynb" = ["S101", "RUF001", "TRY003"]
 "examples/jupyter/_tutorial.py" = ["RUF001"]
+"examples/workshops/agent-relay/*" = ["RUF001", "RUF003", "TRY003"]
 "tests/**/*.py" = ["S101", "S603"]
 "tests/*.py" = ["S101", "S603"]
 

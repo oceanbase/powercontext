@@ -1,0 +1,7 @@
+.env
+server.env
+.venv/
+.powercontext/
+results/
+__pycache__/
+.ipynb_checkpoints/

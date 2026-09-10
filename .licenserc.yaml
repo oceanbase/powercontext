@@ -38,6 +38,7 @@ header:
     - '**/*.json'
     # Notebook JSON stores the license in the first Markdown cell with escaped newlines.
     - 'examples/jupyter/*.ipynb'
+    - 'examples/workshops/agent-relay/agent-relay.ipynb'
     - '**/*.svg'
     - '.github/**'
     - '**/.gitignore'
