@@ -148,6 +148,9 @@ class DashboardAPI:
     async def topic_memory_search(self, scope: str, query: str) -> dict[str, Any]:
         return await self.read("/v1/topic-memory/search", {"scope_id": scope, "query": query})
 
+    async def profile_policy(self, scope: str) -> dict[str, Any]:
+        return await self.read(f"/v1/scopes/{segment(scope)}/profile-policy")
+
     async def topic_memory_get(self, scope: str, artifact: dict[str, Any]) -> dict[str, Any]:
         return await self.read("/v1/topic-memory/get", {"scope_id": scope, "artifact": artifact})
 

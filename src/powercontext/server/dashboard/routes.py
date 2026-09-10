@@ -32,7 +32,7 @@ from powercontext.server.dashboard.presenters import source_view
 ROOT = Path(__file__).parent
 LABELS = CATALOGS["zh"]
 PARENTS = {"handoff-detail": "handoff", "experience": "methods", "skill": "methods"}
-PAGES = {"home", "handoff", "notes", "methods", "topics", "usage", "entry", *RECORDS}
+PAGES = {"home", "handoff", "notes", "methods", "topics", "profile", "usage", "entry", *RECORDS}
 ENV = Environment(
     loader=FileSystemLoader(ROOT / "templates"), autoescape=select_autoescape(), undefined=StrictUndefined
 )
@@ -145,6 +145,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
             "skill": None,
             "topic_memory": [],
             "topic_memory_selected": None,
+            "profile": None,
         },
         "scopes": [],
         "scope_descriptor": None,

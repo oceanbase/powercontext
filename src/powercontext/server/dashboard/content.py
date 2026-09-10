@@ -161,6 +161,8 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         await load_stats(api, ctx)
     elif page == "topics":
         await load_topics(api, ctx)
+    elif page == "profile":
+        await load_profile(api, ctx)
     elif page in RECORDS:
         await load_record(api, request, ctx)
 
@@ -198,3 +200,10 @@ async def load_topics(api: DashboardAPI, ctx: dict[str, Any]) -> None:
             ctx["errors"]["topic_memory_selected"] = ReadError(422, "invalid_request")
         except ReadError as error:
             ctx["errors"]["topic_memory_selected"] = error
+
+
+async def load_profile(api: DashboardAPI, ctx: dict[str, Any]) -> None:
+    try:
+        ctx["data"]["profile"] = await api.profile_policy(ctx["scope"])
+    except ReadError as error:
+        ctx["errors"]["profile"] = error
