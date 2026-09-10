@@ -91,6 +91,12 @@ from .helpers import (
     redact_secrets as _redact_secrets,
 )
 from .operations import OPERATION_TOOL_MAP as _OPERATION_TOOL_MAP
+from .powercontext_client_config import (
+    load_client_settings,
+    normalize_server_url,
+    parse_boolean,
+    resolve_allow_insecure_http,
+)
 
 try:
     from agent.memory_provider import MemoryProvider, RecallStatus  # ty: ignore[unresolved-import]
@@ -116,6 +122,17 @@ _AUTOMATIC_OPERATION_PATHS = {
     "pre_compaction_flush": frozenset({"/v1/memory/flush"}),
     "session_end_flush": frozenset({"/v1/memory/flush"}),
 }
+
+
+def _merge_config(existing: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+    merged = {**existing, **values}
+    if "base_url" in values and "allow_insecure_http" not in values and "allow_insecure_http" in existing:
+        previous_url = existing.get("base_url")
+        if not isinstance(previous_url, str) or normalize_server_url(
+            previous_url, allow_insecure_http=True
+        ) != normalize_server_url(str(values["base_url"]), allow_insecure_http=True):
+            merged["allow_insecure_http"] = False
+    return merged
 
 
 def _diagnostic_classification(
@@ -221,7 +238,7 @@ class PowerContextMemoryProvider(MemoryProvider):
 
     def is_available(self) -> bool:
         """Check local configuration only; do not make a network request."""
-        base_url = str(_config_value(self._config, "base_url", "POWERCONTEXT_HERMES_BASE_URL", _DEFAULT_BASE_URL))
+        base_url = self._server_url(self._config)
         return bool(base_url.strip())
 
     def unavailable_reason(self) -> str:
@@ -240,6 +257,12 @@ class PowerContextMemoryProvider(MemoryProvider):
                 "description": "Authorization header (optional)",
                 "secret": True,
                 "env_var": "POWERCONTEXT_HERMES_AUTHORIZATION",
+            },
+            {
+                "key": "allow_insecure_http",
+                "description": "Allow unencrypted HTTP to this non-loopback PowerContext server",
+                "choices": ["true", "false"],
+                "env_var": "POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP",
             },
             {
                 "key": "scope_id",
@@ -295,8 +318,7 @@ class PowerContextMemoryProvider(MemoryProvider):
     def save_config(self, values: dict[str, Any], hermes_home: str) -> None:
         """Persist generic Hermes setup values to Hermes' flat JSON backend."""
         path = _config_path(hermes_home)
-        config = _load_json_config(hermes_home)
-        config.update(values)
+        config = _merge_config(_load_json_config(hermes_home), values)
 
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = path.with_name(f".{path.name}.tmp")
@@ -312,7 +334,7 @@ class PowerContextMemoryProvider(MemoryProvider):
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         hermes_home = str(kwargs.get("hermes_home") or Path.home() / ".hermes")
         file_config = _load_json_config(hermes_home)
-        merged_config = {**file_config, **self._config}
+        merged_config = _merge_config(file_config, self._config)
         self._config = merged_config
         self._hermes_home = hermes_home
         self._session_id = session_id
@@ -580,14 +602,36 @@ class PowerContextMemoryProvider(MemoryProvider):
         except OSError:
             logger.debug("Could not persist PowerContext Hermes memory map", exc_info=True)
 
+    @staticmethod
+    def _server_url(config: dict[str, Any]) -> str:
+        saved = load_client_settings("hermes")
+        fallback = os.environ.get("POWERCONTEXT_CLIENT_SERVER_URL") or saved.get("server_url") or _DEFAULT_BASE_URL
+        return str(_config_value(config, "base_url", "POWERCONTEXT_HERMES_BASE_URL", fallback))
+
     def _make_client(self, config: dict[str, Any]) -> PowerContextClient:
         authorization = _config_value(config, "authorization", "POWERCONTEXT_HERMES_AUTHORIZATION")
         if not authorization:
             token = _config_value(config, "token", "POWERCONTEXT_HERMES_TOKEN")
             authorization = f"Bearer {token}" if token else None
+        base_url = self._server_url(config)
+        saved = load_client_settings("hermes")
+        if "allow_insecure_http" in config:
+            # Native Hermes consent belongs to its saved base_url. An environment
+            # endpoint override must not inherit it for a different server.
+            saved = {
+                "server_url": config.get("base_url"),
+                "allow_insecure_http": parse_boolean(config["allow_insecure_http"]),
+            }
+        allow_insecure_http = resolve_allow_insecure_http(
+            base_url,
+            host="hermes",
+            host_environment="POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP",
+            saved=saved,
+        )
         return PowerContextClient(
-            str(_config_value(config, "base_url", "POWERCONTEXT_HERMES_BASE_URL", _DEFAULT_BASE_URL)),
+            base_url,
             authorization=authorization,
+            allow_insecure_http=allow_insecure_http,
             timeout=_as_float(_config_value(config, "timeout", "POWERCONTEXT_HERMES_TIMEOUT"), _DEFAULT_TIMEOUT),
         )
 

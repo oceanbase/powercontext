@@ -40,6 +40,17 @@ from powercontext.service.model import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_codex_plugin_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    for marketplace in ("powercontext", "powercontext-local"):
+        cache = tmp_path / "codex" / "plugins" / "cache" / marketplace / "powercontext" / "0.1.0"
+        cache.mkdir(parents=True)
+        (cache / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"powercontext": {"type": "http", "url": "http://127.0.0.1:8000/mcp"}}})
+        )
+
+
 def test_server_defaults_to_persistent_user_storage(
     tmp_path: Path,
     monkeypatch,
@@ -99,6 +110,7 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
         "plugin": "powercontext",
         "plugin_version": "0.1.0",
         "data_dir": str(data_dir),
+        "authorization_state": "not_configured",
     }
     assert data_dir.is_dir()
     assert run_codex.call_args_list[0].args == (
@@ -115,6 +127,34 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
         "powercontext@powercontext",
     )
     assert run_codex.call_args_list[2].args == ("plugin", "list")
+
+
+def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "setup-token")
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        Mock(
+            side_effect=[
+                {"marketplaceName": "powercontext"},
+                {"name": "powercontext", "version": "0.1.0"},
+            ]
+        ),
+    )
+
+    result = system_cli.install_codex_plugin(source="oceanbase/powercontext", ref="master")
+
+    assert result.authorization_state == "configured"
+    assert (
+        json.loads((tmp_path / "codex" / "powercontext" / "credentials.json").read_text())["authorization"]
+        == "Bearer setup-token"
+    )
 
 
 def test_setup_codex_uses_an_absolute_local_marketplace_without_a_ref(
@@ -205,6 +245,7 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
         "settings_file": str(config_dir / "settings.json"),
         "cache_dir": str(config_dir / "plugins" / "cache" / "powercontext" / "powercontext" / "<version>"),
         "data_dir": str(config_dir / "plugins" / "data" / "powercontext-powercontext"),
+        "authorization_state": "not_configured",
     }
     assert "no changes made yet" in result.stderr
     assert str(config_dir / "settings.json") in result.stderr
@@ -234,6 +275,7 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
             "options": {
                 "server_url": "http://127.0.0.1:9000",
                 "capture_prompts": False,
+                "allow_insecure_http": False,
             }
         }
     }
@@ -486,6 +528,7 @@ def test_setup_claude_code_preserves_unrelated_settings_when_updating_options(tm
         "options": {
             "server_url": "http://127.0.0.1:8000",
             "capture_prompts": False,
+            "allow_insecure_http": False,
             "other": 1,
         },
     }
@@ -978,6 +1021,7 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
         "plugin": "powercontext-dsh",
         "plugin_path": str(plugin),
         "data_dir": str(tmp_path / "data"),
+        "authorization_state": "not_configured",
     }
     assert run_dsh.call_args_list[0].args == (
         "plugin",

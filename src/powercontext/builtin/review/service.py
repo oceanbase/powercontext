@@ -16,16 +16,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from typing import Any, TypeAlias, cast
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import Artifact, ArtifactRef
+from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent, ExperienceDraft
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.profile.review import decide_profile, revise_profile
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
+from powercontext.builtin.evidence.models import EvidenceResolutionError, unique_references
+from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -33,12 +36,17 @@ from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
-from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
+from powercontext.builtin.review.errors import (
+    ArtifactTargetConflictError,
+    CandidateConflictError,
+    InvalidCandidateError,
+)
 from powercontext.builtin.review.models import (
     MAX_CANDIDATE_EVIDENCE,
     MAX_CANDIDATE_REASON_LENGTH,
     ArtifactCandidate,
     ArtifactCandidatePage,
+    CandidateEvidenceView,
     CandidateStatus,
 )
 from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
@@ -65,6 +73,8 @@ class ReviewService:
         skill_packages: SkillPackageRepository,
         sources: GenerationSourceAccess,
         id_factory: IdFactory,
+        evidence: EvidenceResolver | None = None,
+        authorization_context: Callable[[], AbstractAsyncContextManager[None]] = nullcontext,
         connection: AsyncConnection | None = None,
     ) -> None:
         self._database = database
@@ -75,7 +85,20 @@ class ReviewService:
         self._skill_packages = skill_packages
         self._sources = sources
         self._id_factory = id_factory
+        self._evidence = evidence
+        self._authorization_context = authorization_context
         self._bound_connection = connection
+
+    def configure_authorization(self, authorize: EvidenceAuthorizer, context: AuthorizationContext) -> None:
+        if self._evidence is None:
+            raise InvalidCandidateError("evidence", "Memory evidence resolution is unavailable")
+        self._evidence.authorize = authorize
+        self._authorization_context = context
+
+    @asynccontextmanager
+    async def _connection(self) -> AsyncIterator[AsyncConnection]:
+        async with self._authorization_context(), self._database.connection(self._bound_connection) as connection:
+            yield connection
 
     async def propose_experience(
         self,
@@ -86,6 +109,8 @@ class ReviewService:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        candidate_id: str | None = None,
+        memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ArtifactCandidate[ExperienceContent]:
         """Persist a human or integration supplied Experience proposal."""
 
@@ -96,6 +121,8 @@ class ReviewService:
             artifacts=artifacts,
             target=target,
             reason=reason,
+            candidate_id=candidate_id,
+            memory_citations=memory_citations,
         )
         return _experience_candidate(candidate)
 
@@ -108,13 +135,14 @@ class ReviewService:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        candidate_id: str | None = None,
     ) -> ArtifactCandidate[SkillContent]:
         """Persist a human or integration supplied managed Skill proposal."""
 
         canonical_sources = _unique_sources(sources)
         canonical_artifacts = _unique_artifacts(artifacts)
         _validate_reason(reason)
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             proposal = await self._canonical_skill_proposal(connection, proposal)
             candidate = await self._propose_with_connection(
                 connection,
@@ -124,6 +152,7 @@ class ReviewService:
                 artifacts=canonical_artifacts,
                 target=target,
                 reason=reason,
+                candidate_id=candidate_id,
             )
         return _skill_candidate(candidate)
 
@@ -137,11 +166,13 @@ class ReviewService:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        candidate_id: str | None = None,
+        memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ReviewedCandidate:
         canonical_sources = _unique_sources(sources)
         canonical_artifacts = _unique_artifacts(artifacts)
         _validate_reason(reason)
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             candidate = await self._propose_with_connection(
                 connection,
                 family,
@@ -150,6 +181,8 @@ class ReviewService:
                 artifacts=canonical_artifacts,
                 target=target,
                 reason=reason,
+                candidate_id=candidate_id,
+                memory_citations=unique_references(memory_citations),
             )
         return _reviewed_candidate(candidate)
 
@@ -164,26 +197,53 @@ class ReviewService:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        candidate_id: str | None = None,
+        memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ReviewedCandidate:
-        await self._validate_evidence(connection, sources, artifacts)
+        sources = await self._validate_evidence(connection, sources, artifacts, memory_citations)
         await self._validate_target(connection, family, target, artifacts)
         candidate = await self._candidates.create(
             connection,
             self._scope_id,
-            self._id_factory("candidate"),
+            candidate_id or self._id_factory("candidate"),
             family,
             proposal,
             sources=sources,
             artifacts=artifacts,
             target=target,
             reason=reason,
+            memory_citations=memory_citations,
         )
         return _reviewed_candidate(candidate)
 
     async def get_candidate(self, candidate_id: str, /) -> ReviewedCandidate:
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             candidate = await self._candidates.get(connection, self._scope_id, candidate_id)
         return _reviewed_candidate(candidate)
+
+    async def inspect_evidence(self, candidate_id: str, expected_version: int) -> CandidateEvidenceView:
+        async with self._connection() as connection:
+            candidate = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if candidate.version != expected_version:
+                raise CandidateConflictError(candidate_id, expected_version, candidate.version)
+            if self._evidence is None:
+                return CandidateEvidenceView(
+                    candidate_id=candidate_id,
+                    version=candidate.version,
+                    unavailable="capability_unavailable",
+                )
+            try:
+                resolved = await self._evidence.resolve(
+                    connection,
+                    sources=candidate.sources,
+                    artifacts=candidate.artifacts,
+                    memory_citations=candidate.memory_citations,
+                )
+            except EvidenceResolutionError as error:
+                return CandidateEvidenceView(
+                    candidate_id=candidate_id, version=candidate.version, unavailable=error.code
+                )
+            return CandidateEvidenceView(candidate_id=candidate_id, version=candidate.version, resolved=resolved)
 
     async def list_candidates(
         self,
@@ -194,7 +254,7 @@ class ReviewService:
         cursor: str | None,
         limit: int,
     ) -> ArtifactCandidatePage[ReviewedProposal]:
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             page = await self._candidates.list(
                 connection,
                 self._scope_id,
@@ -219,11 +279,12 @@ class ReviewService:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        memory_citations: tuple[MemoryCitation, ...] | None = None,
     ) -> ReviewedCandidate:
         canonical_sources = _unique_sources(sources)
         canonical_artifacts = _unique_artifacts(artifacts)
         _validate_reason(reason)
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             current = await self._candidates.lock_pending(
                 connection,
                 self._scope_id,
@@ -238,7 +299,13 @@ class ReviewService:
                 proposal = await self._canonical_skill_proposal(connection, proposal)
             if target != current.target:
                 raise InvalidCandidateError("target", "cannot change across Candidate versions")
-            await self._validate_evidence(connection, canonical_sources, canonical_artifacts)
+            citations = current.memory_citations if memory_citations is None else unique_references(memory_citations)
+            canonical_sources = await self._validate_evidence(
+                connection,
+                canonical_sources,
+                canonical_artifacts,
+                citations,
+            )
             if reviewed.family != "profile":
                 await self._validate_target(connection, reviewed.family, target, canonical_artifacts)
             revised = await self._candidates.revise(
@@ -251,6 +318,7 @@ class ReviewService:
                 artifacts=canonical_artifacts,
                 target=target,
                 reason=reason,
+                memory_citations=citations,
             )
         return _reviewed_candidate(revised)
 
@@ -262,7 +330,7 @@ class ReviewService:
         /,
     ) -> ReviewedCandidate:
         _validate_reason(reason)
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
             if current.family == "profile":
                 return _reviewed_candidate(
@@ -291,7 +359,7 @@ class ReviewService:
     ) -> ReviewedCandidate:
         """Atomically commit the reviewed Artifact and Candidate result."""
 
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
             if current.family == "profile":
                 return _reviewed_candidate(await decide_profile(self, connection, candidate_id, expected_version))
@@ -304,7 +372,12 @@ class ReviewService:
                 )
             )
             _validate_approval_lineage(candidate)
-            await self._validate_evidence(connection, candidate.sources, candidate.artifacts)
+            await self._validate_evidence(
+                connection,
+                candidate.sources,
+                candidate.artifacts,
+                candidate.memory_citations,
+            )
             if isinstance(candidate.proposal, SkillContent) and candidate.proposal.package is not None:
                 await self._canonical_skill_proposal(connection, candidate.proposal)
             draft = _candidate_draft(candidate)
@@ -352,7 +425,7 @@ class ReviewService:
     ) -> ReviewedArtifact:
         if ref.family != expected.family:
             raise ArtifactNotFoundError(ref)
-        async with self._database.connection(self._bound_connection) as connection:
+        async with self._connection() as connection:
             try:
                 artifact = await self._artifacts.get(connection, self._scope_id, ref)
             except RepositoryNotFoundError:
@@ -366,10 +439,11 @@ class ReviewService:
         connection: AsyncConnection,
         sources: tuple[SourceRef, ...],
         artifacts: tuple[ArtifactRef, ...],
-    ) -> None:
-        if not sources and not any(artifact.family != "prompt" for artifact in artifacts):
+        memory_citations: tuple[MemoryCitation, ...] = (),
+    ) -> tuple[SourceRef, ...]:
+        if not sources and not memory_citations and not any(artifact.family != "prompt" for artifact in artifacts):
             raise InvalidCandidateError("evidence", "at least one exact reference is required")
-        if len(sources) + len(artifacts) > MAX_CANDIDATE_EVIDENCE:
+        if len(sources) + len(artifacts) + len(memory_citations) > MAX_CANDIDATE_EVIDENCE:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
         try:
             await self._sources.require_for_generation(connection, self._scope_id, sources)
@@ -377,6 +451,19 @@ class ReviewService:
                 await self._artifacts.get(connection, self._scope_id, artifact)
         except RepositoryNotFoundError as error:
             raise InvalidCandidateError("evidence", "reference is not available in this scope") from error
+        if self._evidence is not None:
+            roots = await self._evidence.validate(
+                connection,
+                sources=sources,
+                artifacts=artifacts,
+                memory_citations=memory_citations,
+            )
+            sources = _unique_sources((*sources, *roots))
+        elif memory_citations:
+            raise InvalidCandidateError("memory_citations", "Memory evidence resolution is unavailable")
+        if len(sources) + len(artifacts) + len(memory_citations) > MAX_CANDIDATE_EVIDENCE:
+            raise InvalidCandidateError("evidence", "resolved evidence exceeds the combined reference bound")
+        return sources
 
     async def _validate_target(
         self,
@@ -402,6 +489,17 @@ class ReviewService:
             raise InvalidCandidateError("target", "Artifact is not available in this scope") from error
         if current.as_ref() != target:
             raise ArtifactTargetConflictError(target, current.as_ref())
+
+    async def prepare_skill(self, proposal: SkillContent, /) -> SkillContent:
+        """Build an instruction package before entering a Candidate commit transaction."""
+
+        if proposal.package is not None:
+            async with self._connection() as connection:
+                return await self._canonical_skill_proposal(connection, proposal)
+        snapshot = build_instruction_skill_package(proposal)
+        async with self._connection() as connection:
+            await self._skill_packages.add(connection, self._scope_id, snapshot)
+        return snapshot.as_skill_content()
 
     async def _canonical_skill_proposal(
         self,
@@ -477,6 +575,7 @@ def _candidate_draft(candidate: ReviewedCandidate) -> ReviewedDraft:
         "content": candidate.proposal,
         "sources": candidate.sources,
         "artifacts": candidate.artifacts,
+        "memory_citations": candidate.memory_citations,
     }
     if candidate.family == Experience.family and isinstance(candidate.proposal, ExperienceContent):
         return ExperienceDraft.model_validate(values)

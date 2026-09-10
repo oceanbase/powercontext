@@ -131,8 +131,8 @@ boundary flushing fail open; explicit durable writes require interactive confirm
 Set `POWERCONTEXT_SCOPE_ID` to an existing ID returned by `create_scope` before running scoped content commands.
 
 ```text
-powercontext setup <host> --source oceanbase/powercontext --ref master
-powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
+powercontext setup <host>
+powercontext setup select --host codex --host dsh
 powercontext config init --output .env
 powercontext config show --env-file .env
 powercontext config validate --env-file .env

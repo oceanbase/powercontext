@@ -52,6 +52,18 @@ the `POWERCONTEXT_DSH_` prefix for `BASE_URL`, `AUTHORIZATION`, `SCOPE_ID`, `CAP
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Context returned by recall
 is labelled as untrusted history. An unavailable Server never blocks normal Harness work.
 
+Remote HTTP is rejected by default. For an explicitly trusted plaintext connection, set
+`POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true` or the plugin setting `allowInsecureHttp: true`.
+The common `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP` flag applies when the host flag is absent; a host flag of
+`false` overrides it. Environment flags accept only `true/false`, `1/0`, `yes/no`, or `on/off`.
+HTTPS certificate validation and redirect rejection remain enabled.
+
+Setup-saved URLs and endpoint-specific consent are read from `~/.config/powercontext/clients.json`
+(override with `POWERCONTEXT_CLIENT_CONFIG_FILE`). URL environment overrides, including
+`POWERCONTEXT_CLIENT_SERVER_URL`, take precedence over explicit plugin URLs, then saved URLs and the loopback default.
+Changing the endpoint does not reuse saved or native HTTP consent. Native `allowInsecureHttp: true` must accompany
+the matching `baseUrl`; an environment URL override needs its own matching or explicit environment consent.
+
 Automatic failures are reported through the native `powercontext.dsh` logger with a stage, a safe outcome, and an
 optional public error code. They do not become model messages. Scope failure stops that step's PowerContext work;
 prepare and capture otherwise fail independently. Cancellation prevents subsequent operations, and logger failures

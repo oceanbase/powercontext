@@ -45,7 +45,7 @@ describe("PowerContext memory manager", () => {
     } as unknown as PowerContextClient;
     const manager = new PowerContextMemoryManager(
       "main",
-      () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
+      () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
       client,
       () => true,
     );
@@ -77,7 +77,7 @@ describe("PowerContext memory manager", () => {
         return { citation, version: 1, kind: "fact", text: "remembered fact", state: "active" } as T;
       },
     } as unknown as PowerContextClient;
-    const config = resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" });
+    const config = resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" });
     const manager = new PowerContextMemoryManager("main", () => config, client, () => true);
 
     const [result] = await manager.search("fact", {

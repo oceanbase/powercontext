@@ -34,6 +34,14 @@ from powercontext.builtin.artifacts.handoff import (
 )
 from powercontext.builtin.artifacts.memory.models import MemoryChange
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
+from powercontext.builtin.dream.application import DreamApplication, ScopedDreamApplication
+from powercontext.builtin.dream.models import (
+    CreateDreamRunRequest,
+    DreamRun,
+    DreamRunPage,
+    GetDreamRunRequest,
+    ListDreamRunsRequest,
+)
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
     GenerationCapabilityUnavailableError,
@@ -203,7 +211,11 @@ __all__ = [
     "ConnectorCheckpointState",
     "ContextAssembly",
     "ContextAssemblySection",
+    "CreateDreamRunRequest",
     "DatabaseConfig",
+    "DreamApplication",
+    "DreamRun",
+    "DreamRunPage",
     "ExperienceApplication",
     "ExperienceCandidate",
     "ExperienceCandidatePage",
@@ -218,6 +230,7 @@ __all__ = [
     "GeneratedCandidateResult",
     "GenerationCapabilityUnavailableError",
     "GetArtifactCandidateRequest",
+    "GetDreamRunRequest",
     "GetExperienceRequest",
     "GetMemoryEntryRequest",
     "GetSkillRequest",
@@ -242,6 +255,7 @@ __all__ = [
     "InvalidRuntimeRequestError",
     "InventoryStatistics",
     "ListArtifactCandidatesRequest",
+    "ListDreamRunsRequest",
     "ListExternalSkillsRequest",
     "MemoryApplication",
     "MemoryChange",
@@ -300,6 +314,7 @@ __all__ = [
     "ScheduledExperienceProcessor",
     "ScheduledSourceProcessor",
     "ScopeStatistics",
+    "ScopedDreamApplication",
     "ScopedExperienceApplication",
     "ScopedExternalSkillApplication",
     "ScopedHandoffApplication",

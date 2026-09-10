@@ -14,9 +14,15 @@
  * limitations under the License.
  */
 
+import { resolveTransport } from './transport.ts'
+import { readFileSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 export interface PluginConfig {
   contextAssembly?: Record<string, unknown>
   baseUrl?: string
+  allowInsecureHttp?: boolean
   authorization?: string
   scopeId?: string
   timeoutMs?: number
@@ -31,6 +37,7 @@ export interface ResolvedConfig {
   contextAssembly?: Record<string, unknown>
   sources: { baseUrl: ConfigSource; authorization: ConfigSource; scopeId: ConfigSource }
   baseUrl: string
+  allowInsecureHttp: boolean
   authorization: string | undefined
   scopeId: string | undefined
   timeoutMs: number
@@ -41,11 +48,12 @@ export interface ResolvedConfig {
   flushMaxCalls: number
 }
 
-export type ConfigSource = 'environment' | 'plugin' | 'default'
+export type ConfigSource = 'environment' | 'plugin' | 'saved' | 'default'
 
 const DEFAULTS: ResolvedConfig = {
   sources: { baseUrl: 'default', authorization: 'default', scopeId: 'default' },
   baseUrl: 'http://127.0.0.1:8000',
+  allowInsecureHttp: false,
   authorization: undefined,
   scopeId: undefined,
   timeoutMs: 4000,
@@ -69,10 +77,6 @@ function envBoolean(env: NodeJS.ProcessEnv, name: string): boolean | undefined {
   return undefined
 }
 
-function stripSlash(url: string): string {
-  return url.replace(/\/+$/, '')
-}
-
 function optionalText(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
   return trimmed ? trimmed : undefined
@@ -92,10 +96,28 @@ function contextAssembly(raw: string | undefined, fallback?: Record<string, unkn
   return structuredClone(value as Record<string, unknown>)
 }
 
+function storedAuthorization(env: NodeJS.ProcessEnv, baseUrl: string): string | undefined {
+  const root = env.DSH_HOME?.trim() || join(homedir(), '.dsh')
+  const path = join(root, 'powercontext', 'credentials.json')
+  try {
+    if (process.platform !== 'win32' && (statSync(path).mode & 0o077) !== 0) return undefined
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    const payload = parsed as Record<string, unknown>
+    if (payload.version !== 1 || typeof payload.server_url !== 'string' || stripSlash(payload.server_url) !== baseUrl) return undefined
+    if (typeof payload.authorization !== 'string') return undefined
+    const authorization = payload.authorization
+    return /^Bearer [^\s]+$/.test(authorization) ? authorization : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function resolveConfig(
   config: PluginConfig = {},
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedConfig {
+  const transport = resolveTransport('dsh', env, config.baseUrl, config.allowInsecureHttp, DEFAULTS.baseUrl)
   const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes
   if (maxBytes < 512 || maxBytes > 32768) {
     throw new Error('maxBytes must be between 512 and 32768')
@@ -103,12 +125,16 @@ export function resolveConfig(
   return {
     contextAssembly: contextAssembly(envString(env, 'POWERCONTEXT_DSH_CONTEXT_ASSEMBLY'), config.contextAssembly),
     sources: {
-      baseUrl: envString(env, 'POWERCONTEXT_DSH_BASE_URL') ? 'environment' : config.baseUrl ? 'plugin' : 'default',
+      baseUrl: transport.source,
       authorization: envString(env, 'POWERCONTEXT_DSH_AUTHORIZATION') ? 'environment' : optionalText(config.authorization) ? 'plugin' : 'default',
       scopeId: envString(env, 'POWERCONTEXT_DSH_SCOPE_ID') ? 'environment' : optionalText(config.scopeId) ? 'plugin' : 'default',
     },
-    baseUrl: stripSlash(envString(env, 'POWERCONTEXT_DSH_BASE_URL') ?? config.baseUrl ?? DEFAULTS.baseUrl),
-    authorization: envString(env, 'POWERCONTEXT_DSH_AUTHORIZATION') ?? optionalText(config.authorization),
+    baseUrl: transport.baseUrl!,
+    allowInsecureHttp: transport.allowInsecureHttp,
+    authorization:
+      envString(env, 'POWERCONTEXT_DSH_AUTHORIZATION') ??
+      optionalText(config.authorization) ??
+      storedAuthorization(env, transport.baseUrl!),
     scopeId: envString(env, 'POWERCONTEXT_DSH_SCOPE_ID') ?? optionalText(config.scopeId),
     timeoutMs: config.timeoutMs ?? DEFAULTS.timeoutMs,
     requestTimeoutMs: config.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs,

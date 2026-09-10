@@ -26,6 +26,7 @@ export interface Release {
   githubUrl: string;
 }
 
+// Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
   {
     version: 'v0.2.0',
@@ -80,13 +81,13 @@ export const releases: Release[] = [
       en: [
         'Connect Hermes Agent, OpenCode, Pi Coding Agent, OpenClaw, WorkBuddy, Pydantic AI, LangChain, and LangGraph through official integrations and diagnostics.',
         'Run scheduled processing with tracing, inspect scoped Handoff Reports, and configure PowerContext from the CLI.',
-        'Use embedded seekDB or bundled sqlite-vec persistence with explicit embedding dimensions and clearer readiness failures.',
+        'Use embedded seekdb or bundled sqlite-vec persistence with explicit embedding dimensions and clearer readiness failures.',
         'Apply safer transport defaults and secret-safe persistence diagnostics.',
       ],
       zh: [
         '通过正式集成和诊断能力连接 Hermes Agent、OpenCode、Pi Coding Agent、OpenClaw、WorkBuddy、Pydantic AI、LangChain 和 LangGraph。',
         '运行带 tracing 的定时处理任务，查看按 scope 划分的 Handoff Report，并通过 CLI 配置 PowerContext。',
-        '使用嵌入式 seekDB 或内置 sqlite-vec 持久化，显式指定 embedding 维度，并获得更清晰的 readiness 故障信息。',
+        '使用嵌入式 seekdb 或内置 sqlite-vec 持久化，显式指定 embedding 维度，并获得更清晰的 readiness 故障信息。',
         '使用更安全的传输默认值，以及不泄露敏感信息的持久化诊断。',
       ],
     },

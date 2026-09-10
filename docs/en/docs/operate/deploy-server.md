@@ -63,6 +63,9 @@ For access from another machine:
 
 The built-in command serves HTTP and has no TLS options. Terminate HTTPS outside PowerContext.
 
+Configure the Agent on the client machine using [Connect to a remote Server](connect-remote-server.md).
+Its `--allow-insecure-http` option is client-side and does not change the Server listener or authentication.
+
 ## Run from an installed tool
 
 Install PowerContext as described in [Install and run](../get-started/install-and-run.md), then choose a persistent data directory:

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from contextlib import suppress
 from typing import Any
@@ -26,9 +27,13 @@ import httpx
 from fastapi import Request
 from pydantic import ValidationError
 
+from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.topic_memory import TopicMemoryBrowseCursor
+from powercontext.builtin.runtime.models import GetTopicMemoryRequest
+from powercontext.errors import ArtifactNotFoundError
 from powercontext.server.dashboard.session import authentication_headers
 
 CONTENT_MODELS = {"handoff": HandoffContent, "experience": ExperienceContent, "skill": SkillContent}
@@ -50,6 +55,7 @@ class DashboardAPI:
     """Use an in-process HTTP transport with the incoming user's credentials."""
 
     def __init__(self, request: Request) -> None:
+        self.app = request.app
         headers = authentication_headers(request.scope)
         headers = {key: value for key, value in headers.items() if key in {"authorization", "cookie"}}
         self.client = httpx.AsyncClient(
@@ -93,6 +99,7 @@ class DashboardAPI:
                     {"name": source["source_type"], "source_id": source["source_id"]} for source in value["sources"]
                 ],
                 "artifact_refs": value["artifacts"],
+                "memory_citations": value.get("memory_citations", []),
             },
         )
 
@@ -113,6 +120,7 @@ class DashboardAPI:
                 {"source_type": source["name"], "source_id": source["source_id"]} for source in value["source_refs"]
             ],
             "artifacts": value["artifact_refs"],
+            "memory_citations": value.get("memory_citations", []),
         }
 
     async def records(
@@ -142,4 +150,77 @@ class DashboardAPI:
         return {
             "items": list(await asyncio.gather(*(load(item) for item in page["items"]))),
             "next_cursor": page["next_cursor"],
+        }
+
+    async def topic_memory_search(self, scope: str, query: str) -> dict[str, Any]:
+        return await self.read("/v1/topic-memory/search", {"scope_id": scope, "query": query})
+
+    async def prompt_configuration(self, scope: str, key: str) -> dict[str, Any]:
+        return await self.read(f"/v1/scopes/{segment(scope)}/prompts/{segment(key)}")
+
+    async def topic_memory_get(self, scope: str, artifact: dict[str, Any]) -> dict[str, Any]:
+        application = getattr(self.app.state, "application", None)
+        if application is None:
+            raise ReadError(503, "service_unavailable")
+        try:
+            value = await application.topic_memory.for_scope(scope).get(
+                GetTopicMemoryRequest(artifact=ArtifactRef.model_validate(artifact))
+            )
+        except ArtifactNotFoundError as error:
+            raise ReadError(404, "not_found") from error
+        except ValueError as error:
+            raise ReadError(422, "invalid_request") from error
+        return {
+            "artifact": value.topic.as_ref().model_dump(mode="json"),
+            "title": value.topic.content.title,
+            "summary": value.topic.content.summary,
+            "detail": value.topic.content.detail,
+            "source_refs": [
+                {"name": source.source_type, "source_id": source.source_id} for source in value.topic.lineage.sources
+            ],
+            "is_current": value.is_current,
+            "current_artifact": value.current_artifact.model_dump(mode="json"),
+        }
+
+    @staticmethod
+    def _decode_topic_cursor(value: str) -> TopicMemoryBrowseCursor:
+        try:
+            padding = "=" * (-len(value) % 4)
+            payload = base64.urlsafe_b64decode(value + padding)
+            return TopicMemoryBrowseCursor.model_validate_json(payload)
+        except (ValueError, TypeError, ValidationError) as error:
+            raise ReadError(422, "invalid_request") from error
+
+    @staticmethod
+    def _encode_topic_cursor(value: TopicMemoryBrowseCursor) -> str:
+        payload = json.dumps(value.model_dump(mode="json"), separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+    async def topic_memory_browse(self, scope: str, *, cursor: str | None = None, limit: int = 50) -> dict[str, Any]:
+        application = getattr(self.app.state, "application", None)
+        if application is None:
+            raise ReadError(503, "service_unavailable")
+        after = self._decode_topic_cursor(cursor) if cursor else None
+        items = await application.topic_memory.for_scope(scope).browse(limit=limit + 1, after=after)
+        has_next = len(items) > limit
+        items = items[:limit]
+        next_cursor = None
+        if has_next and items:
+            last = items[-1]
+            next_cursor = self._encode_topic_cursor(
+                TopicMemoryBrowseCursor(
+                    published_at=last.published_at,
+                    artifact_id=last.artifact_ref.artifact_id,
+                    revision=last.artifact_ref.revision,
+                )
+            )
+        return {
+            "items": [
+                {
+                    **item.model_dump(mode="json"),
+                    "artifact": item.artifact_ref.model_dump(mode="json"),
+                }
+                for item in items
+            ],
+            "next_cursor": next_cursor,
         }

@@ -31,7 +31,7 @@ def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp
 
     result = CliRunner().invoke(
         config_cli.app,
-        ["init", "--output", str(environment)],
+        ["init", "--template", "--output", str(environment)],
         input="\n",
     )
 
@@ -63,15 +63,17 @@ def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp
     assert shown.exit_code == 0
 
 
-@pytest.mark.parametrize("installed", ["0.2.0", "0.2.1.dev1+g1234567"])
+@pytest.mark.parametrize("installed", ["0.2.0", "1.0.0rc1", "1.0.0rc2", "0.2.1.dev1+g1234567"])
 def test_init_matches_dsh_setup_to_installed_server(installed: str, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(config_cli, "version", lambda _name: installed)
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: _configuration())
-    result = CliRunner().invoke(config_cli.app, ["init", "--output", str(tmp_path / "server.env")], input="\n")
+    result = CliRunner().invoke(
+        config_cli.app, ["init", "--template", "--output", str(tmp_path / "server.env")], input="\n"
+    )
     assert result.exit_code == 0
     command = next(line.strip() for line in result.output.splitlines() if "powercontext setup dsh" in line)
-    if installed == "0.2.0":
-        assert command.endswith("--ref powercontext-v0.2.0")
+    if installed in {"0.2.0", "1.0.0rc1", "1.0.0rc2"}:
+        assert command.endswith(f"--ref powercontext-v{installed}")
     else:
         assert "--source /path/to/matching-powercontext-checkout" in command
     assert "--ref master" not in command
@@ -123,7 +125,7 @@ def test_init_validate_and_show_round_trip_managed_environment(
     runner = CliRunner()
     generated = runner.invoke(
         config_cli.app,
-        ["init", "--output", str(environment)],
+        ["init", "--template", "--output", str(environment)],
         input="\n",
     )
 
@@ -310,7 +312,7 @@ def test_init_rejects_configuration_that_validation_rejects(
     invalid = _configuration(embedding_dimension=0)
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: invalid)
 
-    result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
+    result = CliRunner().invoke(config_cli.app, ["init", "--template", "--output", str(environment)])
 
     assert result.exit_code == 2
     assert "Embedding dimension must be positive" in result.output
@@ -327,7 +329,7 @@ def test_init_rejects_provider_models_that_cannot_be_constructed(
     )
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: invalid)
 
-    result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
+    result = CliRunner().invoke(config_cli.app, ["init", "--template", "--output", str(environment)])
 
     assert result.exit_code == 2
     assert "built-in runtime cannot be configured" in result.output
@@ -395,7 +397,7 @@ def test_init_refuses_to_replace_an_existing_environment_without_force(
     environment.write_text("EXISTING=value\n", encoding="utf-8")
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: _configuration())
 
-    result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)])
+    result = CliRunner().invoke(config_cli.app, ["init", "--template", "--output", str(environment)])
 
     assert result.exit_code == 2
     assert "already exists" in result.output
@@ -409,7 +411,7 @@ def test_init_force_defaults_to_preserving_existing_inference_configuration(tmp_
 
     result = CliRunner().invoke(
         config_cli.app,
-        ["init", "--output", str(environment), "--force"],
+        ["init", "--template", "--output", str(environment), "--force"],
         input="\n",
     )
 
@@ -430,7 +432,7 @@ def test_init_force_replaces_inference_configuration_after_explicit_confirmation
 
     result = CliRunner().invoke(
         config_cli.app,
-        ["init", "--output", str(environment), "--force"],
+        ["init", "--template", "--output", str(environment), "--force"],
         input="y\n",
     )
 
@@ -501,7 +503,7 @@ def test_init_records_generated_credential_names_for_show_redaction(
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: configuration)
     monkeypatch.setattr(config_cli, "_validate_builtin_runtime", lambda *_args, **_kwargs: None)
 
-    generated = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)], input="\n")
+    generated = CliRunner().invoke(config_cli.app, ["init", "--template", "--output", str(environment)], input="\n")
     text = environment.read_text(encoding="utf-8")
     shown = CliRunner().invoke(config_cli.app, ["show", "--env-file", str(environment)])
 
@@ -588,7 +590,7 @@ def test_custom_connection_marks_prompted_credential_for_show_redaction(
 def test_init_does_not_prompt_for_or_record_provider_credentials(tmp_path: Path) -> None:
     environment = tmp_path / ".env"
 
-    result = CliRunner().invoke(config_cli.app, ["init", "--output", str(environment)], input="\n")
+    result = CliRunner().invoke(config_cli.app, ["init", "--template", "--output", str(environment)], input="\n")
 
     assert result.exit_code == 0
     text = environment.read_text(encoding="utf-8")

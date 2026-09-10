@@ -24,6 +24,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .powercontext_client_config import normalize_server_url, resolve_allow_insecure_http
+
 if TYPE_CHECKING:
     from typing_extensions import override
 else:
@@ -145,10 +147,17 @@ class PowerContextClient:
         base_url: str,
         *,
         authorization: str | None = None,
+        allow_insecure_http: bool | None = None,
         timeout: float = 5.0,
         transport: Transport | None = None,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.allow_insecure_http = resolve_allow_insecure_http(
+            base_url,
+            host="hermes",
+            host_environment="POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP",
+            explicit=allow_insecure_http,
+        )
+        self.base_url = normalize_server_url(base_url, allow_insecure_http=self.allow_insecure_http)
         self.authorization = authorization.strip() if authorization else None
         self.timeout = timeout
         self._opener = build_opener(_NoRedirectHandler())

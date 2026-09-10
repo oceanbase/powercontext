@@ -1,6 +1,6 @@
 {
   "name": "powercontext",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Restore project memory and transfer current work through PowerContext.",
   "author": {
     "name": "PowerContext Team",
@@ -28,6 +28,11 @@
       "title": "Capture user prompts",
       "description": "Store user prompts as ordinary Content Source evidence",
       "default": true
+    },
+    "allow_insecure_http": {
+      "type": "boolean",
+      "title": "Allow unencrypted HTTP",
+      "description": "Explicitly allow HTTP to a non-loopback PowerContext Server; TLS certificate verification remains enabled"
     }
   }
 }

@@ -96,10 +96,15 @@ middleware 自己持有 `PowerContextScope`，并使用独立的 `POWERCONTEXT_L
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `POWERCONTEXT_LANGCHAIN_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server 地址 |
+| `POWERCONTEXT_LANGCHAIN_ALLOW_INSECURE_HTTP` | `false` | 显式允许非环回明文 HTTP |
 | `POWERCONTEXT_LANGCHAIN_TOKEN` | 未设置 | 传给 Client 的裸 bearer token |
 | `POWERCONTEXT_LANGCHAIN_SCOPE_ID` | 未设置 | 用于替代 Server 默认 Scope 的现有 Server Scope |
 | `POWERCONTEXT_LANGCHAIN_TIMEOUT` | `10` | Client 超时（秒） |
 | `POWERCONTEXT_LANGCHAIN_MAX_BYTES` | `8000` | PreparedContext 字节上限 |
+
+环回 HTTP 默认可用；非环回 HTTP 需要通过上表环境变量，或 `PowerContextLangChainSettings`、`PowerContextScope`
+上的 `allow_insecure_http=True` 显式同意。HTTPS 证书校验仍然启用。通用环境变量和绑定地址的持久化同意见
+[连接远程 Server](../operate/connect-remote-server.md)。框架适配器没有对应的 setup 安装命令。
 
 显式传入的 `PowerContextScope` 优先于环境配置，并且必须指向 Server 中已有的 Scope。两者都没有设置时，使用 Server
 默认 Scope。适配器不会根据 Git、路径、Agent 或 prompt 推导 Scope ID。Token 只保留在 Client 配置中，不会进入

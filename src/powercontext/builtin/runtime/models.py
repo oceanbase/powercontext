@@ -108,6 +108,7 @@ class RuntimeCapabilities(BaseModel):
     memory_extraction: bool
     experience_generation: bool = False
     managed_skill_generation: bool = False
+    artifact_dreaming: bool = False
     external_skill_registry: bool = False
     memory_search_modes: tuple[MemorySearchMode, ...]
     handoff_generation: bool = False
@@ -319,6 +320,7 @@ class ProposeExperienceRequest(BaseModel):
     proposal: ExperienceContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] = ()
     target: ArtifactRef | None = None
     reason: str | None = None
 
@@ -426,6 +428,7 @@ class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
     proposal: ExperienceContent | SkillContent | ProfileWriteContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] | None = None
     target: ArtifactRef | None = None
     reason: str | None = None
 

@@ -224,6 +224,7 @@ describe('PowerContextClient', () => {
     let operationIndex = 0
     const client = new PowerContextClient({
       baseUrl: 'http://example.test',
+      allowInsecureHttp: true,
       requestTimeoutMs: 1000,
       fetch: async (url, init) => {
         const spec = OPERATIONS[OPERATION_IDS[operationIndex++]!]

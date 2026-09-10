@@ -120,10 +120,12 @@ class RecordingClient:
         *,
         token: str | None = None,
         timeout: float = 10,
+        allow_insecure_http: bool = False,
     ) -> None:
         self.base_url = base_url
         self.token = token
         self.timeout = timeout
+        self.allow_insecure_http = allow_insecure_http
         self.closed = False
         self.resolve_scope_requests: list[Any] = []
         self.search_requests: list[Any] = []

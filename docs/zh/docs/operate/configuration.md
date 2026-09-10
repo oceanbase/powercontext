@@ -31,7 +31,7 @@ export POWERCONTEXT_HOME=/srv/powercontext
 - macOS：`~/Library/Application Support/powercontext`；
 - Windows：`%LOCALAPPDATA%\\powercontext`。
 
-默认 SQLite 数据库是该目录下的 `powercontext.db`。四类后台处理器的意图与调度检查点保存在同一数据库中。
+默认 SQLite 数据库是该目录下的 `powercontext.db`。后台处理器的意图与调度检查点保存在同一数据库中。
 已有部署须先完成[停机迁移](artifact-processing-migration.md)。
 
 ## Server
@@ -63,8 +63,8 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | 启用 span recording 和 OTLP export |
 | `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` | 本地持久化密钥 | 用于签名 REST 分页 cursor 的共享密钥，至少 32 字节 |
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | 存储后端：`sqlite`、`seekdb` 或 `oceanbase` |
-| `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekDB 不设置 |
-| `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekDB 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
+| `POWERCONTEXT_SERVER_DATABASE_URL` | 用户数据目录下的 SQLite 文件 | SQLite 或 OceanBase 的 SQLAlchemy 异步 URL；seekdb 不设置 |
+| `POWERCONTEXT_SERVER_DATABASE_PATH` | 用户数据目录下的 `seekdb` 目录 | 嵌入式 seekdb 路径；仅在 `DATABASE_KIND=seekdb` 时使用 |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Runtime 保留的非活动 scope composition 数量；进行中的 scope 不会被驱逐 |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | 单次 activation 最多处理的 Source 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | 显式 `assembly.sections[].limit` 之和的上限；正整数，各类别单独上限仍适用 |
@@ -84,6 +84,12 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | 根据模型推导 | JSON Family 列表；API 端可无模型凭据地声明处理能力 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Memory 独立 Worker 额度 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_MAX_WORKERS` | `1` | Experience 独立 Worker 额度 |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_MAX_WORKERS` | `1` | Skill Worker 并发额度，用于 Dream 派生 |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_WORKER_TIMEOUT_SECONDS` | `600` | 一次 Skill Scope 调用的总超时 |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_ENABLED` | `true` | 接受已声明 Experience/Skill Family 的显式 Dream 请求；不自动挑选制品 |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_MAX_PENDING_PER_SCOPE` | `32` | 同 Scope 排队和执行中的 DreamRun 总上限 |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_BUDGET` | `{}` | JSON 预算，可收紧证据上限、最多 2 次模型调用和首次执行起 120 秒总时间 |
+| `POWERCONTEXT_SERVER_RUNTIME_GENERATION_CONCURRENCY` | `4` | Runtime 前台同步生成并发；后台 Worker 使用各 Family 额度 |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS` | `4` | Profile 独立 Worker 额度；别名 `PROFILE_MAX_CONCURRENCY` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Memory Scope 总超时 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Experience Scope 总超时 |
@@ -150,12 +156,17 @@ Authentication 负责建立 Principal，Access Control 负责判断该 Principal
 用户 A 和用户 B。兼容静态 token 会为这个 Principal 显式写入 Server 与各 scope 所需的 role。需要让不同用户或 group
 获得不同权限时，应注入部署侧 Authentication Provider 与相应的 AccessControlService。
 
-Memory、Topic Memory、Experience、Profile 四类后台优先使用 `ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的 service Principal，
+Memory、Topic Memory、Experience、Profile 的 Source 后台处理优先使用 `ACCESS_BACKGROUND_PRINCIPAL_ID` 指定的 service Principal，
 缺省时回退到固定静态 Principal。该身份须在每个被处理的 scope 上拥有 `scope.contribute`，并拥有被修改的现有 Artifact 的写权限。
 新 Entry、Artifact 与 Candidate 的 owner 或 owner attestation 和处理完成确认同事务提交。
 enforced 部署启用后台能力时，若身份或授权 provider 无法在子进程重建，启动会失败；关闭自动 schedule 仍需恢复已接受的工作，
 因此不能免除此检查。内置 provider 支持重建；注入的 provider 和模型对象仍可用于关闭后台能力
 （`ARTIFACT_PROCESSING_FAMILIES=[]`）的同步 SDK/Server 操作。
+
+Dream 在 Experience/Skill Worker 内重建原请求者的当前权限，Candidate 的归属仍是原请求者。
+后台 service Principal 的权限不会替代该身份。OceanBase 分离部署可在无模型的 API 进程声明
+`ARTIFACT_PROCESSING_FAMILIES=["experience","skill"]`，后台声明相同能力并配置模型；各进程的自动周期只能引用已声明的 Family。
+SQLite 使用 `all`。Dream 的模型标识在首次执行时固定，关闭自动周期不会阻止已接受的显式 Dream 请求完成。
 
 未配置 Server 身份的 SDK Worker 不需要 Server 授权依赖。内置后台 Worker 使用内置 Source Definition。
 自定义 Source Registry 须为每个启用的 Family 提供自定义 processing binding，或通过
@@ -171,7 +182,7 @@ Supervisor 实例重建而重置。
 导出和安装不再引入单独的 Access action：接收者先获得逻辑 Skill identity 上的 `artifact.read`，再自行决定是否以及如何
 安装一个精确 Revision。
 
-内置 Access schema 使用配置好的 SQLite、seekDB 或 OceanBase，但由 Server 独立持有，不进入 Runtime 领域。自定义部署
+内置 Access schema 使用配置好的 SQLite、seekdb 或 OceanBase，但由 Server 独立持有，不进入 Runtime 领域。自定义部署
 可以向 `create_server_app` 注入 `AccessControlService`。内置的可写外部 adapter `CasbinAuthorizationProvider` 使用
 embedded Casbin 判定固定 action vocabulary，并把 canonical Binding Store 作为持久化 adapter，因此在不维护第二份影子
 策略的前提下支持 point/batch check、safe resource filter、create/revoke、过期和 CAS。组装时将它同时作为 decision
@@ -226,11 +237,11 @@ Handoff Report API route 独立默认启用。Selection、检查和导出步骤�
 
 默认 `all` 角色会启动 Artifact Processing Supervisor。OceanBase 部署可以拆分 `api` 和 `background`；
 `powercontext server run --role background` 不启动 HTTP、MCP 或 Dashboard listener，多个后台候选者通过数据库 Lease
-自动选出一个 active Leader。SQLite 与嵌入式 seekDB 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次
+自动选出一个 active Leader。SQLite 与嵌入式 seekdb 只支持单进程 `all`。未设置正数间隔时，Topic Memory 自动波次
 保持关闭；显式 flush 工作的恢复不依赖该间隔。Topic Worker 要求使用文件 SQLite；内存 SQLite 配合 generation
 model 的配置会在声明处理能力之前被拒绝。请通过 `POWERCONTEXT_SERVER_DATABASE_URL` 指定持久数据库路径，例如
 `sqlite+aiosqlite:////srv/powercontext/runtime.db`。Memory、Topic Memory、Experience、Profile 均使用统一 Supervisor，OceanBase 拆分角色也可启用其周期。
-SQLite 和 embedded seekDB 仍要求单宿主 `all`。两模式均保留逐 Family 独立额度和总超时，不借用其他 Family 空闲额度。
+SQLite 和 embedded seekdb 仍要求单宿主 `all`。两模式均保留逐 Family 独立额度和总超时，不借用其他 Family 空闲额度。
 关闭自动准入仍恢复已接受请求。API 与后台须保持 mode、注册 Family 和可触发能力一致；模型仅在执行端必需。
 切换模式须[协调停机迁移](artifact-processing-migration.md)，不能混用模式启动。
 显式同时配置的新旧别名值不同时拒绝启动，同值接受。

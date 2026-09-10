@@ -227,6 +227,7 @@ function createRuntime(input: PluginInput, config: ResolvedConfig): Runtime {
   const sessionContexts = new Map<string, Promise<SessionContext>>()
   const client = new PowerContextClient({
     baseUrl: config.baseUrl,
+    allowInsecureHttp: config.allowInsecureHttp,
     authorization: config.authorization,
     requestTimeoutMs: config.requestTimeoutMs,
   })

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.sources import SourceRef
 
 if TYPE_CHECKING:
@@ -82,6 +82,7 @@ class ArtifactRecord(_RecordModel):
     content: dict[str, JsonValue]
     sources: tuple[SourceRef, ...]
     artifacts: tuple[ArtifactRef, ...]
+    memory_citations: tuple[MemoryCitation, ...] = ()
     content_digest: str
 
 

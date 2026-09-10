@@ -16,7 +16,7 @@ limitations under the License.
 
 <div class="experience-view">
 {% include 'components/reading-style.html' %}
-{% from 'components/record-references.html' import record_references %}
+{% from 'components/record-references.html' import record_references with context %}
 {% from 'macros.html' import evidence_link with context %}
 {% if not data.experience %}
   <div class="card"><div class="empty"><h1>{{ t.methods_empty }}</h1><p>{{ t.methods_empty_body }}</p><a href="{{ link('home') }}">{{ t.back_home }}</a></div></div>

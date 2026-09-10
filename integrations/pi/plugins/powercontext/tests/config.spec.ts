@@ -29,6 +29,7 @@ describe('Pi configuration', () => {
       POWERCONTEXT_PI_MAX_BYTES: '12000',
     })).toEqual({
       baseUrl: 'https://memory.example.test',
+      allowInsecureHttp: false,
       scopeId: 'project:demo',
       authorization: 'Bearer token',
       capturePrompts: false,

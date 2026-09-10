@@ -65,6 +65,7 @@ export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
 | Variable | Default | Validation and behavior |
 | --- | --- | --- |
 | `POWERCONTEXT_PYDANTIC_AI_BASE_URL` | `http://127.0.0.1:8000` | HTTP(S), without credentials, query, or fragment |
+| `POWERCONTEXT_PYDANTIC_AI_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_PYDANTIC_AI_TOKEN` | unset | Bare printable token stored as `SecretStr` |
 | `POWERCONTEXT_PYDANTIC_AI_SCOPE_ID` | unset | Existing explicit Server Scope, up to 256 characters; unset selects the Server default |
 | `POWERCONTEXT_PYDANTIC_AI_TIMEOUT` | `10` | Positive seconds |
@@ -75,6 +76,11 @@ export POWERCONTEXT_PYDANTIC_AI_TOKEN=opaque-server-token
 
 Unlike the Codex and Claude Code plugin settings that accept a complete authorization value, this adapter accepts a
 bare token. Do not include `Bearer ` or pass a complete `Authorization` header; the public Client adds the scheme.
+
+Loopback HTTP is allowed by default; non-loopback HTTP requires the opt-in above or
+`PowerContextSettings(allow_insecure_http=True)`. HTTPS certificate validation stays enabled. See
+[Connect to a remote Server](../operate/connect-remote-server.md) for common environment settings and endpoint-bound
+saved consent. The framework adapter does not have a setup installer.
 
 Both `PowerContext` and `PowerContextToolset` accept a `PowerContextSettings` instance, a stable `id` (default
 `powercontext`), and a fixed or callable `scope_id`:

@@ -25,6 +25,7 @@ import {
   UnknownOperationError,
 } from './errors.ts'
 import { OPERATIONS, type OperationId, type OperationSpec } from './operations.generated.ts'
+import { normalizeServerUrl } from './transport.ts'
 
 export type JsonObject = Record<string, unknown>
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
@@ -36,6 +37,7 @@ export type ClientSuccess =
 
 export interface ClientOptions {
   baseUrl: string
+  allowInsecureHttp?: boolean
   authorization?: string
   requestTimeoutMs: number
   fetch?: FetchFn
@@ -190,7 +192,7 @@ export class PowerContextClient {
   private readonly fetchImpl: FetchFn
 
   constructor(options: ClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '')
+    this.baseUrl = normalizeServerUrl(options.baseUrl, options.allowInsecureHttp)
     this.authorization = options.authorization
     this.requestTimeoutMs = options.requestTimeoutMs
     this.fetchImpl = options.fetch ?? fetch

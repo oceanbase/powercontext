@@ -781,7 +781,7 @@ def test_server_factory_applies_generation_model_settings_to_readiness(monkeypat
         observed_settings.append(None if info.model_settings is None else dict(info.model_settings))
         return ModelResponse(parts=[])
 
-    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name: FunctionModel(respond))
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(respond))
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
@@ -811,7 +811,7 @@ def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_
     async def rate_limited(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         raise ModelHTTPError(429, "test-model", {"secret": "provider response"})
 
-    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name: FunctionModel(rate_limited))
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(rate_limited))
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),

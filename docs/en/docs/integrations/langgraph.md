@@ -97,6 +97,7 @@ Configuration is read through pydantic-settings with the prefix `POWERCONTEXT_LA
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `POWERCONTEXT_LANGGRAPH_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server URL |
+| `POWERCONTEXT_LANGGRAPH_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_LANGGRAPH_TOKEN` | unset | Bare token forwarded to `PowerContextClient` |
 | `POWERCONTEXT_LANGGRAPH_SCOPE_ID` | unset | Existing Server Scope to use instead of the Server default |
 | `POWERCONTEXT_LANGGRAPH_TIMEOUT` | `10` | Client timeout in seconds |
@@ -104,6 +105,11 @@ Configuration is read through pydantic-settings with the prefix `POWERCONTEXT_LA
 
 `PowerContextScope(base_url=..., token=..., timeout=...)` overrides these per run. A field left as `None` on the
 scope falls back to the environment value.
+
+Loopback HTTP is allowed by default; non-loopback HTTP requires explicit consent through the environment variable
+above or `allow_insecure_http=True` on `PowerContextLangGraphSettings` or `PowerContextScope`. HTTPS certificate
+validation stays enabled. Common environment settings and endpoint-bound saved consent are described in
+[Connect to a remote Server](../operate/connect-remote-server.md). The framework adapter does not have a setup installer.
 
 `POWERCONTEXT_LANGGRAPH_TOKEN` carries a **bare token**, not a complete `Authorization` header value. This differs from the
 `POWERCONTEXT_*_AUTHORIZATION` convention used by the Codex, Claude Code, and DeepSeek Harness plugins.

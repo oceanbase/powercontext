@@ -39,6 +39,8 @@ from powercontext.builtin.artifacts.memory import (
     MemoryRerankInput,
     MemoryRerankOutput,
 )
+from powercontext.builtin.artifacts.profile.models import normalize_profile_markdown
+from powercontext.builtin.artifacts.profile.service import ProfileGenerationInput, ProfileGenerationOutput
 from powercontext.sources import SourceRef
 
 
@@ -67,6 +69,9 @@ def validate_demonstration(value: BaseModel, output: BaseModel) -> None:
         evidence = _identities(item.evidence_id for item in value.evidence)
         for candidate in output.candidates:
             _require(bool(candidate.evidence_ids) and set(candidate.evidence_ids) <= evidence)
+    elif isinstance(value, ProfileGenerationInput) and isinstance(output, ProfileGenerationOutput):
+        if output.content is not None:
+            normalize_profile_markdown(output.content)
     elif isinstance(value, ArtifactGenerationInput):
         _identities(item.evidence_id for item in value.evidence)
         if value.target_evidence_id is not None:

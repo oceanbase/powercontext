@@ -32,6 +32,7 @@ validated by Pydantic before the plugin starts.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `POWERCONTEXT_BUB_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server URL |
+| `POWERCONTEXT_BUB_ALLOW_INSECURE_HTTP` | `false` | Explicitly allow non-loopback HTTP for recall, capture, and tools; HTTPS certificate validation stays enabled |
 | `POWERCONTEXT_BUB_SCOPE_ID` | unset | Explicit Scope resolved and validated by the Server before use |
 | `POWERCONTEXT_BUB_TIMEOUT` | `10` | Client timeout in seconds |
 | `POWERCONTEXT_BUB_MAX_BYTES` | `8000` | Maximum prepared-context size |
@@ -41,6 +42,12 @@ validated by Pydantic before the plugin starts.
 | `POWERCONTEXT_BUB_CAPTURE_MAX_BYTES` | `8192` | Maximum UTF-8 bytes stored for one captured event |
 | `POWERCONTEXT_BUB_CAPTURE_LOG` | unset | Optional JSONL evidence path; records metadata but not event content |
 | `POWERCONTEXT_BUB_TRUST_TRANSPORT_SECURITY` | `false` | Vouch for a plaintext non-loopback `BASE_URL` on an operator-controlled network (for example a private Compose bridge); otherwise such URLs are refused |
+
+`PowerContextSettings(allow_insecure_http=True)` also permits non-loopback HTTP. Transport settings resolve from
+constructor values, host environment, common `POWERCONTEXT_CLIENT_SERVER_URL` /
+`POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then the `bub` entry in `~/.config/powercontext/clients.json`
+(overridden by `POWERCONTEXT_CLIENT_CONFIG_FILE`). A host value of `false` overrides common `true`.
+Saved consent applies only to its saved Server URL and is not reused when the URL changes.
 
 The plugin never derives a Scope ID from the current directory, Git metadata, or a workspace path. It asks the Server
 to resolve the configured explicit Scope first, then an opaque stable binding key derived from Bub's workspace identity,

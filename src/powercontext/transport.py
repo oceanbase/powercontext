@@ -16,9 +16,10 @@
 
 Every surface that opens or configures an HTTP connection to a Server -- the
 Python Client, the CLI, and the Agent integrations -- follows the same rule:
-plaintext HTTP is only trusted on a loopback address. Bearer credentials must
-never leave the machine over an unencrypted connection, and an unauthenticated
-Server must not bind to a routable address without an explicit opt-in.
+plaintext HTTP is accepted on loopback by default. A Client may explicitly opt
+into plaintext on another address; this does not disable HTTPS certificate
+verification. An unauthenticated Server must not bind to a routable address
+without its separate explicit opt-in.
 """
 
 from __future__ import annotations

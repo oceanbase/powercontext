@@ -15,9 +15,10 @@
  */
 
 import { createRequire } from "node:module";
-import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 //#region src/errors.ts
@@ -592,6 +593,44 @@ const OPERATIONS = {
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	list_dream_runs: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/dream",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [
+			"status",
+			"operation",
+			"cursor",
+			"limit"
+		],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	create_dream_run: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/dream",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202, 200],
+		emptyStatuses: []
+	},
+	get_dream_run: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/dream/{run_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id", "run_id"],
 		queryParams: [],
 		headerParams: [],
 		successStatuses: [200],
@@ -1281,6 +1320,99 @@ const OPERATIONS = {
 const OPERATION_IDS = Object.keys(OPERATIONS);
 
 //#endregion
+//#region src/transport.ts
+function optionalText$1(value) {
+	return typeof value === "string" ? value.trim() || void 0 : void 0;
+}
+function optionalBoolean(value, name$1) {
+	if (value === void 0) return void 0;
+	if (typeof value !== "boolean") throw new Error(`${name$1} must be a boolean`);
+	return value;
+}
+function environmentBoolean(env, name$1) {
+	if (env[name$1] === void 0) return void 0;
+	const value = env[name$1].trim().toLowerCase();
+	if ([
+		"true",
+		"1",
+		"yes",
+		"on"
+	].includes(value)) return true;
+	if ([
+		"false",
+		"0",
+		"no",
+		"off"
+	].includes(value)) return false;
+	throw new Error(`${name$1} must be a boolean (true/false, 1/0, yes/no, on/off)`);
+}
+function readSavedClient(host, env) {
+	const home = optionalText$1(env.HOME) ?? homedir();
+	const configuredPath = optionalText$1(env.POWERCONTEXT_CLIENT_CONFIG_FILE);
+	const path = configuredPath?.startsWith("~/") ? join(home, configuredPath.slice(2)) : configuredPath ?? join(home, ".config", "powercontext", "clients.json");
+	let contents;
+	try {
+		contents = readFileSync(path, "utf8");
+	} catch (error) {
+		if (error.code === "ENOENT") return {};
+		throw new Error("Unable to read PowerContext client configuration", { cause: error });
+	}
+	let document;
+	try {
+		document = JSON.parse(contents);
+	} catch {
+		throw new Error("PowerContext client configuration must be valid JSON");
+	}
+	if (!document || typeof document !== "object" || Array.isArray(document) || document.version !== 1) throw new Error("PowerContext client configuration must have version 1");
+	const hosts = document.hosts;
+	if (!hosts || typeof hosts !== "object" || Array.isArray(hosts)) throw new Error("PowerContext client configuration hosts must be an object");
+	const value = hosts[host];
+	if (value === void 0) return {};
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("PowerContext saved host configuration must be an object");
+	const entry = value;
+	if (entry.server_url !== void 0 && !optionalText$1(entry.server_url)) throw new Error("PowerContext saved server_url must be a non-empty string");
+	return {
+		server_url: optionalText$1(entry.server_url),
+		allow_insecure_http: optionalBoolean(entry.allow_insecure_http, "allow_insecure_http")
+	};
+}
+function normalizeServerUrl(value, allowInsecureHttp = false, name$1 = "PowerContext server URL") {
+	optionalBoolean(allowInsecureHttp, "allowInsecureHttp");
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`${name$1} must be a valid HTTP(S) URL`);
+	}
+	if (!["http:", "https:"].includes(url.protocol)) throw new Error(`${name$1} must use HTTP or HTTPS`);
+	if (url.username || url.password || url.search || url.hash) throw new Error(`${name$1} must not contain credentials, a query, or a fragment`);
+	const host = url.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+	const octets = host.split(".");
+	const loopback = host === "localhost" || host === "::1" || octets.length === 4 && octets[0] === "127" && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255);
+	if (url.protocol === "http:" && !loopback && !allowInsecureHttp) throw new Error(`${name$1} must use HTTPS outside loopback; explicitly enable allow_insecure_http to permit plaintext HTTP`);
+	return url.toString().replace(/\/+$/, "").replace(/\/mcp$/, "").replace(/\/+$/, "");
+}
+function resolveTransport(host, env, nativeUrl, nativeConsent, defaultUrl) {
+	const prefix = `POWERCONTEXT_${host.toUpperCase()}`;
+	const saved = readSavedClient(host, env);
+	const environmentUrl = optionalText$1(env[`${prefix}_BASE_URL`]) ?? optionalText$1(env[`${prefix}_SERVER_URL`]) ?? optionalText$1(env[`${prefix}_ENDPOINT`]) ?? optionalText$1(env.POWERCONTEXT_CLIENT_SERVER_URL);
+	const pluginUrl = optionalText$1(nativeUrl);
+	const selectedUrl = environmentUrl ?? pluginUrl ?? saved.server_url ?? defaultUrl;
+	const normalized = selectedUrl === void 0 ? void 0 : normalizeServerUrl(selectedUrl, true, `${prefix}_BASE_URL`);
+	const savedUrl = saved.server_url === void 0 ? void 0 : normalizeServerUrl(saved.server_url, true);
+	const hostConsent = environmentBoolean(env, `${prefix}_ALLOW_INSECURE_HTTP`);
+	const commonConsent = environmentBoolean(env, "POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP");
+	const pluginConsent = optionalBoolean(nativeConsent, "allowInsecureHttp");
+	const nativeEndpoint = pluginUrl === void 0 ? void 0 : normalizeServerUrl(pluginUrl, true);
+	const allowInsecureHttp = hostConsent ?? commonConsent ?? (pluginConsent === false ? false : normalized !== void 0 && normalized === nativeEndpoint ? pluginConsent : void 0) ?? (normalized !== void 0 && normalized === savedUrl ? saved.allow_insecure_http : void 0) ?? false;
+	return {
+		baseUrl: normalized === void 0 ? void 0 : normalizeServerUrl(normalized, allowInsecureHttp, `${prefix}_BASE_URL`),
+		allowInsecureHttp,
+		source: environmentUrl ? "environment" : pluginUrl ? "plugin" : saved.server_url ? "saved" : "default"
+	};
+}
+
+//#endregion
 //#region src/client.ts
 function combineSignals(signals) {
 	const present$1 = signals.filter(Boolean);
@@ -1406,7 +1538,7 @@ var PowerContextClient = class {
 	requestTimeoutMs;
 	fetchImpl;
 	constructor(options) {
-		this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+		this.baseUrl = normalizeServerUrl(options.baseUrl, options.allowInsecureHttp);
 		this.authorization = options.authorization;
 		this.requestTimeoutMs = options.requestTimeoutMs;
 		this.fetchImpl = options.fetch ?? fetch;
@@ -2377,6 +2509,7 @@ const DEFAULTS = {
 		scopeId: "default"
 	},
 	baseUrl: "http://127.0.0.1:8000",
+	allowInsecureHttp: false,
 	authorization: void 0,
 	scopeId: void 0,
 	timeoutMs: 4e3,
@@ -2406,9 +2539,6 @@ function envBoolean(env, name$1) {
 		"off"
 	].includes(value)) return false;
 }
-function stripSlash(url) {
-	return url.replace(/\/+$/, "");
-}
 function optionalText(value) {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : void 0;
@@ -2424,18 +2554,35 @@ function contextAssembly(raw, fallback) {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("PowerContext context assembly must be a JSON object");
 	return structuredClone(value);
 }
+function storedAuthorization(env, baseUrl) {
+	const path = join(env.DSH_HOME?.trim() || join(homedir(), ".dsh"), "powercontext", "credentials.json");
+	try {
+		if (process.platform !== "win32" && (statSync(path).mode & 63) !== 0) return void 0;
+		const parsed = JSON.parse(readFileSync(path, "utf8"));
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
+		const payload = parsed;
+		if (payload.version !== 1 || typeof payload.server_url !== "string" || stripSlash(payload.server_url) !== baseUrl) return void 0;
+		if (typeof payload.authorization !== "string") return void 0;
+		const authorization = payload.authorization;
+		return /^Bearer [^\s]+$/.test(authorization) ? authorization : void 0;
+	} catch {
+		return;
+	}
+}
 function resolveConfig(config = {}, env = process.env) {
+	const transport = resolveTransport("dsh", env, config.baseUrl, config.allowInsecureHttp, DEFAULTS.baseUrl);
 	const maxBytes = config.maxBytes ?? DEFAULTS.maxBytes;
 	if (maxBytes < 512 || maxBytes > 32768) throw new Error("maxBytes must be between 512 and 32768");
 	return {
 		contextAssembly: contextAssembly(envString(env, "POWERCONTEXT_DSH_CONTEXT_ASSEMBLY"), config.contextAssembly),
 		sources: {
-			baseUrl: envString(env, "POWERCONTEXT_DSH_BASE_URL") ? "environment" : config.baseUrl ? "plugin" : "default",
+			baseUrl: transport.source,
 			authorization: envString(env, "POWERCONTEXT_DSH_AUTHORIZATION") ? "environment" : optionalText(config.authorization) ? "plugin" : "default",
 			scopeId: envString(env, "POWERCONTEXT_DSH_SCOPE_ID") ? "environment" : optionalText(config.scopeId) ? "plugin" : "default"
 		},
-		baseUrl: stripSlash(envString(env, "POWERCONTEXT_DSH_BASE_URL") ?? config.baseUrl ?? DEFAULTS.baseUrl),
-		authorization: envString(env, "POWERCONTEXT_DSH_AUTHORIZATION") ?? optionalText(config.authorization),
+		baseUrl: transport.baseUrl,
+		allowInsecureHttp: transport.allowInsecureHttp,
+		authorization: envString(env, "POWERCONTEXT_DSH_AUTHORIZATION") ?? optionalText(config.authorization) ?? storedAuthorization(env, transport.baseUrl),
 		scopeId: envString(env, "POWERCONTEXT_DSH_SCOPE_ID") ?? optionalText(config.scopeId),
 		timeoutMs: config.timeoutMs ?? DEFAULTS.timeoutMs,
 		requestTimeoutMs: config.requestTimeoutMs ?? DEFAULTS.requestTimeoutMs,
@@ -3238,6 +3385,7 @@ function createRuntime(ctx, config) {
 	const resolved = resolveConfig(config);
 	const client = new PowerContextClient({
 		baseUrl: resolved.baseUrl,
+		allowInsecureHttp: resolved.allowInsecureHttp,
 		authorization: resolved.authorization,
 		requestTimeoutMs: resolved.requestTimeoutMs
 	});

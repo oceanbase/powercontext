@@ -77,6 +77,13 @@ Keep this file private and out of version control; on Linux and macOS, restrict 
 
 For server-side setup, see [Enable authentication](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#enable-authentication). The PowerContext server token authenticates MCP requests; model provider credentials belong in the server's model configuration.
 
+This package contains a Skill and native MCP configuration, with no local
+PowerContext HTTP client. MiniMax Code owns the MCP connection and its HTTP/TLS
+policy; `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP` and PowerContext's saved client
+settings do not control that native transport. Configure any remote endpoint
+in MiniMax Code's private MCP configuration. Prefer HTTPS: HTTP transmits
+content and authorization headers without encryption.
+
 ## Your data
 
 The server stores context in a local SQLite database by default. Queries and content you ask to save go to that server. If you enable generation or embedding services, the server may send relevant content to the configured model endpoints.

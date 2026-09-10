@@ -16,7 +16,7 @@ limitations under the License.
 
 <div class="skill-reading">
 {% include 'components/reading-style.html' %}
-{% from 'components/record-references.html' import record_references %}
+{% from 'components/record-references.html' import record_references with context %}
 {% from 'macros.html' import evidence_link with context %}
 {% if data.skill %}
 <article class="reading-sheet">

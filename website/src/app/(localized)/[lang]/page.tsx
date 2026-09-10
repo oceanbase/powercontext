@@ -18,6 +18,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { HomePage } from '@/components/home-page';
 import { defaultLanguage, isLanguage } from '@/lib/i18n';
+import { absoluteSiteUrl } from '@/lib/urls';
 
 type PageProps = { params: Promise<{ lang: string }> };
 
@@ -34,8 +35,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   return {
     alternates: {
-      canonical: lang === defaultLanguage ? '/' : `/${lang}/`,
-      languages: { en: '/', zh: '/zh/', 'x-default': '/' },
+      canonical: absoluteSiteUrl(lang === defaultLanguage ? '/' : `/${lang}/`),
+      languages: { en: absoluteSiteUrl('/'), zh: absoluteSiteUrl('/zh/'), 'x-default': absoluteSiteUrl('/') },
     },
   };
 }

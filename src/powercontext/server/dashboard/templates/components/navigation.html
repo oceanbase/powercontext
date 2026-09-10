@@ -34,7 +34,7 @@ limitations under the License.
       {% if errors.get('scopes') %}<p class="small mt-2">{{ t.scope_list_unavailable }}</p>{% endif %}
     </form>
     <ul class="navbar-nav w-100" aria-label="{{ t.navigation }}">
-      {% for item in ['home', 'handoff', 'notes', 'methods', 'usage'] %}
+      {% for item in ['home', 'handoff', 'notes', 'methods', 'topics', 'prompts', 'usage'] %}
       {% set active = page == item or parent_page == item %}
       <li class="nav-item {% if active %}active{% endif %}"><a href="{{ link(item) }}" class="nav-link {% if active %}active{% endif %}" {% if active %}aria-current="page"{% endif %}>
         {{ icon(item) }}<span class="nav-link-title">{{ t[item] }}</span>

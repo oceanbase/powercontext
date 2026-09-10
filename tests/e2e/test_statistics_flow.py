@@ -128,7 +128,7 @@ def test_statistics_survive_the_authenticated_http_business_flow_and_restart(
     })
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda _: TestModel(custom_output_text=model_output),
+        lambda _, **_kwargs: TestModel(custom_output_text=model_output),
     )
     first_app = create_server_app(settings=settings)
 

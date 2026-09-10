@@ -159,5 +159,64 @@ async def load_content(api: DashboardAPI, request: Request, ctx: dict[str, Any])
         await load_collection(api, request, ctx, ctx["method_kind"])
     elif page == "usage":
         await load_stats(api, ctx)
+    elif page == "topics":
+        await load_topics(api, request, ctx)
+    elif page == "prompts":
+        await load_prompts(api, ctx)
     elif page in RECORDS:
         await load_record(api, request, ctx)
+
+
+async def load_topics(api: DashboardAPI, request: Request, ctx: dict[str, Any]) -> None:
+    """Load Topic Memory browse/search results and an exact selected revision."""
+    query = ctx["artifact_query"]
+    if query:
+        try:
+            result = await api.topic_memory_search(ctx["scope"], query)
+            for hit in result["hits"]:
+                try:
+                    record = await api.topic_memory_get(ctx["scope"], hit["artifact"])
+                    ctx["data"]["topic_memory"].append({**hit, **record, "is_current": record["is_current"]})
+                except ReadError as error:
+                    ctx["errors"].setdefault("topic_memory", error)
+        except ReadError as error:
+            ctx["errors"]["topic_memory"] = error
+    else:
+        try:
+            page = await api.topic_memory_browse(ctx["scope"], cursor=ctx["topic_cursor"])
+            ctx["data"]["topic_memory"] = page["items"]
+            ctx["topic_memory_pager"] = cursor_links(request, ctx, "topic", page["next_cursor"])
+        except ReadError as error:
+            ctx["errors"]["topic_memory"] = error
+    if ctx["topic_artifact"] and ctx["topic_revision"]:
+        try:
+            ctx["data"]["topic_memory_selected"] = await api.topic_memory_get(
+                ctx["scope"],
+                {
+                    "family": "topic-memory",
+                    "artifact_id": ctx["topic_artifact"],
+                    "revision": int(ctx["topic_revision"]),
+                },
+            )
+        except ValueError:
+            ctx["errors"]["topic_memory_selected"] = ReadError(422, "invalid_request")
+        except ReadError as error:
+            ctx["errors"]["topic_memory_selected"] = error
+
+
+async def load_prompts(api: DashboardAPI, ctx: dict[str, Any]) -> None:
+    """Load the scoped Prompt configurations exposed by the Prompt Dashboard."""
+    keys = (
+        "memory.extract",
+        "memory.rerank",
+        "experience.incubate",
+        "experience.generate",
+        "skill.generate",
+        "handoff.generate",
+    )
+    for key in keys:
+        try:
+            value = await api.prompt_configuration(ctx["scope"], key)
+            ctx["data"]["prompts"].append(value)
+        except ReadError as error:
+            ctx["errors"].setdefault("prompts", error)

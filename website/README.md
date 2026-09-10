@@ -29,6 +29,22 @@ pnpm build
 
 静态产物输出到 `website/out`。
 
+## 发布到子路径
+
+GitHub Pages 验收站使用以下构建参数：
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/powercontext \
+NEXT_PUBLIC_SITE_URL=https://frf12.github.io \
+NEXT_PUBLIC_REPOSITORY_URL=https://github.com/frf12/powercontext/tree/codex/guided-config \
+pnpm build
+```
+
+把 `out` 的内容部署到 `https://frf12.github.io/powercontext/`。这些参数在构建时写入页面和资源路径；
+省略参数时仍使用根路径及上游官网地址。修改部署路径后需要重新构建。
+
+`pnpm verify:export` 应使用与构建相同的环境变量；它会检查页面链接、静态资源、跳转页和双语首页的规范地址。
+
 ## 生成内容
 
 - OpenAPI 页面由 `openapi/powercontext.yaml` 直接生成。

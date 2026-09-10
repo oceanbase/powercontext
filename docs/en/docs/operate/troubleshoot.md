@@ -35,7 +35,7 @@ when that CLI is missing.
 Confirm that Git can read the repository:
 
 ```bash
-git ls-remote https://github.com/oceanbase/powercontext.git HEAD
+git ls-remote https://github.com/oceanbase/powercontext.git refs/heads/master
 ```
 
 If this fails, configure the credential helper or SSH key used by Git, then rerun `uv tool install`. `uv` uses Git's
@@ -76,7 +76,7 @@ powercontext doctor pi
 Reinstall it from the same ref as the tool:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
+powercontext setup codex
 codex plugin list --json
 ```
 
@@ -86,7 +86,7 @@ For Claude Code, run:
 
 ```bash
 powercontext doctor claude-code
-powercontext setup claude-code --source oceanbase/powercontext --ref <ref>
+powercontext setup claude-code
 claude plugin list --json
 ```
 
@@ -101,7 +101,7 @@ For DeepSeek Harness, run:
 
 ```bash
 powercontext doctor dsh
-powercontext setup dsh --source oceanbase/powercontext --ref <ref>
+powercontext setup dsh
 dsh --profile web --dump-config
 ```
 
@@ -112,7 +112,7 @@ For Pi, run:
 
 ```bash
 powercontext doctor pi
-powercontext setup pi --source oceanbase/powercontext --ref <ref>
+powercontext setup pi
 pi list
 ```
 
@@ -207,7 +207,7 @@ so the previous database remains available for recovery:
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
+     --table 'pc_dream_runs,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -338,8 +338,9 @@ of recall; a capture failure cannot suppress valid context, and a recall failure
 
 ## Claude Code MCP authentication fails
 
-The Hook and MCP `headersHelper` read `POWERCONTEXT_CLAUDE_AUTHORIZATION` from the environment that starts Claude
-Code. Stop the current process, export the complete header, and start it again:
+The Hook reads `POWERCONTEXT_CLAUDE_AUTHORIZATION` from the environment that starts Claude Code, and the MCP
+configuration expands the same value into its `Authorization` header. Stop the current process, export the complete
+header, and start it again:
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"

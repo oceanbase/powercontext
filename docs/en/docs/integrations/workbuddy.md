@@ -28,7 +28,7 @@ The CLI installs the hooks, MCP server, and Skill from a local checkout or a
 GitHub source in one step:
 
 ```bash
-powercontext setup workbuddy --source oceanbase/powercontext --ref master
+powercontext setup workbuddy
 ```
 
 For a local checkout, point `--source` at the repository root or the plugin
@@ -218,6 +218,7 @@ changing them.
 | Variable | Purpose |
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext server URL (default `http://127.0.0.1:8000`) |
+| `POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP` | Explicitly permit non-loopback plaintext HTTP for hooks (default `false`) |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
@@ -228,7 +229,10 @@ changing them.
 
 The hook validates its PowerContext MCP URL and derives the HTTP API base by
 removing the final `/mcp` path segment. MCP URLs cannot contain credentials,
-query strings, or fragments; plain HTTP is accepted only for loopback hosts.
+query strings, or fragments. Plain HTTP is allowed on loopback by default; non-loopback HTTP requires
+`POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP=true`. Setup configures the Hook and native MCP URL, but WorkBuddy's
+own MCP policy still applies. HTTPS certificate validation stays enabled. See
+[Connect to a remote Server](../operate/connect-remote-server.md).
 
 ## Resolve the project scope
 

@@ -22,7 +22,9 @@ import hmac
 import json
 import secrets
 from base64 import b64decode, urlsafe_b64encode
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol, TypeVar
@@ -471,6 +473,10 @@ class AccessControlService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._cursor_secret = cursor_secret or secrets.token_bytes(32)
         self._static_scope_principal = static_scope_principal
+        self._deferred_decisions: ContextVar[list[AccessAuditEvent] | None] = ContextVar(
+            "powercontext_deferred_access_decisions",
+            default=None,
+        )
 
     def with_connection(self, connection):
         """Bind relationships, builtin authorization reads, and audit to a transaction."""
@@ -1072,6 +1078,33 @@ class AccessControlService:
             raise AccessUnavailableError("relationship_management_unavailable")
         return self.relationships
 
+    @asynccontextmanager
+    async def defer_decision_audit(self) -> AsyncIterator[None]:
+        """Check current authority inside a business transaction; flush audit after it closes.
+
+        The Access store may use a separate connection to the same SQLite file.
+        Deferring only audit writes avoids competing writers without caching decisions.
+        """
+
+        if self._deferred_decisions.get() is not None:
+            yield
+            return
+        events: list[AccessAuditEvent] = []
+        token = self._deferred_decisions.set(events)
+        try:
+            yield
+        finally:
+            self._deferred_decisions.reset(token)
+            for event in events:
+                await _access_call(self.audit.append_audit(event))
+
+    async def _append_decision_audit(self, event: AccessAuditEvent) -> None:
+        events = self._deferred_decisions.get()
+        if events is None:
+            await self.audit.append_audit(event)
+        else:
+            events.append(event)
+
     async def _record_decision(
         self,
         principal: PrincipalRef,
@@ -1081,7 +1114,7 @@ class AccessControlService:
         *,
         context: AccessAuditContext,
     ) -> None:
-        await self.audit.append_audit(
+        await self._append_decision_audit(
             AccessAuditEvent(
                 cursor=None,
                 event_id=str(uuid4()),

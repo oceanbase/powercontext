@@ -59,6 +59,7 @@ class OpenCodeSetupResult:
     plugin_path: str
     skill_path: str
     data_dir: str
+    authorization_state: str = "not_attempted"
 
 
 def opencode_executable() -> str:
@@ -100,11 +101,22 @@ def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
     require_replaceable_skill(skill_target)
     _install_plugin(plugin_dir / OPENCODE_BUNDLE, plugin_target)
     _install_skill(plugin_dir / OPENCODE_SKILL.parent, skill_target)
+    from powercontext.cli.authorization import (
+        configure_stored_authorization,
+        setup_authorization_value,
+        setup_server_url,
+    )
+
     return OpenCodeSetupResult(
         plugin=OPENCODE_PLUGIN_NAME,
         plugin_path=str(plugin_dir),
         skill_path=str(skill_target),
         data_dir=str(data_dir),
+        authorization_state=configure_stored_authorization(
+            "opencode",
+            server_url=setup_server_url("opencode", "http://127.0.0.1:8000"),
+            value=setup_authorization_value("opencode"),
+        ),
     )
 
 

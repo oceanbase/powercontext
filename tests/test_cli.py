@@ -1061,7 +1061,7 @@ def test_server_command_does_not_load_client_settings(monkeypatch: pytest.Monkey
     monkeypatch.setattr("powercontext.server.cli.configure_server_logging", lambda _config: None)
     monkeypatch.setattr("powercontext.server.cli.configure_server_tracing", lambda _config: tracing)
 
-    result = CliRunner().invoke(create_cli([server_app]), ["server", "run"])
+    result = CliRunner().invoke(create_cli([server_app]), ["server", "run", "--no-env-file"])
 
     assert result.exit_code == 0
     assert "Inference capability notice" in result.stdout

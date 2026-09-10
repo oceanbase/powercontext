@@ -63,9 +63,10 @@ jobs:
               version = tag.removeprefix("powercontext-v")
           else:
               version = tag.removeprefix("v")
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", version):
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", version):
               raise SystemExit(
-                  "release_tag must use vX.Y.Z, powercontext-vX.Y.Z, or X.Y.Z semantic versioning"
+                  "release_tag must use X.Y.Z with optional aN, bN, or rcN suffix and "
+                  "optional v or powercontext-v prefix (for example, powercontext-v1.0.0rc2)"
               )
 
           package = os.environ["RELEASE_PACKAGE"]

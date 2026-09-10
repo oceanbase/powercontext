@@ -14,7 +14,7 @@ OpenCode 1.18.21 or newer in the 1.x line is required. Install the plugin from t
 Server and CLI:
 
 ```bash
-powercontext setup opencode --source oceanbase/powercontext --ref master
+powercontext setup opencode
 ```
 
 The setup command registers the native plugin globally and installs its owned `project-context` Skill under the
@@ -56,8 +56,10 @@ workspace binding, then the Server default. The resolved Scope is fixed to the S
 boundary. Set the explicit variable only to an existing Server-owned Scope.
 
 For a Server using optional bearer authentication, set the complete header in
-`POWERCONTEXT_OPENCODE_AUTHORIZATION`. Never put credentials in the URL. Plain HTTP is accepted only for loopback
-hosts. Set `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false` when prompts must not be persisted as Source evidence.
+`POWERCONTEXT_OPENCODE_AUTHORIZATION`. Never put credentials in the URL. Plain HTTP is allowed on loopback by default;
+for non-loopback HTTP, explicitly set `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true`. HTTPS certificate validation
+stays enabled. See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
+Set `POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS=false` when prompts must not be persisted as Source evidence.
 
 ## Verify the installation
 

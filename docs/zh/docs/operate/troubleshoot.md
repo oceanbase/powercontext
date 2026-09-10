@@ -34,7 +34,7 @@ powercontext doctor hermes
 确认 Git 能够读取仓库：
 
 ```bash
-git ls-remote https://github.com/oceanbase/powercontext.git HEAD
+git ls-remote https://github.com/oceanbase/powercontext.git refs/heads/master
 ```
 
 如果失败，请配置 Git 使用的 credential helper 或 SSH key，再重新运行 `uv tool install`。`uv` 使用 Git
@@ -75,7 +75,7 @@ powercontext doctor pi
 使用与工具一致的 ref 重新安装：
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref <ref>
+powercontext setup codex
 codex plugin list --json
 ```
 
@@ -85,7 +85,7 @@ codex plugin list --json
 
 ```bash
 powercontext doctor claude-code
-powercontext setup claude-code --source oceanbase/powercontext --ref <ref>
+powercontext setup claude-code
 claude plugin list --json
 ```
 
@@ -99,7 +99,7 @@ setup 前已有的对象会保留。修正命令报告的 Claude CLI 或仓库�
 
 ```bash
 powercontext doctor dsh
-powercontext setup dsh --source oceanbase/powercontext --ref <ref>
+powercontext setup dsh
 dsh --profile web --dump-config
 ```
 
@@ -110,7 +110,7 @@ dsh --profile web --dump-config
 
 ```bash
 powercontext doctor pi
-powercontext setup pi --source oceanbase/powercontext --ref <ref>
+powercontext setup pi
 pi list
 ```
 
@@ -200,7 +200,7 @@ collation，但不会包含数据库 URL 或凭据。
 
    ```bash
    obloader <connection-options> -D <new-database> --csv \
-      --table 'pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
+     --table 'pc_dream_runs,pc_scope_context_references,pc_scope_external_references,pc_scope_creation_requests,pc_scope_settings,pc_scope_bindings,pc_artifact_heads,pc_artifact_lineage_sources,pc_artifact_lineage_artifacts,pc_artifact_publications,pc_artifact_candidate_versions,pc_topic_memory_revision_publications,pc_memory_entry_versions' \
      -f <export-directory>
    ```
 
@@ -319,8 +319,8 @@ component 为 `powercontext.claude_code.recall`：
 
 ## Claude Code MCP 认证失败
 
-Hook 与 MCP `headersHelper` 都从启动 Claude Code 的进程环境读取
-`POWERCONTEXT_CLAUDE_AUTHORIZATION`。停止当前进程，导出完整 header，再重新启动：
+Hook 从启动 Claude Code 的进程环境读取 `POWERCONTEXT_CLAUDE_AUTHORIZATION`，MCP 配置则把同一个值展开到
+`Authorization` header。停止当前进程，导出完整 header，再重新启动：
 
 ```bash
 export POWERCONTEXT_CLAUDE_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"

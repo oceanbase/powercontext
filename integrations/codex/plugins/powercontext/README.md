@@ -65,8 +65,28 @@ request to one known Scope.
 the hook: the hook validates its PowerContext MCP URL and derives the HTTP API
 base by removing the final `/mcp` path segment. Change that file before
 installing the plugin when the loopback default is not appropriate. MCP URLs
-cannot contain credentials, query strings, or fragments; plain HTTP is accepted
-only for loopback hosts.
+cannot contain credentials, query strings, or fragments. Plain HTTP is accepted
+for loopback hosts by default. To configure a non-loopback HTTP server explicitly:
+
+```bash
+powercontext setup codex --server-url http://memory.example:8000 --allow-insecure-http
+```
+
+Setup saves nonsecret client settings under `hosts.codex` in
+`~/.config/powercontext/clients.json` (`POWERCONTEXT_CLIENT_CONFIG_FILE` overrides
+the path) and configures the installed MCP endpoint. Saved HTTP consent applies
+only to that endpoint, ignoring trailing slashes and the `/mcp` suffix.
+`POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` overrides
+`POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, including an explicit `false`; both
+override saved consent. Invalid boolean values are rejected. A direct
+`CodexPluginSettings(allow_insecure_http=...)` argument has highest priority.
+The MCP file remains authoritative for the URL; a URL environment variable
+does not redirect the hook independently of MCP.
+
+This setting governs PowerContext's hook HTTP requests. Codex owns the native
+MCP transport and its policy. HTTP sends request content and any authorization
+header without encryption; this opt-in does not disable HTTPS certificate
+verification.
 
 The hook strictly validates `powercontext.prepared-context.v1`, rejects redirects,
 caps response bodies at 1 MiB, and applies both per-request and shared wall-clock

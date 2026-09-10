@@ -19,6 +19,9 @@ import pytest
 from sqlalchemy import func, select
 
 from powercontext.builtin.artifacts.profile.models import ProfileContent, ProfileWriteContent
+from powercontext.builtin.artifacts.prompt import PromptRegistry
+from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
+from powercontext.builtin.artifacts.prompt.service import current_prompt
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import BUILTIN_TABLES, SCOPES_TABLE, SOURCES_TABLE
 from powercontext.builtin.records import ArtifactWrite, BaseValueConflictError, InvalidBaseAccessRequestError
@@ -121,6 +124,123 @@ def test_profile_generic_crud_generation_and_no_change():
             count = len(generator.inputs)
             assert (await ctx.profiles.flush(sid)).status == "noop"
             assert len(generator.inputs) == count
+
+    asyncio.run(run())
+
+
+def test_profile_generation_binds_custom_prompt_and_records_lineage():
+    class PromptAwareGenerator(Generator):
+        def __init__(self):
+            super().__init__()
+            self.selection = None
+
+        async def generate(self, value):
+            self.selection = current_prompt("profile.generate")
+            return await super().generate(value)
+
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            registry = PromptRegistry(
+                builtin_prompt_definitions(),
+                supported=frozenset({"profile.generate"}),
+            )
+            ctx = RelationalContexts(database=db.database, prompt_registry=registry)
+            sid = await scope(ctx, "Prompt Profile")
+            prompt = await ctx.records.create_artifact(
+                sid,
+                "prompt",
+                ArtifactWrite(
+                    prompt_key="profile.generate",
+                    content={
+                        "schema_version": "powercontext.prompt.v1",
+                        "mode": "custom",
+                        "instructions": "Keep verified long-term communication preferences.",
+                        "demonstrations": [],
+                    },
+                ),
+            )
+            await ctx.profiles.put_policy(sid, generation_enabled=True, expected_version=0)
+            await ctx.records.create_source(sid, "content", "Prefers Chinese")
+            generator = PromptAwareGenerator()
+            ctx.profiles.generator = generator
+
+            result = await ctx.profiles.flush(sid)
+
+            assert result.status == "updated"
+            assert generator.selection is not None
+            assert generator.selection.artifact is not None
+            assert generator.selection.artifact.family == "prompt"
+            assert generator.selection.artifact.artifact_id == prompt.artifact_id
+            assert generator.selection.artifact.revision == prompt.revision
+            saved = await ctx.records.get_artifact(sid, "profile", "profile")
+            assert any(
+                ref.family == "prompt" and ref.artifact_id == prompt.artifact_id and ref.revision == prompt.revision
+                for ref in saved.artifacts
+            )
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("has_existing_profile", [False, True])
+def test_review_generation_reserves_candidate_evidence_capacity_for_custom_prompt(has_existing_profile):
+    async def run():
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES) as db:
+            registry = PromptRegistry(
+                builtin_prompt_definitions(),
+                supported=frozenset({"profile.generate"}),
+            )
+            ctx = RelationalContexts(database=db.database, prompt_registry=registry)
+            sid = await scope(ctx, f"Prompt Capacity {has_existing_profile}")
+            if has_existing_profile:
+                await ctx.records.create_artifact(
+                    sid,
+                    "profile",
+                    ArtifactWrite(content={"content": "# Existing Profile"}),
+                )
+                policy = await ctx.profiles.get_policy(sid)
+                await ctx.profiles.put_policy(
+                    sid,
+                    generation_enabled=True,
+                    activation_mode="review_required",
+                    expected_version=policy.version,
+                )
+                assert (await ctx.profiles.flush(sid)).status == "noop"
+            else:
+                await ctx.profiles.put_policy(
+                    sid,
+                    generation_enabled=True,
+                    activation_mode="review_required",
+                    expected_version=0,
+                )
+            expected_sources = 30 if has_existing_profile else 31
+            for index in range(expected_sources + 1):
+                await ctx.records.create_source(sid, "content", f"Lasting fact {index}")
+            prompt = await ctx.records.create_artifact(
+                sid,
+                "prompt",
+                ArtifactWrite(
+                    prompt_key="profile.generate",
+                    content={
+                        "schema_version": "powercontext.prompt.v1",
+                        "mode": "custom",
+                        "instructions": "Keep verified lasting facts.",
+                        "demonstrations": [],
+                    },
+                ),
+            )
+            ctx.profiles.generator = Generator("# Generated Profile")
+
+            result = await ctx.profiles.flush(sid)
+
+            assert result.status == "review_pending"
+            assert result.candidate_id is not None
+            candidate = await ctx.review(sid).get_candidate(result.candidate_id)
+            assert len(candidate.sources) == expected_sources
+            assert len(candidate.sources) + len(candidate.artifacts) == 32
+            assert any(
+                ref.family == "prompt" and ref.artifact_id == prompt.artifact_id and ref.revision == prompt.revision
+                for ref in candidate.artifacts
+            )
 
     asyncio.run(run())
 

@@ -16,7 +16,9 @@
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { tool } from "@opencode-ai/plugin";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 
 //#region src/errors.ts
 const REQUEST_ID_HEADER = "X-PowerContext-Request-ID";
@@ -147,10 +149,19 @@ const OPERATIONS = {
 	list_scopes: {
 		method: "GET",
 		path: "/v1/scopes",
-		location: null,
+		location: "query",
 		scopeMode: "none",
 		pathParameters: [],
-		queryParams: [],
+		queryParams: [
+			"query",
+			"query_field",
+			"parent_scope_id",
+			"external_reference_kind",
+			"binding_integration",
+			"binding_kind",
+			"limit",
+			"cursor"
+		],
 		headerParams: [],
 		successStatuses: [200],
 		emptyStatuses: []
@@ -551,6 +562,44 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	list_dream_runs: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/dream",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [
+			"status",
+			"operation",
+			"cursor",
+			"limit"
+		],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	create_dream_run: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/dream",
+		location: "body",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [202, 200],
+		emptyStatuses: []
+	},
+	get_dream_run: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/dream/{run_id}",
+		location: null,
+		scopeMode: "none",
+		pathParameters: ["scope_id", "run_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	propose_experience: {
 		method: "POST",
 		path: "/v1/experience/propose",
@@ -914,6 +963,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	list_sources: {
+		method: "GET",
+		path: "/v1/scopes/{scope_id}/sources",
+		location: "query",
+		scopeMode: "none",
+		pathParameters: ["scope_id"],
+		queryParams: ["limit", "cursor"],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	create_source: {
 		method: "POST",
 		path: "/v1/scopes/{scope_id}/sources",
@@ -1224,6 +1284,99 @@ const OPERATIONS = {
 const OPERATION_IDS = Object.keys(OPERATIONS);
 
 //#endregion
+//#region src/transport.ts
+function optionalText(value) {
+	return typeof value === "string" ? value.trim() || void 0 : void 0;
+}
+function optionalBoolean(value, name) {
+	if (value === void 0) return void 0;
+	if (typeof value !== "boolean") throw new Error(`${name} must be a boolean`);
+	return value;
+}
+function environmentBoolean(env, name) {
+	if (env[name] === void 0) return void 0;
+	const value = env[name].trim().toLowerCase();
+	if ([
+		"true",
+		"1",
+		"yes",
+		"on"
+	].includes(value)) return true;
+	if ([
+		"false",
+		"0",
+		"no",
+		"off"
+	].includes(value)) return false;
+	throw new Error(`${name} must be a boolean (true/false, 1/0, yes/no, on/off)`);
+}
+function readSavedClient(host, env) {
+	const home = optionalText(env.HOME) ?? homedir();
+	const configuredPath = optionalText(env.POWERCONTEXT_CLIENT_CONFIG_FILE);
+	const path = configuredPath?.startsWith("~/") ? join(home, configuredPath.slice(2)) : configuredPath ?? join(home, ".config", "powercontext", "clients.json");
+	let contents;
+	try {
+		contents = readFileSync(path, "utf8");
+	} catch (error) {
+		if (error.code === "ENOENT") return {};
+		throw new Error("Unable to read PowerContext client configuration", { cause: error });
+	}
+	let document;
+	try {
+		document = JSON.parse(contents);
+	} catch {
+		throw new Error("PowerContext client configuration must be valid JSON");
+	}
+	if (!document || typeof document !== "object" || Array.isArray(document) || document.version !== 1) throw new Error("PowerContext client configuration must have version 1");
+	const hosts = document.hosts;
+	if (!hosts || typeof hosts !== "object" || Array.isArray(hosts)) throw new Error("PowerContext client configuration hosts must be an object");
+	const value = hosts[host];
+	if (value === void 0) return {};
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("PowerContext saved host configuration must be an object");
+	const entry = value;
+	if (entry.server_url !== void 0 && !optionalText(entry.server_url)) throw new Error("PowerContext saved server_url must be a non-empty string");
+	return {
+		server_url: optionalText(entry.server_url),
+		allow_insecure_http: optionalBoolean(entry.allow_insecure_http, "allow_insecure_http")
+	};
+}
+function normalizeServerUrl(value, allowInsecureHttp = false, name = "PowerContext server URL") {
+	optionalBoolean(allowInsecureHttp, "allowInsecureHttp");
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`${name} must be a valid HTTP(S) URL`);
+	}
+	if (!["http:", "https:"].includes(url.protocol)) throw new Error(`${name} must use HTTP or HTTPS`);
+	if (url.username || url.password || url.search || url.hash) throw new Error(`${name} must not contain credentials, a query, or a fragment`);
+	const host = url.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+	const octets = host.split(".");
+	const loopback = host === "localhost" || host === "::1" || octets.length === 4 && octets[0] === "127" && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255);
+	if (url.protocol === "http:" && !loopback && !allowInsecureHttp) throw new Error(`${name} must use HTTPS outside loopback; explicitly enable allow_insecure_http to permit plaintext HTTP`);
+	return url.toString().replace(/\/+$/, "").replace(/\/mcp$/, "").replace(/\/+$/, "");
+}
+function resolveTransport(host, env, nativeUrl, nativeConsent, defaultUrl) {
+	const prefix = `POWERCONTEXT_${host.toUpperCase()}`;
+	const saved = readSavedClient(host, env);
+	const environmentUrl = optionalText(env[`${prefix}_BASE_URL`]) ?? optionalText(env[`${prefix}_SERVER_URL`]) ?? optionalText(env[`${prefix}_ENDPOINT`]) ?? optionalText(env.POWERCONTEXT_CLIENT_SERVER_URL);
+	const pluginUrl = optionalText(nativeUrl);
+	const selectedUrl = environmentUrl ?? pluginUrl ?? saved.server_url ?? defaultUrl;
+	const normalized = selectedUrl === void 0 ? void 0 : normalizeServerUrl(selectedUrl, true, `${prefix}_BASE_URL`);
+	const savedUrl = saved.server_url === void 0 ? void 0 : normalizeServerUrl(saved.server_url, true);
+	const hostConsent = environmentBoolean(env, `${prefix}_ALLOW_INSECURE_HTTP`);
+	const commonConsent = environmentBoolean(env, "POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP");
+	const pluginConsent = optionalBoolean(nativeConsent, "allowInsecureHttp");
+	const nativeEndpoint = pluginUrl === void 0 ? void 0 : normalizeServerUrl(pluginUrl, true);
+	const allowInsecureHttp = hostConsent ?? commonConsent ?? (pluginConsent === false ? false : normalized !== void 0 && normalized === nativeEndpoint ? pluginConsent : void 0) ?? (normalized !== void 0 && normalized === savedUrl ? saved.allow_insecure_http : void 0) ?? false;
+	return {
+		baseUrl: normalized === void 0 ? void 0 : normalizeServerUrl(normalized, allowInsecureHttp, `${prefix}_BASE_URL`),
+		allowInsecureHttp,
+		source: environmentUrl ? "environment" : pluginUrl ? "plugin" : saved.server_url ? "saved" : "default"
+	};
+}
+
+//#endregion
 //#region src/client.ts
 function combineSignals(signals) {
 	if (signals.length === 1) return signals[0];
@@ -1339,6 +1492,10 @@ var PowerContextClient = class {
 	fetchImpl;
 	constructor(options) {
 		this.options = options;
+		this.options = {
+			...options,
+			baseUrl: normalizeServerUrl(options.baseUrl, options.allowInsecureHttp)
+		};
 		this.fetchImpl = options.fetch ?? fetch;
 	}
 	async request(id, payload, signal) {
@@ -1419,6 +1576,7 @@ var PowerContextClient = class {
 //#region src/config.ts
 const DEFAULTS = {
 	baseUrl: "http://127.0.0.1:8000",
+	allowInsecureHttp: false,
 	scopeId: void 0,
 	authorization: void 0,
 	capturePrompts: true,
@@ -1466,30 +1624,15 @@ function envInteger(env, name, fallback, minimum, maximum) {
 	if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
 	return value;
 }
-function normalizeBaseUrl(value) {
-	let url;
-	try {
-		url = new URL(value);
-	} catch {
-		throw new Error("POWERCONTEXT_OPENCODE_BASE_URL must be a valid HTTP(S) URL");
-	}
-	if (!["http:", "https:"].includes(url.protocol)) throw new Error("POWERCONTEXT_OPENCODE_BASE_URL must use HTTP or HTTPS");
-	if (url.username || url.password || url.search || url.hash) throw new Error("POWERCONTEXT_OPENCODE_BASE_URL must not contain credentials, a query, or a fragment");
-	const loopback = [
-		"localhost",
-		"127.0.0.1",
-		"[::1]"
-	].includes(url.hostname);
-	if (url.protocol === "http:" && !loopback) throw new Error("POWERCONTEXT_OPENCODE_BASE_URL must use HTTPS outside loopback");
-	return url.toString().replace(/\/+$/, "");
-}
 function resolveConfig(env = process.env) {
+	const transport = resolveTransport("opencode", env, void 0, void 0, DEFAULTS.baseUrl);
 	const requestTimeoutMs = envInteger(env, "POWERCONTEXT_OPENCODE_REQUEST_TIMEOUT_MS", DEFAULTS.requestTimeoutMs, 50, 3e4);
 	const httpBudgetMs = envInteger(env, "POWERCONTEXT_OPENCODE_HTTP_BUDGET_MS", DEFAULTS.httpBudgetMs, 100, 6e4);
 	if (requestTimeoutMs > httpBudgetMs) throw new Error("POWERCONTEXT_OPENCODE_REQUEST_TIMEOUT_MS must not exceed POWERCONTEXT_OPENCODE_HTTP_BUDGET_MS");
 	return {
 		contextAssembly: contextAssembly(envString(env, "POWERCONTEXT_OPENCODE_CONTEXT_ASSEMBLY")),
-		baseUrl: normalizeBaseUrl(envString(env, "POWERCONTEXT_OPENCODE_BASE_URL") ?? DEFAULTS.baseUrl),
+		baseUrl: transport.baseUrl,
+		allowInsecureHttp: transport.allowInsecureHttp,
 		scopeId: envString(env, "POWERCONTEXT_OPENCODE_SCOPE_ID"),
 		authorization: envString(env, "POWERCONTEXT_OPENCODE_AUTHORIZATION"),
 		capturePrompts: envBoolean(env, "POWERCONTEXT_OPENCODE_CAPTURE_PROMPTS") ?? DEFAULTS.capturePrompts,
@@ -1816,6 +1959,7 @@ function createRuntime(input, config) {
 	const sessionContexts = /* @__PURE__ */ new Map();
 	const client = new PowerContextClient({
 		baseUrl: config.baseUrl,
+		allowInsecureHttp: config.allowInsecureHttp,
 		authorization: config.authorization,
 		requestTimeoutMs: config.requestTimeoutMs
 	});

@@ -74,7 +74,7 @@ powercontext --help
 仍在**终端 B** 中运行：
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext setup codex
 ```
 
 setup 会完成三件事：

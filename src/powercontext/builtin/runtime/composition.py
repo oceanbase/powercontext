@@ -16,10 +16,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
@@ -58,6 +59,16 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.dream.generation import (
+    DREAM_INSTRUCTIONS,
+    DreamGenerationInput,
+    DreamGenerator,
+    LLMDreamGenerator,
+)
+from powercontext.builtin.dream.models import DreamBudget, DreamPlan
+from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorizer
+from powercontext.builtin.evidence.models import content_digest
+from powercontext.builtin.evidence.resolver import AuthorizationContext
 from powercontext.builtin.handoff_report.adapters import RuntimeHandoffReadAdapter
 from powercontext.builtin.handoff_report.application import HandoffReportApplication
 from powercontext.builtin.inference import EmbeddingModel, TokenEstimator, character_token_estimator
@@ -65,6 +76,7 @@ from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
 )
+from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
 from powercontext.builtin.persistence.oceanbase.memory_index import (
@@ -108,7 +120,11 @@ from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsCon
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
 from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider, enabled_profile_scopes
-from powercontext.builtin.runtime.processing_registry import canonical_processing_manifest, processing_capabilities
+from powercontext.builtin.runtime.processing_registry import (
+    canonical_processing_manifest,
+    dream_operations,
+    processing_capabilities,
+)
 from powercontext.builtin.runtime.protocols import RuntimeTracing
 from powercontext.builtin.runtime.readiness import (
     CachedReadinessProbe,
@@ -244,6 +260,10 @@ async def open_builtin_runtime(
     experience_generator: ExperienceGenerator | None = None,
     profile_generator: ProfileGenerator | None = None,
     skill_generator: SkillGenerator | None = None,
+    dream_generator: DreamGenerator | None = None,
+    dream_authorizer: DreamAuthorizer | None = None,
+    dream_authorization_context: AuthorizationContext = nullcontext,
+    dream_candidate_attester: CandidateAttester | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
@@ -305,6 +325,7 @@ async def open_builtin_runtime(
         configured_handoff = generated_handoff if handoff_pipeline is None else handoff_pipeline
         configured_reranker = generated_reranker if memory_reranker is None else memory_reranker
         components = (
+            ("profile.generate", profile_generator, generated_profile),
             ("memory.extract", candidate_pipeline, generated_memory),
             ("memory.rerank", memory_reranker, generated_reranker),
             ("experience.incubate", experience_pipeline, generated_incubation),
@@ -393,8 +414,9 @@ async def open_builtin_runtime(
             injected_token_estimator=token_estimator,
             injected_pipelines={
                 "memory": candidate_pipeline,
-                "experience": experience_pipeline,
+                "experience": experience_pipeline if experience_pipeline is not None else dream_generator,
                 "profile": profile_generator,
+                "skill": dream_generator,
             },
             worker_security=worker_security,
             source_registry=configured_source_registry,
@@ -424,6 +446,14 @@ async def open_builtin_runtime(
                 ],
             },
         )
+        configured_operations = dream_operations(config)
+        if dream_generator is not None and config.runtime.dream_enabled:
+            registered_families = {binding.artifact_family for binding in processing_bindings}
+            configured_operations = tuple(
+                operation
+                for operation, family in (("refine_experience", "experience"), ("derive_skill", "skill"))
+                if family in registered_families
+            )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
@@ -432,6 +462,7 @@ async def open_builtin_runtime(
                     memory_extraction=contexts.memory_extraction,
                     experience_generation=contexts.experience_generation,
                     managed_skill_generation=contexts.managed_skill_generation,
+                    artifact_dreaming=bool(configured_operations),
                     external_skill_registry=contexts.external_skill_registry,
                     memory_search_modes=_search_modes(contexts.index.capabilities),
                     handoff_generation=contexts.handoff_generation,
@@ -447,6 +478,16 @@ async def open_builtin_runtime(
                 profiles=contexts.profiles,
                 subject_sources=contexts.subject_sources,
                 generation_service=contexts.generation,
+                dream_service=contexts.dream(
+                    dream_generator,
+                    operations=configured_operations,
+                    budget=config.runtime.dream_budget,
+                    max_pending_per_scope=config.runtime.dream_max_pending_per_scope,
+                    authorize=dream_authorizer,
+                    authorization_context=dream_authorization_context,
+                    attest_candidate=dream_candidate_attester,
+                ),
+                generation_concurrency=config.runtime.generation_concurrency,
                 experience_recall=contexts.search_experience,
                 skill_recall=contexts.search_skills,
                 skill_lister=contexts.list_skills,
@@ -544,6 +585,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
         "topic-memory": config.runtime.topic_memory_schedule_seconds,
         "experience": config.runtime.experience_schedule_seconds,
         "profile": config.runtime.profile_schedule_enabled or None,
+        "skill": None,
     }
     for family, schedule in automatic.items():
         if schedule is not None and family not in declared | registered:
@@ -602,7 +644,9 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 if family == "profile" and config.runtime.profile_schedule_enabled
                 else None,
                 timezone=config.runtime.profile_timezone if family == "profile" else "Asia/Shanghai",
-                pending_provider=SourceProcessingPendingProvider(contexts.database, binding, family),
+                pending_provider=None
+                if family == "skill"
+                else SourceProcessingPendingProvider(contexts.database, binding, family),
                 automatic_scope_filter=enabled_profile_scopes if family == "profile" else None,
             )
         )
@@ -713,6 +757,7 @@ async def open_builtin_contexts(
                 await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                 await ensure_skill_distribution_schema(connection)
+                await ensure_dream_schema(connection)
                 await ensure_scope_search_schema(connection)
                 # A Topic child reuses its parent's schema. It never reads or
                 # writes Memory/Experience projections; rebuilding their FTS
@@ -769,6 +814,7 @@ async def open_builtin_contexts(
             await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
             await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
             await ensure_skill_distribution_schema(connection)
+            await ensure_dream_schema(connection)
             await ensure_scope_search_schema(connection)
             if not _topic_memory_worker:
                 await index.initialize(connection)
@@ -814,6 +860,67 @@ def _register_prompt_demonstrators(
 
     generator = PromptDemonstrationGenerator(model, limits=limits, model_settings=settings)
     target.update(dict.fromkeys(keys, generator))
+
+
+async def _dream_generator(
+    settings: InferenceConfig,
+    budget: DreamBudget,
+    resources: AsyncExitStack,
+    instrumentation: InstrumentationSettings | None,
+) -> DreamGenerator | None:
+    if settings.generation_model is None:
+        return None
+    if settings.generation_model.split(":", 1)[0] not in {
+        "openai",
+        "openai-chat",
+        "openai-responses",
+        "anthropic",
+    }:
+        # Dream requires an adapter whose SDK retries can be disabled explicitly.
+        # Other inference workloads retain their existing provider support.
+        return None
+    from pydantic_ai.settings import ModelSettings
+
+    from powercontext.builtin.inference.pydantic_ai import InferenceLimits, PydanticAIStructuredGenerator
+
+    provider_model, model = await _open_pydantic_ai_model(
+        settings.generation_model,
+        base_url=settings.generation_base_url,
+        headers=settings.generation_headers,
+        resources=resources,
+        instrumentation=instrumentation,
+        disable_provider_retries=True,
+    )
+    model_settings = cast(ModelSettings, dict(settings.generation_model_settings))
+    model_settings["max_tokens"] = min(int(model_settings.get("max_tokens") or 4096), budget.max_output_tokens)
+    identity = settings.model_dump_json(
+        include={
+            "generation_model",
+            "generation_base_url",
+            "generation_model_settings",
+            "generation_timeout_seconds",
+        }
+    )
+    identity = json.dumps(
+        [identity, getattr(provider_model, "base_url", None), model_settings],
+        sort_keys=True,
+        default=str,
+    )
+    generator = PydanticAIStructuredGenerator(
+        model=model,
+        instructions=DREAM_INSTRUCTIONS,
+        input_type=DreamGenerationInput,
+        output_type=DreamPlan,
+        limits=InferenceLimits(
+            timeout_seconds=min(settings.generation_timeout_seconds, budget.timeout_seconds), max_requests=1
+        ),
+        model_settings=model_settings,
+        name="artifact_dreaming",
+    )
+    return LLMDreamGenerator(
+        UsageReportingStructuredGenerator(generator),
+        config_id=content_digest(identity.encode()),
+    )
 
 
 async def _generation_pipelines(
@@ -905,7 +1012,14 @@ async def _generation_pipelines(
         )
         _register_prompt_demonstrators(
             prompt_demonstrators,
-            ("memory.extract", "experience.incubate", "experience.generate", "skill.generate", "handoff.generate"),
+            (
+                "profile.generate",
+                "memory.extract",
+                "experience.incubate",
+                "experience.generate",
+                "skill.generate",
+                "handoff.generate",
+            ),
             generation_model,
             generation_limits,
             generation_request_settings,
@@ -920,6 +1034,7 @@ async def _generation_pipelines(
                     limits=generation_limits,
                     model_settings=generation_request_settings,
                     name="profile_generation",
+                    prompt_key="profile.generate",
                 )
             )
         )

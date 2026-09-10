@@ -21,6 +21,7 @@ from typing import ClassVar, Literal, TypeAlias
 from pydantic import BaseModel, Field
 
 from powercontext.artifacts import Artifact, ArtifactRef
+from powercontext.artifacts import MemoryCitation as MemoryCitation
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.sources import Source, SourceRef
 
@@ -167,11 +168,3 @@ class MemorySearchResult(BaseModel):
     mode: MemoryUsedSearchMode
     hits: tuple[MemoryHit, ...] = ()
     rerank: MemoryRerankTrace | None = None
-
-
-class MemoryCitation(BaseModel):
-    """A stable Handoff anchor for one exact entry version."""
-
-    memory_ref: ArtifactRef
-    entry_id: str
-    entry_version_id: str

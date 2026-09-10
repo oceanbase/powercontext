@@ -14,10 +14,10 @@ Install the CLI and plugin from the same `master` revision:
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
-powercontext setup openclaw --source oceanbase/powercontext --ref master
+powercontext setup openclaw
 ```
 
-Without `--server-url`, setup configures the plugin for the Server default at `http://127.0.0.1:8000`.
+Without an explicit URL, setup resolves environment and saved client settings; otherwise it uses `http://127.0.0.1:8000`.
 
 A local checkout works as well:
 
@@ -100,9 +100,9 @@ chmod 600 ~/.openclaw/.env
 openclaw gateway restart
 ```
 
-Do not put credentials in the endpoint. The current configuration accepts both HTTP and HTTPS URLs; use plain HTTP
-only for a trusted loopback Server and use HTTPS for every remote Server. This is an operator security requirement,
-not a restriction currently enforced by the CLI or plugin.
+Do not put credentials in the endpoint. The CLI and plugin reject non-loopback HTTP by default. Use HTTPS or explicitly
+set `POWERCONTEXT_OPENCLAW_ALLOW_INSECURE_HTTP=true` (or the plugin's `allowInsecureHttp` setting). HTTPS certificate
+validation stays enabled. See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
 
 ## Verify the installation
 

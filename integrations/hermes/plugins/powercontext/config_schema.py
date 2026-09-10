@@ -47,6 +47,13 @@ CONFIG_SCHEMA = ProviderConfigSchema(
             inline=True,
         ),
         ProviderField(
+            key="allow_insecure_http",
+            label="Allow unencrypted HTTP",
+            kind=KIND_BOOL,
+            env_key="POWERCONTEXT_HERMES_ALLOW_INSECURE_HTTP",
+            description="Explicitly allow HTTP to the configured non-loopback server; does not disable TLS verification.",
+        ),
+        ProviderField(
             key="scope_id",
             label="Explicit Scope ID",
             kind=KIND_TEXT,

@@ -17,6 +17,7 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { BrandLogo } from '@/components/brand-logo';
 import { defaultLanguage, type Language } from './i18n';
+import { repositoryUrl } from './urls';
 
 const labels = {
   en: {
@@ -43,7 +44,7 @@ export function baseOptions(lang: Language): BaseLayoutProps {
       { text: label.docs, url: `/${lang}/docs` },
       { text: label.benchmarks, url: `/${lang}/benchmarks` },
       { text: label.changelog, url: `/${lang}/changelog` },
-      { text: 'GitHub', url: 'https://github.com/oceanbase/powercontext', external: true },
+      { text: 'GitHub', url: repositoryUrl, external: true },
     ],
   };
 }

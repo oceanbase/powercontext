@@ -32,6 +32,7 @@ from powercontext.cli.system import doctor_app, setup_app
 _HOOK_MODULES = (
     "workbuddy_powercontext_hook.py",
     "workbuddy_settings.py",
+    "powercontext_client_config.py",
     "prepared_context.py",
 )
 
@@ -104,6 +105,7 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
         "workbuddy_home": str(home),
         "hooks_dir": str(home / "hooks"),
         "data_dir": str(tmp_path / "data"),
+        "authorization_state": "not_configured",
     }
 
     hooks_dir = home / "hooks"

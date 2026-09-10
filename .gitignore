@@ -158,6 +158,10 @@ celerybeat.pid
 # Environments
 .env
 .env.bak-*
+*.env.client.env
+*.env.client.env.bak-*
+*.env.next-steps.md
+*.env.next-steps.md.bak-*
 .envrc
 .powercontext/
 .powercontext-e2e/

@@ -21,4 +21,14 @@ Each Session resolves an explicit Scope, its durable Session or workspace bindin
 `AUTHORIZATION`, `CAPTURE_PROMPTS`, `FLUSH_ON_CAPTURE`, `REQUEST_TIMEOUT_MS`, `HTTP_BUDGET_MS`, `MAX_BYTES`, and
 `FLUSH_MAX_CALLS`.
 
+Remote HTTP is rejected by default. Explicitly allow it with `POWERCONTEXT_OPENCODE_ALLOW_INSECURE_HTTP=true`,
+or use `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP=true` as the common fallback. A host flag of `false` overrides
+the common flag. Flags accept only `true/false`, `1/0`, `yes/no`, or `on/off`; HTTPS certificate validation and
+redirect rejection remain enabled.
+
+Setup-saved URLs and endpoint-specific consent are read from `~/.config/powercontext/clients.json`
+(override with `POWERCONTEXT_CLIENT_CONFIG_FILE`). The host URL environment variable, then
+`POWERCONTEXT_CLIENT_SERVER_URL`, override the saved URL and loopback default. Changing the endpoint does not
+reuse saved HTTP consent.
+
 OpenCode 1.18.21 or newer in the 1.x line is required. Server failures are fail-open and never block normal work.

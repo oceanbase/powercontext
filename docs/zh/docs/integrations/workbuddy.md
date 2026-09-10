@@ -26,7 +26,7 @@ WorkBuddy 不在 `setup select` 或 `doctor integrations` 的宿主目录中，�
 CLI 可以从本地 checkout 或 GitHub 源一键安装 hooks、MCP Server 和 Skill：
 
 ```bash
-powercontext setup workbuddy --source oceanbase/powercontext --ref master
+powercontext setup workbuddy
 ```
 
 对于本地 checkout，把 `--source` 指向仓库根目录或插件目录：
@@ -191,6 +191,7 @@ export POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE=true
 | 变量 | 用途 |
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext Server URL（默认 `http://127.0.0.1:8000`） |
+| `POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP` | 显式允许 Hook 使用非环回明文 HTTP（默认 `false`） |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | 完整的 Authorization header，例如 `Bearer <token>` |
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | 显式的服务端 Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | 是否把用户提示词采集为 Source（默认 `true`） |
@@ -200,7 +201,9 @@ export POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE=true
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | 最大 flush 调用次数（默认 `4`） |
 
 Hook 会校验其 PowerContext MCP URL，并通过去掉末尾 `/mcp` 路径段推导 HTTP API 基地址。MCP URL
-不能包含凭据、查询串或片段；明文 HTTP 只允许用于 loopback 主机。
+不能包含凭据、查询串或片段。环回地址默认允许明文 HTTP；非环回 HTTP 需要显式设置
+`POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP=true`。setup 会配置 Hook 与原生 MCP 地址，但宿主自己的 MCP
+策略仍然生效，HTTPS 证书校验也保持启用。参见[连接远程 Server](../operate/connect-remote-server.md)。
 
 ## 解析项目 scope
 

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Statement-consistent integrity checks on SQLite and opt-in OceanBase/seekDB."""
+"""Statement-consistent integrity checks on SQLite and opt-in OceanBase/seekdb."""
 
 from __future__ import annotations
 

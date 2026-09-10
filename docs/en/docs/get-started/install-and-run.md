@@ -1,9 +1,12 @@
 ---
 title: Install and run
-description: Install PowerContext from Git and run the local Server.
+description: Install PowerContext 1.0.0 RC2 and run the local Server.
 ---
 
 # Install and run
+
+For an Agent connecting from another machine, see [Connect to a remote Server](../operate/connect-remote-server.md)
+for guided URL confirmation, unattended setup, and endpoint-bound HTTP consent.
 
 Start with the [Quick Start](quickstart.md) for your first session. This page covers version selection,
 platforms, installation roles, startup, diagnostics, and updates.
@@ -21,31 +24,38 @@ Embedded seekDB is unavailable on Windows.
 
 ## Choose a version
 
-Keep a released package and integration on the same tag. For example, install `0.2.0`:
+These instructions use PowerContext 1.0.0 RC2 for pre-release testing. Keep the package and Agent integration on
+the same version: package `1.0.0rc2` and Git tag `powercontext-v1.0.0rc2`.
 
 ```bash
-uv tool install "powercontext[cli,server]==0.2.0"
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+powercontext setup codex --ref powercontext-v1.0.0rc2
 ```
 
-The following examples use `master`, including unreleased capabilities. Check the
-[capability matrix](../integrations/capabilities.md); `master_only` and `experimental` capabilities
-are not release guarantees.
+Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status.
+Capabilities marked `experimental` remain experimental in this release candidate.
 
 ## Install the application
 
 You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install
-PowerContext directly from a Git ref:
+PowerContext from PyPI:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
 ```
 
-The command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
+For a source installation of the same version:
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.0.0rc2"
+```
+
+The Git command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
 including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the Git URL
 approved for your environment. `--force` also refreshes an existing tool from the current commit behind the selected
 Git ref; without it, `uv` may report the same requirement as already installed without fetching a newer `master`.
 
-To install a tested branch or tag, replace `master` after the final `@`.
+To install another branch or tag, replace the ref after the final `@`. The `master` branch can include unreleased changes.
 Follow the [guide for each integration](../integrations/index.md) for Agent installation, connection options, and verification, using the same ref as the Server.
 
 ## Run the local Server
@@ -102,7 +112,7 @@ Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` 
 support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server,seekdb]==1.0.0rc2"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
@@ -150,7 +160,13 @@ For a long-running process, Docker, authentication, or remote access, continue w
 
 ## Update or replace an installation
 
-To replace the installed tool with a chosen ref:
+To upgrade to 1.0.0 RC2:
+
+```bash
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+```
+
+To replace the installed tool with another Git ref:
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
@@ -165,7 +181,7 @@ changes.
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext[client]==1.0.0rc2"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for

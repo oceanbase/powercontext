@@ -81,6 +81,23 @@ def test_personal_dashboard_opens_without_models_or_saved_content(dashboard: Tes
     assert "Use uv for dependency management." in dashboard.get("/dashboard/notes").text
 
 
+def test_topic_dashboard_opens_without_content(dashboard: TestClient) -> None:
+    topics = dashboard.get("/dashboard/topics", params={"lang": "en"})
+    assert topics.status_code == 200
+    assert "Topic Memory" in topics.text
+    assert "Prompt configuration" not in topics.text
+    assert "Artifacts" not in topics.text
+
+
+def test_prompt_dashboard_opens_without_profile_page(dashboard: TestClient) -> None:
+    prompts = dashboard.get("/dashboard/prompts", params={"lang": "en"})
+    profile = dashboard.get("/dashboard/profile", params={"lang": "en"})
+    assert prompts.status_code == 200
+    assert "Prompts" in prompts.text
+    assert profile.status_code == 404
+    assert "Profile" not in prompts.text
+
+
 def test_dashboard_favicons_use_square_viewports(dashboard: TestClient) -> None:
     home = dashboard.get("/")
     icons = re.findall(r'<link rel="icon"[^>]*href="([^"]+)"', home.text)
@@ -472,6 +489,91 @@ def test_memory_exact_revision_and_cross_scope_isolation(dashboard: TestClient) 
     )
     assert "<!doctype" in restored.text
     assert restored.headers["cache-control"] == "no-store"
+
+
+def test_reviewed_methods_link_to_exact_memory_evidence(dashboard: TestClient) -> None:
+    scope = create_scope(dashboard, "Dream evidence")["scope_id"]
+    saved = dashboard.post(
+        "/v1/memory/remember",
+        json={"scope_id": scope, "kind": "fact", "text": "The original retry preserved one committed record."},
+    )
+    assert saved.status_code == 200
+    citation = saved.json()["entry"]["citation"]
+    artifact = None
+    for family, proposal in (
+        (
+            "experience",
+            {
+                "situation": "A write response was lost.",
+                "action": "Reuse the idempotency key.",
+                "outcome": "One record remained.",
+                "lesson": "Verify deduplication before retrying writes.",
+            },
+        ),
+        (
+            "skill",
+            {
+                "name": "retry-reviewed-writes",
+                "description": "Use the reviewed retry contract.",
+                "instructions": "Retain the original key and check the final record.",
+                "validation": ["A replay preserves one record."],
+            },
+        ),
+    ):
+        lineage = {"memory_citations": [citation]} if artifact is None else {"artifact_refs": [artifact]}
+        proposed = dashboard.post(
+            f"/v1/{family}/propose",
+            json={"scope_id": scope, "proposal": proposal, "source_refs": [], "artifact_refs": [], **lineage},
+        )
+        assert proposed.status_code == 201, proposed.text
+        candidate = proposed.json()
+        approved = dashboard.post(
+            "/v1/artifact-candidates/approve",
+            json={
+                "scope_id": scope,
+                "candidate_id": candidate["candidate_id"],
+                "expected_version": candidate["version"],
+            },
+        )
+        assert approved.status_code == 200, approved.text
+        artifact = approved.json()["result_artifact"]
+    revised = dashboard.post(
+        "/v1/memory/entries/revise",
+        json={"scope_id": scope, "citation": citation, "kind": "fact", "text": "The retry contract was later refined."},
+    )
+    assert revised.status_code == 200
+    detail = dashboard.get(
+        "/dashboard/skill",
+        params={"scope": scope, "artifact": artifact["artifact_id"], "revision": artifact["revision"]},
+    )
+    assert detail.status_code == 200
+    links = [unescape(value) for value in re.findall(r'href="([^"]+)"', detail.text)]
+    experience_link = next(value for value in links if urlsplit(value).path == "/dashboard/experience")
+    experience = dashboard.get(experience_link)
+    assert experience.status_code == 200
+    links = [unescape(value) for value in re.findall(r'href="([^"]+)"', experience.text)]
+    memory_link = next(value for value in links if "entry_version=" in value)
+    query = parse_qs(urlsplit(memory_link).query)
+    assert query["scope"] == [scope]
+    assert query["entry"] == [citation["entry_id"]]
+    assert query["entry_version"] == [citation["entry_version_id"]]
+    assert query["memory_id"] == [citation["memory_ref"]["artifact_id"]]
+    assert query["memory_revision"] == [str(citation["memory_ref"]["revision"])]
+    historical = dashboard.get(memory_link)
+    assert historical.status_code == 200
+    assert "The original retry preserved one committed record." in historical.text
+    other = create_scope(dashboard, "Unrelated Dream evidence")["scope_id"]
+    denied_read = dashboard.post("/v1/memory/entries/get", json={"scope_id": other, "citation": citation})
+    crossed = dashboard.get(
+        "/dashboard/notes", params={**{key: value[0] for key, value in query.items()}, "scope": other}
+    )
+    assert denied_read.is_error
+    assert crossed.status_code == denied_read.status_code
+    assert "The original retry preserved one committed record." not in crossed.text
+    dashboard.headers.pop("Authorization")
+    denied = dashboard.get(memory_link)
+    assert denied.status_code == 401
+    assert "The original retry preserved one committed record." not in denied.text
 
 
 def test_authentication_recovers_without_exposing_credentials(tmp_path: Path) -> None:

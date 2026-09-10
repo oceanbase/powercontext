@@ -1,9 +1,12 @@
 ---
 title: 安装和运行
-description: 从 Git 安装 PowerContext，并运行本地 Server。
+description: 安装 PowerContext 1.0.0 RC2，并运行本地 Server。
 ---
 
 # 安装和运行
+
+跨机器连接 Agent 时，请阅读[连接远程 Server](../operate/connect-remote-server.md)，了解地址引导确认、
+非交互安装及绑定地址的明文 HTTP 同意设置。
 
 首次使用请从 [Quick Start](quickstart.md)开始。本页说明版本选择、平台要求、安装角色、启动、诊断和更新。
 
@@ -19,29 +22,37 @@ Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent Host 仍�
 
 ## 选择版本
 
-发布版与集成使用相同 tag。例如安装 `0.2.0`：
+本页使用 PowerContext 1.0.0 RC2 预发布版本，供测试使用。包与 Agent 集成保持版本一致：
+Python 包版本为 `1.0.0rc2`，对应 Git tag 为 `powercontext-v1.0.0rc2`。
 
 ```bash
-uv tool install "powercontext[cli,server]==0.2.0"
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+powercontext setup codex --ref powercontext-v1.0.0rc2
 ```
 
-后续示例使用 `master`，包含尚未发布的能力。核对[能力矩阵](../integrations/capabilities.md)，
-不要将 `master_only` 或 `experimental` 能力当作发布版承诺。
+宿主支持范围和维护状态见[能力矩阵](../integrations/capabilities.md)。
+标为 `experimental` 的能力在这个候选版本中仍属于试验性能力。
 
 ## 安装应用
 
 需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和
-[`uv`](https://docs.astral.sh/uv/)，然后从指定 Git ref 直接安装 PowerContext：
+[`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
 ```
 
-该命令不会留下需要自行管理的仓库工作副本。Git 会沿用本机的凭据配置，包括 credential helper 和 SSH 设置。
+如需从源码安装同一版本：
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.0.0rc2"
+```
+
+Git 安装命令不会留下需要自行管理的仓库工作副本。Git 会沿用本机的凭据配置，包括 credential helper 和 SSH 设置。
 如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。`--force` 还会从所选 Git ref 当前指向的 commit
 刷新已安装工具；如果不加该参数，`uv` 可能只提示相同 requirement 已安装，而不会获取更新后的 `master`。
 
-安装指定分支或 tag 时，替换最后一个 `@` 后的 `master`。
+安装其他分支或 tag 时，替换最后一个 `@` 后的 ref。`master` 分支可能包含尚未发布的改动。
 Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integrations/index.md)，并使用与 Server 相同的 ref。
 
 ## 运行本地 Server
@@ -94,7 +105,7 @@ powercontext server run --env-file /path/to/powercontext.env
 后端。安装或替换工具时加入可选的 seekDB extra：
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server,seekdb]==1.0.0rc2"
 ```
 
 从 SQLite 切换时，需要从 Server 进程环境中删除 `POWERCONTEXT_SERVER_DATABASE_URL`；seekDB 不接受显式的
@@ -139,7 +150,13 @@ Agent 诊断见[各自的集成文档](../integrations/index.md)；Server 状态
 
 ## 更新或替换安装
 
-使用指定 ref 替换现有工具：
+升级到 1.0.0 RC2：
+
+```bash
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+```
+
+使用其他 Git ref 替换现有工具：
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
@@ -153,7 +170,7 @@ uv tool install --force "powercontext[cli,server] @ git+https://github.com/ocean
 如果应用需要导入异步 Client SDK，应把它加入该应用自己的环境：
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext[client]==1.0.0rc2"
 ```
 
 进程内 Python 组合使用 `builtin`，服务使用 `server`，Python SDK 使用 `client`，基于 Server 的命令行使用

@@ -31,7 +31,14 @@ export const i18n = defineI18n({
 
 export const i18nUI = defineI18nUI(i18n, {
   en: { displayName: 'English' },
-  zh: { displayName: '简体中文' },
+  zh: {
+    displayName: '简体中文',
+    'Search(search trigger)': '搜索文档',
+    'Open Search(search trigger)(aria-label)': '搜索文档',
+    'Search(search dialog)': '搜索文档',
+    'Close Search(search dialog)(aria-label)': '关闭搜索',
+    'No results found(search dialog)': '未找到相关结果',
+  },
 });
 
 export function isLanguage(value: string): value is Language {

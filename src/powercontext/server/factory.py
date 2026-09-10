@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
@@ -32,6 +32,7 @@ from powercontext.builtin.artifacts.handoff import HandoffGenerationPipeline
 from powercontext.builtin.artifacts.memory import CandidatePipeline
 from powercontext.builtin.artifacts.profile.service import ProfileGenerator
 from powercontext.builtin.artifacts.skill import ExternalSkillProvider, SkillGenerator
+from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -73,6 +74,7 @@ from powercontext.server.authz.composition import open_builtin_access_control
 from powercontext.server.context import current_principal, current_request_id
 from powercontext.server.cursor_secret import resolve_cursor_secret
 from powercontext.server.dashboard import mount_dashboard
+from powercontext.server.dream_access import DreamAccess
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
 from powercontext.server.middleware import AuthenticationMiddleware
@@ -125,6 +127,7 @@ def create_server_app(  # noqa: C901
     experience_generator: ExperienceGenerator | None = None,
     profile_generator: ProfileGenerator | None = None,
     skill_generator: SkillGenerator | None = None,
+    dream_generator: DreamGenerator | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
@@ -186,6 +189,11 @@ def create_server_app(  # noqa: C901
                 active_access_control,
                 legacy_static_principal=static_principal if legacy_static_admin else None,
             )
+            dream_access = (
+                DreamAccess(active_access_control)
+                if resolved.access.mode == "enforced" and isinstance(active_access_control, AccessControlService)
+                else None
+            )
             worker_security = build_worker_security(
                 resolved,
                 active_access_control,
@@ -202,6 +210,12 @@ def create_server_app(  # noqa: C901
                     experience_generator=experience_generator,
                     profile_generator=profile_generator,
                     skill_generator=skill_generator,
+                    dream_generator=dream_generator,
+                    dream_authorizer=None if dream_access is None else dream_access.authorize,
+                    dream_authorization_context=nullcontext
+                    if dream_access is None
+                    else dream_access.access.defer_decision_audit,
+                    dream_candidate_attester=None if dream_access is None else dream_access.attest_candidate,
                     external_skill_provider=external_skill_provider,
                     handoff_pipeline=handoff_pipeline,
                     embedding_model=embedding_model,
@@ -226,6 +240,7 @@ def create_server_app(  # noqa: C901
                     ),
                 )
             )
+            _bind_dream_access(dream_access, runtime)
             if active_access_control is not None:
                 migrated, unresolved = await runtime._records().migrate_handoff_receipts(
                     active_access_control.committed_receipt_identity,
@@ -345,6 +360,11 @@ def _resolve_security_providers(
         static_principal,
     )
     return static_principal, authentication, access_control, True
+
+
+def _bind_dream_access(access: DreamAccess | None, runtime: BuiltinRuntime) -> None:
+    if access is not None:
+        access.bind(runtime)
 
 
 def _scheduled_access_runners(
@@ -585,6 +605,7 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
         memory_extraction=capabilities.memory_extraction,
         experience_generation=capabilities.experience_generation,
         managed_skill_generation=capabilities.managed_skill_generation,
+        artifact_dreaming=capabilities.artifact_dreaming,
         external_skill_registry=capabilities.external_skill_registry,
         handoff_generation=capabilities.handoff_generation,
         search_modes=[MemorySearchMode(mode) for mode in capabilities.memory_search_modes],

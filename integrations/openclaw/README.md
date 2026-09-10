@@ -114,9 +114,17 @@ chmod 600 ~/.openclaw/.env
 openclaw gateway restart
 ```
 
-Do not put credentials in the endpoint. The current configuration accepts both HTTP and HTTPS URLs; use plain HTTP
-only for a trusted loopback Server and use HTTPS for every remote Server. This is an operator security requirement,
-not a restriction currently enforced by the CLI or plugin.
+Do not put credentials in the endpoint. Remote HTTP is rejected by default. For an explicitly trusted plaintext
+connection, set `POWERCONTEXT_OPENCLAW_ALLOW_INSECURE_HTTP=true` or the plugin setting `allowInsecureHttp: true`.
+The common `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP` flag applies when the host flag is absent; a host flag of
+`false` overrides it. Flags accept only `true/false`, `1/0`, `yes/no`, or `on/off`.
+HTTPS certificate validation remains enabled, and the plugin rejects redirects.
+
+Setup-saved URLs and endpoint-specific consent are read from `~/.config/powercontext/clients.json`
+(override with `POWERCONTEXT_CLIENT_CONFIG_FILE`). `POWERCONTEXT_OPENCLAW_BASE_URL`, then
+`POWERCONTEXT_CLIENT_SERVER_URL`, take precedence over an explicit plugin endpoint and the saved URL.
+Changing the endpoint does not reuse saved or native HTTP consent. Native `allowInsecureHttp: true` must accompany
+the matching `endpoint`; an environment URL override needs its own matching or explicit environment consent.
 
 ## Verify the installation
 

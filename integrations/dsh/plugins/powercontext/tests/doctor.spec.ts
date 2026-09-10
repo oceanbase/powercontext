@@ -180,7 +180,8 @@ describe('read-only DSH Doctor', () => {
   })
 
   it('rejects malformed endpoint configuration without making requests', async () => {
-    const h = fixture(undefined, { baseUrl: 'http://user:' + PRIVATE + '@localhost/?token=' + PRIVATE })
+    const h = fixture()
+    h.runtime.config.baseUrl = 'http://user:' + PRIVATE + '@localhost/?token=' + PRIVATE
     const result = await h.doctor()
     expect(result).toMatchObject({ ok: false, checks: { configuration: { code: 'invalid_endpoint' } } })
     expect(JSON.stringify(result)).not.toContain(PRIVATE)

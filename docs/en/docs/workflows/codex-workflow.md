@@ -79,7 +79,7 @@ terminal, and repeat these two checks.
 Still in **Terminal B**, run:
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext setup codex
 ```
 
 Setup performs three operations:

@@ -39,7 +39,7 @@ function createLifecycleHarness() {
   let captureError: unknown;
   let flushError: unknown;
   const config = resolvePowerContextConfig(undefined, {
-    endpoint: "http://powercontext.test",
+    endpoint: "https://powercontext.test",
   });
   const projectScopes = new Map(
     [

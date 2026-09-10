@@ -99,7 +99,7 @@ async function stopServer(child) {
 
 function spawnServer(root, env) {
   const uv = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  return spawn(uv, ['run', '--no-sync', 'powercontext', 'server', 'run'], {
+  return spawn(uv, ['run', '--no-sync', 'powercontext', 'server', 'run', '--no-env-file'], {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
