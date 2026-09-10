@@ -38,7 +38,15 @@ describe('Pi configuration', () => {
       maxBytes: 12000,
       flushOnCapture: false,
       flushMaxCalls: 4,
+      diagnostics: 'off',
     })
+  })
+
+  it('keeps diagnostics silent unless a sink is configured', () => {
+    expect(resolveConfig({}).diagnostics).toBe('off')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: 'stderr' }).diagnostics).toBe('stderr')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: '/tmp/pc.log' }).diagnostics).toBe('/tmp/pc.log')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: '~/pc.log', HOME: '/home/demo' }).diagnostics).toBe('/home/demo/pc.log')
   })
 })
 

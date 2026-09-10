@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import { describe, expect, it } from 'vitest'
-import { failureEvent } from '../src/diagnostics.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { diagnosticWriter, failureEvent } from '../src/diagnostics.ts'
 import { ServerResponseError } from '../src/errors.ts'
 
 describe('host-visible diagnostic classification', () => {
@@ -80,5 +80,36 @@ describe('host-visible diagnostic classification', () => {
       http_status: 404,
       error_code: 'invalid_request',
     })
+  })
+})
+
+describe('diagnostic sink', () => {
+  it('stays silent by default so nothing reaches the TUI through stderr', () => {
+    const append = vi.fn()
+    const warn = vi.fn()
+    diagnosticWriter('off', append, warn)('{"event":"flush_memory"}')
+    expect(append).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('writes to stderr only when asked to', () => {
+    const append = vi.fn()
+    const warn = vi.fn()
+    diagnosticWriter('stderr', append, warn)('{"event":"flush_memory"}')
+    expect(warn).toHaveBeenCalledWith('{"event":"flush_memory"}')
+    expect(append).not.toHaveBeenCalled()
+  })
+
+  it('appends JSON lines to a configured file and survives write failures', () => {
+    const append = vi.fn()
+    const warn = vi.fn()
+    diagnosticWriter('/var/log/pc.jsonl', append, warn)('{"event":"flush_memory"}')
+    expect(append).toHaveBeenCalledWith('/var/log/pc.jsonl', '{"event":"flush_memory"}\n')
+    expect(warn).not.toHaveBeenCalled()
+
+    const failing = vi.fn(() => {
+      throw new Error('EACCES')
+    })
+    expect(() => diagnosticWriter('/var/log/pc.jsonl', failing, warn)('{}')).not.toThrow()
   })
 })

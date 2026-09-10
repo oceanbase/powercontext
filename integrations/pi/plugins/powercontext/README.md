@@ -18,6 +18,11 @@ The package resolves an explicit Scope, a durable workspace binding, or the Serv
 `POWERCONTEXT_PI_BASE_URL`, `POWERCONTEXT_PI_SCOPE_ID`, and `POWERCONTEXT_PI_CAPTURE_PROMPTS` to adjust the connection,
 explicit override, and automatic prompt capture.
 
+Failure diagnostics (for example `server_unavailable` after a 503) are silent by default: Pi's TUI renders on
+stdout with cursor positioning, so anything written to stderr corrupts the input bar. Set
+`POWERCONTEXT_PI_DIAGNOSTICS=stderr` to print them, or point it at a file (`~/` is expanded) to append them as
+JSON lines. `/pc` shows the current status either way.
+
 Remote HTTP is rejected by default. Explicitly allow it with `POWERCONTEXT_PI_ALLOW_INSECURE_HTTP=true`,
 or use `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP=true` as the common fallback. A host flag of `false` overrides
 the common flag. Flags accept only `true/false`, `1/0`, `yes/no`, or `on/off`; HTTPS certificate validation and

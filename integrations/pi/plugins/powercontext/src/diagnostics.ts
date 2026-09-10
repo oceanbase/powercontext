@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { appendFileSync } from 'node:fs'
 import { InvalidResponseError, ServerResponseError, TransportError } from './errors.ts'
 
 export interface DiagnosticEvent {
@@ -71,6 +72,27 @@ export function failureEvent(event: string, error: unknown): DiagnosticEvent | u
   }
   if (error instanceof InvalidResponseError) return { event, outcome: 'invalid_response' }
   return { event, outcome: 'invalid_response' }
+}
+
+/**
+ * Pi's ExtensionContext has no logger, and its TUI renders on stdout with cursor
+ * positioning, so anything written to stderr lands inside the input bar. Keep
+ * diagnostics silent unless the user routes them to stderr or a JSON-lines file.
+ */
+export function diagnosticWriter(
+  sink: string,
+  append: (path: string, line: string) => void = (path, line) => appendFileSync(path, line),
+  warn: (line: string) => void = (line) => console.warn(line),
+): (line: string) => void {
+  if (sink === 'off') return () => {}
+  if (sink === 'stderr') return warn
+  return (line) => {
+    try {
+      append(sink, `${line}\n`)
+    } catch {
+      // Diagnostics are best effort and must never break the extension.
+    }
+  }
 }
 
 export function createDiagnosticEmitter(

@@ -38,6 +38,7 @@ function createRuntime(fetch: FetchFn): PluginRuntime {
       maxBytes: 8000,
       flushOnCapture: false,
       flushMaxCalls: 4,
+      diagnostics: 'off',
     },
     resolveScope: async () => 'project:demo',
   } as PluginRuntime
