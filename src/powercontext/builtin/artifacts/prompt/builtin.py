@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The six Server-owned operational Prompt Definitions."""
+"""The Server-owned operational Prompt Definitions."""
+
+from typing import cast
 
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_GENERATION_INSTRUCTIONS,
@@ -42,10 +44,34 @@ from powercontext.builtin.artifacts.memory import (
     memory_extraction_instructions_version,
 )
 from powercontext.builtin.artifacts.prompt.definitions import PromptDefinition
+from powercontext.builtin.artifacts.prompt.models import PromptKey
 from powercontext.builtin.artifacts.skill import (
     SKILL_GENERATION_INSTRUCTIONS,
     SKILL_GENERATION_INSTRUCTIONS_VERSION,
     SkillGenerationOutput,
+)
+from powercontext.builtin.artifacts.topic_memory.generation import (
+    TOPIC_MEMORY_EVOLVE_INSTRUCTIONS,
+    TOPIC_MEMORY_GLOBAL_INSTRUCTIONS,
+    TOPIC_MEMORY_PLANNER_INSTRUCTIONS,
+    TOPIC_MEMORY_PROBE_INSTRUCTIONS,
+    TOPIC_MEMORY_RECONCILE_INSTRUCTIONS,
+    TOPIC_MEMORY_REDUCTION_INSTRUCTIONS,
+    TOPIC_MEMORY_TEMPORARY_INSTRUCTIONS,
+    TopicMemoryEvolveInput,
+    TopicMemoryEvolveOutput,
+    TopicMemoryGlobalInput,
+    TopicMemoryGlobalOutput,
+    TopicMemoryPlannerInput,
+    TopicMemoryPlannerOutput,
+    TopicMemoryProbeInput,
+    TopicMemoryProbeOutput,
+    TopicMemoryReconcileInput,
+    TopicMemoryReconcileOutput,
+    TopicMemoryReductionInput,
+    TopicMemoryReductionOutput,
+    TopicMemoryTemporaryInput,
+    TopicMemoryTemporaryOutput,
 )
 
 _COMMON_INVARIANTS = """
@@ -151,4 +177,51 @@ Do not change the objective or claim the draft is committed.
 """,
             default_instructions=HANDOFF_GENERATION_INSTRUCTIONS,
         ),
+        *_topic_memory_prompt_definitions(),
+    )
+
+
+def _topic_memory_prompt_definitions() -> tuple[PromptDefinition, ...]:
+    """Expose each Topic Memory generation stage as a scoped Prompt."""
+
+    stages = (
+        ("probe", TopicMemoryProbeInput, TopicMemoryProbeOutput, TOPIC_MEMORY_PROBE_INSTRUCTIONS, None),
+        ("global", TopicMemoryGlobalInput, TopicMemoryGlobalOutput, TOPIC_MEMORY_GLOBAL_INSTRUCTIONS, None),
+        ("planner", TopicMemoryPlannerInput, TopicMemoryPlannerOutput, TOPIC_MEMORY_PLANNER_INSTRUCTIONS, None),
+        ("evolve", TopicMemoryEvolveInput, TopicMemoryEvolveOutput, TOPIC_MEMORY_EVOLVE_INSTRUCTIONS, "proposal"),
+        (
+            "temporary",
+            TopicMemoryTemporaryInput,
+            TopicMemoryTemporaryOutput,
+            TOPIC_MEMORY_TEMPORARY_INSTRUCTIONS,
+            None,
+        ),
+        (
+            "reduce",
+            TopicMemoryReductionInput,
+            TopicMemoryReductionOutput,
+            TOPIC_MEMORY_REDUCTION_INSTRUCTIONS,
+            None,
+        ),
+        (
+            "reconcile",
+            TopicMemoryReconcileInput,
+            TopicMemoryReconcileOutput,
+            TOPIC_MEMORY_RECONCILE_INSTRUCTIONS,
+            None,
+        ),
+    )
+    return tuple(
+        PromptDefinition(
+            key=cast(PromptKey, f"topic_memory.{name}"),
+            definition_version=f"powercontext.prompt.topic_memory.{name}.v1",
+            input_type=input_type,
+            output_type=output_type,
+            builtin_version=f"powercontext.topic_memory.{name}.v1",
+            invariant_instructions=_COMMON_INVARIANTS
+            + "\nCite only supplied opaque evidence and historical IDs; never invent persistence identities or revisions.",
+            default_instructions=instructions,
+            noop_field=noop_field,
+        )
+        for name, input_type, output_type, instructions, noop_field in stages
     )

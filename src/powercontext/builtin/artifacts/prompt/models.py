@@ -36,6 +36,13 @@ PromptKey = Literal[
     "experience.generate",
     "skill.generate",
     "handoff.generate",
+    "topic_memory.probe",
+    "topic_memory.global",
+    "topic_memory.planner",
+    "topic_memory.evolve",
+    "topic_memory.temporary",
+    "topic_memory.reduce",
+    "topic_memory.reconcile",
 ]
 PROMPT_KEYS: tuple[PromptKey, ...] = (
     "memory.extract",
@@ -44,6 +51,13 @@ PROMPT_KEYS: tuple[PromptKey, ...] = (
     "experience.generate",
     "skill.generate",
     "handoff.generate",
+    "topic_memory.probe",
+    "topic_memory.global",
+    "topic_memory.planner",
+    "topic_memory.evolve",
+    "topic_memory.temporary",
+    "topic_memory.reduce",
+    "topic_memory.reconcile",
 )
 
 
