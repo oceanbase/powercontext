@@ -1,6 +1,7 @@
 + Proposal Name: `topic_memory_unified_artifact_read_api`
 + Start Date: 2026-09-10
 + Status: Proposed
++ RFC PR: [oceanbase/powercontext#1546](https://github.com/oceanbase/powercontext/pull/1546)
 + Related RFCs: [Topic Memory](1417_topic_memory.md), [Source and Artifact REST API](1437_source_artifact_rest_api.md), [Profile Artifact](1485_profile_artifact.md), [Artifact Processing Supervisor](1515_artifact_processing_supervisor.md)
 
 # Summary
@@ -204,4 +205,3 @@ source of truth.
 - Standard exact-revision reads and `POST /v1/topic-memory/get` address the same Revision content.
 - Without Scope read permission, all four standard read operations and both Topic Memory-specific read operations are denied.
 - No manual Topic Memory Create, Replace, Delete, or Retire behavior is introduced.
-

@@ -1,6 +1,7 @@
 + Proposal Name: `topic_memory_unified_artifact_read_api`
 + Start Date: 2026-09-10
 + Status: Proposed
++ RFC PR: [oceanbase/powercontext#1546](https://github.com/oceanbase/powercontext/pull/1546)
 + Related RFCs: [Topic Memory](1417_topic_memory.md)、[Source 与 Artifact REST API](1437_source_artifact_rest_api.md)、[Profile Artifact](1485_profile_artifact.md)、[Artifact Processing Supervisor](1515_artifact_processing_supervisor.md)
 
 # Summary
@@ -190,4 +191,3 @@ Topic Memory 的 active head、发布完整性和内容解码。
 - 标准 exact revision 读取与 `POST /v1/topic-memory/get` 指向同一 Revision 内容。
 - 无 Scope read 权限时，四个标准 read operation 和两个 Topic Memory 专用 read operation 均被拒绝。
 - 不新增 Topic Memory 的手动 Create、Replace、Delete 或 Retire 行为。
-
