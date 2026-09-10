@@ -150,6 +150,7 @@ from powercontext.builtin.persistence.supervision import (
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
+from powercontext.builtin.portability import PortableBundleService
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -487,6 +488,12 @@ class RelationalContexts:
         self.database = database
         self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
+        self.portability = PortableBundleService(
+            database,
+            projection_rebuilder=self.rebuild_portable_projections,
+            supported_source_types=tuple(definition.name for definition in self.source_registry.definitions),
+            supported_artifact_families=(Handoff.family, Memory.family, Experience.family, Skill.family),
+        )
         self.index = NoMemoryIndex() if index is None else index
         self.topic_memory_index = NoTopicMemoryIndex() if topic_memory_index is None else topic_memory_index
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
@@ -1194,6 +1201,16 @@ class RelationalContexts:
                 )
             ).scalars()
             return tuple(str(value) for value in values)
+
+    async def rebuild_portable_projections(self, scope_ids: tuple[str, ...], /) -> None:
+        """Rebuild target-local search projections after a logical restore."""
+
+        for scope_id in scope_ids:
+            services = self._services_for(scope_id)
+            _, catalog = services.sources()
+            await services.memory(catalog).rebuild_projections()
+        async with self.database.transaction() as connection:
+            await self.experience_index.initialize(connection)
 
     async def process_memory(
         self,

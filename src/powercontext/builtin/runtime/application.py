@@ -267,6 +267,7 @@ if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     from powercontext.builtin.handoff_report.application import HandoffReportApplication
+    from powercontext.builtin.portability import PortableBundleService
     from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingSupervisors
 
 TopicMemorySearch = Callable[..., Awaitable[TopicMemorySearchResult]]
@@ -2236,6 +2237,7 @@ class BuiltinRuntime:
         remote_ingestion: RemoteIngestion | None = None,
         dream_service: DreamService | None = None,
         generation_concurrency: int = 4,
+        archive_service: PortableBundleService | None = None,
     ) -> None:
         if source_window_limit < 1:
             raise _RuntimeConfigurationError("source_window_limit")
@@ -2319,6 +2321,7 @@ class BuiltinRuntime:
         self.skill = SkillApplication(self)
         self.remote_skills = RemoteSkillApplication(self)
         self.statistics = StatisticsApplication(self)
+        self.archive = archive_service
         self.handoff_report: HandoffReportApplication | None = None
         self.artifact_processing_supervisor: ArtifactProcessingSupervisors | None = None
         self.processor = None if scope_ids is None else ScheduledSourceProcessor(self, scope_ids)
