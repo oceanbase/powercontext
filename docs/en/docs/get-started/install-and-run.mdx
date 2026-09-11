@@ -79,14 +79,28 @@ After installation, apply the `PATH` command printed by the script to your termi
 The scripts default to `1.0.0rc2`. Use `--version <version>` for another release,
 replace `--no-hosts` with `--host codex` to include the Codex integration, or use `--help` for all options.
 
-The scripts use existing uv configuration. Without it, they try the Tsinghua mirror first when the network exit country
-is CN, and PyPI first elsewhere or when country detection fails. If an index is unreachable or does not list the requested
-PowerContext version, they try the other index. Pass `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` to select a
-mirror without automatic fallback. The scripts do not write global index configuration or retry with another index
-if dependency installation fails.
+The scripts reuse local uv and Python 3.11+ installations. Missing uv is installed at `0.12.12`;
+missing Python is installed at 3.12. Existing uv installations are not upgraded.
+
+Use `--region cn` or `--region global` to choose a download region. The default is `auto`.
+Priority is the command-line option, `POWERCONTEXT_INSTALL_REGION`, timezone, locale territory, then `global`.
+For example, `Asia/Shanghai` selects CN; with a UTC timezone, `zh_CN` or `zh-CN` also selects CN.
+A UTC+8 offset, the abbreviation CST, or a Chinese language preference alone does not establish a region.
+The scripts do not query an IP location service.
+
+CN prefers Tsinghua for PyPI. Tsinghua does not provide the uv and Python runtime artifacts used here,
+so those use USTC and NJU respectively. Other regions use PyPI and uv official download channels.
+The uv installer and binaries use the same version directory. Before downloading Python, the script checks
+that the mirror provides the build selected by uv. Unreachable mirrors or missing versions fall back to official sources.
+
+Existing uv configuration is preserved. Pass `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` to choose a package
+index without index fallback. Explicit download settings take precedence over regional defaults and fail without fallback.
+Automatic settings apply only to this installation, without writing global configuration. Errors after installation starts
+and dependency installation failures do not trigger a retry of the entire workflow.
 
 uv and Python themselves use separate download servers. `POWERCONTEXT_UV_INSTALLER_URL` selects a platform-matching
-uv installer (`.sh`); `UV_INSTALLER_GITHUB_BASE_URL` and `UV_PYTHON_INSTALL_MIRROR` configure uv binary and Python download mirrors.
+uv installer (`.sh`); `UV_INSTALLER_GITHUB_BASE_URL` and `UV_PYTHON_INSTALL_MIRROR` configure GitHub-style uv and Python download mirrors.
+Use `UV_DOWNLOAD_URL` to specify a directory containing uv release artifacts.
 
 </Tab>
 
@@ -107,14 +121,28 @@ After installation, apply the `PATH` command printed by the script to your termi
 The scripts default to `1.0.0rc2`. Use `--version <version>` for another release,
 replace `--no-hosts` with `--host codex` to include the Codex integration, or use `--help` for all options.
 
-The scripts use existing uv configuration. Without it, they try the Tsinghua mirror first when the network exit country
-is CN, and PyPI first elsewhere or when country detection fails. If an index is unreachable or does not list the requested
-PowerContext version, they try the other index. Pass `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` to select a
-mirror without automatic fallback. The scripts do not write global index configuration or retry with another index
-if dependency installation fails.
+The scripts reuse local uv and Python 3.11+ installations. Missing uv is installed at `0.12.12`;
+missing Python is installed at 3.12. Existing uv installations are not upgraded.
+
+Use `--region cn` or `--region global` to choose a download region. The default is `auto`.
+Priority is the command-line option, `POWERCONTEXT_INSTALL_REGION`, timezone, locale territory, then `global`.
+For example, `Asia/Shanghai` selects CN; with a UTC timezone, `zh_CN` or `zh-CN` also selects CN.
+A UTC+8 offset, the abbreviation CST, or a Chinese language preference alone does not establish a region.
+The scripts do not query an IP location service.
+
+CN prefers Tsinghua for PyPI. Tsinghua does not provide the uv and Python runtime artifacts used here,
+so those use USTC and NJU respectively. Other regions use PyPI and uv official download channels.
+The uv installer and binaries use the same version directory. Before downloading Python, the script checks
+that the mirror provides the build selected by uv. Unreachable mirrors or missing versions fall back to official sources.
+
+Existing uv configuration is preserved. Pass `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` to choose a package
+index without index fallback. Explicit download settings take precedence over regional defaults and fail without fallback.
+Automatic settings apply only to this installation, without writing global configuration. Errors after installation starts
+and dependency installation failures do not trigger a retry of the entire workflow.
 
 uv and Python themselves use separate download servers. `POWERCONTEXT_UV_INSTALLER_URL` selects a platform-matching
-uv installer (`.ps1`); `UV_INSTALLER_GITHUB_BASE_URL` and `UV_PYTHON_INSTALL_MIRROR` configure uv binary and Python download mirrors.
+uv installer (`.ps1`); `UV_INSTALLER_GITHUB_BASE_URL` and `UV_PYTHON_INSTALL_MIRROR` configure GitHub-style uv and Python download mirrors.
+Use `UV_DOWNLOAD_URL` to specify a directory containing uv release artifacts.
 
 </Tab>
 

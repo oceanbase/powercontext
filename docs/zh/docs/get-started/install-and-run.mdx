@@ -75,13 +75,25 @@ bash install.sh --version 1.0.0rc2 --no-hosts
 脚本默认安装 `1.0.0rc2`。通过 `--version <version>` 选择其他发布版，
 将 `--no-hosts` 换成 `--host codex` 可同时安装 Codex 集成，完整参数见 `--help`。
 
-脚本沿用已有 uv 配置。没有配置时，网络出口地区为 CN 则先尝试清华源，其他地区或地区检测失败时先尝试 PyPI。
-如果源无法访问或尚未同步指定的 PowerContext 版本，脚本会尝试另一个源。
-传入 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` 可指定镜像并关闭自动回退。
-脚本不写入全局源配置；依赖安装阶段失败时不会自动换源重试。
+脚本先复用本地 uv 和 Python 3.11+。只有缺少组件时才下载：新安装的 uv 固定为 `0.12.12`，
+缺少兼容 Python 时安装 3.12。已有 uv 不会自动升级。
+
+使用 `--region cn` 或 `--region global` 指定下载地区，默认 `auto`。选择顺序为命令行参数、
+`POWERCONTEXT_INSTALL_REGION`、时区、语言中的地区，最后使用 `global`。
+例如 `Asia/Shanghai` 选择 CN；时区为 UTC 时，`zh_CN` 或 `zh-CN` 也会选择 CN。
+仅有 `UTC+8`、`CST` 或中文语言偏好不足以判断地区。脚本不请求 IP 定位服务。
+
+CN 优先使用清华 PyPI；清华未提供的 uv 和 Python 运行时分别使用中科大和南京大学镜像。
+其他地区使用 PyPI 和 uv 官方下载渠道。uv 安装脚本及二进制使用相同版本目录，
+Python 下载前检查镜像是否提供 uv 选定的构建；镜像无法访问或缺少版本时回退到官方渠道。
+
+脚本沿用已有 uv 配置。传入 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` 可指定包索引并关闭索引回退。
+显式配置的下载地址优先于地区默认值；它们失败时直接报错。所有自动设置仅对本次安装生效，
+不会写入全局配置；开始安装后的错误和依赖安装失败不会触发整个流程重试。
 
 uv 和 Python 本体使用独立的下载地址。`POWERCONTEXT_UV_INSTALLER_URL` 可指定与平台对应的 uv 安装脚本
-（`.sh`）；`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 uv 二进制和 Python 的下载镜像。
+（`.sh`）；`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 GitHub 形式的 uv 下载源和 Python 镜像。
+如需指定包含 uv 发布产物的目录，可使用 `UV_DOWNLOAD_URL`。
 
 </Tab>
 
@@ -102,13 +114,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --version 1.0.
 脚本默认安装 `1.0.0rc2`。通过 `--version <version>` 选择其他发布版，
 将 `--no-hosts` 换成 `--host codex` 可同时安装 Codex 集成，完整参数见 `--help`。
 
-脚本沿用已有 uv 配置。没有配置时，网络出口地区为 CN 则先尝试清华源，其他地区或地区检测失败时先尝试 PyPI。
-如果源无法访问或尚未同步指定的 PowerContext 版本，脚本会尝试另一个源。
-传入 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` 可指定镜像并关闭自动回退。
-脚本不写入全局源配置；依赖安装阶段失败时不会自动换源重试。
+脚本先复用本地 uv 和 Python 3.11+。只有缺少组件时才下载：新安装的 uv 固定为 `0.12.12`，
+缺少兼容 Python 时安装 3.12。已有 uv 不会自动升级。
+
+使用 `--region cn` 或 `--region global` 指定下载地区，默认 `auto`。选择顺序为命令行参数、
+`POWERCONTEXT_INSTALL_REGION`、时区、语言中的地区，最后使用 `global`。
+例如 `Asia/Shanghai` 选择 CN；时区为 UTC 时，`zh_CN` 或 `zh-CN` 也会选择 CN。
+仅有 `UTC+8`、`CST` 或中文语言偏好不足以判断地区。脚本不请求 IP 定位服务。
+
+CN 优先使用清华 PyPI；清华未提供的 uv 和 Python 运行时分别使用中科大和南京大学镜像。
+其他地区使用 PyPI 和 uv 官方下载渠道。uv 安装脚本及二进制使用相同版本目录，
+Python 下载前检查镜像是否提供 uv 选定的构建；镜像无法访问或缺少版本时回退到官方渠道。
+
+脚本沿用已有 uv 配置。传入 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` 可指定包索引并关闭索引回退。
+显式配置的下载地址优先于地区默认值；它们失败时直接报错。所有自动设置仅对本次安装生效，
+不会写入全局配置；开始安装后的错误和依赖安装失败不会触发整个流程重试。
 
 uv 和 Python 本体使用独立的下载地址。`POWERCONTEXT_UV_INSTALLER_URL` 可指定与平台对应的 uv 安装脚本
-（`.ps1`）；`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 uv 二进制和 Python 的下载镜像。
+（`.ps1`）；`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 GitHub 形式的 uv 下载源和 Python 镜像。
+如需指定包含 uv 发布产物的目录，可使用 `UV_DOWNLOAD_URL`。
 
 </Tab>
 

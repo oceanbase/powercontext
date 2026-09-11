@@ -39,7 +39,9 @@ WHEEL = os.environ.get("POWERCONTEXT_INSTALL_WHEEL")
 pytestmark = pytest.mark.skipif(not WHEEL, reason="set POWERCONTEXT_INSTALL_WHEEL to run installation acceptance")
 
 
-def run(command: list[str], root: Path, env: dict[str, str], name: str, *, stdin: str = "") -> str:
+def run(
+    command: list[str], root: Path, env: dict[str, str], name: str, *, stdin: str = "", success: bool = True
+) -> str:
     with (root / f"{name}.log").open("w", encoding="utf-8") as log:
         result = subprocess.run(
             command,
@@ -53,7 +55,7 @@ def run(command: list[str], root: Path, env: dict[str, str], name: str, *, stdin
             check=False,
         )
     output = (root / f"{name}.log").read_text(encoding="utf-8", errors="replace")
-    assert result.returncode == 0, output
+    assert (result.returncode == 0) == success, output
     return output
 
 
@@ -101,14 +103,14 @@ def running_server(cli: str, root: Path, env: dict[str, str], token: str, name: 
                 process.wait()
 
 
-@pytest.mark.parametrize("environment", ["bootstrap", "existing"])
+@pytest.mark.parametrize("environment", ["bootstrap-global", "bootstrap-cn", "existing"])
 def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: str) -> None:
     assert WHEEL is not None
     wheel = Path(WHEEL).resolve()
     with zipfile.ZipFile(wheel) as archive:
         metadata = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
         version = email.message_from_bytes(archive.read(metadata))["Version"]
-    # The unpublished version and direct URL constraint make this a test of the current build.
+    # The direct URL and checksum constraint make this a test of the current build.
     constraints = tmp_path / "constraints.txt"
     checksum = hashlib.sha256(wheel.read_bytes()).hexdigest()
     constraints.write_text(f"powercontext @ {wheel.as_uri()}#sha256={checksum}\n", encoding="utf-8")
@@ -128,7 +130,7 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         UV_TOOL_BIN_DIR=str(tmp_path / "bin"),
         UV_CACHE_DIR=str(tmp_path / "cache"),
         UV_PYTHON_INSTALL_DIR=str(tmp_path / "python"),
-        UV_CONFIG_FILE=str(uv_config),
+        UV_NO_CONFIG="1",
         UV_CONSTRAINT=str(constraints),
         UV_NO_PROGRESS="1",
         POWERCONTEXT_HOME=str(tmp_path / "state"),
@@ -153,13 +155,46 @@ def test_install_configure_remember_and_reinstall(tmp_path: Path, environment: s
         cli = str(tmp_path / "bin/powercontext")
         system_path = os.defpath
     installer += ["--no-hosts", "--version", str(version)]
-    if environment == "bootstrap":
-        # Use OS utilities, not the CI toolchain. Any compatible OS Python remains usable.
-        env["PATH"] = system_path
+    if environment.startswith("bootstrap"):
+        if sys.platform == "win32":
+            env["PATH"] = system_path
+            env["UV_PYTHON_NO_REGISTRY"] = "1"
+        else:
+            # Keep OS utilities available while removing Python and uv from discovery.
+            utilities = tmp_path / "utilities"
+            utilities.mkdir()
+            for directory in system_path.split(os.pathsep):
+                for executable in Path(directory).iterdir():
+                    if executable.name.startswith(("python", "pypy", "uv")) or not executable.is_file():
+                        continue
+                    target = utilities / executable.name
+                    if not target.exists():
+                        target.symlink_to(executable)
+            env["PATH"] = str(utilities)
+        env.update(TZ="Asia/Shanghai", LC_ALL="C", LANG="en_US.UTF-8")
+        if environment == "bootstrap-global":
+            env["POWERCONTEXT_INSTALL_REGION"] = "cn"
+            installer += ["--region", "global"]
+            region = "global"
+        else:
+            region = "cn"
     else:
-        env["UV_PYTHON_DOWNLOADS"] = "never"
-        env["POWERCONTEXT_UV_INSTALLER_URL"] = "https://127.0.0.1:9/unavailable"
-    run(installer, tmp_path, env, "install")
+        env.pop("UV_NO_CONFIG")
+        uv_config.write_text('[[index]]\nurl = "https://pypi.org/simple"\ndefault = true\n', encoding="utf-8")
+        env.update(
+            TZ="UTC",
+            LC_ALL="zh_CN.UTF-8",
+            UV_CONFIG_FILE=str(uv_config),
+            UV_PYTHON_DOWNLOADS="never",
+            UV_PYTHON_INSTALL_MIRROR="https://127.0.0.1:9/unavailable",
+            POWERCONTEXT_UV_INSTALLER_URL="https://127.0.0.1:9/unavailable",
+        )
+        region = "cn"
+    output = run(installer, tmp_path, env, "install")
+    assert f"Download region: {region}" in output
+    if environment == "existing":
+        # An explicitly selected source must not silently fall back to a public index.
+        run([*installer, "--index-url", "https://127.0.0.1:9/simple"], tmp_path, env, "explicit-index", success=False)
     assert run([cli, "--version"], tmp_path, env, "version").strip() == version
     run([cli, "config", "init", "--template", "--output", ".env"], tmp_path, env, "configure", stdin="\n")
     config = (tmp_path / ".env").read_bytes()

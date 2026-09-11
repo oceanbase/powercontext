@@ -16,6 +16,9 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $Version = '1.0.0rc2'
+$UvVersion = '0.12.12'
+$Region = 'auto'
+if ($env:POWERCONTEXT_INSTALL_REGION) { $Region = $env:POWERCONTEXT_INSTALL_REGION }
 $IndexUrl = ''
 $Hosts = @()
 $NoHosts = $false
@@ -29,6 +32,7 @@ Install PowerContext on Windows. Python and uv need not be installed.
 Usage: powershell -ExecutionPolicy Bypass -File install.ps1 [options]
 
   --version VERSION  Exact release version (default: 1.0.0rc2).
+  --region REGION   auto, cn, or global (default: POWERCONTEXT_INSTALL_REGION or auto).
   --index-url URL    HTTPS default package index for this installation.
   --host HOST        Install an Agent integration; repeat for multiple hosts.
   --no-hosts         Install only the CLI and local Server.
@@ -37,17 +41,18 @@ Usage: powershell -ExecutionPolicy Bypass -File install.ps1 [options]
 Without host options, an interactive terminal opens powercontext setup select.
 Without a terminal, --host or --no-hosts is required.
 
-Existing uv, compatible Python, and uv configuration are reused. Otherwise,
-prefer Tsinghua for network country CN and PyPI elsewhere; try the other index
-if the preferred one is unavailable or lacks the requested version.
---index-url disables country detection and index fallback.
+Region priority: --region, POWERCONTEXT_INSTALL_REGION, named timezone, locale
+territory, then global. No network location service is queried.
+CN defaults: Tsinghua for PyPI, USTC for uv, NJU for Python. Global defaults use
+PyPI and Astral's download channels. Unavailable automatic mirrors fall back to
+official sources; explicit download settings are preserved without fallback.
 
 Download configuration (independent of the package index):
-  POWERCONTEXT_UV_INSTALLER_URL  HTTPS uv PowerShell installer URL; defaults to
-                               https://astral.sh/uv/install.ps1.
-  UV_INSTALLER_GITHUB_BASE_URL GitHub mirror base URL for uv binaries.
-  UV_PYTHON_INSTALL_MIRROR     Mirror of Python distribution downloads.
-  UV_ASTRAL_MIRROR_URL         Astral mirror for uv versions supporting it.
+  POWERCONTEXT_UV_INSTALLER_URL  HTTPS uv PowerShell installer URL.
+  UV_DOWNLOAD_URL              uv release artifact directory.
+  UV_INSTALLER_GITHUB_BASE_URL  GitHub mirror base URL for uv binaries.
+  UV_PYTHON_INSTALL_MIRROR      Mirror of Python distribution downloads.
+  UV_ASTRAL_MIRROR_URL          Astral mirror for uv versions supporting it.
 Existing additional uv indexes still take precedence over the default index.
 '@
 }
@@ -64,15 +69,57 @@ function Save-Download([string]$Url, [string]$Path, [int]$Timeout = 30) {
     Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $Timeout -OutFile $Path
 }
 
-function Test-UvConfiguration {
-    foreach ($Name in @('UV_DEFAULT_INDEX', 'UV_INDEX', 'UV_INDEX_URL', 'UV_EXTRA_INDEX_URL',
-        'UV_CONFIG_FILE', 'UV_OFFLINE', 'UV_NO_INDEX', 'UV_FIND_LINKS')) {
-        if ([Environment]::GetEnvironmentVariable($Name)) { return $true }
+function Select-Region {
+    $Source = 'explicit'
+    if ($Region -eq 'auto') {
+        $Source = 'timezone'
+        $Timezone = [TimeZoneInfo]::Local.Id
+        if ($env:TZ) { $Timezone = $env:TZ.TrimStart(':') }
+        if ($Timezone -in @('Asia/Shanghai', 'Asia/Chongqing', 'Asia/Chungking', 'Asia/Harbin', 'Asia/Urumqi', 'PRC', 'China Standard Time')) {
+            $script:Region = 'cn'
+        }
+        elseif ($Timezone -match '^(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)/' -or
+            ($Timezone -ne 'UTC' -and -not $env:TZ -and $Timezone -match 'Standard Time$')) {
+            $script:Region = 'global'
+        }
+        else {
+            $Source = 'locale'
+            $LocaleName = ''
+            foreach ($Name in @('LC_ALL', 'LC_MESSAGES', 'LANG')) {
+                $LocaleName = [Environment]::GetEnvironmentVariable($Name)
+                if ($LocaleName) { break }
+            }
+            if (-not $LocaleName -or $LocaleName -match '^(C($|\.)|POSIX$)') { $LocaleName = [Globalization.CultureInfo]::CurrentCulture.Name }
+            $script:Region = 'global'
+            if ($LocaleName -match '[_-]CN($|[.@])') { $script:Region = 'cn' }
+        }
     }
+    Write-Host "Download region: $Region ($Source)."
+}
+
+function Test-UvConfigFile {
+    if ($env:UV_CONFIG_FILE) { return $true }
+    if ($env:UV_NO_CONFIG -in @('1', 'true')) { return $false }
     foreach ($Directory in @($env:APPDATA, $env:PROGRAMDATA)) {
         if ($Directory -and (Test-Path -LiteralPath (Join-Path $Directory 'uv\uv.toml'))) { return $true }
     }
     return $false
+}
+
+function Test-UvConfiguration {
+    foreach ($Name in @('UV_DEFAULT_INDEX', 'UV_INDEX', 'UV_INDEX_URL', 'UV_EXTRA_INDEX_URL',
+        'UV_OFFLINE', 'UV_NO_INDEX', 'UV_FIND_LINKS')) {
+        if ([Environment]::GetEnvironmentVariable($Name)) { return $true }
+    }
+    return (Test-UvConfigFile)
+}
+
+function Test-DownloadUrl([string]$Url) {
+    try {
+        Invoke-WebRequest -Uri $Url -UseBasicParsing -Method Head -TimeoutSec 10 | Out-Null
+        return $true
+    }
+    catch { return $false }
 }
 
 function Test-IndexVersion([string]$Url) {
@@ -101,18 +148,8 @@ function Select-Index {
         if (-not (Test-IndexVersion $IndexUrl)) { throw 'Check the selected index or version; no fallback was selected.' }
     }
     else {
-        $Country = ''
-        try {
-            $LocationFile = Join-Path $TempDir 'location.txt'
-            Save-Download 'https://www.cloudflare.com/cdn-cgi/trace' $LocationFile 3
-            if ((Get-Content -LiteralPath $LocationFile -Raw) -match '(?m)^loc=([A-Z]{2})\r?$') { $Country = $Matches[1] }
-        }
-        catch { Write-Host 'Network country unavailable; trying PyPI first.' }
         $Indexes = @('https://pypi.org/simple', 'https://pypi.tuna.tsinghua.edu.cn/simple')
-        if ($Country -eq 'CN') {
-            [array]::Reverse($Indexes)
-            Write-Host 'Detected network country CN; trying the Tsinghua mirror first.'
-        }
+        if ($Region -eq 'cn') { [array]::Reverse($Indexes) }
         foreach ($Candidate in $Indexes) {
             Write-Host "Checking package index: $Candidate"
             if (Test-IndexVersion $Candidate) { $script:IndexUrl = $Candidate; break }
@@ -129,16 +166,39 @@ function Install-UvIfMissing {
     if ($Command) { $script:Uv = $Command.Source }
     elseif (Test-Path -LiteralPath $UserUv -PathType Leaf) { $script:Uv = $UserUv }
     else {
-        Write-Host 'Installing uv in the user executable directory.'
-        $Url = 'https://astral.sh/uv/install.ps1'
+        if ($env:UV_OFFLINE -in @('1', 'true')) { throw 'uv is not installed and offline mode disables downloads.' }
+        Write-Host "Installing uv $UvVersion in the user executable directory."
+        $Url = "https://astral.sh/uv/$UvVersion/install.ps1"
         if ($env:POWERCONTEXT_UV_INSTALLER_URL) { $Url = $env:POWERCONTEXT_UV_INSTALLER_URL }
         $Installer = Join-Path $TempDir 'uv-install.ps1'
-        try { Save-Download $Url $Installer }
-        catch { throw 'Could not download uv. Check POWERCONTEXT_UV_INSTALLER_URL; --index-url only changes Python packages.' }
+        $CustomDownload = $env:POWERCONTEXT_UV_INSTALLER_URL -or $env:UV_DOWNLOAD_URL -or $env:INSTALLER_DOWNLOAD_URL -or
+            $env:UV_INSTALLER_GITHUB_BASE_URL -or $env:UV_INSTALLER_GHE_BASE_URL -or $env:UV_ASTRAL_MIRROR_URL
+        $Downloaded = $false
+        if ($Region -eq 'cn' -and -not $CustomDownload) {
+            $Mirror = "https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/$UvVersion"
+            # Check the actual archive before overriding the official installer's sources.
+            $Architecture = $env:PROCESSOR_ARCHITECTURE
+            if ($env:PROCESSOR_ARCHITEW6432) { $Architecture = $env:PROCESSOR_ARCHITEW6432 }
+            $Target = switch ($Architecture) { 'AMD64' { 'x86_64' }; 'ARM64' { 'aarch64' }; 'x86' { 'i686' } }
+            if ($Target -and (Test-DownloadUrl "$Mirror/uv-$Target-pc-windows-msvc.zip")) {
+                try {
+                    Write-Host "uv mirror: $Mirror"
+                    Save-Download "$Mirror/uv-installer.ps1" $Installer
+                    $Downloaded = $true
+                    $env:UV_DOWNLOAD_URL = $Mirror
+                }
+                catch { Write-Host 'uv mirror installer unavailable; using the official installer.' }
+            }
+            else { Write-Host 'uv mirror archive unavailable; using official sources.' }
+        }
+        if (-not $Downloaded) {
+            try { Save-Download $Url $Installer }
+            catch { throw 'Could not download uv. Check POWERCONTEXT_UV_INSTALLER_URL.' }
+        }
         $env:UV_INSTALL_DIR = Split-Path -Parent $UserUv
         $env:UV_NO_MODIFY_PATH = '1'
         & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File $Installer
-        if ($LASTEXITCODE -ne 0) { throw 'uv installation failed. Check the installer output and UV_INSTALLER_GITHUB_BASE_URL.' }
+        if ($LASTEXITCODE -ne 0) { throw 'uv installation failed. Check the installer output and configured download source.' }
         $script:Uv = $UserUv
     }
     if (-not (Test-Path -LiteralPath $Uv -PathType Leaf)) { throw 'uv executable was not found after installation.' }
@@ -147,20 +207,21 @@ function Install-UvIfMissing {
 }
 
 $SavedEnvironment = @{}
-foreach ($Name in @('UV_DEFAULT_INDEX', 'UV_INSTALL_DIR', 'UV_NO_MODIFY_PATH')) {
+foreach ($Name in @('UV_DEFAULT_INDEX', 'UV_INSTALL_DIR', 'UV_NO_MODIFY_PATH', 'UV_DOWNLOAD_URL')) {
     $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name)
 }
 try {
     for ($Index = 0; $Index -lt $args.Count; $Index++) {
         $Option = $args[$Index]
         switch ($Option) {
-            { $_ -in '--version', '--index-url', '--host' } {
+            { $_ -in '--version', '--region', '--index-url', '--host' } {
                 $Index++
                 if ($Index -ge $args.Count -or -not $args[$Index] -or $args[$Index].StartsWith('--')) {
                     throw "$Option requires a value."
                 }
                 switch ($Option) {
                     '--version' { $Version = $args[$Index] }
+                    '--region' { $Region = $args[$Index] }
                     '--index-url' { $IndexUrl = $args[$Index] }
                     '--host' { $Hosts += @('--host', $args[$Index]) }
                 }
@@ -170,6 +231,7 @@ try {
             default { throw 'Unknown option. Run install.ps1 --help.' }
         }
     }
+    if ($Region -cnotin @('auto', 'cn', 'global')) { throw 'Use --region auto, cn, or global.' }
     if ($Version -notmatch '^\d+\.\d+\.\d+((a|b|rc)\d+)?$' -or $Version.StartsWith('0.0.')) {
         throw 'Use an exact package version starting at 0.1.0.'
     }
@@ -185,7 +247,7 @@ try {
     }
     $TempDir = Join-Path ([IO.Path]::GetTempPath()) ('powercontext-install-' + [Guid]::NewGuid())
     [IO.Directory]::CreateDirectory($TempDir) | Out-Null
-    Select-Index
+    Select-Region
     Install-UvIfMissing
 
     $Python = $null
@@ -195,15 +257,35 @@ try {
         $FoundPython = $LASTEXITCODE -eq 0 -and $Python
     }
     catch { $FoundPython = $false }
-    $InstallArgs = @('tool', 'install', "powercontext[cli,server]==$Version")
     if ($FoundPython) {
         Write-Host "Using local Python: $Python"
-        $InstallArgs += @('--python', $Python.Trim(), '--no-python-downloads')
     }
     else {
-        Write-Host 'No compatible local Python found. uv will obtain Python 3.12.'
-        $InstallArgs += @('--python', '3.12')
+        if ($env:UV_PYTHON_DOWNLOADS -in @('never', 'false', '0')) { throw 'No compatible local Python; UV_PYTHON_DOWNLOADS disables downloads.' }
+        if ($env:UV_OFFLINE -in @('1', 'true')) { throw 'No compatible local Python in offline mode.' }
+        $PythonArgs = @('python', 'install', '3.12')
+        if ($Region -eq 'cn' -and -not ($env:UV_PYTHON_INSTALL_MIRROR -or $env:UV_ASTRAL_MIRROR_URL -or
+            $env:UV_PYTHON_DOWNLOADS_JSON_URL -or (Test-UvConfigFile))) {
+            $Downloads = & $Uv python list 'cpython@3.12' --only-downloads --show-urls --color never
+            if ($LASTEXITCODE -ne 0) { throw 'Could not resolve a Python download.' }
+            $Url = (@($Downloads)[0] -split '\s+')[-1]
+            if ($Url -match '^https://[^/]+/(?:github/|astral-sh/)?python-build-standalone/releases/download/(.+)$') {
+                $Mirror = 'https://mirror.nju.edu.cn/github-release/astral-sh/python-build-standalone'
+                if (Test-DownloadUrl "$Mirror/$($Matches[1])") {
+                    Write-Host "Python mirror: $Mirror"
+                    $PythonArgs += @('--mirror', $Mirror)
+                }
+                else { Write-Host 'Python mirror does not provide the requested build; using uv default sources.' }
+            }
+        }
+        Write-Host 'No compatible local Python found. Installing Python 3.12.'
+        & $Uv @PythonArgs
+        if ($LASTEXITCODE -ne 0) { throw 'Python installation failed. Check uv output and UV_PYTHON_INSTALL_MIRROR.' }
+        $Python = & $Uv python find --no-project --no-python-downloads 3.12
+        if ($LASTEXITCODE -ne 0 -or -not $Python) { throw 'Installed Python was not found.' }
     }
+    Select-Index
+    $InstallArgs = @('tool', 'install', "powercontext[cli,server]==$Version", '--python', $Python.Trim(), '--no-python-downloads')
     if ($IndexUrl) { $InstallArgs += @('--default-index', $IndexUrl) }
     & $Uv @InstallArgs
     if ($LASTEXITCODE -ne 0) { throw 'Installation failed. Check uv indexes for packages and UV_PYTHON_INSTALL_MIRROR for Python.' }
