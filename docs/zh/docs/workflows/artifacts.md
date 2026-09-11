@@ -21,8 +21,8 @@ Artifact 保存有版本的结果。Memory、Experience、Skill、Handoff、Prof
 `entries` 命令；其他家族提交完整内容。Handoff 是 Scope 内的单例：已存在时 Create 返回 `409`，应改用
 Replace。缺少 `If-Match` 返回 `428`，ETag 过期返回 `412`；接口不支持自动合并。
 
-完整的请求字段、响应示例、错误码和事务语义请参阅
-[Source 与 Artifact REST API（含 Create/Replace 示例）](../../rfcs/1437_source_artifact_rest_api.md)。
+完整的请求字段、响应模型和可调试的接口示例请参阅[完整 HTTP API 参考](/api/)。
+接口鉴权、并发控制和常用调用流程见 [HTTP API 使用说明](../develop/http-api.md)。
 Topic Memory 当前是专用的只读检索视图，不使用这两个通用写接口。
 
 ## 查看当前内容和历史

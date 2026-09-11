@@ -23,9 +23,9 @@ Replace uses the `entries` command, while other families submit complete content
 returns `409` when it already exists, so use Replace instead. Missing `If-Match` returns `428`; a stale ETag returns
 `412`. The API does not perform automatic merging.
 
-See [Source and Artifact REST API (Create/Replace examples)](../../rfcs/1437_source_artifact_rest_api.md) for request
-fields, response examples, error codes, and transaction semantics. Topic Memory is currently a specialized read-only
-retrieval view and does not use these generic write operations.
+See the [complete HTTP API reference](/api/) for request fields, response models, and interactive operation examples.
+For authentication, concurrency control, and common call flows, see the [HTTP API guide](../develop/http-api.md).
+Topic Memory is currently a specialized read-only retrieval view and does not use these generic write operations.
 
 ## Inspect current and historical content
 
