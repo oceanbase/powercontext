@@ -29,6 +29,16 @@ Choose the interface your model service actually offers. OpenAI-compatible can a
 it does not require a particular Agent subscription. The wizard does not test credentials, billing limits, model
 availability, or remote connectivity. Readiness and actual processing after startup check those conditions.
 
+For example, with the OpenAI provider, the model identifier combines the provider prefix and model name:
+
+```dotenv
+OPENAI_API_KEY=<provide this through a protected environment or secret manager>
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
+```
+
+The available model still depends on the provider account and region. Other providers use the same
+`provider:model-name` form; use a model name supported by that provider instead of copying the OpenAI example.
+
 Embedding can share an endpoint and credentials with Generation, but usually uses a different model.
 Its dimension must match an output size the selected model supports. The Embedding Profile ID names that combination
 of model, dimension, and vector conventions; it is not another API key. For a new database, you can use the suggested ID.
