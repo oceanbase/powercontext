@@ -140,6 +140,8 @@ index without index fallback. Explicit download settings take precedence over re
 Automatic settings apply only to this installation, without writing global configuration. Errors after installation starts
 and dependency installation failures do not trigger a retry of the entire workflow.
 
+If installing uv from the automatic mirror fails, the PowerShell script retries that step once with official sources.
+
 uv and Python themselves use separate download servers. `POWERCONTEXT_UV_INSTALLER_URL` selects a platform-matching
 uv installer (`.ps1`); `UV_INSTALLER_GITHUB_BASE_URL` and `UV_PYTHON_INSTALL_MIRROR` configure GitHub-style uv and Python download mirrors.
 Use `UV_DOWNLOAD_URL` to specify a directory containing uv release artifacts.

@@ -130,6 +130,8 @@ Python 下载前检查镜像是否提供 uv 选定的构建；镜像无法访问
 显式配置的下载地址优先于地区默认值；它们失败时直接报错。所有自动设置仅对本次安装生效，
 不会写入全局配置；开始安装后的错误和依赖安装失败不会触发整个流程重试。
 
+通过自动镜像安装 uv 失败时，PowerShell 脚本会使用官方渠道重试这一步。
+
 uv 和 Python 本体使用独立的下载地址。`POWERCONTEXT_UV_INSTALLER_URL` 可指定与平台对应的 uv 安装脚本
 （`.ps1`）；`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 GitHub 形式的 uv 下载源和 Python 镜像。
 如需指定包含 uv 发布产物的目录，可使用 `UV_DOWNLOAD_URL`。

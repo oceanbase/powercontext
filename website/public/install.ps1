@@ -176,20 +176,13 @@ function Install-UvIfMissing {
         $Downloaded = $false
         if ($Region -eq 'cn' -and -not $CustomDownload) {
             $Mirror = "https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/$UvVersion"
-            # Check the actual archive before overriding the official installer's sources.
-            $Architecture = $env:PROCESSOR_ARCHITECTURE
-            if ($env:PROCESSOR_ARCHITEW6432) { $Architecture = $env:PROCESSOR_ARCHITEW6432 }
-            $Target = switch ($Architecture) { 'AMD64' { 'x86_64' }; 'ARM64' { 'aarch64' }; 'x86' { 'i686' } }
-            if ($Target -and (Test-DownloadUrl "$Mirror/uv-$Target-pc-windows-msvc.zip")) {
-                try {
-                    Write-Host "uv mirror: $Mirror"
-                    Save-Download "$Mirror/uv-installer.ps1" $Installer
-                    $Downloaded = $true
-                    $env:UV_DOWNLOAD_URL = $Mirror
-                }
-                catch { Write-Host 'uv mirror installer unavailable; using the official installer.' }
+            try {
+                Write-Host "uv mirror: $Mirror"
+                Save-Download "$Mirror/uv-installer.ps1" $Installer
+                $Downloaded = $true
+                $env:UV_DOWNLOAD_URL = $Mirror
             }
-            else { Write-Host 'uv mirror archive unavailable; using official sources.' }
+            catch { Write-Host 'uv mirror installer unavailable; using the official installer.' }
         }
         if (-not $Downloaded) {
             try { Save-Download $Url $Installer }
@@ -197,7 +190,14 @@ function Install-UvIfMissing {
         }
         $env:UV_INSTALL_DIR = Split-Path -Parent $UserUv
         $env:UV_NO_MODIFY_PATH = '1'
-        & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File $Installer
+        $PowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        & $PowerShell -NoProfile -ExecutionPolicy Bypass -File $Installer
+        if ($LASTEXITCODE -ne 0 -and $Downloaded) {
+            # The official PowerShell installer accepts only one UV_DOWNLOAD_URL.
+            Write-Host 'uv mirror installation failed; retrying uv with official sources.'
+            Remove-Item Env:UV_DOWNLOAD_URL
+            & $PowerShell -NoProfile -ExecutionPolicy Bypass -File $Installer
+        }
         if ($LASTEXITCODE -ne 0) { throw 'uv installation failed. Check the installer output and configured download source.' }
         $script:Uv = $UserUv
     }
