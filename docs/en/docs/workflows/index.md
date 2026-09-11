@@ -8,10 +8,12 @@ description: Save knowledge, continue work, capture evidence, and control access
 Context management turns evidence in a Scope into reusable artifacts, then assembles the selected results into a
 temporary context for one Agent turn. Use this order when learning or operating the system:
 
-```text
-Scope → Source → (optional background processing) → Candidate review/commit → immutable Artifact Revision
-      → PreparedContext, Handoff, or a host-local projection
-```
+A Scope manages Sources, Artifacts, and Candidates. Sources preserve evidence. Artifacts can be produced by processing
+evidence or by explicit creation and updates where supported. Proposals requiring review enter a Candidate and commit an
+immutable Revision after approval; other paths follow their type's commit rules.
+
+Committed artifacts support context recall, Handoff, Skill export, or Prompt configuration. See
+[How context is created and used](architecture.md) for the individual paths.
 
 This chain describes data and authorization flow. It does not include availability checks, troubleshooting, or recovery;
 those belong to [deployment and operations](../operate/index.md), outside this directory's data lifecycle.

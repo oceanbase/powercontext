@@ -9,25 +9,53 @@ This page explains the responsibility of each component in context management an
 artifacts. It is a cross-workflow architecture guide; use the individual artifact pages for concrete write, review, and
 retrieval procedures.
 
-## End-to-end flow
+## How context is created and used
 
-```mermaid
-flowchart LR
-    A[Agent / Host] --> B[HTTP / MCP / SDK / CLI]
-    B --> C[PowerContext Server]
-    C --> D[Scope and access control]
-    D --> E[Source journal]
-    E --> F[Optional background processing]
-    F --> G[Candidate / Review]
-    G --> H[Immutable Artifact Revision]
-    H --> I[PreparedContext]
-    H --> J[Handoff / Skill projection]
-    C --> K[(SQLite / OceanBase / SeekDB)]
-```
+### Where data belongs
 
-The complete data lifecycle is: resolve a Scope → capture a Source → process it when needed → review or commit → create
-an exact immutable Revision → assemble context, transfer work, or export a host projection when needed. Availability
-checks, troubleshooting, and recovery are not part of this lifecycle; see [deployment and operations](../operate/index.md).
+A Scope defines data ownership and access control for its Sources, Artifacts, Candidates, and processing state.
+The outer box represents one Scope; the arrows inside it describe how content is formed.
+
+### How content is formed
+
+![Two artifact creation paths within a Scope: process Sources, or explicitly create and update; use Candidate review when required](/docs-diagrams/context-formation-en.svg)
+
+Sources preserve evidence. Processing evidence and committing an artifact are separate actions: capture does not mean
+generation has finished, and generation does not necessarily mean approval. Types that support explicit creation or
+updates can also accept content without automatic extraction.
+
+- Experience and Skill proposals require Candidate review before commit; explicit operations must also follow their review rules.
+- Profile policy selects automatic commit or review; manual creation and replacement are also supported.
+- Memory and Topic Memory commit according to their processing rules; Topic Memory does not support manual creation or updates.
+- Handoff commits through the work continuity workflow; Prompt is managed through configuration APIs.
+
+A successful commit creates an immutable Artifact Revision. See each type's guide for permissions, version checks, and
+generation requirements.
+
+### How artifacts are used
+
+| Purpose | Content and operation |
+| --- | --- |
+| Provide context for the current task | Memory, Experience, Profile, Topic Memory → select under recall and assembly rules → PreparedContext |
+| Continue work across sessions | Handoff → read the transfer → continue the task |
+| Make a Skill discoverable by a host | Skill → export a specified approved Revision → host-local Skill |
+| Adjust generation behavior | Prompt → prompt configuration used by the corresponding operation |
+| Find and trace content | Filter content that supports tags; read history by exact Revision |
+
+These are parallel uses. Handoff is itself an Artifact family; PreparedContext is temporary output for one request.
+Not every family enters PreparedContext automatically: Profile requires explicit selection, while Skill and Handoff
+have their own consumption paths.
+
+## Where components run
+
+![Agent hosts access PowerContext Server through integrations; application and background processing use storage and call model services when needed](/docs-diagrams/context-deployment-en.svg)
+
+The Agent and integrations run on the host and connect to PowerContext Server over HTTP. The Server owns application
+APIs, authorization, and background processing. Workers are logical responsibilities in this diagram, not a requirement
+to deploy another service. The Server calls configured generation or embedding models when needed. SQLite uses a local
+data file; OceanBase / SeekDB uses a configured database connection. The storage box represents alternative backends.
+
+See [deployment and operations](../operate/index.md) for deployment settings, service checks, and recovery procedures.
 
 ## Component and responsibility boundaries
 
@@ -40,9 +68,9 @@ checks, troubleshooting, and recovery are not part of this lifecycle; see [deplo
 | Review / projection | Reviews Candidates or exports an exact approved Skill Revision to a host | Rewriting historical Revisions, installing, or executing a Skill automatically |
 | Database and persistence layer | Stores Scopes, Sources, Artifact Revisions, and processing state | The deployment layer's backup and recovery policy |
 
-Model generation, human review, and execution authority are separate boundaries: a model can propose content, review can
-decide whether to commit an Artifact Revision, and export can create a host-local copy. `PreparedContext` is temporary
-for one Agent turn, not a new Artifact.
+Model generation, human review, and execution authority are separate boundaries. Proposals requiring review commit after
+approval; types supporting automatic commit follow their policy. Export creates a host-local copy without granting execution
+authority. `PreparedContext` is temporary for one Agent turn, not a new Artifact.
 
 ## Content types currently supported
 
@@ -77,4 +105,3 @@ Topic Memory also has no manual delete endpoint. Operators can back up the datab
 deployment backup principles](../operate/deploy-server.md), then restore or migrate it using [troubleshooting and
 migration](../operate/troubleshoot.md). Those are operational responsibilities and should stay outside the context
 management data lifecycle.
-

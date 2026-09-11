@@ -15,6 +15,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { register } from 'fumadocs-mdx/node';
@@ -60,6 +61,14 @@ const scanned = await scanURLs({
     })),
   },
 });
+
+// Public assets have URLs even though they are not application routes.
+const publicDirectory = path.join(websiteDirectory, 'public');
+for (const entry of await readdir(publicDirectory, { recursive: true, withFileTypes: true })) {
+  if (!entry.isFile()) continue;
+  const relativePath = path.relative(publicDirectory, path.join(entry.parentPath, entry.name));
+  scanned.urls.set('/' + relativePath.split(path.sep).join('/'), {});
+}
 
 for (const [url, metadata] of scanned.urls) {
   if (url !== '/' && !url.endsWith('/')) scanned.urls.set(`${url}/`, metadata);

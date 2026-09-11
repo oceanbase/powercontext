@@ -8,10 +8,10 @@ description: 保存知识、继续工作、采集证据并控制访问。
 管理上下文的核心是把一个 Scope 中的证据，按需加工为可复用的制品，并在需要时组装成一次 Agent turn
 可以使用的临时上下文。推荐按下面的顺序理解和使用：
 
-```text
-Scope → Source →（可选的后台处理）→ Candidate 审核/提交 → 不可变 Artifact Revision
-      → PreparedContext、Handoff 或 Host-local projection
-```
+Scope 管理 Source、Artifact 和 Candidate。Source 保存证据；制品可以由证据处理形成，也可以按类型显式创建和更新。
+需要审核的提案先进入 Candidate，批准后才提交不可变 Revision；其他路径遵循对应类型的提交规则。
+
+制品提交后，可以用于上下文召回、Handoff 交接、Skill 导出或 Prompt 配置。详细路径见[上下文如何产生和使用](architecture.md)。
 
 这条链路描述数据和权限如何流转，不包含服务可用性检查、故障排查或恢复操作；这些内容属于[部署与运维](../operate/index.md)，
 不属于本目录的数据生命周期。
