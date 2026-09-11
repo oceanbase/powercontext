@@ -10,6 +10,7 @@ Choose the workflow for the information you need to keep or use:
 | Need | Start here |
 | --- | --- |
 | Save decisions and retrieve relevant history | [Memory and context](memory-and-context.md) |
+| Follow evolving project topics from captured evidence | [Topic Memory](topic-memory.md) |
 | Continue a task across sessions or Agents | [Memory and Handoff](memory-and-handoff.md), [Handoff Report](use-handoff-report.md) |
 | Keep a reusable lesson or procedure | [Experience and Skill](experience-and-skill-lifecycle.md) |
 | Capture evidence from prompts or external data | [Sources and capture](sources.md) |

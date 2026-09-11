@@ -10,6 +10,7 @@ description: 保存知识、继续工作、采集证据并控制访问。
 | 需求 | 入口 |
 | --- | --- |
 | 保存决策并召回相关历史 | [Memory 与上下文](memory-and-context.md) |
+| 跟踪从已采集证据中演进的项目主题 | [Topic Memory](topic-memory.md) |
 | 跨会话或 Agent 继续任务 | [Memory 与 Handoff](memory-and-handoff.md)、[交接报告](use-handoff-report.md) |
 | 保留可复用的经验或步骤 | [Experience 与 Skill](experience-and-skill-lifecycle.md) |
 | 从 Prompt 或外部数据采集证据 | [Sources 与采集](sources.md) |
