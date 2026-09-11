@@ -15,7 +15,7 @@
  */
 
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { resolveTransport } from './transport.ts'
 
 export interface ResolvedConfig {
@@ -116,7 +116,12 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
 
 function diagnosticsSink(raw: string | undefined, env: NodeJS.ProcessEnv): string {
   if (raw === undefined) return DEFAULTS.diagnostics
-  if (raw === 'off' || raw === 'stderr') return raw
-  if (raw.startsWith('~/')) return join(envString(env, 'HOME') ?? homedir(), raw.slice(2))
-  return raw
+  const token = raw.trim().toLowerCase()
+  if (token === 'off' || token === 'stderr') return token
+  const path = raw.trim()
+  if (path.startsWith('~/')) return join(envString(env, 'HOME') ?? homedir(), path.slice(2))
+  // Only an unambiguous file path becomes a file sink. Anything else (a typo such as
+  // `STDER`, a bare relative name) stays silent instead of creating a stray file in cwd.
+  if (isAbsolute(path)) return path
+  return DEFAULTS.diagnostics
 }

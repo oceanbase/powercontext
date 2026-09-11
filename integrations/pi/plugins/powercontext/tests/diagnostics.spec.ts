@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { diagnosticWriter, failureEvent } from '../src/diagnostics.ts'
 import { ServerResponseError } from '../src/errors.ts'
@@ -103,13 +106,46 @@ describe('diagnostic sink', () => {
   it('appends JSON lines to a configured file and survives write failures', () => {
     const append = vi.fn()
     const warn = vi.fn()
-    diagnosticWriter('/var/log/pc.jsonl', append, warn)('{"event":"flush_memory"}')
+    const ensureDirectory = vi.fn()
+    diagnosticWriter('/var/log/pc.jsonl', append, warn, ensureDirectory)('{"event":"flush_memory"}')
+    expect(ensureDirectory).toHaveBeenCalledWith('/var/log/pc.jsonl')
     expect(append).toHaveBeenCalledWith('/var/log/pc.jsonl', '{"event":"flush_memory"}\n')
     expect(warn).not.toHaveBeenCalled()
 
     const failing = vi.fn(() => {
       throw new Error('EACCES')
     })
-    expect(() => diagnosticWriter('/var/log/pc.jsonl', failing, warn)('{}')).not.toThrow()
+    expect(() => diagnosticWriter('/var/log/pc.jsonl', failing, warn, ensureDirectory)('{}')).not.toThrow()
+    const noDirectory = vi.fn(() => {
+      throw new Error('EPERM')
+    })
+    expect(() => diagnosticWriter('/var/log/pc.jsonl', append, warn, noDirectory)('{}')).not.toThrow()
+  })
+
+  it('keeps a failing stderr sink non-fatal too', () => {
+    const warn = vi.fn(() => {
+      throw new Error('EPIPE')
+    })
+    expect(() => diagnosticWriter('stderr', vi.fn(), warn)('{}')).not.toThrow()
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes one JSON line per event to a real file and creates the parent directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pc-diag-'))
+    try {
+      const sink = join(root, 'nested', 'pi-diagnostics.jsonl')
+      const write = diagnosticWriter(sink)
+      write(JSON.stringify({ event: 'flush_memory', outcome: 'server_unavailable' }))
+      write(JSON.stringify({ event: 'recall', outcome: 'invalid_response' }))
+      const lines = readFileSync(sink, 'utf8').split('\n')
+      expect(lines).toHaveLength(3)
+      expect(lines[2]).toBe('')
+      expect(lines.slice(0, 2).map((line) => JSON.parse(line))).toEqual([
+        { event: 'flush_memory', outcome: 'server_unavailable' },
+        { event: 'recall', outcome: 'invalid_response' },
+      ])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
