@@ -332,6 +332,11 @@ async def open_builtin_runtime(
             ("experience.generate", experience_generator, generated_experience),
             ("skill.generate", skill_generator, generated_skill),
             ("handoff.generate", handoff_pipeline, generated_handoff),
+            *(
+                (f"topic_memory.{stage}", None, object())
+                for stage in ("probe", "global", "planner", "evolve", "temporary", "reduce", "reconcile")
+                if config.inference.generation_model is not None
+            ),
         )
         prompt_registry = _prompt_registry(config.runtime, components)
         if configured_reranker is not None and tracing is not None:

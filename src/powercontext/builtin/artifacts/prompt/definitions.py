@@ -73,11 +73,14 @@ class PromptDefinition:
 
         try:
             for demonstration in content.demonstrations:
+                # Topic stage contracts use tuple fields for runtime immutability;
+                # JSON demonstrations naturally decode arrays into those tuples.
+                strict = not self.key.startswith("topic_memory.")
                 value = self.input_type.model_validate_json(
-                    json.dumps(demonstration.input), strict=True, extra="forbid"
+                    json.dumps(demonstration.input), strict=strict, extra="forbid"
                 )
                 output = self.output_type.model_validate_json(
-                    json.dumps(demonstration.expected_output), strict=True, extra="forbid"
+                    json.dumps(demonstration.expected_output), strict=strict, extra="forbid"
                 )
                 validate_demonstration(value, output)
         except ValueError:
