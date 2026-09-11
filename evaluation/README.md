@@ -181,6 +181,52 @@ uv run --project evaluation powercontext-eval swebench-pro create-batch \
   --idempotency-key "stability-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
+## LongMemEval-V2 smoke input validation
+
+The LongMemEval-V2 command currently validates a fixed smoke subset and writes
+its preflight artifacts. It does not yet invoke a PowerContext Memory adapter,
+a Reader, or a Judge.
+
+Prepare a detached upstream checkout at the pinned harness commit and download
+the matching LongMemEval-V2 data root outside this repository. The checked-in
+small-tier lock and smoke manifest fix the data revision, three core data-file
+hashes, ten source-ordered questions, all five published abilities, and both
+published domains. The dataset lock has this shape:
+
+```json
+{
+  "schema": "powercontext.longmemeval-v2-dataset-lock.v1",
+  "upstream": {
+    "repository": "https://github.com/xiaowu0162/LongMemEval-V2",
+    "harness_commit": "2cc8c540bdb87fe6761629b585e727e1c4704520"
+  },
+  "dataset_revision": "DATASET_REVISION",
+  "tier": "small",
+  "files": {
+    "questions.jsonl": "SHA256",
+    "trajectories.jsonl": "SHA256",
+    "haystacks/lme_v2_small.json": "SHA256"
+  }
+}
+```
+
+The smoke manifest fixes question IDs, their upstream source order, and coverage
+of the published ability categories. Run the preflight against a new output
+directory:
+
+```bash
+uv run --project evaluation powercontext-eval longmemeval-v2 smoke \
+  --harness-root /path/to/LongMemEval-V2 \
+  --data-root /path/to/longmemeval-v2-data \
+  --dataset-lock evaluation/locks/longmemeval-v2-small-v1.dataset-lock.json \
+  --smoke-manifest evaluation/locks/longmemeval-v2-small-v1.smoke.json \
+  --output-dir /path/to/new-smoke-artifacts
+```
+
+The command refuses a harness checkout at a different commit, mismatched input
+hashes, invalid or incomplete smoke coverage, and an existing output directory.
+It writes `manifest.json` and `subset.json`, both labelled as a smoke subset.
+
 ## Configuration files
 
 Only the environment file configures the evaluation platform. The other files either belong to Codex or are

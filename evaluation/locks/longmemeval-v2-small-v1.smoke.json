@@ -1,0 +1,46 @@
+{
+  "schema": "powercontext.longmemeval-v2-smoke.v1",
+  "tier": "small",
+  "cases": [
+    {
+      "question_id": "01307e07",
+      "ability": "dynamic_state"
+    },
+    {
+      "question_id": "025db8ef",
+      "ability": "workflow_knowledge"
+    },
+    {
+      "question_id": "057a2d4d",
+      "ability": "static_state"
+    },
+    {
+      "question_id": "059974dd",
+      "ability": "premise_awareness"
+    },
+    {
+      "question_id": "18b91103",
+      "ability": "environment_gotchas"
+    },
+    {
+      "question_id": "00aa905a",
+      "ability": "dynamic_state"
+    },
+    {
+      "question_id": "01f6e679",
+      "ability": "premise_awareness"
+    },
+    {
+      "question_id": "0574c69a",
+      "ability": "environment_gotchas"
+    },
+    {
+      "question_id": "05cce9b3",
+      "ability": "static_state"
+    },
+    {
+      "question_id": "07ab3723",
+      "ability": "workflow_knowledge"
+    }
+  ]
+}
