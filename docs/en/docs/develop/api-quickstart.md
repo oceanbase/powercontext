@@ -8,7 +8,7 @@ description: Capture a Source, write Memory, and prepare context for an applicat
 Connect a local Server, capture a Source, write explicit Memory, and read PreparedContext. No model is required.
 
 These examples use current `master` and Bash. Windows support is `experimental`; see
-[installation and version requirements](../get-started/install-and-run.md).
+[installation and version requirements](../get-started/install-and-run.mdx).
 
 ## 1. Install and start PowerContext
 

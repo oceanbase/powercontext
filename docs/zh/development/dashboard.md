@@ -99,7 +99,7 @@ Dashboard 是 PowerContext 中供个人使用和演示的内容查看器，使�
 Dashboard 仅支持内置静态 Bearer 身份，所有 token 持有者共享同一权限。启用需要
 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`、`ACCESS_MODE=enforced` 和 `AUTH_TOKEN`；注入认证或授权
 Provider 的团队部署必须关闭它。页面读取复用现有 API 并继续执行服务鉴权，不新增数据接口，也不实现成员或角色管理。
-个人启用步骤见[安装和运行](../docs/get-started/install-and-run.md)。
+个人启用步骤见[安装和运行](../docs/get-started/install-and-run.mdx)。
 
 目录可以随保存和修订而变化，精确引用仍指向对应的历史版本。引用不存在或无权访问时，应明确处理该结果，不能用当前版本或相似记录代替。
 

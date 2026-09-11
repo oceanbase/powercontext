@@ -139,7 +139,7 @@ additional triggers or review requirements; see [Capability behavior](configure-
 
 ## Continue
 
-- [Install and run](install-and-run.md): versions, seekdb dependencies, existing storage, and updates.
+- [Install and run](install-and-run.mdx): versions, seekdb dependencies, existing storage, and updates.
 - [Deploy the Server](../operate/deploy-server.md): background services, SSH, HTTPS, and backups.
 - [Configure models](configure-models.md): API protocols, vector dimensions, and extraction checks.
 - [Troubleshoot](../operate/troubleshoot.md): service, model, capture, or recall failures.

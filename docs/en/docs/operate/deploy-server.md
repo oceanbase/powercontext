@@ -68,7 +68,7 @@ Its `--allow-insecure-http` option is client-side and does not change the Server
 
 ## Run from an installed tool
 
-Install PowerContext as described in [Install and run](../get-started/install-and-run.md), then choose a persistent data directory:
+Install PowerContext as described in [Install and run](../get-started/install-and-run.mdx), then choose a persistent data directory:
 
 ```bash
 export POWERCONTEXT_HOME=/srv/powercontext
@@ -163,7 +163,7 @@ All holders of the static token share one administrator identity. The Dashboard 
 provide accounts, SSO, invitations, or grant management. Deployments injecting an Authentication Provider or
 AccessControlService must disable the Dashboard; an incompatible enabled configuration is rejected at startup.
 Disabling it does not affect team API or MCP access. For personal setup, see
-[Install and run](../get-started/install-and-run.md).
+[Install and run](../get-started/install-and-run.mdx).
 
 ## Check the deployment
 

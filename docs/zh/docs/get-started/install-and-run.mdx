@@ -25,60 +25,98 @@ Windows 的 CLI、Server 和个人服务支持为试验性；各 Agent Host 仍�
 本页使用 PowerContext 1.0.0 RC2 预发布版本，供测试使用。包与 Agent 集成保持版本一致：
 Python 包版本为 `1.0.0rc2`，对应 Git tag 为 `powercontext-v1.0.0rc2`。
 
-```bash
-uv tool install --force "powercontext[cli,server]==1.0.0rc2"
-powercontext setup codex --ref powercontext-v1.0.0rc2
-```
-
 宿主支持范围和维护状态见[能力矩阵](../integrations/capabilities.md)。
 标为 `experimental` 的能力在这个候选版本中仍属于试验性能力。
 
 ## 安装应用
 
-需要在 macOS、Linux 或 Windows 上准备 Python 3.11 或更新版本、Git 和
-[`uv`](https://docs.astral.sh/uv/)，然后从 PyPI 安装 PowerContext：
+选择一种方式安装 CLI 和 Server。已有 uv 时可以直接安装；没有 uv 或 Python 时，选择对应平台的脚本。
+
+<Tabs items={["uv", "macOS / Linux 脚本", "Windows PowerShell（实验性）"]}>
+
+<Tab value="uv">
+
+使用 [`uv`](https://docs.astral.sh/uv/) 从 PyPI 安装 PowerContext。PowerContext 需要 Python 3.11+。
 
 ```bash
 uv tool install --force "powercontext[cli,server]==1.0.0rc2"
 ```
 
-如需从源码安装同一版本：
+<h3>从源码安装</h3>
+
+如果需要测试当前版本的源码，可以使用 uv 和 Git 安装对应 tag。日常使用建议安装上面的 PyPI 发布包：
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.0.0rc2"
 ```
 
 Git 安装命令不会留下需要自行管理的仓库工作副本。Git 会沿用本机的凭据配置，包括 credential helper 和 SSH 设置。
-如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。`--force` 还会从所选 Git ref 当前指向的 commit
-刷新已安装工具；如果不加该参数，`uv` 可能只提示相同 requirement 已安装，而不会获取更新后的 `master`。
+如需使用 SSH，请把 HTTPS URL 换成当前环境允许的 Git URL。`--force` 会从所选 Git ref 当前指向的 commit
+刷新已安装工具；如果不加该参数，uv 可能只提示相同 requirement 已安装，而不会获取更新后的 `master`。
 
 安装其他分支或 tag 时，替换最后一个 `@` 后的 ref。`master` 分支可能包含尚未发布的改动。
-Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integrations/index.md)，并使用与 Server 相同的 ref。
+Agent 集成也应使用与 Server 相同的 ref。
 
-### 使用脚本安装发布版
+</Tab>
 
-脚本默认安装候选版本 `1.0.0rc2`，复用已有的 uv 和 Python 3.11+，只下载缺少的组件。
-macOS/Linux 使用 Bash 和 curl；Windows 使用 Windows PowerShell 5.1 或更新版本：
+<Tab value="macOS / Linux 脚本">
 
-```bash tab="macOS / Linux"
+需要 Bash 和 curl。脚本会复用已有的 uv 和 Python 3.11+，只下载缺少的组件。
+
+```bash
 curl -fsSL https://powercontext.oceanbase.io/install.sh -o install.sh
-bash install.sh --no-hosts
+bash install.sh --version 1.0.0rc2 --no-hosts
 ```
 
-```powershell tab="Windows"
+安装后，按脚本输出的命令设置当前终端的 `PATH`。
+
+<h3>脚本选项与下载源</h3>
+
+脚本默认安装 `1.0.0rc2`。通过 `--version <version>` 选择其他发布版，
+将 `--no-hosts` 换成 `--host codex` 可同时安装 Codex 集成，完整参数见 `--help`。
+
+脚本沿用已有 uv 配置。没有配置时，网络出口地区为 CN 则先尝试清华源，其他地区或地区检测失败时先尝试 PyPI。
+如果源无法访问或尚未同步指定的 PowerContext 版本，脚本会尝试另一个源。
+传入 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` 可指定镜像并关闭自动回退。
+脚本不写入全局源配置；依赖安装阶段失败时不会自动换源重试。
+
+uv 和 Python 本体使用独立的下载地址。`POWERCONTEXT_UV_INSTALLER_URL` 可指定与平台对应的 uv 安装脚本
+（`.sh`）；`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 uv 二进制和 Python 的下载镜像。
+
+</Tab>
+
+<Tab value="Windows PowerShell（实验性）">
+
+Windows 支持为实验性，需要 Windows PowerShell 5.1 或更新版本。
+脚本会复用已有的 uv 和 Python 3.11+，只下载缺少的组件。
+
+```powershell
 Invoke-WebRequest https://powercontext.oceanbase.io/install.ps1 -UseBasicParsing -OutFile install.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --no-hosts
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --version 1.0.0rc2 --no-hosts
 ```
 
-按安装器输出的命令设置当前终端的 `PATH`。通过 `--version <version>` 选择其他发布版，
-通过 `--host codex` 同时安装 Agent 集成，通过 `--help` 查看完整参数。安装集成还需要 Git。
-随后[生成 Server 环境文件](configure-server-environment.md)，需要推理能力时再[配置模型](configure-models.md)。
+安装后，按脚本输出的命令设置当前终端的 `PATH`。
 
-脚本保留已有 uv 配置；没有配置时检测网络地区，CN 优先尝试清华源，其他地区优先尝试 PyPI，
-不可用时回退到另一个源。可传入 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` 指定镜像并关闭自动回退。
-这些参数不写入全局源配置，也不改变 uv/Python 的下载地址。
-`POWERCONTEXT_UV_INSTALLER_URL` 可指定与平台对应的 uv 安装脚本（`.sh` 或 `.ps1`）；
-`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 uv 二进制和 Python 的下载镜像。
+<h3>脚本选项与下载源</h3>
+
+脚本默认安装 `1.0.0rc2`。通过 `--version <version>` 选择其他发布版，
+将 `--no-hosts` 换成 `--host codex` 可同时安装 Codex 集成，完整参数见 `--help`。
+
+脚本沿用已有 uv 配置。没有配置时，网络出口地区为 CN 则先尝试清华源，其他地区或地区检测失败时先尝试 PyPI。
+如果源无法访问或尚未同步指定的 PowerContext 版本，脚本会尝试另一个源。
+传入 `--index-url https://pypi.tuna.tsinghua.edu.cn/simple` 可指定镜像并关闭自动回退。
+脚本不写入全局源配置；依赖安装阶段失败时不会自动换源重试。
+
+uv 和 Python 本体使用独立的下载地址。`POWERCONTEXT_UV_INSTALLER_URL` 可指定与平台对应的 uv 安装脚本
+（`.ps1`）；`UV_INSTALLER_GITHUB_BASE_URL` 和 `UV_PYTHON_INSTALL_MIRROR` 分别配置 uv 二进制和 Python 的下载镜像。
+
+</Tab>
+
+</Tabs>
+
+安装完成后，[生成 Server 环境文件](configure-server-environment.md)，
+需要提取与向量搜索时再[配置模型](configure-models.md)。
+安装 Agent 集成还需要 Git，步骤见[各自的集成文档](../integrations/index.md)；集成应与 Server 使用同一版本。
 
 ## 运行本地 Server
 

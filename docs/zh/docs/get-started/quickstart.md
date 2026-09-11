@@ -133,7 +133,7 @@ codex
 
 ## 继续使用
 
-- [安装和运行](install-and-run.md)：版本、seekdb 依赖、已有存储与更新。
+- [安装和运行](install-and-run.mdx)：版本、seekdb 依赖、已有存储与更新。
 - [部署 Server](../operate/deploy-server.md)：后台服务、SSH、HTTPS 和数据备份。
 - [配置模型](configure-models.md)：API 协议、向量维度与提取检查。
 - [故障排查](../operate/troubleshoot.md)：服务、模型、采集或召回失败。

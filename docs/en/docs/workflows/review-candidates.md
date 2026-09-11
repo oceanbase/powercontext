@@ -73,7 +73,7 @@ can explicitly replace them, and `[]` clears them. Approved Experience revisions
 
 Dashboard is an opt-in personal content viewer using static Bearer authentication. It displays approved Experiences and
 Skills, with exact references linking to historical Memory entries. Dream creation, Run inspection, and Candidate review
-use the CLI, Client, or HTTP API. See [Install and run](../get-started/install-and-run.md) to enable personal access.
+use the CLI, Client, or HTTP API. See [Install and run](../get-started/install-and-run.mdx) to enable personal access.
 
 The Runtime creates `pc_dream_runs` and adds nullable `memory_citations` columns to `pc_artifacts` and
 `pc_artifact_candidate_versions` on startup. Existing rows read as empty citations. No copy of Memory entry bodies is stored
