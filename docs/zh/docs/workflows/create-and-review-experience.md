@@ -26,6 +26,10 @@ powercontext capabilities
 输出应包含 `Experience generation: enabled`。目标 Scope 中还需要至少一个精确 Source 或 Artifact 引用。将
 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。Provider 凭据由所选 inference provider 读取。
 
+本页的 `experience generate` 和定时孵化都依赖 generation model；未配置模型时不要把 `no_op` 当作模型拒绝或证据不足。
+如果已有完整的 situation、action、outcome、lesson 和精确引用，可以通过 HTTP API 或 Python Client 提交 typed
+proposal，再继续使用本页的 Review Inbox 审核；接口边界见[接口](../develop/interfaces.md)。
+
 ## 1. 生成 Candidate
 
 传入能够支撑 Experience proposal 的精确证据：

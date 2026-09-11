@@ -141,7 +141,24 @@ commit 命令只为这一次提交提供本地身份，不会修改全局 Git �
 是干净的。不要求配置 Git remote。
 
 PowerContext 的数据按 Scope 隔离。Codex 插件会让 Server 依次解析显式 Scope、持久 session 或 workspace binding，
-以及默认 Scope。因此，后续所有 Codex 会话都必须从这个**同一个目录**启动，以提供相同的 workspace binding key。
+以及默认 Scope。仅从不同目录启动不会自动创建隔离；没有绑定时，两个项目可能都落到 Default Scope。
+
+为本教程创建一个专用 Scope，并在后续每个 Codex 会话中显式使用它。在**终端 B**运行：
+
+```bash
+quickstart_scope_file="$(mktemp "${TMPDIR:-/tmp}/powercontext-quickstart-scope.XXXXXX.json")"
+trap 'rm -f "$quickstart_scope_file"' EXIT
+curl --fail --request POST http://127.0.0.1:8000/v1/scopes \
+  --header 'Content-Type: application/json' \
+  --data '{"title":"PowerContext quickstart","summary":"Isolated Scope for the local tutorial.","idempotency_key":"powercontext-quickstart"}' \
+  --output "$quickstart_scope_file"
+export POWERCONTEXT_CODEX_SCOPE_ID="$(jq -r '.scope_id' "$quickstart_scope_file")"
+test -n "$POWERCONTEXT_CODEX_SCOPE_ID" && test "$POWERCONTEXT_CODEX_SCOPE_ID" != "null"
+```
+
+保存这个 `scope_id`，并确认 `powercontext doctor` 使用的是同一个 Server。显式 Scope 会优先于 session、workspace
+binding 和 Server 默认 Scope；后续会话即使启动目录相同，也应保留这个环境变量。响应文件位于临时目录，退出当前
+Shell 后会由 `trap` 清理；不要把 Scope ID 写入仓库。
 
 ## 5. 在第一个 Codex 会话中保存 Memory
 
@@ -155,9 +172,13 @@ codex
 信任。Hook 会在每个请求前尝试恢复相关项目上下文，并把当前提示词采集为 Source 证据；Server 不可用时它会安全降级，
 不会阻断普通 Codex 任务。
 
-先让 Codex 确认当前目录，不要写入数据：
+先让 Codex 确认当前目录，不要调用 PowerContext 的 Memory 或 Handoff 写入工具：
 
-> 检查当前项目目录和 Git 状态，只汇报你看到的内容，不要修改文件，也不要写入 PowerContext。
+> 检查当前项目目录和 Git 状态，只汇报你看到的内容，不要修改文件，也不要调用 PowerContext 的写入工具。
+
+注意：启用的 `UserPromptSubmit` Hook 可能在 Agent 处理这条提示词之前采集 Prompt Source；这不等于 Agent 调用了 Memory
+写入。如果这一步必须完全不产生 Source，请在启动 Codex **之前**设置
+`export POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false`，完成检查后再按[接入指南](../integrations/codex.md)恢复设置。
 
 确认 Codex 看到 `README.md` 后，再明确要求保存三条 Memory：
 
@@ -226,13 +247,13 @@ constraint 仍可在显式请求完整历史时审计。
 
 `交接` 是创建持久 Handoff 里程碑的明确授权。PowerContext 的 `project-context` Skill 会在同一轮中：
 
-1. 选择或确认当前 Workstream 和 scope；
+1. 确认当前显式 Scope（即 `POWERCONTEXT_CODEX_SCOPE_ID`）；
 2. 检查当前目标、branch、worktree、changed files 和已运行检查；
 3. 整理阻塞项、遗漏和下一步；
 4. 准备 Handoff；
 5. 提交这份 Handoff，并返回 exact Revision。
 
-如果系统存在多个 Workstream，Codex 会先显示选择器。请根据实际项目选择，不要让 Agent 静默猜测。
+当前插件不会显示 Workstream 选择器；如果要交接到另一个独立边界，应先由宿主创建或绑定另一个 Scope，再执行交接。
 
 **成功标准：** Codex 明确说明 Handoff 已提交，并返回 scope、disposition、next action 和 exact Handoff Revision。
 如果只返回了预览或 Prepared Handoff，而没有 exact committed Revision，则还没有形成持久里程碑。

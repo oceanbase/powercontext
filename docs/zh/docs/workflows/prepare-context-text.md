@@ -29,15 +29,25 @@ Scope；读取其引用的其他 Scope 也需要对应权限。
 }
 ```
 
-从未启用鉴权的本地 Server 导出实际文本：
+从未启用鉴权的本地 Server 导出实际文本。先写入临时文件，确认响应成功后再替换目标文件；这样 HTTP 错误不会被 `jq`
+误报为空结果，也不会先清空已有的 `context.md`：
 
 ```bash
+set -o pipefail
+tmp_context="$(mktemp "${TMPDIR:-/tmp}/powercontext-context.XXXXXX")"
+trap 'rm -f "$tmp_context"' EXIT
 curl --fail-with-body -sS http://127.0.0.1:8000/v1/context/prepare \
   -H 'Content-Type: application/json' --data-binary @prepare.json \
-  | jq -j '.content // empty' > context.md
+  | jq -er 'if .status == "empty" then "" elif .status == "ready" and (.content | type) == "string" then .content else error("unexpected prepare response") end' \
+  > "$tmp_context"
+mv "$tmp_context" context.md
 ```
 
-启用鉴权的 Server 需要添加与其他 API 调用相同的 Authorization header。HTTP 外层仍然是 `schema`、`status`、
+未启用鉴权时使用上面的请求；启用鉴权时为 `curl` 增加与其他 API 请求相同的
+`--header "$POWERCONTEXT_AUTH_HEADER"`。`status: "empty"` 是成功的空结果，会生成空文件；HTTP 4xx/5xx 或响应结构错误
+会保留原有文件并返回非零退出码。
+
+HTTP 外层仍然是 `schema`、`status`、
 `content`、`content_bytes` 四个字段。直接写出或注入 `content` 即可：它已经包含历史证据提示、章节标题、按字面
 展示的正文、精确引用和截断标记。空结果为 `status: "empty"`、`content: null`、`content_bytes: 0`。
 

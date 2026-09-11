@@ -216,8 +216,9 @@ Experience 孵化使用独立于 Memory extraction 的持久化 Source cursor。
 Source 或 Artifact lineage。在 reviewer 批准精确 Candidate version 之前，它始终只是 Candidate。
 
 批准会创建不可变的 Skill Revision，但不会安装 Skill，也不会授予执行权限。要让 Codex 或 Claude Code 使用某个
-已批准 Revision，必须把它显式发布到配置好的代码库级、用户级或插件级 Skill target。projection 会生成
-`SKILL.md` 和 `powercontext.json`；manifest 会记录 Agent kind、精确 Artifact 引用和渲染内容哈希。目标目录已存在时会
+已批准 Revision，必须把它显式发布到配置好的代码库级、用户级或插件级 Skill target。projection 会物化批准 Revision
+中的标准 Skill package 文件（至少包含 `SKILL.md`，也可能包含 `scripts/`、`references/` 等目录）；当前导出不保证额外的
+`powercontext.json` sidecar。精确 Artifact 引用和 package digest 应从命令输出与 `skill show` 保存。目标目录已存在时会
 拒绝覆盖，更新必须是一次明确的新导出，不能静默替换。
 
 Codex 可以发现 `.agents/skills/<name>/SKILL.md` 下的代码库级导出。Artifact Revision 始终是内容权威，目录

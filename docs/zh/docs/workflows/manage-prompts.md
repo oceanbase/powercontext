@@ -16,6 +16,42 @@ Prompt 自定义功能位于当前 `master`。它修改一个 Scope 内的操作
 3. 通过 Artifact API 创建或条件替换 Prompt。保存成功产生不可变 Revision；遇到版本冲突时重新读取后再协调修改。
 4. 再次运行目标操作并检查输出。保存 Prompt 不会重新处理历史 Sources 或重跑先前操作。
 
+下面用 `memory.extract` 演示首次创建和条件替换。可用的 key 包括 `memory.extract`、`memory.rerank`、
+`experience.incubate`、`experience.generate`、`skill.generate` 和 `handoff.generate`；先用 GET 检查目标操作是否
+支持自定义。
+
+只有当 GET 返回的操作状态表示支持自定义时才继续 POST/PUT。如果状态为 `disabled`、`unsupported`，或响应说明当前
+运行时没有可用的 Prompt customization provider，保存会返回 `prompt_customization_unavailable`；此时请继续使用内置
+Auto 模式，或先配置支持该操作的运行时，不要把失败响应当作已保存。
+
+首次创建 Custom Prompt：
+
+```bash
+export POWERCONTEXT_URL=http://127.0.0.1:8000
+export POWERCONTEXT_SCOPE_ID='已有的-scope-id'
+curl --fail --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"family":"prompt","prompt_key":"memory.extract","content":{"schema_version":"powercontext.prompt.v1","mode":"custom","instructions":"只保存有长期复用价值的决策、约束和事实；每条候选必须引用输入证据。","demonstrations":[]}}' \
+  "$POWERCONTEXT_URL/v1/scopes/$POWERCONTEXT_SCOPE_ID/artifacts"
+```
+
+再次编辑前读取生效配置和 `artifact_etag`，再把该值作为 `If-Match`：
+
+```bash
+prompt_json="$(curl --fail -sS "$POWERCONTEXT_URL/v1/scopes/$POWERCONTEXT_SCOPE_ID/prompts/memory.extract")"
+prompt_etag="$(printf '%s' "$prompt_json" | jq -r '.artifact_etag // empty')"
+test -n "$prompt_etag"
+curl --fail --request PUT \
+  --header 'Content-Type: application/json' \
+  --header "If-Match: $prompt_etag" \
+  --data '{"content":{"schema_version":"powercontext.prompt.v1","mode":"custom","instructions":"只保存经过核对、可长期复用的决策、约束和事实；每条候选必须引用输入证据。","demonstrations":[]}}' \
+  "$POWERCONTEXT_URL/v1/scopes/$POWERCONTEXT_SCOPE_ID/artifacts/prompt/memory.extract"
+```
+
+首次创建不存在时，GET 的 `artifact_etag` 为 `null`，此时使用 POST；不要用空的 `If-Match` 代替。Auto 模式必须把
+`instructions` 和 `demonstrations` 都设为空字符串/数组，使用当前部署的内置指令。保存成功后重新运行目标操作并
+检查输出；如果返回 `409` 或 `412`，先重新 GET 再协调修改。
+
 保存 Auto 模式可使用当前部署的内置指令。恢复历史内容时创建新的 Revision，保留中间历史；
 恢复 Auto 模式会使用当前内置指令。Dashboard 不提供 Prompt 编辑页面。
 

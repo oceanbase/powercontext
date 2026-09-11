@@ -87,8 +87,9 @@ curl --fail \
 
 ## Scope 内的操作提示词
 
-操作提示词使用 `family=prompt`，遵循 Artifact 的 Scope 权限边界。启用 Access 后，创建提示词和生成示例需要
-`scope.contribute`；读取当前内容、指定版本或版本历史需要 `artifact.read`；替换提示词需要 `artifact.write`。
+操作提示词使用 `family=prompt`，遵循 Artifact 的 Scope 权限边界。由于 Prompt 会影响整个 Scope 的运行行为，启用
+Access 后，创建、替换、切换 Auto 和恢复历史版本都需要 `scope.admin`；读取当前内容、指定版本或版本历史需要
+`artifact.read`。Prompt 不提供直接分享角色；拥有 Prompt Artifact 不会绕过当前的 `scope.admin` 检查。
 Scope 的读取角色继承提示词的读取和使用权限，创建者拥有该逻辑 Prompt。当前不提供直接分享 Prompt 的可授予角色。
 
 `GET /v1/scopes/{scope_id}/prompts/{prompt_key}` 读取当前配置，不保存版本，也不调用推理服务。
