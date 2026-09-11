@@ -26,6 +26,7 @@ import { registerPowerContextLifecycle } from "./src/lifecycle.js";
 import { isEligiblePrivateSession } from "./src/privacy.js";
 import { createPowerContextMemoryRuntime } from "./src/runtime.js";
 import { PowerContextMemoryManager } from "./src/manager.js";
+import { registerPowerContextCommand } from "./src/command.js";
 import {
   createMemoryRetireTool,
   createMemoryGetTool,
@@ -38,6 +39,20 @@ import {
   POWERCONTEXT_MEMORY_REVISE_TOOL,
   POWERCONTEXT_MEMORY_RETIRE_TOOL,
 } from "./src/tools.js";
+import {
+  createHandoffAcknowledgeTool,
+  createHandoffCommitTool,
+  createHandoffContinueTool,
+  createHandoffCurrentWorkTool,
+  createTaskOutcomeTool,
+  createWorkContractTool,
+  POWERCONTEXT_HANDOFF_ACKNOWLEDGE_TOOL,
+  POWERCONTEXT_HANDOFF_COMMIT_TOOL,
+  POWERCONTEXT_HANDOFF_CONTINUE_TOOL,
+  POWERCONTEXT_HANDOFF_CURRENT_WORK_TOOL,
+  POWERCONTEXT_TASK_OUTCOME_TOOL,
+  POWERCONTEXT_WORK_CONTRACT_TOOL,
+} from "./src/work.js";
 
 export default definePluginEntry({
   id: "memory-powercontext",
@@ -86,6 +101,8 @@ export default definePluginEntry({
       },
     };
 
+    registerPowerContextCommand(api, dependencies);
+
     api.registerMemoryCapability({
       promptBuilder({ availableTools, citationsMode }) {
         if (!availableTools.has(POWERCONTEXT_MEMORY_SEARCH_TOOL)) {
@@ -127,6 +144,30 @@ export default definePluginEntry({
     api.registerTool((ctx) =>
       getConfig().endpoint ? createMemoryRetireTool(ctx, dependencies) : null, {
       names: [POWERCONTEXT_MEMORY_RETIRE_TOOL],
+    });
+    api.registerTool((ctx) =>
+      getConfig().endpoint ? createWorkContractTool(ctx, dependencies) : null, {
+      names: [POWERCONTEXT_WORK_CONTRACT_TOOL],
+    });
+    api.registerTool((ctx) =>
+      getConfig().endpoint ? createHandoffCurrentWorkTool(ctx, dependencies) : null, {
+      names: [POWERCONTEXT_HANDOFF_CURRENT_WORK_TOOL],
+    });
+    api.registerTool((ctx) =>
+      getConfig().endpoint ? createHandoffCommitTool(ctx, dependencies) : null, {
+      names: [POWERCONTEXT_HANDOFF_COMMIT_TOOL],
+    });
+    api.registerTool((ctx) =>
+      getConfig().endpoint ? createHandoffContinueTool(ctx, dependencies) : null, {
+      names: [POWERCONTEXT_HANDOFF_CONTINUE_TOOL],
+    });
+    api.registerTool((ctx) =>
+      getConfig().endpoint ? createHandoffAcknowledgeTool(ctx, dependencies) : null, {
+      names: [POWERCONTEXT_HANDOFF_ACKNOWLEDGE_TOOL],
+    });
+    api.registerTool((ctx) =>
+      getConfig().endpoint ? createTaskOutcomeTool(ctx, dependencies) : null, {
+      names: [POWERCONTEXT_TASK_OUTCOME_TOOL],
     });
 
     registerPowerContextLifecycle(api, dependencies);

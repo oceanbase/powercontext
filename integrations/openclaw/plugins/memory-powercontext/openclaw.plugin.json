@@ -15,7 +15,13 @@
       "powercontext_memory_get",
       "powercontext_memory_store",
       "powercontext_memory_revise",
-      "powercontext_memory_retire"
+      "powercontext_memory_retire",
+      "powercontext_work_contract_create",
+      "powercontext_handoff_current_work",
+      "powercontext_handoff_commit",
+      "powercontext_handoff_continue",
+      "powercontext_handoff_acknowledge",
+      "powercontext_task_outcome"
     ]
   },
   "toolMetadata": {
@@ -26,6 +32,21 @@
       "sideEffecting": true
     },
     "powercontext_memory_retire": {
+      "sideEffecting": true
+    },
+    "powercontext_work_contract_create": {
+      "sideEffecting": true
+    },
+    "powercontext_handoff_current_work": {
+      "sideEffecting": true
+    },
+    "powercontext_handoff_commit": {
+      "sideEffecting": true
+    },
+    "powercontext_handoff_acknowledge": {
+      "sideEffecting": true
+    },
+    "powercontext_task_outcome": {
       "sideEffecting": true
     }
   },

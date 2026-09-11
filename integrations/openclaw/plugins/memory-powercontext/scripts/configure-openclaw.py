@@ -35,6 +35,12 @@ POWERCONTEXT_TOOLS = (
     "powercontext_memory_store",
     "powercontext_memory_revise",
     "powercontext_memory_retire",
+    "powercontext_work_contract_create",
+    "powercontext_handoff_current_work",
+    "powercontext_handoff_commit",
+    "powercontext_handoff_continue",
+    "powercontext_handoff_acknowledge",
+    "powercontext_task_outcome",
 )
 MIN_OPENCLAW_VERSION = (2026, 8, 1, 2)
 OPENCLAW_VERSION_PATTERN = re.compile(r"(?:OpenClaw\s+)?(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?")
