@@ -30,18 +30,26 @@ Save this request as `prepare.json`, replacing `scope_id` with your Scope ID:
 }
 ```
 
-Export the actual text from an unauthenticated local Server:
+Export the actual text from an unauthenticated local Server. Write the response to a temporary file first and replace
+the destination only after both the HTTP request and response validation succeed. This preserves an existing
+`context.md` when the request fails:
 
 ```bash
+set -euo pipefail
+tmp_context="$(mktemp "${TMPDIR:-/tmp}/powercontext-context.XXXXXX")"
+trap 'rm -f "$tmp_context"' EXIT
 curl --fail-with-body -sS http://127.0.0.1:8000/v1/context/prepare \
   -H 'Content-Type: application/json' --data-binary @prepare.json \
-  | jq -j '.content // empty' > context.md
+  | jq -er 'if .status == "empty" then "" elif .status == "ready" and (.content | type) == "string" then .content else error("unexpected prepare response") end' \
+  > "$tmp_context"
+mv "$tmp_context" context.md
 ```
 
 Authenticated Servers require the same Authorization header as other API calls. The HTTP envelope still has four
 fields: `schema`, `status`, `content`, and `content_bytes`. Write or inject `content` directly. It is already the
 final text, including the historical-evidence notice, section headings, literal bodies, exact citations, and
-truncation flags. An empty result has `status: "empty"`, `content: null`, and `content_bytes: 0`.
+truncation flags. An empty result has `status: "empty"`, `content: null`, and `content_bytes: 0`. HTTP 4xx/5xx
+responses or invalid response shapes leave the previous file untouched and return a non-zero exit code.
 
 The equivalent Python request uses the shared Client:
 

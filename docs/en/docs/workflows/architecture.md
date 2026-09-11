@@ -24,7 +24,8 @@ Sources preserve evidence. Processing evidence and committing an artifact are se
 generation has finished, and generation does not necessarily mean approval. Types that support explicit creation or
 updates can also accept content without automatic extraction.
 
-- Experience and Skill proposals require Candidate review before commit; explicit operations must also follow their review rules.
+- Generated Experience and Skill proposals require Candidate review before commit. Direct Artifact Create/Replace can
+  commit a validated payload as a formal Revision immediately; these endpoints do not create a Candidate automatically.
 - Profile policy selects automatic commit or review; manual creation and replacement are also supported.
 - Memory and Topic Memory commit according to their processing rules; Topic Memory does not support manual creation or updates.
 - Handoff commits through the work continuity workflow; Prompt is managed through configuration APIs.
@@ -69,8 +70,8 @@ See [deployment and operations](../operate/index.md) for deployment settings, se
 | Database and persistence layer | Stores Scopes, Sources, Artifact Revisions, and processing state | The deployment layer's backup and recovery policy |
 
 Model generation, human review, and execution authority are separate boundaries. Proposals requiring review commit after
-approval; types supporting automatic commit follow their policy. Export creates a host-local copy without granting execution
-authority. `PreparedContext` is temporary for one Agent turn, not a new Artifact.
+approval; direct Create/Replace commits a validated Revision under the caller's governance policy. Export creates a
+host-local copy without granting execution authority. `PreparedContext` is temporary for one Agent turn, not a new Artifact.
 
 ## Content types currently supported
 
@@ -79,8 +80,8 @@ authority. `PreparedContext` is temporary for one Agent turn, not a new Artifact
 | Scope | Isolates Sources, artifacts, Candidates, and runtime state while carrying access policy | Resolve a Scope before every content operation |
 | Source | Stores captured evidence or references to external material | Read explicitly, or process asynchronously through a configured pipeline |
 | Memory | Stores facts, decisions, constraints, state, and next steps; `retire` removes active recall but preserves history | Write explicitly or extract from Sources, then retrieve |
-| Experience | Records a reusable situation, action, outcome, and lesson | proposal → Candidate → review → approved Revision → PreparedContext recall |
-| Skill | Stores an exportable name, description, instructions, validation checks, and lineage | proposal → Candidate → review → exact export to a host |
+| Experience | Records a reusable situation, action, outcome, and lesson | Generated proposal: proposal → Candidate → review → approved Revision → PreparedContext recall; direct write: Create/Replace → Revision |
+| Skill | Stores an exportable name, description, instructions, validation checks, and lineage | Generated proposal: proposal → Candidate → review → exact export to a host; direct write: Create/Replace → Revision → exact export |
 | Profile | Stores stable Scope background and subject information | Generate from subject Sources or policy, then review, replace, or roll back by appending a Revision |
 | Topic Memory | Incrementally derives topic summaries from long-running Sources with progressive detail | Request `flush`, search current heads, then `get` an exact Revision |
 | Handoff | Records task boundaries, transfers, and milestones | prepare → optional commit → receiver acknowledgement / outcome |

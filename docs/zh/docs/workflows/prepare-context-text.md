@@ -33,7 +33,7 @@ Scope；读取其引用的其他 Scope 也需要对应权限。
 误报为空结果，也不会先清空已有的 `context.md`：
 
 ```bash
-set -o pipefail
+set -euo pipefail
 tmp_context="$(mktemp "${TMPDIR:-/tmp}/powercontext-context.XXXXXX")"
 trap 'rm -f "$tmp_context"' EXIT
 curl --fail-with-body -sS http://127.0.0.1:8000/v1/context/prepare \

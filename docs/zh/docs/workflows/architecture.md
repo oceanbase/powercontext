@@ -22,7 +22,7 @@ Scope；其中的箭头表示内容形成的路径。
 Source 保存证据。处理证据与提交制品是不同的动作：采集完成不表示制品已经生成，生成完成也不一定表示内容已经获批。
 制品还可以通过支持该操作的类型接口显式创建或更新，不必先经过自动提取。
 
-- Experience、Skill 的提案通过 Candidate 审核后提交；显式操作也必须遵循各自的审核规则。
+- Experience、Skill 的生成提案通过 Candidate 审核后提交；直接调用 Artifact Create/Replace 可以在内容校验通过后立即创建正式 Revision，不会自动生成 Candidate。
 - Profile 根据策略自动提交或进入审核，也支持人工创建和替换。
 - Memory 和 Topic Memory 按各自的处理规则提交；Topic Memory 不支持手工创建和更新。
 - Handoff 通过交接工作流提交；Prompt 通过配置接口管理。
@@ -63,7 +63,7 @@ SQLite 使用本地数据文件，OceanBase / SeekDB 使用配置的数据库连
 | Review / Projection | 审核 Candidate，或把精确的 approved Skill Revision 导出到宿主 | 不修改历史 Revision，不自动安装或执行 Skill |
 | 数据库和持久化层 | 保存 Scope、Source、Artifact Revision 和处理状态 | 不替代部署层的备份与恢复策略 |
 
-模型生成、人工审核和执行权限是三个独立边界：需要审核的提案在批准后提交，支持自动提交的类型按对应策略处理。
+模型生成、人工审核和执行权限是三个独立边界：需要审核的提案在批准后提交，直接 Create/Replace 则按接口校验和调用方的治理策略提交正式 Revision。
 导出创建宿主本地副本，不授予执行权限。`PreparedContext` 是一次 Agent turn 的临时结果，不是新的 Artifact。
 
 ## 当前支持的内容类型
@@ -73,8 +73,8 @@ SQLite 使用本地数据文件，OceanBase / SeekDB 使用配置的数据库连
 | Scope | 隔离 Source、制品、Candidate 和运行时状态，并承载访问策略 | 所有内容操作先解析 Scope |
 | Source | 保存捕获证据或外部材料引用，是生成和审计的依据 | 显式读取，或由配置的 pipeline 异步处理 |
 | Memory | 保存事实、决定、约束、状态和下一步；`retire` 退出 active recall 但保留历史 | 显式写入或从 Source 提取后检索 |
-| Experience | 记录可复用的情境、行动、结果和经验 | proposal → Candidate → 审核 → approved Revision → PreparedContext recall |
-| Skill | 保存可导出的名称、描述、instructions、校验和 lineage | proposal → Candidate → 审核 → 精确导出到宿主 |
+| Experience | 记录可复用的情境、行动、结果和经验 | 生成提案：proposal → Candidate → 审核 → approved Revision → PreparedContext recall；直接写入：Create/Replace → Revision |
+| Skill | 保存可导出的名称、描述、instructions、校验和 lineage | 生成提案：proposal → Candidate → 审核 → 精确导出到宿主；直接写入：Create/Replace → Revision → 精确导出 |
 | Profile | Scope 的稳定背景信息和 subject 画像 | 由 subject Source 或策略生成，可审核、替换和回滚为新 Revision |
 | Topic Memory | 从长期 Source 增量提炼的主题摘要，支持渐进式 detail | `flush` 请求后台处理，`search` 找到当前 head，`get` 读取精确 Revision |
 | Handoff | 记录任务边界、交接和里程碑 | prepare → 可选 commit → 接收方 acknowledgement / outcome |
