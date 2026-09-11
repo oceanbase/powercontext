@@ -31,9 +31,7 @@ if TYPE_CHECKING:
     from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 
 BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt"]
-ArtifactReadFamily = Literal[
-    "memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"
-]
+ArtifactReadFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"]
 
 
 class _RecordModel(BaseModel):
