@@ -1,6 +1,6 @@
 ---
 title: Install and run
-description: Install PowerContext 1.0.0 RC2 and run the local Server.
+description: Install PowerContext 1.0.0 and run the local Server.
 ---
 
 # Install and run
@@ -24,11 +24,11 @@ Embedded seekDB is unavailable on Windows.
 
 ## Choose a version
 
-These instructions use PowerContext 1.0.0 RC2 for pre-release testing. Keep the package and Agent integration on
-the same version: package `1.0.0rc2` and Git tag `powercontext-v1.0.0rc2`.
+These instructions use the stable PowerContext 1.0.0 release. Keep the package and Agent integration on
+the same version: package `1.0.0` and Git tag `powercontext-v1.0.0`.
 
 Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status.
-Capabilities marked `experimental` remain experimental in this release candidate.
+Capabilities marked `experimental` remain experimental in this release.
 
 ## Install the application
 
@@ -42,7 +42,7 @@ Otherwise, use the script for your platform.
 Use [`uv`](https://docs.astral.sh/uv/) to install PowerContext from PyPI. PowerContext requires Python 3.11+.
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+uv tool install --force "powercontext[cli,server]==1.0.0"
 ```
 
 <h3>Install from source</h3>
@@ -50,7 +50,7 @@ uv tool install --force "powercontext[cli,server]==1.0.0rc2"
 If you need to test this version from source, use uv and Git to install its tag. For everyday use, install the PyPI release above:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.0.0rc2"
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.0.0"
 ```
 
 The Git command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
@@ -69,14 +69,14 @@ You need Bash and curl. The script reuses existing uv and Python 3.11+ installat
 
 ```bash
 curl -fsSL https://powercontext.oceanbase.io/install.sh -o install.sh
-bash install.sh --version 1.0.0rc2 --no-hosts
+bash install.sh --version 1.0.0 --no-hosts
 ```
 
 After installation, apply the `PATH` command printed by the script to your terminal.
 
 <h3>Script options and download sources</h3>
 
-The scripts default to `1.0.0rc2`. Use `--version <version>` for another release,
+The scripts default to `1.0.0`. Use `--version <version>` for another release,
 replace `--no-hosts` with `--host codex` to include the Codex integration, or use `--help` for all options.
 
 The scripts reuse local uv and Python 3.11+ installations. Missing uv is installed at `0.12.12`;
@@ -111,14 +111,14 @@ The script reuses existing uv and Python 3.11+ installations and downloads missi
 
 ```powershell
 Invoke-WebRequest https://powercontext.oceanbase.io/install.ps1 -UseBasicParsing -OutFile install.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --version 1.0.0rc2 --no-hosts
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 --version 1.0.0 --no-hosts
 ```
 
 After installation, apply the `PATH` command printed by the script to your terminal.
 
 <h3>Script options and download sources</h3>
 
-The scripts default to `1.0.0rc2`. Use `--version <version>` for another release,
+The scripts default to `1.0.0`. Use `--version <version>` for another release,
 replace `--no-hosts` with `--host codex` to include the Codex integration, or use `--help` for all options.
 
 The scripts reuse local uv and Python 3.11+ installations. Missing uv is installed at `0.12.12`;
@@ -206,7 +206,7 @@ Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` 
 support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb]==1.0.0rc2"
+uv tool install --force "powercontext[cli,server,seekdb]==1.0.0"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
@@ -254,10 +254,16 @@ For a long-running process, Docker, authentication, or remote access, continue w
 
 ## Update or replace an installation
 
-To upgrade to 1.0.0 RC2:
+Before upgrading an existing deployment, back up its database and configuration. Version 1.0.0 adds persistent
+processing state and Dream evidence fields during Server startup. Upgrade the Server, clients, and Agent integrations
+together. The Dashboard must be explicitly enabled with static Bearer authentication; see
+[Deploy the Server](../operate/deploy-server.md). Remote plaintext HTTP connections require explicit client consent;
+see [Connect to a remote Server](../operate/connect-remote-server.md).
+
+To upgrade to 1.0.0:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+uv tool install --force "powercontext[cli,server]==1.0.0"
 ```
 
 To replace the installed tool with another Git ref:
@@ -275,7 +281,7 @@ changes.
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client]==1.0.0rc2"
+uv add "powercontext[client]==1.0.0"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for

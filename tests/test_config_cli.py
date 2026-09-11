@@ -93,7 +93,7 @@ def test_init_creates_a_model_free_deployment_and_explains_capability_limits(tmp
     assert shown.exit_code == 0
 
 
-@pytest.mark.parametrize("installed", ["0.2.0", "1.0.0rc1", "1.0.0rc2", "0.2.1.dev1+g1234567"])
+@pytest.mark.parametrize("installed", ["0.2.0", "1.0.0rc1", "1.0.0rc2", "1.0.0", "0.2.1.dev1+g1234567"])
 def test_init_matches_dsh_setup_to_installed_server(installed: str, tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(config_cli, "version", lambda _name: installed)
     monkeypatch.setattr(config_cli, "collect_configuration", lambda **_kwargs: _configuration())
@@ -102,7 +102,7 @@ def test_init_matches_dsh_setup_to_installed_server(installed: str, tmp_path: Pa
     )
     assert result.exit_code == 0
     command = next(line.strip() for line in result.output.splitlines() if "powercontext setup dsh" in line)
-    if installed in {"0.2.0", "1.0.0rc1", "1.0.0rc2"}:
+    if installed in {"0.2.0", "1.0.0rc1", "1.0.0rc2", "1.0.0"}:
         assert command.endswith(f"--ref powercontext-v{installed}")
     else:
         assert "--source /path/to/matching-powercontext-checkout" in command

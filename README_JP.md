@@ -16,8 +16,8 @@ PowerContext は、会話をまたいでもコンテキストを作業ととも�
 
 [Web サイト](https://frf12.github.io/powercontext/en/) · [インストール手順](https://frf12.github.io/powercontext/en/docs/get-started/quickstart/)
 
-PowerContext 1.0.0 RC2 には対話式セットアップが含まれています。
-以下のコマンドで検証用のプレリリースと同じバージョンの Agent 連携をインストールします。
+PowerContext 1.0.0 には対話式セットアップが含まれています。
+以下のコマンドで正式リリースと同じバージョンの Agent 連携をインストールします。
 
 ## 作業の続きをそのまま引き継ぐ
 
@@ -27,10 +27,10 @@ PowerContext 1.0.0 RC2 には対話式セットアップが含まれています
 
 ## 利用中の Agent と接続する
 
-Git、uv、Agent CLI を用意して、1.0.0 RC2 をインストールします：
+Git、uv、Agent CLI を用意して、1.0.0 をインストールします：
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+uv tool install --force "powercontext[cli,server]==1.0.0"
 mkdir -p powercontext-config
 cd powercontext-config
 powercontext config init --language en --output .env
@@ -50,7 +50,7 @@ Server を起動したまま、別のターミナルで同じ設定ディレク�
 クライアント環境の読み込み、Scope の作成・紐付け、同じバージョンの Agent プラグインのインストールを行います。例：
 
 ```bash
-powercontext setup codex --ref powercontext-v1.0.0rc2
+powercontext setup codex --ref powercontext-v1.0.0
 powercontext doctor codex
 ```
 

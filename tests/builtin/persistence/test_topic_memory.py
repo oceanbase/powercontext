@@ -43,8 +43,11 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryStorageInvariantError,
     prepare_topic_memory_projection,
 )
+from powercontext.builtin.persistence.artifact_readers import TopicMemoryArtifactListReader
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
+from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry
+from powercontext.builtin.persistence.records import RelationalRecordService
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.sqlite.topic_memory_index import (
@@ -287,6 +290,89 @@ def test_current_browse_uses_stable_exclusive_keyset_order() -> None:
 
             assert [item.artifact_ref.artifact_id for item in first_page] == ["topic-a", "topic-b"]
             assert [item.artifact_ref.artifact_id for item in second_page] == ["topic-c"]
+
+    asyncio.run(scenario())
+
+
+def test_standard_artifact_list_adapts_topic_memory_metadata_and_cursor() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        sources = SourceRepository(SOURCE_ADAPTERS)
+        artifacts = ArtifactRepository((TopicMemory,), sources=sources)
+        repository = TopicMemoryRepository(artifacts=artifacts, index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            records = RelationalRecordService(
+                profile.database,
+                sources,
+                artifacts,
+                FamilyManagementWriterRegistry(()),
+                cursor_secret=b"topic-memory-list-test-secret",
+                topic_memory_list_reader=TopicMemoryArtifactListReader(
+                    database=profile.database,
+                    artifacts=artifacts,
+                    topics=repository,
+                ),
+            )
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                source = await sources.add(
+                    connection,
+                    "scope-a",
+                    NoteSource(
+                        name="note-1",
+                        materialization=SourceMaterialization.CAPTURED,
+                        body="Topic evidence",
+                    ),
+                )
+                older = _content("Older", "amber")
+                newer = _content("Newer", "cobalt")
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-older",
+                    _draft(older, sources=(source.ref,)),
+                    prepare_topic_memory_projection(older),
+                )
+                await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-newer",
+                    _draft(newer, sources=(source.ref,)),
+                    prepare_topic_memory_projection(newer),
+                )
+                await connection.execute(
+                    update(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE)
+                    .where(
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.scope_id == "scope-a",
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.artifact_id == "topic-older",
+                    )
+                    .values(published_at=datetime(2026, 9, 5, 3, 4, 5, tzinfo=UTC))
+                )
+                await connection.execute(
+                    update(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE)
+                    .where(
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.scope_id == "scope-a",
+                        TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.artifact_id == "topic-newer",
+                    )
+                    .values(published_at=datetime(2026, 9, 6, 3, 4, 5, tzinfo=UTC))
+                )
+
+            first_page = await records.query_artifacts("scope-a", TopicMemory.family, limit=1, cursor=None)
+            second_page = await records.query_artifacts(
+                "scope-a",
+                TopicMemory.family,
+                limit=1,
+                cursor=first_page.next_cursor,
+            )
+
+        assert first_page.next_cursor is not None
+        assert first_page.items[0].artifact_id == "topic-newer"
+        assert first_page.items[0].title == "Newer recovery"
+        assert first_page.items[0].summary == "Newer leader state is durable."
+        assert first_page.items[0].published_at == datetime(2026, 9, 6, 3, 4, 5, tzinfo=UTC)
+        assert first_page.items[0].source_count == 1
+        assert [item.artifact_id for item in second_page.items] == ["topic-older"]
+        assert second_page.next_cursor is None
 
     asyncio.run(scenario())
 

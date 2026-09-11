@@ -5,8 +5,8 @@ This plugin is a thin DeepSeek Harness integration for a running PowerContext Se
 Install the released Server and plugin together:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==0.2.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v0.2.0
+uv tool install --force "powercontext[cli,server]==1.0.0"
+powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.0.0
 ```
 
 `setup dsh` calls `dsh plugin --profile web add`. The plugin talks HTTP only. It does not use MCP.
@@ -23,8 +23,7 @@ reuses the cached checkout without fetching; update a local checkout and reinsta
 Use [the DSH setup guide](../../../../docs/en/docs/integrations/dsh.md) for generation/processing configuration.
 Run `powercontext server run --env-file powercontext.env` in one terminal, then set
 `POWERCONTEXT_DSH_BASE_URL` in another terminal and run `dsh web`. Restart DSH after changing installation or environment.
-Release 0.2.0 includes direct-operation Scope failure handling; the layered Doctor and snapshot behavior below
-require the current development checkout.
+Release 1.0.0 includes direct-operation Scope failure handling and the layered Doctor and snapshot behavior below.
 
 Before each model step it:
 

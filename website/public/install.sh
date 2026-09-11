@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION=1.0.0rc2
+VERSION=1.0.0
 UV_VERSION=0.12.12
 REGION=${POWERCONTEXT_INSTALL_REGION:-auto}
 PYTHON_BIN=""
@@ -44,7 +44,7 @@ Install PowerContext on macOS or Linux. Python and uv need not be installed.
 
 Usage: bash install.sh [--version VERSION] [--index-url URL] [--host HOST]... [--no-hosts]
 
-  --version VERSION  Exact package version (default: 1.0.0rc2).
+  --version VERSION  Exact package version (default: 1.0.0).
                      Integrations use the matching powercontext-vVERSION tag.
   --region REGION   auto, cn, or global (default: POWERCONTEXT_INSTALL_REGION or auto).
   --index-url URL    HTTPS default package index for this installation.

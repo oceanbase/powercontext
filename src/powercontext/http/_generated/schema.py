@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "1.0.0rc2",
+        "version": "1.0.0",
     },
     "paths": {
         "/v1/scopes/{scope_id}/subject-sources": {
@@ -2852,7 +2852,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "get": {
                 "tags": ["artifacts"],
                 "summary": "List current Artifact heads",
-                "description": "List current heads for exactly one built-in Artifact family.",
+                "description": "List current heads for one readable Artifact family.",
                 "operationId": "list_artifacts",
                 "x-powercontext-access": {
                     "action": "scope.read",
@@ -2888,7 +2888,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     },
                     {
                         "name": "limit",
@@ -2936,7 +2936,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -3435,7 +3435,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -3492,7 +3492,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "name": "family",
                         "in": "path",
                         "required": True,
-                        "schema": {"type": "string", "enum": ["memory", "experience", "skill", "handoff", "prompt"]},
+                        "schema": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     },
                     {
                         "name": "artifact_id",
@@ -4092,12 +4092,34 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ArtifactCollectionItem": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "revision": {"type": "integer", "minimum": 1.0},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
                     "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "title": {
+                        "type": "string",
+                        "description": "Family-provided display title when available.",
+                        "nullable": True,
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Family-provided display summary when available.",
+                        "nullable": True,
+                    },
+                    "published_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Family-provided publication time when available.",
+                        "nullable": True,
+                    },
+                    "source_count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Family-provided number of direct Source inputs when available.",
+                        "nullable": True,
+                    },
                 },
                 "type": "object",
                 "required": ["scope_id", "family", "artifact_id", "revision", "sources", "artifacts", "content_digest"],
@@ -4134,7 +4156,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ArtifactRevision": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
-                    "family": {"$ref": "#/components/schemas/BaseArtifactFamily"},
+                    "family": {"$ref": "#/components/schemas/ArtifactReadFamily"},
                     "artifact_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "revision": {"type": "integer", "minimum": 1.0},
                     "content": {"additionalProperties": True, "type": "object"},
@@ -8229,6 +8251,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "BaseArtifactFamily": {
                 "type": "string",
                 "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt"],
+            },
+            "ArtifactReadFamily": {
+                "type": "string",
+                "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
             },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile"]},

@@ -15,7 +15,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$Version = '1.0.0rc2'
+$Version = '1.0.0'
 $UvVersion = '0.12.12'
 $Region = 'auto'
 if ($env:POWERCONTEXT_INSTALL_REGION) { $Region = $env:POWERCONTEXT_INSTALL_REGION }
@@ -31,7 +31,7 @@ Install PowerContext on Windows. Python and uv need not be installed.
 
 Usage: powershell -ExecutionPolicy Bypass -File install.ps1 [options]
 
-  --version VERSION  Exact release version (default: 1.0.0rc2).
+  --version VERSION  Exact release version (default: 1.0.0).
   --region REGION   auto, cn, or global (default: POWERCONTEXT_INSTALL_REGION or auto).
   --index-url URL    HTTPS default package index for this installation.
   --host HOST        Install an Agent integration; repeat for multiple hosts.

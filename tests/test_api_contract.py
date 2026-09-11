@@ -860,6 +860,38 @@ def test_artifact_collection_accepts_pagination_and_exact_tag_filters() -> None:
     assert ListArtifactsRequest().model_dump() == {"limit": 50, "cursor": None, "tag": None, "tag_match": None}
 
 
+def test_standard_artifact_reads_share_topic_memory_family_and_display_metadata() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    paths = contract["paths"]
+    read_paths = (
+        "/v1/scopes/{scope_id}/artifacts/{family}",
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}",
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions",
+        "/v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/revisions/{revision}",
+    )
+    for path in read_paths:
+        family = next(parameter for parameter in paths[path]["get"]["parameters"] if parameter["name"] == "family")
+        assert family["schema"] == {"$ref": "#/components/schemas/ArtifactReadFamily"}
+    assert "topic-memory" in contract["components"]["schemas"]["ArtifactReadFamily"]["enum"]
+    assert "topic-memory" not in contract["components"]["schemas"]["BaseArtifactFamily"]["enum"]
+    item = http_models.ArtifactCollectionItem.model_validate({
+        "scope_id": "scope-a",
+        "family": "topic-memory",
+        "artifact_id": "topic-1",
+        "revision": 2,
+        "sources": [],
+        "artifacts": [],
+        "content_digest": f"sha256:{'0' * 64}",
+        "title": "A topic",
+        "summary": "A summary",
+        "published_at": "2026-09-10T00:00:00Z",
+        "source_count": 2,
+    })
+    assert item.family.value == "topic-memory"
+    assert item.title == "A topic"
+    assert item.source_count == 2
+
+
 def test_base_access_uses_a_dedicated_source_type_reference() -> None:
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]

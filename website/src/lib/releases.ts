@@ -29,6 +29,44 @@ export interface Release {
 // Only stable releases belong here; publish pre-release notes on GitHub Releases.
 export const releases: Release[] = [
   {
+    version: 'v1.0.0',
+    date: '2026-09-10',
+    title: {
+      en: 'Guided setup, Topic Memory, and reviewed learning',
+      zh: '交互式配置、Topic Memory 与审核式经验沉淀',
+    },
+    summary: {
+      en: 'PowerContext 1.0.0 connects guided onboarding with evolving Topic Memory, scoped Profiles, and a reviewed path from Memory to Experience and Skill, while preserving cross-session Memory and Handoff workflows.',
+      zh: 'PowerContext 1.0.0 将交互式配置、持续演进的 Topic Memory、按 Scope 管理的 Profile，以及经过审核的 Memory → Experience → Skill 工作流串联起来，延续跨会话记忆与工作交接。',
+    },
+    changes: {
+      en: [
+        'Configure storage, model APIs, Server access, background processing, and Agent connections through an English or Chinese wizard. Persist Agent authorization and generate matching setup commands and next steps.',
+        'Turn captured Sources into evolving Topic Memory with evidence and revision history; inspect Sources, topics, and processing state in the personal Dashboard. Automatic processing requires configured model APIs.',
+        'Maintain scoped Profiles and subject-attributed Sources, customize processing Prompts by Scope, and select how Profiles and Memory are assembled into prepared context.',
+        'Organize Artifacts and Memory entries with tags, manage versioned Prompt Artifacts, and discover Scopes and Sources through the public API.',
+        'Run durable background processing for Memory, Topic Memory, and Profiles. Use Dream to propose Experience from exact Memory citations and Skill from approved Experiences; inspect and approve Candidates before they become Artifacts. Approval does not install or execute a Skill.',
+        'Connect MiniMax through its native plugin, send Claude Code MCP authorization correctly, and inspect effective DSH configuration and recalled-context snapshots through layered diagnostics.',
+        'Start with explicit Memory operations without model credentials; use bilingual documentation search, the installation walkthrough, and guided Jupyter tutorials for further workflows.',
+        'Strengthen evidence access checks, enforce revoked Scope contributions, validate raw Skill archive paths, and support weak or multiple If-None-Match validators on Artifact reads.',
+        'Upgrade the Server, clients, and Agent integrations together and back up existing databases before startup schema changes. The Dashboard is now an opt-in personal viewer requiring static Bearer authentication; Dream and Candidate review use CLI, Client, or HTTP APIs. Server startup loads a local .env unless disabled, and remote plaintext HTTP requires explicit client consent. Windows remains experimental.',
+      ],
+      zh: [
+        '通过交互式向导配置存储、模型 API、Server 访问、后台处理与 Agent 连接，持久化 Agent 授权，并生成匹配版本的安装命令和后续操作步骤。',
+        '将采集到的 Source 整理为持续演进的 Topic Memory，保留证据和修订历史；在个人 Dashboard 中查看 Source、主题与处理状态。自动处理需要配置模型 API。',
+        '按 Scope 维护 Profile 和带主体归属的 Source，自定义处理 Prompt，并选择 Profile 与 Memory 在准备好的上下文中的组织方式。',
+        '使用标签组织 Artifact 与 Memory 条目，管理带版本的 Prompt Artifact，并通过公开 API 发现 Scope 和 Source。',
+        '通过持久化后台任务处理 Memory、Topic Memory 和 Profile；使用 Dream 从精确 Memory 引用提炼 Experience，再从已批准的 Experience 生成 Skill。检查并批准 Candidate 后才会写入 Artifact；批准不会安装或执行 Skill。',
+        '支持原生插件接入 MiniMax，修复 Claude Code 的 MCP 授权传递，并通过分层诊断检查 DSH 实际生效的配置与召回上下文快照。',
+        '无需模型凭据即可使用显式 Memory 操作；通过中英文文档搜索、安装教程和 Jupyter 示例继续学习其他工作流。',
+        '增强生成过程中的证据访问检查，执行撤销后的 Scope 写入权限，校验 Skill 压缩包原始路径，并支持 Artifact 读取中的弱 ETag 和多个 If-None-Match 值。',
+        'Server、客户端和 Agent 集成需一起升级，并在启动时的数据库结构变更前备份数据。Dashboard 改为显式启用、使用静态 Bearer 认证的个人内容查看器；Dream 与 Candidate 审核通过 CLI、Client 或 HTTP API 操作。Server 启动默认读取本地 .env，远程明文 HTTP 连接需要客户端明确同意。Windows 仍为试验性支持。',
+      ],
+    },
+    installCommand: 'uv tool install --force "powercontext[cli,server]==1.0.0"',
+    githubUrl: 'https://github.com/oceanbase/powercontext/releases/tag/powercontext-v1.0.0',
+  },
+  {
     version: 'v0.2.0',
     date: '2026-09-07',
     title: {

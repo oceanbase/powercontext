@@ -26,6 +26,16 @@ description: 理解 Generation、Embedding、后台调度及各制品的触发�
 按模型服务商实际提供的接口选择。OpenAI-compatible 也可以指第三方服务，不表示必须购买某个 Agent 订阅。
 向导不会验证 API key、额度、模型可用性或远程连通性；启动后的 `ready` 和真实处理才会检验这些条件。
 
+例如使用 OpenAI provider 时，模型标识由 provider 前缀和模型名组成：
+
+```dotenv
+OPENAI_API_KEY=<从受保护的环境或 secret manager 提供>
+POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
+```
+
+实际可用模型仍取决于 provider 账户和区域；其他 provider 也使用 `provider:model-name` 形式，请使用该 provider
+支持的模型名，不要直接复制上面的 provider 配置。
+
 Embedding 连接可以与 Generation 共用地址和凭据，但通常使用不同模型。
 向量维度必须是所选 Embedding 模型实际支持的输出维度。Embedding Profile ID 是标识这套模型、维度和向量约定的名称，
 不是额外 API key。首次使用可接受向导建议；复用已有向量数据时，必须保持其对应关系，不能随意改 ID 或维度来消除报错。

@@ -52,6 +52,7 @@ from powercontext.builtin.persistence.tags import RelationalTagService, tag_pred
 from powercontext.builtin.records import (
     ArtifactCollectionItem,
     ArtifactCreated,
+    ArtifactListReader,
     ArtifactRecord,
     ArtifactRecordPage,
     ArtifactRevisionPage,
@@ -114,6 +115,7 @@ class RelationalRecordService:
         cursor_ttl_seconds: int = _DEFAULT_CURSOR_TTL_SECONDS,
         processing_pending: ArtifactProcessingPendingRepository | None = None,
         source_processing_bindings: tuple[str, ...] = (),
+        topic_memory_list_reader: ArtifactListReader | None = None,
     ) -> None:
         self._database = database
         self._sources = sources
@@ -129,6 +131,7 @@ class RelationalRecordService:
         self._cursor_secret = self._cursor_codec.secret
         self._processing_pending = processing_pending
         self._source_processing_bindings = source_processing_bindings
+        self._topic_memory_list_reader = topic_memory_list_reader
         self._tags = RelationalTagService(
             database,
             artifacts,
@@ -480,6 +483,15 @@ class RelationalRecordService:
     ) -> ArtifactRecordPage:
         self._require_family(family)
         _require_limit(limit)
+        reader = self._topic_memory_list_reader
+        if reader is not None and family == reader.family:
+            return await reader.query(
+                scope_id,
+                limit=limit,
+                cursor=cursor,
+                tag_filter=tag_filter,
+                cursor_codec=self._cursor_codec,
+            )
         expected_cursor = {
             "version": 1,
             "endpoint": "list_artifacts",
