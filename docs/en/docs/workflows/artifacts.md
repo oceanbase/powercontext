@@ -5,8 +5,27 @@ description: Read current and historical revisions, then choose the write workfl
 
 # Manage Artifacts
 
-Artifacts preserve versioned results. Memory, Experience, Skill, Handoff, and Prompt have family-specific write rules;
+Artifacts preserve versioned results. Memory, Experience, Skill, Handoff, Profile, and Prompt have family-specific write rules;
 sharing a REST envelope does not make those workflows interchangeable.
+
+## Create and replace
+
+Artifact management primarily uses the following two write operations. Both create an immutable Revision and return
+the new head and its `ETag`:
+
+| Operation | Route | Semantics |
+| --- | --- | --- |
+| Create | `POST /v1/scopes/{scope_id}/artifacts` | Create an Artifact and Revision 1 from the request `family` and `content`. The server generates `artifact_id` for every family except Handoff. |
+| Replace | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` | Fully replace the selected Artifact and create the next Revision. The current head must be sent in `If-Match`. |
+
+The request body is a discriminated union by `family`; content from one family cannot be submitted to another. Memory
+Replace uses the `entries` command, while other families submit complete content. Handoff is a Scope singleton: Create
+returns `409` when it already exists, so use Replace instead. Missing `If-Match` returns `428`; a stale ETag returns
+`412`. The API does not perform automatic merging.
+
+See [Source and Artifact REST API (Create/Replace examples)](../../rfcs/1437_source_artifact_rest_api.md) for request
+fields, response examples, error codes, and transaction semantics. Topic Memory is currently a specialized read-only
+retrieval view and does not use these generic write operations.
 
 ## Inspect current and historical content
 
