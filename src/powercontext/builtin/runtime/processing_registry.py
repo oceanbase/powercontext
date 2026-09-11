@@ -21,8 +21,21 @@ from typing import Any
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
+from powercontext.builtin.dream.bindings import DREAM_PROVIDERS, SKILL_DREAM_BINDING
+from powercontext.builtin.dream.models import DreamOperation
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
+
+# Provisional per-Family recommendations for operator-facing setup tools. Runtime
+# defaults remain disabled; Artifact owners can revise these independently after
+# production workload review without changing the Supervisor contract.
+RECOMMENDED_PROCESSING_SCHEDULE_SECONDS = {
+    "memory": 60,
+    "topic-memory": 300,
+    "experience": 900,
+}
+RECOMMENDED_PROFILE_CRON = "0 2 * * *"
+RECOMMENDED_PROFILE_TIMEZONE = "Asia/Shanghai"
 
 
 def processing_capabilities(config: BuiltinConfig) -> tuple[str, ...]:
@@ -43,7 +56,27 @@ def processing_capabilities(config: BuiltinConfig) -> tuple[str, ...]:
         pass
     else:
         families.append("topic-memory")
+    if config.runtime.dream_enabled and config.inference.generation_model.split(":", 1)[0] in DREAM_PROVIDERS:
+        families.append("skill")
     return tuple(sorted(families))
+
+
+def dream_operations(config: BuiltinConfig) -> tuple[DreamOperation, ...]:
+    """Declare admission independently of API-side model construction."""
+
+    if not config.runtime.dream_enabled:
+        return ()
+    if config.runtime.artifact_processing_role != "api" and (
+        config.inference.generation_model is None
+        or config.inference.generation_model.split(":", 1)[0] not in DREAM_PROVIDERS
+    ):
+        return ()
+    families = processing_capabilities(config)
+    return tuple(
+        operation
+        for operation, family in (("refine_experience", "experience"), ("derive_skill", "skill"))
+        if family in families
+    )
 
 
 def canonical_processing_manifest(config: BuiltinConfig) -> dict[str, Any]:
@@ -67,6 +100,7 @@ def canonical_processing_manifest(config: BuiltinConfig) -> dict[str, Any]:
             TOPIC_MEMORY_SOURCE_WINDOW_BINDING: "topic-memory",
             EXPERIENCE_INCUBATION_CURSOR_NAME: "experience",
             PROFILE_SOURCE_WINDOW_BINDING: "profile",
+            SKILL_DREAM_BINDING: "skill",
         },
         "legacy_automatic_bindings": sorted(automatic),
     }

@@ -16,6 +16,7 @@
 
 
 import type { PowerContextConfig } from "./config.js";
+import { normalizeServerUrl } from "./transport.js";
 
 export class PowerContextRequestError extends Error {
   readonly status?: number;
@@ -44,6 +45,7 @@ export function createPowerContextClient(getConfig: () => PowerContextConfig) {
     if (!config.endpoint) {
       throw new PowerContextRequestError(path, "PowerContext endpoint is not configured");
     }
+    const endpoint = normalizeServerUrl(config.endpoint, config.allowInsecureHttp);
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
@@ -63,8 +65,9 @@ export function createPowerContextClient(getConfig: () => PowerContextConfig) {
       }
       let response: Response;
       try {
-        response = await fetch(`${config.endpoint}${path}`, {
+        response = await fetch(`${endpoint}${path}`, {
           method,
+          redirect: "manual",
           headers,
           ...(body ? { body: JSON.stringify(body) } : {}),
           signal: controller.signal,

@@ -16,18 +16,7 @@ its tags but cannot edit them or run a Scope-wide tag query. Queries require `sc
 Artifact require `scope.read` to read and `scope.admin` to edit; individual entries use their own `artifact.read` /
 `artifact.write` permissions. Insufficient permission returns **403**, and revoking a share also revokes tag access.
 
-## Use the Dashboard
-
-Start the Server and open its Overview page. In **Custom tags**:
-
-1. Select the exact Scope, target kind, family, and Artifact. For a Memory entry, also select its entry ID.
-2. Enter one label per line and select **Save tags**. Saving an empty field clears that target's labels.
-3. Enter labels under **Find by exact labels**. Choose **All** or **Any**, then select **Find targets**.
-4. Select a result to edit its tags. **Include inactive** also returns inactive Memory entries and deprecated or retired
-   Artifacts.
-
-If another writer changes the labels, saving displays a conflict and preserves your input. Use **Reload tags** to read
-the current state before deciding what to save. Reloading replaces the input field; copy any text you want to retain first.
+Manage tags through the Python Client below or the public API. The Dashboard reads saved content and does not provide tag editing or query pages.
 
 ## Use the Python Client
 

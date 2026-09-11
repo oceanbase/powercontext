@@ -13,15 +13,14 @@ description: Install the PowerContext DeepSeek Harness plugin and control its lo
 Install DeepSeek Harness and make sure its Web profile is available. The real-host acceptance suite pins DSH
 0.1.2-rc.1. Choose one PowerContext installation path and keep the Server and plugin together.
 
-For released PowerContext 0.2.0:
+For this guided-setup build:
 
 ```bash
-uv tool install --force "powercontext[cli,server]==0.2.0"
-powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v0.2.0
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+powercontext setup dsh
 ```
 
-Release 0.2.0 includes the direct-operation Scope error boundary. The layered Doctor and automatic snapshot
-presentation described below require the current development checkout; do not expect them in that release.
+Keep the Server package and the plugin on this same source branch when following this website's walkthrough.
 
 For development, install both components from one checkout and record its commit:
 
@@ -252,9 +251,15 @@ powercontext doctor dsh
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POWERCONTEXT_DSH_BASE_URL` | `http://127.0.0.1:8000` | Server base URL used by the plugin |
+| `POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_DSH_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_DSH_AUTHORIZATION` | unset | Complete `Bearer <token>` header for plugin HTTP requests |
 | `POWERCONTEXT_DSH_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_DSH_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 
 `timeoutMs`, `requestTimeoutMs`, `maxBytes`, and `flushMaxCalls` are plugin patch settings. Server unavailability fails open for recall and capture; restart `dsh web` after changing these variables.
+
+Plain HTTP is allowed on loopback by default. For remote HTTP, explicitly set
+`POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP=true`; HTTPS certificate validation stays enabled. The host URL aliases are
+checked in the order `BASE_URL`, `SERVER_URL`, then `ENDPOINT`, before `POWERCONTEXT_CLIENT_SERVER_URL`.
+See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.

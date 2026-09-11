@@ -42,6 +42,7 @@ class ToolSettings(TypedDict):
     binding_keys: list[ScopeBindingKey]
     timeout: float
     trust_transport_security: bool
+    allow_insecure_http: bool
     max_bytes: int
     context_assembly: ContextAssembly | None
 
@@ -130,6 +131,7 @@ def _client(settings: ToolSettings) -> AbstractAsyncContextManager[PowerContextC
         settings["base_url"],
         timeout=settings["timeout"],
         trust_transport_security=settings["trust_transport_security"],
+        allow_insecure_http=settings["allow_insecure_http"],
     )
 
 

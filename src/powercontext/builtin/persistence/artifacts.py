@@ -30,7 +30,9 @@ from powercontext.artifacts import (
     ArtifactDraft,
     ArtifactLineage,
     ArtifactRef,
+    MemoryCitation,
 )
+from powercontext.builtin.persistence.citation_codec import dump_memory_citations, load_memory_citations
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes, validate_json_model
 from powercontext.builtin.persistence.errors import (
     IdentityMismatchError,
@@ -63,6 +65,7 @@ class RepositoryArtifactDraft(BaseModel):
     content: BaseModel
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] = ()
 
 
 class ArtifactRepository:
@@ -115,7 +118,9 @@ class ArtifactRepository:
                 artifact_type,
                 ref,
                 draft.content,
-                ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
+                ArtifactLineage(
+                    sources=draft.sources, artifacts=draft.artifacts, memory_citations=draft.memory_citations
+                ),
             )
             await connection.execute(
                 insert(ARTIFACT_HEADS_TABLE).values(
@@ -182,7 +187,7 @@ class ArtifactRepository:
             artifact_type,
             ref,
             draft.content,
-            ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts),
+            ArtifactLineage(sources=draft.sources, artifacts=draft.artifacts, memory_citations=draft.memory_citations),
         )
         advanced = await connection.execute(
             update(ARTIFACT_HEADS_TABLE)
@@ -204,24 +209,21 @@ class ArtifactRepository:
         scope_id: str,
         ref: ArtifactRef,
         /,
+        *,
+        for_update: bool = False,
     ) -> Artifact[Any]:
         """Load one exact revision with ordered direct lineage."""
 
         _require_scope(scope_id)
-        row = (
-            (
-                await connection.execute(
-                    select(ARTIFACTS_TABLE).where(
-                        ARTIFACTS_TABLE.c.scope_id == scope_id,
-                        ARTIFACTS_TABLE.c.family == ref.family,
-                        ARTIFACTS_TABLE.c.artifact_id == ref.artifact_id,
-                        ARTIFACTS_TABLE.c.revision == ref.revision,
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
+        statement = select(ARTIFACTS_TABLE).where(
+            ARTIFACTS_TABLE.c.scope_id == scope_id,
+            ARTIFACTS_TABLE.c.family == ref.family,
+            ARTIFACTS_TABLE.c.artifact_id == ref.artifact_id,
+            ARTIFACTS_TABLE.c.revision == ref.revision,
         )
+        if for_update:
+            statement = statement.with_for_update()
+        row = (await connection.execute(statement)).mappings().one_or_none()
         if row is None:
             raise RepositoryNotFoundError("artifact", (scope_id, ref))
         return await self._decode_row(connection, row)
@@ -280,18 +282,21 @@ class ArtifactRepository:
         family: str,
         artifact_id: str,
         /,
+        *,
+        for_update: bool = False,
     ) -> Artifact[Any]:
         """Load the current revision selected by the authoritative head."""
 
         _require_scope(scope_id)
         ArtifactRef(family=family, artifact_id=artifact_id, revision=1)
-        revision = await self._find_head(connection, scope_id, family, artifact_id)
+        revision = await self._find_head(connection, scope_id, family, artifact_id, for_update=for_update)
         if revision is None:
             raise RepositoryNotFoundError("artifact", (scope_id, family, artifact_id))
         return await self.get(
             connection,
             scope_id,
             ArtifactRef(family=family, artifact_id=artifact_id, revision=int(revision)),
+            for_update=for_update,
         )
 
     async def revisions(
@@ -377,6 +382,7 @@ class ArtifactRepository:
                 artifact_id=ref.artifact_id,
                 revision=ref.revision,
                 content=payload,
+                memory_citations=dump_memory_citations(lineage.memory_citations),
             )
         )
         if lineage.sources:
@@ -443,6 +449,7 @@ class ArtifactRepository:
     ) -> Artifact[Any]:
         family = str(row["family"])
         artifact_type = self._artifact_type(family)
+        lineage = lineage.model_copy(update={"memory_citations": load_memory_citations(row.get("memory_citations"))})
         content = load_model(
             self._content_types[family],
             stored_bytes(row["content"], column="payload"),
@@ -658,12 +665,16 @@ class ArtifactRepository:
         scope_id: str,
         family: str,
         artifact_id: str,
+        *,
+        for_update: bool = False,
     ) -> int | None:
         statement = select(ARTIFACT_HEADS_TABLE.c.revision).where(
             ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
             ARTIFACT_HEADS_TABLE.c.family == family,
             ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
         )
+        if for_update:
+            statement = statement.with_for_update()
         value = await connection.scalar(statement)
         return None if value is None else int(value)
 

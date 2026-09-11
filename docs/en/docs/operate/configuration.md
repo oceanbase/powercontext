@@ -7,10 +7,11 @@ description: PowerContext paths, Server, Client, and inference environment varia
 
 Windows support is `experimental`.
 
-PowerContext reads configuration from environment variables when each process starts. The CLI does not search for a
-`.env` file automatically. A command that accepts `--env-file` loads environment assignments from that file, including
-Server and provider settings, and overrides same-named process values. Agent hosts can load their own environment files
-according to their host-specific rules.
+PowerContext reads configuration from environment variables when each process starts. `server run` loads `.env` from the
+current working directory when that file exists. Pass `--env-file <path>` to select a different file without also
+merging `.env`, or pass `--no-env-file` to disable file loading. For `server run`, CLI options override process
+environment variables, process variables override values from the selected file, and defaults apply last. Agent hosts
+can load their own environment files according to their host-specific rules.
 
 For the configuration-file workflow, including generation, redacted inspection, validation, and launch, see
 [Configure a Server environment](../get-started/configure-server-environment.md). Treat every environment file as a
@@ -34,7 +35,7 @@ Without an override, the default is:
 - macOS: `~/Library/Application Support/powercontext`;
 - Windows: `%LOCALAPPDATA%\\powercontext`.
 
-The default SQLite database is `powercontext.db` in this directory. The four built-in background processors persist
+The default SQLite database is `powercontext.db` in this directory. Built-in background processors persist
 intents and scheduling checkpoints in the same database. Existing installations require [offline migration](artifact-processing-migration.md).
 
 ## Server
@@ -48,6 +49,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server startup directory | Resolution root for local project Agent Skill folders |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | Enable Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP path |
+| `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `false` | Personal and demonstration Dashboard; requires static Bearer authentication and does not support injected authentication or authorization Providers |
 | `POWERCONTEXT_SERVER_AUTH_ENABLED` | `false` | Legacy static bearer switch; `true` maps to `ACCESS_MODE=enforced` and requires `AUTH_TOKEN` |
 | `POWERCONTEXT_SERVER_AUTH_TOKEN` | unset | Legacy static bearer token; used as compatibility authentication and mapped to the built-in administrator when no Authentication Provider is injected |
 | `POWERCONTEXT_SERVER_ACCESS_MODE` | `disabled` | The only supported Access switch: `disabled` or `enforced` |
@@ -57,7 +59,6 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_PUBLIC_URL` | unset | Remotely reachable base URL used by remote Skill enrollment guidance; HTTPS is required by default |
 | `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP` | `false` | Explicitly allow cleartext HTTP for remote Skill Receiver endpoints and guidance |
 | `POWERCONTEXT_SERVER_ALLOW_UNAUTHENTICATED_NON_LOOPBACK` | `false` | Opt in to a non-loopback bind while authentication is disabled |
-| `POWERCONTEXT_SERVER_DASHBOARD_ENABLED` | `true` | Enable the Dashboard at the Server root path `/` |
 | `POWERCONTEXT_SERVER_HANDOFF_REPORT_ENABLED` | `true` | Enable Handoff Report and its API routes |
 | `POWERCONTEXT_SERVER_LOGGING_LEVEL` | `INFO` | Operational log level |
 | `POWERCONTEXT_SERVER_LOGGING_FORMAT` | `console` | `console` or structured `json` output |
@@ -66,8 +67,8 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_TRACING_ENABLED` | `false` | Enable span recording and OTLP export |
 | `POWERCONTEXT_SERVER_CURSOR_SIGNING_SECRET` | local persisted key | Shared secret of at least 32 bytes for signing REST pagination cursors |
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
-| `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekDB |
-| `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekDB path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekdb |
+| `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekdb path; used only when `DATABASE_KIND=seekdb` |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | Maximum sum of explicit `assembly.sections[].limit`; positive integer. Per-family limits still apply. |
@@ -87,6 +88,12 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_ARTIFACT_PROCESSING_FAMILIES` | inferred from models | JSON Family list; API-only instances can declare capabilities without model credentials |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_MAX_WORKERS` | `1` | Independent Memory Worker quota |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_MAX_WORKERS` | `1` | Independent Experience Worker quota |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_MAX_WORKERS` | `1` | Skill Worker quota for Dream derivation |
+| `POWERCONTEXT_SERVER_RUNTIME_SKILL_WORKER_TIMEOUT_SECONDS` | `600` | Total Skill Scope invocation timeout |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_ENABLED` | `true` | Accept explicit Dream requests for declared Experience/Skill Families; no automatic artifact selection |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_MAX_PENDING_PER_SCOPE` | `32` | Combined queued and running DreamRun limit per Scope |
+| `POWERCONTEXT_SERVER_RUNTIME_DREAM_BUDGET` | `{}` | JSON budget; may tighten evidence limits, at most 2 model calls and 120 seconds from first execution |
+| `POWERCONTEXT_SERVER_RUNTIME_GENERATION_CONCURRENCY` | `4` | Foreground Runtime generation concurrency; background Workers use per-Family quotas |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_MAX_WORKERS` | `4` | Independent Profile Worker quota; alias `PROFILE_MAX_CONCURRENCY` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Total Memory Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Total Experience Scope timeout |
@@ -160,7 +167,7 @@ built-in static token always represents one service Principal, so it cannot dist
 compatibility token materializes explicit Server and per-scope roles for that Principal. Inject the deployment
 Authentication Provider and corresponding AccessControlService when different users or groups need different access.
 
-Background Memory, Topic Memory, Experience, and Profile processing use the service Principal selected by
+Source-driven background Memory, Topic Memory, Experience, and Profile processing use the service Principal selected by
 `ACCESS_BACKGROUND_PRINCIPAL_ID`, falling back to the fixed static Principal. That Principal must have
 `scope.contribute` for each processed scope and write permission on existing Artifacts it changes. New entries,
 Artifacts, and Candidates retain its ownership or owner attestation in the same transaction as processing completion.
@@ -168,6 +175,13 @@ An enforced deployment with background capabilities fails startup if its identit
 be reconstructed in a child process, even when automatic schedules are disabled: accepted work still needs recovery.
 The built-in provider supports this reconstruction. Injected providers and model objects remain usable by synchronous
 SDK/Server operations with background capabilities disabled (`ARTIFACT_PROCESSING_FAMILIES=[]`).
+
+Dream reconstructs the original requester's current permissions inside Experience/Skill Workers, and Candidate ownership
+remains with that requester. Background service Principal permissions do not replace that identity. An OceanBase split
+deployment can declare `ARTIFACT_PROCESSING_FAMILIES=["experience","skill"]` on a model-free API process and declare the same
+capabilities with model configuration on the background process; automatic schedules may reference only declared Families.
+SQLite uses `all`. Dream pins its model identity on first execution, and disabling automatic schedules does not prevent
+accepted explicit Dream requests from completing.
 
 SDK workers without a Server identity do not require Server authorization dependencies. Built-in background workers
 use the built-in Source definitions. A custom Source registry requires custom processing bindings for every enabled
@@ -179,14 +193,13 @@ The authenticated `/metrics` endpoint exposes `powercontext_server_artifact_proc
 label: Worker capacity, ready/retry queues, unacknowledged Scopes, discovery and invocation duration, completions,
 failures, and timeouts. Unacknowledged counts reflect the latest discovery; counters reset with the Supervisor instance.
 
-Remote, multi-user, and shared-Dashboard deployments must use `enforced`. In that mode, HTTP, MCP, Dashboard data
-routes, and metrics share one Server PEP. Configured Dashboard scopes are filtered by the current Principal's
-`scope.read` decision before they are returned. `/v1/access/me` reports the `server`/`scope`/`artifact` Resource Kinds,
+Remote and multi-user deployments must use `enforced`. In that mode, HTTP, MCP, and metrics share one Server PEP.
+`/v1/access/me` reports the `server`/`scope`/`artifact` Resource Kinds,
 Provider batch/list/relationship capabilities and Artifact Family profiles. Managed Skill export and installation do
 not introduce separate Access actions: the recipient first needs `artifact.read` on the logical Skill identity, then
 chooses whether and how to install an exact Revision.
 
-The built-in Access schema uses the configured SQLite, seekDB, or OceanBase backend, but remains Server-owned rather
+The built-in Access schema uses the configured SQLite, seekdb, or OceanBase backend, but remains Server-owned rather
 than becoming a Runtime domain. A custom deployment can inject an `AccessControlService` into `create_server_app`.
 `CasbinAuthorizationProvider` is the included writable external adapter: it evaluates the fixed action vocabulary in
 embedded Casbin while using the canonical Binding Store as its persistent adapter, so it supports point/batch checks,
@@ -208,26 +221,18 @@ ASGI app, Unix-domain socket, or TLS-terminating proxy, must supply its own `htt
 `trust_transport_security=True` explicitly. See
 [Deploy the Server](deploy-server.md) for a safe Docker and remote-access setup.
 
-The Dashboard is enabled by default and shares the Server listener and port with the HTTP API and MCP. It discovers
-the default Scope and every created Scope from the Server. Dashboard initialization failures are logged with their
-direct cause and do not prevent the Server HTTP API, MCP, or health checks from starting.
-
 By default, the Server treats its startup directory as the workspace and exposes two writable local project targets:
 `<workspace>/.agents/skills` for Codex and `<workspace>/.claude/skills` for Claude Code. Missing directories are harmless
-and are created only after the user confirms an installation in the Dashboard. Set `POWERCONTEXT_SERVER_WORKSPACE` once
-for systemd, containers, or other launchers whose working directory is not the project; the page does not ask users to
-enter Skill paths.
+and are created only by an explicit publication operation. Set `POWERCONTEXT_SERVER_WORKSPACE` once for systemd,
+containers, or other launchers whose working directory is not the project.
 
-Configure `POWERCONTEXT_SERVER_PUBLIC_URL` once when remote Skill Receivers should connect through a different externally
-reachable origin than the one used to open the Dashboard. The Skills Dashboard then generates the enrollment command
-without asking for an address on every target. When it is unset, the Dashboard automatically uses its current HTTPS
-origin, or its current HTTP origin when the explicit insecure switch is enabled. If neither is available, the enrollment
-command relies on the remote CLI's configured Server URL.
+Configure `POWERCONTEXT_SERVER_PUBLIC_URL` when remote Skill Receivers should connect through a stable externally
+reachable origin. Enrollment commands may otherwise use the remote CLI's configured Server URL.
 
 For a first-phase PoC on a protected internal test network, direct HTTP requires explicit consent on both sides. Set
 `POWERCONTEXT_SERVER_ALLOW_INSECURE_HTTP=true`, advertise an `http://` `POWERCONTEXT_SERVER_PUBLIC_URL`, and bind the
-listener to an address reachable by the target. The Dashboard shows a cleartext warning and adds
-`remote-enroll --allow-insecure-http`; a manually entered enrollment command must include the same option. Without the
+listener to an address reachable by the target. The enrollment command must include
+`remote-enroll --allow-insecure-http`. Without the
 Server setting, the remote endpoints reject non-loopback HTTP. Without the Receiver option, the CLI rejects the URL
 before transmitting the one-time enrollment code. The permission is stored in the owner-only Receiver configuration so
 `remote-watch` and its systemd user service keep the same policy without embedding credentials or extra flags in the
@@ -250,29 +255,18 @@ The non-loopback opt-in in this example is independent of the Receiver transport
 Server routes on this listener are reachable without the Server-wide bearer token. Prefer enabling authentication or
 terminating TLS in front of a loopback-bound Server whenever the deployment permits it.
 
-When compatibility static Bearer authentication is enforced, the HTML shells at `/`, `/topics`, `/skills`, `/reviews`, and `/handoff-reports`, plus
-their static assets, remain public so the browser can render the sign-in form. Data requests stay protected. Enter the
-Server token in that form; the browser keeps it only in the current tab's session storage. Disable both Dashboard and
-Handoff Report if even these sign-in pages must not be exposed.
-
-Dashboard scopes are a UI discovery list, not an authorization boundary. The optional bearer token is Server-wide,
-not per user or per scope. The private Topic Memory support routes accept only configured Dashboard scopes, while the
-public API continues to apply its existing scope contract. A deployment that requires per-user or per-scope access
-control must provide that boundary separately.
-
-Handoff Report is independently enabled by default at `/handoff-reports`. When no scope contains a committed Handoff,
-it shows a data-free template preview. See [Use Handoff Report](../workflows/use-handoff-report.md) for scope discovery,
-inspection, Revision writes, and export.
+Handoff Report API routes are independently enabled by default. See
+[Use Handoff Report](../workflows/use-handoff-report.md) for selection, inspection, and export.
 
 The Artifact Processing Supervisor is enabled by the default `all` role. OceanBase deployments may run `api` and
 `background` separately; `powercontext server run --role background` starts no HTTP, MCP, or Dashboard listener, and
-multiple background candidates use the database Lease to elect one active Leader. SQLite and embedded seekDB support
+multiple background candidates use the database Lease to elect one active Leader. SQLite and embedded seekdb support
 only the single-process `all` role. Automatic Topic Memory waves remain disabled until a positive interval is set;
 explicit flush work remains recoverable regardless of that interval. Topic workers need file-backed SQLite: configuring
 a generation model with an in-memory SQLite database is rejected before processing is advertised. Use a persistent
 `POWERCONTEXT_SERVER_DATABASE_URL`, such as `sqlite+aiosqlite:////srv/powercontext/runtime.db`.
 Memory, Topic Memory, Experience, and Profile all use the Supervisor. OceanBase permits their schedules in split roles.
-SQLite and embedded seekDB retain one `all` host. Every Family has its own quota and timeout in both modes; spare quota
+SQLite and embedded seekdb retain one `all` host. Every Family has its own quota and timeout in both modes; spare quota
 is not shared. Disabling automatic admission preserves already accepted requests. The API and background instances must
 agree on mode, registered Families and trigger capabilities. Model resources are only required by workers. Changing modes
 requires [coordinated offline migration](artifact-processing-migration.md); mixed modes cannot start.
@@ -379,20 +373,19 @@ Setting `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` replaces both automatically genera
 `{"host_id": null, "targets": []}` to disable local discovery and publication. Target IDs must be unique. `agent_kind`
 supports `codex` and `claude_code`; installation scopes are `user`, `project`, and `plugin`. PowerContext scans only the
 immediate Skill package directories under default or explicit targets; it does not infer a user home directory, install
-packages, or grant execution authority. The two generated project targets let users explicitly install from the
-Dashboard. Custom targets default `allow_managed_publish` to `false`; when true, the authenticated Skills Library or
-Review page may explicitly create or safely update an approved managed
-Skill in that target. Publication materializes the exact reviewed package, including scripts and references, without
-executing it or injecting a sidecar into the package. The same pages can safely unpublish only an intact package whose
-binding and tree digest still match; local drift and foreign content remain untouched. The page still cannot submit an
-arbitrary path or overwrite a foreign or modified package. The
+packages, or grant execution authority. Custom targets default `allow_managed_publish` to `false`; when true, an
+explicit publication operation may safely create or update an approved managed Skill in that target. Publication
+materializes the exact reviewed package, including scripts and references, without executing it or injecting a sidecar
+into the package. Unpublication succeeds only for an intact package whose binding and tree digest still match; local
+drift and foreign content remain untouched. Publication cannot submit an arbitrary path or overwrite a foreign or
+modified package. The
 `host_id`, locator, and registration are local-environment state, not a cross-host contract. Existing `codex_roots`
 configuration remains accepted as a Codex-only compatibility form; new configuration should use `targets`.
 
 The optional `environment` object contains only observed, secret-free compatibility facts. Command values are version
 labels, and `environment_names` records names only, never values. PowerContext does not probe or execute package scripts
 to construct this profile. When it is absent, packages containing scripts report unknown compatibility; when present,
-the Skills Library compares known script interpreters with the observed command names and displays a reasoned assessment.
+the Skills Library compares known script interpreters with the observed command names and returns a reasoned assessment.
 The assessment does not grant network, filesystem, dependency-install, or environment access.
 
 The Server always creates non-recording OpenTelemetry request context so `X-PowerContext-Request-ID` can be derived from the

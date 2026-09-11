@@ -41,6 +41,10 @@ The package points compatible agents to:
 http://127.0.0.1:8000/mcp
 ```
 
+For a remote Server, configure the MCP URL in the loading host. This package delegates transport to that host and
+has no PowerContext HTTP client or setup subcommand; `allow_insecure_http` cannot override the host's MCP policy.
+See [Connect to a remote Server](../operate/connect-remote-server.md) for connection and security boundaries.
+
 ## Load it in VS Code
 
 VS Code supports local Agent Plugin directories through `chat.pluginLocations`.

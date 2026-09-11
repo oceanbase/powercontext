@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Embedded seekDB profile using its local runtime and async MySQL socket."""
+"""Embedded seekdb profile using its local runtime and async MySQL socket."""
 
 from __future__ import annotations
 
@@ -43,13 +43,13 @@ _T = TypeVar("_T")
 
 
 class AsyncSeekDBDialect(AsyncOceanBaseDialect):
-    """OceanBase-compatible dialect with seekDB-safe connection shutdown."""
+    """OceanBase-compatible dialect with seekdb-safe connection shutdown."""
 
     supports_statement_cache = AsyncOceanBaseDialect.supports_statement_cache
 
     @override
     def do_close(self, dbapi_connection: DBAPIConnection) -> None:
-        # seekDB resets the socket while aiomysql drains COM_QUIT. SQLAlchemy's
+        # seekdb resets the socket while aiomysql drains COM_QUIT. SQLAlchemy's
         # terminate path handles that reset and falls back to closing the transport.
         self.do_terminate(dbapi_connection)
 
@@ -61,14 +61,14 @@ class _SeekDBInstance(Protocol):
 
 
 class SeekDBUnavailableError(PersistenceError):
-    """Raised when the embedded seekDB binding is unavailable."""
+    """Raised when the embedded seekdb binding is unavailable."""
 
     def __init__(self) -> None:
-        super().__init__("Embedded seekDB requires powercontext[seekdb] on a supported Linux or macOS platform")
+        super().__init__("Embedded seekdb requires powercontext[seekdb] on a supported Linux or macOS platform")
 
 
 class SeekDBConfig(BaseModel):
-    """Validated configuration for one embedded seekDB instance."""
+    """Validated configuration for one embedded seekdb instance."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -82,12 +82,12 @@ class SeekDBConfig(BaseModel):
     @classmethod
     def require_path(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
-            raise ValueError("seekDB path must not be empty")  # noqa: TRY003
+            raise ValueError("seekdb path must not be empty")  # noqa: TRY003
         return value
 
 
 class SeekDBProfile:
-    """An initialized embedded seekDB profile with explicit runtime ownership."""
+    """An initialized embedded seekdb profile with explicit runtime ownership."""
 
     def __init__(self, *, database: AsyncDatabase, tables: tuple[Table, ...]) -> None:
         self.database = database
@@ -101,7 +101,7 @@ class SeekDBProfile:
         *,
         tables: tuple[Table, ...],
     ) -> AsyncIterator[SeekDBProfile]:
-        """Start seekDB locally and connect through its async Unix socket."""
+        """Start seekdb locally and connect through its async Unix socket."""
 
         path = config.path.expanduser().resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -163,7 +163,7 @@ def _create_engine(config: SeekDBConfig, connection_options: Mapping[str, object
     password_value = options.pop("password", None)
     host = str(options.pop("host", "localhost"))
     port_value = options.pop("port", None)
-    # seekDB's handshake currently omits the autocommit status flag, so
+    # seekdb's handshake currently omits the autocommit status flag, so
     # aiomysql otherwise mistakes the default-on session for an explicit
     # transaction and rollback becomes ineffective.
     options["init_command"] = "SET autocommit = 0"

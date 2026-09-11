@@ -40,7 +40,11 @@ from powercontext.cli.env_file import environment_context
 from powercontext.cli.inference_notice import write_inference_capability_notice
 from powercontext.server.authz import PrincipalRef
 from powercontext.server.authz.composition import open_builtin_access_control
-from powercontext.server.configuration import ServerConfigurationError, server_settings_context
+from powercontext.server.configuration import (
+    ServerConfigurationError,
+    resolve_server_environment_file,
+    server_settings_context,
+)
 from powercontext.server.factory import create_server_app
 from powercontext.server.logging import configure_server_logging
 from powercontext.server.processing_security import build_worker_security
@@ -164,6 +168,10 @@ def run(
         Path | None,
         typer.Option(help="Load Server and provider settings from this environment file."),
     ] = None,
+    no_env_file: Annotated[
+        bool,
+        typer.Option("--no-env-file", help="Do not discover or load an environment file."),
+    ] = False,
     role: Annotated[
         Literal["all", "api", "background"] | None,
         typer.Option(help="Run all components, only APIs, or only background processing."),
@@ -171,6 +179,9 @@ def run(
 ) -> None:
     """Run the configured API and/or background service in the foreground."""
 
+    if env_file is not None and no_env_file:
+        raise typer.BadParameter("cannot be combined with --env-file", param_hint="--no-env-file")  # noqa: TRY003
+    selected_env_file = resolve_server_environment_file(env_file, discover=not no_env_file)
     role_context = (
         nullcontext()
         if role is None
@@ -180,12 +191,27 @@ def run(
         )
     )
     try:
-        with role_context, server_settings_context(host=host, port=port, env_file=env_file) as settings:
+        with (
+            role_context,
+            server_settings_context(
+                host=host,
+                port=port,
+                env_file=selected_env_file,
+                process_environment_overrides=True,
+            ) as settings,
+        ):
+            if selected_env_file is not None:
+                typer.echo(f"Loaded environment file: {selected_env_file}")
             _run_configured_server(settings)
     except ServerConfigurationError as error:
         if isinstance(error.cause, ValidationError):
             raise _friendly_bad_parameter(error.cause) from error
-        hint = "Invalid value for --env-file" if env_file is not None else "Invalid Server configuration"
+        if env_file is not None:
+            hint = "Invalid value for --env-file"
+        elif selected_env_file is not None:
+            hint = "Invalid default environment file"
+        else:
+            hint = "Invalid Server configuration"
         typer.echo(f"{hint}: {error}", err=True)
         raise typer.Exit(code=2) from error
     except MissingAuthenticationProviderError as error:
@@ -206,14 +232,6 @@ def _run_configured_server(settings: ServerSettings) -> None:
             _run_background(settings, tracing)
             return
         application = create_server_app(settings=settings, tracing=tracing)
-        if settings.dashboard.enabled:
-            if application.state.dashboard_started:
-                typer.echo(f"PowerContext Dashboard: http://{settings.http.host}:{settings.http.port}/")
-            else:
-                typer.echo(
-                    f"PowerContext Dashboard failed to start: {application.state.dashboard_startup_error}",
-                    err=True,
-                )
         _run_server(
             application,
             host=settings.http.host,

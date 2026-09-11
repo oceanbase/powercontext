@@ -1,9 +1,12 @@
 ---
 title: Install and run
-description: Install PowerContext from Git and run the local Server.
+description: Install PowerContext 1.0.0 RC2 and run the local Server.
 ---
 
 # Install and run
+
+For an Agent connecting from another machine, see [Connect to a remote Server](../operate/connect-remote-server.md)
+for guided URL confirmation, unattended setup, and endpoint-bound HTTP consent.
 
 Start with the [Quick Start](quickstart.md) for your first session. This page covers version selection,
 platforms, installation roles, startup, diagnostics, and updates.
@@ -21,31 +24,38 @@ Embedded seekDB is unavailable on Windows.
 
 ## Choose a version
 
-Keep a released package and integration on the same tag. For example, install `0.2.0`:
+These instructions use PowerContext 1.0.0 RC2 for pre-release testing. Keep the package and Agent integration on
+the same version: package `1.0.0rc2` and Git tag `powercontext-v1.0.0rc2`.
 
 ```bash
-uv tool install "powercontext[cli,server]==0.2.0"
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+powercontext setup codex --ref powercontext-v1.0.0rc2
 ```
 
-The following examples use `master`, including unreleased capabilities. Check the
-[capability matrix](../integrations/capabilities.md); `master_only` and `experimental` capabilities
-are not release guarantees.
+Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status.
+Capabilities marked `experimental` remain experimental in this release candidate.
 
 ## Install the application
 
 You need Python 3.11 or newer, Git, and [`uv`](https://docs.astral.sh/uv/) on macOS, Linux, or Windows. Then install
-PowerContext directly from a Git ref:
+PowerContext from PyPI:
 
 ```bash
-uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
 ```
 
-The command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
+For a source installation of the same version:
+
+```bash
+uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@powercontext-v1.0.0rc2"
+```
+
+The Git command does not leave a repository checkout for you to manage. Git uses its normal credential configuration,
 including credential helpers and SSH settings. For an SSH-based install, replace the HTTPS URL with the Git URL
 approved for your environment. `--force` also refreshes an existing tool from the current commit behind the selected
 Git ref; without it, `uv` may report the same requirement as already installed without fetching a newer `master`.
 
-To install a tested branch or tag, replace `master` after the final `@`.
+To install another branch or tag, replace the ref after the final `@`. The `master` branch can include unreleased changes.
 Follow the [guide for each integration](../integrations/index.md) for Agent installation, connection options, and verification, using the same ref as the Server.
 
 ## Run the local Server
@@ -58,16 +68,39 @@ With no environment variables, the Server:
 
 - binds to `127.0.0.1:8000`;
 - enables Streamable HTTP MCP at `/mcp`;
-- creates a default Scope and enables the Dashboard at `/`;
+- creates a default Scope;
 - creates a persistent SQLite database in the operating system's user data directory;
 - supports explicit Memory operations without an inference provider.
 
-After startup, the terminal prints the Dashboard URL, such as `http://127.0.0.1:8000/`. The Dashboard shares the
-Server listener and port with the HTTP API and MCP. If Dashboard initialization fails, the Server logs a warning with
-the direct cause and continues serving the other interfaces. Set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` to
-disable the Dashboard explicitly.
-
 `Ctrl-C` performs a clean shutdown. Restarting the command reopens the same database.
+
+The Dashboard is an optional content viewer for personal use and demonstrations. It is disabled by default and needs
+no separate frontend installation or model configuration. To enable it, put these settings in a protected environment
+file and replace the token example with your own long random credential:
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+```
+
+```bash
+chmod 600 /path/to/powercontext.env
+powercontext config validate --env-file /path/to/powercontext.env
+powercontext server run --env-file /path/to/powercontext.env
+```
+
+Open `http://127.0.0.1:8000/dashboard/home` and enter the same token. Use the actual port if you change it.
+The token also protects the Server API and MCP, so connected Agents need it too. The CLI does not automatically load
+a directory's `.env` file.
+
+The first sign-in selects the Server default Scope. Pages are empty until content is saved. Save a Memory through an
+Agent or public API, then refresh Memories in the same Scope. Experiences, skills, handoffs, and usage also come from
+saved records. The Dashboard does not capture sessions, run generation, or approve candidates. The Dashboard and Agent
+must use the same Server and Scope.
+
+All token holders use one identity. Multi-user RBAC deployments should leave the Dashboard disabled and use the API,
+MCP, or host integrations. See [Deploy the Server](../operate/deploy-server.md) for network and credential configuration.
 
 This minimal launch does not enable model-backed extraction or vector search. To generate and validate one explicit
 environment file for those capabilities, continue with the
@@ -79,7 +112,7 @@ Embedded seekDB is available on Linux and macOS when a compatible `pylibseekdb` 
 support this embedded backend. Install or replace the tool with the optional seekDB extra:
 
 ```bash
-uv tool install --force "powercontext[cli,server,seekdb] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv tool install --force "powercontext[cli,server,seekdb]==1.0.0rc2"
 ```
 
 When switching from SQLite, remove `POWERCONTEXT_SERVER_DATABASE_URL` from the Server process environment. An explicit
@@ -91,8 +124,9 @@ export POWERCONTEXT_SERVER_DATABASE_KIND=seekdb
 powercontext server run
 ```
 
-The CLI does not search for a `.env` file automatically. Export these values in the shell, configure them in the
-process manager or container, or pass a specific file with `powercontext server run --env-file <path>`.
+`server run` loads `.env` from the current directory when present. Export values in the shell to override that file,
+pass `--env-file <path>` to select another file, or pass `--no-env-file` to ignore environment files. Process managers
+and containers should normally provide an explicit environment instead of relying on their working directory.
 
 PowerContext always uses seekDB's built-in `test` database. Leave `POWERCONTEXT_SERVER_DATABASE_PATH` unset to store
 the instance in the `seekdb` subdirectory of the PowerContext user data directory. If `POWERCONTEXT_HOME` is set, the
@@ -126,7 +160,13 @@ For a long-running process, Docker, authentication, or remote access, continue w
 
 ## Update or replace an installation
 
-To replace the installed tool with a chosen ref:
+To upgrade to 1.0.0 RC2:
+
+```bash
+uv tool install --force "powercontext[cli,server]==1.0.0rc2"
+```
+
+To replace the installed tool with another Git ref:
 
 ```bash
 uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@<ref>"
@@ -141,7 +181,7 @@ changes.
 An application that imports the async Client SDK should add it to that application's environment:
 
 ```bash
-uv add "powercontext[client] @ git+https://github.com/oceanbase/powercontext.git@master"
+uv add "powercontext[client]==1.0.0rc2"
 ```
 
 Use `builtin` for in-process Python composition, `server` for the service, `client` for the Python SDK, or `cli` for

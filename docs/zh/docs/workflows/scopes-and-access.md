@@ -13,7 +13,7 @@ Scope 选择项目上下文边界。其不透明 ID 用于标识数据，不负�
    保留返回的 `scope_id`，不要从目录、仓库名或 Agent 会话 ID 推导它。
 2. 通过宿主的显式 Scope 设置或其支持的持久绑定操作选择该 Scope，具体设置见[宿主指南](../integrations/index.md)。
    没有绑定或显式选择时，宿主可能共用 Server 默认 Scope；切换项目目录本身不会建立隔离。
-3. 保存项目信息前，在 Dashboard 或宿主诊断中检查解析后的 Scope。
+3. 保存项目信息前，在宿主诊断或 API 响应中检查解析后的 Scope。
 
 父子关系用于组织 Scope，显式上下文引用用于描述复用；两者都不授予访问权限。
 精确、子树和全部 Scope 视图改变的是查看范围，不改变调用者权限。
@@ -30,3 +30,8 @@ Scope 选择项目上下文边界。其不透明 ID 用于标识数据，不负�
 
 定时处理需要有权限的后台 Principal。标签查询需要 `scope.read`，修改目标标签遵循目标自身的写权限。
 相关流程见[标签](manage-artifact-tags.md)和 [Scope Profile](use-profiles.md)。
+
+## 团队使用入口
+
+团队通过 API、MCP 或宿主集成使用各自的身份与权限。Dashboard 仅用于静态 token 鉴权的个人和演示部署，
+不作为 RBAC 团队入口；团队部署保持 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false`。

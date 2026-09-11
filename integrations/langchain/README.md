@@ -54,3 +54,10 @@ storage of user and model content: `PowerContextMiddleware(auto_capture=True)`.
 
 Configuration uses `POWERCONTEXT_LANGCHAIN_BASE_URL`, `POWERCONTEXT_LANGCHAIN_TOKEN`,
 `POWERCONTEXT_LANGCHAIN_SCOPE_ID`, `POWERCONTEXT_LANGCHAIN_TIMEOUT`, and `POWERCONTEXT_LANGCHAIN_MAX_BYTES`.
+
+Non-loopback HTTP requires explicit consent: set `POWERCONTEXT_LANGCHAIN_ALLOW_INSECURE_HTTP=true` or
+`allow_insecure_http=True` on `PowerContextLangChainSettings` or `PowerContextScope`. HTTPS certificate validation
+remains enabled. Transport settings resolve from explicit values, host environment, common
+`POWERCONTEXT_CLIENT_SERVER_URL` / `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then the `langchain` entry in
+`~/.config/powercontext/clients.json` (overridden by `POWERCONTEXT_CLIENT_CONFIG_FILE`). A host value of `false`
+overrides common `true`. Saved consent applies only to its saved Server URL; changing a run's URL does not reuse it.

@@ -72,6 +72,7 @@ WORKBUDDY_HOOKS_DIR="${WORKBUDDY_HOOKS_DIR:-$HOME/.workbuddy/hooks}"
 mkdir -p "$WORKBUDDY_HOOKS_DIR"
 cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
    "$PLUGIN"/hooks/workbuddy_settings.py \
+   "$PLUGIN"/hooks/powercontext_client_config.py \
    "$PLUGIN"/hooks/prepared_context.py \
    "$WORKBUDDY_HOOKS_DIR"/
 cp "$PLUGIN/scripts/workspace_scope.py" \
@@ -84,6 +85,7 @@ The resulting layout is:
 <WORKBUDDY_HOOKS_DIR>/
   workbuddy_powercontext_hook.py
   workbuddy_settings.py
+  powercontext_client_config.py
   prepared_context.py
   powercontext_scope_binding.py
 ```
@@ -184,6 +186,7 @@ override the defaults; restart WorkBuddy after changing them.
 | Variable | Purpose |
 | --- | --- |
 | `POWERCONTEXT_WORKBUDDY_SERVER_URL` | PowerContext server URL (default `http://127.0.0.1:8000`). |
+| `POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP` | Explicit non-loopback HTTP consent; overrides common and saved consent, including `false`. |
 | `POWERCONTEXT_WORKBUDDY_AUTHORIZATION` | Complete authorization header, e.g. `Bearer <token>` |
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
@@ -192,11 +195,26 @@ override the defaults; restart WorkBuddy after changing them.
 | `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `4.0`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | Maximum flush calls (default `4`) |
 
-The hook validates its PowerContext MCP URL and derives the HTTP API base by
-removing the final `/mcp` path segment. Change `plugins/powercontext/.mcp.json`
-before installing when the loopback default is not appropriate. MCP URLs cannot
-contain credentials, query strings, or fragments; plain HTTP is accepted only
-for loopback hosts.
+The hook selects its URL from `POWERCONTEXT_WORKBUDDY_SERVER_URL`,
+`POWERCONTEXT_CLIENT_SERVER_URL`, saved settings, then the loopback default.
+It removes a final `/mcp` suffix and rejects credentials, query strings, and
+fragments. HTTPS and loopback HTTP work by default. To persist a non-loopback
+HTTP endpoint and configure the native MCP URL consistently:
+
+```bash
+powercontext setup workbuddy --server-url http://memory.example:8000 --allow-insecure-http
+```
+
+Nonsecret settings are stored under `hosts.workbuddy` in
+`~/.config/powercontext/clients.json`; `POWERCONTEXT_CLIENT_CONFIG_FILE` overrides
+the location. Saved consent applies only to the same normalized endpoint.
+An explicit settings constructor argument overrides the host environment,
+then `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then saved consent. Boolean
+misspellings are rejected, and explicit `false` disables inherited consent.
+
+The guard applies to the PowerContext hook; WorkBuddy owns native MCP transport
+policy. HTTP sends request content and authorization headers without encryption.
+HTTPS certificate verification remains enabled.
 
 ## Runtime behavior
 

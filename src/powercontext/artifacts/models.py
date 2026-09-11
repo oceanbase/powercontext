@@ -44,6 +44,14 @@ class ArtifactRef(BaseModel):
         return value
 
 
+class MemoryCitation(BaseModel):
+    """An exact entry version anchored in its owning Memory Revision."""
+
+    memory_ref: ArtifactRef
+    entry_id: str
+    entry_version_id: str
+
+
 class ArtifactAddress(BaseModel):
     """A complete address for one exact Artifact revision across Scope boundaries."""
 
@@ -67,6 +75,7 @@ class ArtifactLineage(BaseModel):
 
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] = ()
     publication_source: ArtifactAddress | None = None
     publication_digest: str | None = None
 
@@ -85,10 +94,13 @@ class ArtifactDraft(BaseModel, Generic[ContentT]):
     content: ContentT
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+    memory_citations: tuple[MemoryCitation, ...] = ()
 
     @model_validator(mode="after")
     def validate_family(self):
         _validate_reference_part("family", self.family)
+        if self.memory_citations and self.family != "experience":
+            raise ValueError("only Experience accepts direct Memory citations")  # noqa: TRY003
         return self
 
 
@@ -101,6 +113,12 @@ class Artifact(BaseModel, Generic[ContentT]):
     revision: StrictInt = Field(ge=1)
     content: ContentT
     lineage: ArtifactLineage = Field(default_factory=ArtifactLineage)
+
+    @model_validator(mode="after")
+    def validate_entry_lineage(self):
+        if self.lineage.memory_citations and self.family != "experience":
+            raise ValueError("only Experience accepts direct Memory citations")  # noqa: TRY003
+        return self
 
     @field_validator("artifact_id")
     @classmethod

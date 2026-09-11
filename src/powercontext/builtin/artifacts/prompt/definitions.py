@@ -51,7 +51,7 @@ class PromptDefinition:
     invariant_instructions: str
     default_instructions: str
     builtin_profile: Literal["coding", "conversation"] | None = None
-    noop_field: Literal["candidates", "proposal"] | None = None
+    noop_field: Literal["candidates", "proposal", "content"] | None = None
 
     def __post_init__(self) -> None:
         versions_and_guidance = (

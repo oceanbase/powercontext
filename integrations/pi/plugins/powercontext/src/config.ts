@@ -14,9 +14,12 @@
  * limitations under the License.
  */
 
+import { resolveTransport } from './transport.ts'
+
 export interface ResolvedConfig {
   contextAssembly?: Record<string, unknown>
   baseUrl: string
+  allowInsecureHttp: boolean
   scopeId: string | undefined
   authorization: string | undefined
   capturePrompts: boolean
@@ -29,6 +32,7 @@ export interface ResolvedConfig {
 
 const DEFAULTS: ResolvedConfig = {
   baseUrl: 'http://127.0.0.1:8000',
+  allowInsecureHttp: false,
   scopeId: undefined,
   authorization: undefined,
   capturePrompts: true,
@@ -82,45 +86,8 @@ function envInteger(
   return value
 }
 
-function isIpv4Loopback(host: string): boolean {
-  const octets = host.split('.')
-  if (octets.length !== 4) return false
-  if (!octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)) return false
-  // The whole 127.0.0.0/8 block is loopback, not just 127.0.0.1.
-  return octets[0] === '127'
-}
-
-function isLoopback(hostname: string): boolean {
-  // Mirror the shared `is_loopback_host` transport contract (src/powercontext/transport.py): trim,
-  // lowercase, drop the IPv6 brackets that URL.hostname keeps, then accept `localhost`, the whole
-  // IPv4 127.0.0.0/8 block, and IPv6 ::1. Drift here is pinned by transport-policy.spec.ts, which
-  // shares its host vectors with the Python drift guard.
-  const normalized = hostname.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
-  if (!normalized) return false
-  if (normalized === 'localhost' || normalized === '::1') return true
-  return isIpv4Loopback(normalized)
-}
-
-function normalizeBaseUrl(value: string): string {
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    throw new Error('POWERCONTEXT_PI_BASE_URL must be a valid HTTP(S) URL')
-  }
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error('POWERCONTEXT_PI_BASE_URL must use HTTP or HTTPS')
-  }
-  if (url.username || url.password || url.search || url.hash) {
-    throw new Error('POWERCONTEXT_PI_BASE_URL must not contain credentials, a query, or a fragment')
-  }
-  if (url.protocol === 'http:' && !isLoopback(url.hostname)) {
-    throw new Error('POWERCONTEXT_PI_BASE_URL must use HTTPS outside loopback')
-  }
-  return url.toString().replace(/\/+$/, '')
-}
-
 export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig {
+  const transport = resolveTransport('pi', env, undefined, undefined, DEFAULTS.baseUrl)
   const requestTimeoutMs = envInteger(env, 'POWERCONTEXT_PI_REQUEST_TIMEOUT_MS', DEFAULTS.requestTimeoutMs, 50, 30_000)
   const httpBudgetMs = envInteger(env, 'POWERCONTEXT_PI_HTTP_BUDGET_MS', DEFAULTS.httpBudgetMs, 100, 60_000)
   if (requestTimeoutMs > httpBudgetMs) {
@@ -128,7 +95,8 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
   }
   return {
     contextAssembly: contextAssembly(envString(env, 'POWERCONTEXT_PI_CONTEXT_ASSEMBLY')),
-    baseUrl: normalizeBaseUrl(envString(env, 'POWERCONTEXT_PI_BASE_URL') ?? DEFAULTS.baseUrl),
+    baseUrl: transport.baseUrl!,
+    allowInsecureHttp: transport.allowInsecureHttp,
     scopeId: envString(env, 'POWERCONTEXT_PI_SCOPE_ID'),
     authorization: envString(env, 'POWERCONTEXT_PI_AUTHORIZATION'),
     capturePrompts: envBoolean(env, 'POWERCONTEXT_PI_CAPTURE_PROMPTS') ?? DEFAULTS.capturePrompts,

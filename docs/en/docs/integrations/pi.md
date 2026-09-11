@@ -13,7 +13,7 @@ description: Install the native PowerContext package for Pi and control recall, 
 Install Pi, then install the package from the same PowerContext ref as the CLI:
 
 ```bash
-powercontext setup pi --source oceanbase/powercontext --ref master
+powercontext setup pi
 ```
 
 A local checkout works as well:
@@ -96,8 +96,9 @@ export POWERCONTEXT_PI_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
 pi
 ```
 
-Do not put credentials in `POWERCONTEXT_PI_BASE_URL`. The package accepts plain HTTP only for loopback Servers; use
-HTTPS for any remote Server.
+Do not put credentials in `POWERCONTEXT_PI_BASE_URL`. Plain HTTP is allowed on loopback by default. For a non-loopback
+Server, use HTTPS or explicitly set `POWERCONTEXT_PI_ALLOW_INSECURE_HTTP=true`; HTTPS certificate validation stays enabled.
+See [Connect to a remote Server](../operate/connect-remote-server.md) for setup and saved consent.
 
 ## Verify the installation
 
@@ -113,7 +114,8 @@ changing PowerContext environment variables.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL; non-loopback endpoints must use HTTPS |
+| `POWERCONTEXT_PI_BASE_URL` | `http://127.0.0.1:8000` | Server base URL |
+| `POWERCONTEXT_PI_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_PI_SCOPE_ID` | unset | Explicit existing Scope before workspace binding and Server default |
 | `POWERCONTEXT_PI_AUTHORIZATION` | unset | Complete `Bearer <token>` header for package HTTP requests |
 | `POWERCONTEXT_PI_CAPTURE_PROMPTS` | `true` | Capture eligible user prompts as Source evidence |

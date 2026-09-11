@@ -270,6 +270,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
     properties = schemas["Capabilities"]["properties"]
 
     assert set(properties) == {
+        "artifact_dreaming",
         "source_types",
         "artifact_families",
         "memory_extraction",

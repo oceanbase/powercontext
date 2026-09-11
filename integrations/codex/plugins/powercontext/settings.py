@@ -17,10 +17,14 @@
 from __future__ import annotations
 
 import ipaddress
+import json
+import os
+import stat
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
+from powercontext_client_config import parse_boolean, resolve_allow_insecure_http
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
@@ -46,7 +50,7 @@ def _is_loopback_host(host: str) -> bool:
 
 
 class _McpEndpoint(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     type: Literal["http"]
     url: str
@@ -55,14 +59,14 @@ class _McpEndpoint(BaseModel):
 
     @model_validator(mode="after")
     def validate_url(self) -> _McpEndpoint:
-        _http_base_url(self.url)
+        _http_base_url(self.url, allow_insecure_http=True)
         if self.env_http_headers != _AUTHORIZATION_ENVIRONMENT:
             raise ValueError("MCP authorization must use the PowerContext Codex environment")  # noqa: TRY003
         return self
 
 
 class _McpConfiguration(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     mcp_servers: dict[str, _McpEndpoint] = Field(alias="mcpServers")
 
@@ -84,7 +88,9 @@ class _McpEndpointSettingsSource(PydanticBaseSettingsSource):
 
     @override
     def __call__(self) -> dict[str, Any]:
-        return {"server_url": _server_url_from_mcp_configuration()}
+        server_url = _server_url_from_mcp_configuration()
+        authorization = _stored_authorization(server_url)
+        return {"server_url": server_url, **({"authorization": authorization} if authorization else {})}
 
 
 class CodexPluginSettings(BaseSettings):
@@ -98,6 +104,7 @@ class CodexPluginSettings(BaseSettings):
     )
 
     server_url: str = Field(default="", repr=False)
+    allow_insecure_http: bool | None = None
     authorization: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = None
     context_assembly: dict[str, Any] | None = None
@@ -106,6 +113,22 @@ class CodexPluginSettings(BaseSettings):
     request_timeout_seconds: float = Field(default=1.0, gt=0)
     http_budget_seconds: float = Field(default=4.0, gt=0)
     flush_max_calls: int = Field(default=4, ge=1, le=16)
+
+    @field_validator("allow_insecure_http", mode="before")
+    @classmethod
+    def validate_http_consent(cls, value: object) -> bool | None:
+        return None if value is None else parse_boolean(value)
+
+    @model_validator(mode="after")
+    def validate_transport(self) -> CodexPluginSettings:
+        self.allow_insecure_http = resolve_allow_insecure_http(
+            self.server_url,
+            host="codex",
+            host_environment="POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP",
+            explicit=self.allow_insecure_http,
+        )
+        _http_base_url(f"{self.server_url}/mcp", allow_insecure_http=self.allow_insecure_http)
+        return self
 
     @field_validator("server_url")
     @classmethod
@@ -160,10 +183,39 @@ class CodexPluginSettings(BaseSettings):
 
 def _server_url_from_mcp_configuration() -> str:
     configuration = _McpConfiguration.model_validate_json(_MCP_CONFIGURATION_PATH.read_text())
-    return _http_base_url(configuration.mcp_servers["powercontext"].url)
+    return _http_base_url(configuration.mcp_servers["powercontext"].url, allow_insecure_http=True)
 
 
-def _http_base_url(mcp_url: str) -> str:
+def _stored_authorization(server_url: str) -> str | None:
+    path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser() / "powercontext" / "credentials.json"
+    try:
+        if path.is_symlink() or not path.is_file() or (os.name != "nt" and stat.S_IMODE(path.stat().st_mode) & 0o077):
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            return None
+        stored_url, authorization = payload.get("server_url"), payload.get("authorization")
+        if not isinstance(stored_url, str) or not isinstance(authorization, str):
+            return None
+        if _http_base_url(f"{stored_url.rstrip('/')}/mcp", allow_insecure_http=True) != _http_base_url(
+            server_url, allow_insecure_http=True
+        ):
+            return None
+        scheme, separator, credential = authorization.partition(" ")
+        if (
+            scheme.casefold() != "bearer"
+            or not separator
+            or not credential
+            or any(character.isspace() for character in credential)
+        ):
+            return None
+        else:
+            return authorization
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _http_base_url(mcp_url: str, *, allow_insecure_http: bool = False) -> str:
     normalized = mcp_url.rstrip("/")
     parsed = urlsplit(normalized)
     if parsed.username is not None or parsed.password is not None:
@@ -172,7 +224,7 @@ def _http_base_url(mcp_url: str) -> str:
         raise ValueError("PowerContext MCP URL must use HTTP or HTTPS")  # noqa: TRY003
     if parsed.query or parsed.fragment:
         raise ValueError("PowerContext MCP URL must not contain a query or fragment")  # noqa: TRY003
-    if parsed.scheme == "http" and not _is_loopback_host(parsed.hostname):
+    if parsed.scheme == "http" and not _is_loopback_host(parsed.hostname) and not allow_insecure_http:
         raise ValueError("unencrypted PowerContext MCP URLs must be loopback addresses")  # noqa: TRY003
     mcp_path = parsed.path.rstrip("/")
     if not mcp_path.endswith("/mcp"):

@@ -63,6 +63,9 @@ For access from another machine:
 
 The built-in command serves HTTP and has no TLS options. Terminate HTTPS outside PowerContext.
 
+Configure the Agent on the client machine using [Connect to a remote Server](connect-remote-server.md).
+Its `--allow-insecure-http` option is client-side and does not change the Server listener or authentication.
+
 ## Run from an installed tool
 
 Install PowerContext as described in [Install and run](../get-started/install-and-run.md), then choose a persistent data directory:
@@ -75,8 +78,9 @@ powercontext server run
 The process must be able to create and update this directory. The default SQLite database and scheduler state are
 stored below it. Supply the same environment variables whenever your service manager restarts the process.
 
-PowerContext does not search for a `.env` file automatically. Export the variables, configure them in the service
-manager or container platform, or pass one explicit file:
+`server run` loads `.env` from its current directory when present. Managed deployments should export the variables,
+configure them in the service manager or container platform, or pass one explicit file so startup does not depend on
+the working directory:
 
 ```bash
 powercontext config validate --env-file /etc/powercontext/powercontext.env
@@ -87,9 +91,9 @@ The successful installation summary prints the environment file actually used. I
 read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
 disabled by default, so no token is generated automatically.
 
-The file may contain provider credentials or a bearer token, so restrict it to the Server operator. Values in the
-file override same-named process values; inherited `POWERCONTEXT_SERVER_*` variables that are absent from the file
-are ignored. `config init` creates a model-free base configuration; see [Enable extraction and vector search](../get-started/configure-models.md)
+The file may contain provider credentials or a bearer token, so restrict it to the Server operator. For `server run`,
+process environment variables override same-named file values. `config init` creates a model-free base configuration; see
+[Enable extraction and vector search](../get-started/configure-models.md)
 when you need to add inference models and enable the full capability set.
 
 Whether the Server runs in the foreground, in Docker, or as a personal service, startup or installation output warns
@@ -148,9 +152,18 @@ docker run --rm \
 Clients then send `Authorization: Bearer <token>`. The liveness and readiness endpoints remain public so an
 orchestrator can probe them. API, MCP, metrics, and `/openapi.json` require authentication. The `/docs` shell remains
 public, but requests made from the interactive reference require authentication.
-The Server's web-page shells and static assets remain public so they can show a sign-in form; they do not return
-protected data without the token. Open the Dashboard, Skills, Review, or Handoff Report page and enter the same token
-there. It remains in the current browser tab's session storage rather than being added to the URL.
+
+Personal or demonstration deployments can additionally set `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true` to expose
+`/dashboard/home` on the same port. It requires the static Bearer configuration above; startup fails clearly without a
+token. Browser sign-in uses the Server token, not a model API key. Credentials are stored in an HttpOnly,
+SameSite=Strict Cookie restricted to `/dashboard`, for up to eight hours. HTTPS sets Secure. Reverse proxies must
+preserve the external scheme and host for the sign-in same-origin check.
+
+All holders of the static token share one administrator identity. The Dashboard does not support multi-user RBAC or
+provide accounts, SSO, invitations, or grant management. Deployments injecting an Authentication Provider or
+AccessControlService must disable the Dashboard; an incompatible enabled configuration is rejected at startup.
+Disabling it does not affect team API or MCP access. For personal setup, see
+[Install and run](../get-started/install-and-run.md).
 
 ## Check the deployment
 

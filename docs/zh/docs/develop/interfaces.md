@@ -67,9 +67,8 @@ Claim 和 check 要么是没有 evidence 的 `declared`，要么是拥有同 sco
 
 Handoff Report 是 Scope selection 上的只读投影。`all` 包含全部 Scope，`exact` 只包含列出的 Scope ID，`subtree`
 包含一个组织根及其全部后代。每个选中 Scope 提供 latest exact Handoff address，或者明确的 `no_handoff`；Parent 不会
-隐式授予 Context 可见性。Codex 会把普通 Agent 的报告读取固定为当前 Session Scope；更宽的 selection 由 host 和
-Dashboard 使用。
-报告 UI 见[使用 Handoff Report](../workflows/use-handoff-report.md)。
+隐式授予 Context 可见性。Codex 会把普通 Agent 的报告读取固定为当前 Session Scope；显式 HTTP client 可以请求更宽的
+selection。报告 API 见[使用 Handoff Report](../workflows/use-handoff-report.md)。
 
 ## DeepSeek Harness 插件
 
@@ -117,8 +116,8 @@ Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久
 运行带 Scope 的内容命令前，将 `POWERCONTEXT_SCOPE_ID` 设置为 `create_scope` 返回的已有 ID。
 
 ```text
-powercontext setup <host> --source oceanbase/powercontext --ref master
-powercontext setup select --host codex --host dsh --source oceanbase/powercontext --ref master
+powercontext setup <host>
+powercontext setup select --host codex --host dsh
 powercontext config init --output .env
 powercontext config show --env-file .env
 powercontext config validate --env-file .env

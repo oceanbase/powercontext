@@ -1,0 +1,43 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="handoff-view">
+<style>
+  me .handoff-list { min-height: 65dvh; }
+</style>
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/pagination.html' import pagination %}
+{{ page_heading(t.handoff, t.handoff_subtitle) }}
+{% from 'components/read-error.html' import read_error with context %}
+{% if errors.get('handoff') %}{{ read_error(errors.handoff, t.handoff) }}{% endif %}
+<div class="handoff-list d-flex flex-column">
+{% for record in collections.get('handoff', {}).get('items', []) %}
+{% if 'error' not in record %}
+<section class="card mb-3"><div class="card-body">
+  <div class="section-heading d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"><span>{{ t.handoff_saved }}</span><span>{{ t.revision }} {{ record.revision }}</span></div>
+  <h2><a class="text-reset" href="{{ link('handoff-detail', artifact=record.artifact_id, revision=record.revision) }}">{{ record.objective|truncate(120, true) }}</a></h2>
+  <p>{{ record.state[0].text|truncate(160, true) }}</p>
+  <h3>{{ t.next_action }}</h3><p>{{ record.next_action.text|truncate(160, true) if record.next_action else t.no_next_action }}</p>
+  <a href="{{ link('handoff-detail', artifact=record.artifact_id, revision=record.revision) }}">{{ t.read_handoff }}</a>
+</div></section>
+{% endif %}
+{% else %}
+{% if not errors.get('handoff') %}<section class="card flex-fill"><div class="empty"><h2>{{ t.handoff_empty }}</h2><p>{{ t.handoff_empty_body }}</p></div></section>{% endif %}
+{% endfor %}
+</div>
+{{ pagination(collections.get('handoff', {}).get('pager'), t) }}
+
+</div>

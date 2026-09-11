@@ -170,7 +170,7 @@ capabilities, and each Artifact Family's enabled state.
 Cross-Scope Artifact publication uses `POST /v1/artifact-publications`. The request selects an exact source Revision,
 but authorization checks `artifact.share` on its logical `{family, artifact_id}` identity and `scope.admin` on the
 target Scope. Consequently, one logical sharing grant covers earlier and later source Revisions while every
-publication still records the exact copied Revision and its provenance. Host-local Dashboard projection remains an
+publication still records the exact copied Revision and its provenance. Host-local projection remains an
 operational surface protected by the corresponding Scope and Artifact checks.
 
 Prompt publication returns `422 / artifact_publication_unsupported` without creating a target Artifact. To configure
@@ -184,7 +184,7 @@ require `artifact.write`; package manifest/download requires `artifact.read`; pa
 `scope.contribute` and `artifact.read`. Remote target administration requires `scope.admin`, while publishing an exact
 Revision also requires `artifact.read` for that Skill. The enrollment endpoint is protected by its one-time code, and
 Receiver reconcile/download/receipt endpoints use the separately issued `TargetBearerAuth` credential instead of a
-user Principal. Dashboard data routes apply the corresponding Access checks before scope lookup, package inspection,
+user Principal. Public API routes apply the corresponding Access checks before scope lookup, package inspection,
 target lookup, or filesystem work.
 
 The built-in static token represents one local administrator and cannot model different A/B users. A real multi-user

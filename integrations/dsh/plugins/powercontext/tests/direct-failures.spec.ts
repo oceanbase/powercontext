@@ -258,7 +258,7 @@ describe('registered /pc command routing', () => {
   it('keeps bare status available and redacts endpoint secrets when Scope fails', async () => {
     const h = fixture(
       async () => domainResponse(404, 'scope_not_found'),
-      'http://user:private-response-marker@example.test/prefix?token=private-response-marker#private-response-marker',
+      'https://example.test/private-response-marker',
     )
     h.runtime.config.scopeId = 'configured-but-unresolved'
     const result = await h.command('')
@@ -268,7 +268,7 @@ describe('registered /pc command routing', () => {
     expect(result.text).toContain('/pc doctor')
     expect(result.text).not.toContain(PRIVATE)
     expect(result.text).not.toContain('configured-but-unresolved')
-    expect(h.calls.map(call => call.path)).toEqual(['/prefix'])
+    expect(h.calls.map(call => call.path)).toEqual(['/private-response-marker' + RESOLVE_PATH])
   })
 
   it('contains a scoped command failure without writing or selecting another Scope', async () => {

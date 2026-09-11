@@ -56,7 +56,7 @@ _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-claude-code-plugin/0.1.0",
+    "User-Agent": "powercontext-claude-code-plugin/0.1.1",
 }
 _FAILURE_OUTCOMES = frozenset({"authentication_failed", "version_mismatch", "server_unavailable", "invalid_response"})
 

@@ -341,7 +341,13 @@ def _with_candidate_evidence_limits(source: str, model_names: tuple[str, ...]) -
             raise ContractGenerationError("generated model class", model_name)  # noqa: TRY003
         next_class = updated.find("\nclass ", start + len(class_header))
         insert_at = next_class if next_class >= 0 else len(updated.rstrip())
-        updated = f"{updated[:insert_at].rstrip()}\n{_CANDIDATE_EVIDENCE_VALIDATOR.rstrip()}\n\n{updated[insert_at:].lstrip()}"
+        validator = _CANDIDATE_EVIDENCE_VALIDATOR
+        if "    memory_citations:" in updated[start:insert_at]:
+            validator = validator.replace(
+                "len(self.source_refs) + len(self.artifact_refs)",
+                "len(self.source_refs) + len(self.artifact_refs) + len(self.memory_citations or ())",
+            )
+        updated = f"{updated[:insert_at].rstrip()}\n{validator.rstrip()}\n\n{updated[insert_at:].lstrip()}"
     formatter = CodeFormatter(
         python_version=PythonVersion.PY_311,
         formatters=[Formatter.RUFF_FORMAT, Formatter.RUFF_CHECK],
@@ -410,11 +416,16 @@ def _success_response(
     successes = [
         (int(code), response) for code, response in responses.items() if code.isdecimal() and 200 <= int(code) < 300
     ]
-    if len(successes) != 1:
+    if not successes:
         raise ContractGenerationError("success response", path)  # noqa: TRY003
     success_status, response = successes[0]
     if not isinstance(response, Response):
         raise ContractGenerationError("success response reference", path)  # noqa: TRY003
+    # Idempotent asynchronous operations can return accepted or terminal state
+    # with the same response model. The first status is the route's default.
+    for _, alternative in successes[1:]:
+        if not isinstance(alternative, Response) or alternative.content != response.content:
+            raise ContractGenerationError("success response schema", path)  # noqa: TRY003
     return success_status, response
 
 

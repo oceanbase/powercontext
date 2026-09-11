@@ -154,6 +154,42 @@ def test_codex_settings_normalize_the_mcp_path_to_http_base(
     assert settings_module._http_base_url("https://memory.example/api/mcp/") == "https://memory.example/api"
 
 
+@pytest.mark.parametrize(
+    "record",
+    [[], {"version": 1}, {"version": 1, "server_url": "http://127.0.0.1:8000"}],
+)
+def test_codex_settings_ignore_malformed_persisted_authorization_records(
+    settings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    record: object,
+) -> None:
+    credential = tmp_path / "powercontext" / "credentials.json"
+    credential.parent.mkdir()
+    credential.write_text(json.dumps(record), encoding="utf-8")
+    credential.chmod(0o600)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+
+    assert settings_module._stored_authorization("http://127.0.0.1:8000") is None
+
+
+def test_codex_settings_match_persisted_base_url_with_mcp_endpoint(
+    settings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    credential = tmp_path / "powercontext" / "credentials.json"
+    credential.parent.mkdir()
+    credential.write_text(
+        json.dumps({"version": 1, "server_url": "http://127.0.0.1:8000", "authorization": "Bearer saved"}),
+        encoding="utf-8",
+    )
+    credential.chmod(0o600)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+
+    assert settings_module._stored_authorization("http://127.0.0.1:8000/mcp") == "Bearer saved"
+
+
 def test_codex_hooks_fix_session_and_data_plane_bindings() -> None:
     configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
 

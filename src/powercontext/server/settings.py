@@ -143,6 +143,12 @@ class BearerAuthConfig(BaseModel):
         return self
 
 
+class DashboardConfig(BaseModel):
+    """Optional personal and demonstration UI using static Bearer authentication."""
+
+    enabled: bool = False
+
+
 class AccessControlConfig(BaseModel):
     """Server security profile and deployment-local authorization identity."""
 
@@ -150,12 +156,6 @@ class AccessControlConfig(BaseModel):
     deployment_id: str = Field(default="powercontext", min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")
     background_principal_id: str | None = Field(default=None, min_length=1, max_length=255)
     background_principal_description: str | None = Field(default=None, min_length=1, max_length=255)
-
-
-class DashboardConfig(BaseModel):
-    """Personal Dashboard served by the local Server."""
-
-    enabled: bool = True
 
 
 class ServerLoggingConfig(BaseModel):
@@ -202,9 +202,9 @@ class ServerSettings(BaseSettings):
     allow_insecure_http: bool = False
     mcp: McpConfig = Field(default_factory=McpConfig)
     auth: BearerAuthConfig = Field(default_factory=BearerAuthConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     access: AccessControlConfig = Field(default_factory=AccessControlConfig)
     allow_unauthenticated_non_loopback: bool = False
-    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     logging: ServerLoggingConfig = Field(default_factory=ServerLoggingConfig)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     tracing: TracingConfig = Field(default_factory=TracingConfig)
@@ -308,6 +308,10 @@ class ServerSettings(BaseSettings):
             raise ValueError("ACCESS_BACKGROUND_PRINCIPAL_DESCRIPTION requires BACKGROUND_PRINCIPAL_ID")  # noqa: TRY003
         if self.auth.enabled:
             self.access.mode = "enforced"
+        if self.dashboard.enabled and (
+            self.access.mode != "enforced" or self.auth.token is None or not self.auth.token.get_secret_value()
+        ):
+            raise ValueError("DASHBOARD_ENABLED requires ACCESS_MODE=enforced and AUTH_TOKEN")  # noqa: TRY003
         if self.access.mode == "disabled" and self.auth.token is not None:
             raise ValueError("AUTH_TOKEN requires ACCESS_MODE=enforced or legacy AUTH_ENABLED=true")  # noqa: TRY003
         if self.access.mode == "disabled" and self.access.background_principal_id is not None:
@@ -320,7 +324,7 @@ class ServerSettings(BaseSettings):
             raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
         if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
             raise ValueError(  # noqa: TRY003
-                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
+                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekdb"
             )
         return self
 

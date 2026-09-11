@@ -47,11 +47,6 @@ def test_r8_e0_runs_the_complete_hermetic_topic_product_chain(tmp_path: Path) ->
     assert chain["search"]["mode"] == "hybrid"
     assert chain["prepared_context"]["full_detail_absent"] is True
     assert chain["mcp"]["tools"] == ["search_topic_memory", "get_topic_memory"]
-    assert chain["web"]["routes"] == [
-        "/topics",
-        "/dashboard/topic-memories/list",
-        "/dashboard/topic-memories/get",
-    ]
     cleanup = cast(dict[str, Any], report["cleanup"])
     assert cleanup == {
         "powercontext_port_closed": True,
@@ -170,13 +165,12 @@ def test_worker_failure_capture_cannot_be_reported_as_pass() -> None:
         require_no_worker_failures("E1", failures)
 
 
-def test_e1_codex_generation_plugin_and_browser_subprocesses_exclude_layer_secrets(
+def test_e1_codex_generation_and_plugin_subprocesses_exclude_layer_secrets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     embedding_secret = "r8-embedding-authorization-secret"  # noqa: S105 - synthetic canary.
     oceanbase_secret = "r8-oceanbase-password-secret"  # noqa: S105 - synthetic canary.
-    browser_token = "r8-browser-token"  # noqa: S105 - synthetic canary.
     source_environment = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path / "home"),
@@ -237,21 +231,6 @@ def test_e1_codex_generation_plugin_and_browser_subprocesses_exclude_layer_secre
         1,
     )
     harness._install_current_plugin(codex_home=codex_home, environment=environment, timeout=1)
-    monkeypatch.setattr(harness, "_browser_python", lambda: Path("/synthetic/playwright-python"))
-    monkeypatch.setattr(harness, "_browser_executable", lambda: Path("/synthetic/chromium"))
-    browser = harness._capture_browser_evidence(
-        directory=tmp_path,
-        base_url="http://127.0.0.1:1",
-        token=browser_token,
-        artifact_ref="topic:test@1",
-        source_ref="content:test",
-        environment=environment,
-    )
-
-    assert browser["status"] == "PASS"
-    assert len(observed_environments) == 5
-    assert observed_environments[-1]["POWERCONTEXT_R8_BROWSER_TOKEN"] == browser_token
-    assert observed_environments[-1]["POWERCONTEXT_R8_BROWSER_EXECUTABLE"] == "/synthetic/chromium"
     for observed in observed_environments:
         encoded = json.dumps(observed, sort_keys=True)
         assert "POWERCONTEXT_R8_EMBEDDING_HEADERS_JSON" not in observed

@@ -1,0 +1,42 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% macro record_references(record, family) %}
+{% if record.artifact_id or record.sources or record.artifacts or caller is defined %}
+<footer class="record-references text-secondary border-top pt-3">
+  <style>
+    me { overflow-wrap: anywhere; }
+  </style>
+  {% if caller is defined %}{{ caller() }}{% endif %}
+  {% if record.artifact_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ family }}/{{ record.artifact_id }}{% if record.revision %}@{{ record.revision }}{% endif %}</code>{% endif %}
+  {% for source in record.sources if source.source_id %}<code class="d-block text-reset bg-transparent p-0 mb-2">{{ source.source_type }}/{{ source.source_id }}</code>{% endfor %}
+  {% set pages = {'experience': 'experience', 'skill': 'skill', 'handoff': 'handoff-detail'} %}
+  {% for artifact in record.artifacts if artifact.artifact_id %}
+    {% if artifact.family in pages and artifact.revision %}
+    <a class="d-block mb-2" href="{{ link(pages[artifact.family], artifact=artifact.artifact_id, revision=artifact.revision) }}"><code class="text-reset bg-transparent p-0">{{ artifact.family }}/{{ artifact.artifact_id }}@{{ artifact.revision }}</code></a>
+    {% else %}
+    <code class="d-block text-reset bg-transparent p-0 mb-2">{{ artifact.family }}/{{ artifact.artifact_id }}{% if artifact.revision %}@{{ artifact.revision }}{% endif %}</code>
+    {% endif %}
+  {% endfor %}
+  {% if record.memory_citations %}
+  <p class="mb-2">{{ t.memory_citations }}</p>
+  {% for citation in record.memory_citations %}
+  <a class="d-block mb-2" href="{{ link('notes', entry=citation.entry_id, memory_id=citation.memory_ref.artifact_id, memory_revision=citation.memory_ref.revision, entry_version=citation.entry_version_id) }}"><code class="text-reset bg-transparent p-0">memory/{{ citation.memory_ref.artifact_id }}@{{ citation.memory_ref.revision }} · {{ citation.entry_id }} · {{ citation.entry_version_id }}</code></a>
+  {% endfor %}
+  {% endif %}
+</footer>
+{% endif %}
+{% endmacro %}

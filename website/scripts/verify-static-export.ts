@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import { readdir, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { absoluteSiteUrl, basePath, withBasePath } from '../src/lib/urls';
 
 const websiteDirectory = path.resolve('.');
 const repositoryDirectory = path.resolve(websiteDirectory, '..');
@@ -84,8 +85,9 @@ if (missingRequiredRoutes.length > 0 || missingRfcRoutes.length > 0 || missingDe
 }
 
 const brokenLinks = new Set<string>();
+const missingAssets = new Set<string>();
 for (const [route, document] of exportedDocuments) {
-  const pageUrl = new URL(route === '/' ? '/' : `${route}/`, 'https://powercontext.oceanbase.io');
+  const pageUrl = new URL(absoluteSiteUrl(route === '/' ? '/' : `${route}/`));
   const markup = renderedMarkup(document);
 
   for (const match of markup.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)) {
@@ -93,13 +95,42 @@ for (const [route, document] of exportedDocuments) {
     const target = new URL(href, pageUrl);
     if (target.origin !== pageUrl.origin) continue;
 
-    const targetRoute = normalizeRoute(decodeURIComponent(target.pathname));
+    const targetPath = decodeURIComponent(target.pathname);
+    if (basePath && targetPath !== basePath && !targetPath.startsWith(`${basePath}/`)) {
+      brokenLinks.add(`${route} -> ${targetPath} (outside deployment base path)`);
+      continue;
+    }
+    const targetRoute = normalizeRoute(targetPath.slice(basePath.length) || '/');
     if (!exportedDocuments.has(targetRoute)) brokenLinks.add(`${route} -> ${targetRoute}`);
+  }
+
+  for (const match of document.matchAll(/<(?:img|script)\b[^>]*\bsrc="([^"]+)"|<link\b[^>]*\bhref="([^"]+)"/g)) {
+    const href = (match[1] || match[2]).replaceAll('&amp;', '&');
+    const target = new URL(href, pageUrl);
+    if (target.origin === pageUrl.origin && target.pathname.endsWith('/_next/image')) {
+      missingAssets.add(`${route} -> ${target.pathname} (image optimizer is unavailable on a static host)`);
+      continue;
+    }
+    if (target.origin !== pageUrl.origin || !/\.(?:png|svg|webp|ico|jpg|jpeg|css|js)$/.test(target.pathname)) continue;
+    const targetPath = decodeURIComponent(target.pathname);
+    if (basePath && !targetPath.startsWith(`${basePath}/`)) {
+      missingAssets.add(`${route} -> ${targetPath} (outside deployment base path)`);
+      continue;
+    }
+    try {
+      await access(path.join(outputDirectory, targetPath.slice(basePath.length)));
+    } catch {
+      missingAssets.add(`${route} -> ${targetPath}`);
+    }
   }
 }
 
 if (brokenLinks.size > 0) {
   throw new Error(`Public pages contain broken internal links:\n${[...brokenLinks].sort().join('\n')}`);
+}
+
+if (missingAssets.size > 0) {
+  throw new Error(`Public pages contain missing local assets:\n${[...missingAssets].sort().join('\n')}`);
 }
 
 const rootDocument = exportedDocuments.get('/')!;
@@ -109,11 +140,10 @@ const docsDocuments = {
   en: exportedDocuments.get('/en/docs')!,
   zh: exportedDocuments.get('/zh/docs')!,
 };
-const siteUrl = 'https://powercontext.oceanbase.io';
 const homeAlternates = [
-  `<link rel="alternate" hrefLang="en" href="${siteUrl}/"`,
-  `<link rel="alternate" hrefLang="zh" href="${siteUrl}/zh/"`,
-  `<link rel="alternate" hrefLang="x-default" href="${siteUrl}/"`,
+  `<link rel="alternate" hrefLang="en" href="${absoluteSiteUrl('/')}"`,
+  `<link rel="alternate" hrefLang="zh" href="${absoluteSiteUrl('/zh/')}"`,
+  `<link rel="alternate" hrefLang="x-default" href="${absoluteSiteUrl('/')}"`,
 ];
 
 if (/http-equiv="refresh"/i.test(rootDocument) || !rootDocument.includes('Keep work moving')) {
@@ -129,9 +159,9 @@ if (
 }
 
 if (
-  !rootDocument.includes(`<link rel="canonical" href="${siteUrl}/"`)
-  || !englishDocument.includes(`<link rel="canonical" href="${siteUrl}/"`)
-  || !chineseDocument.includes(`<link rel="canonical" href="${siteUrl}/zh/"`)
+  !rootDocument.includes(`<link rel="canonical" href="${absoluteSiteUrl('/')}"`)
+  || !englishDocument.includes(`<link rel="canonical" href="${absoluteSiteUrl('/')}"`)
+  || !chineseDocument.includes(`<link rel="canonical" href="${absoluteSiteUrl('/zh/')}"`)
   || homeAlternates.some(
     (alternate) =>
       !rootDocument.includes(alternate)
@@ -142,7 +172,7 @@ if (
   throw new Error('Static home pages do not declare the expected canonical and language alternate URLs.');
 }
 
-if (rootDocument.includes('href="/en/"')) {
+if (rootDocument.includes(`href="${withBasePath('/en/')}"`)) {
   throw new Error('Static root page links to the duplicate English home URL.');
 }
 

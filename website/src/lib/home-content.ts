@@ -26,6 +26,19 @@ type HomeAction = {
 };
 
 export type HomeContent = {
+  onboarding: {
+    title: string;
+    lead: string;
+    preview_label: string;
+    preview_note: string;
+    repository_label: string;
+    guide_label: string;
+    steps: Array<{
+      title: string;
+      description: string;
+      command?: string;
+    }>;
+  };
   continuity: {
     lead: string;
     steps: Array<{

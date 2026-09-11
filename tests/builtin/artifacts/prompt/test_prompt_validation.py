@@ -44,6 +44,14 @@ _EXPERIENCE = {
 
 
 def _case(key: str) -> dict[str, Any]:
+    if key == "profile.generate":
+        return {
+            "input": {
+                "previous_content": "# Profile\n\n- Uses Python.",
+                "sources": ['{"speaker":"user","text":"Prefers Chinese."}'],
+            },
+            "expected_output": {"content": "# Profile\n\n- Uses Python.\n- Prefers Chinese."},
+        }
     if key == "memory.extract":
         return {
             "input": {
@@ -135,6 +143,7 @@ def test_valid_demonstrations_preserve_their_original_json(key: str) -> None:
         ("handoff.generate", ("expected_output", "state"), []),
         ("handoff.generate", ("expected_output", "state", 0, "evidence_ids"), ["source:99"]),
         ("handoff.generate", ("expected_output", "omissions"), [{"text": "Unknown.", "evidence_id": "source:99"}]),
+        ("profile.generate", ("expected_output", "content"), "   "),
     ],
 )
 def test_demonstrations_reject_semantically_impossible_outputs(
@@ -151,6 +160,13 @@ def test_demonstrations_reject_semantically_impossible_outputs(
         definition.validate(content)
     assert caught.value.code == "prompt_definition_incompatible"
     assert not caught.value.during_inference
+
+
+def test_profile_noop_demonstration_uses_null_content() -> None:
+    case = _case("profile.generate")
+    case["expected_output"] = {"content": None}
+    definition = PromptRegistry(builtin_prompt_definitions()).get("profile.generate")
+    definition.validate(_content(case))
 
 
 def test_generated_demonstrations_retry_invalid_references_within_request_budget() -> None:
@@ -174,6 +190,33 @@ def test_generated_demonstrations_retry_invalid_references_within_request_budget
         )
         assert len(result.demonstrations) == 1
         assert result.demonstrations[0].expected_output == {"selected_ranks": [1]}
+        assert len(observed) == 2
+
+    asyncio.run(scenario())
+
+
+def test_generated_profile_demonstrations_retry_blank_markdown() -> None:
+    observed = []
+
+    async def respond(messages, info) -> ModelResponse:
+        demonstration = _case("profile.generate")
+        if not observed:
+            demonstration["expected_output"]["content"] = "   "
+        observed.append(demonstration)
+        return ModelResponse(parts=[TextPart(json.dumps({"demonstrations": [demonstration]}))])
+
+    async def scenario() -> None:
+        generator = PromptDemonstrationGenerator(
+            FunctionModel(respond), limits=InferenceLimits(max_requests=2), model_settings=None
+        )
+        definition = PromptRegistry(builtin_prompt_definitions()).get("profile.generate")
+        result = await generator(
+            definition,
+            GeneratePromptDemonstrations(instructions="Keep verified lasting facts.", demonstration_count=1),
+        )
+        assert result.demonstrations[0].expected_output == {
+            "content": "# Profile\n\n- Uses Python.\n- Prefers Chinese."
+        }
         assert len(observed) == 2
 
     asyncio.run(scenario())

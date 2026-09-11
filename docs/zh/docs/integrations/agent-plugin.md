@@ -40,6 +40,10 @@ uv run powercontext server run
 http://127.0.0.1:8000/mcp
 ```
 
+连接远程 Server 时，在加载插件的宿主中配置 MCP 地址。此插件由宿主负责传输，没有独立的 PowerContext HTTP
+Client 或 setup 子命令；`allow_insecure_http` 不能绕过宿主的 MCP 策略。连接和安全边界见
+[连接远程 Server](../operate/connect-remote-server.md)。
+
 ## 在 VS Code 中加载
 
 VS Code 支持通过 `chat.pluginLocations` 加载本地 Agent Plugin 目录。可以用

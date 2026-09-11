@@ -28,6 +28,7 @@ from pydantic import TypeAdapter, ValidationError
 from powercontext.client.errors import InvalidResponseError, TransportError, server_response_error
 from powercontext.client.tags import ArtifactTagSetResponse
 from powercontext.client.tracing import ClientSpan
+from powercontext.client.transport_policy import resolve_client_transport
 from powercontext.http import (
     AccessAuditPage,
     AccessBinding,
@@ -60,6 +61,7 @@ from powercontext.http import (
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
     CreateArtifactRequest,
+    CreateDreamRunRequest,
     CreateRemoteSkillTargetRequest,
     CreateScopeRequest,
     CreateSourceRequest,
@@ -67,6 +69,8 @@ from powercontext.http import (
     CreateSubjectSourceResponse,
     CreateWorkContractRequest,
     DownloadRemoteSkillPackageRequest,
+    DreamRun,
+    DreamRunPage,
     EnrollRemoteSkillTargetRequest,
     ErrorResponse,
     ExperienceArtifact,
@@ -106,6 +110,7 @@ from powercontext.http import (
     ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
+    ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListManagedSkillsRequest,
@@ -205,6 +210,7 @@ from powercontext.http._generated.operations import (
     CONTINUE_HANDOFF,
     CREATE_ACCESS_BINDING,
     CREATE_ARTIFACT,
+    CREATE_DREAM_RUN,
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SCOPE,
     CREATE_SOURCE,
@@ -228,6 +234,7 @@ from powercontext.http._generated.operations import (
     GET_CAPABILITIES,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
+    GET_DREAM_RUN,
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
     GET_LIVENESS,
@@ -251,6 +258,7 @@ from powercontext.http._generated.operations import (
     LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACT_REVISIONS,
     LIST_ARTIFACTS,
+    LIST_DREAM_RUNS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
@@ -310,15 +318,17 @@ class PowerContextClient:
 
     def __init__(
         self,
-        base_url: str,
+        base_url: str | None = None,
         *,
         token: str | None = None,
         timeout: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
         trust_transport_security: bool = False,
-        allow_insecure_http: bool = False,
+        allow_insecure_http: bool | None = None,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        self._base_url, allow_insecure_http = resolve_client_transport(
+            "client", server_url=base_url, allow_insecure_http=allow_insecure_http
+        )
         # Plaintext HTTP is only trusted on loopback -- for *any* request, not just an authenticated
         # one. The request body itself carries Memory content, so a missing bearer token does not make
         # an unencrypted non-loopback request safe. When this facade opens the transport itself,
@@ -330,8 +340,7 @@ class PowerContextClient:
         # evidence of safety: the guard stays on for caller-supplied transports too, and a caller that
         # knows its transport is secure must say so explicitly via ``trust_transport_security`` rather
         # than have safety inferred from the argument being set. ``allow_insecure_http`` is the
-        # separate, explicit cleartext escape hatch used by a remote Skill Receiver after its own
-        # protected-network consent check; it does not claim that the transport is secure.
+        # separate, explicit cleartext opt-in; it does not claim that the transport is secure.
         transport_trusted = http_client is not None and trust_transport_security
         if not transport_trusted and not allow_insecure_http and is_plaintext_non_loopback(self._base_url):
             raise ValueError("refusing to send requests over unencrypted non-loopback HTTP")  # noqa: TRY003
@@ -573,6 +582,25 @@ class PowerContextClient:
         """List data-minimized authorization and relationship audit events."""
 
         return await self._request(LIST_ACCESS_AUDIT, request)
+
+    async def create_dream_run(self, scope_id: str, request: CreateDreamRunRequest) -> DreamRun:
+        """Accept a Dream or replay its original queued/terminal result."""
+
+        return await self._request(CREATE_DREAM_RUN, request, path_parameters={"scope_id": scope_id})
+
+    async def get_dream_run(self, scope_id: str, run_id: str) -> DreamRun:
+        """Read one durable Dream without triggering generation."""
+
+        return await self._request(GET_DREAM_RUN, path_parameters={"scope_id": scope_id, "run_id": run_id})
+
+    async def list_dream_runs(self, scope_id: str, request: ListDreamRunsRequest | None = None) -> DreamRunPage:
+        """List a bounded page of Dream history in reverse acceptance order."""
+
+        return await self._request(
+            LIST_DREAM_RUNS,
+            ListDreamRunsRequest() if request is None else request,
+            path_parameters={"scope_id": scope_id},
+        )
 
     async def create_source(self, scope_id: str, request: CreateSourceRequest) -> SourceRecord:
         """Create one durable Source without invoking generation."""
@@ -1158,7 +1186,8 @@ class PowerContextClient:
             span.finish("failure", error=error)
             raise
         declared_not_modified = response.status_code == 304 and 304 in operation.responses
-        succeeded = response.status_code == operation.success_status or declared_not_modified
+        declared_success = 200 <= response.status_code < 300 and response.status_code in operation.responses
+        succeeded = declared_success or declared_not_modified
         span.finish("success" if succeeded else "failure", status_code=response.status_code)
 
         request_id = response.headers.get(REQUEST_ID_HEADER)
@@ -1199,7 +1228,9 @@ def _prepare_request(
         if operation.request_type is None:
             message = f"{operation.operation_id} does not accept a request"
             raise TypeError(message)
-        payload = TypeAdapter(operation.request_type).dump_python(request, mode="json", by_alias=True)
+        payload = TypeAdapter(operation.request_type).dump_python(
+            request, mode="json", by_alias=True, exclude_unset=operation is not PREPARE_CONTEXT
+        )
         if not isinstance(payload, dict):
             message = "Request must serialize to an object."
             raise TypeError(message)

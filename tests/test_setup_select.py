@@ -144,6 +144,7 @@ def test_setup_select_installs_only_the_requested_hosts(monkeypatch) -> None:
             {"host": "opencode", "status": "skipped"},
             {"host": "pi", "status": "skipped"},
             {"host": "hermes", "status": "skipped"},
+            {"host": "workbuddy", "status": "skipped"},
         ]
     }
     installers["codex"].assert_called_once()
@@ -179,6 +180,7 @@ def test_setup_select_continues_after_a_selected_host_fails(monkeypatch) -> None
             {"host": "opencode", "status": "skipped"},
             {"host": "pi", "status": "skipped"},
             {"host": "hermes", "status": "installed"},
+            {"host": "workbuddy", "status": "skipped"},
         ]
     }
     installers["dsh"].assert_called_once()
@@ -298,17 +300,21 @@ def test_setup_select_passes_source_ref_and_host_specific_defaults(monkeypatch) 
     ])
 
     assert result.exit_code == 0
-    installers["codex"].assert_called_once_with(source="oceanbase/powercontext", ref="tested-ref")
+    installers["codex"].assert_called_once_with(
+        source="oceanbase/powercontext", ref="tested-ref", server_url="http://127.0.0.1:8000"
+    )
     installers["claude-code"].assert_called_once_with(
         source="oceanbase/powercontext",
         ref="tested-ref",
         server_url="http://127.0.0.1:8000",
         capture_prompts=True,
+        allow_insecure_http=False,
     )
     installers["openclaw"].assert_called_once_with(
         source="oceanbase/powercontext",
         ref="tested-ref",
         server_url="http://127.0.0.1:8000",
+        allow_insecure_http=False,
     )
     installers["opencode"].assert_called_once_with(source="oceanbase/powercontext", ref="tested-ref")
 
@@ -330,6 +336,7 @@ def test_setup_select_passes_server_override_to_openclaw(monkeypatch) -> None:
         source="oceanbase/powercontext",
         ref="master",
         server_url="https://memory.example",
+        allow_insecure_http=False,
     )
 
 

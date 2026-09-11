@@ -114,6 +114,15 @@ capabilities = ["acknowledge"]
 id = "record_task_outcome"
 capabilities = ["task_outcome"]
 [[toolsets.tools]]
+id = "create_dream_run"
+non_profile_reason = "Explicit asynchronous Artifact synthesis is outside the host capability profiles."
+[[toolsets.tools]]
+id = "get_dream_run"
+non_profile_reason = "Read one asynchronous Artifact synthesis run."
+[[toolsets.tools]]
+id = "list_dream_runs"
+non_profile_reason = "List asynchronous Artifact synthesis runs in an authorized Scope."
+[[toolsets.tools]]
 id = "list_artifact_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]

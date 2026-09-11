@@ -1,0 +1,30 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% macro search_form(label, limit, kind=none) %}
+<form action="/dashboard/{{ page }}" method="get" class="mb-4" role="search" aria-label="{{ label }}">
+  <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="period" value="{{ period }}">
+  {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+  <label class="form-label" for="content-query">{{ label }}</label>
+  <div class="row g-2 align-items-center">
+    <div class="col"><div class="input-group">
+      <input class="form-control" type="search" id="content-query" name="q" value="{{ search_query or '' }}" maxlength="{{ limit }}">
+      <button class="btn" type="submit">{{ t.search }}</button>
+    </div></div>
+    <div class="col-auto text-end"><a class="btn btn-ghost-secondary {% if not search_query %}invisible{% endif %}" href="{{ link(q=none, notes_page=none, skill_page=none, entry=none, memory_id=none, memory_revision=none, entry_version=none) }}" {% if not search_query %}tabindex="-1" aria-hidden="true"{% endif %}>{{ t.clear_search }}</a></div>
+  </div>
+</form>
+{% endmacro %}

@@ -1629,7 +1629,7 @@ requires-dist = [
     { name = "httpx", extras = ["socks"], marker = "extra == 'cli'", specifier = ">=0.28,<1" },
     { name = "httpx", extras = ["socks"], marker = "extra == 'client'", specifier = ">=0.28,<1" },
     { name = "inquirerpy", marker = "extra == 'cli'", specifier = ">=0.3,<1" },
-    { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1,<4" },
+    { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1.6,<4" },
     { name = "jsonschema", marker = "extra == 'builtin'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'seekdb'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'server'", specifier = ">=4.23,<5" },
@@ -1694,6 +1694,7 @@ dev = [
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "ruff", specifier = ">=0.15.7" },
     { name = "sqlalchemy", specifier = ">=2,<3" },
+    { name = "time-machine", specifier = "==3.5.0" },
     { name = "tox-uv", specifier = ">=1.33.4" },
     { name = "ty", specifier = ">=0.0.24" },
 ]

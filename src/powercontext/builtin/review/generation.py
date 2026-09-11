@@ -133,7 +133,7 @@ class ReviewedGenerationService:
     ) -> GeneratedCandidateResult:
         if self._skill_generator is None:
             raise GenerationCapabilityUnavailableError(Skill.family)
-        _validate_skill_lineage(origin, sources, artifacts, target)
+        validate_skill_lineage(origin, sources, artifacts, target)
         evidence = await self._evidence(sources, artifacts)
         proposal = await self._skill_generator.generate(_generation_input(evidence, target))
         if proposal is None:
@@ -211,12 +211,14 @@ def _generation_input(
     return ArtifactGenerationInput(evidence=evidence, target_evidence_id=target_id)
 
 
-def _validate_skill_lineage(
+def validate_skill_lineage(
     origin: SkillGenerationOrigin,
     sources: tuple[SourceRef, ...],
     artifacts: tuple[ArtifactRef, ...],
     target: ArtifactRef | None,
 ) -> None:
+    """Validate the shared provenance contract before proposing a generated Skill."""
+
     if origin is SkillGenerationOrigin.EXPERIENCE:
         if target is not None or not artifacts or any(ref.family != Experience.family for ref in artifacts):
             raise InvalidCandidateError(
@@ -240,4 +242,5 @@ __all__ = [
     "GenerationCapabilityUnavailableError",
     "ReviewedGenerationService",
     "SkillGenerationOrigin",
+    "validate_skill_lineage",
 ]

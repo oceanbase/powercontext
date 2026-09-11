@@ -20,10 +20,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
+
+from powercontext_client_config import load_client_settings, resolve_allow_insecure_http
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -43,9 +46,17 @@ class WorkBuddyPluginSettings:
     request_timeout_seconds: float = 1.0
     http_budget_seconds: float = 4.0
     flush_max_calls: int = 4
+    allow_insecure_http: bool | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "server_url", _http_base_url(self.server_url))
+        allow_insecure_http = resolve_allow_insecure_http(
+            self.server_url,
+            host="workbuddy",
+            host_environment="POWERCONTEXT_WORKBUDDY_ALLOW_INSECURE_HTTP",
+            explicit=self.allow_insecure_http,
+        )
+        object.__setattr__(self, "allow_insecure_http", allow_insecure_http)
+        object.__setattr__(self, "server_url", _http_base_url(self.server_url, allow_insecure_http=allow_insecure_http))
         object.__setattr__(self, "authorization", _authorization_header(self.authorization))
         object.__setattr__(self, "scope_id", _optional_text(self.scope_id))
         if self.request_timeout_seconds <= 0 or self.http_budget_seconds <= 0:
@@ -57,8 +68,11 @@ class WorkBuddyPluginSettings:
     def from_environment(cls) -> WorkBuddyPluginSettings:
         """Load WorkBuddy user options and integration-specific environment values."""
 
+        saved = load_client_settings("workbuddy")
         return cls(
-            server_url=_first_environment("POWERCONTEXT_WORKBUDDY_SERVER_URL") or "http://127.0.0.1:8000",
+            server_url=_first_environment("POWERCONTEXT_WORKBUDDY_SERVER_URL", "POWERCONTEXT_CLIENT_SERVER_URL")
+            or saved.get("server_url")
+            or "http://127.0.0.1:8000",
             authorization=_first_environment("POWERCONTEXT_WORKBUDDY_AUTHORIZATION"),
             scope_id=_first_environment("POWERCONTEXT_WORKBUDDY_SCOPE_ID"),
             context_assembly=_environment_object("POWERCONTEXT_WORKBUDDY_CONTEXT_ASSEMBLY"),
@@ -151,7 +165,7 @@ def _authorization_header(value: str | None) -> str | None:
     return normalized
 
 
-def _http_base_url(value: str) -> str:
+def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
     normalized = value.strip().rstrip("/")
     parsed = urlsplit(normalized)
     if parsed.username is not None or parsed.password is not None:
@@ -160,7 +174,11 @@ def _http_base_url(value: str) -> str:
         raise ValueError("PowerContext Server URL must use HTTP or HTTPS")  # noqa: TRY003
     if parsed.query or parsed.fragment:
         raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
-    if parsed.scheme == "http" and parsed.hostname.lower() not in _LOOPBACK_HOSTS:
+    try:
+        loopback = ipaddress.ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        loopback = parsed.hostname.lower() in _LOOPBACK_HOSTS
+    if parsed.scheme == "http" and not loopback and not allow_insecure_http:
         raise ValueError("unencrypted PowerContext URLs must be loopback addresses")  # noqa: TRY003
     path = parsed.path.rstrip("/")
     if path.endswith("/mcp"):

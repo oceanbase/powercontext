@@ -69,7 +69,11 @@ from powercontext.server.configuration import server_settings_context
 from powercontext.server.processing_security import WorkerSecuritySpec
 from powercontext.server.settings import ServerSettings
 
-BINDINGS = {**FAMILY_BINDINGS, "topic-memory": TOPIC_MEMORY_SOURCE_WINDOW_BINDING}
+# This acceptance covers Source-driven processors; Dream has its own explicit-request acceptance.
+BINDINGS = {
+    **{family: FAMILY_BINDINGS[family] for family in ("memory", "experience", "profile")},
+    "topic-memory": TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+}
 PROFILE_CONTROL_TITLES = {
     "absent": "Supervisor Profile absent-policy control",
     "disabled": "Supervisor Profile disabled-policy control",

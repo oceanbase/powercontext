@@ -1,0 +1,82 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="home-view">
+<style>
+  me .handoff-title { min-height: 2lh; }
+  me .state-content { min-height: 9lh; }
+  me .experience-lesson { min-height: 3lh; }
+  me .experience-situation { min-height: 4lh; }
+  me .experience-footer { min-height: 3lh; }
+  me .next-action { border-inline-start: 1px solid var(--tblr-border-color); }
+  @media (max-width: 767.98px) { me .next-action { border-inline-start: 0; } }
+  @media (min-width: 1200px) { me .note-list { display: grid; grid-auto-rows: 1fr; flex: 1; } }
+  @media (min-width: 1200px) { me .note-list .list-group-item { display: flex; align-items: center; } }
+</style>
+{% from 'macros.html' import note_rows, experience_card with context %}
+{% from 'components/page-heading.html' import page_heading %}
+{% from 'components/section-heading.html' import section_heading %}
+{{ page_heading(data.title, data.summary) }}
+
+<section id="usage">
+{{ section_heading(t.usage, link('usage'), t.view_usage) }}
+{% if errors.get('usage') %}{{ read_error(errors.usage, t.usage) }}{% elif stats %}
+  {% include 'compact_usage.html' %}
+{% endif %}
+</section>
+<div class="row row-cards mt-2 home-columns">
+  <section class="col-xl-6 d-flex flex-column" id="notes">
+    {{ section_heading(t.remember_heading, link('notes'), t.view_notes) }}
+    {% if errors.get('notes') %}{{ read_error(errors.notes, t.notes) }}{% elif data.notes %}{{ note_rows(data.notes[:3]) }}{% else %}
+    <div class="card flex-fill"><div class="card-body"><h3>{{ t.notes_empty }}</h3><p class="text-secondary mb-0">{{ t.notes_empty_body }}</p></div></div>
+    {% endif %}
+  </section>
+  <section class="col-xl-6 d-flex flex-column" id="methods">
+    {{ section_heading(t.methods_heading, link('methods'), t.view_methods) }}
+    {% for family in ['experience', 'skill'] if errors.get(family) %}{{ read_error(errors[family], t[family]) }}{% endfor %}
+    {% if not errors.get('experience') %}{{ experience_card() }}{% endif %}
+    {% if not errors.get('skill') %}
+    <div class="card mt-2" id="skill-summary">
+      <div class="card-body py-3 d-flex align-items-center gap-3"><span class="text-secondary">{{ t.skill }}</span>{% if data.skill %}<a class="text-reset" href="{{ link('skill') }}">{{ data.skill.name }}</a>{% else %}<span class="text-secondary">{{ t.skills_empty }}</span>{% endif %}</div>
+    </div>
+    {% endif %}
+  </section>
+</div>
+<section id="handoff" class="mt-4">
+{{ section_heading(t.handoff, link('handoff'), t.view_all) }}
+{% if errors.get('handoff') %}{{ read_error(errors.handoff, t.handoff) }}{% else %}
+<article class="card handoff-sheet">
+  <div class="card-body">
+    <h3 class="handoff-title card-title">{% if data.handoff %}<a class="text-reset" href="{{ link('handoff-detail') }}">{{ data.handoff.objective|truncate(120, true) }}</a>{% else %}{{ t.handoff_empty }}{% endif %}</h3>
+    <div class="row row-cards">
+      <div class="col-md-7 handoff-state">
+        <h4>{{ t.recorded_state }}</h4>
+        <div class="state-content">{% if data.handoff %}<ul class="state-list mb-0">
+          {% for statement in data.handoff.state[:3] %}<li class="mb-2">{{ statement.text|truncate(120, true) }}</li>{% endfor %}
+        </ul>{% else %}<p class="text-secondary">{{ t.handoff_empty_body }}</p>{% endif %}</div>
+      </div>
+      <div class="col-md-5 next-action">
+        <h4>{{ t.next_action }}</h4><p>{{ data.handoff.next_action.text|truncate(80, true) if data.handoff and data.handoff.next_action else t.no_next_action }}</p>
+      </div>
+    </div>
+    {% if data.handoff and data.handoff.disposition in ['complete', 'blocked'] %}<p class="history-note text-secondary mt-3 mb-0">{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}
+
+  </div>
+</article>
+{% endif %}
+</section>
+
+</div>

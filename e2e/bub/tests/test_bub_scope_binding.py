@@ -32,8 +32,8 @@ class RecordingClient:
     calls: ClassVar[list[tuple[str, Any]]] = []
     scope_ids: ClassVar[list[str]] = [RESOLVED_SCOPE_ID]
 
-    def __init__(self, base_url: str, *, timeout: float) -> None:
-        del base_url, timeout
+    def __init__(self, base_url: str, *, timeout: float, allow_insecure_http: bool = False) -> None:
+        del base_url, timeout, allow_insecure_http
 
     async def __aenter__(self) -> RecordingClient:
         return self

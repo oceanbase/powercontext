@@ -55,7 +55,6 @@ from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccess
 from powercontext.server.factory import create_server_app
 from powercontext.server.middleware import AuthenticationMiddleware
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, ServerSettings
-from powercontext.server.web import mount_web_ui
 
 ADMIN = PrincipalRef(type="service", id="admin", description="deployment administrator")
 BOB = PrincipalRef(type="user", id="bob")
@@ -653,27 +652,6 @@ class _ArtifactPublicationApplication:
         )
 
 
-class _DashboardScopeApplication:
-    async def list(self, *, scope_ids=None) -> tuple[SimpleNamespace, ...]:
-        assert scope_ids is not None, "Dashboard queried unauthorized scope metadata"
-        scopes = (
-            SimpleNamespace(
-                scope_id="scope-visible",
-                title="Visible",
-                summary="Visible Scope",
-                parent_scope_id=None,
-            ),
-            SimpleNamespace(
-                scope_id="scope-hidden",
-                title="Hidden",
-                summary="Hidden Scope",
-                parent_scope_id=None,
-            ),
-        )
-
-        return scopes if scope_ids is None else tuple(scope for scope in scopes if scope.scope_id in scope_ids)
-
-
 def test_access_api_and_handoff_pep_enforce_exact_receiver_visibility() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
@@ -1043,69 +1021,6 @@ def test_artifact_publication_requires_logical_share_and_target_scope_admin() ->
                 )
                 assert denied.status_code == 403
             assert len(publications.requests) == 2
-
-    asyncio.run(scenario())
-
-
-def test_dashboard_scope_discovery_uses_the_same_principal_and_filters_before_response() -> None:
-    async def scenario() -> None:
-        async with SQLiteProfile.open(SQLiteConfig(), tables=ACCESS_TABLES) as profile:
-            repository = RelationalAccessRepository(profile.database)
-            await _seed_admin(repository)
-            service = AccessControlService(
-                BuiltinAuthorizationProvider(repository),
-                relationships=repository,
-                audit=repository,
-            )
-            await service.create_binding(
-                ADMIN,
-                CreateBinding(
-                    subject=BOB,
-                    resource=ResourceRef.scope("scope-visible"),
-                    role=AccessRole.SCOPE_VIEWER,
-                    idempotency_key="bob-dashboard-scope",
-                ),
-                context=AUDIT,
-            )
-            await service.create_binding(
-                ADMIN,
-                CreateBinding(
-                    subject=BOB,
-                    resource=ResourceRef.server(),
-                    role=AccessRole.SERVER_OBSERVER,
-                    idempotency_key="bob-dashboard-observer",
-                ),
-                context=AUDIT,
-            )
-            app = _app(
-                service,
-                principal=BOB,
-                token="bob-token",  # noqa: S106 - test credential.
-                application=SimpleNamespace(scopes=_DashboardScopeApplication()),
-            )
-            mount_web_ui(
-                app,
-                dashboard_enabled=True,
-                authentication_required=True,
-            )
-            async with _client(app) as client:
-                response = await client.get("/dashboard/scopes", headers=_auth("bob-token"))
-                hidden_library = await client.post(
-                    "/dashboard/skills/library",
-                    headers=_auth("bob-token"),
-                    json={"scope_id": "scope-hidden"},
-                )
-                assert response.status_code == 200
-                assert response.json() == [
-                    {
-                        "scope_id": "scope-visible",
-                        "display_name": "Visible",
-                        "summary": "Visible Scope",
-                        "parent_scope_id": None,
-                    }
-                ]
-                assert "scope-hidden" not in response.text
-                assert hidden_library.status_code == 403
 
     asyncio.run(scenario())
 

@@ -74,7 +74,7 @@ powercontext --help
 仍在**终端 B** 中运行：
 
 ```bash
-powercontext setup codex --source oceanbase/powercontext --ref master
+powercontext setup codex
 ```
 
 setup 会完成三件事：
@@ -106,15 +106,8 @@ powercontext server run
 保持这个进程运行。默认情况下，Server 会：
 
 - 监听 `http://127.0.0.1:8000`；
-- 在 `http://127.0.0.1:8000/` 提供 Dashboard；
 - 在 `http://127.0.0.1:8000/mcp` 提供 Streamable HTTP MCP；
 - 在操作系统的 PowerContext 用户数据目录中创建持久化 SQLite 数据库。
-
-启动时应看到类似下面的提示：
-
-```text
-PowerContext Dashboard: http://127.0.0.1:8000/
-```
 
 回到**终端 B**，运行：
 
@@ -128,8 +121,7 @@ powercontext capabilities
 `capabilities` 能返回当前启用能力。没有配置推理 provider 时，模型抽取或向量能力可以未启用，这不会阻止后续的
 显式 Memory 与 Handoff 步骤。
 
-也可以在浏览器打开 `http://127.0.0.1:8000/`。首次启动时，PowerContext 会自动创建持久化的 `Default` Scope。
-Dashboard 默认展示所有可用 Scope；在尚未写入项目数据前，统计指标仍可能为空。
+首次启动时，PowerContext 会自动创建持久化的 `Default` Scope。
 
 ## 4. 创建一个安全的示例项目
 

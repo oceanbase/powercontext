@@ -27,6 +27,7 @@ class PowerContextScope:
     base_url: str | None = None
     token: str | None = field(default=None, repr=False)
     timeout: float | None = None
+    allow_insecure_http: bool | None = None
 
 
 __all__ = ["PowerContextScope"]

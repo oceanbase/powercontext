@@ -1,0 +1,27 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% macro read_error(error, label='', retry_url=none) %}
+<section class="alert alert-warning my-3" role="alert">
+  <h2 class="alert-title">{{ label or t.error_heading }}</h2>
+  <p>{{ t.get('error_' ~ error.status, t.error_503) }}</p>
+  <div class="btn-list">
+  <a class="btn" href="{{ retry_url or link() }}" {% if retry_url %}hx-boost="false"{% endif %}>{{ t.retry }}</a>
+  {% if not scope_descriptor %}<a class="btn" href="{{ link('entry', scope='') }}">{{ t.scope_label }}</a>{% else %}<a class="btn" href="{{ link(parent_page or page, artifact=none, revision=none, entry=none, memory_id=none, memory_revision=none, entry_version=none, cursor=none, experience_cursor=none, skill_cursor=none, notes_page=none, skill_page=none, experience_history=none, handoff_history=none) }}">{{ t.back_home if page == 'home' else t.back_list }}</a>{% endif %}
+  </div>
+  {% if error.request_id %}<p class="small mt-3 mb-0">{{ t.request_id }}: <code>{{ error.request_id }}</code></p>{% endif %}
+</section>
+{% endmacro %}

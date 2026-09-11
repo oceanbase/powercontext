@@ -48,6 +48,7 @@ def install_openclaw_plugin(
     source: str,
     ref: str,
     server_url: str,
+    allow_insecure_http: bool = False,
 ) -> OpenClawSetupResult:
     """Build, install, and configure the OpenClaw plugin from one source/ref."""
 
@@ -66,6 +67,7 @@ def install_openclaw_plugin(
     configure_openclaw(
         executable=executable,
         server_url=normalized_url,
+        allow_insecure_http=allow_insecure_http,
     )
     return OpenClawSetupResult(
         plugin=OPENCLAW_PLUGIN_NAME,
@@ -233,12 +235,13 @@ def normalize_server_url(value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
 
 
-def configure_openclaw(*, executable: str, server_url: str) -> None:
+def configure_openclaw(*, executable: str, server_url: str, allow_insecure_http: bool = False) -> None:
     """Write plugin, memory-slot, and coding-tool allowlist configuration."""
 
     settings = [
         {"path": "plugins.entries.memory-powercontext.enabled", "value": True},
         {"path": "plugins.entries.memory-powercontext.config.endpoint", "value": server_url},
+        {"path": "plugins.entries.memory-powercontext.config.allowInsecureHttp", "value": allow_insecure_http},
         {"path": "plugins.entries.memory-powercontext.config.autoRecall", "value": True},
         {"path": "plugins.entries.memory-powercontext.config.autoCapture", "value": True},
         {"path": "plugins.entries.memory-powercontext.hooks.allowConversationAccess", "value": True},

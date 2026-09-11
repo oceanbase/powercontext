@@ -65,6 +65,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
   const resolved = resolveConfig(config)
   const client = new PowerContextClient({
     baseUrl: resolved.baseUrl,
+    allowInsecureHttp: resolved.allowInsecureHttp,
     authorization: resolved.authorization,
     requestTimeoutMs: resolved.requestTimeoutMs,
   })

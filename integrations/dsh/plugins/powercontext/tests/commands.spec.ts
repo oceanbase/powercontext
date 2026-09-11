@@ -96,6 +96,7 @@ describe('config env overrides', () => {
       { baseUrl: 'http://127.0.0.1:8000', capturePrompts: true },
       {
         POWERCONTEXT_DSH_BASE_URL: 'http://example.local:9000/',
+        POWERCONTEXT_DSH_ALLOW_INSECURE_HTTP: 'true',
         POWERCONTEXT_DSH_SCOPE_ID: 'project:from-env',
         POWERCONTEXT_DSH_CAPTURE_PROMPTS: 'false',
       },

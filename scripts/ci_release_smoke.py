@@ -34,7 +34,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from powercontext.client import PowerContextClient
-from powercontext.http import MemorySearchMode, RememberMemoryRequest, SearchMemoryRequest
+from powercontext.http import CreateScopeRequest, MemorySearchMode, RememberMemoryRequest, SearchMemoryRequest
 
 
 def _available_port() -> int:
@@ -98,12 +98,19 @@ def _stop_process(process: subprocess.Popen[str]) -> None:
 
 
 async def _exercise_public_interfaces(base_url: str) -> None:
-    scope_id = "release-verification"
     memory_text = "PowerContext release verification stores and retrieves this exact memory."
     async with PowerContextClient(base_url) as client:
         readiness = await client.get_readiness()
         if readiness.status.value not in {"ready", "degraded"}:
             raise RuntimeError(f"Unexpected readiness status: {readiness.status.value}")  # noqa: TRY003
+        scope = await client.create_scope(
+            CreateScopeRequest(
+                title="Release verification",
+                summary="Disposable Scope for the published package smoke test.",
+                idempotency_key="release-verification",
+            )
+        )
+        scope_id = scope.scope_id
         remembered = await client.remember_memory(
             RememberMemoryRequest(scope_id=scope_id, kind="fact", text=memory_text)
         )

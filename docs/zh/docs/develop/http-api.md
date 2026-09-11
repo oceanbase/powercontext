@@ -155,7 +155,7 @@ Access wire contract 只使用 `server`、`scope` 和 `artifact` 三种 Resource
 跨 Scope 的 Artifact 发布统一使用 `POST /v1/artifact-publications`。请求选择一个精确 source Revision，但授权检查的是
 其逻辑 `{family, artifact_id}` identity 上的 `artifact.share`，以及目标 Scope 上的 `scope.admin`。因此一个逻辑分享授权
 可以覆盖 source 的历史与后续 Revision，而每次 publication 仍会记录实际复制的精确 Revision 和 provenance。
-host-local Dashboard projection 属于运维界面，由对应的 Scope 与 Artifact 权限保护。
+host-local projection 由对应的 Scope 与 Artifact 权限保护。
 
 Prompt 发布返回 `422 / artifact_publication_unsupported`，不会创建目标 Artifact。要在另一个 Scope 中配置 Prompt，
 请使用 `POST /v1/scopes/{scope_id}/artifacts`，指定 `family=prompt` 和已注册的 `prompt_key`；更新时使用
@@ -166,7 +166,7 @@ package manifest/download 要求 `artifact.read`，package proposal 要求 `scop
 `artifact.write`；usage capture 同时要求 `scope.contribute` 与 `artifact.read`。远端 target 管理要求
 `scope.admin`，发布精确 Revision 还要求该 Skill 的 `artifact.read`。注册接口由一次性 enrollment code 保护，
 Receiver 的 reconcile/download/receipt 使用单独签发的 `TargetBearerAuth` 凭据，而不是用户 Principal。
-Dashboard 数据接口会在 scope 查询、package 检查、target 查询或文件系统操作之前执行对应 Access 检查。
+公开 API 会在 scope 查询、package 检查、target 查询或文件系统操作之前执行对应 Access 检查。
 
 内置静态 token 只代表一个本地管理员，无法表达不同的 A/B 用户。真正的多用户部署必须把每个调用者认证为不同的
 Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策略执行点；MCP tool 可见不等于有权限。

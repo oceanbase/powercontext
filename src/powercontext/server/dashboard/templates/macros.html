@@ -1,0 +1,88 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% macro icon(name) %}
+<span class="nav-symbol nav-link-icon" aria-hidden="true">
+  <img class="w-100 h-100" src="/dashboard/static/vendor/icons/{{ {'home':'home','handoff':'arrows-exchange','notes':'notes','methods':'book','topics':'book','prompts':'notes','usage':'chart-bar'}[name] }}.svg" alt="">
+</span>
+{% endmacro %}
+
+{% macro evidence_link(index=0, label='') %}
+
+<a class="evidence-link" href="{{ link('evidence/' ~ related_sources[index].source_id, origin=page, source_type=related_sources[index].source_type) }}"
+   hx-get="{{ link('evidence/' ~ related_sources[index].source_id, origin=page, source_type=related_sources[index].source_type) }}" hx-target="#evidence-content"
+   hx-select="unset" hx-swap="innerHTML" hx-push-url="false" hx-indicator="#evidence-loading"
+   data-bs-toggle="modal" data-bs-target="#evidence" data-evidence>
+  {{ label or t.evidence_open }}
+</a>
+{% endmacro %}
+
+{% macro note_rows(items) %}
+<div class="card flex-fill"><div class="list-group list-group-flush note-list">
+  {% for item in items %}
+  <div class="list-group-item">
+    <p class="mb-0"><a class="text-reset fw-normal" href="{{ link('notes', entry=item.entry_id) }}">{{ item.text|truncate(72, true) }}</a></p>
+  </div>
+  {% endfor %}
+</div></div>
+{% endmacro %}
+
+{% macro experience_card() %}
+<article class="card experience-card">
+  <div class="card-body">
+    <div class="method-type text-secondary small">{{ t.experience }}</div>
+    <h3 class="card-title fw-normal experience-lesson">{% if data.experience %}<a class="text-reset" href="{{ link('experience') }}">{{ data.experience.lesson|truncate(120, true) }}</a>{% else %}{{ t.experience_empty }}{% endif %}</h3>
+    <p class="experience-situation">{{ data.experience.situation|truncate(160, true) if data.experience else t.methods_empty_body }}</p>
+    <div class="experience-footer">{% if data.experience %}
+    <div class="source-trail text-secondary small mb-3">{{ data.experience.sources|length }} {{ t.source_count }}</div>
+    <a href="{{ link('experience') }}">{{ t.read_experience }}</a>
+    {% endif %}</div>
+  </div>
+</article>
+{% endmacro %}
+
+{% macro comparison_chart(compact=false) %}
+{% if stats.estimator_available and stats.preparations > 0 %}
+{% include 'components/comparison-chart.html' %}
+{% else %}
+<div class="chart{{ ' chart-lg' if not compact else '' }} d-flex align-items-center justify-content-center"><p class="text-secondary text-center mb-0">{{ t.no_comparison if stats.estimator_available else t.no_estimates }}</p></div>
+{% endif %}
+{% endmacro %}
+
+{% macro disclosure(identifier, title) %}
+<div class="accordion accordion-flush" id="{{ identifier }}">
+  <div class="accordion-item">
+  <style>
+    me .accordion-body { max-height: 60dvh; overflow: auto; overscroll-behavior: contain; }
+  </style>
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+              data-bs-target="#{{ identifier }}-body" aria-expanded="false" aria-controls="{{ identifier }}-body">{{ title }}
+        <span class="accordion-button-toggle" aria-hidden="true"><img class="icon" src="/dashboard/static/vendor/icons/chevron-down.svg" alt=""></span>
+      </button>
+    </h2>
+    <div class="accordion-collapse collapse" id="{{ identifier }}-body">
+      <div class="accordion-body" tabindex="0" role="region" aria-label="{{ title }}">{{ caller() }}</div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro number(value) %}{{ t.unknown_value if value is none else '{:,}'.format(value) }}{% endmacro %}
+
+{% macro coverage_notice() %}
+{% if stats.comparable_preparations > 0 %}{{ t.coverage_full if stats.comparable_preparations == stats.preparations else t.coverage_partial }}{% endif %}
+{% endmacro %}

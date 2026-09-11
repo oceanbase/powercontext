@@ -1223,6 +1223,7 @@ def test_http_client_dispatches_operation_paths_and_get_query(hermes_modules):
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
         transport=transport,
+        allow_insecure_http=True,
     )
     result = client.request_operation("get_stats", {"scope_id": "hermes:test", "period": "7d"})
 
@@ -1243,6 +1244,7 @@ def test_http_client_classifies_malformed_success_response_separately(hermes_mod
 
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
+        allow_insecure_http=True,
         transport=lambda _request, _timeout: Response(),
     )
 
@@ -1262,6 +1264,7 @@ def test_http_client_preserves_domain_error_details(hermes_modules):
 
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
+        allow_insecure_http=True,
         transport=lambda _request, _timeout: Response(),
     )
 
@@ -1290,6 +1293,7 @@ def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_m
 
     client = provider_module.PowerContextClient(
         "http://powercontext.test:8000",
+        allow_insecure_http=True,
         authorization="Bearer integration-token",
         transport=transport,
     )
@@ -1300,6 +1304,77 @@ def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_m
     assert caught.value.status == 403
     assert caught.value.code == "access_denied"
     assert caught.value.server_message == "scope access denied"
+
+
+@pytest.mark.parametrize("saved_in_native_config", [True, False])
+def test_provider_uses_endpoint_bound_persisted_transport_consent(
+    hermes_modules, monkeypatch, tmp_path, saved_in_native_config
+):
+    provider_module, _cli_module = hermes_modules
+    url = "http://memory.example:8000"
+    config_path = tmp_path / "clients.json"
+    config_path.write_text(
+        json.dumps({"version": 1, "hosts": {"hermes": {"server_url": url, "allow_insecure_http": True}}})
+    )
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(config_path))
+    requests = []
+
+    def request(client, path, *_args, **_kwargs):
+        requests.append((client.base_url, path))
+        return {"scope_id": "scp_00000000000000000000000000"}
+
+    monkeypatch.setattr(provider_module.PowerContextClient, "_request", request)
+    config = {"flush_on_session_end": False}
+    if saved_in_native_config:
+        config.update({"base_url": url, "allow_insecure_http": True})
+        config_path.unlink()
+    provider = provider_module.PowerContextMemoryProvider(config)
+    try:
+        provider.initialize("session-transport", hermes_home=str(tmp_path))
+        assert requests[0][0] == url
+    finally:
+        provider.shutdown()
+
+    monkeypatch.setenv("POWERCONTEXT_HERMES_BASE_URL", "http://another.example:8000")
+    provider = provider_module.PowerContextMemoryProvider(config)
+    with pytest.raises(ValueError):
+        provider.initialize("session-changed", hermes_home=str(tmp_path))
+
+
+def test_provider_common_false_overrides_native_http_consent(hermes_modules, monkeypatch, tmp_path):
+    provider_module, _cli_module = hermes_modules
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP", "false")
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    provider = provider_module.PowerContextMemoryProvider({
+        "base_url": "http://memory.example:8000",
+        "allow_insecure_http": True,
+    })
+    with pytest.raises(ValueError):
+        provider.initialize("session-transport", hermes_home=str(tmp_path))
+
+
+@pytest.mark.parametrize("change_in_setup", [True, False])
+def test_provider_endpoint_changes_clear_old_native_consent(hermes_modules, monkeypatch, tmp_path, change_in_setup):
+    provider_module, _cli_module = hermes_modules
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    config_path = tmp_path / "powercontext" / "config.json"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        json.dumps({"base_url": "http://old.example", "allow_insecure_http": True, "flush_on_session_end": False})
+    )
+    monkeypatch.setattr(
+        provider_module.PowerContextClient,
+        "_request",
+        lambda *_args, **_kwargs: {"scope_id": "scp_00000000000000000000000000"},
+    )
+    provider = provider_module.PowerContextMemoryProvider({} if change_in_setup else {"base_url": "http://new.example"})
+    if change_in_setup:
+        provider.save_config({"base_url": "http://new.example"}, str(tmp_path))
+    try:
+        with pytest.raises(ValueError):
+            provider.initialize("session-changed", hermes_home=str(tmp_path))
+    finally:
+        provider.shutdown()
 
 
 @pytest.mark.parametrize("assembly", [{"sections": []}, {"sections": [{"family": "memory", "limit": 3}]}])

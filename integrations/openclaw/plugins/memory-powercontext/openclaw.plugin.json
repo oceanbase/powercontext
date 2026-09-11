@@ -45,6 +45,10 @@
           }
         ]
       },
+      "allowInsecureHttp": {
+        "type": "boolean",
+        "description": "Explicitly permit plaintext HTTP to a non-loopback server. HTTPS certificate verification remains enabled."
+      },
       "tokenEnv": {
         "type": "string",
         "minLength": 1,
@@ -93,6 +97,10 @@
     "endpoint": {
       "label": "PowerContext Endpoint",
       "help": "Base URL of the PowerContext server."
+    },
+    "allowInsecureHttp": {
+      "label": "Allow insecure HTTP",
+      "help": "Explicit consent to send requests and credentials over plaintext HTTP outside loopback."
     },
     "tokenEnv": {
       "label": "PowerContext Token Environment Variable",

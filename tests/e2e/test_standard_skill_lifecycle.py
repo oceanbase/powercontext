@@ -22,39 +22,16 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from powercontext.builtin.artifacts.skill import AgentSkillTarget, capture_skill_archive
+from powercontext.builtin.artifacts.skill import capture_skill_archive
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime.config import ExternalSkillsConfig
 from powercontext.server.factory import create_server_app
-from powercontext.server.settings import DashboardConfig, McpConfig, ServerSettings
+from powercontext.server.settings import McpConfig, ServerSettings
 
 
-def test_standard_skill_package_review_revision_usage_governance_and_publication(tmp_path: Path) -> None:
-    codex_root = tmp_path / "repo" / ".agents" / "skills"
-    claude_root = tmp_path / "repo" / ".claude" / "skills"
+def test_standard_skill_package_review_revision_usage_and_governance(tmp_path: Path) -> None:
     app = create_server_app(
         settings=ServerSettings(
-            dashboard=DashboardConfig(enabled=True),
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'standard-skill.db'}"),
-            external_skills=ExternalSkillsConfig(
-                host_id="standard-skill-test",
-                targets=(
-                    AgentSkillTarget(
-                        target_id="codex-project",
-                        agent_kind="codex",
-                        installation_scope="project",
-                        path=codex_root,
-                        allow_managed_publish=True,
-                    ),
-                    AgentSkillTarget(
-                        target_id="claude-project",
-                        agent_kind="claude_code",
-                        installation_scope="project",
-                        path=claude_root,
-                        allow_managed_publish=True,
-                    ),
-                ),
-            ),
             mcp=McpConfig(enabled=False),
         )
     )
@@ -124,16 +101,6 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
             json={**usage_payload, "observation_id": "usage-wrong", "package_digest": f"sha256:{'b' * 64}"},
         )
 
-        selection = {"scope_id": scope_id, "candidate_id": None, "artifact": second_ref}
-        codex_published = client.post(
-            "/dashboard/skill-projections/publish",
-            json={**selection, "target_id": "codex-project"},
-        )
-        claude_published = client.post(
-            "/dashboard/skill-projections/publish",
-            json={**selection, "target_id": "claude-project"},
-        )
-
         deprecated = client.post(
             "/v1/skill/lifecycle",
             json={
@@ -161,28 +128,6 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
         governed_library = client.post(
             "/v1/skill/library",
             json={"scope_id": scope_id, "include_deprecated": True, "limit": 20},
-        )
-
-        codex_unpublished = client.post(
-            "/dashboard/skill-projections/unpublish",
-            json={**selection, "target_id": "codex-project"},
-        )
-        deprecated_without_override = client.post(
-            "/dashboard/skill-projections/publish",
-            json={**selection, "target_id": "codex-project"},
-        )
-        deprecated_with_override = client.post(
-            "/dashboard/skill-projections/publish",
-            json={**selection, "target_id": "codex-project", "allow_deprecated": True},
-        )
-
-        claude_entrypoint = claude_root / "release-verification" / "SKILL.md"
-        original_entrypoint = claude_entrypoint.read_bytes()
-        claude_entrypoint.write_bytes(original_entrypoint + b"\nlocal drift\n")
-        drifted = client.post("/dashboard/skill-projections/status", json=selection)
-        drifted_unpublish = client.post(
-            "/dashboard/skill-projections/unpublish",
-            json={**selection, "target_id": "claude-project"},
         )
 
         retired = client.post(
@@ -231,27 +176,11 @@ def test_standard_skill_package_review_revision_usage_governance_and_publication
     assert usage_conflict.status_code == 409
     assert usage_wrong_digest.status_code == 422
 
-    assert codex_published.status_code == 200
-    assert claude_published.status_code == 200
-    assert (codex_root / "release-verification" / "scripts" / "check.sh").read_bytes() == (
-        b"#!/bin/sh\n# script-body-must-not-be-indexed\nexit 0\n"
-    )
-    assert (codex_root / "release-verification" / "scripts" / "check.sh").stat().st_mode & 0o111
-    assert not (codex_root / "release-verification" / "powercontext.json").exists()
-
     assert deprecated.status_code == 200
     assert deprecated.json()["governance_generation"] == 1
     assert stale_lifecycle.status_code == 409
     assert active_library.json()["skills"] == []
     assert governed_library.json()["skills"][0]["governance"]["lifecycle_state"] == "deprecated"
-    assert codex_unpublished.status_code == 200
-    assert deprecated_without_override.status_code == 422
-    assert deprecated_with_override.status_code == 200
-
-    assert drifted.status_code == 200
-    assert drifted.json()["targets"][1]["state"] == "drifted"
-    assert drifted_unpublish.status_code == 409
-    assert claude_entrypoint.read_bytes().endswith(b"local drift\n")
     assert retired.status_code == 200
     assert retired.json()["lifecycle_state"] == "retired"
     assert reverse_retirement.status_code == 422

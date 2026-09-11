@@ -26,6 +26,7 @@ import { SpiralVisual } from '@/components/spiral-visual';
 import { getHomeContent } from '@/lib/home-content';
 import type { Language } from '@/lib/i18n';
 import { baseOptions } from '@/lib/site';
+import { repositoryUrl } from '@/lib/urls';
 
 function normalizeHref(href: string) {
   return `/${href.replace(/^\/+/, '').replace(/\/$/, '')}`;
@@ -60,6 +61,42 @@ export async function HomePage({ lang }: { lang: Language }) {
             <div className="mx-auto hidden w-full max-w-lg lg:block">
               <SpiralVisual />
             </div>
+          </div>
+        </section>
+        <section className="border-y bg-fd-card/50" aria-labelledby="start-title">
+          <div className="mx-auto w-full max-w-(--fd-layout-width) px-4 py-12 md:py-16">
+            <div className="mb-8 flex flex-wrap items-end justify-between gap-6">
+              <div className="max-w-2xl">
+                <h2 id="start-title" className="text-2xl font-semibold tracking-tight">{home.onboarding.title}</h2>
+                <p className="mt-3 leading-7 text-fd-muted-foreground">{home.onboarding.lead}</p>
+              </div>
+              <Link className={buttonVariants({ variant: 'primary' })} href={`/${lang}/docs/get-started/quickstart`}>
+                {home.onboarding.guide_label} <ArrowRight aria-hidden="true" className="size-4" />
+              </Link>
+            </div>
+            <ol className="grid gap-4 md:grid-cols-2">
+              {home.onboarding.steps.map((step, index) => (
+                <li key={step.title} className="min-w-0 rounded-lg border bg-fd-background p-5">
+                  <h3 className="flex items-center gap-3 font-medium">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-fd-primary/10 text-sm text-fd-primary">
+                      {index + 1}
+                    </span>
+                    {step.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-6 text-fd-muted-foreground">{step.description}</p>
+                  {step.command ? (
+                    <pre className="mt-4 overflow-x-auto rounded bg-fd-muted p-3 text-xs leading-6"><code>{step.command}</code></pre>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+            <p className="mt-6 text-sm leading-6 text-fd-muted-foreground">
+              <span className="font-medium text-fd-foreground">{home.onboarding.preview_label}</span>{' '}
+              {home.onboarding.preview_note}{' '}
+              <a href={repositoryUrl} className="text-fd-primary underline underline-offset-4" rel="noreferrer" target="_blank">
+                {home.onboarding.repository_label}
+              </a>
+            </p>
           </div>
         </section>
         <div className="mx-auto w-full max-w-(--fd-layout-width) px-4 py-20 md:py-28">

@@ -18,6 +18,7 @@ import type { ComponentProps, FC } from 'react';
 import defaultMdxComponents, { createRelativeLink } from 'fumadocs-ui/mdx';
 import type { MDXComponents } from 'mdx/types';
 import { source } from '@/lib/source';
+import { basePath, withBasePath } from '@/lib/urls';
 
 type SourcePage = ReturnType<typeof source.getPages>[number];
 
@@ -51,6 +52,12 @@ export function createPageLink(page: SourcePage): FC<ComponentProps<'a'>> {
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
+    img: ({ src, ...props }: ComponentProps<'img'>) => {
+      const Image = defaultMdxComponents.img;
+      const localSource = typeof src === 'string' && src.startsWith('/') && !src.startsWith('//');
+      const imageSource = localSource && basePath && !src.startsWith(`${basePath}/`) ? withBasePath(src) : src;
+      return <Image {...props} src={imageSource} />;
+    },
     ...components,
   } satisfies MDXComponents;
 }

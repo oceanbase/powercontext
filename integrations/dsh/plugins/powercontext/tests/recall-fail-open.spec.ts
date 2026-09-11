@@ -23,6 +23,7 @@ import type { ResolvedConfig } from '../src/config.ts'
 const config: ResolvedConfig = {
   sources: { baseUrl: 'plugin', authorization: 'default', scopeId: 'plugin' },
   baseUrl: 'http://127.0.0.1:8000',
+  allowInsecureHttp: false,
   authorization: undefined,
   scopeId: 'project:demo',
   timeoutMs: 4000,

@@ -27,6 +27,7 @@ from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Never
@@ -182,8 +183,8 @@ _BASE_ENVIRONMENT: dict[str, str] = {
     "POWERCONTEXT_SERVER_HTTP_PORT": "8000",
     "POWERCONTEXT_SERVER_MCP_ENABLED": "true",
     "POWERCONTEXT_SERVER_MCP_PATH": "/mcp",
+    "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "false",
     "POWERCONTEXT_SERVER_ACCESS_MODE": "disabled",
-    "POWERCONTEXT_SERVER_DASHBOARD_ENABLED": "true",
     "POWERCONTEXT_SERVER_LOGGING_LEVEL": "INFO",
     "POWERCONTEXT_SERVER_LOGGING_FORMAT": "console",
     "POWERCONTEXT_SERVER_LOGGING_ACCESS": "true",
@@ -266,13 +267,35 @@ def main() -> None:
     """Manage environment-file configuration."""
 
 
+class WizardLanguage(StrEnum):
+    """Languages supported by the configuration wizard."""
+
+    ENGLISH = "en"
+    CHINESE = "zh"
+
+
 @app.command("init")
 def init_command(
     output: Annotated[Path, typer.Option("--output", "-o", help="Environment file to create.")] = Path(".env"),
-    force: Annotated[bool, typer.Option(help="Replace managed values in an existing file.")] = False,
-    advanced: Annotated[bool, typer.Option(help="Configure storage and scheduling choices.")] = False,
+    force: Annotated[
+        bool, typer.Option(help="Allow --template to replace an existing file after confirmation.")
+    ] = False,
+    advanced: Annotated[bool, typer.Option(help="Also ask about processing limits and logging.")] = False,
+    language: Annotated[
+        WizardLanguage | None,
+        typer.Option("--language", "-l", help="Wizard language; otherwise detect the system language."),
+    ] = None,
+    template: Annotated[
+        bool, typer.Option("--template", help="Use the basic model-free template instead of the guided setup.")
+    ] = False,
 ) -> None:
     """Create a working configuration through a short guided setup."""
+
+    if not template:
+        from powercontext.cli.config_wizard import run_wizard
+
+        run_wizard(output, language=None if language is None else language.value, advanced=advanced)
+        return
 
     if output.exists() and not force:
         _fail(f"{output} already exists; use --force")
@@ -525,7 +548,7 @@ def _validate_storage_location(configuration: GeneratedConfiguration) -> None:
         and configuration.database_path is not None
         and not Path(configuration.database_path).expanduser().is_absolute()
     ):
-        raise ConfigError("seekDB path must be absolute")  # noqa: TRY003
+        raise ConfigError("seekdb path must be absolute")  # noqa: TRY003
     if configuration.database_kind != "sqlite" or configuration.database_url is None:
         return
     from sqlalchemy.engine import make_url
@@ -815,7 +838,7 @@ def _select_value(prompt: str, choices: Sequence[tuple[str, str]], default: str)
 
 def _collect_database() -> tuple[str, str | None, str | None]:
     choices = ("sqlite", "oceanbase", "seekdb")
-    labels = ("SQLite", "OceanBase", "embedded seekDB")
+    labels = ("SQLite", "OceanBase", "embedded seekdb")
     kind = choices[_choose("Database", labels, 1) - 1]
     if kind == "oceanbase":
         value = typer.prompt(
@@ -826,7 +849,7 @@ def _collect_database() -> tuple[str, str | None, str | None]:
         ).strip()
         return kind, value or None, None
     if kind == "seekdb":
-        value = typer.prompt("seekDB path (empty uses user data directory)", default="").strip()
+        value = typer.prompt("seekdb path (empty uses user data directory)", default="").strip()
         return kind, None, value or None
     value = typer.prompt("SQLite URL (empty uses user data database)", default="").strip()
     return kind, value or None, None
@@ -899,7 +922,7 @@ def _required(values: Mapping[str, str], name: str) -> str:
 def _is_secret_name(name: str) -> bool:
     return (
         name in _SECRET_NAMES
-        or name.endswith(("_KEY", "_PASSWORD", "_SECRET", "_TOKEN"))
+        or name.endswith(("_KEY", "_PASSWORD", "_SECRET", "_TOKEN", "_AUTHORIZATION"))
         or "_KEY_" in name
         or name.endswith(_CREDENTIAL_CONTAINER_SUFFIXES)
     )
@@ -1018,7 +1041,7 @@ def _print_next_steps(path: Path) -> None:
             installed = version("powercontext")
             setup = (
                 f"powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v{installed}"
-                if re.fullmatch(r"\d+\.\d+\.\d+", installed)
+                if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", installed)
                 else "powercontext setup dsh --source /path/to/matching-powercontext-checkout"
             )
         typer.echo(f"\n{name}:\n  {setup}")

@@ -2,6 +2,8 @@
   "powercontext": {
     "type": "http",
     "url": "${user_config.server_url}/mcp",
-    "headersHelper": "python3 -c 'import json, os; value = os.environ.get(\"POWERCONTEXT_CLAUDE_AUTHORIZATION\"); print(json.dumps({\"Authorization\": value} if value else {}))'"
+    "headers": {
+      "Authorization": "${POWERCONTEXT_CLAUDE_AUTHORIZATION:-}"
+    }
   }
 }

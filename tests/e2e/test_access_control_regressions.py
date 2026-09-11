@@ -260,7 +260,7 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
                 ("POST", "/v1/context/prepare", {"scope_id": scope_id, "query": "PRIVATE"}),
                 ("GET", f"/v1/scopes/{scope_id}/artifacts/memory/memory", None),
                 ("GET", f"/v1/scopes/{scope_id}/artifacts/memory", None),
-                ("POST", "/dashboard/skills/library", {"scope_id": scope_id}),
+                ("POST", "/v1/skill/library", {"scope_id": scope_id}),
                 ("POST", "/v1/stats", {"selection": {"mode": "all"}}),
             ]
             for method, path, body in requests:
@@ -368,7 +368,7 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
                 json={"action": "artifact.read", "resource_type": "artifact", "family": "handoff"},
             )
             assert visible.json()["items"] == [resource]
-            body = await client.post("/dashboard/shared/read", headers=bob, json=resource)
+            body = await client.get(f"/v1/scopes/{scope_id}/artifacts/handoff/handoff", headers=bob)
             assert body.status_code == 200, body.text
             payload = {
                 "scope_id": scope_id,
@@ -457,7 +457,9 @@ def test_shared_handoff_and_persisted_receipt_identity(tmp_path, monkeypatch):
                 },
             )
             assert revoked.status_code == 200, revoked.text
-            assert (await client.post("/dashboard/shared/read", headers=bob, json=resource)).status_code == 403
+            assert (
+                await client.get(f"/v1/scopes/{scope_id}/artifacts/handoff/handoff", headers=bob)
+            ).status_code == 403
             assert (await client.post("/v1/work/handoffs/acknowledge", headers=bob, json=payload)).status_code == 403
             return scope_id, identity
 
@@ -649,46 +651,6 @@ def test_concurrent_handoff_receipts_cannot_replace_the_authenticated_submitter(
             assert source.json()["receipt_identity"] == identity
 
     asyncio.run(reopened())
-
-
-def test_shared_memory_resolves_only_the_granted_entry(tmp_path):
-    async def scenario():
-        async with _server(tmp_path) as (_, client, _):
-            scope_id = await _scope(client)
-            created = await client.post(
-                f"/v1/scopes/{scope_id}/artifacts",
-                json={
-                    "family": "memory",
-                    "content": {
-                        "entries": [{"kind": "fact", "text": "shared fact"}, {"kind": "fact", "text": "private fact"}]
-                    },
-                },
-            )
-            assert created.status_code == 201, created.text
-            artifact_id = created.json()["artifact_id"]
-            visible = await client.post(
-                "/v1/access/resources/list",
-                json={"action": "artifact.read", "resource_type": "artifact", "family": "memory"},
-            )
-            available = visible.json()["items"]
-            assert len(available) == 2, visible.text
-            resource = available[0]
-            assert resource["identity"]["artifact_id"] == artifact_id
-            await _grant(client, scope_id, "bob", "artifact.viewer", resource)
-            response = await client.post(
-                "/dashboard/shared/read", headers={"Authorization": "Bearer bob"}, json=resource
-            )
-            assert response.status_code == 200, response.text
-            text = response.json()["text"]
-            assert text in {"shared fact", "private fact"}
-            assert ("private fact" if text == "shared fact" else "shared fact") not in response.text
-            assert (
-                await client.post(
-                    "/v1/memory/entries/list", headers={"Authorization": "Bearer bob"}, json={"scope_id": scope_id}
-                )
-            ).status_code == 403
-
-    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("backend", ["builtin", "casbin"])

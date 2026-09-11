@@ -60,7 +60,6 @@ from powercontext.server.factory import _scheduled_access_runners, create_server
 from powercontext.server.settings import (
     AccessControlConfig,
     BearerAuthConfig,
-    DashboardConfig,
     McpConfig,
     ServerSettings,
 )
@@ -135,7 +134,6 @@ def test_configured_assembly_total_limit_rejects_nonpositive_values(monkeypatch,
 
 
 def test_settings_load_server_environment(monkeypatch) -> None:
-    monkeypatch.delenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", raising=False)
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "127.0.0.2")
     monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "9000")
     monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", " https://powercontext.example.com/base/ ")
@@ -213,7 +211,6 @@ def test_settings_load_server_environment(monkeypatch) -> None:
     assert settings.inference.generation_model_context_window_tokens == 64_000
     assert settings.mcp.enabled is False
     assert settings.mcp.path == "/context"
-    assert settings.dashboard.enabled is True
     assert settings.external_skills.host_id == "workstation-1"
     assert settings.external_skills.targets[0].target_id == "codex-project"
     assert settings.external_skills.targets[0].path.as_posix() == "/srv/project/.agents/skills"
@@ -365,7 +362,6 @@ def test_env_example_loads_server_settings(monkeypatch) -> None:
     settings = ServerSettings()
 
     assert isinstance(settings.database, SQLiteConfig)
-    assert settings.dashboard.enabled is True
     assert settings.runtime.schedule_seconds == 60
     assert settings.runtime.topic_memory_schedule_seconds == 60
     assert settings.runtime.artifact_processing_role == "all"
@@ -614,7 +610,6 @@ def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp
         settings=ServerSettings(
             auth=BearerAuthConfig(token=SecretStr("server-secret")),
             access=AccessControlConfig(mode="enforced"),
-            dashboard=DashboardConfig(enabled=True),
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
             mcp=McpConfig(enabled=False),
         ),
@@ -628,16 +623,6 @@ def test_enforced_mode_fails_closed_if_the_authorization_provider_disappears(tmp
         protected = (
             client.get("/v1/capabilities", headers=headers),
             client.get("/metrics", headers=headers),
-            client.get("/dashboard/scopes", headers=headers),
-            client.post(
-                "/dashboard/skill-projections/status",
-                headers=headers,
-                json={
-                    "scope_id": "scope-a",
-                    "candidate_id": "candidate-a",
-                    "artifact": {"family": "skill", "artifact_id": "skill-a", "revision": 1},
-                },
-            ),
         )
 
     assert readiness.status_code == 503
@@ -796,7 +781,7 @@ def test_server_factory_applies_generation_model_settings_to_readiness(monkeypat
         observed_settings.append(None if info.model_settings is None else dict(info.model_settings))
         return ModelResponse(parts=[])
 
-    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name: FunctionModel(respond))
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(respond))
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
@@ -826,7 +811,7 @@ def test_server_factory_reports_generation_failure_as_degraded(monkeypatch, tmp_
     async def rate_limited(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         raise ModelHTTPError(429, "test-model", {"secret": "provider response"})
 
-    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name: FunctionModel(rate_limited))
+    monkeypatch.setattr("pydantic_ai.models.infer_model", lambda _name, **_kwargs: FunctionModel(rate_limited))
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),

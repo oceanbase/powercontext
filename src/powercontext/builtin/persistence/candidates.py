@@ -23,7 +23,8 @@ from pydantic import BaseModel, RootModel
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts import ArtifactRef, MemoryCitation
+from powercontext.builtin.persistence.citation_codec import dump_memory_citations, load_memory_citations
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
 from powercontext.builtin.persistence.tables import (
@@ -75,6 +76,7 @@ class CandidateRepository:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ArtifactCandidate[Any]:
         """Create the first immutable proposal version and its pending head."""
 
@@ -88,6 +90,7 @@ class CandidateRepository:
             proposal=proposal,
             sources=sources,
             artifacts=artifacts,
+            memory_citations=memory_citations,
             target=target,
             reason=reason,
         )
@@ -178,6 +181,7 @@ class CandidateRepository:
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef | None,
         reason: str | None,
+        memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ArtifactCandidate[Any]:
         """Append a complete immutable proposal and advance the pending head."""
 
@@ -191,6 +195,7 @@ class CandidateRepository:
             proposal=proposal,
             sources=sources,
             artifacts=artifacts,
+            memory_citations=memory_citations,
             target=target,
             reason=reason,
         )
@@ -309,6 +314,7 @@ class CandidateRepository:
                 proposal=dump_model(candidate.proposal, kind="candidate-proposal", name=candidate.family),
                 source_refs=dump_model(_SourceRefs(candidate.sources), kind="candidate", name="source-refs"),
                 artifact_refs=dump_model(_ArtifactRefs(candidate.artifacts), kind="candidate", name="artifact-refs"),
+                memory_citations=dump_memory_citations(candidate.memory_citations),
                 target_family=None if target is None else target.family,
                 target_artifact_id=None if target is None else target.artifact_id,
                 target_revision=None if target is None else target.revision,
@@ -376,6 +382,7 @@ class CandidateRepository:
             version=int(row["version"]),
             family=family,
             status=CandidateStatus(str(row["status"])),
+            memory_citations=load_memory_citations(row.get("memory_citations")),
             proposal=load_model(
                 proposal_type,
                 stored_bytes(row["proposal"], column="proposal"),

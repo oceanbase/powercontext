@@ -209,6 +209,21 @@ def test_schedule_and_worker_budgets_can_change_without_maintenance(tmp_path: Pa
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("family", ["experience", "skill"])
+def test_dream_injection_requires_a_reconstructible_worker(tmp_path: Path, family: str) -> None:
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=_sqlite(tmp_path / "dream-injection.db"),
+            inference=InferenceConfig(generation_model="test"),
+            runtime=RuntimeConfig(artifact_processing_families=(family,)),
+        )
+        with pytest.raises(BuiltinConfigurationError, match="child-reconstructible inference resources"):
+            async with open_builtin_runtime(config, dream_generator=AsyncMock()):
+                pytest.fail("a spawned Worker must not silently ignore an injected Dream generator")
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("role", ["all", "api"])
 @pytest.mark.parametrize("duplicate", ["binding_name", "artifact_family", "config_prefix"])
 def test_duplicate_custom_registration_is_rejected_for_every_role(role: Literal["all", "api"], duplicate: str) -> None:

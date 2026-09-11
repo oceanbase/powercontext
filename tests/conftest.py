@@ -21,6 +21,15 @@ import pytest
 _REAL_E2E_ROOT = Path(__file__).parent / "e2e" / "real_experience_skill"
 
 
+@pytest.fixture(autouse=True)
+def isolated_client_connection_settings(tmp_path, monkeypatch, request):
+    """Never consume or overwrite the developer's persistent setup consent."""
+
+    if not request.config.getoption("run_real_e2e"):
+        monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "client-settings.json"))
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("powercontext-real-e2e")
     group.addoption(

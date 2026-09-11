@@ -101,10 +101,16 @@ LangGraph adapter's scope or environment prefix:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `POWERCONTEXT_LANGCHAIN_BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server URL |
+| `POWERCONTEXT_LANGCHAIN_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP |
 | `POWERCONTEXT_LANGCHAIN_TOKEN` | unset | Bare bearer token passed to the Client |
 | `POWERCONTEXT_LANGCHAIN_SCOPE_ID` | unset | Existing Server Scope to use instead of the Server default |
 | `POWERCONTEXT_LANGCHAIN_TIMEOUT` | `10` | Client timeout in seconds |
 | `POWERCONTEXT_LANGCHAIN_MAX_BYTES` | `8000` | Prepared-context size limit |
+
+Loopback HTTP is allowed by default; non-loopback HTTP requires explicit consent through the environment variable
+above or `allow_insecure_http=True` on `PowerContextLangChainSettings` or `PowerContextScope`. HTTPS certificate
+validation stays enabled. Common environment settings and endpoint-bound saved consent are described in
+[Connect to a remote Server](../operate/connect-remote-server.md). The framework adapter does not have a setup installer.
 
 An explicit `PowerContextScope` value wins over environment configuration and must identify an existing Server Scope.
 If neither is set, the Server default Scope is used. The adapter never derives a Scope ID from Git, a path, the Agent,

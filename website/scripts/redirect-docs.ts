@@ -16,20 +16,22 @@
 
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { absoluteSiteUrl, withBasePath } from '../src/lib/urls';
 
 const redirects: Record<string, string> = JSON.parse(await readFile('docs-redirects.json', 'utf8'));
 
 // Static exports cannot use Next.js server redirects.
 for (const locale of ['en', 'zh']) {
   for (const [previous, current] of Object.entries(redirects)) {
-    const target = `/${locale}/docs/${current}/`;
+    const route = `/${locale}/docs/${current}/`;
+    const target = withBasePath(route);
     await access(path.join('out', locale, 'docs', current, 'index.html'));
     const directory = path.join('out', locale, 'docs', previous);
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, 'index.html'), `<!doctype html>
 <html lang="${locale}"><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url=${target}">
-<link rel="canonical" href="https://powercontext.oceanbase.io${target}">
+<link rel="canonical" href="${absoluteSiteUrl(route)}">
 <meta name="robots" content="noindex"><title>PowerContext</title></head>
 <body><a href="${target}">PowerContext documentation</a></body></html>
 `);

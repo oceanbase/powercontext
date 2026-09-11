@@ -16,7 +16,7 @@ openapi: 3.0.3
 info:
   title: PowerContext API
   description: Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.
-  version: 0.2.0
+  version: 1.0.0rc2
 security:
   - BearerAuth: []
   - {}
@@ -1571,6 +1571,195 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/scopes/{scope_id}/dream:
+    post:
+      tags:
+      - dream
+      summary: Create an asynchronous Artifact Dream
+      operationId: create_dream_run
+      x-powercontext-access:
+        resolver: path_scope_read_access
+      parameters:
+      - name: scope_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+      responses:
+        '202':
+          description: The accepted queued or running Dream.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DreamRun'
+        '200':
+          description: The requested Dream state.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DreamRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '429':
+          description: The configured pending-work capacity was reached.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      description: Matching idempotency keys return the original run before new-work admission. Active runs return
+        202; terminal runs return 200. A run creates at most one pending Candidate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDreamRunRequest'
+    get:
+      tags:
+      - dream
+      summary: List Artifact Dreams
+      operationId: list_dream_runs
+      x-powercontext-access:
+        resolver: path_scope_read_access
+      parameters:
+      - name: scope_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - failed
+      - name: operation
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - refine_experience
+          - derive_skill
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: The requested Dream state.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DreamRunPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      description: Descending accepted_at/run_id keyset pagination within one Scope.
+  /v1/scopes/{scope_id}/dream/{run_id}:
+    get:
+      tags:
+      - dream
+      summary: Get an Artifact Dream
+      operationId: get_dream_run
+      x-powercontext-access:
+        resolver: path_scope_read_access
+      parameters:
+      - name: scope_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 64
+      responses:
+        '200':
+          description: The requested Dream state.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DreamRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /v1/experience/propose:
     post:
       tags: [experience]
@@ -3603,7 +3792,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate]
+            enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate, profile.generate]
       requestBody:
         required: true
         content:
@@ -4335,6 +4524,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ArtifactReference"
+        memory_citations:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/MemoryCitation"
         content_digest:
           type: string
           pattern: '^sha256:[0-9a-f]{64}$'
@@ -4695,6 +4889,366 @@ components:
           $ref: "#/components/schemas/AccessPrincipal"
         receiver_identity_matches:
           type: boolean
+    DreamOperation:
+      type: string
+      enum:
+      - refine_experience
+      - derive_skill
+    DreamStatus:
+      type: string
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+    DreamOutcome:
+      type: string
+      enum:
+      - proposed
+      - no_change
+      - needs_evidence
+    DreamEvidenceKind:
+      type: string
+      enum:
+      - source
+      - experience
+      - memory
+      - unresolved
+    DreamEvidenceRole:
+      type: string
+      enum:
+      - root
+      - derived
+      - lineage_only
+      - unresolved
+    DreamEvidenceIndependence:
+      type: string
+      enum:
+      - attested
+      - unknown
+    DreamSourceReference:
+      type: object
+      additionalProperties: false
+      required:
+      - source_type
+      - source_id
+      properties:
+        source_type:
+          type: string
+          minLength: 1
+          maxLength: 128
+        source_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+    ListDreamRunsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          nullable: true
+          $ref: '#/components/schemas/DreamStatus'
+        operation:
+          nullable: true
+          $ref: '#/components/schemas/DreamOperation'
+        cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          default: 20
+          minimum: 1
+          maximum: 100
+    CreateDreamRunRequest:
+      additionalProperties: false
+      properties:
+        operation:
+          $ref: '#/components/schemas/DreamOperation'
+        artifacts:
+          default: []
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+          type: array
+        memory_citations:
+          default: []
+          items:
+            $ref: '#/components/schemas/MemoryCitation'
+          type: array
+        sources:
+          default: []
+          items:
+            $ref: '#/components/schemas/DreamSourceReference'
+          type: array
+        target:
+          $ref: '#/components/schemas/ArtifactReference'
+          nullable: true
+        idempotency_key:
+          maxLength: 128
+          minLength: 1
+          type: string
+          pattern: ^\S(?:[\s\S]*\S)?$
+      required:
+      - operation
+      - idempotency_key
+      type: object
+      description: Select 1-20 exact Experience or Memory citations after deduplication, with at most 32 combined references
+        including Sources. Only refine_experience accepts Memory citations or a target.
+    DreamBudget:
+      additionalProperties: false
+      properties:
+        max_items:
+          default: 32
+          maximum: 32
+          minimum: 1
+          type: integer
+        max_bytes:
+          default: 65536
+          maximum: 65536
+          minimum: 1
+          type: integer
+        max_nodes:
+          default: 128
+          maximum: 128
+          minimum: 1
+          type: integer
+        max_edges:
+          default: 256
+          maximum: 256
+          minimum: 1
+          type: integer
+        max_depth:
+          default: 8
+          maximum: 8
+          minimum: 1
+          type: integer
+        max_output_tokens:
+          default: 4096
+          maximum: 4096
+          minimum: 1
+          type: integer
+        max_model_calls:
+          default: 2
+          maximum: 2
+          minimum: 1
+          type: integer
+        timeout_seconds:
+          default: 120
+          exclusiveMinimum: true
+          maximum: 120
+          type: number
+          minimum: 0
+      type: object
+    DreamCandidateRef:
+      properties:
+        candidate_id:
+          type: string
+        version:
+          minimum: 1
+          type: integer
+      required:
+      - candidate_id
+      - version
+      type: object
+      additionalProperties: false
+    DreamUsage:
+      properties:
+        model_calls:
+          default: 0
+          minimum: 0
+          type: integer
+        input_tokens:
+          minimum: 0
+          type: integer
+          nullable: true
+        output_tokens:
+          minimum: 0
+          type: integer
+          nullable: true
+      type: object
+      additionalProperties: false
+    DreamEvidenceEdge:
+      additionalProperties: false
+      properties:
+        derived_id:
+          type: string
+        upstream_id:
+          type: string
+      required:
+      - derived_id
+      - upstream_id
+      type: object
+    DreamInputManifest:
+      additionalProperties: false
+      properties:
+        transform_version:
+          default: powercontext.dream.evidence.v1
+          type: string
+        artifacts:
+          default: []
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+          type: array
+        memory_citations:
+          default: []
+          items:
+            $ref: '#/components/schemas/MemoryCitation'
+          type: array
+        sources:
+          default: []
+          items:
+            $ref: '#/components/schemas/DreamSourceReference'
+          type: array
+        nodes:
+          default: []
+          items:
+            $ref: '#/components/schemas/DreamEvidenceNode'
+          type: array
+        edges:
+          default: []
+          items:
+            $ref: '#/components/schemas/DreamEvidenceEdge'
+          type: array
+        root_groups:
+          default: []
+          items:
+            $ref: '#/components/schemas/DreamRootEvidenceGroup'
+          type: array
+        projection_digest:
+          type: string
+        projection_bytes:
+          type: integer
+        incomplete:
+          default: false
+          type: boolean
+      required:
+      - projection_digest
+      - projection_bytes
+      type: object
+    DreamEvidenceNode:
+      additionalProperties: false
+      description: An immutable content digest and its exact provenance, never its body.
+      properties:
+        evidence_id:
+          type: string
+        kind:
+          $ref: '#/components/schemas/DreamEvidenceKind'
+        digest:
+          type: string
+        source:
+          $ref: '#/components/schemas/DreamSourceReference'
+          nullable: true
+        artifact:
+          $ref: '#/components/schemas/ArtifactReference'
+          nullable: true
+        memory_citations:
+          default: []
+          items:
+            $ref: '#/components/schemas/MemoryCitation'
+          type: array
+        role:
+          $ref: '#/components/schemas/DreamEvidenceRole'
+        historical:
+          default: false
+          type: boolean
+        current_entry_version_id:
+          type: string
+          nullable: true
+      required:
+      - evidence_id
+      - kind
+      - digest
+      - role
+      type: object
+    DreamRootEvidenceGroup:
+      additionalProperties: false
+      properties:
+        group_id:
+          type: string
+        sources:
+          items:
+            $ref: '#/components/schemas/DreamSourceReference'
+          type: array
+        independence:
+          default: unknown
+          $ref: '#/components/schemas/DreamEvidenceIndependence'
+      required:
+      - group_id
+      - sources
+      type: object
+    DreamRun:
+      properties:
+        scope_id:
+          type: string
+        run_id:
+          type: string
+        operation:
+          $ref: '#/components/schemas/DreamOperation'
+        status:
+          default: queued
+          $ref: '#/components/schemas/DreamStatus'
+        outcome:
+          nullable: true
+          $ref: '#/components/schemas/DreamOutcome'
+        target:
+          $ref: '#/components/schemas/ArtifactReference'
+          nullable: true
+        candidate:
+          $ref: '#/components/schemas/DreamCandidateRef'
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        accepted_at:
+          format: date-time
+          type: string
+        started_at:
+          format: date-time
+          type: string
+          nullable: true
+        completed_at:
+          format: date-time
+          type: string
+          nullable: true
+        attempt_count:
+          default: 0
+          type: integer
+        input_manifest:
+          $ref: '#/components/schemas/DreamInputManifest'
+          nullable: true
+        usage:
+          $ref: '#/components/schemas/DreamUsage'
+        budget:
+          $ref: '#/components/schemas/DreamBudget'
+        prompt_version:
+          default: powercontext.dream.v1
+          type: string
+        model_config_id:
+          type: string
+          nullable: true
+      required:
+      - scope_id
+      - run_id
+      - operation
+      - accepted_at
+      - model_config_id
+      type: object
+      additionalProperties: false
+    DreamRunPage:
+      properties:
+        runs:
+          items:
+            $ref: '#/components/schemas/DreamRun'
+          type: array
+        next_cursor:
+          type: string
+          nullable: true
+      required:
+      - runs
+      type: object
+      additionalProperties: false
     ArtifactCandidate:
       type: object
       additionalProperties: false
@@ -4711,6 +5265,13 @@ components:
         - result_artifact
         - decision_reason
       properties:
+        memory_citations:
+          type: array
+          maxItems: 32
+          default: []
+          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
+          items:
+            $ref: "#/components/schemas/MemoryCitation"
         permissions:
           $ref: "#/components/schemas/CandidatePermissions"
           nullable: true
@@ -4801,6 +5362,11 @@ components:
           default: {}
           additionalProperties:
             $ref: "#/components/schemas/PromptCapability"
+
+        artifact_dreaming:
+          type: boolean
+          default: false
+          description: Whether asynchronous Artifact Dream execution is configured.
         source_types:
           type: array
           items:
@@ -6148,6 +6714,13 @@ components:
       additionalProperties: false
       required: [artifact, content, source_refs, artifact_refs]
       properties:
+        memory_citations:
+          type: array
+          maxItems: 32
+          default: []
+          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
+          items:
+            $ref: "#/components/schemas/MemoryCitation"
         artifact:
           $ref: "#/components/schemas/ArtifactReference"
         content:
@@ -6190,6 +6763,13 @@ components:
       additionalProperties: false
       required: [artifact, content, source_refs, artifact_refs]
       properties:
+        memory_citations:
+          type: array
+          maxItems: 32
+          default: []
+          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
+          items:
+            $ref: "#/components/schemas/MemoryCitation"
         artifact:
           $ref: "#/components/schemas/ArtifactReference"
         content:
@@ -7563,6 +8143,13 @@ components:
       additionalProperties: false
       required: [scope_id, proposal, source_refs, artifact_refs]
       properties:
+        memory_citations:
+          type: array
+          maxItems: 32
+          default: []
+          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
+          items:
+            $ref: "#/components/schemas/MemoryCitation"
         scope_id:
           type: string
           minLength: 1
@@ -7785,6 +8372,13 @@ components:
       additionalProperties: false
       required: [scope_id, candidate_id, expected_version, proposal, source_refs, artifact_refs]
       properties:
+        memory_citations:
+          type: array
+          maxItems: 32
+          nullable: true
+          description: Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty only for Experience.
+          items:
+            $ref: "#/components/schemas/MemoryCitation"
         scope_id:
           type: string
           minLength: 1
@@ -8398,7 +8992,7 @@ components:
           nullable: true
     PromptKey:
       type: string
-      enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate]
+      enum: [memory.extract, memory.rerank, experience.incubate, experience.generate, skill.generate, handoff.generate, profile.generate]
     PromptContent:
       type: object
       additionalProperties: false

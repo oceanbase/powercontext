@@ -40,6 +40,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
@@ -113,6 +114,7 @@ class RuntimeConfig(BaseModel):
         "memory_max_workers",
         "topic_memory_max_workers",
         "experience_max_workers",
+        "skill_max_workers",
         "profile_max_workers",
         "profile_max_concurrency",
         "artifact_processing_max_workers",
@@ -152,6 +154,10 @@ class RuntimeConfig(BaseModel):
     schedule_seconds: float | None = Field(default=None, gt=0)
     memory_schedule_seconds: float | None = Field(default=None, gt=0)
     experience_schedule_seconds: float | None = Field(default=None, gt=0)
+    dream_enabled: bool = True
+    dream_max_pending_per_scope: int = Field(default=32, ge=1, le=1000)
+    generation_concurrency: int = Field(default=4, ge=1, le=64)
+    dream_budget: DreamBudget = Field(default_factory=DreamBudget)
     topic_memory_schedule_seconds: float | None = Field(default=None, gt=0)
     topic_memory_source_window_limit: int = Field(default=10, ge=1)
     topic_memory_history_max_candidates: int = Field(default=20, ge=1, le=MAX_TOPIC_MEMORY_SEARCH_LIMIT)
@@ -165,10 +171,12 @@ class RuntimeConfig(BaseModel):
     memory_max_workers: int = Field(default=1, ge=1)
     topic_memory_max_workers: int = Field(default=10, ge=1)
     experience_max_workers: int = Field(default=1, ge=1)
+    skill_max_workers: int = Field(default=1, ge=1)
     profile_max_workers: int = Field(default=4, ge=1)
     memory_worker_timeout_seconds: float = Field(default=600, gt=0)
     topic_memory_worker_timeout_seconds: float = Field(default=600, gt=0)
     experience_worker_timeout_seconds: float = Field(default=600, gt=0)
+    skill_worker_timeout_seconds: float = Field(default=600, gt=0)
     profile_worker_timeout_seconds: float = Field(default=600, gt=0)
 
     @model_validator(mode="after")
@@ -377,7 +385,7 @@ class BuiltinConfig(BaseModel):
     def validate_artifact_processing_role(self) -> BuiltinConfig:
         if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
             raise ValueError(  # noqa: TRY003
-                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekDB"
+                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekdb"
             )
         return self
 

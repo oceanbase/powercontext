@@ -399,7 +399,9 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
     # Pydantic AI also resolves already-constructed models through `infer_model`, so pass those through.
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"candidates":[]}'),
+        lambda model, **_kwargs: (
+            model if isinstance(model, Model) else TestModel(custom_output_text='{"candidates":[]}')
+        ),
     )
 
     instrumented = _flush_memory_spans(tmp_path / "instrumented.db", instrumented=True)
@@ -429,7 +431,9 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     # Resolve the configured test model without consulting the environment or a real provider.
     monkeypatch.setattr(
         "pydantic_ai.models.infer_model",
-        lambda model: model if isinstance(model, Model) else TestModel(custom_output_text='{"selected_ranks":[99,1]}'),
+        lambda model, **_kwargs: (
+            model if isinstance(model, Model) else TestModel(custom_output_text='{"selected_ranks":[99,1]}')
+        ),
     )
 
     exporter = InMemorySpanExporter()

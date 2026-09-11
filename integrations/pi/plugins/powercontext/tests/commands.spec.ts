@@ -28,6 +28,7 @@ function runtime(fetch: typeof globalThis.fetch, resolveScope = async () => 'sco
     }),
     config: {
       baseUrl: 'http://127.0.0.1:8000',
+      allowInsecureHttp: false,
       scopeId: undefined,
       authorization: undefined,
       capturePrompts: true,

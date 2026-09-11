@@ -62,11 +62,15 @@ def _load_plugin_module(name: str, path: Path) -> tuple[ModuleType | None, str]:
     # Register before executing: a slotted dataclass (the Claude Code plugin) resolves its own
     # module via sys.modules during class creation and fails to import otherwise.
     sys.modules[module_name] = module
+    previous_path = sys.path.copy()
     try:
+        sys.path.insert(0, str(path.parent))
         spec.loader.exec_module(module)
     except Exception as error:  # pragma: no cover - exercised only when a plugin is unavailable.
         sys.modules.pop(module_name, None)
         return None, repr(error)
+    finally:
+        sys.path[:] = previous_path
     return module, ""
 
 

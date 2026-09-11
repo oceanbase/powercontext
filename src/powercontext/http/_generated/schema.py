@@ -7,7 +7,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
     "info": {
         "title": "PowerContext API",
         "description": "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities.",
-        "version": "0.2.0",
+        "version": "1.0.0rc2",
     },
     "paths": {
         "/v1/scopes/{scope_id}/subject-sources": {
@@ -1418,6 +1418,140 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
                 },
                 "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/scopes/{scope_id}/dream": {
+            "post": {
+                "tags": ["dream"],
+                "summary": "Create an asynchronous Artifact Dream",
+                "operationId": "create_dream_run",
+                "x-powercontext-access": {"resolver": "path_scope_read_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "The accepted queued or running Dream.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DreamRun"}}},
+                    },
+                    "200": {
+                        "description": "The requested Dream state.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DreamRun"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "429": {
+                        "description": "The configured pending-work capacity was reached.",
+                        "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1}}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+                    },
+                },
+                "description": "Matching idempotency keys "
+                "return the original run before "
+                "new-work admission. Active "
+                "runs return 202; terminal runs "
+                "return 200. A run creates at "
+                "most one pending Candidate.",
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateDreamRunRequest"}}},
+                },
+            },
+            "get": {
+                "tags": ["dream"],
+                "summary": "List Artifact Dreams",
+                "operationId": "list_dream_runs",
+                "x-powercontext-access": {"resolver": "path_scope_read_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
+                    },
+                    {
+                        "name": "operation",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "enum": ["refine_experience", "derive_skill"]},
+                    },
+                    {"name": "cursor", "in": "query", "required": False, "schema": {"type": "string"}},
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The requested Dream state.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DreamRunPage"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "description": "Descending accepted_at/run_id keyset pagination within one Scope.",
+            },
+        },
+        "/v1/scopes/{scope_id}/dream/{run_id}": {
+            "get": {
+                "tags": ["dream"],
+                "summary": "Get an Artifact Dream",
+                "operationId": "get_dream_run",
+                "x-powercontext-access": {"resolver": "path_scope_read_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    },
+                    {
+                        "name": "run_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 64},
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The requested Dream state.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DreamRun"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
             }
         },
         "/v1/experience/propose": {
@@ -3545,6 +3679,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                                 "experience.generate",
                                 "skill.generate",
                                 "handoff.generate",
+                                "profile.generate",
                             ],
                         },
                     },
@@ -4005,6 +4140,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "content": {"additionalProperties": True, "type": "object"},
                     "sources": {"items": {"$ref": "#/components/schemas/SourceTypeReference"}, "type": "array"},
                     "artifacts": {"items": {"$ref": "#/components/schemas/ArtifactReference"}, "type": "array"},
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "default": [],
+                    },
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
                 },
                 "type": "object",
@@ -4286,8 +4426,238 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["principal", "receiver_identity_matches"],
                 "description": "Server-owned attestation stored separately from the immutable untrusted Receipt.",
             },
+            "DreamOperation": {"type": "string", "enum": ["refine_experience", "derive_skill"]},
+            "DreamStatus": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
+            "DreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
+            "DreamEvidenceKind": {"type": "string", "enum": ["source", "experience", "memory", "unresolved"]},
+            "DreamEvidenceRole": {"type": "string", "enum": ["root", "derived", "lineage_only", "unresolved"]},
+            "DreamEvidenceIndependence": {"type": "string", "enum": ["attested", "unknown"]},
+            "DreamSourceReference": {
+                "properties": {
+                    "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "source_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["source_type", "source_id"],
+            },
+            "ListDreamRunsRequest": {
+                "properties": {
+                    "status": {"$ref": "#/components/schemas/DreamStatus", "nullable": True},
+                    "operation": {"$ref": "#/components/schemas/DreamOperation", "nullable": True},
+                    "cursor": {"type": "string", "nullable": True},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 20},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "CreateDreamRunRequest": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/DreamOperation"},
+                    "artifacts": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/DreamSourceReference"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "idempotency_key": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["operation", "idempotency_key"],
+                "description": "Select 1-20 exact Experience "
+                "or Memory citations after "
+                "deduplication, with at most "
+                "32 combined references "
+                "including Sources. Only "
+                "refine_experience accepts "
+                "Memory citations or a "
+                "target.",
+            },
+            "DreamBudget": {
+                "properties": {
+                    "max_items": {"type": "integer", "maximum": 32.0, "minimum": 1.0, "default": 32},
+                    "max_bytes": {"type": "integer", "maximum": 65536.0, "minimum": 1.0, "default": 65536},
+                    "max_nodes": {"type": "integer", "maximum": 128.0, "minimum": 1.0, "default": 128},
+                    "max_edges": {"type": "integer", "maximum": 256.0, "minimum": 1.0, "default": 256},
+                    "max_depth": {"type": "integer", "maximum": 8.0, "minimum": 1.0, "default": 8},
+                    "max_output_tokens": {"type": "integer", "maximum": 4096.0, "minimum": 1.0, "default": 4096},
+                    "max_model_calls": {"type": "integer", "maximum": 2.0, "minimum": 1.0, "default": 2},
+                    "timeout_seconds": {
+                        "type": "number",
+                        "maximum": 120.0,
+                        "minimum": 0.0,
+                        "exclusiveMinimum": 1.0,
+                        "default": 120,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "DreamCandidateRef": {
+                "properties": {"candidate_id": {"type": "string"}, "version": {"type": "integer", "minimum": 1.0}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["candidate_id", "version"],
+            },
+            "DreamUsage": {
+                "properties": {
+                    "model_calls": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "input_tokens": {"type": "integer", "minimum": 0.0, "nullable": True},
+                    "output_tokens": {"type": "integer", "minimum": 0.0, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "DreamEvidenceEdge": {
+                "properties": {"derived_id": {"type": "string"}, "upstream_id": {"type": "string"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["derived_id", "upstream_id"],
+            },
+            "DreamInputManifest": {
+                "properties": {
+                    "transform_version": {"type": "string", "default": "powercontext.dream.evidence.v1"},
+                    "artifacts": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/DreamSourceReference"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "nodes": {
+                        "items": {"$ref": "#/components/schemas/DreamEvidenceNode"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "edges": {
+                        "items": {"$ref": "#/components/schemas/DreamEvidenceEdge"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "root_groups": {
+                        "items": {"$ref": "#/components/schemas/DreamRootEvidenceGroup"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "projection_digest": {"type": "string"},
+                    "projection_bytes": {"type": "integer"},
+                    "incomplete": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["projection_digest", "projection_bytes"],
+            },
+            "DreamEvidenceNode": {
+                "properties": {
+                    "evidence_id": {"type": "string"},
+                    "kind": {"$ref": "#/components/schemas/DreamEvidenceKind"},
+                    "digest": {"type": "string"},
+                    "source": {"$ref": "#/components/schemas/DreamSourceReference", "nullable": True},
+                    "artifact": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "role": {"$ref": "#/components/schemas/DreamEvidenceRole"},
+                    "historical": {"type": "boolean", "default": False},
+                    "current_entry_version_id": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["evidence_id", "kind", "digest", "role"],
+                "description": "An immutable content digest and its exact provenance, never its body.",
+            },
+            "DreamRootEvidenceGroup": {
+                "properties": {
+                    "group_id": {"type": "string"},
+                    "sources": {"items": {"$ref": "#/components/schemas/DreamSourceReference"}, "type": "array"},
+                    "independence": {"$ref": "#/components/schemas/DreamEvidenceIndependence", "default": "unknown"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["group_id", "sources"],
+            },
+            "DreamRun": {
+                "properties": {
+                    "scope_id": {"type": "string"},
+                    "run_id": {"type": "string"},
+                    "operation": {"$ref": "#/components/schemas/DreamOperation"},
+                    "status": {"$ref": "#/components/schemas/DreamStatus", "default": "queued"},
+                    "outcome": {"$ref": "#/components/schemas/DreamOutcome", "nullable": True},
+                    "target": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "candidate": {"$ref": "#/components/schemas/DreamCandidateRef", "nullable": True},
+                    "reason": {"type": "string", "nullable": True},
+                    "error": {"type": "string", "nullable": True},
+                    "accepted_at": {"type": "string", "format": "date-time"},
+                    "started_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "completed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "attempt_count": {"type": "integer", "default": 0},
+                    "input_manifest": {"$ref": "#/components/schemas/DreamInputManifest", "nullable": True},
+                    "usage": {"$ref": "#/components/schemas/DreamUsage"},
+                    "budget": {"$ref": "#/components/schemas/DreamBudget"},
+                    "prompt_version": {"type": "string", "default": "powercontext.dream.v1"},
+                    "model_config_id": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "run_id", "operation", "accepted_at", "model_config_id"],
+            },
+            "DreamRunPage": {
+                "properties": {
+                    "runs": {"items": {"$ref": "#/components/schemas/DreamRun"}, "type": "array"},
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["runs"],
+            },
             "ArtifactCandidate": {
                 "properties": {
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Memory "
+                        "entry "
+                        "provenance; "
+                        "non-empty "
+                        "only "
+                        "for "
+                        "Experience. "
+                        "Counted "
+                        "toward "
+                        "the "
+                        "combined "
+                        "evidence "
+                        "bound.",
+                        "default": [],
+                    },
                     "permissions": {
                         "$ref": "#/components/schemas/CandidatePermissions",
                         "description": "Current "
@@ -4397,6 +4767,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "additionalProperties": {"$ref": "#/components/schemas/PromptCapability"},
                         "type": "object",
                         "default": {},
+                    },
+                    "artifact_dreaming": {
+                        "type": "boolean",
+                        "description": "Whether asynchronous Artifact Dream execution is configured.",
+                        "default": False,
                     },
                     "source_types": {"items": {"type": "string"}, "type": "array"},
                     "artifact_families": {"items": {"type": "string"}, "type": "array"},
@@ -5472,6 +5847,26 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ExperienceArtifact": {
                 "properties": {
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Memory "
+                        "entry "
+                        "provenance; "
+                        "non-empty "
+                        "only "
+                        "for "
+                        "Experience. "
+                        "Counted "
+                        "toward "
+                        "the "
+                        "combined "
+                        "evidence "
+                        "bound.",
+                        "default": [],
+                    },
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
                     "content": {"$ref": "#/components/schemas/ExperienceProposal"},
                     "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
@@ -5494,6 +5889,26 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SkillArtifact": {
                 "properties": {
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Memory "
+                        "entry "
+                        "provenance; "
+                        "non-empty "
+                        "only "
+                        "for "
+                        "Experience. "
+                        "Counted "
+                        "toward "
+                        "the "
+                        "combined "
+                        "evidence "
+                        "bound.",
+                        "default": [],
+                    },
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
                     "content": {"$ref": "#/components/schemas/SkillProposal"},
                     "source_refs": {"items": {"$ref": "#/components/schemas/SourceReference"}, "type": "array"},
@@ -6598,6 +7013,26 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ContextAssemblyMetadata": {"type": "string", "enum": ["confidence", "recall_rank"]},
             "ProposeExperienceRequest": {
                 "properties": {
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Exact "
+                        "Memory "
+                        "entry "
+                        "provenance; "
+                        "non-empty "
+                        "only "
+                        "for "
+                        "Experience. "
+                        "Counted "
+                        "toward "
+                        "the "
+                        "combined "
+                        "evidence "
+                        "bound.",
+                        "default": [],
+                    },
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "proposal": {"$ref": "#/components/schemas/ExperienceProposal"},
                     "source_refs": {
@@ -6847,6 +7282,32 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ReviseArtifactCandidateRequest": {
                 "properties": {
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "description": "Omission "
+                        "or "
+                        "null "
+                        "retains "
+                        "the "
+                        "current "
+                        "citations; "
+                        "an "
+                        "explicit "
+                        "array "
+                        "replaces "
+                        "them, "
+                        "including "
+                        "an "
+                        "empty "
+                        "array. "
+                        "Non-empty "
+                        "only "
+                        "for "
+                        "Experience.",
+                        "nullable": True,
+                    },
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "candidate_id": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                     "expected_version": {"type": "integer", "minimum": 1.0},
@@ -7498,6 +7959,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "experience.generate",
                     "skill.generate",
                     "handoff.generate",
+                    "profile.generate",
                 ],
             },
             "PromptContent": {

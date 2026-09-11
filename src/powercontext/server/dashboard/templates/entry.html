@@ -1,0 +1,24 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+{% from 'components/page-heading.html' import page_heading %}
+{{ page_heading(t.entry_heading, t.entry_body) }}
+{% if errors.get('default_scope') %}{{ read_error(errors.default_scope, t.default_scope) }}{% endif %}
+<section class="card"><div class="card-body">
+  {% if scopes %}<div class="list-group list-group-flush">
+    {% for item in scopes %}<a class="list-group-item list-group-item-action" href="{{ link('home', scope=item.scope_id) }}"><strong>{{ item.title }}</strong><p class="text-secondary mb-0">{{ item.summary }}</p></a>{% endfor %}
+  </div>{% else %}<h2>{{ t.no_scopes }}</h2>{% endif %}
+</div></section>

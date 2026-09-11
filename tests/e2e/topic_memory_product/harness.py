@@ -67,7 +67,6 @@ from powercontext.http import CaptureContentSourceRequest, FlushTopicMemoryReque
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import (
     BearerAuthConfig,
-    DashboardConfig,
     McpConfig,
     ServerSettings,
 )
@@ -81,7 +80,7 @@ from tests.e2e.topic_memory_product.common import (
     ProductChainError,
     default_scope_id,
     digest_text,
-    exercise_http_mcp_prepared_web_chain,
+    exercise_http_mcp_prepared_chain,
     require_no_worker_failures,
     run_e0,
     start_loopback_server,
@@ -682,89 +681,6 @@ def _configure_installed_mcp(installed_path: Path, *, base_url: str) -> None:
     configuration_path.write_text(f"{json.dumps(configuration, indent=2)}\n", encoding="utf-8")
 
 
-def _browser_python() -> Path:
-    configured = os.environ.get("POWERCONTEXT_R8_PLAYWRIGHT_PYTHON")
-    if configured:
-        candidate = Path(configured)
-    else:
-        executable = shutil.which("playwright")
-        if executable is None:
-            raise ProductChainError("Playwright CLI is unavailable for E1 screenshot evidence")
-        first_line = Path(executable).read_text(encoding="utf-8").splitlines()[0]
-        if not first_line.startswith("#!"):
-            raise ProductChainError("Playwright CLI has no discoverable Python interpreter")
-        candidate = Path(first_line.removeprefix("#!"))
-    if not candidate.is_file():
-        raise ProductChainError("Playwright Python interpreter is unavailable")
-    return candidate
-
-
-def _browser_executable() -> Path:
-    configured = os.environ.get("POWERCONTEXT_R8_BROWSER_EXECUTABLE")
-    if configured:
-        candidate = Path(configured)
-    else:
-        candidates = sorted((Path.home() / ".cache" / "ms-playwright").glob("chromium-*/chrome-linux64/chrome"))
-        if not candidates:
-            raise ProductChainError("no preinstalled Chromium executable is available")
-        candidate = candidates[-1]
-    if not candidate.is_file() or not os.access(candidate, os.X_OK):
-        raise ProductChainError("configured Chromium executable is unavailable")
-    return candidate
-
-
-def _capture_browser_evidence(
-    *,
-    directory: Path,
-    base_url: str,
-    token: str,
-    artifact_ref: str,
-    source_ref: str,
-    environment: Mapping[str, str],
-) -> dict[str, object]:
-    desktop = directory / "topics-desktop-redacted.png"
-    narrow = directory / "topics-narrow-redacted.png"
-    audit = directory / "browser-audit.json"
-    try:
-        completed = _run(
-            (
-                str(_browser_python()),
-                str(Path(__file__).with_name("browser_capture.py")),
-                "--base-url",
-                base_url,
-                "--artifact-ref",
-                artifact_ref,
-                "--source-ref",
-                source_ref,
-                "--desktop",
-                str(desktop),
-                "--narrow",
-                str(narrow),
-                "--audit",
-                str(audit),
-            ),
-            cwd=PROJECT_ROOT,
-            env={
-                **environment,
-                "POWERCONTEXT_R8_BROWSER_TOKEN": token,
-                "POWERCONTEXT_R8_BROWSER_EXECUTABLE": str(_browser_executable()),
-            },
-            timeout=90,
-        )
-    except subprocess.CalledProcessError as exc:
-        raise ProductChainError(f"browser evidence failed: {exc.stderr[-2000:]}") from exc
-    if completed.stdout or completed.stderr:
-        # Browser output is intentionally discarded because it is not acceptance evidence.
-        pass
-    return {
-        "status": "PASS",
-        "desktop": desktop.name,
-        "narrow": narrow.name,
-        "audit": audit.name,
-        "generated_content_redacted": True,
-    }
-
-
 def _e1_subprocess_environment(source: Mapping[str, str]) -> dict[str, str]:
     """Allowlist the generic process environment and exclude all R8 layer inputs."""
 
@@ -864,7 +780,7 @@ def run_e1(  # noqa: C901
     codex_timeout: float,
     generation_timeout: float,
 ) -> dict[str, object]:
-    """Run real Codex, plugin hook, MCP, generation, HTTP, and browser acceptance."""
+    """Run real Codex, plugin hook, MCP, generation, and HTTP acceptance."""
 
     directory.mkdir(parents=True, exist_ok=True)
     if shutil.which("codex") is None:
@@ -939,7 +855,6 @@ def run_e1(  # noqa: C901
                     generation_max_requests=1,
                 ),
                 mcp=McpConfig(enabled=True),
-                dashboard=DashboardConfig(enabled=True),
             )
             app = create_server_app(
                 settings=settings,
@@ -1007,7 +922,7 @@ def run_e1(  # noqa: C901
 
             try:
                 chain = asyncio.run(
-                    exercise_http_mcp_prepared_web_chain(
+                    exercise_http_mcp_prepared_chain(
                         base_url=server.base_url,
                         token=token,
                         scope_id=scope_id,
@@ -1062,14 +977,6 @@ def run_e1(  # noqa: C901
                 exact_ref=chain.exact_ref,
             )
 
-            browser = _capture_browser_evidence(
-                directory=directory,
-                base_url=server.base_url,
-                token=token,
-                artifact_ref=chain.exact_ref.display(),
-                source_ref=chain.source_ref,
-                environment=environment,
-            )
             server.stop()
             port_closed = server.port_is_closed()
             server = None
@@ -1129,7 +1036,6 @@ def run_e1(  # noqa: C901
                         "full_detail_absent": True,
                     },
                 },
-                "browser": browser,
                 "auth_audit": auth_audit,
                 "generation_auth_audit": generation_auth_audit,
                 "redaction": {
@@ -1216,7 +1122,6 @@ def run_e2(  # noqa: C901
                 embedding_timeout_seconds=config.timeout_seconds,
             ),
             mcp=McpConfig(enabled=True),
-            dashboard=DashboardConfig(enabled=True),
         )
         app = create_server_app(
             settings=settings,
@@ -1226,7 +1131,7 @@ def run_e2(  # noqa: C901
         server = start_loopback_server(app, startup_timeout=60)
         scope_id = asyncio.run(default_scope_id(server.base_url, token=_E2_TOKEN))
         chain = asyncio.run(
-            exercise_http_mcp_prepared_web_chain(
+            exercise_http_mcp_prepared_chain(
                 base_url=server.base_url,
                 token=_E2_TOKEN,
                 scope_id=scope_id,
@@ -1262,7 +1167,6 @@ def run_e2(  # noqa: C901
                 }
             ),
             mcp=McpConfig(enabled=False),
-            dashboard=DashboardConfig(enabled=False),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         fallback_server = start_loopback_server(
@@ -1582,7 +1486,6 @@ def run_e3(  # noqa: C901
                 generation_model_settings={"max_tokens": 1024},
             ),
             mcp=McpConfig(enabled=False),
-            dashboard=DashboardConfig(enabled=False),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         api_server = start_loopback_server(
@@ -1706,7 +1609,7 @@ def run_e3(  # noqa: C901
 
 
 def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]:  # noqa: C901
-    """Run the full product chain on one real embedded seekDB all-role runtime."""
+    """Run the full product chain on one real embedded seekdb all-role runtime."""
 
     directory.mkdir(parents=True, exist_ok=True)
     runtime_directory = Path(tempfile.mkdtemp(prefix=".runtime-", dir=directory))
@@ -1747,7 +1650,6 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
                 embedding_timeout_seconds=5,
             ),
             mcp=McpConfig(enabled=True),
-            dashboard=DashboardConfig(enabled=True),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         server = start_loopback_server(
@@ -1760,13 +1662,13 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
         )
         scope_id = asyncio.run(default_scope_id(server.base_url, token=_E4_TOKEN))
         chain = asyncio.run(
-            exercise_http_mcp_prepared_web_chain(
+            exercise_http_mcp_prepared_chain(
                 base_url=server.base_url,
                 token=_E4_TOKEN,
                 scope_id=scope_id,
                 query=E4_CANARY,
                 source_id="r8-seekdb-source",
-                source_content=f"Synthetic seekDB release decision: use {E4_CANARY} for the R8 E4 chain.",
+                source_content=f"Synthetic seekdb release decision: use {E4_CANARY} for the R8 E4 chain.",
                 expected_detail_marker=fake.detail_marker,
                 timeline=timeline,
                 generation=fake,
@@ -1774,7 +1676,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
             )
         )
         if chain.search_mode != "hybrid":
-            raise ProductChainError(f"E4 seekDB vector path used {chain.search_mode}, not hybrid")
+            raise ProductChainError(f"E4 seekdb vector path used {chain.search_mode}, not hybrid")
         server.stop()
         hybrid_closed = server.port_is_closed()
         server = None
@@ -1796,7 +1698,6 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
                 }
             ),
             mcp=McpConfig(enabled=False),
-            dashboard=DashboardConfig(enabled=False),
             handoff_report=HandoffReportConfig(enabled=False),
         )
         fts_server = start_loopback_server(create_server_app(settings=fts_settings), startup_timeout=90)
@@ -1810,7 +1711,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
         )
         fts_ref = ArtifactIdentity.from_mapping(cast(Mapping[str, object], fts_search["artifact"]))
         if fts_search["mode"] != "fts" or fts_ref != chain.exact_ref:
-            raise ProductChainError("E4 seekDB FTS restart did not preserve the exact ref")
+            raise ProductChainError("E4 seekdb FTS restart did not preserve the exact ref")
         fts_server.stop()
         fts_closed = fts_server.port_is_closed()
         fts_server = None
@@ -1820,7 +1721,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
             "schema": "powercontext.topic-memory-r8.e4.v1",
             "status": "PASS",
             "environment": {
-                "database": "real embedded seekDB in an isolated temporary path",
+                "database": "real embedded seekdb in an isolated temporary path",
                 "runtime_role": "all",
                 "generation_and_embedding": "deterministic loopback provider",
             },
@@ -1861,7 +1762,7 @@ def run_e4(directory: Path, *, generation_timeout: float) -> dict[str, object]: 
     }
     cleanup = cast(dict[str, object], result["cleanup"])
     if not all(value is True for value in cleanup.values()):
-        raise ProductChainError("E4 cleanup left a listener or temporary seekDB behind")
+        raise ProductChainError("E4 cleanup left a listener or temporary seekdb behind")
     _write_json(directory / "e4-report.json", result)
     return result
 

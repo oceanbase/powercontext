@@ -2,6 +2,14 @@ name: Deploy website
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/guided-config
+    paths:
+      - website/**
+      - docs/**
+      - src/**
+      - .github/workflows/deploy-docs.yml
 
 permissions:
   contents: read
@@ -14,11 +22,17 @@ concurrency:
 
 jobs:
   deploy-website:
-    if: github.ref == 'refs/heads/master'
+    if: >-
+      github.ref == 'refs/heads/master' ||
+      (github.repository == 'frf12/powercontext' && github.ref == 'refs/heads/codex/guided-config')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_BASE_PATH: ${{ github.repository == 'frf12/powercontext' && '/powercontext' || '' }}
+      NEXT_PUBLIC_SITE_URL: ${{ github.repository == 'frf12/powercontext' && 'https://frf12.github.io' || 'https://powercontext.oceanbase.io' }}
+      NEXT_PUBLIC_REPOSITORY_URL: ${{ github.repository == 'frf12/powercontext' && 'https://github.com/frf12/powercontext/tree/codex/guided-config' || 'https://github.com/oceanbase/powercontext' }}
     steps:
       - name: Check out
         uses: actions/checkout@v7

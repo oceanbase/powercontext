@@ -1,0 +1,39 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="handoff-reading">
+{% include 'components/reading-style.html' %}
+{% from 'components/record-references.html' import record_references with context %}
+{% from 'macros.html' import evidence_link with context %}
+{% if data.handoff %}
+<article class="reading-sheet">
+  <div>
+  <header class="reading-heading"><a class="back-link d-block mb-4" href="{{ link('handoff') }}">← {{ t.back_handoffs }}</a><span class="method-type text-secondary small">{{ t.handoff }} · {{ data.title }} · {{ t.revision }} {{ data.handoff.revision }}</span><h1>{{ data.handoff.objective }}</h1>{% if data.handoff.disposition in ['complete', 'blocked'] %}<p>{{ t.complete_notice if data.handoff.disposition == 'complete' else t.blocked_notice }}</p>{% endif %}</header>
+    <div class="reading-body">
+      <section><h2>{{ t.recorded_state }}</h2><ul>{% for statement in data.handoff.state %}<li>{{ statement.text }}</li>{% endfor %}</ul></section>
+      <section><h2>{{ t.next_action }}</h2><p>{{ data.handoff.next_action.text if data.handoff.next_action else t.no_next_action }}</p></section>
+      <section><h2>{{ t.handoff_omissions }}</h2>{% if data.handoff.omissions %}<ul>{% for omission in data.handoff.omissions %}<li>{{ omission.text }}</li>{% endfor %}</ul>{% else %}<p>{{ t.no_omissions }}</p>{% endif %}</section>
+      {% call record_references(data.handoff, 'handoff') %}
+        {% include 'components/record-sources.html' %}
+      {% endcall %}
+    </div>
+  </div>
+</article>
+{% include 'components/evidence-modal.html' %}
+{% else %}
+<section class="card"><div class="empty"><h1>{{ t.handoff_empty }}</h1><p>{{ t.handoff_empty_body }}</p></div></section>
+{% endif %}
+</div>

@@ -1449,6 +1449,33 @@ def test_service_install_cli_reports_the_environment_file_without_credentials(
     assert "Inference capability notice" in result.output
 
 
+def test_service_install_preflight_keeps_the_environment_file_authoritative(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    status = ServiceStatus(
+        support=SupportState.SUPPORTED,
+        registration=RegistrationState.INSTALLED,
+        definition=DefinitionState.CURRENT,
+        manager=ManagerState.ACTIVE,
+        server_liveness=LivenessState.LIVE,
+        endpoint="http://127.0.0.1:8000",
+        log_location="fake logs",
+        manager_ownership=ManagerOwnershipState.OWNED,
+    )
+    controller = Mock()
+    controller.install.return_value = status
+    monkeypatch.setattr(service_cli, "_controller", lambda: controller)
+    environment = tmp_path / "powercontext.env"
+    environment.write_text("POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1\n", encoding="utf-8")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_HOST", "0.0.0.0")  # noqa: S104 - exercise the rejected non-loopback shell value.
+
+    result = CliRunner().invoke(service_app, ["install", "--env-file", str(environment), "--start-on-login"])
+
+    assert result.exit_code == 0
+    controller.install.assert_called_once_with(env_file=environment, start_on_login=True)
+
+
 def test_service_install_cli_expands_the_environment_file_home_directory(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -50,6 +50,7 @@ Environment variables use the `POWERCONTEXT_PYDANTIC_AI_` prefix.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `BASE_URL` | `http://127.0.0.1:8000` | PowerContext Server HTTP base URL |
+| `ALLOW_INSECURE_HTTP` | `false` | Explicitly allow non-loopback HTTP; HTTPS certificate validation stays enabled |
 | `TOKEN` | unset | Bare Server token; the Client adds the `Bearer` scheme |
 | `SCOPE_ID` | unset | Existing explicit Server Scope; unset selects the Server default |
 | `TIMEOUT` | `10` | HTTP timeout in seconds |
@@ -61,6 +62,12 @@ Environment variables use the `POWERCONTEXT_PYDANTIC_AI_` prefix.
 The `TOKEN` value is deliberately different from the Codex and Claude Code plugin authorization settings: provide
 only the opaque token, not `Bearer TOKEN` or a complete `Authorization` header. It is stored as Pydantic `SecretStr`
 and passed to `PowerContextClient`, which constructs the header.
+
+`PowerContextSettings(allow_insecure_http=True)` also permits non-loopback HTTP. Transport settings resolve from
+constructor values, host environment, common `POWERCONTEXT_CLIENT_SERVER_URL` /
+`POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP`, then the `pydantic-ai` entry in `~/.config/powercontext/clients.json`
+(overridden by `POWERCONTEXT_CLIENT_CONFIG_FILE`). A host value of `false` overrides common `true`.
+Saved consent applies only to its saved Server URL and is not reused when the URL changes.
 
 Both components accept `settings=`, `id=` (default `powercontext`), and `scope_id=`. `scope_id` can be a fixed string
 or a callable receiving the current `RunContext`. Resolution order is constructor value or callback, then environment

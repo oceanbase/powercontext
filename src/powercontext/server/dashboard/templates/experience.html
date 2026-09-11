@@ -1,0 +1,44 @@
+<!--
+Copyright (c) 2026 OceanBase.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<div class="experience-view">
+{% include 'components/reading-style.html' %}
+{% from 'components/record-references.html' import record_references with context %}
+{% from 'macros.html' import evidence_link with context %}
+{% if not data.experience %}
+  <div class="card"><div class="empty"><h1>{{ t.methods_empty }}</h1><p>{{ t.methods_empty_body }}</p><a href="{{ link('home') }}">{{ t.back_home }}</a></div></div>
+{% else %}
+<article class="reading-sheet">
+  <div>
+  <div class="reading-heading">
+    <a class="back-link d-block mb-4" href="{{ link('methods') }}">← {{ t.back_methods }}</a>
+    <span class="method-type text-secondary small">{{ t.experience }} · {{ data.title }}</span>
+    <h1>{{ data.experience.lesson }}</h1>
+  </div>
+    <div class="reading-body">
+      {% for field in ['situation', 'action', 'outcome'] %}
+      <section><h2>{{ t[field] }}</h2><p>{{ data.experience[field] }}</p></section>
+      {% endfor %}
+      {% call record_references(data.experience, 'experience') %}
+        {% include 'components/record-sources.html' %}
+      {% endcall %}
+    </div>
+  </div>
+</article>
+{% include 'components/evidence-modal.html' %}
+{% endif %}
+
+</div>

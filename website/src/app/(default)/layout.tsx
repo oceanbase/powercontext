@@ -19,13 +19,14 @@ import type { ReactNode } from 'react';
 import { Provider } from '@/components/provider';
 import { defaultLanguage, languagePreferenceKey } from '@/lib/i18n';
 import { siteMetadata } from '@/lib/metadata';
+import { withBasePath } from '@/lib/urls';
 import '../global.css';
 
 export const metadata = siteMetadata;
 
 const languageRedirectScript = `
 (() => {
-  if (location.pathname !== '/') return;
+  if (location.pathname !== ${JSON.stringify(withBasePath('/'))}) return;
 
   let savedLanguage;
   try {
@@ -42,7 +43,7 @@ const languageRedirectScript = `
     .find((language) => language === 'en' || language === 'zh');
 
   if (preferredLanguage === 'zh') {
-    location.replace('/zh/' + location.search + location.hash);
+    location.replace(${JSON.stringify(withBasePath('/zh/'))} + location.search + location.hash);
   }
 })();
 `;
