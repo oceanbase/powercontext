@@ -23,10 +23,6 @@ Replace uses the `entries` command, while other families submit complete content
 returns `409` when it already exists, so use Replace instead. Missing `If-Match` returns `428`; a stale ETag returns
 `412`. The API does not perform automatic merging.
 
-See the [complete HTTP API reference](/api/) for request fields, response models, and interactive operation examples.
-For authentication, concurrency control, and common call flows, see the [HTTP API guide](../develop/http-api.md).
-Topic Memory is currently a specialized read-only retrieval view and does not use these generic write operations.
-
 ## Inspect current and historical content
 
 Use the scoped HTTP routes in the [API contract](../develop/http-api.md):
@@ -40,6 +36,10 @@ Use the scoped HTTP routes in the [API contract](../develop/http-api.md):
 
 Keep the family, Artifact ID, and exact Revision when citing a result or handing it to another Agent.
 The current head can advance while a historical Revision remains unchanged.
+
+See the [complete HTTP API reference](/api/) for request fields, response models, and interactive operation examples.
+For authentication, concurrency control, and common call flows, see the [HTTP API guide](../develop/http-api.md).
+Topic Memory is currently a specialized read-only retrieval view and does not use the generic write operations above.
 
 ## Change content through its workflow
 

@@ -21,10 +21,6 @@ Artifact 保存有版本的结果。Memory、Experience、Skill、Handoff、Prof
 `entries` 命令；其他家族提交完整内容。Handoff 是 Scope 内的单例：已存在时 Create 返回 `409`，应改用
 Replace。缺少 `If-Match` 返回 `428`，ETag 过期返回 `412`；接口不支持自动合并。
 
-完整的请求字段、响应模型和可调试的接口示例请参阅[完整 HTTP API 参考](/api/)。
-接口鉴权、并发控制和常用调用流程见 [HTTP API 使用说明](../develop/http-api.md)。
-Topic Memory 当前是专用的只读检索视图，不使用这两个通用写接口。
-
 ## 查看当前内容和历史
 
 使用 [API 契约](../develop/http-api.md)中的 Scope 路由：
@@ -38,6 +34,10 @@ Topic Memory 当前是专用的只读检索视图，不使用这两个通用写�
 
 引用结果或向另一个 Agent 交付时，保留家族、Artifact ID 和精确 Revision。
 当前 head 可以前进，历史 Revision 保持不变。
+
+完整的请求字段、响应模型和可调试的接口示例请参阅[完整 HTTP API 参考](/api/)。
+接口鉴权、并发控制和常用调用流程见 [HTTP API 使用说明](../develop/http-api.md)。
+Topic Memory 当前是专用的只读检索视图，不使用上述通用写接口。
 
 ## 按对应工作流修改
 
