@@ -30,7 +30,10 @@ if TYPE_CHECKING:
     from powercontext.builtin.persistence.cursor_codec import SignedCursorCodec
     from powercontext.builtin.tags import ArtifactTagSet, TagFilter, TagQuery, TagQueryPage, TagTarget
 
-BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"]
+BaseArtifactFamily = Literal["memory", "experience", "skill", "handoff", "profile", "prompt"]
+ArtifactReadFamily = Literal[
+    "memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"
+]
 
 
 class _RecordModel(BaseModel):
@@ -78,7 +81,7 @@ class ArtifactRecord(_RecordModel):
     """One immutable Artifact revision with direct lineage."""
 
     scope_id: str
-    family: BaseArtifactFamily
+    family: ArtifactReadFamily
     artifact_id: str
     revision: int
     content: dict[str, JsonValue]
@@ -91,7 +94,7 @@ class ArtifactCollectionItem(_RecordModel):
     """One active Artifact head without content or lineage."""
 
     scope_id: str
-    family: BaseArtifactFamily
+    family: ArtifactReadFamily
     artifact_id: str
     revision: int
     sources: tuple[SourceRef, ...]
@@ -126,7 +129,7 @@ class ArtifactRevisionPage(_RecordModel):
 
 
 class ArtifactListReader(Protocol):
-    """Family-owned query adapter for a standard Artifact list."""
+    """Topic Memory adapter for the standard Artifact list."""
 
     family: str
 

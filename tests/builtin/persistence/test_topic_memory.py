@@ -307,13 +307,11 @@ def test_standard_artifact_list_adapts_topic_memory_metadata_and_cursor() -> Non
                 artifacts,
                 FamilyManagementWriterRegistry(()),
                 cursor_secret=b"topic-memory-list-test-secret",
-                family_list_readers={
-                    TopicMemory.family: TopicMemoryArtifactListReader(
-                        database=profile.database,
-                        artifacts=artifacts,
-                        topics=repository,
-                    )
-                },
+                topic_memory_list_reader=TopicMemoryArtifactListReader(
+                    database=profile.database,
+                    artifacts=artifacts,
+                    topics=repository,
+                ),
             )
             async with profile.database.transaction() as connection:
                 await repository.initialize(connection)

@@ -2947,7 +2947,7 @@ paths:
     get:
       tags: [artifacts]
       summary: List current Artifact heads
-      description: List current heads for one registered Artifact family, including read-only families.
+      description: List current heads for one readable Artifact family.
       operationId: list_artifacts
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       parameters:
@@ -2976,7 +2976,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
+          schema: {$ref: '#/components/schemas/ArtifactReadFamily'}
         - name: limit
           in: query
           required: false
@@ -3034,7 +3034,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
+          schema: {$ref: '#/components/schemas/ArtifactReadFamily'}
         - name: artifact_id
           in: path
           required: true
@@ -3415,7 +3415,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
+          schema: {$ref: '#/components/schemas/ArtifactReadFamily'}
         - name: artifact_id
           in: path
           required: true
@@ -3471,7 +3471,7 @@ paths:
         - name: family
           in: path
           required: true
-          schema: {$ref: '#/components/schemas/BaseArtifactFamily'}
+          schema: {$ref: '#/components/schemas/ArtifactReadFamily'}
         - name: artifact_id
           in: path
           required: true
@@ -4227,7 +4227,7 @@ components:
           maxLength: 256
           pattern: '.*\S.*'
         family:
-          $ref: "#/components/schemas/BaseArtifactFamily"
+          $ref: "#/components/schemas/ArtifactReadFamily"
         artifact_id:
           type: string
           minLength: 1
@@ -4325,7 +4325,7 @@ components:
           maxLength: 256
           pattern: '.*\S.*'
         family:
-          $ref: "#/components/schemas/BaseArtifactFamily"
+          $ref: "#/components/schemas/ArtifactReadFamily"
         artifact_id:
           type: string
           minLength: 1
@@ -8679,6 +8679,9 @@ components:
       type: string
       enum: [accepted]
     BaseArtifactFamily:
+      type: string
+      enum: [memory, experience, skill, handoff, profile, prompt]
+    ArtifactReadFamily:
       type: string
       enum: [memory, experience, skill, handoff, profile, prompt, topic-memory]
     StatsPeriod:

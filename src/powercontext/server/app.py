@@ -389,6 +389,7 @@ from powercontext.http import (
     ArtifactCreated,
     ArtifactFamilyAccessCapability,
     ArtifactPage,
+    ArtifactReadFamily,
     ArtifactRevision,
     ArtifactRevisionPage,
     BaseArtifactFamily,
@@ -2367,7 +2368,7 @@ def _list_artifacts_query(
 
 async def list_artifacts(
     scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
-    family: Annotated[BaseArtifactFamily, Path()],
+    family: Annotated[ArtifactReadFamily, Path()],
     request: Annotated[ListArtifactsRequest, Depends(_list_artifacts_query)],
     application: Annotated[ServerApplication, Depends(_require_application)],
 ) -> ArtifactPage:
@@ -2427,7 +2428,7 @@ def _list_artifact_revisions_query(
 
 async def list_artifact_revisions(
     scope_id: _ScopePathId,
-    family: Annotated[BaseArtifactFamily, Path()],
+    family: Annotated[ArtifactReadFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     request: Annotated[ListArtifactRevisionsRequest, Depends(_list_artifact_revisions_query)],
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -2579,7 +2580,7 @@ async def query_artifact_tags(
 
 async def get_artifact(
     scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
-    family: Annotated[BaseArtifactFamily, Path()],
+    family: Annotated[ArtifactReadFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     response: Response,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -2629,7 +2630,7 @@ async def replace_artifact(
 
 async def get_artifact_revision(
     scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
-    family: Annotated[BaseArtifactFamily, Path()],
+    family: Annotated[ArtifactReadFamily, Path()],
     artifact_id: Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")],
     revision: Annotated[int, Path(ge=1)],
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -2656,7 +2657,7 @@ def _source_record_response(value: RuntimeSourceRecord) -> SourceRecord:
 def _artifact_revision_response(value: RuntimeArtifactRecord) -> ArtifactRevision:
     return ArtifactRevision(
         scope_id=value.scope_id,
-        family=BaseArtifactFamily(value.family),
+        family=ArtifactReadFamily(value.family),
         artifact_id=value.artifact_id,
         revision=value.revision,
         content=value.content,
@@ -2680,7 +2681,7 @@ def _artifact_created_response(value: RuntimeArtifactCreated) -> ArtifactCreated
 def _artifact_collection_item_response(value: RuntimeArtifactCollectionItem) -> ArtifactCollectionItem:
     return ArtifactCollectionItem(
         scope_id=value.scope_id,
-        family=BaseArtifactFamily(value.family),
+        family=ArtifactReadFamily(value.family),
         artifact_id=value.artifact_id,
         revision=value.revision,
         sources=[mapping.source_type_reference(ref) for ref in value.sources],
@@ -4566,11 +4567,18 @@ def _path_artifact_family(payload: Mapping[str, Any]) -> str:
         raise AccessInvalidRequestError("artifact-family") from error
 
 
+def _path_artifact_read_family(payload: Mapping[str, Any]) -> str:
+    try:
+        return ArtifactReadFamily(_nested_request_value(payload, "family")).value
+    except ValueError as error:
+        raise AccessInvalidRequestError("artifact-family") from error
+
+
 def _path_artifact_read_access(
     payload: Mapping[str, Any],
     _deployment_id: str,
 ) -> tuple[tuple[AccessAction, ResourceRef], ...]:
-    if _path_artifact_family(payload) in {BaseArtifactFamily.MEMORY.value, "topic-memory"}:
+    if _path_artifact_read_family(payload) in {BaseArtifactFamily.MEMORY.value, "topic-memory"}:
         return _path_scope_access(payload, action=AccessAction.SCOPE_READ)
     return _path_artifact_access(payload, action=AccessAction.ARTIFACT_READ)
 

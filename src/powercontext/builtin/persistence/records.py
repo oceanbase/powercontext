@@ -115,7 +115,7 @@ class RelationalRecordService:
         cursor_ttl_seconds: int = _DEFAULT_CURSOR_TTL_SECONDS,
         processing_pending: ArtifactProcessingPendingRepository | None = None,
         source_processing_bindings: tuple[str, ...] = (),
-        family_list_readers: Mapping[str, ArtifactListReader] | None = None,
+        topic_memory_list_reader: ArtifactListReader | None = None,
     ) -> None:
         self._database = database
         self._sources = sources
@@ -131,7 +131,7 @@ class RelationalRecordService:
         self._cursor_secret = self._cursor_codec.secret
         self._processing_pending = processing_pending
         self._source_processing_bindings = source_processing_bindings
-        self._family_list_readers = {} if family_list_readers is None else dict(family_list_readers)
+        self._topic_memory_list_reader = topic_memory_list_reader
         self._tags = RelationalTagService(
             database,
             artifacts,
@@ -483,8 +483,8 @@ class RelationalRecordService:
     ) -> ArtifactRecordPage:
         self._require_family(family)
         _require_limit(limit)
-        reader = self._family_list_readers.get(family)
-        if reader is not None:
+        reader = self._topic_memory_list_reader
+        if reader is not None and family == reader.family:
             return await reader.query(
                 scope_id,
                 limit=limit,

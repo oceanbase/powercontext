@@ -870,8 +870,9 @@ def test_standard_artifact_reads_share_topic_memory_family_and_display_metadata(
     )
     for path in read_paths:
         family = next(parameter for parameter in paths[path]["get"]["parameters"] if parameter["name"] == "family")
-        assert family["schema"] == {"$ref": "#/components/schemas/BaseArtifactFamily"}
-    assert "topic-memory" in contract["components"]["schemas"]["BaseArtifactFamily"]["enum"]
+        assert family["schema"] == {"$ref": "#/components/schemas/ArtifactReadFamily"}
+    assert "topic-memory" in contract["components"]["schemas"]["ArtifactReadFamily"]["enum"]
+    assert "topic-memory" not in contract["components"]["schemas"]["BaseArtifactFamily"]["enum"]
     item = http_models.ArtifactCollectionItem.model_validate({
         "scope_id": "scope-a",
         "family": "topic-memory",

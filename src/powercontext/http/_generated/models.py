@@ -1808,6 +1808,15 @@ class BaseArtifactFamily(StrEnum):
     HANDOFF = "handoff"
     PROFILE = "profile"
     PROMPT = "prompt"
+
+
+class ArtifactReadFamily(StrEnum):
+    MEMORY = "memory"
+    EXPERIENCE = "experience"
+    SKILL = "skill"
+    HANDOFF = "handoff"
+    PROFILE = "profile"
+    PROMPT = "prompt"
     TOPIC_MEMORY = "topic-memory"
 
 
@@ -2347,7 +2356,7 @@ class FlushProfileResponse(BaseModel):
 
 class ArtifactCollectionItem(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    family: BaseArtifactFamily
+    family: ArtifactReadFamily
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     revision: Annotated[StrictInt, Field(ge=1)]
     sources: list[SourceTypeReference]
@@ -2387,7 +2396,7 @@ class ArtifactRevisionPage(BaseModel):
 
 class ArtifactRevision(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    family: BaseArtifactFamily
+    family: ArtifactReadFamily
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     revision: Annotated[StrictInt, Field(ge=1)]
     content: dict[str, Any]

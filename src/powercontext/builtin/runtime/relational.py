@@ -73,7 +73,6 @@ from powercontext.builtin.artifacts.prompt.service import (
     current_prompt,
     prompt_operation,
 )
-from powercontext.builtin.artifacts.registry import BUILTIN_ARTIFACT_FAMILY_REGISTRY
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProvider,
     ExternalSkillRegistryUnavailableError,
@@ -468,7 +467,7 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            BUILTIN_ARTIFACT_FAMILY_REGISTRY,
+            (Handoff, Memory, Experience, Skill, Profile, Prompt, TopicMemory),
             sources=source_repository,
         )
         topic_memory_repository = TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index)
@@ -558,13 +557,11 @@ class RelationalContexts:
             cursor_secret=cursor_secret,
             processing_pending=self.repositories.processing_pending,
             source_processing_bindings=(TOPIC_MEMORY_SOURCE_WINDOW_BINDING,),
-            family_list_readers={
-                TopicMemory.family: TopicMemoryArtifactListReader(
-                    database=database,
-                    artifacts=artifact_repository,
-                    topics=topic_memory_repository,
-                )
-            },
+            topic_memory_list_reader=TopicMemoryArtifactListReader(
+                database=database,
+                artifacts=artifact_repository,
+                topics=topic_memory_repository,
+            ),
         )
         self.publications = ArtifactPublicationApplication(
             database,
