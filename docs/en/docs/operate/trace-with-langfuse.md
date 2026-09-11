@@ -85,8 +85,8 @@ tracing capability.
 ## Configure and start the Server
 
 `provider:model-name` is only a placeholder and will not work as-is. First configure a supported generation model and
-provider credentials as described in [Configure models and full memory](../get-started/configure-models.md). If you use
-only a proxy or custom endpoint, also set its base URL. The example below uses `openai:gpt-4.1-mini`; the available
+provider credentials as described in [Configure models and full memory](../get-started/configure-models.md). Set a custom
+base URL only if you use a proxy or custom endpoint. The example below uses `openai:gpt-4.1-mini`; the available
 model still depends on the provider account and region.
 
 Langfuse authenticates OTLP requests with HTTP Basic authentication built from the project keys. In Terminal A, enable
@@ -101,7 +101,6 @@ export POWERCONTEXT_SERVER_TRACING_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:3000/api/public/otel
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic $LANGFUSE_AUTH,x-langfuse-ingestion-version=4"
 export OTEL_SERVICE_NAME=powercontext-server
-export OPENAI_API_KEY=replace-with-your-key
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
 powercontext server run
 ```
@@ -137,8 +136,7 @@ Only the third step proves that the inference and tracing path works. Starting t
 
 ## Trigger one inference request
 
-The following full API flow creates a fresh Scope, captures a Source, and converts it into Memory. It also avoids
-silently continuing after a failed request:
+The following API flow creates a fresh Scope, captures a Source, and converts it into Memory.
 
 This Bash API example uses an unauthenticated local instance by default. If the Server uses authentication, provide
 the client token first; the requests below add an `Authorization: Bearer` header consistently. Creating a Scope requires

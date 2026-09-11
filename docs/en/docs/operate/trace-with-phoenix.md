@@ -91,8 +91,8 @@ tracing capability.
 ## Configure and start the Server
 
 `provider:model-name` is only a placeholder and will not work as-is. First configure a supported generation model and
-provider credentials as described in [Configure models and full memory](../get-started/configure-models.md). If you use
-only a proxy or custom endpoint, also set its base URL. The example below uses `openai:gpt-4.1-mini`; the available
+provider credentials as described in [Configure models and full memory](../get-started/configure-models.md). Set a custom
+base URL only if you use a proxy or custom endpoint. The example below uses `openai:gpt-4.1-mini`; the available
 model still depends on the provider account and region.
 
 In Terminal A, enable tracing, point the exporter at Phoenix, and configure a generation model so `flush_memory`
@@ -102,7 +102,6 @@ produces a model-call span:
 export POWERCONTEXT_SERVER_TRACING_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006
 export OTEL_SERVICE_NAME=powercontext-server
-export OPENAI_API_KEY=replace-with-your-key
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
 powercontext server run
 ```
@@ -142,8 +141,7 @@ Only the third step proves that the inference and tracing path works. Starting t
 
 ## Trigger one inference request
 
-The following full API flow creates a fresh Scope, captures a Source, and converts it into Memory. It also avoids
-silently continuing after a failed request:
+The following API flow creates a fresh Scope, captures a Source, and converts it into Memory.
 
 This Bash API example uses an unauthenticated local instance by default. If the Server uses authentication, provide
 the client token first; the requests below add an `Authorization: Bearer` header consistently. Creating a Scope requires
@@ -258,7 +256,7 @@ PowerContext configures inference instrumentation to exclude content. Spans carr
 durations, and error categories. Prompts, model responses, Memory content, and vectors are excluded, and message
 attributes record only the shape of each message rather than its text.
 
-## Stop Phoenix
+## Stop and remove Phoenix
 
 Stop the temporary container without removing it:
 
@@ -272,7 +270,8 @@ Start it again later with:
 docker start powercontext-phoenix
 ```
 
-If the container is no longer needed, remove it:
+If the container is no longer needed, remove it. Without a persistent volume, this also deletes the SQLite trace data
+stored inside the container:
 
 ```bash
 docker rm -f powercontext-phoenix
