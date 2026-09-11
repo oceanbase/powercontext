@@ -188,7 +188,15 @@ versions, a personal Dashboard requires `ACCESS_MODE=enforced` and a valid `AUTH
 the Dashboard in the isolated local test instance.
 
 When an existing Server already uses static Bearer authentication, keep its authentication configuration while adding
-tracing. Do not clear authentication variables to bypass a startup error.
+tracing. If you also enable the Dashboard, use the same static Bearer configuration:
+
+```dotenv
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=enforced
+POWERCONTEXT_SERVER_AUTH_TOKEN=<valid-token>
+```
+
+Do not clear authentication variables to bypass a startup error.
 
 If you need an isolated unauthenticated test instance, use a separate environment configuration such as:
 

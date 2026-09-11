@@ -25,6 +25,7 @@ This guide assumes a Linux or macOS development machine with:
 Check the tool versions before starting:
 
 ```bash
+git --version
 docker info
 docker compose version
 uv --version
@@ -33,17 +34,16 @@ uv --version
 ## Start Langfuse
 
 Langfuse self-hosting runs several services (web, worker, PostgreSQL, ClickHouse, Redis, and MinIO) with Docker
-Compose:
+Compose. The Compose file in the Langfuse repository contains default database, Redis, MinIO, and application
+secrets. The command below uses those defaults and is suitable only for temporary single-machine evaluation. If the
+host may be accessed by others or the deployment will run for a long time, replace the values marked `CHANGEME` in
+the Compose file first:
 
 ```bash
 git clone https://github.com/langfuse/langfuse.git
 cd langfuse
 docker compose up -d
 ```
-
-The default Compose configuration is suitable for local evaluation only. It uses development credentials and local
-storage; do not expose it directly to an untrusted network. Run `docker compose ps` and inspect the service logs if
-the UI does not open.
 
 Open <http://localhost:3000>, create a user, an organization, and a project, then create an API key pair in the project
 settings. Keep the public key (`pk-lf-...`) and the secret key (`sk-lf-...`) at hand; they authenticate the exporter
@@ -56,37 +56,41 @@ URL of your region, such as `https://cloud.langfuse.com` or `https://us.cloud.la
 
 ## Install the export dependency
 
-Recording and export require the `tracing-otlp` extra. The following command installs the latest code from the
-repository's `master` branch:
+Recording and export require the `tracing-otlp` extra:
 
 ```bash
 uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
 ```
 
-Without this extra, enabling tracing fails at startup with an explicit error instead of silently dropping spans. The
-command below is intended for a new local deployment. Because `--force` replaces the existing `uv` tool environment,
-do not use it blindly for a Server that is already serving traffic.
+Without this extra, enabling tracing fails at startup with an explicit error instead of silently dropping spans. This
+command is intended for a new deployment. It force-rebuilds the existing `uv tool` environment and replaces the
+PowerContext installed in it, so confirm the existing Server's installation method and configuration path first. It
+installs the current code from `master`, so the result changes as the repository is updated.
 
 If an existing Server should gain tracing, install the extra into the Python environment that actually runs that
-Server, then restart the Server. For example, with a `uv`-managed environment:
+Server, then restart the old process. For a foreground Server installed with `uv tool`, press `Ctrl+C` in the old
+Server terminal first, then run:
 
 ```bash
 command -v powercontext
 uv tool install --force "powercontext[cli,server,tracing-otlp] @ git+https://github.com/oceanbase/powercontext.git@master"
-command -v powercontext
 powercontext server run --env-file /path/to/powercontext.env
 ```
 
-For a systemd, Supervisor, container, or other managed deployment, update that deployment's image or environment
-instead and restart the existing Server through its process manager. The important requirement is that the restarted
-process imports the environment containing `tracing-otlp`; installing a separate CLI copy does not change a running
-process.
+Replace the example path with the existing Server's actual configuration path. If the Server is started by systemd,
+Supervisor, or another process manager, confirm that the service points to the updated `powercontext` executable and
+restart it through that manager. Installing the exporter in another environment does not give the running Server
+tracing capability.
 
 ## Configure and start the Server
 
-Langfuse authenticates OTLP requests with HTTP Basic authentication built from the project keys. Enable tracing, point
-the exporter at Langfuse, and configure a supported generation model so inference spans have something to record.
-`provider:model-name` is only a placeholder and will not work as-is. For example, an OpenAI deployment can use:
+`provider:model-name` is only a placeholder and will not work as-is. First configure a supported generation model and
+provider credentials as described in [Configure models and full memory](../get-started/configure-models.md). If you use
+only a proxy or custom endpoint, also set its base URL. The example below uses `openai:gpt-4.1-mini`; the available
+model still depends on the provider account and region.
+
+Langfuse authenticates OTLP requests with HTTP Basic authentication built from the project keys. In Terminal A, enable
+tracing, point the exporter at Langfuse, and configure a generation model so `flush_memory` produces a model-call span:
 
 ```bash
 export LANGFUSE_PUBLIC_KEY=pk-lf-replace-me
@@ -102,9 +106,7 @@ export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL=openai:gpt-4.1-mini
 powercontext server run
 ```
 
-Run the Server command in Terminal A and keep it running. If the Server is already running, apply the same
-environment variables to its actual service definition and restart it; setting them in another terminal does not
-change the existing process.
+`powercontext server run` stays in the foreground. Keep Terminal A open and run the checks and requests in Terminal B.
 
 The OpenTelemetry SDK appends `/v1/traces` to `OTEL_EXPORTER_OTLP_ENDPOINT`, so the spans arrive at
 `http://localhost:3000/api/public/otel/v1/traces`, the traces endpoint Langfuse expects. Langfuse accepts OTLP over
@@ -113,84 +115,76 @@ HTTP only, which is the protocol of the exporter installed by the `tracing-otlp`
 that ingestion can lag by up to ten minutes. Set the provider credentials your generation model needs; PowerContext
 records neither them nor the exporter headers.
 
-Create a Scope and run the client-side checks in Terminal B:
+In Terminal B, first set the connection address. Replace the default address if the Server uses another port. If
+authentication is enabled, provide a valid `POWERCONTEXT_CLIENT_API_TOKEN`; do not put the token in this document or
+the repository. The capabilities check also requires `server.observe`:
 
 ```bash
-export POWERCONTEXT_BASE_URL=http://localhost:8000
-export POWERCONTEXT_AUTH_TOKEN=replace-with-server-token
-export POWERCONTEXT_SCOPE_NAME=tracing-example
-export POWERCONTEXT_AUTH_HEADER="Authorization: Bearer $POWERCONTEXT_AUTH_TOKEN"
-
-POWERCONTEXT_SCOPE_ID=$(curl --fail-with-body -sS -X POST "$POWERCONTEXT_BASE_URL/v1/scopes" \
-  -H "$POWERCONTEXT_AUTH_HEADER" \
-  -H 'content-type: application/json' \
-  -d "$POWERCONTEXT_SCOPE_NAME" \
-  | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
-export POWERCONTEXT_SCOPE_ID
+export POWERCONTEXT_BASE_URL="${POWERCONTEXT_BASE_URL:-http://127.0.0.1:8000}"
+export POWERCONTEXT_CLIENT_SERVER_URL="$POWERCONTEXT_BASE_URL"
 ```
 
-The exact authentication setup depends on the Server configuration. Keep `POWERCONTEXT_AUTH_TOKEN` empty for an
-unauthenticated local Server and remove the `Authorization` header in the examples, or set a token with the
-permission required by the endpoint. For an authenticated Server, the token must be allowed to create Scopes and
-call the traced endpoints; the management endpoints also enforce the configured `server.observe` permission where
-applicable.
+Then follow the checks below in order:
 
-Check readiness, capabilities, and a real trace-producing request in order:
+1. Use `powercontext --json ready` or read `/health/ready` directly, checking `status` and `checks`. Automation must
+   confirm that `status` is `ready` instead of checking only the command exit code.
+2. Use `powercontext capabilities` and confirm that the output contains `Memory extraction: enabled`.
+3. Run the `flush_memory` request below and confirm in Langfuse's **Traces** view that the trace contains a
+   `chat <model>` observation.
 
-```bash
-curl --fail-with-body -sS "$POWERCONTEXT_BASE_URL/health/ready" \
-  -H "$POWERCONTEXT_AUTH_HEADER" \
-  | python3 -c 'import json, sys; data=json.load(sys.stdin); assert data.get("status") == "ready", data; print(data["status"])'
-
-curl --fail-with-body -sS "$POWERCONTEXT_BASE_URL/v1/capabilities" \
-  -H "$POWERCONTEXT_AUTH_HEADER" \
-  | python3 -m json.tool
-
-curl --fail-with-body -sS -X POST "$POWERCONTEXT_BASE_URL/v1/memory/flush" \
-  -H "$POWERCONTEXT_AUTH_HEADER" \
-  -H 'content-type: application/json' \
-  -d '{"scope_id":"'"$POWERCONTEXT_SCOPE_ID"'"}' \
-  | python3 -m json.tool
-```
-
-`curl --fail-with-body` only checks the HTTP status code. The readiness example also parses the JSON body and fails
-when the response is HTTP 200 with a `degraded` status. The capabilities response should report tracing as enabled.
-The flush request is the final end-to-end check; it needs the configured model credentials and may take a few seconds.
+Only the third step proves that the inference and tracing path works. Starting the Server or receiving a successful
+`/health/ready` response does not prove that Memory extraction is available.
 
 ## Trigger one inference request
 
 The following full API flow creates a fresh Scope, captures a Source, and converts it into Memory. It also avoids
 silently continuing after a failed request:
 
+This Bash API example uses an unauthenticated local instance by default. If the Server uses authentication, provide
+the client token first; the requests below add an `Authorization: Bearer` header consistently. Creating a Scope requires
+`server.admin`. Writing a Source and flushing Memory require `scope.contribute` for the Scope.
+
 ```bash
-set -euo pipefail
+export POWERCONTEXT_BASE_URL="${POWERCONTEXT_BASE_URL:-http://127.0.0.1:8000}"
+export POWERCONTEXT_IDEMPOTENCY_KEY="tracing-example-$(date +%s)-$"
 
-POWERCONTEXT_BASE_URL=${POWERCONTEXT_BASE_URL:-http://localhost:8000}
-POWERCONTEXT_IDEMPOTENCY_KEY="tracing-example-$(date +%s)-$"
-POWERCONTEXT_SCOPE_NAME=tracing-example
-POWERCONTEXT_SOURCE_ID="tracing-source-$(date +%s)"
-POWERCONTEXT_AUTH_HEADER="Authorization: Bearer $POWERCONTEXT_AUTH_TOKEN"
+if [[ -n "${POWERCONTEXT_CLIENT_API_TOKEN:-}" ]]; then
+  POWERCONTEXT_AUTH_ARGS=(--header "Authorization: Bearer ${POWERCONTEXT_CLIENT_API_TOKEN}")
+else
+  POWERCONTEXT_AUTH_ARGS=()
+fi
 
-POWERCONTEXT_SCOPE_ID=$(curl --fail-with-body -sS -X POST "$POWERCONTEXT_BASE_URL/v1/scopes" \
-  -H "$POWERCONTEXT_AUTH_HEADER" \
+POWERCONTEXT_SCOPE_ID="$(
+  set -o pipefail
+  curl --fail --silent --show-error \
+    "${POWERCONTEXT_AUTH_ARGS[@]}" \
+    --header 'content-type: application/json' \
+    --data "{\"title\":\"Langfuse tracing example\",\"summary\":\"Scope for tracing verification\",\"idempotency_key\":\"${POWERCONTEXT_IDEMPOTENCY_KEY}\"}" \
+    "${POWERCONTEXT_BASE_URL}/v1/scopes" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["scope_id"])'
+)"
+: "${POWERCONTEXT_SCOPE_ID:?Scope creation failed; check the response and authentication, then retry}"
+export POWERCONTEXT_SCOPE_ID
+```
+
+The command stores the `scope_id` returned by `create_scope` in `POWERCONTEXT_SCOPE_ID`. To inspect the creation
+request's HTTP status and `X-PowerContext-Request-ID`, rerun it separately with `curl -i`. Then capture a Source and
+convert it into Memory:
+
+```bash
+export POWERCONTEXT_SOURCE_ID="tracing-example-$(date +%s)-$"
+
+curl --fail --show-error -i -X POST "${POWERCONTEXT_BASE_URL}/v1/sources/content" \
+  "${POWERCONTEXT_AUTH_ARGS[@]}" \
   -H 'content-type: application/json' \
-  -H "Idempotency-Key: $POWERCONTEXT_IDEMPOTENCY_KEY" \
-  -d "$POWERCONTEXT_SCOPE_NAME" \
-  | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\",\"source_id\":\"${POWERCONTEXT_SOURCE_ID}\",\"content\":\"I always book aisle seats.\"}"
+```
 
-curl --fail-with-body -sS -X POST "$POWERCONTEXT_BASE_URL/v1/sources/content" \
-  -H "$POWERCONTEXT_AUTH_HEADER" \
+```bash
+curl --fail --show-error -i -X POST "${POWERCONTEXT_BASE_URL}/v1/memory/flush" \
+  "${POWERCONTEXT_AUTH_ARGS[@]}" \
   -H 'content-type: application/json' \
-  -H "Idempotency-Key: $POWERCONTEXT_IDEMPOTENCY_KEY" \
-  -d '{"scope_id":"'"$POWERCONTEXT_SCOPE_ID"'","source_id":"'"$POWERCONTEXT_SOURCE_ID"'","content":"I always book aisle seats."}' \
-  | python3 -m json.tool
-
-curl --fail-with-body -sS -X POST "$POWERCONTEXT_BASE_URL/v1/memory/flush" \
-  -H "$POWERCONTEXT_AUTH_HEADER" \
-  -H 'content-type: application/json' \
-  -H "Idempotency-Key: $POWERCONTEXT_IDEMPOTENCY_KEY" \
-  -d '{"scope_id":"'"$POWERCONTEXT_SCOPE_ID"'"}' \
-  | python3 -m json.tool
+  -d "{\"scope_id\":\"${POWERCONTEXT_SCOPE_ID}\"}"
 ```
 
 Memory extraction runs during the flush, not during capture.
@@ -243,8 +237,7 @@ and traces are located through metadata instead.
 docker compose down
 ```
 
-This stops the containers while preserving named volumes. Add `-v` only when you also want to delete the stored
-traces and other local Langfuse data.
+Add `-v` to delete the stored traces as well.
 
 Span names and attributes follow the Pydantic AI GenAI semantic conventions and can change when that dependency is
 upgraded across a major version. Do not treat them as a stable contract.

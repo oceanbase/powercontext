@@ -5,6 +5,10 @@ description: Run PowerContext with persistent data, health checks, authenticatio
 
 # Deploy the Server
 
+For client address configuration and the `--allow-insecure-http` confirmation, see
+[Connect to a remote Server](connect-remote-server.md). This is a client option; it does not change the Server listener
+or authentication configuration.
+
 Windows support is `experimental`.
 
 `powercontext server run` is a foreground process. On a personal macOS, Linux, or Windows workstation, PowerContext can register
@@ -20,16 +24,16 @@ powercontext service install
 powercontext service status
 ```
 
-On Windows, the command asks whether to enable startup at the current user's next login when neither
-`--start-on-login` nor `--no-start-on-login` is supplied; pressing Enter keeps login auto-start disabled. Use either
-option for a non-interactive choice.
-
 Linux uses `systemd --user` and writes logs to the user journal. macOS uses a per-user LaunchAgent, and Windows uses a current-user Task Scheduler task; both write stdout and stderr below the PowerContext user data directory. `service status` reports the exact log selector or path.
 
 Personal services support loopback addresses only. Even with authentication enabled, setting
 `POWERCONTEXT_SERVER_HTTP_HOST` to a non-loopback address makes `service install` reject the installation. To allow
 access from another machine, use a container or an administrator-owned service manager, or put a same-host reverse proxy
 in front of the loopback Server.
+
+On Windows, the command asks whether to enable startup at the current user's next login when neither
+`--start-on-login` nor `--no-start-on-login` is supplied; pressing Enter keeps login auto-start disabled. Use either
+option for a non-interactive choice.
 
 For an explicit Server configuration, protect the environment file before installing:
 
@@ -38,6 +42,10 @@ chmod 600 /path/to/powercontext.env
 powercontext config validate --env-file /path/to/powercontext.env
 powercontext service install --env-file /path/to/powercontext.env
 ```
+
+The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
+read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
+disabled by default, so no token is generated automatically.
 
 On Windows, remove inherited access and grant the file only to the current user, `SYSTEM`, and local `Administrators` before validation, for example:
 
@@ -94,10 +102,6 @@ the working directory:
 powercontext config validate --env-file /etc/powercontext/powercontext.env
 powercontext server run --env-file /etc/powercontext/powercontext.env
 ```
-
-The successful installation summary prints the environment file actually used. If Bearer authentication is enabled,
-read `POWERCONTEXT_SERVER_AUTH_TOKEN` from that file; the command never prints the token value. Authentication is
-disabled by default, so no token is generated automatically.
 
 The file may contain provider credentials or a bearer token, so restrict it to the Server operator. For `server run`,
 process environment variables override same-named file values. `config init` creates a model-free base configuration; see
