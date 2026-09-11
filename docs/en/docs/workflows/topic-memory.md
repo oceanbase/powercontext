@@ -102,4 +102,3 @@ Topic Memory Revision. See [Prepare context text](prepare-context-text.md) for g
 - Topic Memory is not in the current Taggable Artifact family list, so Memory, Experience, Skill, and Handoff tag APIs do not apply.
 - Source capture does not synchronously generate a topic; background processing and the required generation capability are needed.
 - Backups, recovery, worker availability, and retrieval failures belong to [deployment and operations](../operate/index.md), not this lifecycle.
-

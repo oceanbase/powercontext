@@ -99,4 +99,3 @@ Content-Type: application/json
 - Topic Memory 不在当前 Taggable Artifact family 列表中，不能套用 Memory、Experience、Skill 或 Handoff 的标签接口。
 - Source capture 不会同步生成主题；需要后台处理和相应的生成能力。
 - 备份、恢复、worker 可用性和检索故障属于[部署与运维](../operate/index.md)，不是本生命周期的一部分。
-
