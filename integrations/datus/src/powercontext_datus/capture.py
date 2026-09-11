@@ -29,6 +29,7 @@ import json
 import uuid
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit
@@ -51,6 +52,16 @@ def encode_cell(value: Any) -> Any:
         # Reject NaN and unsupported types; never silently stringify result data.
         json.dumps(value, allow_nan=False)
         return value
+    # Explicit conversion policy for live MySQL drivers (POWE-129): temporal
+    # cells become ISO strings, binary cells become hex. The previous policy was
+    # frozen against SQLite fixtures and rejected every real DATE/DATETIME/TIME/
+    # bytes cell, aborting legitimate queries.
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, (date, time, timedelta)):
+        return str(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return {"hex": bytes(value).hex()}
     raise IntegrityError("unsupported database cell; freeze an explicit conversion policy")
 
 
