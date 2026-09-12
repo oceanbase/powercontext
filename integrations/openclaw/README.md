@@ -5,7 +5,7 @@
 `plugins/memory-powercontext` contains the PowerContext memory plugin for
 [OpenClaw](https://github.com/openclaw/openclaw). The plugin registers a `memory` capability backed by a running
 PowerContext Server: bounded recall before each prompt, capture of eligible user prompts as Source evidence, and
-explicit `powercontext_memory_*` tools for durable Memory operations.
+explicit `powercontext_memory_*` tools for durable Memory operations, Work Contracts, and Handoffs.
 
 The plugin talks HTTP only. It never starts or embeds a PowerContext Server, and an unavailable Server never blocks
 normal OpenClaw work.
@@ -70,6 +70,13 @@ Server, timeout, redirect, or invalid response leaves the prompt unchanged and n
 The plugin exposes five tools: `powercontext_memory_search`, `powercontext_memory_get`,
 `powercontext_memory_store`, `powercontext_memory_revise`, and `powercontext_memory_retire`. Mutating tools
 (`store`, `revise`, `retire`) are marked side-effecting in the plugin manifest.
+
+It also registers the `/pc` command for WebUI and other OpenClaw command surfaces. `/pc` and `/pc help` show the
+available controls; `/pc status` checks Server readiness and capabilities. The agent tools add a high-level Work
+Contract and Handoff flow: create a contract, prepare the current work boundary, explicitly commit or continue a
+Handoff, acknowledge the receiver checks, and record the Task Outcome. Work Contract and Handoff content remains
+untrusted input or history. Preparing a current-work Handoff records its boundary evidence; committing the Handoff,
+acknowledging receipt, and recording the outcome are explicit durable workflow steps.
 
 ## Memory scope
 

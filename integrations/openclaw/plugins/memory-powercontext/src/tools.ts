@@ -35,7 +35,7 @@ import {
   type MemoryMutationResponse,
 } from "./types.js";
 
-type ToolDependencies = {
+export type ToolDependencies = {
   client: PowerContextClient;
   getConfig: () => PowerContextConfig;
   isPrivateSession: (agentId: string, sessionKey: string | undefined) => boolean;
@@ -113,7 +113,7 @@ function mutationFailure(error: unknown) {
   return unavailable(error);
 }
 
-async function resolveToolScope(
+export async function resolveToolScope(
   ctx: OpenClawPluginToolContext,
   deps: ToolDependencies,
   signal?: AbortSignal,
