@@ -64,7 +64,7 @@ async function prepareRfcContent(locale: string) {
       .map(async (entry) => {
         const filePath = path.join(rfcDir, entry.name);
         const content = await readFile(filePath, 'utf8');
-        if (content.startsWith('---\n')) return;
+        if (/^---\r?\n/.test(content)) return;
 
         const title = formatRfcTitle(entry.name, content);
         await writeFile(filePath, `---\ntitle: ${JSON.stringify(title)}\n---\n\n${content}`);
@@ -82,7 +82,7 @@ async function prepareDevelopmentContent(locale: string) {
       .map(async (entry) => {
         const filePath = path.join(developmentDir, entry.name);
         const content = await readFile(filePath, 'utf8');
-        if (content.startsWith('---\n')) return;
+        if (/^---\r?\n/.test(content)) return;
 
         const title = content.match(/^#\s+(.+)$/m)?.[1];
         if (!title) throw new Error(`Development document ${filePath} has no title`);

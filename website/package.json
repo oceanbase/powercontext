@@ -4,13 +4,14 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm generate && next dev",
-    "build": "pnpm check:links && next build && tsx scripts/redirect-docs.ts && pnpm verify:export",
+    "build": "pnpm test && pnpm check:links && next build && tsx scripts/redirect-docs.ts && pnpm verify:export",
     "check:links": "pnpm generate && tsx scripts/validate-links.ts",
     "generate": "tsx scripts/generate-content.ts",
     "preview": "serve out",
     "types:check": "next typegen && tsc --noEmit",
     "verify:export": "tsx scripts/verify-static-export.ts",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "fumadocs-core": "16.15.4",
