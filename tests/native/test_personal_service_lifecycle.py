@@ -122,11 +122,15 @@ def test_failure_diagnostics_reports_an_absent_service(tmp_path: Path) -> None:
     assert "server.stdout.log: not created" in report
     assert "server.stderr.log: not created" in report
     # The platform's own service manager was asked, and its answer is quoted.
-    expected_manager = {
+    # Annotated: without it the key type is inferred as the union of the three
+    # concrete classes, which `type(adapter)` (a `type[NativeServiceAdapter]`)
+    # cannot index.
+    expected_managers: dict[type[NativeServiceAdapter], str] = {
         LaunchdUserAdapter: "launchctl",
         SystemdUserAdapter: "systemctl",
         WindowsTaskSchedulerAdapter: "schtasks",
-    }[type(adapter)]
+    }
+    expected_manager = expected_managers[type(adapter)]
     assert expected_manager in report
 
 
