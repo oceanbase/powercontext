@@ -171,6 +171,7 @@ exclude = [
     "examples/jupyter",
     "e2e/bub",
     "integrations/bub",
+    "integrations/dify",
     "integrations/pydantic-ai",
     "integrations/langgraph",
     "integrations/opendal",

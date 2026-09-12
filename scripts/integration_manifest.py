@@ -89,6 +89,7 @@ class ToolSurfaceProbe(StrEnum):
     PI_TOOLS = "pi_tools"
     PI_COMMANDS = "pi_commands"
     PI_LIFECYCLE = "pi_lifecycle"
+    DIFY_TOOLS = "dify_tools"
     PYDANTIC_AI_TOOLS = "pydantic_ai_tools"
     LANGCHAIN_MIDDLEWARE = "langchain_middleware"
     LANGGRAPH_TOOLS = "langgraph_tools"
@@ -468,6 +469,14 @@ def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
                 "before_prompt_build:prepare_context": "/v1/context/prepare",
                 "before_compaction:flush_memory": "await flush(",
             },
+        )
+    if probe is ToolSurfaceProbe.DIFY_TOOLS:
+        return set(
+            re.findall(
+                r"^- tools/([a-z_]+)\.yaml$",
+                _read(root, "integrations/dify/powercontext/provider/powercontext.yaml"),
+                re.MULTILINE,
+            )
         )
     if probe is ToolSurfaceProbe.PYDANTIC_AI_TOOLS:
         return _pydantic_ai_tool_ids(root)

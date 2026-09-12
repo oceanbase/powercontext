@@ -680,3 +680,50 @@ toolsets = ["bub-tools", "bub-lifecycle"]
 implementation = ["integrations/bub/src/powercontext_bub/tools.py", "integrations/bub/src/powercontext_bub/plugin.py"]
 documentation = ["integrations/bub/README.md"]
 tests = ["e2e/bub/tests/test_workload_catalog.py"]
+
+[[toolsets]]
+id = "dify-tools"
+probe = "dify_tools"
+
+[[toolsets.tools]]
+id = "prepare_context"
+capabilities = ["context_injection"]
+
+[[toolsets.tools]]
+id = "capture_event"
+capabilities = ["source_capture"]
+
+[[toolsets.tools]]
+id = "search_memory"
+capabilities = ["memory_read"]
+
+[[toolsets.tools]]
+id = "remember_memory"
+capabilities = ["memory_write"]
+
+[[toolsets.tools]]
+id = "get_memory_entry"
+capabilities = ["memory_read"]
+
+[[toolsets.tools]]
+id = "revise_memory_entry"
+capabilities = ["memory_write"]
+
+[[toolsets.tools]]
+id = "retire_memory_entry"
+capabilities = ["memory_write"]
+
+[[toolsets.tools]]
+id = "flush_memory"
+capabilities = ["flush_or_checkpoint"]
+
+[[integrations]]
+id = "dify"
+kind = "framework_adapter"
+availability = "experimental"
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint"]
+toolsets = ["dify-tools"]
+[integrations.evidence]
+implementation = ["integrations/dify/powercontext/bridge.py", "integrations/dify/powercontext_agent/strategies/function_calling.py"]
+documentation = ["docs/en/docs/integrations/dify.md", "docs/zh/docs/integrations/dify.md"]
+tests = ["integrations/dify/tests/test_bridge.py", "integrations/dify/tests/test_strategy.py", "tests/e2e/test_dify_chain.py"]

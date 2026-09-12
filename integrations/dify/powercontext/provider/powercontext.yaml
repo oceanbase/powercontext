@@ -1,0 +1,68 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+identity:
+  author: oceanbase
+  name: powercontext
+  label:
+    en_US: PowerContext
+    zh_Hans: PowerContext
+  description:
+    en_US: Durable external memory and execution evidence for agents and workflows.
+    zh_Hans: 为 Agent 和工作流提供外置长期记忆和执行证据。
+  icon: icon.svg
+credentials_for_provider:
+  base_url:
+    type: text-input
+    required: true
+    label:
+      en_US: PowerContext server URL (HTTPS recommended)
+      zh_Hans: PowerContext Server 地址（建议 HTTPS）
+  token:
+    type: secret-input
+    required: true
+    label:
+      en_US: PowerContext bearer token
+      zh_Hans: PowerContext 访问令牌
+  namespace:
+    type: text-input
+    required: true
+    label:
+      en_US: Stable unique name for this Dify deployment
+      zh_Hans: 当前 Dify 部署的固定唯一标识
+  scope_id:
+    type: text-input
+    required: false
+    label:
+      en_US: Optional existing Scope ID; shared by this credential
+      zh_Hans: 可选的现有 Scope ID；使用此凭据的用户共享该 Scope
+  allow_insecure_http:
+    type: boolean
+    required: false
+    default: false
+    label:
+      en_US: Allow unencrypted HTTP on a trusted private network
+      zh_Hans: 允许在可信私有网络中使用未加密 HTTP
+tools:
+- tools/prepare_context.yaml
+- tools/capture_event.yaml
+- tools/search_memory.yaml
+- tools/remember_memory.yaml
+- tools/get_memory_entry.yaml
+- tools/revise_memory_entry.yaml
+- tools/retire_memory_entry.yaml
+- tools/flush_memory.yaml
+extra:
+  python:
+    source: provider/powercontext.py

@@ -1,0 +1,85 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: pc-dify-acceptance
+services:
+  db:
+    image: pgvector/pgvector:0.8.0-pg17
+    environment:
+      POSTGRES_DB: dify
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?run prepare.py first}
+    ports: ["127.0.0.1:31432:5432"]
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/01-dify.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dify"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:31379:6379"]
+    volumes: ["redis:/data"]
+  plugin_daemon:
+    image: langgenius/dify-plugin-daemon:0.6.10-local
+    environment:
+      DB_TYPE: postgresql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DATABASE_PASSWORD}
+      DB_DATABASE: dify_plugin
+      DB_SSL_MODE: disable
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SERVER_PORT: 5002
+      SERVER_KEY: ${DAEMON_KEY}
+      DIFY_INNER_API_URL: http://host.docker.internal:31501
+      DIFY_INNER_API_KEY: ${INNER_KEY}
+      PLUGIN_REMOTE_INSTALLING_ENABLED: "true"
+      PLUGIN_REMOTE_INSTALLING_HOST: 0.0.0.0
+      PLUGIN_REMOTE_INSTALLING_PORT: 5003
+      PLUGIN_WORKING_PATH: /app/storage/cwd
+      PLUGIN_STORAGE_TYPE: local
+      PLUGIN_STORAGE_LOCAL_ROOT: /app/storage
+      PYTHON_ENV_INIT_TIMEOUT: 300
+      PLUGIN_MAX_EXECUTION_TIMEOUT: 600
+      FORCE_VERIFYING_SIGNATURE: "true"
+    ports:
+      - "127.0.0.1:31502:5002"
+      - "127.0.0.1:31503:5003"
+    volumes: ["plugins:/app/storage"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+  local_sandbox:
+    image: langgenius/dify-agent-local-sandbox:1.17.0
+    profiles: [agent-app]
+    environment:
+      SHELLCTL_AUTH_TOKEN: ${SANDBOX_TOKEN}
+    ports: ["127.0.0.1:31504:5004"]
+    volumes:
+      - sandbox_home:/home/dify
+      - sandbox_workspace:/workspace
+    extra_hosts: ["host.docker.internal:host-gateway"]
+volumes:
+  database:
+  redis:
+  plugins:
+  sandbox_home:
+  sandbox_workspace:

@@ -1,0 +1,52 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+identity:
+  name: flush_memory
+  author: oceanbase
+  label:
+    en_US: Flush Memory
+description:
+  human:
+    en_US: 'Process pending Sources for this Scope. Request: an empty object.'
+  llm: 'Process pending Sources for this Scope. Request: an empty object.'
+parameters:
+- name: memory_context
+  type: object
+  required: false
+  label:
+    en_US: Memory Context
+  human_description:
+    en_US: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id. Defaults
+      to the invoking app and user when available.'
+  llm_description: 'Host-controlled identity object: app_id, subject_kind (user or business), subject_id.
+    Defaults to the invoking app and user when available.'
+  form: form
+- name: request
+  type: object
+  required: true
+  label:
+    en_US: Request
+  human_description:
+    en_US: 'Process pending Sources for this Scope. Request: an empty object. Never include scope_id.'
+  llm_description: 'Process pending Sources for this Scope. Request: an empty object. Never include scope_id.'
+  form: llm
+  input_schema:
+    additionalProperties: false
+    properties: {}
+    required: []
+    type: object
+extra:
+  python:
+    source: tools/flush_memory.py
