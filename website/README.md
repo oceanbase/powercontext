@@ -31,26 +31,17 @@ pnpm build
 
 ## 发布到 GitHub Pages
 
-正式仓库 `oceanbase/powercontext` 使用根路径构建：
+在正式仓库 `oceanbase/powercontext` 的 `master` 分支上手动运行 `Deploy website` 工作流，发布官网。
+本地验证时使用相同的根路径构建参数：
 
 ```bash
+NEXT_PUBLIC_BASE_PATH= \
 NEXT_PUBLIC_SITE_URL=https://powercontext.oceanbase.io \
 NEXT_PUBLIC_REPOSITORY_URL=https://github.com/oceanbase/powercontext \
 pnpm build
 ```
 
 把 `out` 的内容部署到 `https://powercontext.oceanbase.io/`。这些参数在构建时写入页面和资源路径。
-
-调试仓库 `frf12/powercontext` 使用 GitHub Pages 子路径：
-
-```bash
-NEXT_PUBLIC_BASE_PATH=/powercontext \
-NEXT_PUBLIC_SITE_URL=https://frf12.github.io \
-NEXT_PUBLIC_REPOSITORY_URL=https://github.com/frf12/powercontext/tree/codex/guided-config \
-pnpm build
-```
-
-把 `out` 的内容部署到 `https://frf12.github.io/powercontext/`。修改部署路径后需要重新构建。
 
 `pnpm verify:export` 应使用与构建相同的环境变量；它会检查页面链接、静态资源、跳转页和双语首页的规范地址。
 
