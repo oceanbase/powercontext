@@ -15,6 +15,7 @@
  */
 
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { resolvePowerContextConfig } from "./config.js";
 import type { PowerContextClient } from "./http.js";
@@ -56,7 +57,17 @@ describe("PowerContext work tools", () => {
 
   it("sends a Work Contract to the dedicated endpoint", async () => {
     const { deps, requests } = fixture();
-    const contract = { schema: "powercontext.work-contract.v1", objective: "ship it" };
+    const contract = {
+      schema: "powercontext.work-contract.v1",
+      trust: "untrusted_input",
+      objective: "ship it",
+      facts: [],
+      in_scope: ["Implement the requested change."],
+      exclusions: [],
+      completion_criteria: ["The change is tested."],
+      authorization_notes: [],
+      open_questions: [],
+    };
 
     await createWorkContractTool(context, deps)!.execute("call-1", {
       contract,
@@ -71,12 +82,47 @@ describe("PowerContext work tools", () => {
 
   it("covers prepare, commit, continue, acknowledge, and outcome", async () => {
     const { deps, requests } = fixture();
-    const handoff = { schema: "powercontext.prepared-handoff.v1", content: {} };
+    const currentWork = {
+      schema: "powercontext.current-work-handoff.v1",
+      trust: "untrusted_input",
+      objective: "ship it",
+      state: [{ text: "The implementation is ready.", basis: "declared", evidence: [] }],
+      disposition: "continuable",
+      next_action: null,
+      omissions: [],
+    };
+    const handoff = {
+      schema: "powercontext.prepared-handoff.v1",
+      scope_id: "scope-1",
+      base: null,
+      content: {
+        schema: "powercontext.handoff.v1",
+        objective: "ship it",
+        state: [{
+          text: "The implementation is ready.",
+          citations: [{ kind: "source", source_ref: { name: "handoff-boundary", source_id: "boundary" } }],
+        }],
+        disposition: "continuable",
+        next_action: null,
+        omissions: [],
+      },
+    };
     const revision = { family: "handoff", artifact_id: "h-1", revision: 1 };
     const checks = { live_state: "confirmed", capability: "confirmed", authorization: "confirmed" };
-    const outcome = { schema: "powercontext.task-outcome.v1", status: "succeeded" };
+    const outcome = {
+      schema: "powercontext.task-outcome.v1",
+      trust: "untrusted_observation",
+      objective: "ship it",
+      status: "succeeded",
+      summary: "The implementation is ready.",
+      handoff_receipt_ref: null,
+      observations: [{ text: "The implementation is ready.", basis: "declared", evidence: [] }],
+      checks: [],
+      produced_artifacts: [],
+      remaining_work: [],
+    };
 
-    await createHandoffCurrentWorkTool(context, deps)!.execute("call-1", { handoff, source_id: "boundary" });
+    await createHandoffCurrentWorkTool(context, deps)!.execute("call-1", { handoff: currentWork, source_id: "boundary" });
     await createHandoffCommitTool(context, deps)!.execute("call-2", { handoff });
     await createHandoffContinueTool(context, deps)!.execute("call-3", { selection: "exact", revision });
     await createHandoffAcknowledgeTool(context, deps)!.execute("call-4", {
@@ -118,5 +164,85 @@ describe("PowerContext work tools", () => {
     expect(createHandoffContinueTool(context, publicDeps)).toBeNull();
     expect(createHandoffAcknowledgeTool(context, publicDeps)).toBeNull();
     expect(createTaskOutcomeTool(context, publicDeps)).toBeNull();
+  });
+
+  it("exposes server-compatible nested schemas", () => {
+    const { deps } = fixture();
+    const contractTool = createWorkContractTool(context, deps)!;
+    const handoffTool = createHandoffCurrentWorkTool(context, deps)!;
+    const commitTool = createHandoffCommitTool(context, deps)!;
+    const continueTool = createHandoffContinueTool(context, deps)!;
+    const acknowledgeTool = createHandoffAcknowledgeTool(context, deps)!;
+    const outcomeTool = createTaskOutcomeTool(context, deps)!;
+    const prepared = {
+      schema: "powercontext.prepared-handoff.v1",
+      scope_id: "scope-1",
+      base: null,
+      content: {
+        schema: "powercontext.handoff.v1",
+        objective: "ship it",
+        state: [{
+          text: "The implementation is ready.",
+          citations: [{ kind: "source", source_ref: { name: "handoff-boundary", source_id: "boundary" } }],
+        }],
+        disposition: "continuable",
+        next_action: null,
+        omissions: [],
+      },
+    };
+
+    expect(Value.Check(contractTool.parameters, {
+      contract: {
+        schema: "powercontext.work-contract.v1",
+        trust: "untrusted_input",
+        objective: "ship it",
+        facts: [],
+        in_scope: ["Implement the requested change."],
+        exclusions: [],
+        completion_criteria: ["The change is tested."],
+        authorization_notes: [],
+        open_questions: [],
+      },
+    })).toBe(true);
+    expect(Value.Check(contractTool.parameters, {
+      contract: { schema: "powercontext.work-contract.v1", objective: "ship it" },
+    })).toBe(false);
+    expect(Value.Check(handoffTool.parameters, {
+      handoff: {
+        schema: "powercontext.current-work-handoff.v1",
+        trust: "untrusted_input",
+        objective: "ship it",
+        state: [{ text: "The implementation is ready.", basis: "declared", evidence: [] }],
+        disposition: "continuable",
+        next_action: null,
+        omissions: [],
+      },
+    })).toBe(true);
+    expect(Value.Check(handoffTool.parameters, {
+      handoff: { schema: "powercontext.prepared-handoff.v1", content: {} },
+    })).toBe(false);
+    expect(Value.Check(commitTool.parameters, { handoff: prepared })).toBe(true);
+    expect(Value.Check(continueTool.parameters, { selection: "prepared", prepared })).toBe(true);
+    expect(Value.Check(acknowledgeTool.parameters, {
+      receiver: "agent-2",
+      status: "accepted",
+      selection: "prepared",
+      prepared,
+      receiver_checks: { live_state: "confirmed", capability: "confirmed", authorization: "confirmed" },
+    })).toBe(true);
+    expect(Value.Check(outcomeTool.parameters, {
+      outcome: {
+        schema: "powercontext.task-outcome.v1",
+        trust: "untrusted_observation",
+        objective: "ship it",
+        status: "succeeded",
+        summary: "The implementation is ready.",
+        handoff_receipt_ref: null,
+        observations: [{ text: "The implementation is ready.", basis: "declared", evidence: [] }],
+        checks: [],
+        produced_artifacts: [],
+        remaining_work: [],
+      },
+    })).toBe(true);
   });
 });

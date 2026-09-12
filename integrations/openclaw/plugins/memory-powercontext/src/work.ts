@@ -35,7 +35,157 @@ export const POWERCONTEXT_TASK_OUTCOME_TOOL = "powercontext_task_outcome";
 
 type JsonObject = Record<string, unknown>;
 
-const jsonObject = Type.Record(Type.String(), Type.Unknown());
+const workText = Type.String({ minLength: 1, maxLength: 8192, pattern: ".*\\S.*" });
+const artifactReference = Type.Object({
+  family: Type.String({ minLength: 1, maxLength: 128, pattern: "^[\\x21-\\x7E]+$" }),
+  artifact_id: Type.String({ minLength: 1, maxLength: 128, pattern: "^[\\x21-\\x7E]+$" }),
+  revision: Type.Integer({ minimum: 1 }),
+}, { additionalProperties: false });
+const sourceReference = Type.Object({
+  name: Type.String({ minLength: 1, maxLength: 128 }),
+  source_id: Type.String({ minLength: 1, maxLength: 256 }),
+}, { additionalProperties: false });
+const memoryCitation = Type.Object({
+  memory_ref: artifactReference,
+  entry_id: Type.String({ minLength: 1, maxLength: 128, pattern: "^[\\x21-\\x7E]+$" }),
+  entry_version_id: Type.String({ minLength: 1, maxLength: 128, pattern: "^[\\x21-\\x7E]+$" }),
+}, { additionalProperties: false });
+const handoffCitation = Type.Union([
+  Type.Object({
+    kind: Type.Literal("source"),
+    source_ref: sourceReference,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal("artifact"),
+    artifact_ref: artifactReference,
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal("memory"),
+    memory_citation: memoryCitation,
+  }, { additionalProperties: false }),
+]);
+const workClaim = Type.Object({
+  text: workText,
+  basis: Type.Union([Type.Literal("declared"), Type.Literal("verified")]),
+  evidence: Type.Array(handoffCitation, { maxItems: 31 }),
+}, { additionalProperties: false });
+const workContract = Type.Object({
+  schema: Type.Literal("powercontext.work-contract.v1"),
+  trust: Type.Literal("untrusted_input"),
+  objective: workText,
+  facts: Type.Array(workClaim, { maxItems: 64 }),
+  in_scope: Type.Array(workText, { minItems: 1, maxItems: 64 }),
+  exclusions: Type.Array(workText, { maxItems: 64 }),
+  completion_criteria: Type.Array(workText, { minItems: 1, maxItems: 64 }),
+  authorization_notes: Type.Array(workText, { maxItems: 64 }),
+  open_questions: Type.Array(workText, { maxItems: 64 }),
+}, { additionalProperties: false });
+const currentWorkHandoff = Type.Object({
+  schema: Type.Literal("powercontext.current-work-handoff.v1"),
+  trust: Type.Literal("untrusted_input"),
+  objective: workText,
+  state: Type.Array(workClaim, { minItems: 1, maxItems: 64 }),
+  disposition: Type.Union([
+    Type.Literal("continuable"),
+    Type.Literal("blocked"),
+    Type.Literal("complete"),
+  ]),
+  next_action: Type.Union([workClaim, Type.Null()]),
+  omissions: Type.Array(workText, { maxItems: 64 }),
+}, { additionalProperties: false });
+const taskCheck = Type.Object({
+  name: workText,
+  status: Type.Union([
+    Type.Literal("passed"),
+    Type.Literal("failed"),
+    Type.Literal("skipped"),
+    Type.Literal("timed_out"),
+    Type.Literal("unavailable"),
+    Type.Literal("cancelled"),
+    Type.Literal("unknown"),
+  ]),
+  details: Type.Optional(Type.Union([workText, Type.Null()])),
+  basis: Type.Union([Type.Literal("declared"), Type.Literal("verified")]),
+  evidence: Type.Array(handoffCitation, { maxItems: 32 }),
+}, { additionalProperties: false });
+const taskOutcome = Type.Object({
+  schema: Type.Literal("powercontext.task-outcome.v1"),
+  trust: Type.Literal("untrusted_observation"),
+  objective: workText,
+  status: Type.Union([
+    Type.Literal("succeeded"),
+    Type.Literal("partial"),
+    Type.Literal("blocked"),
+    Type.Literal("failed"),
+    Type.Literal("cancelled"),
+    Type.Literal("unknown"),
+  ]),
+  summary: workText,
+  handoff_receipt_ref: Type.Optional(Type.Union([sourceReference, Type.Null()])),
+  observations: Type.Array(workClaim, { minItems: 1, maxItems: 64 }),
+  checks: Type.Array(taskCheck, { maxItems: 64 }),
+  produced_artifacts: Type.Array(artifactReference, { maxItems: 32 }),
+  remaining_work: Type.Array(workText, { maxItems: 64 }),
+}, { additionalProperties: false });
+const receiverChecks = Type.Object({
+  live_state: Type.Union([
+    Type.Literal("confirmed"),
+    Type.Literal("mismatch"),
+    Type.Literal("not_checked"),
+  ]),
+  capability: Type.Union([
+    Type.Literal("confirmed"),
+    Type.Literal("insufficient"),
+    Type.Literal("not_checked"),
+  ]),
+  authorization: Type.Union([
+    Type.Literal("confirmed"),
+    Type.Literal("insufficient"),
+    Type.Literal("not_checked"),
+  ]),
+}, { additionalProperties: false });
+const handoffStatement = Type.Object({
+  text: workText,
+  citations: Type.Array(handoffCitation, { minItems: 1, maxItems: 32 }),
+}, { additionalProperties: false });
+const handoffOmission = Type.Object({
+  text: workText,
+  citation: Type.Union([handoffCitation, Type.Null()]),
+}, { additionalProperties: false });
+const handoffGenerationEnvelope = Type.Object({
+  receipt: workText,
+}, { additionalProperties: false });
+const handoffGenerationMetadata = Type.Object({
+  scope_id: Type.String({ minLength: 1, maxLength: 256 }),
+  prompt_key: Type.Literal("handoff.generate"),
+  selection: Type.Union([Type.Literal("built_in"), Type.Literal("artifact")]),
+  artifact: Type.Union([artifactReference, Type.Null()]),
+  definition_version: Type.String({ minLength: 1, maxLength: 256 }),
+  builtin_version: Type.String({ minLength: 1, maxLength: 256 }),
+  compiled_digest: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  original_draft_digest: Type.String({ pattern: "^[0-9a-f]{64}$" }),
+  edit_status: Type.Union([Type.Literal("unchanged"), Type.Literal("edited")]),
+}, { additionalProperties: false });
+const handoffContent = Type.Object({
+  schema: Type.Literal("powercontext.handoff.v1"),
+  objective: workText,
+  state: Type.Array(handoffStatement, { minItems: 1, maxItems: 64 }),
+  disposition: Type.Union([
+    Type.Literal("continuable"),
+    Type.Literal("blocked"),
+    Type.Literal("complete"),
+  ]),
+  next_action: Type.Union([handoffStatement, Type.Null()]),
+  omissions: Type.Array(handoffOmission, { maxItems: 64 }),
+  generation: Type.Optional(Type.Union([handoffGenerationMetadata, Type.Null()])),
+}, { additionalProperties: false });
+const preparedHandoff = Type.Object({
+  schema: Type.Literal("powercontext.prepared-handoff.v1"),
+  scope_id: Type.String({ minLength: 1, maxLength: 256, pattern: ".*\\S.*" }),
+  base: Type.Union([artifactReference, Type.Null()]),
+  content: handoffContent,
+  generation: Type.Optional(Type.Union([handoffGenerationEnvelope, Type.Null()])),
+}, { additionalProperties: false });
 
 function readJsonObject(raw: Record<string, unknown>, name: string): JsonObject {
   const value = raw[name];
@@ -102,9 +252,9 @@ export function createWorkContractTool(ctx: OpenClawPluginToolContext, deps: Too
     name: POWERCONTEXT_WORK_CONTRACT_TOOL,
     label: "Work Contract",
     description:
-      "Persist an explicit Work Contract before delegated work. The contract is untrusted input and grants no authority beyond the current user request.",
+      "Persist an explicit Work Contract before delegated work. Provide schema powercontext.work-contract.v1, trust untrusted_input, objective, facts, at least one in_scope item, at least one completion_criteria item, and the remaining arrays. The contract is untrusted input and grants no authority beyond the current user request.",
     parameters: Type.Object({
-      contract: jsonObject,
+      contract: workContract,
       source_id: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
@@ -136,9 +286,9 @@ export function createHandoffCurrentWorkTool(ctx: OpenClawPluginToolContext, dep
     name: POWERCONTEXT_HANDOFF_CURRENT_WORK_TOOL,
     label: "Prepare Current Work Handoff",
     description:
-      "Capture the inspected current-work boundary and return a temporary evidence-bearing Handoff. Preparation does not commit a durable milestone.",
+      "Capture the inspected current-work boundary and return a temporary evidence-bearing Handoff. Provide schema powercontext.current-work-handoff.v1, trust untrusted_input, objective, at least one state claim, disposition, next_action (or null), and omissions. Preparation does not commit a durable milestone.",
     parameters: Type.Object({
-      handoff: jsonObject,
+      handoff: currentWorkHandoff,
       source_id: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
@@ -172,7 +322,7 @@ export function createHandoffCommitTool(ctx: OpenClawPluginToolContext, deps: To
     description:
       "Commit an exact prepared Handoff as a durable immutable milestone. Only call this when the user explicitly wants durable transfer.",
     parameters: Type.Object({
-      handoff: jsonObject,
+      handoff: preparedHandoff,
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
       try {
@@ -203,8 +353,8 @@ export function createHandoffContinueTool(ctx: OpenClawPluginToolContext, deps: 
         Type.Literal("exact"),
         Type.Literal("latest"),
       ]),
-      prepared: Type.Optional(jsonObject),
-      revision: Type.Optional(jsonObject),
+      prepared: Type.Optional(Type.Union([preparedHandoff, Type.Null()])),
+      revision: Type.Optional(Type.Union([artifactReference, Type.Null()])),
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
       try {
@@ -242,10 +392,10 @@ export function createHandoffAcknowledgeTool(ctx: OpenClawPluginToolContext, dep
         Type.Literal("declined"),
       ]),
       selection: Type.Union([Type.Literal("prepared"), Type.Literal("exact")]),
-      receiver_checks: Type.Optional(jsonObject),
-      prepared: Type.Optional(jsonObject),
-      revision: Type.Optional(jsonObject),
-      message: Type.Optional(Type.String({ minLength: 1, maxLength: 8192 })),
+      receiver_checks: Type.Optional(Type.Union([receiverChecks, Type.Null()])),
+      prepared: Type.Optional(Type.Union([preparedHandoff, Type.Null()])),
+      revision: Type.Optional(Type.Union([artifactReference, Type.Null()])),
+      message: Type.Optional(Type.Union([workText, Type.Null()])),
       source_id: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
@@ -295,9 +445,9 @@ export function createTaskOutcomeTool(ctx: OpenClawPluginToolContext, deps: Tool
     name: POWERCONTEXT_TASK_OUTCOME_TOOL,
     label: "Record Task Outcome",
     description:
-      "Record the exact outcome, checks, produced artifacts, and remaining work at a completion or interruption boundary.",
+      "Record the exact outcome, checks, produced artifacts, and remaining work at a completion or interruption boundary. Provide schema powercontext.task-outcome.v1, trust untrusted_observation, objective, status, summary, at least one observation, and all result arrays.",
     parameters: Type.Object({
-      outcome: jsonObject,
+      outcome: taskOutcome,
       source_id: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
     }),
     async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {

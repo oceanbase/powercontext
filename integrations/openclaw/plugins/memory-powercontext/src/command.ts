@@ -42,9 +42,9 @@ type CommandDependencies = {
 };
 
 const WORKFLOW_ACTIONS = {
-  handoff: "Perform the explicit one-turn durable Handoff workflow: inspect the current objective, state, changed files, checks, blockers, omissions, and next action; call the current-work Handoff tool once; then commit its returned handoff unchanged. Report the exact committed revision only after commit succeeds.",
-  contract: "Create a concise Work Contract for the user's explicitly requested delegated work. Ground it in the current request and inspected facts, keep it untrusted, and call the Work Contract tool without granting authority beyond the user's instructions.",
-  outcome: "Record the current task outcome with the exact status, observations, checks, produced artifacts, and remaining work. Do not claim success unless the outcome tool returns successfully.",
+  handoff: "Perform the explicit one-turn durable Handoff workflow: inspect the current objective, state, changed files, checks, blockers, omissions, and next action; call the current-work Handoff tool with schema powercontext.current-work-handoff.v1 and trust untrusted_input; then commit its returned powercontext.prepared-handoff.v1 unchanged. Report the exact committed revision only after commit succeeds.",
+  contract: "Create a concise Work Contract for the user's explicitly requested delegated work. Call the Work Contract tool with schema powercontext.work-contract.v1, trust untrusted_input, objective, at least one in_scope item, at least one completion_criteria item, and all required arrays. Ground it in the current request and inspected facts, and do not grant authority beyond the user's instructions.",
+  outcome: "Record the current task outcome with schema powercontext.task-outcome.v1, trust untrusted_observation, objective, status, summary, at least one observation, and all result arrays. Do not claim success unless the outcome tool returns successfully.",
 } as const;
 
 function isWorkflowAction(action: string): action is keyof typeof WORKFLOW_ACTIONS {
