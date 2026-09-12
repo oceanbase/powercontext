@@ -9,13 +9,19 @@ Start with installation, discuss a project in Codex, watch its input become Sour
 then recover the decisions in a new session. These instructions use the stable PowerContext 1.0.0 release,
 with the Agent plugin from the matching `powercontext-v1.0.0` tag.
 
-You need macOS or Linux, Python 3.11+, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/),
-and an installed Codex CLI. Full memory also needs working Generation and Embedding model APIs:
+You need macOS or Linux, Git, and an installed Codex CLI. The installation command uses
+[uv](https://docs.astral.sh/uv/getting-started/installation/). If uv or Python is missing, first use the
+[installation script](install-and-run.mdx#install-the-application). It reuses existing components and selects download
+sources using an explicit region, timezone, or locale territory.
+
+Full memory also needs working Generation and Embedding model APIs:
 prepare their base URLs, model names, and API keys. Signing into a Codex or Claude subscription does not automatically
 provide these APIs to the PowerContext Server. Without separate model APIs, select basic memory to test explicit saves
 and recall; that does not enable automatic Topic Memory.
 
 ## 1. Install and open the wizard
+
+If you installed PowerContext with the script, skip the first command and start by creating the demo directory.
 
 ```bash
 uv tool install --force "powercontext[cli,server]==1.0.0"
@@ -138,7 +144,7 @@ additional triggers or review requirements; see [Capability behavior](configure-
 
 ## Continue
 
-- [Install and run](install-and-run.md): versions, seekdb dependencies, existing storage, and updates.
+- [Install and run](install-and-run.mdx): versions, seekdb dependencies, existing storage, and updates.
 - [Deploy the Server](../operate/deploy-server.md): background services, SSH, HTTPS, and backups.
 - [Configure models](configure-models.md): API protocols, vector dimensions, and extraction checks.
 - [Troubleshoot](../operate/troubleshoot.md): service, model, capture, or recall failures.

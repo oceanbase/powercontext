@@ -21,7 +21,7 @@ uv add "powercontext-pydantic-ai @ git+https://github.com/oceanbase/powercontext
 uv add "pydantic-ai-slim[openai]>=2.29,<3"
 ```
 
-Start a separate Server from the same ref using [Install and run](../get-started/install-and-run.md).
+Start a separate Server from the same ref using [Install and run](../get-started/install-and-run.mdx).
 The adapter requires `powercontext[client]>=0.0.3`; use the matching current source for these examples.
 For another provider, replace the `openai` extra and model string.
 

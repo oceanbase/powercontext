@@ -30,8 +30,8 @@ def write_inference_capability_notice(
         return
 
     typer.secho("\nInference capability notice", bold=True, fg=typer.colors.YELLOW)
-    typer.echo("未配置或未完整配置 PowerContext Server 推理模型（generation model 和 embedding model），")  # noqa: RUF001
-    typer.echo("可能影响部分制品功能。具体影响范围及配置方式请参考 PowerContext 官网配置说明：")  # noqa: RUF001
+    typer.echo("PowerContext Server generation or embedding models are not fully configured.")
+    typer.echo("Some artifact features may be unavailable. See the configuration guide:")
     typer.echo("https://powercontext.oceanbase.io/en/docs/reference/configuration/")
 
 

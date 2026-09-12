@@ -166,7 +166,7 @@ AGENTS: dict[str, tuple[str, str, str]] = {
     "workbuddy": (
         "WorkBuddy",
         "powercontext setup workbuddy --source oceanbase/powercontext --ref master",
-        "重启 WorkBuddy",
+        "Restart WorkBuddy",
     ),
 }
 
@@ -1045,7 +1045,7 @@ def _print_next_steps(path: Path) -> None:
                 else "powercontext setup dsh --source /path/to/matching-powercontext-checkout"
             )
         typer.echo(f"\n{name}:\n  {setup}")
-        if launch.startswith("重启"):
+        if host == "workbuddy":
             typer.echo(f"  {launch}")
         else:
             typer.echo(f"  set -a; . {quoted}; set +a; {launch}")

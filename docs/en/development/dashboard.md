@@ -99,7 +99,7 @@ Pages show actual readable data, and actions correspond to existing capabilities
 The Dashboard supports the built-in static Bearer identity, with the same permissions for every token holder. Enabling it
 requires `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true`, `ACCESS_MODE=enforced`, and `AUTH_TOKEN`. Team deployments that
 inject authentication or authorization Providers must disable it. Pages reuse the existing API and its access checks;
-they add no data endpoints or member and role management. See [Install and run](../docs/get-started/install-and-run.md)
+they add no data endpoints or member and role management. See [Install and run](../docs/get-started/install-and-run.mdx)
 for personal setup.
 
 Collections can change as users save and revise content; exact references still identify their historical versions. Handle missing or inaccessible references explicitly, without substituting the current version or a similar record.

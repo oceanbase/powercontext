@@ -62,5 +62,5 @@ powercontext setup select
 `released` 表示可从指定发布 tag 获取，`master_only` 表示当前实现尚未发布，`experimental` 不承诺稳定性。
 这些标签与维护归属、Minimal / Recommended / Full 能力等级分别表达不同信息。
 
-Server 和集成使用相同的发布 tag 或 commit。平台要求见[安装与运行](../get-started/install-and-run.md)：
+Server 和集成使用相同的发布 tag 或 commit。平台要求见[安装与运行](../get-started/install-and-run.mdx)：
 Windows 支持为 `experimental`，这不表示所有宿主和可选后端都支持 Windows。

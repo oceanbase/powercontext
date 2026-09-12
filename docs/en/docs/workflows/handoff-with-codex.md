@@ -16,7 +16,7 @@ state, the receiver records whether it can continue, and a Task Outcome preserve
 
 ## Before you start
 
-Complete [Install and run](../get-started/install-and-run.md), keep the Server running, and start a Codex session with the
+Complete [Install and run](../get-started/install-and-run.mdx), keep the Server running, and start a Codex session with the
 PowerContext plugin configured in the current project. The integration binds the Session to a Scope before reading or
 writing work records. Start independent work in a new Scope only when it needs its own isolation and continuation.
 

@@ -75,7 +75,7 @@ loopback 地址。
 
 ## 从已安装工具运行
 
-按照[安装和运行](../get-started/install-and-run.md)安装 PowerContext，然后选择持久化数据目录：
+按照[安装和运行](../get-started/install-and-run.mdx)安装 PowerContext，然后选择持久化数据目录：
 
 ```bash
 export POWERCONTEXT_HOME=/srv/powercontext
@@ -160,7 +160,7 @@ Cookie，最长八小时；HTTPS 下设置 Secure。反向代理应正确传递�
 
 静态 token 的所有持有者具有同一个管理员身份。Dashboard 不支持多成员 RBAC，也不提供账号、SSO、邀请和授权管理。
 注入 Authentication Provider 或 AccessControlService 的部署必须关闭 Dashboard；不兼容的启用配置会在启动时被拒绝。
-关闭 Dashboard 不影响团队的 API 和 MCP。个人启用步骤见[安装和运行](../get-started/install-and-run.md)。
+关闭 Dashboard 不影响团队的 API 和 MCP。个人启用步骤见[安装和运行](../get-started/install-and-run.mdx)。
 
 ## 检查部署
 

@@ -9,12 +9,16 @@ description: 通过配置向导安装完整记忆能力，接入 Codex，并验�
 再在新会话中找回决策。以下命令使用 PowerContext 1.0.0 正式版本，Agent 插件使用对应的
 `powercontext-v1.0.0` tag。
 
-需要 macOS 或 Linux、Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和已安装的 Codex CLI。
+需要 macOS 或 Linux、Git 和已安装的 Codex CLI。安装命令使用 [uv](https://docs.astral.sh/uv/getting-started/installation/)。
+如果本机没有 uv 或 Python，请先按[安装应用](install-and-run.mdx#安装应用)使用脚本安装；
+脚本会复用已有组件，并根据显式地区设置、时区或语言地区选择下载源。
 完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。
 Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些 API。只有 Agent 登录、没有模型 API 时，
 仍可选择基础记忆，验收显式保存与召回，但不能据此期待自动 Topic Memory。
 
 ## 1. 安装并进入配置向导
+
+如果已通过脚本安装 PowerContext，可跳过第一条命令，从创建演示目录开始。
 
 ```bash
 uv tool install --force "powercontext[cli,server]==1.0.0"
@@ -132,7 +136,7 @@ codex
 
 ## 继续使用
 
-- [安装和运行](install-and-run.md)：版本、seekdb 依赖、已有存储与更新。
+- [安装和运行](install-and-run.mdx)：版本、seekdb 依赖、已有存储与更新。
 - [部署 Server](../operate/deploy-server.md)：后台服务、SSH、HTTPS 和数据备份。
 - [配置模型](configure-models.md)：API 协议、向量维度与提取检查。
 - [故障排查](../operate/troubleshoot.md)：服务、模型、采集或召回失败。

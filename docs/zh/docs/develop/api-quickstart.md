@@ -8,7 +8,7 @@ description: 采集 Source、写入 Memory，并为应用准备上下文。
 本页用本地 Server 跑通 Source 采集、显式 Memory 写入和 PreparedContext 读取，不需要模型。
 
 示例使用当前 `master` 和 Bash。Windows 支持为 `experimental`；平台及版本要求见
-[安装与运行](../get-started/install-and-run.md)。
+[安装与运行](../get-started/install-and-run.mdx)。
 
 ## 1. 安装并启动 PowerContext
 

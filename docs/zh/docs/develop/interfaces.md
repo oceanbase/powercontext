@@ -20,8 +20,8 @@ description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 | Pydantic AI 适配器 | 预览 API；尚无受支持的独立安装方式 | [适配器状态](../integrations/pydantic-ai.md) |
 | LangChain middleware | 在 `create_agent` 中提供有界召回和完成轮次 Source 采集 | [从源码安装](../integrations/langchain.md) |
 | LangGraph 适配器 | 在 LangGraph 图中提供 Memory 工具和有界召回 | [从源码安装](../integrations/langgraph.md) |
-| CLI | 配置、诊断、Server 控制和人工 Candidate 审核 | [安装和运行](../get-started/install-and-run.md) |
-| Python Client SDK | 对运行中的 Server 发起类型化异步调用 | [安装 Client role](../get-started/install-and-run.md) |
+| CLI | 配置、诊断、Server 控制和人工 Candidate 审核 | [安装和运行](../get-started/install-and-run.mdx) |
+| Python Client SDK | 对运行中的 Server 发起类型化异步调用 | [安装 Client role](../get-started/install-and-run.mdx) |
 | Core SDK | 进程内 Source、Artifact、Trigger 和组合契约 | [Python API 参考](/zh/modules/) |
 | HTTP | 从任意语言集成服务 | [HTTP API](http-api.md) |
 | MCP | 面向 Agent 的 Source 采集、Memory、工作连续性、报告和 Candidate Review 精选工具 | Server 在 `/mcp` 启用 |

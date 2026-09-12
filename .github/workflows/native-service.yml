@@ -1,4 +1,4 @@
-name: Native personal service
+name: Native installation and personal service
 
 on:
   push:
@@ -19,6 +19,8 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.11"
 
       - name: Start the disposable runner's user manager
         shell: bash
@@ -28,12 +30,34 @@ jobs:
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
 
       - name: Install the built distribution in a fresh virtual environment
+        env:
+          # Exercise a release-shaped version while building the current commit.
+          SETUPTOOLS_SCM_PRETEND_VERSION: "1.0.0"
         shell: bash
         run: |
           uv build --wheel
           wheel=$(find dist -name '*.whl' -print -quit)
           uv venv .native-venv
           uv pip install --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
+
+      - name: Accept installation, configuration, memory, and offline reinstallation
+        shell: bash
+        run: |
+          wheel=$(find dist -name '*.whl' -print -quit)
+          POWERCONTEXT_INSTALL_WHEEL="$PWD/$wheel" .native-venv/bin/python -m pytest -q -s \
+            --junitxml "$RUNNER_TEMP/powercontext-install-linux.xml" \
+            --basetemp "$RUNNER_TEMP/powercontext-install-tests" \
+            tests/native/test_installation.py
+
+      - name: Upload installation diagnostics after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-installation-logs
+          path: |
+            ${{ runner.temp }}/powercontext-install-linux.xml
+            ${{ runner.temp }}/powercontext-install-tests/**/*.log
+          if-no-files-found: ignore
 
       - name: Exercise the real systemd user lifecycle
         run: >-
@@ -74,14 +98,38 @@ jobs:
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.13"
 
       - name: Install the built distribution in a fresh virtual environment
+        env:
+          # Exercise a release-shaped version while building the current commit.
+          SETUPTOOLS_SCM_PRETEND_VERSION: "1.0.0"
         shell: bash
         run: |
           uv build --wheel
           wheel=$(find dist -name '*.whl' -print -quit)
           uv venv .native-venv
           uv pip install --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
+
+      - name: Accept installation, configuration, memory, and offline reinstallation
+        shell: bash
+        run: |
+          wheel=$(find dist -name '*.whl' -print -quit)
+          POWERCONTEXT_INSTALL_WHEEL="$PWD/$wheel" .native-venv/bin/python -m pytest -q -s \
+            --junitxml "$RUNNER_TEMP/powercontext-install-macos.xml" \
+            --basetemp "$RUNNER_TEMP/powercontext-install-tests" \
+            tests/native/test_installation.py
+
+      - name: Upload installation diagnostics after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-installation-logs
+          path: |
+            ${{ runner.temp }}/powercontext-install-macos.xml
+            ${{ runner.temp }}/powercontext-install-tests/**/*.log
+          if-no-files-found: ignore
 
       - name: Exercise the real LaunchAgent lifecycle
         run: >-
@@ -122,6 +170,8 @@ jobs:
         uses: ./.github/actions/setup-python-env
 
       - name: Install the built distribution in a fresh virtual environment
+        env:
+          SETUPTOOLS_SCM_PRETEND_VERSION: "1.0.0"
         shell: pwsh
         run: |
           uv build --wheel
@@ -129,6 +179,26 @@ jobs:
           $wheelUri = "file:///" + $wheel.Replace('\', '/')
           uv venv .native-venv
           uv pip install --python .native-venv\Scripts\python.exe "powercontext[cli,server] @ $wheelUri" pytest
+
+      - name: Accept PowerShell installation and Server persistence
+        shell: pwsh
+        run: |
+          $env:POWERCONTEXT_INSTALL_WHEEL = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
+          .native-venv\Scripts\python.exe -m pytest -q -s `
+            --junitxml "$env:RUNNER_TEMP\powercontext-install-windows.xml" `
+            --basetemp "$env:RUNNER_TEMP\powercontext-install-tests" `
+            tests/native/test_installation.py
+          exit $LASTEXITCODE
+
+      - name: Upload installation diagnostics after failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installation-logs
+          path: |
+            ${{ runner.temp }}/powercontext-install-windows.xml
+            ${{ runner.temp }}/powercontext-install-tests/**/*.log
+          if-no-files-found: ignore
 
       - name: Verify binary cursor persistence and restart compatibility
         shell: pwsh
