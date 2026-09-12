@@ -14,6 +14,7 @@
 
 import asyncio
 
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -30,11 +31,14 @@ def test_archive_cli_exposes_a_safe_restore_confirmation_and_dry_run() -> None:
     help_result = runner.invoke(cli, ["archive", "--help"], terminal_width=160)
     restore_help = runner.invoke(cli, ["archive", "restore", "--help"], terminal_width=160)
 
+    help_output = strip_ansi(help_result.output)
+    restore_output = strip_ansi(restore_help.output)
+
     assert help_result.exit_code == 0
-    assert all(command in help_result.output for command in ("export", "inspect", "restore"))
+    assert all(command in help_output for command in ("export", "inspect", "restore"))
     assert restore_help.exit_code == 0
-    assert "--dry-run" in restore_help.output
-    assert "--yes" in restore_help.output
+    assert "--dry-run" in restore_output
+    assert "--yes" in restore_output
 
 
 def test_archive_cli_can_export_inspect_and_dry_run_a_scope(tmp_path, monkeypatch) -> None:
