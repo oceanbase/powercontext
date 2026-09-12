@@ -1202,7 +1202,7 @@ name = "importlib-metadata"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp" },
+    { name = "zipp", marker = "python_full_version < '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
 wheels = [
@@ -2369,8 +2369,8 @@ name = "opendalfs"
 version = "0.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fsspec" },
-    { name = "opendal" },
+    { name = "fsspec", marker = "python_full_version >= '3.12'" },
+    { name = "opendal", marker = "python_full_version >= '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0d/23/fdb4d34f08ac68a27b2d553256e13b15ce139916d36bab33f9a0e71e8770/opendalfs-0.1.0.tar.gz", hash = "sha256:5ceaeccc0852ef10c8ef2ce20e5927dbc18083909c06550ad36f81bcacb5774d", size = 75112, upload-time = "2026-08-26T05:30:33.497Z" }
 wheels = [
@@ -2704,13 +2704,20 @@ builtin = [
     { name = "sqlite-vec" },
 ]
 cli = [
+    { name = "aiosqlite" },
+    { name = "apscheduler" },
     { name = "httpx", extra = ["socks"] },
     { name = "inquirerpy" },
+    { name = "jsonschema" },
     { name = "opentelemetry-api" },
     { name = "packaging" },
     { name = "platformdirs" },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "openai"] },
     { name = "pydantic-settings" },
+    { name = "pyobvector" },
     { name = "pyyaml" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "sqlite-vec" },
     { name = "typer" },
 ]
 client = [
@@ -2796,9 +2803,11 @@ notebooks = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", marker = "extra == 'builtin'", specifier = ">=0.22,<1" },
+    { name = "aiosqlite", marker = "extra == 'cli'", specifier = ">=0.22,<1" },
     { name = "aiosqlite", marker = "extra == 'seekdb'", specifier = ">=0.22,<1" },
     { name = "aiosqlite", marker = "extra == 'server'", specifier = ">=0.22,<1" },
     { name = "apscheduler", marker = "extra == 'builtin'", specifier = ">=3.11,<4" },
+    { name = "apscheduler", marker = "extra == 'cli'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'seekdb'", specifier = ">=3.11,<4" },
     { name = "apscheduler", marker = "extra == 'server'", specifier = ">=3.11,<4" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115,<1" },
@@ -2809,6 +2818,7 @@ requires-dist = [
     { name = "inquirerpy", marker = "extra == 'cli'", specifier = ">=0.3,<1" },
     { name = "jinja2", marker = "extra == 'server'", specifier = ">=3.1.6,<4" },
     { name = "jsonschema", marker = "extra == 'builtin'", specifier = ">=4.23,<5" },
+    { name = "jsonschema", marker = "extra == 'cli'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'seekdb'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'server'", specifier = ">=4.23,<5" },
     { name = "opentelemetry-api", marker = "extra == 'cli'", specifier = ">=1.30,<2" },
@@ -2827,6 +2837,7 @@ requires-dist = [
     { name = "pycasbin", marker = "extra == 'server'", specifier = ">=2.8,<3" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'builtin'", specifier = ">=2.27.1,<3" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'cli'", specifier = ">=2.27.1,<3" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'seekdb'", specifier = ">=2.27.1,<3" },
     { name = "pydantic-ai-slim", extras = ["anthropic", "openai"], marker = "extra == 'server'", specifier = ">=2.27.1,<3" },
     { name = "pydantic-settings", marker = "extra == 'builtin'", specifier = ">=2.7,<3" },
@@ -2836,6 +2847,7 @@ requires-dist = [
     { name = "pydantic-settings", marker = "extra == 'server'", specifier = ">=2.7,<3" },
     { name = "pylibseekdb", marker = "(sys_platform == 'darwin' and extra == 'seekdb') or (sys_platform == 'linux' and extra == 'seekdb')", specifier = ">=1.3.0.post4,<2" },
     { name = "pyobvector", marker = "extra == 'builtin'", specifier = ">=0.2.28,<0.3" },
+    { name = "pyobvector", marker = "extra == 'cli'", specifier = ">=0.2.28,<0.3" },
     { name = "pyobvector", marker = "extra == 'seekdb'", specifier = ">=0.2.28,<0.3" },
     { name = "pyobvector", marker = "extra == 'server'", specifier = ">=0.2.28,<0.3" },
     { name = "pyyaml", marker = "extra == 'builtin'", specifier = ">=6,<7" },
@@ -2846,9 +2858,11 @@ requires-dist = [
     { name = "rfc8785", specifier = ">=0.1.4,<1" },
     { name = "scalar-fastapi", marker = "extra == 'server'", specifier = ">=1.8.2,<2" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'builtin'", specifier = ">=2,<3" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'cli'", specifier = ">=2,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'seekdb'", specifier = ">=2,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'server'", specifier = ">=2,<3" },
     { name = "sqlite-vec", marker = "extra == 'builtin'", specifier = ">=0.1.9,<0.2" },
+    { name = "sqlite-vec", marker = "extra == 'cli'", specifier = ">=0.1.9,<0.2" },
     { name = "sqlite-vec", marker = "extra == 'seekdb'", specifier = ">=0.1.9,<0.2" },
     { name = "sqlite-vec", marker = "extra == 'server'", specifier = ">=0.1.9,<0.2" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16,<1" },
@@ -2895,8 +2909,8 @@ name = "powercontext-connector-opendal"
 version = "0.0.1"
 source = { editable = "integrations/opendal" }
 dependencies = [
-    { name = "opendalfs" },
-    { name = "powercontext", extra = ["client"] },
+    { name = "opendalfs", marker = "python_full_version >= '3.12'" },
+    { name = "powercontext", extra = ["client"], marker = "python_full_version >= '3.12'" },
 ]
 
 [package.metadata]
@@ -4298,18 +4312,6 @@ wheels = [
 ]
 
 [[package]]
-name = "tinycss2"
-version = "1.5.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "webencodings" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/ae/2ca4913e5c0f09781d75482874c3a95db9105462a92ddd303c7d285d3df2/tinycss2-1.5.1.tar.gz", hash = "sha256:d339d2b616ba90ccce58da8495a78f46e55d4d25f9fd71dfd526f07e7d53f957", size = 88195, upload-time = "2025-11-23T10:29:10.082Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/60/45/c7b5c3168458db837e8ceab06dc77824e18202679d0463f0e8f002143a97/tinycss2-1.5.1-py3-none-any.whl", hash = "sha256:3415ba0f5839c062696996998176c4a3751d18b7edaaeeb658c9ce21ec150661", size = 28404, upload-time = "2025-11-23T10:29:08.676Z" },
-]
-
-[[package]]
 name = "time-machine"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4371,6 +4373,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/df/e3/f948ca31e142cebbe1efd81d361bcac7e9db4de441a6705fc0e109856f34/time_machine-3.5.0-cp315-cp315t-musllinux_1_2_x86_64.whl", hash = "sha256:2a48f9ff297700a9036d6fc2a597d97ea2a2bbbd735b45a22fee9ebd3b6b7a9f", size = 67650, upload-time = "2026-08-25T00:18:29.54Z" },
     { url = "https://files.pythonhosted.org/packages/a1/83/5ce829078bc46cf521f11d2a4ccefd833788bdeea1991608ae6b935d7ea7/time_machine-3.5.0-cp315-cp315t-win_amd64.whl", hash = "sha256:1c85556427fe4b1b9680492882c681bb3ab99b43543a593e4def7d1bbd9bb53b", size = 29099, upload-time = "2026-08-25T00:18:30.608Z" },
     { url = "https://files.pythonhosted.org/packages/9e/e1/0fda7534a0b3af4f19fc70bcd4b421924427bc0645b7c1255617ae98de69/time_machine-3.5.0-cp315-cp315t-win_arm64.whl", hash = "sha256:a93195067e2ea6d64e17a0ce0b1eed1fa9bd056ace20c6338fe9be532917ca75", size = 27531, upload-time = "2026-08-25T00:18:31.616Z" },
+]
+
+[[package]]
+name = "tinycss2"
+version = "1.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "webencodings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a3/ae/2ca4913e5c0f09781d75482874c3a95db9105462a92ddd303c7d285d3df2/tinycss2-1.5.1.tar.gz", hash = "sha256:d339d2b616ba90ccce58da8495a78f46e55d4d25f9fd71dfd526f07e7d53f957", size = 88195, upload-time = "2025-11-23T10:29:10.082Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/45/c7b5c3168458db837e8ceab06dc77824e18202679d0463f0e8f002143a97/tinycss2-1.5.1-py3-none-any.whl", hash = "sha256:3415ba0f5839c062696996998176c4a3751d18b7edaaeeb658c9ce21ec150661", size = 28404, upload-time = "2025-11-23T10:29:08.676Z" },
 ]
 
 [[package]]
