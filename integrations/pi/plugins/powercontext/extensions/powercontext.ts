@@ -19,7 +19,7 @@ import { PowerContextClient } from '../src/client.ts'
 import { registerCommands } from '../src/commands.ts'
 import { resolveConfig } from '../src/config.ts'
 import { createPendingSourceFlusher } from '../src/flush.ts'
-import { createDiagnosticEmitter, failureEvent } from '../src/diagnostics.ts'
+import { createDiagnosticEmitter, diagnosticWriter, failureEvent } from '../src/diagnostics.ts'
 import { recallBeforeAgentStart, type PluginRuntime } from '../src/recall.ts'
 import { resolveScopeId } from '../src/scope.ts'
 import { registerTools } from '../src/tools.ts'
@@ -32,7 +32,7 @@ function createRuntime(): PluginRuntime {
     authorization: config.authorization,
     requestTimeoutMs: config.requestTimeoutMs,
   })
-  const emitDiagnostic = createDiagnosticEmitter((line) => console.warn(line))
+  const emitDiagnostic = createDiagnosticEmitter(diagnosticWriter(config.diagnostics))
   const diagnostic = (event: string, error: unknown) => {
     const failure = failureEvent(event, error)
     if (failure) emitDiagnostic({ component: 'powercontext.pi', ...failure })

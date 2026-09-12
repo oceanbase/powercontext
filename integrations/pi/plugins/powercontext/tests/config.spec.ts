@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../src/config.ts'
 
@@ -38,7 +39,29 @@ describe('Pi configuration', () => {
       maxBytes: 12000,
       flushOnCapture: false,
       flushMaxCalls: 4,
+      diagnostics: 'off',
     })
+  })
+
+  it('keeps diagnostics silent unless a sink is configured', () => {
+    expect(resolveConfig({}).diagnostics).toBe('off')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: 'stderr' }).diagnostics).toBe('stderr')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: '/tmp/pc.log' }).diagnostics).toBe('/tmp/pc.log')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: '~/pc.log', HOME: '/home/demo' }).diagnostics).toBe(
+      join('/home/demo', 'pc.log'),
+    )
+  })
+
+  it('accepts the sink keywords in any case, like the boolean flags', () => {
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: 'STDERR' }).diagnostics).toBe('stderr')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: 'Off' }).diagnostics).toBe('off')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: ' stderr ' }).diagnostics).toBe('stderr')
+  })
+
+  it('treats only absolute or ~/ paths as a file sink and stays silent for anything else', () => {
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: 'pc.log' }).diagnostics).toBe('off')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: 'STDER' }).diagnostics).toBe('off')
+    expect(resolveConfig({ POWERCONTEXT_PI_DIAGNOSTICS: './logs/pc.log' }).diagnostics).toBe('off')
   })
 })
 

@@ -37,6 +37,7 @@ function runtime(fetch: typeof globalThis.fetch, resolveScope = async () => 'sco
       maxBytes: 8000,
       flushOnCapture: false,
       flushMaxCalls: 4,
+      diagnostics: 'off',
     },
     resolveScope,
   }

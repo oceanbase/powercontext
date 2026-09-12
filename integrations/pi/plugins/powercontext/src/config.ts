@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import { resolveTransport } from './transport.ts'
 
 export interface ResolvedConfig {
@@ -28,6 +30,8 @@ export interface ResolvedConfig {
   maxBytes: number
   flushOnCapture: boolean
   flushMaxCalls: number
+  /** Where failure diagnostics go: `off`, `stderr`, or a file path to append JSON lines to. */
+  diagnostics: string
 }
 
 const DEFAULTS: ResolvedConfig = {
@@ -41,6 +45,7 @@ const DEFAULTS: ResolvedConfig = {
   maxBytes: 8000,
   flushOnCapture: false,
   flushMaxCalls: 4,
+  diagnostics: 'off',
 }
 
 function envString(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -105,5 +110,18 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
     maxBytes: envInteger(env, 'POWERCONTEXT_PI_MAX_BYTES', DEFAULTS.maxBytes, 512, 32_768),
     flushOnCapture: envBoolean(env, 'POWERCONTEXT_PI_FLUSH_ON_CAPTURE') ?? DEFAULTS.flushOnCapture,
     flushMaxCalls: envInteger(env, 'POWERCONTEXT_PI_FLUSH_MAX_CALLS', DEFAULTS.flushMaxCalls, 1, 16),
+    diagnostics: diagnosticsSink(envString(env, 'POWERCONTEXT_PI_DIAGNOSTICS'), env),
   }
+}
+
+function diagnosticsSink(raw: string | undefined, env: NodeJS.ProcessEnv): string {
+  if (raw === undefined) return DEFAULTS.diagnostics
+  const token = raw.trim().toLowerCase()
+  if (token === 'off' || token === 'stderr') return token
+  const path = raw.trim()
+  if (path.startsWith('~/')) return join(envString(env, 'HOME') ?? homedir(), path.slice(2))
+  // Only an unambiguous file path becomes a file sink. Anything else (a typo such as
+  // `STDER`, a bare relative name) stays silent instead of creating a stray file in cwd.
+  if (isAbsolute(path)) return path
+  return DEFAULTS.diagnostics
 }
