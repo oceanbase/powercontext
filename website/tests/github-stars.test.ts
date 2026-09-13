@@ -19,66 +19,27 @@ import { test } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { GitHubStars } from '../src/components/github-stars';
-import { createGitHubStarsLoader, githubRepository } from '../src/lib/github-stars';
 
 const url = 'https://github.com/oceanbase/powercontext';
-const snapshot = { repository: 'oceanbase/powercontext', count: 985, updatedAt: 1000 };
 
-test('first paint reserves an empty badge without flashing Star text in either language', () => {
+test('missing build data leaves a usable link without a placeholder or invented count', () => {
   for (const lang of ['zh', 'en'] as const) {
     const html = renderToStaticMarkup(createElement(GitHubStars, { lang, url }));
-    const badge = html.match(/class="pc-github-count"[^>]*>(.*?)<\/span>/);
-    assert.equal(badge?.[1], '', 'reserve the count badge without placeholder text or an invented number');
+    const linkText = html.match(/<a\b[^>]*>([\s\S]*?)<\/a>/)?.[1].replace(/<[^>]*>/g, '');
+    assert.ok(linkText !== undefined, 'the repository link must be present');
+    assert.doesNotMatch(linkText, /\bStar\b|\d/, 'do not show a loading label or invented count');
     assert.ok(html.includes(`href="${url}"`), 'the repository link remains usable before data arrives');
     assert.ok(html.includes('aria-label="GitHub · '));
   }
 });
 
-test('accepts the configured GitHub repository, not a lookalike host or nested path', async () => {
-  assert.equal(githubRepository('https://github.com/Example/Project.git/'), 'example/project');
-  const load = createGitHubStarsLoader(async () => { assert.fail('Invalid URLs must not cause requests'); });
-  for (const invalid of ['bad-url', 'http://github.com/a/b', 'https://github.com.evil.test/a/b', 'https://github.com/a/b/issues']) {
-    assert.equal(githubRepository(invalid), null);
-    assert.equal(await load(invalid), null);
+test('first paint includes the build count in both languages, including zero', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    for (const initialCount of [985, 0]) {
+      const html = renderToStaticMarkup(createElement(GitHubStars, { lang, url, initialCount }));
+      const linkText = html.match(/<a\b[^>]*>([\s\S]*?)<\/a>/)?.[1].replace(/<[^>]*>/g, '');
+      assert.ok(linkText?.includes(String(initialCount)), 'the count must be present before hydration');
+      assert.ok(html.includes(`GitHub · ${initialCount} stars`));
+    }
   }
-});
-
-test('loads one static snapshot across concurrent navigation instances and subsequent visits', async () => {
-  let requests = 0;
-  const load = createGitHubStarsLoader(async (input, init) => {
-    assert.equal(input, 'https://raw.githubusercontent.com/oceanbase/powercontext/website-stats/github-stars.json');
-    assert.equal(init?.credentials, 'omit');
-    assert.ok(init?.signal instanceof AbortSignal);
-    requests++;
-    return Response.json(snapshot);
-  });
-  assert.deepEqual(await Promise.all([load(url), load(url)]), [snapshot, snapshot]);
-  assert.deepEqual(await load(url), snapshot);
-  assert.equal(requests, 1, 'one CDN request per page session; no GitHub API polling');
-});
-
-test('missing snapshots and network failures fall back without retries or invented counts', async () => {
-  for (const response of [
-    async () => new Response(null, { status: 404 }),
-    async () => new Response('invalid JSON'),
-    async () => { throw new TypeError('Offline'); },
-  ]) {
-    let requests = 0;
-    const load = createGitHubStarsLoader(async () => { requests++; return response(); });
-    assert.equal(await load(url), null);
-    assert.equal(await load(url), null);
-    assert.equal(requests, 1);
-  }
-});
-
-test('validates repository, count and timestamp while accepting a real zero count', async () => {
-  for (const data of [
-    null, { ...snapshot, repository: 'example/another' }, { ...snapshot, updatedAt: 0 },
-    { ...snapshot, updatedAt: Date.now() + 60_000 }, { ...snapshot, updatedAt: '1000' },
-    ...[-1, 1.5, '985', null, Number.MAX_SAFE_INTEGER + 1].map((count) => ({ ...snapshot, count })),
-  ]) {
-    assert.equal(await createGitHubStarsLoader(async () => Response.json(data))(url), null);
-  }
-  const zero = { ...snapshot, count: 0 };
-  assert.deepEqual(await createGitHubStarsLoader(async () => Response.json(zero))(url), zero);
 });

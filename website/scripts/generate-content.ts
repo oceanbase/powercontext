@@ -18,6 +18,9 @@ import { copyFile, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'n
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fetchRepositoryInfo } from 'fumadocs-ui/components/github-info';
+import { githubRepository } from '../src/lib/github-stars';
+import { repositoryUrl } from '../src/lib/urls';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const websiteDir = path.resolve(scriptDir, '..');
@@ -100,6 +103,23 @@ await Promise.all([
   mkdir(pythonDir, { recursive: true }),
   mkdir(publicDir, { recursive: true }),
 ]);
+
+const repository = githubRepository(repositoryUrl);
+let starCount: number | null = null;
+if (repository) {
+  try {
+    const [owner, repo] = repository.split('/');
+    const { stars } = await fetchRepositoryInfo({
+      owner, repo, token: process.env.GITHUB_TOKEN,
+      fetchOptions: { signal: AbortSignal.timeout(10_000) },
+    });
+    if (!Number.isSafeInteger(stars) || stars < 0) throw new Error('Invalid Star count');
+    starCount = stars;
+  } catch {
+    console.warn('GitHub Star count unavailable at build time; the browser can still load it from Shields.');
+  }
+}
+await writeFile(path.join(generatedDir, 'github-stars.json'), `${JSON.stringify({ repository, count: starCount })}\n`);
 
 await Promise.all([
   cp(path.join(repositoryDir, 'docs', 'en', 'docs'), path.join(generatedDocsDir, 'en', 'docs'), {

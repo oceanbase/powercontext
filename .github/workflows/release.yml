@@ -127,6 +127,8 @@ jobs:
 
       - name: Build website
         run: make docs-build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

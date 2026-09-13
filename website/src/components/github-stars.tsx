@@ -17,13 +17,17 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { loadGitHubStars, type StarSnapshot } from '@/lib/github-stars';
+import { loadGitHubStars } from '@/lib/github-stars';
 import type { Language } from '@/lib/i18n';
 
 const shownPrompts = new Set<string>();
 
-export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
-  const [snapshot, setSnapshot] = useState<StarSnapshot | null>(null);
+export function GitHubStars({ lang, url, initialCount = null }: {
+  lang: Language;
+  url: string;
+  initialCount?: number | null;
+}) {
+  const [count, setCount] = useState<number | string | null>(initialCount);
   const [promptOpen, setPromptOpen] = useState(false);
   const link = useRef<HTMLAnchorElement>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -31,7 +35,9 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
   const locale = lang === 'zh' ? 'zh-CN' : 'en-US';
   const prompt = lang === 'zh' ? '喜欢这个项目？点个 Star' : 'Star us on GitHub';
   const newTab = lang === 'zh' ? '在新标签页打开' : 'opens in a new tab';
-  const exactCount = snapshot?.count.toLocaleString(locale);
+  const countLabel = typeof count === 'number' ? count.toLocaleString(locale) : count;
+  const displayCount = typeof count === 'number'
+    ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(count) : count;
 
   function clearPromptTimers() {
     timers.current.forEach(clearTimeout);
@@ -64,12 +70,12 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
 
   useEffect(() => {
     let active = true;
-    setSnapshot(null);
+    setCount(initialCount);
     void loadGitHubStars(url).then((value) => {
-      if (active) setSnapshot(value);
+      if (active && value !== null) setCount(value);
     });
     return () => { active = false; };
-  }, [url]);
+  }, [url, initialCount]);
 
   useEffect(() => {
     const key = `powercontext:github-click-guide:${url}`;
@@ -116,7 +122,7 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
         target="_blank"
         rel="noopener noreferrer"
         className="pc-github-link"
-        aria-label={`GitHub${exactCount === undefined ? '' : ` · ${exactCount} stars`} · ${newTab}`}
+        aria-label={`GitHub${countLabel === null ? '' : ` · ${countLabel} stars`} · ${newTab}`}
         aria-describedby={promptOpen ? promptId : undefined}
         onFocus={showPrompt}
         onBlur={dismissPrompt}
@@ -126,7 +132,7 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
           <path d="M12 .75a11.25 11.25 0 0 0-3.558 21.923c.563.104.768-.244.768-.543 0-.267-.01-.974-.015-1.912-3.13.68-3.791-1.508-3.791-1.508-.512-1.3-1.25-1.646-1.25-1.646-1.022-.7.078-.686.078-.686 1.13.08 1.724 1.16 1.724 1.16 1.005 1.724 2.638 1.226 3.28.938.102-.73.393-1.226.714-1.508-2.499-.285-5.126-1.25-5.126-5.564 0-1.23.44-2.232 1.16-3.02-.117-.285-.503-1.43.11-2.979 0 0 .944-.302 3.093 1.154A10.79 10.79 0 0 1 12 6.181c.957.004 1.922.13 2.82.378 2.15-1.456 3.092-1.154 3.092-1.154.614 1.55.228 2.694.112 2.979.721.788 1.158 1.79 1.158 3.02 0 4.325-2.631 5.276-5.138 5.555.404.349.766 1.04.766 2.096 0 1.514-.014 2.736-.014 3.108 0 .3.203.652.774.542A11.252 11.252 0 0 0 12 .75Z" />
         </svg>
         <span className="pc-github-count" aria-hidden="true">
-          {snapshot ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(snapshot.count) : null}
+          {displayCount}
         </span>
       </a>
       <span className="pc-github-click-guide" aria-hidden="true">

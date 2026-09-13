@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-export interface StarSnapshot {
-  repository: string;
-  count: number;
-  updatedAt: number;
-}
-
 export function githubRepository(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -31,36 +25,29 @@ export function githubRepository(url: string): string | null {
   }
 }
 
-export function createGitHubStarsLoader(fetcher: typeof fetch = fetch) {
-  const snapshots = new Map<string, Promise<StarSnapshot | null>>();
-  const previewUrl = process.env.NODE_ENV === 'development'
-    ? process.env.NEXT_PUBLIC_GITHUB_STARS_PREVIEW_URL : undefined;
+const counts = new Map<string, Promise<string | null>>();
 
-  return function load(url: string): Promise<StarSnapshot | null> {
-    const repository = githubRepository(url);
-    if (!repository) return Promise.resolve(null);
-    const existing = snapshots.get(repository);
-    if (existing) return existing;
+export function loadGitHubStars(url: string): Promise<string | null> {
+  const repository = githubRepository(url);
+  if (!repository) return Promise.resolve(null);
+  const existing = counts.get(repository);
+  if (existing) return existing;
 
-    // One CDN request per repository/page session, shared across navigation instances.
-    const snapshot = (async () => {
-      try {
-        const response = await fetcher(
-          previewUrl || `https://raw.githubusercontent.com/${repository}/website-stats/github-stars.json`,
-          { signal: AbortSignal.timeout(5000), credentials: 'omit' },
-        );
-        if (!response.ok) return null;
-        const data = await response.json() as StarSnapshot;
-        return data?.repository === repository && Number.isSafeInteger(data.count) && data.count >= 0
-          && Number.isFinite(data.updatedAt) && data.updatedAt > 0 && data.updatedAt <= Date.now()
-          ? data : null;
-      } catch {
-        return null;
-      }
-    })();
-    snapshots.set(repository, snapshot);
-    return snapshot;
-  };
+  // Share one request per repository/page session, including failures, without polling.
+  const count = (async () => {
+    try {
+      const response = await fetch(`https://img.shields.io/github/stars/${repository}.json`, {
+        signal: AbortSignal.timeout(5000), credentials: 'omit',
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      // Shields returns display text such as "1.2k", not an exact count.
+      return data?.label === 'stars' && !data.isError && typeof data.message === 'string'
+        && /^(?:\d+|\d+(?:\.\d+)?[kMGTPEZY])$/.test(data.message) ? data.message : null;
+    } catch {
+      return null;
+    }
+  })();
+  counts.set(repository, count);
+  return count;
 }
-
-export const loadGitHubStars = createGitHubStarsLoader();
