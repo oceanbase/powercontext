@@ -32,24 +32,8 @@ pnpm build
 
 ## GitHub Star 入口
 
-双语页面共用导航中的 GitHub 图标和数量徽标，仓库地址由 `NEXT_PUBLIC_REPOSITORY_URL` 控制。
-`Website Star snapshot` 工作流每 15 分钟查询 GitHub API，把数量及获取时间写入独立的
-`website-stats` 分支中的 `github-stars.json`。该分支只保存数据，不修改源码、不构建或发布官网。
-数量不变时跳过提交，至少每天更新一次时间戳；取数失败时任务报错，并保留已发布快照。
-
-浏览器只异步读取该文件的 GitHub Raw CDN 地址，每个页面会话最多请求一次，各导航实例共用结果。
-没有 GitHub API 调用、后台轮询或 Star 数量的浏览器存储；请求超时为 5 秒。
-取数前预留数字徽标的空间，不显示 `Star` 占位文字；收到有效数量后再显示徽标。
-文件尚未生成、断网或数据无效时，GitHub 图标仍可点击，不显示假数字。
-这不是即时推送：新页面加载最近的 CDN 快照，已打开的页面需刷新才能获取新数量。
-首次可见时显示一次轻量关注提示，也支持悬停、键盘焦点和 Escape 关闭。
-鼠标设备上配有小手移入、轻点及指尖波纹引导，两次后自动收起，重新悬停可重看。
-引导仅使用 CSS 位移和透明度；触屏、键盘焦点及“减少动态效果”模式不播放鼠标动效。
-
-定时工作流合并到 `master` 后生效；可手动运行一次 `Website Star snapshot` 初始化数据。
-GitHub 调度及 CDN 缓存可能带来额外延迟。只有发布任务拥有 `contents: write` 权限，
-使用内置 `GITHUB_TOKEN`，浏览器不需要凭据或服务端接口。PR 仅运行只读测试。
-若更换 `NEXT_PUBLIC_REPOSITORY_URL`，目标仓库也需要提供同路径、同格式的快照。
+中英文页面共用 GitHub 图标和 Star 数量，仓库地址由 `NEXT_PUBLIC_REPOSITORY_URL` 配置。
+数量由 `Website Star snapshot` 工作流每 15 分钟同步，页面读取静态快照。
 
 ## 发布到 GitHub Pages
 
