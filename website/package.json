@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "pnpm generate && next dev",
     "build": "pnpm check:links && next build && tsx scripts/redirect-docs.ts && pnpm verify:export",
-    "check:links": "pnpm generate && tsx scripts/validate-links.ts",
+    "check:links": "pnpm test:links && pnpm generate && tsx scripts/validate-links.ts",
+    "test:links": "tsx --test tests/link-validation.test.ts",
     "generate": "tsx scripts/generate-content.ts",
     "preview": "serve out",
     "types:check": "next typegen && tsc --noEmit",

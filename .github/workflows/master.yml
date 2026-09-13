@@ -97,6 +97,21 @@ jobs:
         run: make opendal-test
 
 
+  website-link-validation-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up website tools
+        uses: jdx/mise-action@v2
+
+      - name: Install website dependencies
+        run: pnpm --dir website install --frozen-lockfile
+
+      - name: Test route scanning and link validation
+        run: pnpm --dir website test:links
+
   check-website:
     runs-on: ubuntu-latest
     steps:

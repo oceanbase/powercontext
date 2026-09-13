@@ -6,6 +6,7 @@ settings:
 
 patchedDependencies:
   next-themes@0.4.6: 9ab742790bc3284034400fc2d6422e596a9b3439e3dacdb030316992ec0bec6e
+  next-validate-link@1.6.7: d2fcde1a6d7bf5c1a3cf946b15795ba54405dcc36d8de9d8c50a339f6296b6a0
 
 importers:
 
@@ -59,7 +60,7 @@ importers:
         version: 19.2.5(@types/react@19.2.18)
       next-validate-link:
         specifier: 1.6.7
-        version: 1.6.7(@types/mdast@4.0.4)(@types/unist@3.0.3)
+        version: 1.6.7(patch_hash=d2fcde1a6d7bf5c1a3cf946b15795ba54405dcc36d8de9d8c50a339f6296b6a0)(@types/mdast@4.0.4)(@types/unist@3.0.3)
       oxlint:
         specifier: 1.80.0
         version: 1.80.0
@@ -4109,7 +4110,7 @@ snapshots:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  next-validate-link@1.6.7(@types/mdast@4.0.4)(@types/unist@3.0.3):
+  next-validate-link@1.6.7(patch_hash=d2fcde1a6d7bf5c1a3cf946b15795ba54405dcc36d8de9d8c50a339f6296b6a0)(@types/mdast@4.0.4)(@types/unist@3.0.3):
     dependencies:
       picocolors: 1.1.1
       remark: 15.0.1
