@@ -135,6 +135,17 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete development workflow.
 
 PowerContext is the successor to [PowerMem](https://www.powermem.ai/).
 
+## Contributors
+
+Thank you to everyone who contributes to PowerContext. ❤️
+
+<a href="https://github.com/oceanbase/powercontext/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext contributors" />
+</a>
+
+[See all contributors](https://github.com/oceanbase/powercontext/graphs/contributors) ·
+[Start contributing](CONTRIBUTING.md)
+
 ## License
 
 PowerContext is licensed under the [Apache License 2.0](LICENSE).

@@ -112,6 +112,17 @@ make test
 
 PowerContext は [PowerMem](https://www.powermem.ai/) の後継プロジェクトです。
 
+## コントリビューター
+
+PowerContext に貢献してくださる皆さまに感謝します。❤️
+
+<a href="https://github.com/oceanbase/powercontext/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext のコントリビューター" />
+</a>
+
+[すべてのコントリビューターを見る](https://github.com/oceanbase/powercontext/graphs/contributors) ·
+[開発に参加する](CONTRIBUTING.md)
+
 ## ライセンス
 
 PowerContext は [Apache License 2.0](LICENSE) のもとで提供されています。

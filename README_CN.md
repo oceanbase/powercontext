@@ -126,6 +126,17 @@ make test
 
 PowerContext 是 [PowerMem](https://www.powermem.ai/) 的后续项目。
 
+## 贡献者
+
+感谢每一位为 PowerContext 作出贡献的伙伴。❤️
+
+<a href="https://github.com/oceanbase/powercontext/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=oceanbase/powercontext&amp;max=100&amp;columns=12" alt="PowerContext 贡献者" />
+</a>
+
+[查看全部贡献者](https://github.com/oceanbase/powercontext/graphs/contributors) ·
+[参与贡献](CONTRIBUTING.md)
+
 ## 许可证
 
 PowerContext 基于 [Apache License 2.0](LICENSE) 发布。
