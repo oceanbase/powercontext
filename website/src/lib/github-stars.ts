@@ -33,6 +33,8 @@ export function githubRepository(url: string): string | null {
 
 export function createGitHubStarsLoader(fetcher: typeof fetch = fetch) {
   const snapshots = new Map<string, Promise<StarSnapshot | null>>();
+  const previewUrl = process.env.NODE_ENV === 'development'
+    ? process.env.NEXT_PUBLIC_GITHUB_STARS_PREVIEW_URL : undefined;
 
   return function load(url: string): Promise<StarSnapshot | null> {
     const repository = githubRepository(url);
@@ -44,7 +46,7 @@ export function createGitHubStarsLoader(fetcher: typeof fetch = fetch) {
     const snapshot = (async () => {
       try {
         const response = await fetcher(
-          `https://raw.githubusercontent.com/${repository}/website-stats/github-stars.json`,
+          previewUrl || `https://raw.githubusercontent.com/${repository}/website-stats/github-stars.json`,
           { signal: AbortSignal.timeout(5000), credentials: 'omit' },
         );
         if (!response.ok) return null;

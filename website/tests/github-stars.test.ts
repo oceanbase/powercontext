@@ -16,10 +16,23 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { GitHubStars } from '../src/components/github-stars';
 import { createGitHubStarsLoader, githubRepository } from '../src/lib/github-stars';
 
 const url = 'https://github.com/oceanbase/powercontext';
 const snapshot = { repository: 'oceanbase/powercontext', count: 985, updatedAt: 1000 };
+
+test('first paint reserves an empty badge without flashing Star text in either language', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const html = renderToStaticMarkup(createElement(GitHubStars, { lang, url }));
+    const badge = html.match(/class="pc-github-count"[^>]*>(.*?)<\/span>/);
+    assert.equal(badge?.[1], '', 'reserve the count badge without placeholder text or an invented number');
+    assert.ok(html.includes(`href="${url}"`), 'the repository link remains usable before data arrives');
+    assert.ok(html.includes('aria-label="GitHub · '));
+  }
+});
 
 test('accepts the configured GitHub repository, not a lookalike host or nested path', async () => {
   assert.equal(githubRepository('https://github.com/Example/Project.git/'), 'example/project');
