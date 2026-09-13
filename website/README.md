@@ -1,10 +1,10 @@
 # PowerContext website
 
-基于 Next.js 和 Fumadocs 的 PowerContext 双语官网。
+The bilingual PowerContext website, built with Next.js and Fumadocs.
 
-## 本地运行
+## Local development
 
-需要 Node.js 22、pnpm 11、uv。
+Requires Node.js 22, pnpm 11, and uv.
 
 ```bash
 cd website
@@ -12,9 +12,9 @@ pnpm install
 pnpm dev
 ```
 
-## 验证
+## Validation
 
-在 `website/` 下运行：
+Run from `website/`:
 
 ```bash
 pnpm lint
@@ -22,15 +22,15 @@ pnpm test
 pnpm build
 ```
 
-静态产物输出到 `website/out/`。
+Static output is written to `website/out/`.
 
-## 内容来源
+## Content sources
 
-- 双语内容：`docs/en/`、`docs/zh/`。
-- API 参考：由 `openapi/powercontext.yaml` 和 `src/powercontext/` 自动生成。
-- 修改源文件，不要编辑 `website/content/docs/`、`website/.generated/` 或 `website/out/`。
+- Bilingual content: `docs/en/` and `docs/zh/`.
+- API references: generated from `openapi/powercontext.yaml` and `src/powercontext/`.
+- Edit source files. Do not edit generated files in `website/content/docs/`, `website/.generated/`, or `website/out/`.
 
-## 发布
+## Deployment
 
-在 `oceanbase/powercontext` 的 `master` 分支上手动运行 `Deploy website` 工作流，
-发布到 [powercontext.oceanbase.io](https://powercontext.oceanbase.io/)。
+Manually run the `Deploy website` workflow on the `master` branch of `oceanbase/powercontext`
+to publish to [powercontext.oceanbase.io](https://powercontext.oceanbase.io/).
