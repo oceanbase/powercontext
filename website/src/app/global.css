@@ -128,7 +128,7 @@
   68%, 100% { opacity: 0; transform: scale(1.9); }
 }
 
-@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .pc-github[data-prompt-open='true']:not(:has(:focus-visible)) .pc-github-click-guide {
     display: block;
   }
@@ -143,6 +143,7 @@
 }
 
 .pc-github-prompt {
+  display: none;
   position: absolute;
   z-index: 50;
   top: calc(100% + 6px);
@@ -184,6 +185,10 @@
 }
 
 @media (min-width: 1024px) {
+  .pc-github-prompt {
+    display: block;
+  }
+
   #nd-nav .pc-github-prompt {
     right: 0;
     left: auto;

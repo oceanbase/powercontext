@@ -44,6 +44,7 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
   }
 
   function showPrompt() {
+    if (!window.matchMedia('(min-width: 1024px)').matches) return;
     clearPromptTimers();
     shownPrompts.add(`powercontext:github-click-guide:${url}`);
     setPromptOpen(true);
@@ -72,21 +73,34 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
 
   useEffect(() => {
     const key = `powercontext:github-click-guide:${url}`;
-    timers.current.push(setTimeout(() => {
-      // Hidden responsive copies must not consume the one-time prompt.
-      if (!link.current?.getClientRects().length || document.visibilityState !== 'visible') return;
-      if (shownPrompts.has(key)) return;
-      try {
-        if (sessionStorage.getItem(key)) return;
-        sessionStorage.setItem(key, '1');
-      } catch {
-        // The per-page memory fallback also avoids repeated prompts without storage.
-      }
-      shownPrompts.add(key);
-      setPromptOpen(true);
-      timers.current.push(setTimeout(() => setPromptOpen(false), 4500));
-    }, 700));
-    return clearPromptTimers;
+    const media = window.matchMedia(
+      '(min-width: 1024px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)',
+    );
+    function schedulePrompt() {
+      clearPromptTimers();
+      setPromptOpen(false);
+      if (!media.matches) return;
+      timers.current.push(setTimeout(() => {
+        // Hidden responsive copies must not consume the one-time prompt.
+        if (!link.current?.getClientRects().length || document.visibilityState !== 'visible') return;
+        if (shownPrompts.has(key)) return;
+        try {
+          if (sessionStorage.getItem(key)) return;
+          sessionStorage.setItem(key, '1');
+        } catch {
+          // The per-page memory fallback also avoids repeated prompts without storage.
+        }
+        shownPrompts.add(key);
+        setPromptOpen(true);
+        timers.current.push(setTimeout(() => setPromptOpen(false), 4500));
+      }, 700));
+    }
+    schedulePrompt();
+    media.addEventListener('change', schedulePrompt);
+    return () => {
+      clearPromptTimers();
+      media.removeEventListener('change', schedulePrompt);
+    };
   }, [url]);
 
   return (
