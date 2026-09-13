@@ -111,6 +111,8 @@ def test_formats_two_windows_with_honest_signed_wording(token_savings_module: Mo
     assert token_savings_module.format_message(_stats(0), _stats(0)) == (
         "PowerContext · saved 0 today · saved 0 in 30d"
     )
+    assert token_savings_module.compact_tokens(12_500) == "13k"
+    assert token_savings_module.compact_tokens(1_250) == "1.3k"
 
 
 def test_stop_reports_savings_from_the_contract_stats_endpoint(
@@ -359,10 +361,12 @@ def test_two_stat_windows_share_one_absolute_budget(
     token_savings_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    periods: list[str] = []
+
     class SlowDripHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(length)
+            body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
                 body = json.dumps({"scope_id": "project:test"}).encode()
                 self.send_response(200)
@@ -371,6 +375,7 @@ def test_two_stat_windows_share_one_absolute_budget(
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            periods.append(body["period"])
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -397,6 +402,9 @@ def test_two_stat_windows_share_one_absolute_budget(
         elapsed = time.monotonic() - started
 
     assert elapsed < 1.0
+    # The first window consumes the shared deadline, so the second window must
+    # never be requested; per-window budgets would send both.
+    assert periods == ["today"]
     events = _diagnostics(output)
     assert [event["outcome"] for event in events] == ["server_unavailable"]
     assert events[0]["recovery"] == "powercontext doctor"
@@ -456,13 +464,95 @@ def test_slow_scope_response_respects_the_absolute_budget(
     assert events[0]["recovery"] == "powercontext doctor"
 
 
+@pytest.mark.parametrize(
+    ("status", "outcome"),
+    [
+        (401, "authentication_failed"),
+        (404, "version_mismatch"),
+        (500, "invalid_response"),
+        (503, "server_unavailable"),
+    ],
+)
+def test_scope_binding_failures_are_classified(
+    token_savings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    outcome: str,
+) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            assert self.path == "/v1/scope-bindings/resolve"
+            body = json.dumps({"error": {"code": "failure"}}).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    with _serve(Handler) as server_url:
+        output = _run_main(token_savings_module, monkeypatch, _settings(token_savings_module, server_url))
+
+    events = _diagnostics(output)
+    assert [event["outcome"] for event in events] == [outcome]
+
+
+def test_scope_response_body_respects_the_per_request_timeout(
+    scope_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    class SlowBodyHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            for _ in range(200):
+                try:
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                time.sleep(0.05)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    with _serve(SlowBodyHandler) as server_url:
+        settings = _settings(scope_module, server_url, request_timeout_seconds=0.3)
+        started = time.monotonic()
+        with pytest.raises(scope_module.ScopeBindingUnavailableError):
+            scope_module.resolve_scope_id(
+                str(tmp_path),
+                session_id=None,
+                settings=settings,
+                deadline=time.monotonic() + 2.0,
+            )
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+
+
 def test_stop_budget_stays_below_the_host_deadline(token_savings_module: ModuleType) -> None:
-    assert token_savings_module.stop_http_budget(4.0) < 3.0
-    assert token_savings_module.stop_http_budget(4.0) == 1.5
+    configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    host_timeout = configuration["hooks"]["Stop"][0]["hooks"][0]["timeout"]
+
+    assert token_savings_module.stop_http_budget(float(host_timeout)) == host_timeout - 1.5
+    assert token_savings_module.stop_http_budget(4.0) < host_timeout
     assert token_savings_module.stop_http_budget(0.2) == 0.2
 
 
 def test_stop_process_exits_within_the_host_deadline_against_a_slow_server(tmp_path: Path) -> None:
+    configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    declared = configuration["hooks"]["Stop"][0]["hooks"][0]
+    host_timeout = declared["timeout"]
+    assert "hooks/token_savings.py" in declared["command"]
+
     class SlowScopeHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
@@ -527,11 +617,11 @@ def test_stop_process_exits_within_the_host_deadline_against_a_slow_server(tmp_p
             text=True,
             capture_output=True,
             env=env,
-            timeout=3,
+            timeout=host_timeout,
         )
         elapsed = time.monotonic() - started
 
-    assert elapsed < 3.0
+    assert elapsed < host_timeout
     assert completed.returncode == 0
     events = _diagnostics(io.StringIO(completed.stdout))
     assert [event["outcome"] for event in events] == ["server_unavailable"]

@@ -51,6 +51,7 @@ describe('Scope binding', () => {
         key: { integration: 'opencode', kind: 'session', external_id: 'session-a' },
         scope_id: 'scope-a',
       },
+      undefined,
     ])
   })
 
@@ -65,7 +66,7 @@ describe('Scope binding', () => {
     })).resolves.toBe('scope-a')
 
     expect(request.mock.calls).toEqual([
-      ['resolve_scope_binding', { explicit_scope_id: 'explicit-scope', binding_keys: [] }],
+      ['resolve_scope_binding', { explicit_scope_id: 'explicit-scope', binding_keys: [] }, undefined],
     ])
   })
 
@@ -84,5 +85,19 @@ describe('Scope binding', () => {
     expect(input.binding_keys).toHaveLength(1)
     expect(input.binding_keys[0]).toMatchObject({ integration: 'opencode', kind: 'workspace' })
     expect(input.binding_keys[0].external_id).toHaveLength(64)
+  })
+
+  it('forwards the abort signal and trims the resolved Scope', async () => {
+    const request = vi.fn().mockResolvedValue({ value: { scope_id: '  scope-a  ' } })
+    const controller = new AbortController()
+
+    await expect(resolveScopeId({ request } as never, {
+      cwd: '/workspace/powercontext',
+      sessionID: 'session-a',
+      persistSession: true,
+    }, controller.signal)).resolves.toBe('scope-a')
+
+    expect(request.mock.calls[0]?.[2]).toBe(controller.signal)
+    expect(request.mock.calls[1]?.[2]).toBe(controller.signal)
   })
 })

@@ -19,13 +19,12 @@ from __future__ import annotations
 
 import json
 import sys
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from time import monotonic
 from typing import Any
 from urllib.error import HTTPError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
-
-from typing_extensions import override
+from urllib.request import Request
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
@@ -44,6 +43,7 @@ from scope_binding import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
+    open_bounded,
     resolve_scope_id,
 )
 from settings import CodexPluginSettings  # noqa: E402
@@ -68,25 +68,6 @@ def stop_http_budget(configured_seconds: float) -> float:
     return min(configured_seconds, _HOST_TIMEOUT_SECONDS - _STARTUP_AND_OUTPUT_MARGIN_SECONDS)
 
 
-class _RejectRedirects(HTTPRedirectHandler):
-    """Leave every 3xx response to urllib's default HTTP error handler."""
-
-    @override
-    def redirect_request(
-        self,
-        req: Request,
-        fp: object,
-        code: int,
-        msg: str,
-        headers: object,
-        newurl: str,
-    ) -> Request | None:
-        return None
-
-
-_URL_OPENER = build_opener(_RejectRedirects)
-
-
 def compact_tokens(value: int) -> str:
     """Format an integer using the compact OpenCode statusline convention."""
 
@@ -99,8 +80,10 @@ def compact_tokens(value: int) -> str:
 
 
 def _scaled(value: float, suffix: str) -> str:
-    rendered = f"{value:.1f}" if abs(value) < 10 else f"{value:.0f}"
-    return f"{rendered.removesuffix('.0')}{suffix}"
+    digits = 1 if abs(value) < 10 else 0
+    quantum = Decimal(1).scaleb(-digits)
+    rounded = Decimal(str(value)).quantize(quantum, rounding=ROUND_HALF_UP)
+    return f"{rounded:.{digits}f}".removesuffix(".0") + suffix
 
 
 def token_reduction(value: object) -> int | None:
@@ -166,7 +149,7 @@ def _load_stats(settings: CodexPluginSettings, scope_id: str, period: str, *, de
         method="POST",
     )
     try:
-        with _URL_OPENER.open(request, timeout=_remaining_time(request_deadline)) as response:
+        with open_bounded(request, timeout=_remaining_time(request_deadline)) as response:
             result = json.loads(_read_response(response, deadline=request_deadline, chunk_bytes=1))
     except HTTPError as error:
         code = _decode_error_code(_read_response(error, deadline=request_deadline, chunk_bytes=1))

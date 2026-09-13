@@ -228,12 +228,22 @@ def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
         raise ValueError("PowerContext Server URL must use HTTP or HTTPS")  # noqa: TRY003
     if parsed.query or parsed.fragment:
         raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
-    if parsed.scheme == "http" and not _is_loopback_host(parsed.hostname) and not allow_insecure_http:
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname.lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ValueError("PowerContext Server URL must use a valid port") from None  # noqa: TRY003
+    if scheme == "http" and not _is_loopback_host(host) and not allow_insecure_http:
         raise ValueError("unencrypted PowerContext URLs must be loopback addresses")  # noqa: TRY003
+    if port is None or (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+        netloc = f"[{host}]" if ":" in host else host
+    else:
+        netloc = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     path = parsed.path.rstrip("/")
     if path.endswith("/mcp"):
         path = path.removesuffix("/mcp")
-    return urlunsplit((parsed.scheme, parsed.netloc, path, "", "")).rstrip("/")
+    return urlunsplit((scheme, netloc, path, "", "")).rstrip("/")
 
 
 __all__ = ["ClaudeCodePluginSettings"]

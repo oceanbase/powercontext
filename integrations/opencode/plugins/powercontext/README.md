@@ -20,7 +20,7 @@ The package also installs a TUI plugin. Run `/pc` in interactive OpenCode to ope
 then use the same subcommands as the DSH plugin: `doctor`, `search`, `remember`, `flush`, `review`, `stats`,
 `capabilities`, and `skills scan`. The command is also available from the OpenCode command palette as
 `PowerContext command`. While a session is open, the prompt statusline shows a green/red connection indicator plus
-two scoped token-savings numbers, for example `● PC online · saved 1.2k today · saved 12.5k in 30d`. Numbers come
+two scoped token-savings numbers, for example `● PC online · saved 1.2k today · saved 12k in 30d`. Numbers come
 from the recall-token estimator (a per-call compression proxy, not an end-to-end savings measurement; use the OFF/ON
 evaluation harness for measured deltas). When recall made the context larger, the wording switches to `cost N`.
 Saved amounts are green; `cost` amounts are red; zero or unavailable values stay muted. The status refreshes every

@@ -112,7 +112,6 @@ def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
         legacy_tui_target.unlink(missing_ok=True)
     except OSError as error:
         raise SetupError.command_unavailable(["remove", "legacy", "OpenCode", "TUI plugin"], error) from error
-    _install_skill(plugin_dir / OPENCODE_SKILL.parent, skill_target)
     from powercontext.cli.authorization import (
         configure_stored_authorization,
         setup_authorization_value,
@@ -288,9 +287,38 @@ def _tui_entry_path(entry: object) -> Path | None:
     spec = entry[0] if isinstance(entry, list) and entry else entry
     if not isinstance(spec, str):
         return None
-    parsed = urlparse(spec)
-    raw = unquote(parsed.path) if parsed.scheme == "file" else spec
-    return Path(raw).expanduser().resolve()
+    try:
+        parsed = urlparse(spec)
+        raw = unquote(parsed.path) if parsed.scheme == "file" else spec
+        return Path(raw).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _owns_tui_entry(entry: object, *, target: Path) -> bool:
+    """Return whether one ``tui.json`` plugin entry belongs to this installation."""
+
+    path = _tui_entry_path(entry)
+    if path is None:
+        return False
+    if path == target or path.name in {f"{OPENCODE_PLUGIN_NAME}-tui.js", f"{OPENCODE_PLUGIN_NAME}.tui.js"}:
+        return True
+    if path.name != OPENCODE_TUI_BUNDLE.name:
+        return False
+    if _is_opencode_plugin(path.parent.parent):
+        return True
+    return _is_opencode_checkout_entry(path)
+
+
+def _is_opencode_checkout_entry(path: Path) -> bool:
+    """Recognize a stale TUI bundle from a remote checkout, deleted or not."""
+
+    root = (powercontext_data_dir() / "checkouts" / "opencode").resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def _read_tui_config(config_path: Path) -> tuple[dict[str, object], list[object]]:
@@ -319,6 +347,103 @@ def _copy_string(text: str, start: int) -> int:
             return end + 1
         end += 1
     return length
+
+
+def _skip_jsonc_space(text: str, index: int) -> int:
+    """Advance past whitespace and comments to the next significant character."""
+
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character.isspace():
+            index += 1
+            continue
+        if character == "/" and index + 1 < length:
+            if text[index + 1] == "/":
+                newline = text.find("\n", index + 2)
+                index = length if newline == -1 else newline + 1
+                continue
+            if text[index + 1] == "*":
+                end = text.find("*/", index + 2)
+                index = length if end == -1 else end + 2
+                continue
+        break
+    return index
+
+
+def _matching_bracket(text: str, start: int) -> int | None:
+    """Return the index of the ``]`` that closes the array opened at ``start``."""
+
+    depth = 0
+    index = start
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character == '"':
+            index = _copy_string(text, index)
+            continue
+        if character == "/" and index + 1 < length and text[index + 1] in "/*":
+            index = _skip_jsonc_space(text, index)
+            continue
+        if character in "[{":
+            depth += 1
+        elif character in "]}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _plugin_array_span(text: str) -> tuple[int, int] | None:
+    """Locate the top-level ``"plugin"`` array in the original JSONC text."""
+
+    index = 0
+    depth = 0
+    length = len(text)
+    while index < length:
+        character = text[index]
+        if character == '"':
+            end = _copy_string(text, index)
+            if depth == 1 and text[index:end] == '"plugin"':
+                cursor = _skip_jsonc_space(text, end)
+                if cursor < length and text[cursor] == ":":
+                    cursor = _skip_jsonc_space(text, cursor + 1)
+                    if cursor < length and text[cursor] == "[":
+                        close = _matching_bracket(text, cursor)
+                        if close is not None:
+                            return cursor, close + 1
+            index = end
+            continue
+        if character == "/" and index + 1 < length and text[index + 1] in "/*":
+            index = _skip_jsonc_space(text, index)
+            continue
+        if character in "[{":
+            depth += 1
+        elif character in "}]":
+            depth -= 1
+        index += 1
+    return None
+
+
+def _rewrite_jsonc_plugin_array(text: str, plugins: list[object]) -> str | None:
+    """Replace only the plugin array so surrounding JSONC comments survive."""
+
+    span = _plugin_array_span(text)
+    if span is None:
+        return None
+    start, end = span
+    serialized = json.dumps(plugins, indent=2)
+    key = text.rfind('"plugin"', 0, start)
+    indent = ""
+    if key >= 0:
+        line_start = text.rfind("\n", 0, key) + 1
+        candidate = text[line_start:key]
+        if candidate and not candidate.strip():
+            indent = candidate
+    if indent:
+        serialized = serialized.replace("\n", f"\n{indent}")
+    return f"{text[:start]}{serialized}{text[end:]}"
 
 
 def _strip_jsonc(text: str) -> str:
@@ -376,17 +501,17 @@ def _prepare_tui_config(config_dir: Path, plugin_path: Path) -> tuple[Path, str 
     except (OSError, TypeError, ValueError) as error:
         raise SetupError.command_unavailable(["read", "OpenCode", "TUI config"], error) from error
     target = plugin_path.resolve()
-    legacy_names = {f"{OPENCODE_PLUGIN_NAME}-tui.js", f"{OPENCODE_PLUGIN_NAME}.tui.js"}
-    resolved = [
-        entry
-        for entry in plugins
-        if (path := _tui_entry_path(entry)) is None or (path != target and path.name not in legacy_names)
-    ]
+    resolved = [entry for entry in plugins if not _owns_tui_entry(entry, target=target)]
     if not any(_tui_entry_path(entry) == target for entry in resolved):
         resolved.append(str(target))
     if resolved == plugins:
         return config_path, None
     payload["plugin"] = resolved
+    if config_path.exists():
+        original = config_path.read_text(encoding="utf-8")
+        rewritten = _rewrite_jsonc_plugin_array(original, resolved)
+        if rewritten is not None:
+            return config_path, rewritten
     return config_path, json.dumps(payload, indent=2) + "\n"
 
 

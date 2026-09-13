@@ -1707,6 +1707,11 @@ function errorResult(error) {
 		code: "unknown_operation",
 		message: error.message
 	};
+	if (error instanceof InvalidResponseError) return {
+		ok: false,
+		code: "invalid_response",
+		message: error.message
+	};
 	return {
 		ok: false,
 		code: "unavailable",
@@ -1789,7 +1794,7 @@ function workspaceBindingKey(cwd) {
 		external_id: createHash("sha256").update(resolve(cwd)).digest("hex")
 	};
 }
-async function resolveScopeId(client, input) {
+async function resolveScopeId(client, input, signal) {
 	const sessionID = input.sessionID?.trim();
 	const cwd = input.cwd?.trim();
 	const bindingKeys = [];
@@ -1798,14 +1803,15 @@ async function resolveScopeId(client, input) {
 	const value = (await client.request("resolve_scope_binding", {
 		explicit_scope_id: input.configuredScopeId,
 		binding_keys: bindingKeys
-	})).value;
+	}, signal)).value;
 	const scopeId = value && typeof value === "object" ? value.scope_id : void 0;
 	if (typeof scopeId !== "string" || !scopeId.trim()) throw new Error("PowerContext returned an invalid Scope");
+	const resolved = scopeId.trim();
 	if (input.persistSession && !input.configuredScopeId && sessionID) await client.request("set_scope_binding", {
 		key: sessionBindingKey(sessionID),
-		scope_id: scopeId
-	});
-	return scopeId;
+		scope_id: resolved
+	}, signal);
+	return resolved;
 }
 
 //#endregion

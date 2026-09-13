@@ -202,6 +202,7 @@ def test_setup_opencode_appends_tui_plugin_to_jsonc_config_with_comments(tmp_pat
         "// custom theme\n"
         "{\n"
         '  "$schema": "https://opencode.ai/tui.json",\n'
+        "  // keep this comment\n"
         '  "plugin": ["@mem9/opencode", ' + json.dumps(str(stale_tui)) + ",], // trailing comment\n"
         "}\n",
         encoding="utf-8",
@@ -214,10 +215,69 @@ def test_setup_opencode_appends_tui_plugin_to_jsonc_config_with_comments(tmp_pat
     assert "PowerContext OpenCode setup complete." in result.output
     assert (config / "plugins" / "powercontext-opencode.js").is_file()
     assert not stale_tui.exists()
-    tui_config = json.loads(opencode_cli._strip_jsonc((config / "tui.jsonc").read_text(encoding="utf-8")))
+    original = (config / "tui.jsonc").read_text(encoding="utf-8")
+    assert "// custom theme" in original
+    assert "// keep this comment" in original
+    assert "// trailing comment" in original
+    tui_config = json.loads(opencode_cli._strip_jsonc(original))
     assert tui_config["plugin"][0] == "@mem9/opencode"
     assert str((plugin / "lib" / "tui.js").resolve()) in tui_config["plugin"]
     assert str(stale_tui) not in tui_config["plugin"]
+
+
+def test_setup_opencode_replaces_stale_checkout_tui_entries(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "checkout"
+    plugin = _write_plugin(checkout)
+    config = tmp_path / "config"
+    config.mkdir()
+    stale = (
+        tmp_path
+        / "data"
+        / "checkouts"
+        / "opencode"
+        / ("a" * 16)
+        / ("b" * 16)
+        / ("c" * 40)
+        / "integrations"
+        / "opencode"
+        / "plugins"
+        / "powercontext"
+        / "lib"
+        / "tui.js"
+    )
+    (config / "tui.json").write_text(
+        json.dumps({"$schema": "https://opencode.ai/tui.json", "plugin": ["@mem9/opencode", str(stale)]}),
+        encoding="utf-8",
+    )
+    _patch_opencode_runtime(tmp_path, monkeypatch, plugin, config)
+
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "opencode", "--source", str(checkout)])
+
+    assert result.exit_code == 0
+    tui_config = json.loads((config / "tui.json").read_text(encoding="utf-8"))
+    assert tui_config["plugin"][0] == "@mem9/opencode"
+    assert str(stale) not in tui_config["plugin"]
+    assert str((plugin / "lib" / "tui.js").resolve()) in tui_config["plugin"]
+
+
+def test_setup_opencode_preserves_malformed_tui_entries(tmp_path: Path, monkeypatch) -> None:
+    checkout = tmp_path / "checkout"
+    plugin = _write_plugin(checkout)
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "tui.json").write_text(
+        json.dumps({"$schema": "https://opencode.ai/tui.json", "plugin": ["http://[::1", "@mem9/opencode"]}),
+        encoding="utf-8",
+    )
+    _patch_opencode_runtime(tmp_path, monkeypatch, plugin, config)
+
+    result = CliRunner().invoke(create_cli([setup_app]), ["setup", "opencode", "--source", str(checkout)])
+
+    assert result.exit_code == 0
+    tui_config = json.loads((config / "tui.json").read_text(encoding="utf-8"))
+    assert tui_config["plugin"][0] == "http://[::1"
+    assert tui_config["plugin"][1] == "@mem9/opencode"
+    assert str((plugin / "lib" / "tui.js").resolve()) in tui_config["plugin"]
 
 
 def test_setup_opencode_keeps_tui_config_bytes_when_no_entry_changes(tmp_path: Path, monkeypatch) -> None:

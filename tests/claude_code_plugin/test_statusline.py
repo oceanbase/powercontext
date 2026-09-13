@@ -61,6 +61,8 @@ def test_formats_two_windows_with_honest_signed_wording(statusline_module: Modul
         "● PC online · saved 1.2k today · cost 250 in 30d"
     )
     assert statusline_module.format_statusline({}, {}, color=False) == ("● PC online · no data today · no data in 30d")
+    assert statusline_module.compact_tokens(12_500) == "13k"
+    assert statusline_module.compact_tokens(1_250) == "1.3k"
 
 
 def test_render_uses_claude_workspace_and_both_periods(
@@ -119,18 +121,21 @@ def test_render_aborts_a_slow_drip_at_the_absolute_budget(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    periods: list[str] = []
+
     class SlowDripHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
-            self.rfile.read(length)
+            body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
-                body = json.dumps({"scope_id": "project:test"}).encode()
+                payload = json.dumps({"scope_id": "project:test"}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
-                self.wfile.write(body)
+                self.wfile.write(payload)
                 return
+            periods.append(body["period"])
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -159,6 +164,9 @@ def test_render_aborts_a_slow_drip_at_the_absolute_budget(
         elapsed = time.monotonic() - started
 
     assert elapsed < 1.0
+    # The first window consumes the shared budget, so the second window must
+    # never be requested; per-call budgets would send both.
+    assert periods == ["today"]
     assert "PC offline" in rendered
 
 
@@ -305,16 +313,68 @@ def test_render_reports_stats_without_required_totals_as_invalid_response(
     assert "PC invalid response" in rendered
 
 
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (401, "PC auth failed"),
+        (503, "PC offline · run powercontext doctor"),
+        (500, "PC invalid response"),
+    ],
+)
+def test_render_classifies_stats_http_failures(
+    statusline_module: ModuleType,
+    monkeypatch,
+    tmp_path: Path,
+    status: int,
+    expected: str,
+) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            if self.path == "/v1/scope-bindings/resolve":
+                self._respond(200, {"scope_id": "project:test"})
+                return
+            assert self.path == "/v1/stats"
+            self._respond(status, {"error": {"code": "failure"}})
+
+        def _respond(self, code: int, payload: object) -> None:
+            data = json.dumps(payload).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    monkeypatch.setattr(
+        statusline_module.sys,
+        "stdin",
+        StringIO(json.dumps({"workspace": {"current_dir": str(tmp_path)}})),
+    )
+    with _serve(Handler) as server_url:
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_SERVER_URL", server_url)
+        rendered = statusline_module.render("http://127.0.0.1:9000")
+
+    assert expected in rendered
+
+
 def test_render_aborts_a_slow_scope_response_at_the_absolute_budget(
     statusline_module: ModuleType,
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    stats_requests = 0
+
     class SlowScopeHandler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
+            nonlocal stats_requests
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             if self.path == "/v1/stats":
+                stats_requests += 1
                 body = json.dumps(_stats(0)).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -351,6 +411,7 @@ def test_render_aborts_a_slow_scope_response_at_the_absolute_budget(
         elapsed = time.monotonic() - started
 
     assert elapsed < 1.0
+    assert stats_requests == 0
     assert "PC offline" in rendered
 
 

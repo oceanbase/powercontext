@@ -14,8 +14,9 @@ Codex does not expose a plugin-defined status-line item. Its `tui.status_line`
 setting accepts only Codex's built-in identifiers, so this plugin does not write
 an invalid PowerContext identifier. Instead, a three-second-bounded `Stop` Hook shows
 the current scope's estimated token reduction after each completed turn, for
-example `PowerContext · saved 1.2k today · saved 12.5k in 30d`. It emits nothing
-when the Server is unavailable and never asks Codex to continue the turn.
+example `PowerContext · saved 1.2k today · saved 12k in 30d`. When the Server is
+unavailable it prints one deduplicated, content-free diagnostic instead of the
+savings line, and it never asks Codex to continue the turn.
 The message is an interactive TUI warning rather than a persistent footer item;
 non-interactive `codex exec` confirms Hook completion but does not render the
 Hook message in its text output.

@@ -21,6 +21,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from collections.abc import Mapping
 from hashlib import sha256
 from pathlib import Path
@@ -94,6 +95,33 @@ class _RejectRedirects(HTTPRedirectHandler):
 _URL_OPENER = build_opener(_RejectRedirects)
 
 
+def open_bounded(request: Request, *, timeout: float) -> Any:
+    """Open one request under a hard wall-clock bound, response headers included.
+
+    urllib applies its timeout to each individual socket read, so a server that
+    trickles headers can outlive the caller's deadline. Running the open in a
+    daemon worker and abandoning it on expiry keeps hooks inside their budget.
+    """
+
+    outcome: list[Any] = []
+
+    def _open() -> None:
+        try:
+            outcome.append(_URL_OPENER.open(request, timeout=timeout))
+        except BaseException as error:
+            outcome.append(error)
+
+    worker = threading.Thread(target=_open, name="powercontext-http", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise TimeoutError
+    result = outcome[0] if outcome else TimeoutError()
+    if isinstance(result, BaseException):
+        raise result
+    return result
+
+
 def resolve_scope_id(
     cwd: str,
     *,
@@ -162,6 +190,7 @@ def _post_json(
     method: str = "POST",
 ) -> Mapping[str, object]:
     remaining = _remaining_time(deadline)
+    request_deadline = min(deadline, monotonic() + settings.request_timeout_seconds)
     headers = dict(_REQUEST_HEADERS)
     if settings.authorization is not None:
         headers["Authorization"] = settings.authorization.get_secret_value()
@@ -172,13 +201,10 @@ def _post_json(
         method=method,
     )
     try:
-        with _URL_OPENER.open(
-            request,
-            timeout=min(settings.request_timeout_seconds, remaining),
-        ) as response:
+        with open_bounded(request, timeout=min(settings.request_timeout_seconds, remaining)) as response:
             if response.status < 200 or response.status >= 300:
                 raise ScopeBindingStatusError(response.status, path)
-            raw = _read_bounded(response, deadline=deadline)
+            raw = _read_bounded(response, deadline=request_deadline)
     except HTTPError as error:
         if error.code == 401:
             raise ScopeBindingRejectedError from error

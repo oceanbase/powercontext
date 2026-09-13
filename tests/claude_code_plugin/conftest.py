@@ -31,6 +31,7 @@ _PLUGIN_MODULE_NAMES = (
     "hooks.prepared_context",
     "scripts",
     "scripts.workspace_scope",
+    "workspace_scope",
     "powercontext_claude_code_statusline",
 )
 

@@ -208,7 +208,7 @@ export async function loadStatuslineStatus(
         cwd,
         sessionID,
         configuredScopeId: runtime.config.scopeId,
-      }),
+      }, signal),
       STATUS_TIMEOUT_MS,
     )
   } catch (error) {
@@ -314,7 +314,7 @@ async function runCommand(api: TuiPluginApi, runtime: PcCommandRuntime, rawInput
       cwd,
       sessionID: currentSessionID(api),
       configuredScopeId: runtime.config.scopeId,
-    })
+    }, api.lifecycle.signal)
     showResult(api, await handlePcCommand(rawInput, runtime, scopeId, api.lifecycle.signal))
   } catch {
     showResult(api, { kind: 'error', text: 'PowerContext is unavailable; continue normal work.' })

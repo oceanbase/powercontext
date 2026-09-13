@@ -21,23 +21,17 @@ import argparse
 import json
 import os
 import sys
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from typing import Any, Protocol
 from urllib.error import HTTPError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
-
-if TYPE_CHECKING:
-    from typing_extensions import override
-else:
-    _MethodT = TypeVar("_MethodT")
-
-    def override(method: _MethodT, /) -> _MethodT:
-        return method
-
+from urllib.request import Request
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
+sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from scope_binding_errors import (  # noqa: E402
@@ -45,7 +39,7 @@ from scope_binding_errors import (  # noqa: E402
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
-from scripts.workspace_scope import resolve_scope_id  # noqa: E402
+from workspace_scope import open_bounded, resolve_scope_id  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _USER_AGENT = "powercontext-claude-code-statusline/0.1.0"
@@ -59,20 +53,6 @@ _FAILURE_LINES = {
     "server_unavailable": "PC offline · run powercontext doctor",
     "invalid_response": "PC invalid response",
 }
-
-
-class _RejectRedirects(HTTPRedirectHandler):
-    @override
-    def redirect_request(
-        self,
-        req: Request,
-        fp: object,
-        code: int,
-        msg: str,
-        headers: object,
-        newurl: str,
-    ) -> Request | None:
-        return None
 
 
 class _ReadableResponse(Protocol):
@@ -91,8 +71,10 @@ def compact_tokens(value: int) -> str:
 
 
 def _scaled(value: float, suffix: str) -> str:
-    rendered = f"{value:.1f}" if abs(value) < 10 else f"{value:.0f}"
-    return f"{rendered.removesuffix('.0')}{suffix}"
+    digits = 1 if abs(value) < 10 else 0
+    quantum = Decimal(1).scaleb(-digits)
+    rounded = Decimal(str(value)).quantize(quantum, rounding=ROUND_HALF_UP)
+    return f"{rounded:.{digits}f}".removesuffix(".0") + suffix
 
 
 def token_reduction(value: object) -> int | None:
@@ -207,8 +189,7 @@ def _load_stats(settings: ClaudeCodePluginSettings, scope_id: str, period: str, 
         headers=headers,
         method="POST",
     )
-    opener = build_opener(_RejectRedirects())
-    with opener.open(request, timeout=_remaining_time(request_deadline)) as response:
+    with open_bounded(request, timeout=_remaining_time(request_deadline)) as response:
         result = json.loads(_read_response(response, deadline=request_deadline))
     # A valid window always carries the required totals; rejecting a 200 without
     # them keeps a protocol mismatch from rendering as an honest "no data".

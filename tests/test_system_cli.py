@@ -519,6 +519,64 @@ def test_setup_claude_code_preserves_an_unrelated_statusline(tmp_path: Path, mon
     assert json.loads(settings_file.read_text(encoding="utf-8"))["statusLine"] == custom_statusline
 
 
+def test_setup_claude_code_preserves_a_command_that_merely_mentions_powercontext(tmp_path: Path, monkeypatch) -> None:
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    custom_statusline = {
+        "type": "command",
+        "command": "echo powercontext statusline.py",
+        "refreshInterval": 5,
+    }
+    settings_file.write_text(json.dumps({"statusLine": custom_statusline}), encoding="utf-8")
+    installed = [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": True}]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+
+    system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:8000",
+        capture_prompts=True,
+    )
+
+    assert json.loads(settings_file.read_text(encoding="utf-8"))["statusLine"] == custom_statusline
+
+
+def test_setup_claude_code_refreshes_an_existing_powercontext_statusline(tmp_path: Path, monkeypatch) -> None:
+    config_dir = tmp_path / "claude"
+    config_dir.mkdir()
+    settings_file = config_dir / "settings.json"
+    previous_command = (
+        "python3 /home/me/.claude/plugins/cache/powercontext/powercontext/0.0.9/scripts/statusline.py"
+        " --server-url http://127.0.0.1:7000"
+    )
+    settings_file.write_text(
+        json.dumps({"statusLine": {"type": "command", "command": previous_command, "refreshInterval": 30}}),
+        encoding="utf-8",
+    )
+    installed = [{"id": "powercontext@powercontext", "version": "0.1.0", "enabled": True}]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+
+    system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:9000",
+        capture_prompts=True,
+    )
+
+    statusline = json.loads(settings_file.read_text(encoding="utf-8"))["statusLine"]
+    assert statusline["command"] != previous_command
+    assert "0.0.9" not in statusline["command"]
+    assert "scripts/statusline.py" in statusline["command"]
+    assert "--server-url http://127.0.0.1:9000" in statusline["command"]
+
+
 def test_setup_claude_code_preserves_unrelated_settings_when_updating_options(tmp_path: Path, monkeypatch) -> None:
     config_dir = tmp_path / "claude"
     config_dir.mkdir()

@@ -23,11 +23,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { formatPowerContextStatus, loadStatuslineStatus, PowerContextTuiPlugin, withTimeout } from '../src/tui.tsx'
 
+const tuiNodes = vi.hoisted(() => ({ children: new WeakMap<object, unknown[]>() }))
+
 vi.mock('@opentui/solid', () => ({
   createElement: () => ({}),
   setProp: () => undefined,
-  insert: () => undefined,
+  insert: (node: object, child: unknown) => {
+    const children = tuiNodes.children.get(node) ?? []
+    children.push(child)
+    tuiNodes.children.set(node, children)
+  },
 }))
+
+function flattenTui(node: unknown): string {
+  if (typeof node === 'string') return node
+  if (Array.isArray(node)) return node.map(flattenTui).join('')
+  if (!node || typeof node !== 'object') return ''
+  const children = tuiNodes.children.get(node) ?? []
+  return children.map((child) => (typeof child === 'function' ? flattenTui(child()) : flattenTui(child))).join('')
+}
 
 afterEach(() => {
   delete process.env.POWERCONTEXT_OPENCODE_SCOPE_ID
@@ -301,6 +315,75 @@ describe('PowerContextTuiPlugin', () => {
 
     expect(state.connected).toBe(true)
     expect(state.label).toBe('PC online · saved 0 today · saved 0 in 30d')
+  })
+
+  it('classifies a malformed non-JSON stats response as an invalid response', async () => {
+    const { PowerContextClient } = await import('../src/client.ts')
+    const client = new PowerContextClient({
+      baseUrl: 'http://127.0.0.1:9',
+      requestTimeoutMs: 1_000,
+      fetch: async (url: string) => (url.endsWith('/v1/scope-bindings/resolve')
+        ? Response.json({ scope_id: 'project:test' })
+        : new Response('not-json', { status: 200 })),
+    })
+    const runtime = { config: { scopeId: 'project:test' }, client }
+
+    const state = await loadStatuslineStatus(runtime as any, 'session-1', '/tmp/project')
+
+    expect(state.connected).toBe(false)
+    expect(state.label).toBe('PC invalid response')
+  })
+
+  it('renders the same two-window wording as the tested formatter', async () => {
+    process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/v1/scope-bindings/resolve')) return Response.json({ scope_id: 'project:test' })
+      const body = JSON.parse(String(init.body))
+      return Response.json(body.period === 'today' ? statsWindow(1_200) : statsWindow(-250))
+    }))
+    const slotPlugins: any[] = []
+    const api = tuiApi({ slots: { register: (plugin: unknown) => { slotPlugins.push(plugin) } } })
+
+    await PowerContextTuiPlugin(api, undefined, {} as any)
+    let dispose!: () => void
+    let box: any
+    createRoot((rootDispose) => {
+      dispose = rootDispose
+      box = slotPlugins[0].slots.session_prompt_right({}, { session_id: 'session-1' })
+    })
+    await vi.waitFor(() => expect(flattenTui(box)).toContain('saved 1.2k today'))
+    const rendered = flattenTui(box)
+    dispose()
+
+    expect(rendered).toBe(`●${formatPowerContextStatus(statsWindow(1_200), statsWindow(-250))}`)
+  })
+
+  it('aborts an in-flight Scope resolution when the status view is disposed', async () => {
+    process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = 'project:test'
+    let resolveSignal: AbortSignal | undefined
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/v1/scope-bindings/resolve')) {
+        resolveSignal = init.signal ?? undefined
+        return await new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+        })
+      }
+      return Response.json(statsWindow(0))
+    }))
+    const slotPlugins: any[] = []
+    const api = tuiApi({ slots: { register: (plugin: unknown) => { slotPlugins.push(plugin) } } })
+
+    await PowerContextTuiPlugin(api, undefined, {} as any)
+    let dispose!: () => void
+    createRoot((rootDispose) => {
+      dispose = rootDispose
+      slotPlugins[0].slots.session_prompt_right({}, { session_id: 'session-1' })
+    })
+    await vi.waitFor(() => expect(resolveSignal).toBeDefined())
+
+    dispose()
+
+    await vi.waitFor(() => expect(resolveSignal?.aborted).toBe(true))
   })
 
   it('stops status polling when the status view is disposed', async () => {

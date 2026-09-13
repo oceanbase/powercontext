@@ -224,6 +224,27 @@ def test_effective_address_does_not_reuse_another_servers_persisted_authorizatio
     assert settings.authorization is None
 
 
+def test_non_canonical_effective_address_still_matches_its_persisted_authorization(
+    settings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _isolate_claude_environment(monkeypatch, tmp_path)
+    _write_credentials(tmp_path, server_url="https://memory.example", authorization="Bearer memory-token")
+
+    settings = settings_module.ClaudeCodePluginSettings.from_environment(server_url="https://MEMORY.example:443/")
+
+    assert settings.server_url == "https://memory.example"
+    assert settings.authorization == "Bearer memory-token"
+
+
+def test_http_base_url_canonicalizes_case_and_default_ports(settings_module: ModuleType) -> None:
+    assert settings_module._http_base_url("https://MEMORY.example:443/") == "https://memory.example"
+    assert settings_module._http_base_url("http://127.0.0.1:80") == "http://127.0.0.1"
+    assert settings_module._http_base_url("http://[::1]:80/") == "http://[::1]"
+    assert settings_module._http_base_url("https://memory.example:8443") == "https://memory.example:8443"
+
+
 def test_explicit_entry_point_server_url_loads_its_own_persisted_authorization(
     settings_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

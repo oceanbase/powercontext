@@ -15,6 +15,9 @@
 from __future__ import annotations
 
 import json
+import socket
+import threading
+import time
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
@@ -63,6 +66,38 @@ def test_scope_resolver_uses_server_binding_and_fixes_new_session(
         },
         "PUT",
     )
+
+
+def test_open_bounded_enforces_the_deadline_while_headers_trickle(scope_module: ModuleType) -> None:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = int(listener.getsockname()[1])
+
+    def trickle() -> None:
+        connection, _ = listener.accept()
+        with connection:
+            connection.recv(65_536)
+            connection.sendall(b"HTTP/1.1 200 OK\r\n")
+            for _ in range(400):
+                try:
+                    connection.sendall(b"X")
+                except OSError:
+                    return
+                time.sleep(0.05)
+
+    worker = threading.Thread(target=trickle, daemon=True)
+    worker.start()
+    request = scope_module.Request(f"http://127.0.0.1:{port}/v1/stats", data=b"{}", method="POST")
+    try:
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            scope_module.open_bounded(request, timeout=0.3)
+        elapsed = time.monotonic() - started
+    finally:
+        listener.close()
+
+    assert elapsed < 1.0
 
 
 def test_codex_settings_precedence_and_validation(

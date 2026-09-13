@@ -1720,7 +1720,16 @@ def _is_powercontext_statusline(value: object) -> bool:
     if not isinstance(value, dict):
         return False
     command = value.get("command")
-    return isinstance(command, str) and "powercontext" in command and "statusline.py" in command
+    if not isinstance(command, str):
+        return False
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    return any(
+        Path(token).name == "statusline.py" and any("powercontext" in part.casefold() for part in Path(token).parts)
+        for token in tokens
+    )
 
 
 def _restore_claude_settings(snapshot: bytes | None) -> None:

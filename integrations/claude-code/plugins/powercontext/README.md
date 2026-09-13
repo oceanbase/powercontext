@@ -7,7 +7,7 @@ status line to Claude Code.
 `powercontext setup claude-code` configures Claude Code's native `statusLine.command`
 when that setting is empty or already belongs to PowerContext. It preserves an
 unrelated custom status line. The display refreshes every 30 seconds and reports
-`saved 1.2k today · saved 12.5k in 30d`, or `cost` when recall used more tokens.
+`saved 1.2k today · saved 12k in 30d`, or `cost` when recall used more tokens.
 These values come from the recall-token estimator and are a per-call compression
 proxy, not provider-verified or billable savings. The status line fails open as
 `PC offline`; it never blocks a Claude Code turn.

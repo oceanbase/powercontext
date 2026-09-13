@@ -63,7 +63,7 @@ export default defineConfig([
   {
     ...commonConfig,
     entry: { index: 'src/index.ts' },
-    clean: true,
+    clean: ['lib/index.js', 'lib/index.d.ts'],
     hooks: { 'build:done': normalizeEntry('index') },
   },
   {
