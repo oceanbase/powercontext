@@ -24,10 +24,18 @@ pnpm dev
 ```bash
 pnpm types:check
 pnpm lint
+pnpm test
 pnpm build
 ```
 
 静态产物输出到 `website/out`。
+
+## GitHub Star 入口
+
+双语页面共用导航中的 GitHub 图标和数量徽标，仓库地址由 `NEXT_PUBLIC_REPOSITORY_URL` 控制。
+浏览器首次访问时查询 GitHub API，页面可见期间每 5 分钟刷新，并在切回页面时检查缓存。
+请求超时为 5 秒；断网或限流时保留最近一次成功的数量及获取时间，没有缓存时显示 `Star` 入口。
+不需要 GitHub Token 或服务端接口。首次可见时显示一次轻量关注提示，也支持悬停、键盘焦点和 Escape 关闭。
 
 ## 发布到 GitHub Pages
 

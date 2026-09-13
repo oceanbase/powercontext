@@ -193,6 +193,7 @@ docs-build: docs-install ## Build the static website, including HTTP and Python 
 .PHONY: docs-test
 docs-test: docs-install ## Lint and build the static website.
 	@cd website && CI=true pnpm lint
+	@cd website && CI=true pnpm test
 	@cd website && CI=true pnpm build
 
 .PHONY: integration-manifest-docs
