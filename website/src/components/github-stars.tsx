@@ -45,7 +45,7 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
 
   function showPrompt() {
     clearPromptTimers();
-    shownPrompts.add(`powercontext:github-prompt:${url}`);
+    shownPrompts.add(`powercontext:github-click-guide:${url}`);
     setPromptOpen(true);
   }
 
@@ -71,7 +71,7 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
   }, [url]);
 
   useEffect(() => {
-    const key = `powercontext:github-prompt:${url}`;
+    const key = `powercontext:github-click-guide:${url}`;
     timers.current.push(setTimeout(() => {
       // Hidden responsive copies must not consume the one-time prompt.
       if (!link.current?.getClientRects().length || document.visibilityState !== 'visible') return;
@@ -115,6 +115,13 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
           {snapshot ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(snapshot.count) : null}
         </span>
       </a>
+      <span className="pc-github-click-guide" aria-hidden="true">
+        <span className="pc-github-click-ring" />
+        <svg className="pc-github-cursor" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 13V4a2 2 0 0 1 4 0v6.25a1.75 1.75 0 0 1 3.5 0v1a1.75 1.75 0 0 1 3.5 0v1a1.5 1.5 0 0 1 3 0V16c0 4-2.5 6-6 6h-2c-2 0-3.4-.8-4.7-2.3l-4.7-5.6a1.75 1.75 0 0 1 2.6-2.3L8 13Z" />
+          <path d="M12 10.25V14m3.5-2.75V15M19 12.25V16" fill="none" />
+        </svg>
+      </span>
       <span id={promptId} role="tooltip" className="pc-github-prompt" aria-hidden={!promptOpen}>
         {prompt}
       </span>
