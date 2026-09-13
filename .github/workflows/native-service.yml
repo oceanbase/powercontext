@@ -7,15 +7,25 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: native-service-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux-systemd-user:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS: "1"
       POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER: powercontext-native-${{ github.run_id }}-${{ github.run_attempt }}.service
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
@@ -57,7 +67,7 @@ jobs:
 
       - name: Upload Linux native-service logs after failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: linux-native-service-logs
           path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
@@ -65,12 +75,15 @@ jobs:
 
   macos-launchagent:
     runs-on: macos-latest
+    timeout-minutes: 30
     env:
       POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS: "1"
       POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER: com.oceanbase.powercontext.native.${{ github.run_id }}.${{ github.run_attempt }}
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
@@ -103,7 +116,7 @@ jobs:
 
       - name: Upload macOS native-service logs after failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: macos-native-service-logs
           path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
@@ -111,12 +124,15 @@ jobs:
 
   windows-task-scheduler:
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
       POWERCONTEXT_RUN_NATIVE_SERVICE_TESTS: "1"
       POWERCONTEXT_NATIVE_SERVICE_IDENTIFIER: PowerContext-Native-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Check out
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
@@ -177,7 +193,7 @@ jobs:
 
       - name: Upload Windows native-service logs after failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-native-service-logs
           path: ${{ runner.temp }}/powercontext-native-tests/**/logs/*
