@@ -16,136 +16,56 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createGitHubStarsClient, githubRepository, starRefreshInterval } from '../src/lib/github-stars';
+import { createGitHubStarsLoader, githubRepository } from '../src/lib/github-stars';
 
 const url = 'https://github.com/oceanbase/powercontext';
-const key = 'powercontext:github-stars:oceanbase/powercontext';
+const snapshot = { repository: 'oceanbase/powercontext', count: 985, updatedAt: 1000 };
 
-function memoryStorage() {
-  const values = new Map<string, string>();
-  return {
-    getItem: (name: string) => values.get(name) ?? null,
-    setItem: (name: string, value: string) => { values.set(name, value); },
-  };
-}
-
-test('uses the configured GitHub repository, not an unrelated or lookalike host', () => {
+test('accepts the configured GitHub repository, not a lookalike host or nested path', async () => {
   assert.equal(githubRepository('https://github.com/Example/Project.git/'), 'example/project');
+  const load = createGitHubStarsLoader(async () => { assert.fail('Invalid URLs must not cause requests'); });
   for (const invalid of ['bad-url', 'http://github.com/a/b', 'https://github.com.evil.test/a/b', 'https://github.com/a/b/issues']) {
     assert.equal(githubRepository(invalid), null);
+    assert.equal(await load(invalid), null);
   }
 });
 
-test('shares requests and cached counts across navigation instances, then refreshes', async () => {
-  let now = 1000;
+test('loads one static snapshot across concurrent navigation instances and subsequent visits', async () => {
   let requests = 0;
-  const storage = memoryStorage();
-  const client = createGitHubStarsClient({
-    now: () => now,
-    storage: () => storage,
-    fetcher: async (input) => {
-      assert.equal(input, 'https://api.github.com/repos/oceanbase/powercontext');
-      return Response.json({ stargazers_count: 984 + ++requests });
-    },
+  const load = createGitHubStarsLoader(async (input, init) => {
+    assert.equal(input, 'https://raw.githubusercontent.com/oceanbase/powercontext/website-stats/github-stars.json');
+    assert.equal(init?.credentials, 'omit');
+    assert.ok(init?.signal instanceof AbortSignal);
+    requests++;
+    return Response.json(snapshot);
   });
-  assert.deepEqual(await Promise.all([client.load(url), client.load(url)]), [
-    { count: 985, updatedAt: 1000 }, { count: 985, updatedAt: 1000 },
-  ]);
-  await client.load(url);
-  assert.equal(requests, 1, 'one unauthenticated API request per refresh window');
-  now += starRefreshInterval;
-  assert.equal((await client.load(url))?.count, 986);
-  assert.equal(requests, 2);
-  assert.deepEqual(JSON.parse(storage.getItem(key)!), { count: 986, updatedAt: now });
+  assert.deepEqual(await Promise.all([load(url), load(url)]), [snapshot, snapshot]);
+  assert.deepEqual(await load(url), snapshot);
+  assert.equal(requests, 1, 'one CDN request per page session; no GitHub API polling');
 });
 
-test('restores a fresh session cache without a network request', async () => {
-  const storage = memoryStorage();
-  storage.setItem(key, JSON.stringify({ count: 1234, updatedAt: 1000 }));
-  const client = createGitHubStarsClient({
-    storage: () => storage,
-    now: () => 2000,
-    fetcher: async () => { throw new Error('Should use the fresh cache'); },
-  });
-  assert.deepEqual(client.peek(url), { count: 1234, updatedAt: 1000 });
-  assert.deepEqual(await client.load(url), { count: 1234, updatedAt: 1000 });
-});
-
-test('keeps the last successful count and timestamp on network errors and rate limits', async () => {
-  for (const fetcher of [
-    async () => { throw new TypeError('Network unavailable'); },
-    async () => new Response(null, { status: 403 }),
-    async () => new Response(null, { status: 429 }),
+test('missing snapshots and network failures fall back without retries or invented counts', async () => {
+  for (const response of [
+    async () => new Response(null, { status: 404 }),
+    async () => new Response('invalid JSON'),
+    async () => { throw new TypeError('Offline'); },
   ]) {
-    const storage = memoryStorage();
-    storage.setItem(key, JSON.stringify({ count: 985, updatedAt: 1000 }));
-    const client = createGitHubStarsClient({ storage: () => storage, now: () => starRefreshInterval + 1000, fetcher });
-    assert.deepEqual(await client.load(url), { count: 985, updatedAt: 1000 });
-    assert.deepEqual(JSON.parse(storage.getItem(key)!), { count: 985, updatedAt: 1000 });
+    let requests = 0;
+    const load = createGitHubStarsLoader(async () => { requests++; return response(); });
+    assert.equal(await load(url), null);
+    assert.equal(await load(url), null);
+    assert.equal(requests, 1);
   }
 });
 
-test('first-load failures return no invented count and are throttled until retry', async () => {
-  let now = 1000;
-  let requests = 0;
-  const client = createGitHubStarsClient({
-    now: () => now,
-    storage: memoryStorage,
-    fetcher: async () => {
-      requests++;
-      if (requests === 1) throw new TypeError('Offline');
-      return Response.json({ stargazers_count: 42 });
-    },
-  });
-  assert.equal(await client.load(url), null);
-  assert.equal(await client.load(url), null);
-  assert.equal(requests, 1);
-  now += starRefreshInterval;
-  assert.equal((await client.load(url))?.count, 42);
-});
-
-test('times out a stalled request and recovers on the next refresh', async () => {
-  let now = 1000;
-  let stalled = true;
-  const client = createGitHubStarsClient({
-    now: () => now,
-    timeout: 10,
-    storage: memoryStorage,
-    fetcher: async (_input, init) => stalled
-      ? new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
-      })
-      : Response.json({ stargazers_count: 986 }),
-  });
-  assert.equal(await client.load(url), null);
-  stalled = false;
-  now += starRefreshInterval;
-  assert.equal((await client.load(url))?.count, 986);
-});
-
-test('rejects malformed counts but accepts zero, including when storage is disabled', async () => {
-  for (const count of [-1, 1.5, '985', null, Number.MAX_SAFE_INTEGER + 1, 0]) {
-    const client = createGitHubStarsClient({
-      now: () => 1000,
-      storage: () => { throw new Error('Storage disabled'); },
-      fetcher: async () => Response.json({ stargazers_count: count }),
-    });
-    assert.equal((await client.load(url))?.count ?? null, count === 0 ? 0 : null);
-    if (count === 0) assert.equal(client.peek(url)?.count, 0);
+test('validates repository, count and timestamp while accepting a real zero count', async () => {
+  for (const data of [
+    null, { ...snapshot, repository: 'example/another' }, { ...snapshot, updatedAt: 0 },
+    { ...snapshot, updatedAt: Date.now() + 60_000 }, { ...snapshot, updatedAt: '1000' },
+    ...[-1, 1.5, '985', null, Number.MAX_SAFE_INTEGER + 1].map((count) => ({ ...snapshot, count })),
+  ]) {
+    assert.equal(await createGitHubStarsLoader(async () => Response.json(data))(url), null);
   }
-});
-
-test('ignores corrupt or future-dated cache data and isolates repositories', async () => {
-  for (const cached of ['{broken', JSON.stringify({ count: -1, updatedAt: 1000 }), JSON.stringify({ count: 12, updatedAt: 5000 })]) {
-    const storage = memoryStorage();
-    storage.setItem(key, cached);
-    const client = createGitHubStarsClient({
-      storage: () => storage,
-      now: () => 2000,
-      fetcher: async () => Response.json({ stargazers_count: 985 }),
-    });
-    assert.equal(client.peek(url), null);
-    assert.equal((await client.load(url))?.count, 985);
-    assert.equal(client.peek('https://github.com/example/another'), null);
-  }
+  const zero = { ...snapshot, count: 0 };
+  assert.deepEqual(await createGitHubStarsLoader(async () => Response.json(zero))(url), zero);
 });

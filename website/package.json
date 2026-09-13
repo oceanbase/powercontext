@@ -8,7 +8,7 @@
     "check:links": "pnpm generate && tsx scripts/validate-links.ts",
     "generate": "tsx scripts/generate-content.ts",
     "preview": "serve out",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
     "types:check": "next typegen && tsc --noEmit",
     "verify:export": "tsx scripts/verify-static-export.ts",
     "lint": "oxlint"

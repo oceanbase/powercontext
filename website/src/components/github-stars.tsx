@@ -17,7 +17,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { githubStars, starRefreshInterval, type StarSnapshot } from '@/lib/github-stars';
+import { loadGitHubStars, type StarSnapshot } from '@/lib/github-stars';
 import type { Language } from '@/lib/i18n';
 
 const shownPrompts = new Set<string>();
@@ -63,20 +63,11 @@ export function GitHubStars({ lang, url }: { lang: Language; url: string }) {
 
   useEffect(() => {
     let active = true;
-    setSnapshot(githubStars.peek(url));
-    async function refresh() {
-      if (document.visibilityState !== 'visible') return;
-      const value = await githubStars.load(url);
+    setSnapshot(null);
+    void loadGitHubStars(url).then((value) => {
       if (active) setSnapshot(value);
-    }
-    void refresh();
-    const interval = setInterval(() => void refresh(), starRefreshInterval);
-    document.addEventListener('visibilitychange', refresh);
-    return () => {
-      active = false;
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', refresh);
-    };
+    });
+    return () => { active = false; };
   }, [url]);
 
   useEffect(() => {

@@ -1,0 +1,46 @@
+name: Website Star snapshot
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/website-stars.yml
+      - website/scripts/update-github-stars.mjs
+      - website/tests/update-github-stars.test.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-stars-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'publish' }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: node --test website/tests/update-github-stars.test.mjs
+
+  publish:
+    needs: test
+    if: >-
+      github.repository == 'oceanbase/powercontext' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { updateGitHubStars } = await import(`${process.env.GITHUB_WORKSPACE}/website/scripts/update-github-stars.mjs`);
+            const snapshot = await updateGitHubStars(github, context.repo);
+            core.info(`Published snapshot: ${snapshot.count} stars`);

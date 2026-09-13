@@ -14,17 +14,10 @@
  * limitations under the License.
  */
 
-export const starRefreshInterval = 5 * 60 * 1000;
-
 export interface StarSnapshot {
+  repository: string;
   count: number;
   updatedAt: number;
-}
-
-interface CacheEntry {
-  snapshot: StarSnapshot | null;
-  nextRequestAt: number;
-  pending?: Promise<StarSnapshot | null>;
 }
 
 export function githubRepository(url: string): string | null {
@@ -38,92 +31,34 @@ export function githubRepository(url: string): string | null {
   }
 }
 
-function isSnapshot(value: unknown): value is StarSnapshot {
-  if (!value || typeof value !== 'object') return false;
-  const data = value as StarSnapshot;
-  return Number.isSafeInteger(data.count) && data.count >= 0
-    && Number.isFinite(data.updatedAt) && data.updatedAt > 0;
-}
+export function createGitHubStarsLoader(fetcher: typeof fetch = fetch) {
+  const snapshots = new Map<string, Promise<StarSnapshot | null>>();
 
-export function createGitHubStarsClient({
-  fetcher = fetch,
-  storage = () => window.sessionStorage,
-  now = Date.now,
-  timeout = 5000,
-}: {
-  fetcher?: typeof fetch;
-  storage?: () => Pick<Storage, 'getItem' | 'setItem'>;
-  now?: () => number;
-  timeout?: number;
-} = {}) {
-  const entries = new Map<string, CacheEntry>();
-  const cacheKey = (repo: string) => `powercontext:github-stars:${repo}`;
+  return function load(url: string): Promise<StarSnapshot | null> {
+    const repository = githubRepository(url);
+    if (!repository) return Promise.resolve(null);
+    const existing = snapshots.get(repository);
+    if (existing) return existing;
 
-  function entryFor(repo: string): CacheEntry {
-    let entry = entries.get(repo);
-    if (entry) return entry;
-    let snapshot: StarSnapshot | null = null;
-    try {
-      const saved: unknown = JSON.parse(storage().getItem(cacheKey(repo)) ?? 'null');
-      if (isSnapshot(saved) && saved.updatedAt <= now()) snapshot = saved;
-    } catch {
-      // Storage can be unavailable in privacy modes; the in-memory cache still works.
-    }
-    entry = { snapshot, nextRequestAt: snapshot ? snapshot.updatedAt + starRefreshInterval : 0 };
-    entries.set(repo, entry);
-    return entry;
-  }
-
-  function peek(url: string): StarSnapshot | null {
-    const repo = githubRepository(url);
-    return repo ? entryFor(repo).snapshot : null;
-  }
-
-  async function load(url: string): Promise<StarSnapshot | null> {
-    const repo = githubRepository(url);
-    if (!repo) return null;
-    const entry = entryFor(repo);
-    if (entry.pending) return entry.pending;
-    if (now() < entry.nextRequestAt) return entry.snapshot;
-
-    // Share one request across desktop/mobile navigation and throttle failed attempts too.
-    entry.nextRequestAt = now() + starRefreshInterval;
-    entry.pending = (async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+    // One CDN request per repository/page session, shared across navigation instances.
+    const snapshot = (async () => {
       try {
-        const response = await fetcher(`https://api.github.com/repos/${repo}`, {
-          headers: { Accept: 'application/vnd.github+json' },
-          signal: controller.signal,
-          credentials: 'omit',
-          cache: 'no-store',
-        });
-        if (!response.ok) return entry.snapshot;
-        const data: unknown = await response.json();
-        const count = data && typeof data === 'object' && 'stargazers_count' in data
-          ? data.stargazers_count : null;
-        if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) return entry.snapshot;
-        entry.snapshot = { count, updatedAt: now() };
-        try {
-          storage().setItem(cacheKey(repo), JSON.stringify(entry.snapshot));
-        } catch {
-          // A storage failure must not discard a successful response.
-        }
-        return entry.snapshot;
+        const response = await fetcher(
+          `https://raw.githubusercontent.com/${repository}/website-stats/github-stars.json`,
+          { signal: AbortSignal.timeout(5000), credentials: 'omit' },
+        );
+        if (!response.ok) return null;
+        const data = await response.json() as StarSnapshot;
+        return data?.repository === repository && Number.isSafeInteger(data.count) && data.count >= 0
+          && Number.isFinite(data.updatedAt) && data.updatedAt > 0 && data.updatedAt <= Date.now()
+          ? data : null;
       } catch {
-        return entry.snapshot;
-      } finally {
-        clearTimeout(timer);
+        return null;
       }
     })();
-    try {
-      return await entry.pending;
-    } finally {
-      entry.pending = undefined;
-    }
-  }
-
-  return { peek, load };
+    snapshots.set(repository, snapshot);
+    return snapshot;
+  };
 }
 
-export const githubStars = createGitHubStarsClient();
+export const loadGitHubStars = createGitHubStarsLoader();
