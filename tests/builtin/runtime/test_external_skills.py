@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import os
 import stat
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolutionStatus,
     ExternalSkillSnapshotUnavailableError,
     SkillContent,
+    package_file,
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.review.generation import GenerationCapabilityUnavailableError
@@ -135,7 +137,7 @@ def test_explicit_external_skill_import_captures_exact_snapshot_and_enters_revie
         package = _write_skill(root)
         (package / "scripts").mkdir()
         script = package / "scripts" / "check.py"
-        script.write_text("print('exact external snapshot')\n", encoding="utf-8")
+        script.write_bytes(b"print('exact external snapshot')\n")
         script.chmod(0o755)
         (package / "references").mkdir()
         (package / "references" / "guide.md").write_text("# Exact guide\n", encoding="utf-8")
@@ -176,8 +178,12 @@ def test_explicit_external_skill_import_captures_exact_snapshot_and_enters_revie
                 "scripts/check.py",
             ]
             assert snapshot.archive_bytes
-            assert next(entry for entry in snapshot.entries if entry.path == "scripts/check.py").mode == 0o755
-            assert stat.S_IXUSR & script.stat().st_mode
+            expected_mode = 0o644 if os.name == "nt" else 0o755
+            assert next(entry for entry in snapshot.entries if entry.path == "scripts/check.py").mode == expected_mode
+            if os.name != "nt":
+                assert stat.S_IXUSR & script.stat().st_mode
+            for entry in snapshot.entries:
+                assert package_file(snapshot, entry.path) == (package / entry.path).read_bytes()
             assert (await scoped.list(ListExternalSkillsRequest()))[0].registration == registration
 
     asyncio.run(exercise())
