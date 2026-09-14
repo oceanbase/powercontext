@@ -30,8 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 from urllib.error import URLError
-from urllib.parse import unquote, urlparse
-from urllib.request import urlopen
+from urllib.parse import urlparse
+from urllib.request import url2pathname, urlopen
 from uuid import uuid4
 
 from powercontext.cli.git_source import InvalidGitHubSourceError, clone_github_source, github_clone_url
@@ -346,8 +346,11 @@ def _configured_plugin(output: str) -> bool:
         if not isinstance(spec, str):
             continue
         parsed = urlparse(spec)
-        raw = unquote(parsed.path) if parsed.scheme == "file" else spec
-        path = Path(raw)
+        if parsed.scheme == "file":
+            authority = f"//{parsed.netloc}" if parsed.netloc else ""
+            path = Path(url2pathname(f"{authority}{parsed.path}"))
+        else:
+            path = Path(spec)
         if _is_opencode_plugin(path) or _is_opencode_plugin(path.parent):
             return True
     return False

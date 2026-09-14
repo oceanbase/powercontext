@@ -401,7 +401,7 @@ def test_doctor_opencode_reports_plugin_and_skill(tmp_path: Path, monkeypatch) -
 def test_doctor_opencode_rejects_configured_but_inactive_plugin(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.opencode as opencode_cli
 
-    plugin = _write_plugin(tmp_path / "checkout")
+    plugin = _write_plugin(tmp_path / "checkout with spaces")
     config = tmp_path / "config"
     skill = config / "skills" / "project-context"
     opencode_cli._install_skill(plugin / "skills" / "project-context", skill)
@@ -426,3 +426,52 @@ def test_doctor_opencode_rejects_configured_but_inactive_plugin(tmp_path: Path, 
     payload = json.loads(result.output)
     assert payload["checks"]["plugin"]["status"] == "failed"
     assert "did not activate" in payload["checks"]["plugin"]["detail"]
+
+
+@pytest.mark.parametrize(
+    ("uri", "url_path", "expected"),
+    [
+        (
+            "file:///C:/Users/Alice/PowerContext%20Plugin",
+            "/C:/Users/Alice/PowerContext%20Plugin",
+            r"C:\Users\Alice\PowerContext Plugin",
+        ),
+        (
+            "file://server/share/PowerContext%20Plugin",
+            "//server/share/PowerContext%20Plugin",
+            r"\\server\share\PowerContext Plugin",
+        ),
+    ],
+)
+def test_configured_plugin_converts_windows_file_uris(uri: str, url_path: str, expected: str, monkeypatch) -> None:
+    import powercontext.cli.opencode as opencode_cli
+
+    def convert(path: str) -> str:
+        assert path == url_path
+        return expected
+
+    def is_plugin(path: Path) -> bool:
+        return str(path) == expected
+
+    monkeypatch.setattr(opencode_cli, "url2pathname", convert)
+    monkeypatch.setattr(opencode_cli, "_is_opencode_plugin", is_plugin)
+
+    assert opencode_cli._configured_plugin(json.dumps({"plugin": [uri]}))
+
+
+def test_configured_plugin_keeps_package_spec_out_of_file_uri_conversion(monkeypatch) -> None:
+    import powercontext.cli.opencode as opencode_cli
+
+    spec = "@example/powercontext-opencode"
+
+    def is_plugin(path: Path) -> bool:
+        return path == Path(spec)
+
+    monkeypatch.setattr(
+        opencode_cli,
+        "url2pathname",
+        lambda _path: pytest.fail("package specifications must not be converted as file URIs"),
+    )
+    monkeypatch.setattr(opencode_cli, "_is_opencode_plugin", is_plugin)
+
+    assert opencode_cli._configured_plugin(json.dumps({"plugin": [spec]}))
