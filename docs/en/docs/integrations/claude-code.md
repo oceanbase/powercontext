@@ -34,8 +34,8 @@ powercontext setup claude-code --server-url "$POWERCONTEXT_CLAUDE_SERVER_URL"
 ```
 
 Before changing Claude Code settings, setup reports the settings entry, plugin cache, persistent data location,
-required permissions, and exact rollback commands. It then registers the Marketplace, installs the plugin at user
-scope, and verifies the enabled plugin through Claude Code's JSON output.
+required permissions, and exact rollback commands. It then registers or refreshes the Marketplace, updates or installs
+the plugin at user scope, and verifies the enabled plugin through Claude Code's JSON output.
 
 Claude Code owns the Marketplace registry, versioned plugin cache, and plugin data directory. Claude 2.1.133 does not
 accept configuration flags on `plugin install`, so setup atomically merges `server_url` and `capture_prompts` into

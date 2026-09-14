@@ -36,7 +36,7 @@ sys.path.insert(0, str(_SCRIPTS_ROOT))
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from workspace_scope import open_bounded, resolve_scope_id  # noqa: E402
+from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -47,7 +47,7 @@ _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-claude-code-plugin/0.1.1",
+    "User-Agent": "powercontext-claude-code-plugin/0.1.2",
 }
 _FAILURE_OUTCOMES = frozenset({"authentication_failed", "version_mismatch", "server_unavailable", "invalid_response"})
 
@@ -355,6 +355,7 @@ def _read_response(
 ) -> bytes:
     """Read one response under a wall-clock deadline and a hard size bound."""
 
+    bind_response_deadline(response, deadline)
     content = bytearray()
     while True:
         _set_response_timeout(response, _remaining_time(deadline))

@@ -39,7 +39,7 @@ from scope_binding_errors import (  # noqa: E402
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
-from workspace_scope import open_bounded, resolve_scope_id  # noqa: E402
+from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _USER_AGENT = "powercontext-claude-code-statusline/0.1.0"
@@ -159,6 +159,7 @@ def _set_response_timeout(response: object, timeout: float) -> None:
 def _read_response(response: _ReadableResponse, *, deadline: float) -> bytes:
     """Read one response under a wall-clock deadline and a hard size bound."""
 
+    bind_response_deadline(response, deadline)
     content = bytearray()
     while True:
         _set_response_timeout(response, _remaining_time(deadline))

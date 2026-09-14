@@ -170,6 +170,65 @@ def test_render_aborts_a_slow_drip_at_the_absolute_budget(
     assert "PC offline" in rendered
 
 
+def test_render_aborts_a_slow_chunked_response_at_the_absolute_budget(
+    statusline_module: ModuleType,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    periods: list[str] = []
+
+    class ChunkedDripHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length))
+            if self.path == "/v1/scope-bindings/resolve":
+                payload = json.dumps({"scope_id": "project:test"}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+            periods.append(body["period"])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            # One chunk-extension byte per interval keeps every socket read
+            # inside its own timeout; only the absolute deadline can stop it.
+            self.wfile.write(b"1")
+            self.wfile.flush()
+            for _ in range(200):
+                try:
+                    self.wfile.write(b";")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                time.sleep(0.05)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    monkeypatch.setattr(
+        statusline_module.sys,
+        "stdin",
+        StringIO(json.dumps({"workspace": {"current_dir": str(tmp_path)}})),
+    )
+    with _serve(ChunkedDripHandler) as server_url:
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_SERVER_URL", server_url)
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS", "5.0")
+        monkeypatch.setenv("POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS", "0.2")
+        started = time.monotonic()
+        rendered = statusline_module.render("http://127.0.0.1:9000")
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert periods == ["today"]
+    assert "PC offline" in rendered
+
+
 def test_render_fails_open_without_writing_diagnostics(statusline_module: ModuleType, monkeypatch) -> None:
     monkeypatch.setattr(statusline_module.sys, "stdin", StringIO("not-json"))
 

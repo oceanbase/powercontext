@@ -37,7 +37,7 @@ def test_repository_exposes_a_claude_marketplace() -> None:
             "name": "powercontext",
             "source": "./integrations/claude-code/plugins/powercontext",
             "description": "Restore project memory and transfer current work from Claude Code",
-            "version": "0.1.1",
+            "version": "0.1.2",
             "category": "Productivity",
         }
     ]
@@ -47,7 +47,7 @@ def test_plugin_uses_standard_component_discovery() -> None:
     manifest = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
 
     assert manifest["name"] == "powercontext"
-    assert manifest["version"] == "0.1.1"
+    assert manifest["version"] == "0.1.2"
     assert "hooks" not in manifest
     assert "mcpServers" not in manifest
     assert (PLUGIN_ROOT / "hooks" / "hooks.json").is_file()

@@ -286,6 +286,44 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
     assert "--server-url http://127.0.0.1:9000" in statusline["command"]
 
 
+def test_setup_claude_code_refreshes_the_marketplace_and_plugin_before_installing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_dir = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    monkeypatch.setattr(system_cli, "which", lambda name: "/usr/bin/claude" if name == "claude" else None)
+    installed = [{"id": "powercontext@powercontext", "version": "0.1.1", "enabled": True}]
+    refreshed = [{"id": "powercontext@powercontext", "version": "0.1.2", "enabled": True}]
+    monkeypatch.setattr(
+        system_cli,
+        "_run_claude_json",
+        Mock(
+            side_effect=[
+                [{"name": "powercontext", "source": "github", "repo": "oceanbase/powercontext", "ref": "master"}],
+                installed,
+                refreshed,
+            ]
+        ),
+    )
+    run_claude = Mock()
+    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+
+    result = system_cli.install_claude_code_plugin(
+        source="oceanbase/powercontext",
+        ref="master",
+        server_url="http://127.0.0.1:9000",
+        capture_prompts=True,
+    )
+
+    assert result.plugin_version == "0.1.2"
+    assert [call.args for call in run_claude.call_args_list] == [
+        ("plugin", "marketplace", "update", "powercontext"),
+        ("plugin", "update", "powercontext@powercontext", "--scope", "user"),
+        ("plugin", "install", "powercontext@powercontext", "--scope", "user"),
+    ]
+
+
 def test_setup_claude_code_rolls_back_only_new_objects_after_verification_failure(monkeypatch) -> None:
     monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], [], []]))
@@ -351,7 +389,11 @@ def test_setup_claude_code_preserves_preexisting_objects_on_failure(tmp_path: Pa
             capture_prompts=True,
         )
 
-    assert [call.args[:2] for call in run_claude.call_args_list] == [("plugin", "install")]
+    assert [call.args[:2] for call in run_claude.call_args_list] == [
+        ("plugin", "marketplace"),
+        ("plugin", "update"),
+        ("plugin", "install"),
+    ]
     assert json.loads(settings_file.read_text(encoding="utf-8")) == previous_settings
 
 
@@ -409,7 +451,11 @@ def test_setup_claude_code_restores_a_preexisting_disabled_plugin_after_failure(
             capture_prompts=True,
         )
 
-    assert [call.args[:2] for call in run_claude_mock.call_args_list] == [("plugin", "install")]
+    assert [call.args[:2] for call in run_claude_mock.call_args_list] == [
+        ("plugin", "marketplace"),
+        ("plugin", "update"),
+        ("plugin", "install"),
+    ]
     assert json.loads(settings_file.read_text(encoding="utf-8")) == previous_settings
 
 

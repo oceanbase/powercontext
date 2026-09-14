@@ -229,6 +229,50 @@ def _remaining_time(deadline: float) -> float:
     return remaining
 
 
+class _DeadlineSocket:
+    """Enforce one absolute deadline on every response socket read.
+
+    ``http.client`` can consume many socket reads inside a single ``read`` call
+    while it parses chunk framing, so tightening the socket timeout once per
+    bounded read cannot stop a server that trickles chunk extensions. Recomputing
+    the timeout before every receive keeps the caller's absolute deadline,
+    framing included.
+    """
+
+    def __init__(self, sock: Any, deadline: float) -> None:
+        self._sock = sock
+        self._deadline = deadline
+
+    def _remaining_time(self) -> float:
+        remaining = self._deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        return remaining
+
+    def recv(self, *args: Any) -> Any:
+        self._sock.settimeout(self._remaining_time())
+        return self._sock.recv(*args)
+
+    def recv_into(self, *args: Any) -> Any:
+        self._sock.settimeout(self._remaining_time())
+        return self._sock.recv_into(*args)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._sock, name)
+
+
+def bind_response_deadline(response: object, deadline: float) -> None:
+    """Keep every socket read of one open response inside the absolute deadline."""
+
+    raw: Any = getattr(getattr(response, "fp", None), "raw", None)
+    if raw is None:
+        return
+    sock = getattr(raw, "_sock", None)
+    if sock is None or isinstance(sock, _DeadlineSocket) or not hasattr(sock, "recv_into"):
+        return
+    raw._sock = _DeadlineSocket(sock, deadline)
+
+
 def _set_response_timeout(response: object, timeout: float) -> None:
     """Tighten urllib's socket timeout before each bounded read."""
 
@@ -240,6 +284,7 @@ def _set_response_timeout(response: object, timeout: float) -> None:
 
 
 def _read_bounded(response: _Response, *, deadline: float) -> bytes:
+    bind_response_deadline(response, deadline)
     chunks: list[bytes] = []
     size = 0
     while True:

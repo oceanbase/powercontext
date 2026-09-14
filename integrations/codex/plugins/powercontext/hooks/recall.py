@@ -37,7 +37,7 @@ sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from scope_binding import open_bounded, resolve_scope_id  # noqa: E402
+from scope_binding import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -373,6 +373,7 @@ def _read_response(
 ) -> bytes:
     """Read one response under a wall-clock deadline and a hard size bound."""
 
+    bind_response_deadline(response, deadline)
     content = bytearray()
     while True:
         _set_response_timeout(response, _remaining_time(deadline))

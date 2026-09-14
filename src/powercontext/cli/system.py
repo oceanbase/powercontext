@@ -1156,6 +1156,19 @@ def install_claude_code_plugin(
         if not marketplace_existed:
             _run_claude("plugin", "marketplace", "add", marketplace_source, "--scope", "user")
             marketplace_added = True
+        else:
+            # An existing marketplace and plugin keep their cached version until
+            # both are refreshed, so setup would otherwise configure a status
+            # line for a cache this release never wrote.
+            _run_claude("plugin", "marketplace", "update", CLAUDE_MARKETPLACE_NAME)
+        if plugin_existed:
+            _run_claude(
+                "plugin",
+                "update",
+                f"{PLUGIN_NAME}@{CLAUDE_MARKETPLACE_NAME}",
+                "--scope",
+                "user",
+            )
         _run_claude(
             "plugin",
             "install",

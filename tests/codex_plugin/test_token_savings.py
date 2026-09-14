@@ -410,6 +410,64 @@ def test_two_stat_windows_share_one_absolute_budget(
     assert events[0]["recovery"] == "powercontext doctor"
 
 
+def test_chunked_drip_respects_the_absolute_budget(
+    token_savings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    periods: list[str] = []
+
+    class ChunkedDripHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length))
+            if self.path == "/v1/scope-bindings/resolve":
+                payload = json.dumps({"scope_id": "project:test"}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+            periods.append(body["period"])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            # One chunk-extension byte per interval keeps every socket read
+            # inside its own timeout; only the absolute deadline can stop it.
+            self.wfile.write(b"1")
+            self.wfile.flush()
+            for _ in range(200):
+                try:
+                    self.wfile.write(b";")
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                time.sleep(0.05)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    with _serve(ChunkedDripHandler) as server_url:
+        settings = _settings(
+            token_savings_module,
+            server_url,
+            request_timeout_seconds=5.0,
+            http_budget_seconds=0.2,
+        )
+        started = time.monotonic()
+        output = _run_main(token_savings_module, monkeypatch, settings)
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert periods == ["today"]
+    events = _diagnostics(output)
+    assert [event["outcome"] for event in events] == ["server_unavailable"]
+    assert events[0]["recovery"] == "powercontext doctor"
+
+
 def test_non_stop_payloads_stay_silent(
     token_savings_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
