@@ -13,13 +13,13 @@ standards, and submission instructions, see the
 - Participation is open to individuals, companies, and research institutions. Contributions include code, documentation,
   tests, design discussions, user support, and tool integrations.
 - Roles and permissions are based on sustained contributions, sound judgment, and constructive collaboration.
-  Organizational affiliation, commercial partnerships, or sponsorship do not automatically grant authority over project
+  Organizational affiliation, commercial partnerships, and sponsorship do not automatically grant authority over project
   decisions.
 - Technical proposals and governance decisions are recorded in GitHub issues, pull requests, RFCs, or meeting notes,
   together with their rationale.
-- When reviewing changes, consider user needs, technical quality, compatibility, ongoing maintenance costs, and the
-  impact on existing users.
-- Seek consensus through discussion and record decisions and their rationale.
+- Reviews consider user needs, technical quality, compatibility, ongoing maintenance costs, and the impact on existing
+  users.
+- The project seeks consensus through discussion.
 
 ## Governance structure and roles
 
@@ -41,7 +41,7 @@ documented in the appointment record.
 The PMC consists of core contributors with a sustained record of involvement in the project. Its responsibilities are to:
 
 - Set development priorities based on user needs and maintenance capacity.
-- Discuss governance policies, module team responsibilities, and Maintainer appointments or removals.
+- Review governance policies, define module team responsibilities, and decide on Maintainer appointments and removals.
 - Resolve major technical disagreements, community disputes, and appeals, and record decisions and their rationale.
 - Support contributor growth and collaboration with other projects and organizations.
 
@@ -51,13 +51,13 @@ code and publish releases are granted separately according to each Maintainer's 
 ### Maintainer responsibilities
 
 - Handle issues, review code and designs, and coordinate development.
-- Maintain code, tests, and documentation. Check compatibility, validate and publish releases, and explain upgrade
+- Maintain code, tests, and documentation. Check compatibility, validate and publish releases, and document upgrade
   requirements.
 - Help contributors get involved, assess Reviewer nominations, and recommend Maintainer candidates to the PMC.
 - Facilitate regular discussions, record important conclusions, and refer unresolved disagreements to the PMC.
 
-A proposal to establish a module maintenance team must publicly identify its members and responsibilities and receive
-PMC approval. These teams handle routine work within their assigned scope. Changes affecting public interfaces,
+Establishing a module maintenance team requires a public proposal identifying its members and responsibilities, subject
+to PMC approval. These teams handle routine work within their assigned scope. Changes affecting public interfaces,
 behavior across modules, or governance follow the project's standard processes.
 
 ## Decision making
@@ -68,8 +68,9 @@ Bug fixes, documentation updates, and improvements with a clear scope use the pu
 changes must pass the required checks and receive approval from at least one Reviewer or Maintainer responsible for the
 relevant area. Authors cannot approve their own changes. A Maintainer with the appropriate permissions merges the change.
 
-Maintainers may require review from multiple areas for changes that span modules, affect compatibility, or carry greater
-risk. When declining a suggestion or closing a proposal, they should explain the reason.
+Maintainers may require review by contributors with expertise in each affected area for changes that span modules,
+affect compatibility, or carry greater risk. They should explain their reasons for declining suggestions or closing
+proposals.
 
 ### Substantial technical changes
 
@@ -77,41 +78,41 @@ New public APIs, changes to persisted formats or handoff semantics, removal of r
 architecture should follow the [RFC process](https://github.com/oceanbase/powercontext/blob/master/docs/en/rfcs/README.md).
 
 An RFC should describe the problem, objectives, proposed design, alternatives, and effects on existing users and
-implementations. Once feedback has been addressed and consensus reached, a Maintainer records the decision and merges
-the RFC. Matters affecting overall project direction or unresolved disagreements across modules first go to the PMC
-for discussion and a decision.
+implementations. Once feedback has been addressed and consensus has been reached, a Maintainer records the decision and
+merges the RFC. Matters affecting overall project direction and unresolved disagreements across modules must be referred
+to the PMC for a decision before the RFC is merged.
 
-Merging an RFC accepts the design. Implementation plans, priority, and release timing are determined separately.
+A merged RFC records an accepted design. Implementation plans, priority, and release timing are determined separately.
 
-## Contributor development
+## Contributor roles and appointments
 
 ### Becoming a Reviewer
 
-Contributors who regularly contribute in an area, understand project conventions, and provide reliable reviews may
-nominate themselves or be nominated by a Maintainer. A nomination should describe relevant contributions and the proposed
-scope of responsibility and must have the candidate's consent.
+Contributors may nominate themselves for a Reviewer role if they contribute regularly in an area, understand project
+conventions, and provide reliable reviews. A Maintainer may also nominate a contributor. Nominations should describe
+relevant contributions and the proposed scope of responsibility and must have the candidate's consent.
 
-Maintainers discuss and decide Reviewer appointments. Evaluation considers contribution quality, understanding of the
-area, and collaboration, rather than submission counts alone.
+Maintainers discuss nominations and decide on Reviewer appointments. They consider the quality of contributions,
+knowledge of the relevant area, and collaboration skills. The number of submissions alone does not determine eligibility.
 
 ### Becoming a Maintainer
 
-Contributors who consistently undertake review and maintenance work, help resolve design disagreements, and consider the
-project's future may nominate themselves or be nominated by an existing Maintainer or PMC member. Candidates should
+Contributors who consistently carry out review and maintenance work, help resolve design disagreements, and consider the
+project's long-term needs may nominate themselves or be nominated by a Maintainer or PMC member. Candidates should
 describe the work and scope they are willing to take on.
 
-The PMC discusses and decides Maintainer appointments. Once approved, the roster is updated, permissions are configured,
-and responsibilities are handed over.
+The PMC discusses nominations and decides on Maintainer appointments. Following approval, the roster is updated,
+permissions are configured, and responsibilities are assigned.
 
 ### Becoming a PMC member
 
-Core contributors may nominate themselves or be nominated by an existing Maintainer or PMC member. Candidates should
-have a sustained record of contributions and be able to assess technical tradeoffs for the project as a whole. They
-should also have earned trust through collaboration across modules, contributor support, or community governance.
+Core contributors may nominate themselves or be nominated by a Maintainer or PMC member. Candidates should have a
+sustained record of contributions and be able to assess technical tradeoffs for the project as a whole. They should also
+have earned trust through collaboration across modules, contributor support, or community governance.
 
-A nomination should describe relevant contributions, governance experience, and the responsibilities the candidate is
-willing to undertake, with the candidate's consent. The current PMC discusses and decides the appointment, and the roster
-is updated upon approval.
+A nomination should describe the candidate's relevant contributions, governance experience, and proposed responsibilities
+and must have the candidate's consent. The current PMC discusses the nomination and decides on the appointment. The
+roster is updated upon approval.
 
 ## Community participation and communication
 
@@ -125,15 +126,15 @@ designs, and building integrations with agents and tools.
 | [RFCs](https://github.com/oceanbase/powercontext/tree/master/docs/en/rfcs)                            | Design proposals and decision records.                               |
 | [Meeting notes](https://github.com/oceanbase/powercontext/discussions?discussions_q=is%3Aopen+weekly) | Discussions, demos, decisions, and follow-up responsibilities.       |
 
-Important conclusions from informal discussions or meetings should be recorded in the relevant issue, pull request,
-RFC, or meeting notes and confirmed through the project's processes.
+Decisions reached in informal discussions or meetings should be recorded in the relevant issue, pull request, RFC, or
+meeting notes and confirmed through the project's decision-making process.
 
 Participants should respect different backgrounds and levels of experience, focus on the issues being discussed, and
 avoid personal attacks, discrimination, and harassment. Anyone who disagrees with the handling of a community matter
 may appeal to the PMC. Members not involved in the matter will review the appeal.
 
-Contributors using AI tools are responsible for understanding and verifying their submissions. They should disclose their
-AI use as requested in the
+Contributors who use AI tools are responsible for understanding and verifying their submissions. They should disclose
+their use of AI as required by the
 [pull request template](https://github.com/oceanbase/powercontext/blob/master/.github/pull_request_template.md).
 
 ## Member roster and document maintenance
@@ -159,7 +160,8 @@ AI use as requested in the
 When a Reviewer appointment is approved, a Maintainer updates the roster to record the member's GitHub account, role,
 scope of responsibility, and active status.
 
-The PMC confirms roles and their scope of authority. Maintainers help update the roster and configure access so that
-the roster matches actual permissions. Changes to this document are proposed through pull requests that explain their
-rationale and impact. The PMC discusses and approves each change before merge, with discussions and decisions retained
-on GitHub.
+Role appointments follow the processes described above. The PMC confirms the scope of authority for each role.
+Maintainers keep the roster and access permissions up to date following approved appointments or role changes.
+
+Changes to this document are proposed through pull requests that explain their rationale and impact. The PMC reviews
+and approves each change before it is merged. Discussions and decisions are recorded on GitHub.
