@@ -67,6 +67,8 @@ header:
     - '**/*.jsonl'
     # license-eye cannot determine the comment style of patch files.
     - '**/*.patch'
+    # license-eye cannot determine the comment style of Mermaid diagrams.
+    - '**/*.mermaid'
     # license-eye cannot determine the comment style of uv requirements files.
     - 'e2e/bub/source-overrides.txt'
 

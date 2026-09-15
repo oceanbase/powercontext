@@ -5079,10 +5079,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "inventory": {"$ref": "#/components/schemas/InventoryStatistics"},
                     "usage": {"$ref": "#/components/schemas/UsageStatistics"},
                     "recall": {"$ref": "#/components/schemas/RecallTokenStatistics"},
+                    "recurrence": {"$ref": "#/components/schemas/RecurrenceStatistics"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["scope_id", "inventory", "usage", "recall"],
+                "required": ["scope_id", "inventory", "usage", "recall", "recurrence"],
             },
             "ScopedStats": {
                 "properties": {
@@ -5904,10 +5905,85 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "action": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
                     "outcome": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
                     "lesson": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "failure": {"$ref": "#/components/schemas/FailureRecord", "nullable": True},
                 },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["situation", "action", "outcome", "lesson"],
+            },
+            "RepairSurface": {
+                "type": "string",
+                "enum": ["experience_content", "working_state", "recall_policy", "acceptance_check"],
+            },
+            "FailureSignature": {
+                "properties": {
+                    "recall_cue": {"type": "string", "maxLength": 512, "minLength": 1, "pattern": ".*\\S.*"},
+                    "symptom": {
+                        "type": "string",
+                        "maxLength": 8000,
+                        "minLength": 1,
+                        "pattern": ".*\\S.*",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["recall_cue"],
+            },
+            "FailureVerification": {
+                "properties": {
+                    "condition": {"type": "string", "maxLength": 8000, "minLength": 1, "pattern": ".*\\S.*"},
+                    "check_subject": {"type": "string", "maxLength": 512, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["condition", "check_subject"],
+            },
+            "FailureRecord": {
+                "properties": {
+                    "signature": {"$ref": "#/components/schemas/FailureSignature"},
+                    "repair_surface": {"$ref": "#/components/schemas/RepairSurface"},
+                    "verification": {"$ref": "#/components/schemas/FailureVerification"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["signature", "repair_surface", "verification"],
+            },
+            "RecurrenceStreak": {
+                "properties": {
+                    "artifact_ref": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "signature_key": {"type": "string"},
+                    "terminal_recurred_streak": {"type": "integer", "minimum": 0.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["artifact_ref", "signature_key", "terminal_recurred_streak"],
+            },
+            "RecurrenceStatistics": {
+                "properties": {
+                    "selected": {"type": "integer", "minimum": 0.0},
+                    "recurred": {"type": "integer", "minimum": 0.0},
+                    "avoided": {"type": "integer", "minimum": 0.0},
+                    "unknown": {"type": "integer", "minimum": 0.0},
+                    "unlinked_handoff_citations": {"type": "integer", "minimum": 0.0},
+                    "needing_review": {"type": "integer", "minimum": 0.0},
+                    "top_revisions": {
+                        "items": {"$ref": "#/components/schemas/RecurrenceStreak"},
+                        "type": "array",
+                        "maxItems": 20,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "selected",
+                    "recurred",
+                    "avoided",
+                    "unknown",
+                    "unlinked_handoff_citations",
+                    "needing_review",
+                    "top_revisions",
+                ],
             },
             "SkillArtifact": {
                 "properties": {

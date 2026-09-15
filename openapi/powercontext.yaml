@@ -5716,7 +5716,7 @@ components:
     ScopeStats:
       type: object
       additionalProperties: false
-      required: [scope_id, inventory, usage, recall]
+      required: [scope_id, inventory, usage, recall, recurrence]
       properties:
         scope_id:
           type: string
@@ -5726,6 +5726,8 @@ components:
           $ref: "#/components/schemas/UsageStatistics"
         recall:
           $ref: "#/components/schemas/RecallTokenStatistics"
+        recurrence:
+          $ref: "#/components/schemas/RecurrenceStatistics"
     ScopedStats:
       type: object
       additionalProperties: false
@@ -6768,6 +6770,103 @@ components:
           minLength: 1
           maxLength: 8000
           pattern: '.*\S.*'
+        failure:
+          $ref: "#/components/schemas/FailureRecord"
+          nullable: true
+    RepairSurface:
+      type: string
+      enum: [experience_content, working_state, recall_policy, acceptance_check]
+    FailureSignature:
+      type: object
+      additionalProperties: false
+      required: [recall_cue]
+      properties:
+        recall_cue:
+          type: string
+          minLength: 1
+          maxLength: 512
+          pattern: '.*\S.*'
+        symptom:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          pattern: '.*\S.*'
+          nullable: true
+    FailureVerification:
+      type: object
+      additionalProperties: false
+      required: [condition, check_subject]
+      properties:
+        condition:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          pattern: '.*\S.*'
+        check_subject:
+          type: string
+          minLength: 1
+          maxLength: 512
+          pattern: '.*\S.*'
+    FailureRecord:
+      type: object
+      additionalProperties: false
+      required: [signature, repair_surface, verification]
+      properties:
+        signature:
+          $ref: "#/components/schemas/FailureSignature"
+        repair_surface:
+          $ref: "#/components/schemas/RepairSurface"
+        verification:
+          $ref: "#/components/schemas/FailureVerification"
+    RecurrenceStreak:
+      type: object
+      additionalProperties: false
+      required: [artifact_ref, signature_key, terminal_recurred_streak]
+      properties:
+        artifact_ref:
+          $ref: "#/components/schemas/ArtifactReference"
+        signature_key:
+          type: string
+        terminal_recurred_streak:
+          type: integer
+          minimum: 0
+    RecurrenceStatistics:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          selected,
+          recurred,
+          avoided,
+          unknown,
+          unlinked_handoff_citations,
+          needing_review,
+          top_revisions,
+        ]
+      properties:
+        selected:
+          type: integer
+          minimum: 0
+        recurred:
+          type: integer
+          minimum: 0
+        avoided:
+          type: integer
+          minimum: 0
+        unknown:
+          type: integer
+          minimum: 0
+        unlinked_handoff_citations:
+          type: integer
+          minimum: 0
+        needing_review:
+          type: integer
+          minimum: 0
+        top_revisions:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/RecurrenceStreak"
     SkillArtifact:
       type: object
       additionalProperties: false

@@ -33,12 +33,20 @@ class ExperienceSearchHit(BaseModel):
 def render_experience(content: ExperienceContent, /) -> str:
     """Render complete typed Experience content for bounded context delivery."""
 
-    return "\n".join((
+    lines = [
         f"Situation: {content.situation}",
         f"Action: {content.action}",
         f"Outcome: {content.outcome}",
         f"Lesson: {content.lesson}",
-    ))
+    ]
+    if content.failure is not None:
+        lines.append(f"Failure cue: {content.failure.signature.recall_cue}")
+        if content.failure.signature.symptom is not None:
+            lines.append(f"Symptom: {content.failure.signature.symptom}")
+        lines.append(f"Repair surface: {content.failure.repair_surface}")
+        lines.append(f"Verification condition: {content.failure.verification.condition}")
+        lines.append(f"Verification check: {content.failure.verification.check_subject}")
+    return "\n".join(lines)
 
 
 def experience_searchable_text(content: ExperienceContent, /) -> str:
@@ -50,7 +58,12 @@ def experience_searchable_text(content: ExperienceContent, /) -> str:
 def experience_search_text(content: ExperienceContent, /) -> str:
     """Return only user-authored fields so renderer labels cannot cause matches."""
 
-    return "\n".join((content.situation, content.action, content.outcome, content.lesson))
+    fields = [content.situation, content.action, content.outcome, content.lesson]
+    if content.failure is not None:
+        fields.append(content.failure.signature.recall_cue)
+        if content.failure.signature.symptom is not None:
+            fields.append(content.failure.signature.symptom)
+    return "\n".join(fields)
 
 
 __all__ = ["ExperienceSearchHit", "experience_search_text", "experience_searchable_text", "render_experience"]

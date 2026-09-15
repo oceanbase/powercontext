@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Generic, TypeVar
 
-from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 from powercontext.errors import InvalidArtifactReferenceError
 from powercontext.limits import MAX_ARTIFACT_FAMILY_LENGTH, MAX_ARTIFACT_ID_LENGTH, MAX_SCOPE_ID_LENGTH
@@ -42,6 +42,17 @@ class ArtifactRef(BaseModel):
         if len(value) > maximum:
             raise InvalidArtifactReferenceError(info.field_name, f"must not exceed {maximum} characters")
         return value
+
+
+class _ArtifactValue(BaseModel):
+    """Shared immutable configuration for artifact-family content values.
+
+    ``strict=True`` is deliberately omitted: Experience values are produced by
+    generators and HTTP mapping through the lenient coercion path today, and
+    tightening them is a behavior change outside this family's contract.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class MemoryCitation(BaseModel):

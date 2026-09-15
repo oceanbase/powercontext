@@ -361,7 +361,7 @@ def test_experience_and_skill_base_writes_are_visible_through_existing_apis(tmp_
             loaded_experience = await client.get_experience(
                 GetExperienceRequest(scope_id=scope_id, artifact=experience_ref)
             )
-            assert loaded_experience.content.model_dump() == experience_content
+            assert loaded_experience.content.model_dump(exclude_none=True) == experience_content
 
             skill = await client.create_artifact(
                 scope_id,

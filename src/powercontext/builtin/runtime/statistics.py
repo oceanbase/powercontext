@@ -20,19 +20,37 @@ from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.artifacts import ArtifactRef
+from powercontext.builtin.artifacts.experience.models import ExperienceContent
+from powercontext.builtin.artifacts.experience.recurrence import (
+    MAX_RECURRENCE_HANDOFF_SCAN,
+    RECURRENCE_REVIEW_STREAK_THRESHOLD,
+    RecurrenceObservation,
+    signature_key,
+    terminal_streak,
+)
+from powercontext.builtin.artifacts.handoff import Handoff
+from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory import MemoryService
 from powercontext.builtin.inference import InferenceUsage, TokenEstimatorProfile
+from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.errors import RepositoryNotFoundError
+from powercontext.builtin.persistence.recurrence import RecurrenceRepository
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
+from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE
+from powercontext.builtin.runtime.recurrence import handoff_experience_citations
 from powercontext.builtin.scope import ScopeSelection
 from powercontext.builtin.statistics import (
+    MAX_RECURRENCE_TOP_REVISIONS,
     ArtifactInventoryStatistics,
     CandidateFamilyCount,
     CandidateInventoryStatistics,
@@ -51,6 +69,8 @@ from powercontext.builtin.statistics import (
     RecallTokenMeasurement,
     RecallTokenStatistics,
     RecallTokenValue,
+    RecurrenceStatistics,
+    RecurrenceStreak,
     ResolvedUsagePeriod,
     ScopeStatistics,
     SourceInventoryStatistics,
@@ -82,6 +102,8 @@ class RelationalScopedStatistics:
         memory_service: MemoryServiceFactory,
         cursors: SourceCursorRepository,
         repository: StatisticsRepository,
+        recurrence: RecurrenceRepository,
+        artifacts: ArtifactRepository,
         token_estimator: TokenEstimatorProfile | None,
     ) -> None:
         self._database = database
@@ -90,6 +112,8 @@ class RelationalScopedStatistics:
         self._memory_service = memory_service
         self._cursors = cursors
         self._repository = repository
+        self._recurrence = recurrence
+        self._artifacts = artifacts
         self._token_estimator = token_estimator
 
     async def overview(self, period: StatisticsPeriod, as_of: datetime, /) -> Statistics:
@@ -121,6 +145,12 @@ class RelationalScopedStatistics:
                     estimator_version=self._token_estimator.version,
                 )
             )
+            observations = await self._recurrence.observations(connection, self._scope_id)
+            unlinked = await self._recurrence.unlinked_handoff_citations(
+                connection,
+                self._scope_id,
+                await self._cited_keys(connection),
+            )
 
         processed = 0 if cursor is None else cursor.cursor.sequence
         artifacts = tuple(FamilyCount(family=family, total=total) for family, total in stored_inventory.artifacts)
@@ -140,6 +170,7 @@ class RelationalScopedStatistics:
         )
         usage = _usage_statistics(resolved_period, usage_rows)
         recall = _recall_statistics(resolved_period, self._token_estimator, recall_rows)
+        recurrence = _recurrence_statistics(observations, unlinked_handoff_citations=unlinked)
         return Statistics(
             selection=ScopeSelection(mode="exact", scope_ids=(self._scope_id,)),
             scope_ids=(self._scope_id,),
@@ -153,6 +184,7 @@ class RelationalScopedStatistics:
                     inventory=inventory,
                     usage=usage,
                     recall=recall,
+                    recurrence=recurrence,
                 ),
             ),
         )
@@ -186,6 +218,61 @@ class RelationalScopedStatistics:
                 measurement,
             )
 
+    async def _cited_keys(self, connection: AsyncConnection) -> tuple[tuple[str, str, int, str], ...]:
+        """Return the Experience signature keys this scope's Handoffs currently cite.
+
+        The scan is bounded and read-only: it only reports the provenance coverage
+        gap between citations the ledger can see and Observations it could attach.
+        """
+
+        rows = (
+            await connection.execute(
+                select(
+                    ARTIFACT_HEADS_TABLE.c.artifact_id,
+                    ARTIFACT_HEADS_TABLE.c.revision,
+                )
+                .where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == self._scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == Handoff.family,
+                    ARTIFACT_HEADS_TABLE.c.lifecycle_state == "active",
+                )
+                .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
+                .limit(MAX_RECURRENCE_HANDOFF_SCAN)
+            )
+        ).all()
+        if not rows:
+            return ()
+        handoffs = await self._artifacts.get_many(
+            connection,
+            self._scope_id,
+            tuple(ArtifactRef(family=Handoff.family, artifact_id=str(row[0]), revision=int(row[1])) for row in rows),
+        )
+        cited: list[ArtifactRef] = []
+        for handoff in handoffs:
+            if isinstance(handoff.content, HandoffContent):
+                cited.extend(handoff_experience_citations(handoff.content))
+        if not cited:
+            return ()
+        experiences = []
+        for ref in cited:
+            try:
+                experiences.append(await self._artifacts.get(connection, self._scope_id, ref))
+            except RepositoryNotFoundError:
+                continue
+        keys: set[tuple[str, str, int, str]] = set()
+        for experience in experiences:
+            content = experience.content
+            if not isinstance(content, ExperienceContent) or content.failure is None:
+                continue
+            ref = experience.as_ref()
+            keys.add((
+                ref.family,
+                ref.artifact_id,
+                ref.revision,
+                signature_key(content.failure.signature.recall_cue),
+            ))
+        return tuple(sorted(keys))
+
     async def _memory_entries(self, connection: AsyncConnection) -> tuple[tuple[str, str], ...]:
         service = self._memory_service(connection)
         try:
@@ -195,6 +282,101 @@ class RelationalScopedStatistics:
         entries = await service.entries(memory)
         states = {item.entry_id: item.state for item in memory.content.manifest.entries}
         return tuple((entry.kind, states[entry.entry_id]) for entry in entries)
+
+
+def _recurrence_statistics(
+    observations: tuple[RecurrenceObservation, ...],
+    /,
+    *,
+    unlinked_handoff_citations: int,
+) -> RecurrenceStatistics:
+    """Derive every recurrence reading from positive evidence already in the ledger.
+
+    ``unknown`` is reported alongside the counters but is never a ledger row: it
+    counts linked selections whose Task Outcome never received a terminal verdict.
+    """
+
+    selected = tuple(item for item in observations if item.event == "selected")
+    recurred = tuple(item for item in observations if item.event == "recurred")
+    avoided = tuple(item for item in observations if item.event == "avoided")
+    verdicted = {
+        (
+            verdict.artifact_ref.family,
+            verdict.artifact_ref.artifact_id,
+            verdict.artifact_ref.revision,
+            verdict.signature_key,
+            verdict.task_outcome_ref.source_type,
+            verdict.task_outcome_ref.source_id,
+        )
+        for verdict in (*recurred, *avoided)
+    }
+    unknown = sum(
+        1
+        for item in selected
+        if (
+            item.artifact_ref.family,
+            item.artifact_ref.artifact_id,
+            item.artifact_ref.revision,
+            item.signature_key,
+            item.task_outcome_ref.source_type,
+            item.task_outcome_ref.source_id,
+        )
+        not in verdicted
+    )
+    return RecurrenceStatistics(
+        selected=len(selected),
+        recurred=len(recurred),
+        avoided=len(avoided),
+        unknown=unknown,
+        unlinked_handoff_citations=unlinked_handoff_citations,
+        needing_review=_needing_review(observations),
+        top_revisions=_top_revisions(observations),
+    )
+
+
+def _streaks(observations: tuple[RecurrenceObservation, ...], /) -> tuple[RecurrenceStreak, ...]:
+    groups: dict[tuple[str, str, int, str], list[RecurrenceObservation]] = defaultdict(list)
+    for item in observations:
+        if item.event == "selected":
+            continue
+        groups[
+            (
+                item.artifact_ref.family,
+                item.artifact_ref.artifact_id,
+                item.artifact_ref.revision,
+                item.signature_key,
+            )
+        ].append(item)
+    return tuple(
+        RecurrenceStreak(
+            artifact_ref=ArtifactRef(family=family, artifact_id=artifact_id, revision=revision),
+            signature_key=key,
+            terminal_recurred_streak=terminal_streak(tuple(verdicts)),
+        )
+        for (family, artifact_id, revision, key), verdicts in sorted(groups.items())
+    )
+
+
+def _needing_review(observations: tuple[RecurrenceObservation, ...], /) -> int:
+    return sum(
+        1 for streak in _streaks(observations) if streak.terminal_recurred_streak >= RECURRENCE_REVIEW_STREAK_THRESHOLD
+    )
+
+
+def _top_revisions(observations: tuple[RecurrenceObservation, ...], /) -> tuple[RecurrenceStreak, ...]:
+    """Order by streak descending, then identity ascending, and only then truncate."""
+
+    ordered = sorted(
+        _streaks(observations),
+        key=lambda streak: (
+            -streak.terminal_recurred_streak,
+            streak.artifact_ref.family,
+            streak.artifact_ref.artifact_id,
+            streak.artifact_ref.revision,
+            streak.signature_key,
+        ),
+    )
+    return tuple(ordered[:MAX_RECURRENCE_TOP_REVISIONS])
 
 
 def _as_utc(value: datetime) -> datetime:

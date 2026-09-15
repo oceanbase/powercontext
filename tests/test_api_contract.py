@@ -507,7 +507,7 @@ def test_experience_skill_and_review_operations_are_typed_and_family_routed() ->
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
-    assert set(schemas["ExperienceProposal"]["properties"]) == {"situation", "action", "outcome", "lesson"}
+    assert set(schemas["ExperienceProposal"]["properties"]) == {"situation", "action", "outcome", "lesson", "failure"}
     assert set(schemas["SkillProposal"]["properties"]) == {
         "name",
         "description",
