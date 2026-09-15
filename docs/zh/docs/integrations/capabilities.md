@@ -39,3 +39,4 @@ candidate_review 仅可列举和读取候选材料，不授予决策权限。
 | langchain | 框架适配器 | 仅 master | — | source_capture<br>context_injection |
 | langgraph | 框架适配器 | 仅 master | — | memory_read<br>memory_write<br>context_injection |
 | bub | 评测 harness | 仅 master | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint |
+| dify | 框架适配器 | 实验性 | — | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint |
