@@ -465,6 +465,18 @@ capabilities = ["handoff"]
 id = "pc_handoff_continue:continue_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
+id = "pc_work_contract:create_work_contract"
+capabilities = ["work_contract"]
+[[toolsets.tools]]
+id = "pc_handoff_current:handoff_current_work"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_acknowledge:acknowledge_handoff"
+capabilities = ["acknowledge"]
+[[toolsets.tools]]
+id = "pc_task_outcome:record_task_outcome"
+capabilities = ["task_outcome"]
+[[toolsets.tools]]
 id = "pc_experience_get:get_experience"
 capabilities = ["experience_read_or_generate"]
 [[toolsets.tools]]
@@ -635,8 +647,8 @@ tests = ["integrations/opencode/plugins/powercontext/tests/plugin.spec.ts"]
 id = "pi"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "topic_memory_read", "pre_compaction_capture", "slash_command"]
-profiles = ["minimal"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "topic_memory_read", "pre_compaction_capture", "slash_command"]
+profiles = ["minimal", "recommended"]
 toolsets = ["pi-tools", "pi-command", "pi-lifecycle"]
 [integrations.evidence]
 implementation = ["integrations/pi/plugins/powercontext/src/tools.ts", "integrations/pi/plugins/powercontext/extensions/powercontext.ts"]

@@ -79,6 +79,10 @@ describe('Pi native tool surface', () => {
       'pc_prepare_context',
       'pc_capture_source',
       'pc_handoff_activate',
+      'pc_work_contract',
+      'pc_handoff_current',
+      'pc_handoff_acknowledge',
+      'pc_task_outcome',
       'pc_handoff_prepare',
       'pc_handoff_finalize',
       'pc_handoff_commit',
@@ -130,6 +134,105 @@ describe('Pi native tool surface', () => {
       text: 'keep API async',
       scope_id: 'project:demo',
     })
+  })
+
+  it('requires confirmation and filters secrets for all structured work writes', async () => {
+    const registered: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ ok: true })))
+    const runtime = createRuntime(fetch)
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
+    const context = {
+      cwd: '/workspace/repo',
+      hasUI: false,
+      ui: { confirm: vi.fn(async () => true) },
+    }
+    const signal = new AbortController().signal
+
+    const workWrites: Array<[string, Record<string, unknown>]> = [
+      ['pc_work_contract', { source_id: 'contract-1', contract: { objective: 'ship feature' } }],
+      ['pc_handoff_current', { source_id: 'boundary-1', handoff: { objective: 'continue feature' } }],
+      ['pc_handoff_acknowledge', {
+        source_id: 'receipt-1', receiver: 'pi', status: 'accepted', selection: 'exact',
+        receiver_checks: { live_state: 'confirmed', capability: 'confirmed', authorization: 'confirmed' },
+        revision: { family: 'handoff', artifact_id: 'handoff-1', revision: 1 },
+      }],
+      ['pc_task_outcome', { source_id: 'outcome-1', outcome: { status: 'succeeded' } }],
+    ]
+
+    for (const [name, params] of workWrites) {
+      const result = await registeredTool<Record<string, unknown>>(registered, name).execute(
+        `call-${name}`, params, signal, () => undefined, context,
+      )
+      expect(result.details).toMatchObject({ ok: false, code: 'confirmation_required' })
+    }
+    expect(fetch).not.toHaveBeenCalled()
+
+    context.hasUI = true
+    const confirm = vi.fn(async () => true)
+    context.ui.confirm = confirm
+    await registeredTool<{ source_id: string; outcome: Record<string, unknown> }>(registered, 'pc_task_outcome').execute(
+      'call-secret', { source_id: 'outcome-2', outcome: { summary: 'token=secret' } }, signal, () => undefined, context,
+    )
+    expect(confirm).toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('routes structured work payloads to their scoped APIs unchanged after confirmation', async () => {
+    const registered: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ ok: true })))
+    const runtime = createRuntime(fetch)
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
+    const context = {
+      cwd: '/workspace/repo',
+      hasUI: true,
+      ui: { confirm: vi.fn(async () => true) },
+    }
+    const signal = new AbortController().signal
+    const sourceCitation = { kind: 'source', source_ref: { name: 'git', source_id: 'commit-1' } }
+    const claim = { text: 'tests passed', basis: 'verified', evidence: [sourceCitation] }
+    const contract = {
+      schema: 'powercontext.work-contract.v1', trust: 'untrusted_input', objective: 'ship feature',
+      facts: [claim], in_scope: ['implementation'], exclusions: ['unrelated cleanup'],
+      completion_criteria: ['tests pass'], authorization_notes: ['user authorized implementation'], open_questions: [],
+    }
+    const handoff = {
+      schema: 'powercontext.current-work-handoff.v1', trust: 'untrusted_input', objective: 'continue feature',
+      state: [claim], disposition: 'continuable', next_action: claim, omissions: [],
+    }
+    const outcome = {
+      schema: 'powercontext.task-outcome.v1', trust: 'untrusted_observation', objective: 'ship feature',
+      status: 'succeeded', summary: 'implemented', handoff_receipt_ref: null, observations: [claim], checks: [],
+      produced_artifacts: [], remaining_work: [],
+    }
+
+    await registeredTool<{ source_id: string; contract: Record<string, unknown> }>(registered, 'pc_work_contract').execute(
+      'call-contract', { source_id: 'contract-1', contract }, signal, () => undefined, context,
+    )
+    await registeredTool<{ source_id: string; handoff: Record<string, unknown> }>(registered, 'pc_handoff_current').execute(
+      'call-current', { source_id: 'boundary-1', handoff }, signal, () => undefined, context,
+    )
+    await registeredTool<Record<string, unknown>>(registered, 'pc_handoff_acknowledge').execute(
+      'call-acknowledge', {
+        source_id: 'receipt-1', receiver: 'pi', status: 'accepted', selection: 'exact',
+        receiver_checks: { live_state: 'confirmed', capability: 'confirmed', authorization: 'confirmed' },
+        revision: { family: 'handoff', artifact_id: 'handoff-1', revision: 1 },
+      }, signal, () => undefined, context,
+    )
+    await registeredTool<{ source_id: string; outcome: Record<string, unknown> }>(registered, 'pc_task_outcome').execute(
+      'call-outcome', { source_id: 'outcome-1', outcome }, signal, () => undefined, context,
+    )
+
+    expect(context.ui.confirm).toHaveBeenCalledTimes(4)
+    expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body))])).toEqual([
+      ['http://127.0.0.1:8000/v1/work/contracts/create', { source_id: 'contract-1', contract, scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/work/handoffs/prepare-current', { source_id: 'boundary-1', handoff, scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/work/handoffs/acknowledge', {
+        source_id: 'receipt-1', receiver: 'pi', status: 'accepted', selection: 'exact',
+        receiver_checks: { live_state: 'confirmed', capability: 'confirmed', authorization: 'confirmed' },
+        revision: { family: 'handoff', artifact_id: 'handoff-1', revision: 1 }, scope_id: 'project:demo',
+      }],
+      ['http://127.0.0.1:8000/v1/work/outcomes/record', { source_id: 'outcome-1', outcome, scope_id: 'project:demo' }],
+    ])
   })
 
   it('reads exact artifacts and inspects candidates without requesting confirmation', async () => {
