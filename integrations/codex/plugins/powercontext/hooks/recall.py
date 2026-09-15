@@ -28,9 +28,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any, Protocol, cast
 from urllib.error import HTTPError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
-
-from typing_extensions import override
+from urllib.request import Request
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
@@ -39,7 +37,7 @@ sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from scope_binding import resolve_scope_id  # noqa: E402
+from scope_binding import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 from settings import CodexPluginSettings  # noqa: E402
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
@@ -66,25 +64,6 @@ class _Response(_ReadableResponse, Protocol):
     def __enter__(self) -> _Response: ...
 
     def __exit__(self, *args: object) -> object: ...
-
-
-class _RejectRedirects(HTTPRedirectHandler):
-    """Leave every 3xx response to urllib's default HTTP error handler."""
-
-    @override
-    def redirect_request(
-        self,
-        req: Request,
-        fp: object,
-        code: int,
-        msg: str,
-        headers: object,
-        newurl: str,
-    ) -> Request | None:
-        return None
-
-
-_URL_OPENER = build_opener(_RejectRedirects)
 
 
 class _HttpStatusError(RuntimeError):
@@ -355,7 +334,7 @@ def _post_json(
     try:
         request_timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
         request_deadline = min(deadline, monotonic() + request_timeout)
-        with _URL_OPENER.open(request, timeout=request_timeout) as response:
+        with open_bounded(request, timeout=request_timeout) as response:
             if expected_status is not None and response.status != expected_status:
                 code = _decode_error_code(_read_response(response, deadline=request_deadline))
                 raise _HttpStatusError(response.status, path, code)
@@ -394,6 +373,7 @@ def _read_response(
 ) -> bytes:
     """Read one response under a wall-clock deadline and a hard size bound."""
 
+    bind_response_deadline(response, deadline)
     content = bytearray()
     while True:
         _set_response_timeout(response, _remaining_time(deadline))

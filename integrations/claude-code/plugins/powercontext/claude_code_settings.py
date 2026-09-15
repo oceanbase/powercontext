@@ -85,22 +85,28 @@ class ClaudeCodePluginSettings:
             raise ValueError("PowerContext flush_max_calls must be between 1 and 16")  # noqa: TRY003
 
     @classmethod
-    def from_environment(cls) -> ClaudeCodePluginSettings:
-        """Load Claude user options and integration-specific environment values."""
+    def from_environment(cls, *, server_url: str | None = None) -> ClaudeCodePluginSettings:
+        """Load Claude user options and integration-specific environment values.
+
+        ``server_url`` carries the explicit endpoint configured by the host entry
+        point, such as the Claude Code statusLine command. The effective endpoint is
+        resolved before persisted authorization is loaded so one server's token is
+        never paired with another server's address.
+        """
 
         saved = load_client_settings("claude-code")
-        return cls(
-            server_url=_first_environment(
-                "POWERCONTEXT_CLAUDE_SERVER_URL",
-                "CLAUDE_PLUGIN_OPTION_SERVER_URL",
-                "POWERCONTEXT_CLIENT_SERVER_URL",
-            )
+        resolved_server_url = (
+            _first_environment("POWERCONTEXT_CLAUDE_SERVER_URL")
+            or _optional_text(server_url)
+            or _first_environment("CLAUDE_PLUGIN_OPTION_SERVER_URL", "POWERCONTEXT_CLIENT_SERVER_URL")
             or saved.get("server_url")
-            or "http://127.0.0.1:8000",
+            or "http://127.0.0.1:8000"
+        )
+        return cls(
+            server_url=resolved_server_url,
             authorization=_first_environment("POWERCONTEXT_CLAUDE_AUTHORIZATION")
             or _stored_authorization(
-                server_url=_first_environment("POWERCONTEXT_CLAUDE_SERVER_URL", "CLAUDE_PLUGIN_OPTION_SERVER_URL")
-                or "http://127.0.0.1:8000",
+                server_url=resolved_server_url,
                 root=Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")).expanduser(),
             ),
             scope_id=_first_environment("POWERCONTEXT_CLAUDE_SCOPE_ID"),
@@ -222,12 +228,22 @@ def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
         raise ValueError("PowerContext Server URL must use HTTP or HTTPS")  # noqa: TRY003
     if parsed.query or parsed.fragment:
         raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
-    if parsed.scheme == "http" and not _is_loopback_host(parsed.hostname) and not allow_insecure_http:
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname.lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ValueError("PowerContext Server URL must use a valid port") from None  # noqa: TRY003
+    if scheme == "http" and not _is_loopback_host(host) and not allow_insecure_http:
         raise ValueError("unencrypted PowerContext URLs must be loopback addresses")  # noqa: TRY003
+    if port is None or (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+        netloc = f"[{host}]" if ":" in host else host
+    else:
+        netloc = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     path = parsed.path.rstrip("/")
     if path.endswith("/mcp"):
         path = path.removesuffix("/mcp")
-    return urlunsplit((parsed.scheme, parsed.netloc, path, "", "")).rstrip("/")
+    return urlunsplit((scheme, netloc, path, "", "")).rstrip("/")
 
 
 __all__ = ["ClaudeCodePluginSettings"]

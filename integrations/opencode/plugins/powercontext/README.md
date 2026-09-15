@@ -16,6 +16,17 @@ evidence. Recalled content is inserted transiently before model dispatch and is 
 not persisted into the OpenCode transcript. Curated `pc_*` tools expose Memory, Handoff, Experience, Skill, and
 read-only Candidate operations. OpenCode asks before a named durable mutation.
 
+The package also installs a TUI plugin. Run `/pc` in interactive OpenCode to open the PowerContext command prompt,
+then use the same subcommands as the DSH plugin: `doctor`, `search`, `remember`, `flush`, `review`, `stats`,
+`capabilities`, and `skills scan`. The command is also available from the OpenCode command palette as
+`PowerContext command`. While a session is open, the prompt statusline shows a green/red connection indicator plus
+two scoped token-savings numbers, for example `● PC online · saved 1.2k today · saved 12k in 30d`. Numbers come
+from the recall-token estimator (a per-call compression proxy, not an end-to-end savings measurement; use the OFF/ON
+evaluation harness for measured deltas). When recall made the context larger, the wording switches to `cost N`.
+Saved amounts are green; `cost` amounts are red; zero or unavailable values stay muted. The status refreshes every
+30 seconds; click the indicator to refresh immediately. TUI commands are human-initiated; automatic recall and capture
+remain in the separate Server plugin entrypoint.
+
 Each Session resolves an explicit Scope, its durable Session or workspace binding, or the Server default. Set
 `POWERCONTEXT_OPENCODE_SCOPE_ID` only to force an existing Scope. Other configuration uses the same prefix with `BASE_URL`,
 `AUTHORIZATION`, `CAPTURE_PROMPTS`, `FLUSH_ON_CAPTURE`, `REQUEST_TIMEOUT_MS`, `HTTP_BUDGET_MS`, `MAX_BYTES`, and

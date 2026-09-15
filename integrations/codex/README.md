@@ -11,6 +11,7 @@ The plugin is a client of the running Server:
 
 - the `UserPromptSubmit` hook asks the Runtime for one final, bounded context value and captures the current prompt as
   independent Source evidence;
+- a three-second-bounded `Stop` hook reports scoped recall-token estimates after each completed turn;
 - Codex uses Streamable HTTP MCP for explicit Memory reads and writes;
 - saying `交接`, `交接当前工作`, or `handoff this work` triggers the `project-context` Skill to inspect current facts,
   prepare the current work, and commit the returned Handoff in one turn;

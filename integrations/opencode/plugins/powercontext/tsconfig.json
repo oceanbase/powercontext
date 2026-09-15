@@ -4,6 +4,8 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/solid",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "declaration": true,
@@ -15,6 +17,8 @@
   },
   "include": [
     "src/**/*.ts",
-    "tests/**/*.ts"
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
   ]
 }
