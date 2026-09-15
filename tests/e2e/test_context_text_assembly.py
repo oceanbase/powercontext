@@ -270,6 +270,31 @@ def test_topic_only_assembly_searches_current_scope_and_skips_other_families(tmp
     asyncio.run(scenario())
 
 
+def test_assembly_path_reports_omissions_through_the_runtime_seam(tmp_path):
+    async def scenario():
+        async with _server(tmp_path) as (runtime, _transport, client):
+            scope = await client.create_scope(
+                CreateScopeRequest(title="Omissions", summary="Assembly omissions", idempotency_key="omissions")
+            )
+            await client.remember_memory(
+                RememberMemoryRequest(scope_id=scope.scope_id, kind="fact", text="记忆🙂" * 500)
+            )
+            request = RuntimePrepareContextRequest.model_validate({
+                "query": "记忆",
+                "max_bytes": 760,
+                "assembly": {"sections": [{"family": "memory", "limit": 8}]},
+            })
+            application = runtime.context.for_scope(scope.scope_id)
+            async with runtime._scope_operation(scope.scope_id) as descriptor:
+                build, _effort = await application._prepare_build(request, descriptor)
+
+            assert build.context.status == "ready"
+            assert build.omissions.truncated_items == 1
+            assert build.omissions.dropped_items == 0
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("max_entries", [1, 8, 9])
 def test_configured_assembly_total_limit_applies_before_recall(tmp_path, monkeypatch, max_entries):
     monkeypatch.setenv("POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES", str(max_entries))

@@ -48,6 +48,14 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime._scope_cache import DEFAULT_SCOPE_CACHE_SIZE
 
 _HTTP_FIELD_NAME_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+_RECALL_GATE_BASE_MIN_SEMANTIC_SIMILARITY = 0.3
+_RECALL_GATE_ROUND1_ORDER_ERROR = (
+    "recall_gate_round1_min_semantic_similarity must be less than or equal to the round-zero floor"
+)
+_RECALL_GATE_ROUND2_ORDER_ERROR = (
+    "recall_gate_round2_min_semantic_similarity must be less than or equal to "
+    "recall_gate_round1_min_semantic_similarity"
+)
 
 
 def _equal_numeric_aliases(left: Any, right: Any) -> bool:
@@ -132,6 +140,15 @@ class RuntimeConfig(BaseModel):
     memory_extraction_profile: MemoryExtractionProfile = MemoryExtractionProfile.CODING
     memory_rerank_enabled: bool = False
     memory_rerank_candidate_limit: int = Field(default=30, ge=1, le=100)
+    recall_gate_enabled: bool = False
+    recall_gate_max_rounds: int = Field(default=2, ge=0, le=2)
+    recall_gate_min_candidates: int = Field(default=2, ge=1)
+    recall_gate_min_top_score: float = Field(default=0.35, ge=0.0, le=1.0)
+    recall_gate_min_top_gap: float = Field(default=0.02, ge=0.0, le=1.0)
+    recall_gate_min_lexical_overlap: float = Field(default=0.5, ge=0.0, le=1.0)
+    recall_gate_round1_min_semantic_similarity: float = Field(default=0.15, ge=0.0, le=1.0)
+    recall_gate_round2_min_semantic_similarity: float = Field(default=0.10, ge=0.0, le=1.0)
+    recall_gate_allow_with_rerank: bool = False
     profile_schedule_enabled: bool = False
     profile_cron: str = "0 2 * * *"
     profile_timezone: str = "Asia/Shanghai"
@@ -149,6 +166,16 @@ class RuntimeConfig(BaseModel):
         except ZoneInfoNotFoundError as error:
             raise ValueError("invalid Profile schedule timezone") from error  # noqa: TRY003
         CronTrigger.from_crontab(self.profile_cron, timezone=timezone)
+        return self
+
+    @model_validator(mode="after")
+    def validate_recall_gate_threshold_order(self):
+        if not self.recall_gate_enabled:
+            return self
+        if self.recall_gate_round1_min_semantic_similarity > _RECALL_GATE_BASE_MIN_SEMANTIC_SIMILARITY:
+            raise ValueError(_RECALL_GATE_ROUND1_ORDER_ERROR)
+        if self.recall_gate_round2_min_semantic_similarity > self.recall_gate_round1_min_semantic_similarity:
+            raise ValueError(_RECALL_GATE_ROUND2_ORDER_ERROR)
         return self
 
     schedule_seconds: float | None = Field(default=None, gt=0)

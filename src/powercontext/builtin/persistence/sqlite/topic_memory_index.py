@@ -339,7 +339,7 @@ class SQLiteTopicMemoryFTSIndex:
         query = fts_match_query(request.query)
         if query is None:
             return TopicMemorySearchChannels()
-        query_terms, coverage_required = fts_query_requirements(request.query)
+        query_terms, coverage_required = fts_query_requirements(request.query, floor=request.admission)
         coverage = " + ".join(
             f"CASE WHEN instr(' ' || searchable_text || ' ', :coverage_term_{position}) > 0 THEN 1 ELSE 0 END"
             for position, _term in enumerate(query_terms)

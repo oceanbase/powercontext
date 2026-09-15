@@ -43,6 +43,7 @@ from powercontext.builtin.artifacts.experience import (
     ExperienceContent,
     ExperienceGenerator,
     ExperienceSearchHit,
+    ExperienceSearchOutcome,
 )
 from powercontext.builtin.artifacts.handoff import (
     ActivateHandoff,
@@ -58,6 +59,7 @@ from powercontext.builtin.artifacts.memory import (
     CandidatePipeline,
     EmbeddingProfile,
     Memory,
+    MemoryQueryEmbedding,
     MemoryReranker,
     MemoryService,
     MemoryWritePlan,
@@ -75,6 +77,7 @@ from powercontext.builtin.artifacts.prompt.service import (
     current_prompt,
     prompt_operation,
 )
+from powercontext.builtin.artifacts.search import AdmissionFloor
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProvider,
     ExternalSkillRegistryUnavailableError,
@@ -771,11 +774,28 @@ class RelationalContexts:
     ) -> tuple[ExperienceSearchHit, ...]:
         """Recall relevant approved Experience heads in one scope."""
 
+        return (await self.search_experience_outcome(scope_id, query, limit)).hits
+
+    async def search_experience_outcome(
+        self,
+        scope_id: str,
+        query: str,
+        limit: int,
+        /,
+        *,
+        admission: AdmissionFloor | None = None,
+    ) -> ExperienceSearchOutcome:
+        """Recall Experience heads and include internal admission accounting.
+
+        The outcome carries the admission counts alongside the hits so the recall gate can
+        report retrieved-versus-admitted without a second pass.
+        """
+
         if limit < 1:
             raise ValueError("Experience search limit must be positive")  # noqa: TRY003
         scope = validate_scope_id(scope_id)
         async with self.database.transaction() as connection:
-            return await self.experience_index.search(connection, scope, query, limit)
+            return await self.experience_index.search(connection, scope, query, limit, admission=admission)
 
     async def get_topic_memory(
         self,
@@ -837,9 +857,14 @@ class RelationalContexts:
         mode: TopicMemorySearchMode = "auto",
         query_vector: tuple[float, ...] | None = None,
         embedding_profile: EmbeddingProfile | None = None,
+        admission: AdmissionFloor | None = None,
+        query_embedding: MemoryQueryEmbedding | None = None,
     ) -> TopicMemorySearchResult:
         """Search current active Topic projections in this deployment."""
 
+        if query_embedding is not None:
+            query_vector = query_embedding.query_vector
+            embedding_profile = query_embedding.embedding_profile
         scope = validate_scope_id(scope_id)
         async with self.database.transaction() as connection:
             return await self.repositories.topic_memories.search(
@@ -850,6 +875,7 @@ class RelationalContexts:
                 mode=mode,
                 query_vector=query_vector,
                 embedding_profile=embedding_profile,
+                admission=admission,
             )
 
     async def search_skills(

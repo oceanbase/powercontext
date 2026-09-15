@@ -16,13 +16,15 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, ClassVar, Literal, TypeAlias
 
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactDraft, ArtifactRef
-from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryQueryEmbedding
+from powercontext.builtin.artifacts.search import AdmissionCounts, AdmissionFloor
 from powercontext.builtin.inference import EmbeddingVector
 
 MAX_TOPIC_MEMORY_TITLE_LENGTH = 512
@@ -135,6 +137,7 @@ class TopicMemorySearchRequest(BaseModel):
     mode: TopicMemoryUsedSearchMode
     query_vector: EmbeddingVector | None = None
     embedding_profile: EmbeddingProfile | None = None
+    admission: AdmissionFloor | None = Field(default=None, exclude=True)
 
 
 class TopicMemoryChannelHit(BaseModel):
@@ -170,11 +173,33 @@ class TopicMemorySearchHit(BaseModel):
     matched_by: tuple[TopicMemoryMatchedBy, ...]
 
 
+@dataclass(frozen=True)
+class TopicMemoryFusionOutcome:
+    """Topic Memory hits plus the admission accounting measured around their channels.
+
+    ``retrieved`` sums the channel hits for the channels the resolved mode actually enabled;
+    ``admitted`` sums the survivors of ``_admit_fts`` / ``_admit_vector``. Both are aggregates
+    over channels, not per-topic attribution.
+    """
+
+    hits: tuple[TopicMemorySearchHit, ...] = ()
+    retrieved: int = 0
+    admitted: int = 0
+
+
 class TopicMemorySearchResult(BaseModel):
-    """Fused Topic hits and the deployment mode actually used."""
+    """Fused Topic hits and the deployment mode actually used.
+
+    ``admission`` is **in-process only**: it exists so the Runtime's recall gate can report
+    what this search retrieved and admitted. It is ``exclude=True`` as defence-in-depth; the
+    HTTP projection is independently safe because the response is built field by field.
+    """
 
     mode: TopicMemoryUsedSearchMode
     hits: tuple[TopicMemorySearchHit, ...] = ()
+    admission: AdmissionCounts | None = Field(default=None, exclude=True)
+    query_embedding: MemoryQueryEmbedding | None = Field(default=None, exclude=True)
+    embedding_calls: int = Field(default=0, exclude=True)
 
 
 class PublishedTopicMemory(BaseModel):

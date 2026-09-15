@@ -16,11 +16,30 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pydantic import BaseModel
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience.models import ExperienceContent
-from powercontext.builtin.artifacts.search import analyze_text
+from powercontext.builtin.artifacts.search import AdmissionCounts, analyze_text
+
+
+@dataclass(frozen=True)
+class ExperienceSearchOutcome:
+    """Experience hits plus the admission accounting for the search that produced them.
+
+    It replaces the bare ``tuple[ExperienceSearchHit, ...]`` the ``experience_recall`` callback
+    used to return, because the Runtime's recall gate needs the retrieved/admitted pair and the
+    callback signature is part of the Runtime's construction surface.
+
+    ``admission`` is ``None`` when the search did not measure — for example a configured index
+    with nothing to report — rather than a fabricated ``(0, 0)``. The counters are aggregates
+    with no hit identity, so carrying them costs nothing the callback did not already compute.
+    """
+
+    hits: tuple[ExperienceSearchHit, ...] = ()
+    admission: AdmissionCounts | None = None
 
 
 class ExperienceSearchHit(BaseModel):
@@ -53,4 +72,10 @@ def experience_search_text(content: ExperienceContent, /) -> str:
     return "\n".join((content.situation, content.action, content.outcome, content.lesson))
 
 
-__all__ = ["ExperienceSearchHit", "experience_search_text", "experience_searchable_text", "render_experience"]
+__all__ = [
+    "ExperienceSearchHit",
+    "ExperienceSearchOutcome",
+    "experience_search_text",
+    "experience_searchable_text",
+    "render_experience",
+]

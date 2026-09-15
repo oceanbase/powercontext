@@ -49,6 +49,7 @@ from powercontext.builtin.artifacts.experience.prompts import (
 )
 from powercontext.builtin.artifacts.experience.search import (
     ExperienceSearchHit,
+    ExperienceSearchOutcome,
     experience_search_text,
     experience_searchable_text,
     render_experience,
@@ -79,6 +80,7 @@ __all__ = [
     "ExperienceIncubationInput",
     "ExperienceIncubationOutput",
     "ExperienceSearchHit",
+    "ExperienceSearchOutcome",
     "LLMExperienceCandidatePipeline",
     "LLMExperienceGenerator",
     "experience_search_text",

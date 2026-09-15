@@ -173,7 +173,7 @@ class OceanBaseTopicMemoryFTSIndex:
     ) -> TopicMemorySearchChannels:
         if request.mode not in {"fts", "hybrid"} or not request.analyzed_query:
             return TopicMemorySearchChannels()
-        query_terms, coverage_required = fts_query_requirements(request.query)
+        query_terms, coverage_required = fts_query_requirements(request.query, floor=request.admission)
         topic_score = match(TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text, against=request.analyzed_query)
         topic_coverage = _coverage_expression(
             TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.searchable_text,

@@ -19,7 +19,7 @@ import asyncio
 import pytest
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
-from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft
+from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceDraft, ExperienceSearchOutcome
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
@@ -49,8 +49,8 @@ class _FailingExperienceIndex:
     async def replace(self, _connection, _scope_id, _experience, /) -> None:
         raise _IndexUnavailableError
 
-    async def search(self, _connection, _scope_id, _query, _limit, /):
-        return ()
+    async def search(self, _connection, _scope_id, _query, _limit, /, *, admission=None):
+        return ExperienceSearchOutcome()
 
     async def replace_skill(self, _connection, _scope_id, _skill, _package, /) -> None:
         pass
@@ -166,9 +166,9 @@ def test_published_experience_is_searchable_in_target_scope_immediately() -> Non
                     idempotency_key="publish-experience",
                 )
             )
-            hits = await contexts.search_experience(target_scope.scope_id, "projection updates atomic", 8)
+            outcome = await contexts.search_experience(target_scope.scope_id, "projection updates atomic", 8)
 
-            assert tuple(hit.artifact_ref for hit in hits) == (published.target.artifact,)
+            assert tuple(hit.artifact_ref for hit in outcome) == (published.target.artifact,)
 
     asyncio.run(scenario())
 

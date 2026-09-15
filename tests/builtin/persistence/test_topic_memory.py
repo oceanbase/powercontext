@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.artifacts.search import fts_match_query
+from powercontext.builtin.artifacts.search import AdmissionFloor, fts_match_query
 from powercontext.builtin.artifacts.topic_memory import (
     MAX_TOPIC_MEMORY_QUERY_LENGTH,
     MAX_TOPIC_MEMORY_SEARCH_LIMIT,
@@ -460,6 +460,40 @@ def test_search_returns_the_full_public_candidate_limit() -> None:
                 )
 
             assert len(result.hits) == MAX_TOPIC_MEMORY_SEARCH_LIMIT
+
+    asyncio.run(scenario())
+
+
+def test_topic_memory_search_threads_lowered_fts_floor_into_the_backend() -> None:
+    async def scenario() -> None:
+        index = _fts_index()
+        repository = TopicMemoryRepository(index=index)
+        async with SQLiteProfile.open(SQLiteConfig(), tables=BUILTIN_TABLES + index.tables) as profile:
+            async with profile.database.transaction() as connection:
+                await repository.initialize(connection)
+                content = _content("Single term", "alpha")
+                published = await repository.publish_create(
+                    connection,
+                    "scope-a",
+                    "topic-1",
+                    _draft(content),
+                    prepare_topic_memory_projection(content),
+                )
+
+            async with profile.database.transaction() as connection:
+                default = await repository.search(connection, "scope-a", "alpha beta gamma", limit=10)
+                lowered = await repository.search(
+                    connection,
+                    "scope-a",
+                    "alpha beta gamma",
+                    limit=10,
+                    admission=AdmissionFloor(lexical_coverage=0.0, lexical_min_matched_terms=1),
+                )
+
+        assert default.hits == ()
+        assert tuple(hit.artifact_ref for hit in lowered.hits) == (published.topic.as_ref(),)
+        assert lowered.admission is not None
+        assert lowered.admission.retrieved >= lowered.admission.admitted == 1
 
     asyncio.run(scenario())
 

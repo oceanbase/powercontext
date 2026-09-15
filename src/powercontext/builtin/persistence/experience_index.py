@@ -27,10 +27,11 @@ from powercontext.builtin.artifacts.experience import (
     Experience,
     ExperienceContent,
     ExperienceSearchHit,
+    ExperienceSearchOutcome,
     experience_search_text,
     experience_searchable_text,
 )
-from powercontext.builtin.artifacts.search import admits_fts_text
+from powercontext.builtin.artifacts.search import AdmissionCounts, AdmissionFloor, admits_fts_text
 from powercontext.builtin.artifacts.skill import (
     Skill,
     SkillContent,
@@ -92,7 +93,9 @@ class ExperienceIndex(Protocol):
         query: str,
         limit: int,
         /,
-    ) -> tuple[ExperienceSearchHit, ...]: ...
+        *,
+        admission: AdmissionFloor | None = None,
+    ) -> ExperienceSearchOutcome: ...
 
     async def replace_skill(
         self,
@@ -135,8 +138,10 @@ class NoExperienceIndex:
         _query: str,
         _limit: int,
         /,
-    ) -> tuple[ExperienceSearchHit, ...]:
-        return ()
+        *,
+        admission: AdmissionFloor | None = None,
+    ) -> ExperienceSearchOutcome:
+        return ExperienceSearchOutcome()
 
     async def replace_skill(
         self,
@@ -299,14 +304,28 @@ def experience_search_hits(
     rows: Iterable[Mapping[Any, Any]],
     query: str,
     limit: int,
+    scope_id: str,
     /,
-) -> tuple[ExperienceSearchHit, ...]:
-    """Decode backend-ordered rows and apply the shared lexical admission rule."""
+    *,
+    admission: AdmissionFloor | None = None,
+) -> ExperienceSearchOutcome:
+    """Decode backend-ordered rows and apply the shared lexical admission rule.
+
+    ``admission=None`` applies the historical lexical floor bit for bit. ``skill_search_hits``
+    keeps its own default behaviour and is intentionally unaffected.
+
+    ``retrieved`` counts the rows *examined*, not the rows kept: the loop stops as soon as
+    ``limit`` hits are admitted, so a backend that returned many rows for a narrow query is
+    only visible through that count. ``scope_id`` is supplied by the caller because the
+    decoder is the only place that knows both the rows and the Scope they were read from.
+    """
 
     hits: list[ExperienceSearchHit] = []
+    examined = 0
     for row in rows:
+        examined += 1
         content = _content(row["content"])
-        if not admits_fts_text(query, experience_search_text(content)):
+        if not admits_fts_text(query, experience_search_text(content), floor=admission):
             continue
         hits.append(
             ExperienceSearchHit(
@@ -320,7 +339,15 @@ def experience_search_hits(
         )
         if len(hits) >= limit:
             break
-    return tuple(hits)
+    return ExperienceSearchOutcome(
+        hits=tuple(hits),
+        admission=AdmissionCounts(
+            family=Experience.family,
+            scope_id=scope_id,
+            retrieved=examined,
+            admitted=len(hits),
+        ),
+    )
 
 
 def skill_search_hits(

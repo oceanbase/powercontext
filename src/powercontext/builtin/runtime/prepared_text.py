@@ -70,13 +70,34 @@ def render_context_text(items: Sequence[ContextTextItem], assembly: ContextAssem
     return "\n\n".join(parts)
 
 
+@dataclass(frozen=True)
+class FitOutcome:
+    """One fit attempt on the assembly path: the item that fitted, or why none did.
+
+    The two drop reasons are disjoint and they mirror the non-assembly path's two ``None``
+    returns in ``PreparedContextBuilder._fit_entry``. An item is dropped *below the minimum
+    truncated body* when a shorter rendering exists and fits but is too short to be an honest
+    delivery; it is dropped *with no fitting truncation* when no shortened rendering fits at
+    all. Merging the two into one counter would misreport the second cause as the first, so
+    both are reported and their sum is the assembly path's ``dropped_items``.
+    """
+
+    item: ContextTextItem | None = None
+    dropped_below_min_bytes: bool = False
+    dropped_no_fitting_truncation: bool = False
+
+
 def fit_context_text_item(
     included: Sequence[ContextTextItem],
     candidate: ContextTextItem,
     assembly: ContextAssembly,
     max_bytes: int,
-) -> ContextTextItem | None:
-    """Fit the longest display prefix, retaining complete citations and escapes."""
+) -> FitOutcome:
+    """Fit the longest display prefix, retaining complete citations and escapes.
+
+    Returns a :class:`FitOutcome` rather than an optional item so the caller can tell the two
+    ways an item loses to the budget apart.
+    """
 
     chunks = _body_chunks(candidate.content)
     complete = replace(candidate, content="".join(chunks))
@@ -88,7 +109,7 @@ def fit_context_text_item(
         )
 
     if fits(complete):
-        return complete
+        return FitOutcome(item=complete)
 
     lower, upper = 0, len(chunks) - 1
     best: ContextTextItem | None = None
@@ -100,9 +121,11 @@ def fit_context_text_item(
             lower = middle + 1
         else:
             upper = middle - 1
-    if best is None or len(best.content.encode("utf-8")) < _MIN_TRUNCATED_BODY_BYTES:
-        return None
-    return best
+    if best is None:
+        return FitOutcome(dropped_no_fitting_truncation=True)
+    if len(best.content.encode("utf-8")) < _MIN_TRUNCATED_BODY_BYTES:
+        return FitOutcome(dropped_below_min_bytes=True)
+    return FitOutcome(item=best)
 
 
 def _body_chunks(content: str) -> tuple[str, ...]:
