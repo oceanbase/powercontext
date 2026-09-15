@@ -37,7 +37,10 @@ from powercontext.builtin.persistence.errors import (
     RepositoryNotFoundError,
     StoredPayloadConflictError,
 )
-from powercontext.builtin.persistence.family_management import FamilyManagementWriterRegistry
+from powercontext.builtin.persistence.family_management import (
+    FamilyManagementWriterRegistry,
+    PreparingFamilyManagementWriter,
+)
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.processing import ArtifactProcessingPendingRepository
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
@@ -324,10 +327,11 @@ class RelationalRecordService:
                 ),
             ),
         )
+        prepared = await writer.prepare(command) if isinstance(writer, PreparingFamilyManagementWriter) else command
         try:
             async with self._database.transaction() as connection:
                 stored = await self._sources.add(connection, scope_id, source)
-                artifact = await writer.create(connection, scope_id, artifact_id, command, stored.ref)
+                artifact = await writer.create(connection, scope_id, artifact_id, prepared, stored.ref)
         except (StoredPayloadConflictError, RevisionConflictError) as error:
             raise BaseValueConflictError("artifact", (scope_id, family, artifact_id)) from error
         return _artifact_created(scope_id, artifact)
@@ -565,6 +569,12 @@ class RelationalRecordService:
             raise InvalidBaseAccessRequestError("prompt_key", "is not accepted for replacement")
         writer = self._family_writers.get(family)
         command = writer.validate_replace(write.content)
+        prepared = command
+        if isinstance(writer, PreparingFamilyManagementWriter):
+            current_record = await self.get_artifact(scope_id, family, artifact_id)
+            if expected_etag != _artifact_etag(current_record.revision):
+                raise ArtifactRevisionPreconditionError(expected_etag, _artifact_etag(current_record.revision))
+            prepared = await writer.prepare(command)
         async with self._database.transaction() as connection:
             try:
                 current = await self._artifacts.latest(connection, scope_id, family, artifact_id)
@@ -597,7 +607,7 @@ class RelationalRecordService:
             )
             try:
                 stored = await self._sources.add(connection, scope_id, source)
-                revised = await writer.replace(connection, scope_id, current, command, stored.ref)
+                revised = await writer.replace(connection, scope_id, current, prepared, stored.ref)
             except StoredPayloadConflictError as error:
                 raise BaseValueConflictError("source", (scope_id, CONTENT_SOURCE_NAME, source.name)) from error
             except RevisionConflictError:

@@ -2079,16 +2079,17 @@ async def publish_artifact(
             idempotency_key=request.idempotency_key,
         )
     )
-    await _establish_created_owner(
-        http_request,
-        ResourceRef.artifact(
-            result.target.scope_id,
-            family=result.target.artifact.family,
-            artifact_id=result.target.artifact.artifact_id,
-        ),
-        idempotency_key=f"artifact-publication-owner:{result.target.artifact.artifact_id}",
-        operation=PUBLISH_ARTIFACT.operation_id,
-    )
+    if result.target.artifact.family != "topic-memory":
+        await _establish_created_owner(
+            http_request,
+            ResourceRef.artifact(
+                result.target.scope_id,
+                family=result.target.artifact.family,
+                artifact_id=result.target.artifact.artifact_id,
+            ),
+            idempotency_key=f"artifact-publication-owner:{result.target.artifact.artifact_id}",
+            operation=PUBLISH_ARTIFACT.operation_id,
+        )
     return TransportArtifactPublication.model_validate(result.model_dump(mode="json"))
 
 
@@ -3731,6 +3732,8 @@ async def _establish_base_artifact_owners(
     application: ServerApplication,
     result: RuntimeArtifactCreated,
 ) -> None:
+    if result.family == "topic-memory":
+        return
     if access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode) is None:
         return
     resource = ResourceRef.artifact(result.scope_id, family=result.family, artifact_id=result.artifact_id)
@@ -4330,9 +4333,8 @@ async def require_scope_content_ready(request: Request, scope_id: str) -> None:
         return
     application = _require_application(request)
     for identity in await application.records.for_scope(scope_id).logical_artifacts():
-        # Topic Memory is an automatic, Scope-owned projection. It has no request principal
-        # from which to establish an artifact-owner relation, so its reads remain governed by
-        # the surrounding Scope permission rather than an impossible pending owner record.
+        # Topic Memory is Scope-owned, including manual writes and publication copies.
+        # Its reads use Scope permission, never a pending artifact-owner relation.
         if identity.family == "topic-memory":
             continue
         resource = ResourceRef.artifact(
@@ -4676,8 +4678,8 @@ def _path_artifact_write_access(
     _deployment_id: str,
 ) -> tuple[tuple[AccessAction, ResourceRef], ...]:
     family = _path_artifact_family(payload)
-    if family == BaseArtifactFamily.PROMPT.value:
-        # Prompt configuration affects the whole Scope; retained Artifact ownership is insufficient.
+    if family in {BaseArtifactFamily.PROMPT.value, "topic-memory"}:
+        # Scope-owned configuration and knowledge cannot use retained Artifact ownership.
         return _path_scope_access(payload, action=AccessAction.SCOPE_ADMIN)
     if family == BaseArtifactFamily.MEMORY.value:
         return _base_memory_write_access(payload)
@@ -4688,7 +4690,7 @@ def _path_artifact_tags_write_access(
     payload: Mapping[str, Any],
     _deployment_id: str,
 ) -> tuple[tuple[AccessAction, ResourceRef], ...]:
-    if _path_artifact_family(payload) == BaseArtifactFamily.MEMORY.value:
+    if _path_artifact_family(payload) in {BaseArtifactFamily.MEMORY.value, "topic-memory"}:
         # The Memory container has no single entry owner; its shared metadata
         # belongs to the Scope administrator.
         return _path_scope_access(payload, action=AccessAction.SCOPE_ADMIN)
@@ -4793,6 +4795,11 @@ def _publish_artifact_access(
     artifact = source.get("artifact")
     if not isinstance(artifact, Mapping):
         raise AccessInvalidRequestError("artifact-reference")
+    if _mapping_text(artifact, "family") == "topic-memory":
+        return (
+            (AccessAction.SCOPE_ADMIN, ResourceRef.scope(_mapping_text(source, "scope_id"))),
+            (AccessAction.SCOPE_ADMIN, ResourceRef.scope(_nested_request_value(payload, "target_scope_id"))),
+        )
     source_resource = ResourceRef.artifact(
         _mapping_text(source, "scope_id"),
         family=_mapping_text(artifact, "family"),

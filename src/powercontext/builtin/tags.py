@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.records import BaseAccessError, InvalidBaseAccessRequestError
 
-TaggableArtifactFamily = Literal["memory", "experience", "skill", "handoff"]
+TaggableArtifactFamily = Literal["memory", "experience", "skill", "handoff", "topic-memory"]
 TagMatch = Literal["all", "any"]
 TagTargetType = Literal["artifact", "memory_entry"]
 
@@ -126,7 +126,7 @@ class TagPreconditionError(BaseAccessError):
 class TagQuery(TagFilter):
     """A bounded exact query within one authorized Scope."""
 
-    families: tuple[TaggableArtifactFamily, ...] = ("memory", "experience", "skill", "handoff")
+    families: tuple[TaggableArtifactFamily, ...] = ("memory", "experience", "skill", "handoff", "topic-memory")
     target_types: tuple[TagTargetType, ...] = ("artifact", "memory_entry")
     include_inactive: bool = False
     limit: int = Field(default=50, ge=1, le=100)

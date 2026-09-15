@@ -23,7 +23,7 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.artifacts.memory.canonical import canonical_embedding
 from powercontext.builtin.artifacts.search import analyze_text
@@ -58,11 +58,13 @@ from powercontext.builtin.persistence.tables import (
     TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,
     TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE,
 )
+from powercontext.builtin.persistence.tags import tag_predicate
 from powercontext.builtin.persistence.topic_memory_index import (
     NoTopicMemoryIndex,
     TopicMemoryIndex,
     topic_memory_embedding_profile_fingerprint,
 )
+from powercontext.builtin.tags import TagFilter
 
 
 class TopicMemoryRepository:
@@ -268,6 +270,27 @@ class TopicMemoryRepository:
             current_artifact=topic.as_ref(),
         )
 
+    async def publish_copy(
+        self,
+        connection: AsyncConnection,
+        target_scope_id: str,
+        target_artifact_id: str,
+        source_address: ArtifactAddress,
+        content_digest: str,
+        projection: TopicMemoryProjection,
+    ) -> TopicMemory:
+        """Copy an exact published revision and activate its complete target state."""
+
+        source = (await self.get_exact(connection, source_address.scope_id, source_address.artifact)).topic
+        projection = self._validate_projection(TopicMemoryDraft(content=source.content), projection)
+        topic = await self.artifacts.copy_exact(
+            connection, target_scope_id, target_artifact_id, source_address, source, content_digest
+        )
+        if not isinstance(topic, TopicMemory):
+            raise TopicMemoryStorageInvariantError("artifact-type", topic.as_ref())
+        await self._activate(connection, target_scope_id, topic, projection)
+        return topic
+
     async def get_exact(
         self,
         connection: AsyncConnection,
@@ -319,6 +342,7 @@ class TopicMemoryRepository:
         *,
         limit: int,
         after: TopicMemoryBrowseCursor | None = None,
+        tag_filter: TagFilter | None = None,
     ) -> tuple[TopicMemoryCurrentItem, ...]:
         """Return an exclusive, bounded current-head page in stable publication order."""
 
@@ -356,6 +380,17 @@ class TopicMemoryRepository:
                 TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.family == TopicMemory.family,
             )
         )
+        if tag_filter is not None:
+            statement = statement.where(
+                tag_predicate(
+                    scope_id,
+                    TopicMemory.family,
+                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id,
+                    "artifact",
+                    TOPIC_MEMORY_ACTIVE_TOPICS_TABLE.c.artifact_id,
+                    tag_filter,
+                )
+            )
         if after is not None:
             boundary = _stored_utc(after.published_at)
             statement = statement.where(

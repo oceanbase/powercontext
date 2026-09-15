@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import unicodedata
 from collections.abc import Callable, Mapping
-from typing import Annotated, Any, Protocol, cast
+from typing import Annotated, Any, Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -136,6 +136,13 @@ class FamilyManagementWriter(Protocol):
         direct_source: SourceRef,
         /,
     ) -> Artifact[Any]: ...
+
+
+@runtime_checkable
+class PreparingFamilyManagementWriter(Protocol):
+    """Prepare request-local state before opening the write transaction."""
+
+    async def prepare(self, content: BaseModel, /) -> BaseModel: ...
 
 
 class FamilyManagementWriterRegistry:

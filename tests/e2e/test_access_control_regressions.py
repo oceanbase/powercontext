@@ -78,6 +78,80 @@ async def _scope(client):
     return result.json()["scope_id"]
 
 
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+def test_topic_memory_generic_writes_and_publication_use_scope_authority(tmp_path, backend):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            scope = await _scope(client)
+            target_response = await client.post(
+                "/v1/scopes", json={"title": "Target", "summary": "Target", "idempotency_key": "target"}
+            )
+            target = target_response.json()["scope_id"]
+            await _grant(client, scope, "reader", "scope.viewer")
+            await _grant(client, scope, "writer", "scope.contributor")
+            content = {"title": "Topic", "summary": "Scope knowledge", "detail": "Shared recovery procedures."}
+            create_path = f"/v1/scopes/{scope}/artifacts"
+            reader = {"Authorization": "Bearer reader"}
+            writer = {"Authorization": "Bearer writer"}
+            assert (
+                await client.post(create_path, headers=reader, json={"family": "topic-memory", "content": content})
+            ).status_code == 403
+            created = await client.post(
+                create_path, headers=writer, json={"family": "topic-memory", "content": content}
+            )
+            assert created.status_code == 201, created.text
+            path = created.headers["Location"]
+            assert (await client.get(path, headers=reader)).status_code == 200
+            assert (await client.get(create_path + "/topic-memory", headers=reader)).status_code == 200
+            tags = await client.get(path + "/tags", headers=reader)
+            assert tags.status_code == 200, tags.text
+            for principal in (reader, writer):
+                replacement = await client.put(
+                    path, headers=principal | {"If-Match": created.headers["ETag"]}, json={"content": content}
+                )
+                assert replacement.status_code == 403, replacement.text
+                retag = await client.put(
+                    path + "/tags", headers=principal | {"If-Match": tags.headers["ETag"]}, json={"tags": ["shared"]}
+                )
+                assert retag.status_code == 403, retag.text
+            updated = await client.put(path, headers={"If-Match": created.headers["ETag"]}, json={"content": content})
+            assert updated.status_code == 200, updated.text
+            tagged = await client.put(
+                path + "/tags", headers={"If-Match": tags.headers["ETag"]}, json={"tags": ["shared"]}
+            )
+            assert tagged.status_code == 200, tagged.text
+            found = await client.post(
+                f"/v1/scopes/{scope}/artifact-tags/query", headers=reader, json={"tags": ["shared"]}
+            )
+            assert found.status_code == 200 and len(found.json()["items"]) == 1, found.text
+            ref = {key: created.json()[key] for key in ("family", "artifact_id", "revision")}
+            request = {
+                "source": {"scope_id": scope, "artifact": ref},
+                "target_scope_id": target,
+                "idempotency_key": "topic-publication",
+            }
+            await _grant(client, target, "reader", "scope.admin")
+            assert (await client.post("/v1/artifact-publications", headers=reader, json=request)).status_code == 403
+            source_grant = await _grant(client, scope, "reader", "scope.admin")
+            published = await client.post("/v1/artifact-publications", headers=reader, json=request)
+            assert published.status_code == 201, published.text
+            await _grant(client, target, "reader", "scope.viewer")
+            assert (await client.get(f"/v1/scopes/{target}/artifacts/topic-memory", headers=reader)).status_code == 200
+            revoked = await client.post(
+                "/v1/access/bindings/revoke",
+                json={
+                    "binding_id": source_grant["binding_id"],
+                    "expected_version": source_grant["version"],
+                    "idempotency_key": "revoke-topic-admin",
+                },
+            )
+            assert revoked.status_code == 200
+            assert (await client.post("/v1/artifact-publications", headers=reader, json=request)).status_code == 403
+            assert (await client.get(path, headers={"Authorization": "Bearer outsider"})).status_code == 403
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("assembly", [None, {}, {"sections": [{"family": "profile", "limit": 2}]}])
 def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assembly):
     async def scenario():

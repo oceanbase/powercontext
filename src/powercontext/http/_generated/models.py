@@ -1482,15 +1482,43 @@ class ImportExternalSkillRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
 
 
+class TopicMemoryWriteContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    title: Annotated[StrictStr, Field(max_length=512, min_length=1, pattern=".*\\S.*")]
+    summary: Annotated[StrictStr, Field(max_length=8000, min_length=1, pattern=".*\\S.*")]
+    detail: Annotated[StrictStr, Field(max_length=125000, min_length=1, pattern=".*\\S.*")]
+
+
 class Family1(StrEnum):
-    PROMPT = "prompt"
+    TOPIC_MEMORY = "topic-memory"
+
+
+class CreateTopicMemoryArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    family: Literal["topic-memory"]
+    content: TopicMemoryWriteContent
+
+
+class ReplaceTopicMemoryArtifactRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: TopicMemoryWriteContent
 
 
 class Family2(StrEnum):
-    MEMORY = "memory"
+    PROMPT = "prompt"
 
 
 class Family3(StrEnum):
+    MEMORY = "memory"
+
+
+class Family4(StrEnum):
     EXPERIENCE = "experience"
 
 
@@ -1502,11 +1530,11 @@ class CreateExperienceArtifactRequest(BaseModel):
     content: ExperienceProposal
 
 
-class Family4(StrEnum):
+class Family5(StrEnum):
     SKILL = "skill"
 
 
-class Family5(StrEnum):
+class Family6(StrEnum):
     HANDOFF = "handoff"
 
 
@@ -1552,6 +1580,7 @@ class TaggableArtifactFamily(StrEnum):
     EXPERIENCE = "experience"
     SKILL = "skill"
     HANDOFF = "handoff"
+    TOPIC_MEMORY = "topic-memory"
 
 
 class TagMatch(StrEnum):
@@ -1581,7 +1610,7 @@ class Type1(StrEnum):
     MEMORY_ENTRY = "memory_entry"
 
 
-class Family6(StrEnum):
+class Family7(StrEnum):
     MEMORY = "memory"
 
 
@@ -1590,7 +1619,7 @@ class MemoryEntryTagTarget(BaseModel):
         extra="forbid",
     )
     type: Literal["memory_entry"]
-    family: Family6
+    family: Family7
     artifact_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
     entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
 
@@ -1624,7 +1653,7 @@ class QueryArtifactTagsRequest(BaseModel):
     )
     tags: Annotated[list[Tag], Field(max_length=16, min_length=1)]
     match: TagMatch = TagMatch.ALL
-    families: Annotated[list[TaggableArtifactFamily] | None, Field(max_length=4, min_length=1)] = None
+    families: Annotated[list[TaggableArtifactFamily] | None, Field(max_length=5, min_length=1)] = None
     target_types: Annotated[list[TagTargetType] | None, Field(max_length=2, min_length=1)] = None
     include_inactive: StrictBool = False
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
@@ -1919,6 +1948,7 @@ class BaseArtifactFamily(StrEnum):
     HANDOFF = "handoff"
     PROFILE = "profile"
     PROMPT = "prompt"
+    TOPIC_MEMORY = "topic-memory"
 
 
 class ArtifactReadFamily(StrEnum):
@@ -3847,7 +3877,8 @@ class HandoffActivation(BaseModel):
 
 class CreateArtifactRequest(
     RootModel[
-        CreateMemoryArtifactRequest
+        CreateTopicMemoryArtifactRequest
+        | CreateMemoryArtifactRequest
         | CreateExperienceArtifactRequest
         | CreateSkillArtifactRequest
         | CreateHandoffArtifactRequest
@@ -3856,7 +3887,8 @@ class CreateArtifactRequest(
     ]
 ):
     root: Annotated[
-        CreateMemoryArtifactRequest
+        CreateTopicMemoryArtifactRequest
+        | CreateMemoryArtifactRequest
         | CreateExperienceArtifactRequest
         | CreateSkillArtifactRequest
         | CreateHandoffArtifactRequest
@@ -3868,7 +3900,8 @@ class CreateArtifactRequest(
 
 class ReplaceArtifactRequest(
     RootModel[
-        ReplaceMemoryArtifactRequest
+        ReplaceTopicMemoryArtifactRequest
+        | ReplaceMemoryArtifactRequest
         | ReplaceExperienceArtifactRequest
         | ReplaceSkillArtifactRequest
         | ReplaceHandoffArtifactRequest
@@ -3877,7 +3910,8 @@ class ReplaceArtifactRequest(
     ]
 ):
     root: (
-        ReplaceMemoryArtifactRequest
+        ReplaceTopicMemoryArtifactRequest
+        | ReplaceMemoryArtifactRequest
         | ReplaceExperienceArtifactRequest
         | ReplaceSkillArtifactRequest
         | ReplaceHandoffArtifactRequest
