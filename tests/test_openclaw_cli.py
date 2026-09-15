@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import Mock
@@ -172,8 +174,13 @@ if "build" in sys.argv:
     output.write_text("export {};\\n", encoding="utf-8")
 """,
         encoding="utf-8",
+        newline="\n",
     )
     fake_pnpm.chmod(0o755)
+    if os.name == "nt":
+        launcher = tmp_path / "pnpm.cmd"
+        launcher.write_text(f'@"{sys.executable}" "{fake_pnpm}" %*\n', encoding="utf-8")
+        fake_pnpm = launcher
     monkeypatch.setattr(openclaw_cli, "pnpm_executable", lambda: str(fake_pnpm))
     monkeypatch.setenv("CI", "false")
 

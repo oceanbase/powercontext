@@ -289,7 +289,9 @@ def test_remote_enroll_can_install_automatic_service_in_one_command(
 
     config_file = workspace / ".powercontext/remote-skill-target.json"
     assert result.exit_code == 0
-    assert config_file.stat().st_mode & 0o777 == 0o600
+    assert config_file.is_file()
+    if os.name != "nt":
+        assert config_file.stat().st_mode & 0o777 == 0o600
     assert len(installed) == 1
     assert installed[0][0] == config_file
     assert installed[0][1].target_id == enrolled.target_id
