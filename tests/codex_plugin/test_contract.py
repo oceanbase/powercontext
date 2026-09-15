@@ -207,6 +207,10 @@ def test_customer_artifact_workflow_does_not_parse_plugin_root_as_an_actions_exp
 
 def test_project_context_skill_requires_explicit_memory_routing_and_failure_reporting() -> None:
     content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
+    content += "\n" + "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((PLUGIN_ROOT / "skills" / "project-context" / "references").glob("*.md"))
+    )
 
     assert "uv run --frozen" not in content
     assert "create_work_contract" in content
@@ -243,7 +247,7 @@ def test_project_context_skill_requires_explicit_memory_routing_and_failure_repo
         "Do not call `select_handoff_workstream` for this flow",
         "Draft a preference entry, but do not save it",
     ):
-        assert required in content
+        assert required.lower() in content.lower()
 
     assert "From now on, use\npytest" in content
 

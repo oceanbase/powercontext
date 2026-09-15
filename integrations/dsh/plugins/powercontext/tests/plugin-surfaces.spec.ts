@@ -81,11 +81,11 @@ describe('registerSkill', () => {
         ? { register: (skill: { name: string; content: string; source: string }) => registered.push(skill) }
         : undefined,
     })
-    expect(registered).toEqual([expect.objectContaining({
+    expect(registered).toEqual(expect.arrayContaining([expect.objectContaining({
       name: 'project-context',
       source: 'runtime',
       content: PROJECT_CONTEXT_SKILL,
-    })])
+    })]))
   })
 })
 
@@ -106,7 +106,7 @@ describe('plugin surface mount', () => {
     registerSkill(ctx)
     registerGuidance(ctx)
     expect(commands.map((item) => item.name)).toEqual(['pc'])
-    expect(skills.map((item) => item.name)).toEqual(['project-context'])
+    expect(skills.map((item) => item.name)).toEqual(['project-context', 'powercontext-memory', 'powercontext-handoff', 'powercontext-review'])
     expect(sections.map((item) => item.name)).toEqual(['tool:powercontext'])
   })
 })

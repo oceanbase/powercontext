@@ -41,7 +41,7 @@ Scope 由宿主和 Server 决定。复用解析后的绑定，不猜测身份或
 | Codex、Claude Code、WorkBuddy | MCP 初始化指引和 OpenAPI 派生描述 | `search_memory`、`list_memory_entries`、`remember_memory`；各自现有 `project-context` Skill 保持一致。 |
 
 可移植 Agent Plugin 的现有 Skill 使用相同语义。框架适配器与 Bub 验证工具不在本次迁移范围；工具权限、持久化格式、
-宿主命名与分发归属均保持原有设计。分层 Skill 属于 E，分发生成器由 #1405 / #1410 负责。
+宿主命名与分发归属均保持原有设计。E 的[分层 Skill 路由](layered-skills.md)由 #1620 跟踪，分发生成器由 #1405 / #1410 负责。
 
 ## 复现验证
 

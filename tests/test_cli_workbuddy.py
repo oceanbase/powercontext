@@ -63,6 +63,10 @@ def _write_plugin(root: Path) -> Path:
         '${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
         encoding="utf-8",
     )
+    (skill / "references").mkdir()
+    (skill / "references" / "scope-memory.md").write_text(
+        (skill / "SKILL.md").read_text(encoding="utf-8"), encoding="utf-8"
+    )
     return plugin
 
 
@@ -120,6 +124,7 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
     assert "${POWERCONTEXT_PYTHON}" not in skill_content
     assert (hooks_dir / "powercontext_scope_binding.py").as_posix() in skill_content
     assert Path(sys.executable).as_posix() in skill_content
+    assert (skill_markdown.parent / "references" / "scope-memory.md").read_text(encoding="utf-8") == skill_content
     assert json.loads((skill_markdown.parent / ".powercontext.json").read_text(encoding="utf-8")) == {
         "schema": 1,
         "owner": "powercontext",

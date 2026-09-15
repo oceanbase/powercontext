@@ -158,3 +158,10 @@ Run the plugin unit tests and the CLI tests:
 pnpm --dir integrations/openclaw/plugins/memory-powercontext test
 uv run pytest tests/test_openclaw_cli.py
 ```
+
+## Optional workflow Skill
+
+The package includes `powercontext-project-context`, discovered through the plugin manifest's `skills` directory.
+Its English/Chinese description routes Memory and work-transfer requests to local reference files. Read details only
+when needed; ordinary coding requires no Skill detour. The Skill does not enable unavailable tools, Memory inventory,
+candidate Review, or writes outside the host's private-session and permission boundaries.

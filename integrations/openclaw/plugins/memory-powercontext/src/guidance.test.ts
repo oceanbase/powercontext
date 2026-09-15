@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { buildMemoryGuidance } from "./guidance.js";
@@ -49,7 +49,7 @@ it("mentions only currently available tools, including a write-only catalog", ()
   const readTools = tools.filter(tool => tool.name !== "powercontext_memory_store");
   if (output) writeFileSync(join(output, "openclaw.json"), JSON.stringify({
     host: "openclaw", guidance: buildMemoryGuidance(new Set(tools.map(tool => tool.name)), "on").join("\n"),
-    skill: null, tools: tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
+    skill: { name: "powercontext-project-context", content: readFileSync(new URL("../skills/powercontext-project-context/SKILL.md", import.meta.url), "utf8") }, tools: tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
     variants: { unavailable_save: {
       guidance: buildMemoryGuidance(new Set(readTools.map(tool => tool.name)), "on").join("\n"),
       tools: readTools.map(({ name, description, parameters }) => ({ name, description, parameters })),

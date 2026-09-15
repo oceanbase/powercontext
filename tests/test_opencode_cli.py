@@ -37,6 +37,9 @@ def _write_plugin(root: Path, *, built: bool = True) -> Path:
         "---\nname: project-context\ndescription: test\n---\n",
         encoding="utf-8",
     )
+    references = plugin / "skills" / "project-context" / "references"
+    references.mkdir()
+    (references / "memory.md").write_text("Memory procedure", encoding="utf-8")
     if built:
         (plugin / "lib").mkdir()
         (plugin / "lib" / "index.js").write_text("export default {}\n", encoding="utf-8")
@@ -150,6 +153,7 @@ def test_setup_opencode_installs_plugin_and_owned_skill(tmp_path: Path, monkeypa
     assert "PowerContext OpenCode setup complete." in result.output
     assert (config / "plugins" / "powercontext-opencode.js").is_file()
     assert (skill / "SKILL.md").is_file()
+    assert (skill / "references" / "memory.md").read_text(encoding="utf-8") == "Memory procedure"
     assert json.loads((skill / ".powercontext.json").read_text(encoding="utf-8"))["owner"] == "powercontext"
 
 

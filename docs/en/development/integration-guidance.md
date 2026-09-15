@@ -46,7 +46,7 @@ These rules describe result interpretation; error classification follows the
 
 The portable Agent Plugin's existing Skill shares these semantics. Framework adapters and the Bub evaluation harness
 are outside this migration. Host names, tool authority, persistence formats, and distribution ownership do not change.
-Layered Skills belong to E; the distribution generator belongs to #1405 / #1410.
+E adds [layered Skill routing](layered-skills.md), tracked by #1620. The distribution generator belongs to #1405 / #1410.
 
 ## Reproduce validation
 

@@ -341,14 +341,14 @@ def _install_workbuddy_skill(plugin_dir: Path, skills_dir: Path, hooks_dir: Path
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(source, target)
-        skill_markdown = target / "SKILL.md"
-        content = skill_markdown.read_text(encoding="utf-8")
-        content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
-        content = content.replace(
-            WORKBUDDY_SCOPE_BINDING_PLACEHOLDER,
-            _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
-        )
-        skill_markdown.write_text(content, encoding="utf-8")
+        for skill_markdown in target.rglob("*.md"):
+            content = skill_markdown.read_text(encoding="utf-8")
+            content = content.replace(WORKBUDDY_PYTHON_PLACEHOLDER, _shell_argument(_python_executable()))
+            content = content.replace(
+                WORKBUDDY_SCOPE_BINDING_PLACEHOLDER,
+                _shell_argument((hooks_dir / WORKBUDDY_SCOPE_RESOLVER).as_posix()),
+            )
+            skill_markdown.write_text(content, encoding="utf-8")
         (target / WORKBUDDY_SKILL_MANIFEST).write_text(
             json.dumps({"schema": 1, "owner": "powercontext", "integration": "workbuddy"}, indent=2) + "\n",
             encoding="utf-8",

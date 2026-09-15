@@ -314,3 +314,31 @@ def test_handoff_claim_error_identifies_field_without_accepting_a_source(field: 
     with pytest.raises(ValueError, match=path + r"\.basis/evidence"):
         fixture.respond("handoff_current_work", payload)
     assert fixture.source is None
+
+
+@pytest.mark.parametrize("operation, case", [("remember_memory", "save"), ("search_memory", "search")])
+def test_data_operations_cannot_change_the_bound_evaluation_scope(operation: str, case: str) -> None:
+    model = Model([call(operation, {"scope_id": "invented-scope"})])
+    catalog = {"host": "fixture", "guidance": "", "tools": [{"name": operation}]}
+    result = asyncio.run(run_scenario(model, catalog, case, 0, "unavailable"))
+    assert not result["routing_passed"]
+    assert not result["arguments_passed"]
+    assert f"{operation}.scope_id: expected bound Scope fixture-scope, got 'invented-scope'" in result["error"]
+    assert len(model.messages) == 1  # No fabricated successful write result is delivered.
+
+
+@pytest.mark.parametrize("wrapper", ["handoff", "data"])
+def test_handoff_response_wrapper_is_not_a_transferable_carrier(wrapper: str) -> None:
+    fixture = HandoffFixture()
+    fixture.respond("handoff_current_work", handoff_payload())
+    assert fixture.carrier_returned(json.dumps(fixture.prepared))
+    assert not fixture.carrier_returned(json.dumps({wrapper: fixture.prepared}))
+
+
+def test_handoff_array_and_broken_json_do_not_hide_a_nested_carrier() -> None:
+    fixture = HandoffFixture()
+    fixture.respond("handoff_current_work", handoff_payload())
+    carrier = json.dumps(fixture.prepared)
+    assert fixture.carrier_returned(f"Here is the carrier:\n```json\n{carrier}\n```")
+    assert not fixture.carrier_returned(f"[{carrier}]")
+    assert not fixture.carrier_returned('{"handoff":' + carrier)

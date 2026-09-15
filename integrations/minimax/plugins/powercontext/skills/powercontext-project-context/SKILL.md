@@ -1,11 +1,11 @@
 ---
 name: powercontext-project-context
-description: Use PowerContext to search prior project decisions, explicitly save or correct durable memory, inspect scopes and review candidates, or transfer and resume work with exact evidence. Use when the user requests these operations or relevant project history is missing; ordinary coding and current-turn summaries do not need PowerContext calls.
+description: PowerContext memory search/save, inventory, handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.
 ---
 
 # PowerContext project context
 
-Use the connected `powercontext` MCP server to manage project memory and handoffs. Select an operation from the user's intent, then read the corresponding reference. Do not add searches, writes, or Scope changes just to use this Skill.
+Use the connected `powercontext` MCP server to manage project memory and handoffs. Select an operation from the user's intent, then read only the corresponding reference when detailed procedure is needed. Self-contained tool calls need no extra Skill detour. Do not add searches, writes, or Scope changes just to use this Skill.
 
 ## Choose an operation
 

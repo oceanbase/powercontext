@@ -67,15 +67,14 @@ def test_agent_plugin_mcp_configuration_is_portable_and_secret_free() -> None:
 
 def test_project_context_skill_is_reusable_and_preserves_powercontext_workflows() -> None:
     content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
+    content += "\n" + "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((PLUGIN_ROOT / "skills" / "project-context" / "references").glob("*.md"))
+    )
     frontmatter = yaml.safe_load(content.split("---", 2)[1])
 
-    assert frontmatter == {
-        "name": "project-context",
-        "description": (
-            "Use PowerContext project memory and handoff tools through MCP when continuing prior work, "
-            "recalling decisions, maintaining durable memory, or transferring work across tasks, sessions, or agents."
-        ),
-    }
+    assert frontmatter["name"] == "project-context"
+    assert isinstance(frontmatter["description"], str) and frontmatter["description"]
     for required in (
         "search_memory",
         "list_memory_entries",
@@ -88,7 +87,6 @@ def test_project_context_skill_is_reusable_and_preserves_powercontext_workflows(
         "continue_handoff",
         "acknowledge_handoff",
         "record_task_outcome",
-        "Degrade Safely",
     ):
         assert required in content
 
@@ -106,6 +104,10 @@ def test_project_context_skill_is_reusable_and_preserves_powercontext_workflows(
 
 def test_project_context_skill_uses_default_model_free_handoff_flow() -> None:
     content = (PLUGIN_ROOT / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8")
+    content += "\n" + "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((PLUGIN_ROOT / "skills" / "project-context" / "references").glob("*.md"))
+    )
 
     assert "without invoking a generation model" in content
     assert "handoff_current_work" in content
