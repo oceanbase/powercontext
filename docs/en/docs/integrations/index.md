@@ -67,5 +67,5 @@ The current capability sets for all 8 hosts and Bub are marked `master_only`; Py
 `experimental` carries no stability guarantee. These labels are separate from stewardship and the
 Minimal / Recommended / Full capability profiles.
 
-Use the same release tag or commit for the Server and integration. Check [installation requirements](../get-started/install-and-run.md):
+Use the same release tag or commit for the Server and integration. Check [installation requirements](../get-started/install-and-run.mdx):
 Windows support is `experimental`, and does not imply that every host or optional backend supports Windows.

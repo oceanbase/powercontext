@@ -21,7 +21,7 @@ uv add "powercontext-pydantic-ai @ git+https://github.com/oceanbase/powercontext
 uv add "pydantic-ai-slim[openai]>=2.29,<3"
 ```
 
-按[安装与运行](../get-started/install-and-run.md)从同一 ref 启动独立 Server。
+按[安装与运行](../get-started/install-and-run.mdx)从同一 ref 启动独立 Server。
 适配器要求 `powercontext[client]>=0.0.3`；这些示例使用匹配的当前源码。
 使用其他 Provider 时，替换 `openai` extra 和模型字符串。
 

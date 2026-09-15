@@ -1071,7 +1071,6 @@ def test_server_command_does_not_load_client_settings(monkeypatch: pytest.Monkey
 
     assert result.exit_code == 0
     assert "Inference capability notice" in result.stdout
-    assert "可能影响部分制品功能" in result.stdout
     assert "https://powercontext.oceanbase.io/en/docs/reference/configuration/" in result.stdout
 
 

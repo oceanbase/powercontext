@@ -26,7 +26,7 @@ durable Handoff 流程，不代表所有 Agent 的交互方式。
 ### 检查环境
 
 以下命令使用 macOS 或 Linux 上的 Bash。Windows 支持为 `experimental`，见
-[平台要求](../get-started/install-and-run.md)。需要以下工具：
+[平台要求](../get-started/install-and-run.mdx)。需要以下工具：
 
 | 工具 | 要求 | 检查命令 |
 | --- | --- | --- |

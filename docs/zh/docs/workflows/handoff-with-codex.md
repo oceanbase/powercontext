@@ -16,7 +16,7 @@ Work Contract → Handoff → Acknowledgement → Task Outcome
 
 ## 开始之前
 
-先完成[安装和运行](../get-started/install-and-run.md)，保持 Server 运行，并在当前项目中启动已配置 PowerContext 插件的 Codex
+先完成[安装和运行](../get-started/install-and-run.mdx)，保持 Server 运行，并在当前项目中启动已配置 PowerContext 插件的 Codex
 会话。Integration 会在读取或写入工作记录前将 Session 绑定到一个 Scope。只有独立工作确实需要单独隔离和继续时，
 才为它创建新的 Scope。
 

@@ -27,7 +27,7 @@ local loop works, use the links at the end to continue with those tasks.
 ### Check your environment
 
 The commands below use Bash on macOS or Linux. Windows support is `experimental`; see
-[platform requirements](../get-started/install-and-run.md). You need these tools:
+[platform requirements](../get-started/install-and-run.mdx). You need these tools:
 
 | Tool | Requirement | Check command |
 | --- | --- | --- |

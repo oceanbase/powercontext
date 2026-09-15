@@ -70,7 +70,7 @@ HTTP revise 请求可以显式替换该集合，`[]` 表示清空。批准后的
 
 Dashboard 默认关闭，是使用静态 Bearer 鉴权的个人内容查看器。启用后可阅读已批准的 Experience 和 Skill，
 并沿精确引用查看历史 Memory 条目；Dream 发起、运行查询和候选审核通过 CLI／Client／HTTP API 完成。
-个人启用步骤见[安装和运行](../get-started/install-and-run.md)。
+个人启用步骤见[安装和运行](../get-started/install-and-run.mdx)。
 
 Runtime 启动时创建 `pc_dream_runs`，并为 `pc_artifacts` 和 `pc_artifact_candidate_versions` 增加可空的
 `memory_citations` 列；旧行按空引用读取。运行表不复制 Memory 条目正文。部署数据库结构变更前应备份已有数据库。
