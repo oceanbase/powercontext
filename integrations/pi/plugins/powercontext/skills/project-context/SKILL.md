@@ -43,14 +43,19 @@ Call `pc_handoff_commit` only when the user explicitly wants a durable milestone
 - When handing off the current work, inspect the objective, state, disposition, next action, omissions, and exact evidence,
   then call `pc_handoff_current` once with a unique `source_id`. Pass its returned `handoff` member unchanged to the
   receiving task or to `pc_handoff_commit` when the user explicitly requests a durable milestone.
-- The receiving task must verify the Handoff evidence against the current repository, instructions, capabilities, and
-  authorization before calling `pc_handoff_acknowledge`. Use the same prepared or exact target, all three receiver check
-  states, and `accepted`, `needs_clarification`, or `declined`. Never accept without all checks confirmed.
+- The receiving task resolves the transferred value with `pc_handoff_continue` — `selection: "prepared"` with that exact
+  prepared value, or `selection: "exact"` with the committed revision — then verifies the resolved Handoff evidence
+  against the current repository, instructions, capabilities, and authorization before calling `pc_handoff_acknowledge`.
+  Use the same prepared or exact target, all three receiver check states, and `accepted`, `needs_clarification`, or
+  `declined`. Never accept without all checks confirmed.
 - At an actual completion or interruption boundary, call `pc_task_outcome` with the exact status, observations, checks,
   produced Artifacts, and remaining work. Do not treat every session stop as completion. Preserve failed, skipped,
   timed-out, unavailable, cancelled, and unknown checks exactly. Only when the work closes an accepted committed Handoff,
   pass that acknowledgement's exact `receipt.source` as `handoff_receipt_ref`; omit the field for a `prepared`
   acknowledgement or when no Handoff is covered.
+- Ground every claim in a Work Contract, Handoff, or Task Outcome: use `basis: "declared"` unless the claim carries an
+  exact same-scope citation, never present `verified` without exact evidence, and never attach evidence to a `declared`
+  claim. PowerContext rejects either mismatch.
 
 All four structured work operations change durable project context. Pi requires interactive confirmation and refuses them
 without a UI. Do not include secrets or credentials in their payloads.
