@@ -81,6 +81,8 @@ const WRITE_OPERATIONS = new Set<OperationId>([
   'handoff_current_work',
   'acknowledge_handoff',
   'record_task_outcome',
+  'generate_experience',
+  'generate_skill',
 ])
 
 function mapServerError(error: ServerResponseError): ToolResult {

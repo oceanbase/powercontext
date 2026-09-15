@@ -180,6 +180,31 @@ const TASK_OUTCOME = Type.Object({
   produced_artifacts: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 }),
   remaining_work: Type.Array(NON_EMPTY_STRING, { maxItems: 64 }),
 })
+const GENERATION_FIELDS = {
+  target: Type.Optional(Type.Union([ARTIFACT_REFERENCE, Type.Null()])),
+  reason: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2000 }), Type.Null()])),
+}
+const EVIDENCE_REF_COMBINATIONS = Array.from({ length: 33 }, (_, sourceMax) => Type.Object({
+  source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: sourceMax }),
+  artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 - sourceMax }),
+  ...GENERATION_FIELDS,
+}))
+const EXPERIENCE_GENERATION = Type.Union(EVIDENCE_REF_COMBINATIONS)
+const SKILL_GENERATION = Type.Union(EVIDENCE_REF_COMBINATIONS.map((schema) => Type.Intersect([
+  Type.Object({
+    origin: Type.Union([Type.Literal('experience'), Type.Literal('source'), Type.Literal('usage')]),
+  }),
+  schema,
+])))
+type GenerationParams = {
+  source_refs: Array<Static<typeof SOURCE_REFERENCE>>
+  artifact_refs: Array<Static<typeof ARTIFACT_REFERENCE>>
+  target?: Static<typeof ARTIFACT_REFERENCE> | null
+  reason?: string | null
+}
+type SkillGenerationParams = GenerationParams & {
+  origin: 'experience' | 'source' | 'usage'
+}
 
 
 function render(result: ToolResult) {
@@ -545,6 +570,51 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
       prepared: params.prepared,
       revision: params.revision,
     }),
+  })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_experience_generate',
+    label: 'PowerContext Experience Generate',
+    description:
+      'Generate an Experience candidate from exact Source and Artifact evidence when the user requests ' +
+      'candidate generation. The result remains pending human review; generation does not approve, ' +
+      'publish, install, or activate it. Preserve exact returned references and report the returned ' +
+      'status. Do not use this as a routine Memory write.',
+    parameters: EXPERIENCE_GENERATION,
+    operationId: 'generate_experience',
+    payload: (params) => {
+      const value = params as GenerationParams
+      return {
+        source_refs: value.source_refs,
+        artifact_refs: value.artifact_refs,
+        target: value.target,
+        reason: value.reason,
+      }
+    },
+    mutates: true,
+  })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_skill_generate',
+    label: 'PowerContext Skill Generate',
+    description:
+      'Generate a Skill candidate from exact evidence when the user requests candidate generation. ' +
+      'The result remains pending human review; generation does not approve, publish, install, or ' +
+      'activate the Skill. Preserve exact returned references and report the returned status. Review ' +
+      'decisions remain outside the Pi tool surface.',
+    parameters: SKILL_GENERATION,
+    operationId: 'generate_skill',
+    payload: (params) => {
+      const value = params as SkillGenerationParams
+      return {
+        origin: value.origin,
+        source_refs: value.source_refs,
+        artifact_refs: value.artifact_refs,
+        target: value.target,
+        reason: value.reason,
+      }
+    },
+    mutates: true,
   })
 
   registerOperationTool(pi, runtime, {
