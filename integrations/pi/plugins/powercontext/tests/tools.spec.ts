@@ -85,6 +85,8 @@ describe('Pi native tool surface', () => {
       'pc_handoff_continue',
       'pc_experience_get',
       'pc_skill_get',
+      'pc_topic_search',
+      'pc_topic_get',
       'pc_review_list',
       'pc_review_get',
     ]))
@@ -178,6 +180,63 @@ describe('Pi native tool surface', () => {
         candidate_id: 'candidate-1', scope_id: 'project:demo',
       }],
     ])
+  })
+
+  it('searches and reads Topic Memory through the read-only current-Scope APIs', async () => {
+    const registered: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => (
+      new Response(JSON.stringify({ mode: 'fts', hits: [] }))
+    ))
+    const runtime = createRuntime(fetch)
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
+    const context = {
+      cwd: '/workspace/repo',
+      hasUI: true,
+      ui: { confirm: vi.fn(async () => false) },
+    }
+    const signal = new AbortController().signal
+
+    await registeredTool<{ query: string; limit?: number }>(registered, 'pc_topic_search').execute(
+      'call-1', { query: 'deployment decisions', limit: 50 }, signal, () => undefined, context,
+    )
+    await registeredTool<{ query: string; limit?: number }>(registered, 'pc_topic_search').execute(
+      'call-2', { query: 'deployment decisions', limit: 0 }, signal, () => undefined, context,
+    )
+    await registeredTool<{ query: string; limit?: number }>(registered, 'pc_topic_search').execute(
+      'call-3', { query: 'deployment decisions' }, signal, () => undefined, context,
+    )
+    await registeredTool<{ artifact: Record<string, unknown> }>(registered, 'pc_topic_get').execute(
+      'call-4', { artifact: { family: 'topic-memory', artifact_id: 'topic-1', revision: 4 } }, signal,
+      () => undefined, context,
+    )
+
+    expect(context.ui.confirm).not.toHaveBeenCalled()
+    expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body))])).toEqual([
+      ['http://127.0.0.1:8000/v1/topic-memory/search', {
+        query: 'deployment decisions', limit: 20, scope_id: 'project:demo',
+      }],
+      ['http://127.0.0.1:8000/v1/topic-memory/search', {
+        query: 'deployment decisions', limit: 1, scope_id: 'project:demo',
+      }],
+      ['http://127.0.0.1:8000/v1/topic-memory/search', {
+        query: 'deployment decisions', limit: 10, scope_id: 'project:demo',
+      }],
+      ['http://127.0.0.1:8000/v1/topic-memory/get', {
+        artifact: { family: 'topic-memory', artifact_id: 'topic-1', revision: 4 },
+        scope_id: 'project:demo',
+      }],
+    ])
+  })
+
+  it('publishes the Topic Memory search schema without retrieval controls', () => {
+    const registered: Array<Record<string, unknown>> = []
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, createRuntime(vi.fn()))
+    const search = registeredTool<Record<string, unknown>>(registered, 'pc_topic_search') as unknown as {
+      parameters: { properties: Record<string, Record<string, unknown>> }
+    }
+
+    expect(search.parameters.properties.limit).toMatchObject({ type: 'number' })
+    expect(search.parameters.properties).not.toHaveProperty('mode')
   })
 
   it('registers the /pc status and diagnostic command', () => {

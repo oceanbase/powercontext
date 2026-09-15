@@ -62,6 +62,7 @@ class IntegrationCapability(StrEnum):
     EXPERIENCE_READ_OR_GENERATE = "experience_read_or_generate"
     SKILL_READ_OR_GENERATE = "skill_read_or_generate"
     CANDIDATE_REVIEW = "candidate_review"
+    TOPIC_MEMORY_READ = "topic_memory_read"
     EXTERNAL_SKILL = "external_skill"
     PRE_COMPACTION_CAPTURE = "pre_compaction_capture"
     SLASH_COMMAND = "slash_command"

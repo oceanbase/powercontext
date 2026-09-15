@@ -471,6 +471,12 @@ capabilities = ["experience_read_or_generate"]
 id = "pc_skill_get:get_skill"
 capabilities = ["skill_read_or_generate"]
 [[toolsets.tools]]
+id = "pc_topic_search:search_topic_memory"
+capabilities = ["topic_memory_read"]
+[[toolsets.tools]]
+id = "pc_topic_get:get_topic_memory"
+capabilities = ["topic_memory_read"]
+[[toolsets.tools]]
 id = "pc_review_list:list_artifact_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
@@ -629,7 +635,7 @@ tests = ["integrations/opencode/plugins/powercontext/tests/plugin.spec.ts"]
 id = "pi"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "pre_compaction_capture", "slash_command"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "topic_memory_read", "pre_compaction_capture", "slash_command"]
 profiles = ["minimal"]
 toolsets = ["pi-tools", "pi-command", "pi-lifecycle"]
 [integrations.evidence]
