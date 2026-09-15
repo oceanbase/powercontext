@@ -180,7 +180,7 @@ Implement contract/authorization, atomic writes, tags/filtering, then cross-Scop
 
 ## 11. Compatibility and rollout
 
-Reuse existing tables. Check publication/head/active projection/index integrity before enabling writes. Diagnose historical incomplete generic copies separately; startup must not guess provenance and repair them automatically.
+Reuse existing tables, widening the tag table's family CHECK constraint to include `topic-memory`. SQLite rebuilds the tag table transactionally, preserving data, keys, foreign keys, and indexes; OceanBase updates its CHECK constraint. Pause old-instance writes during upgrade. Repeated startup must not repeat migration or lose tags. Assess new-family data compatibility before rolling back the application. Check publication/head/active projection/index integrity before enabling writes. Diagnose historical incomplete generic copies separately; startup must not guess provenance and repair them automatically.
 
 Preserve existing reads and other families. Unspecified tag-query families intentionally include Topic Memory; document this expanded result set. Clients needing a fixed set must specify families.
 

@@ -206,7 +206,7 @@ Publish 沿用 PublishArtifactRequest，源地址必须包含 scope_id、family�
 
 ## 11. 兼容性与上线
 
-无需新增业务表，复用 Artifact、标签及 Topic Memory 已有表。开启前检查历史主题是否满足发布记录、head、active topic/chunks 与索引一致性。对于既有通用复制产生的不完整主题，单独制定诊断与修复流程；服务不得在启动时猜测来源并自动补数据。
+复用 Artifact、标签及 Topic Memory 已有表。标签表的 family CHECK 约束需要扩展到 `topic-memory`：SQLite 在事务中重建标签表并保留原有数据、主键、外键和索引；OceanBase 更新对应 CHECK 约束。升级期间暂停旧实例写入，重复启动不得重复迁移或丢失标签。回滚到旧程序前需评估新增 family 数据的兼容性。开启前检查历史主题是否满足发布记录、head、active topic/chunks 与索引一致性。对于既有通用复制产生的不完整主题，单独制定诊断与修复流程；服务不得在启动时猜测来源并自动补数据。
 
 四个已支持的读取接口、主题专用 search/get/flush 与其他 family 的读写语义保持兼容。标签查询不指定 families 时会新增匹配的 Topic Memory 项，这是有意的结果集合扩展，应在发布说明中注明；需要固定范围的客户端显式传 families。
 
