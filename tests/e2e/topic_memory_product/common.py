@@ -41,7 +41,7 @@ from starlette.middleware import Middleware
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
-from powercontext.client import PowerContextClient
+from powercontext.client import PowerContextClient, TransportError
 from powercontext.http import (
     CaptureContentSourceRequest,
     FlushTopicMemoryRequest,
@@ -524,7 +524,14 @@ async def exercise_http_mcp_prepared_chain(  # noqa: C901
             await asyncio.to_thread(generation.wait_for_topic_generation, max(0.0, deadline - time.monotonic()))
             await asyncio.sleep(0.5)
         while time.monotonic() < deadline:
-            search = await client.search_topic_memory(SearchTopicMemoryRequest(scope_id=scope_id, query=query, limit=8))
+            try:
+                search = await client.search_topic_memory(
+                    SearchTopicMemoryRequest(scope_id=scope_id, query=query, limit=8)
+                )
+            except TransportError:
+                observed_empty_after_flush = True
+                await asyncio.sleep(0.2)
+                continue
             if search.hits:
                 break
             observed_empty_after_flush = True
