@@ -15,6 +15,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import type { TSchema } from 'typebox'
+import { Value } from 'typebox/value'
 import powercontextPi from '../extensions/powercontext.ts'
 import { PowerContextClient, type FetchFn } from '../src/client.ts'
 import { registerTools } from '../src/tools.ts'
@@ -233,6 +235,39 @@ describe('Pi native tool surface', () => {
       }],
       ['http://127.0.0.1:8000/v1/work/outcomes/record', { source_id: 'outcome-1', outcome, scope_id: 'project:demo' }],
     ])
+  })
+
+  it('accepts the check results the OpenAPI contract marks optional', () => {
+    const registered: Array<Record<string, unknown>> = []
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, createRuntime(vi.fn()))
+    const parameters = (
+      registered.find((tool) => tool.name === 'pc_task_outcome') as { parameters: TSchema }
+    ).parameters
+    const outcome = {
+      schema: 'powercontext.task-outcome.v1',
+      trust: 'untrusted_observation',
+      objective: 'ship feature',
+      status: 'succeeded',
+      summary: 'implemented',
+      observations: [{
+        text: 'tests passed',
+        basis: 'verified',
+        evidence: [{ kind: 'source', source_ref: { name: 'git', source_id: 'commit-1' } }],
+      }],
+      checks: [{ name: 'tests', status: 'passed', basis: 'declared', evidence: [] }],
+      produced_artifacts: [],
+      remaining_work: [],
+    }
+
+    expect(Value.Check(parameters, { source_id: 'outcome-1', outcome })).toBe(true)
+    expect(Value.Check(parameters, {
+      source_id: 'outcome-1',
+      outcome: { ...outcome, checks: [{ ...outcome.checks[0], details: null }] },
+    })).toBe(true)
+    expect(Value.Check(parameters, {
+      source_id: 'outcome-1',
+      outcome: { ...outcome, checks: [{ name: 'tests', status: 'passed', evidence: [] }] },
+    })).toBe(false)
   })
 
   it('reads exact artifacts and inspects candidates without requesting confirmation', async () => {

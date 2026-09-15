@@ -147,7 +147,7 @@ const TASK_CHECK = Type.Object({
     Type.Literal('passed'), Type.Literal('failed'), Type.Literal('skipped'), Type.Literal('timed_out'),
     Type.Literal('unavailable'), Type.Literal('cancelled'), Type.Literal('unknown'),
   ]),
-  details: Type.Union([NON_EMPTY_STRING, Type.Null()]),
+  details: Type.Optional(Type.Union([NON_EMPTY_STRING, Type.Null()])),
   basis: Type.Union([Type.Literal('declared'), Type.Literal('verified')]),
   evidence: Type.Array(HANDOFF_CITATION, { maxItems: 32 }),
 })

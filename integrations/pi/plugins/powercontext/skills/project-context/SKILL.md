@@ -48,7 +48,9 @@ Call `pc_handoff_commit` only when the user explicitly wants a durable milestone
   states, and `accepted`, `needs_clarification`, or `declined`. Never accept without all checks confirmed.
 - At an actual completion or interruption boundary, call `pc_task_outcome` with the exact status, observations, checks,
   produced Artifacts, and remaining work. Do not treat every session stop as completion. Preserve failed, skipped,
-  timed-out, unavailable, cancelled, and unknown checks exactly; pass any exact Handoff receipt reference unchanged.
+  timed-out, unavailable, cancelled, and unknown checks exactly. Only when the work closes an accepted committed Handoff,
+  pass that acknowledgement's exact `receipt.source` as `handoff_receipt_ref`; omit the field for a `prepared`
+  acknowledgement or when no Handoff is covered.
 
 All four structured work operations change durable project context. Pi requires interactive confirmation and refuses them
 without a UI. Do not include secrets or credentials in their payloads.
