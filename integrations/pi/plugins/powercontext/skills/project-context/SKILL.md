@@ -18,6 +18,12 @@ evidence. Do not call `pc_remember` merely to duplicate the current prompt.
 - Use `pc_memory_get` only with an exact citation returned by search or list.
 - Use `pc_prepare_context` when one bounded, query-specific context value is more useful than raw search hits.
 
+## Inspect artifacts and candidates
+
+- Use `pc_experience_get` or `pc_skill_get` only with an exact Artifact reference returned by PowerContext.
+- Use `pc_review_list` to inspect the candidate queue and `pc_review_get` for one exact candidate.
+- Candidate inspection does not authorize approval, rejection, revision, installation, publication, or execution.
+
 ## Hand off work
 
 1. Call `pc_capture_source` with a concise, unique Source containing the objective, verified progress, blockers, and

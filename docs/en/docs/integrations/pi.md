@@ -73,7 +73,11 @@ The `project-context` skill explains when to use native `pc_*` tools. The core t
 - `pc_search`, `pc_memory_list`, `pc_memory_get`, `pc_memory_revise`, and `pc_memory_retire`;
 - `pc_remember`, `pc_prepare_context`, and `pc_capture_source`;
 - `pc_handoff_activate`, `pc_handoff_prepare`, `pc_handoff_finalize`, `pc_handoff_commit`, and
-  `pc_handoff_continue`.
+  `pc_handoff_continue`;
+- `pc_experience_get`, `pc_skill_get`, `pc_review_list`, and `pc_review_get` for read-only Artifact and candidate
+  inspection.
+
+Candidate inspection never grants approval, rejection, revision, installation, publication, or execution authority.
 
 Explicit durable writes require confirmation in an interactive Pi session. Without an interactive UI, Pi refuses the
 write rather than persisting it silently. `/pc doctor`, `/pc search <query>`, `/pc remember <text>`, `/pc flush`, and

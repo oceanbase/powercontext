@@ -286,4 +286,54 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
       revision: params.revision,
     }),
   })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_experience_get',
+    label: 'PowerContext Experience Get',
+    description: 'Read one Experience artifact by its exact returned Artifact reference.',
+    parameters: Type.Object({ artifact: JSON_OBJECT }),
+    operationId: 'get_experience',
+    payload: (params) => ({ artifact: params.artifact }),
+  })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_skill_get',
+    label: 'PowerContext Skill Get',
+    description: 'Read one Skill artifact by its exact returned Artifact reference.',
+    parameters: Type.Object({ artifact: JSON_OBJECT }),
+    operationId: 'get_skill',
+    payload: (params) => ({ artifact: params.artifact }),
+  })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_review_list',
+    label: 'PowerContext Candidate List',
+    description: 'List Artifact candidates for inspection. This tool does not approve, reject, or revise them.',
+    parameters: Type.Object({
+      status: Type.Optional(Type.Union([
+        Type.Literal('pending'),
+        Type.Literal('approved'),
+        Type.Literal('rejected'),
+      ])),
+      family: Type.Optional(Type.Union([Type.Literal('experience'), Type.Literal('skill')])),
+      cursor: Type.Optional(Type.String({ description: 'Cursor returned by the previous candidate page.' })),
+      limit: Type.Optional(Type.Number({ description: 'Maximum candidates; capped at 100.' })),
+    }),
+    operationId: 'list_artifact_candidates',
+    payload: (params) => ({
+      status: params.status ?? 'pending',
+      family: params.family,
+      cursor: params.cursor,
+      limit: Math.min(100, Math.max(1, Math.floor(params.limit ?? 50))),
+    }),
+  })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_review_get',
+    label: 'PowerContext Candidate Get',
+    description: 'Read one Artifact candidate for inspection without changing its review state.',
+    parameters: Type.Object({ candidate_id: Type.String() }),
+    operationId: 'get_artifact_candidate',
+    payload: (params) => ({ candidate_id: params.candidate_id }),
+  })
 }

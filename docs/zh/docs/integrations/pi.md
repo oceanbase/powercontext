@@ -72,7 +72,10 @@ flush。
 - `pc_search`、`pc_memory_list`、`pc_memory_get`、`pc_memory_revise`、`pc_memory_retire`；
 - `pc_remember`、`pc_prepare_context`、`pc_capture_source`；
 - `pc_handoff_activate`、`pc_handoff_prepare`、`pc_handoff_finalize`、`pc_handoff_commit`、
-  `pc_handoff_continue`。
+  `pc_handoff_continue`；
+- `pc_experience_get`、`pc_skill_get`、`pc_review_list`、`pc_review_get`，用于只读查看 Artifact 和候选材料。
+
+查看候选材料不授予批准、拒绝、修订、安装、发布或执行权限。
 
 显式持久化写入在交互式 Pi 会话中必须确认；没有交互 UI 时，Pi 会拒绝写入而不会静默持久化。`/pc doctor`、
 `/pc search <query>`、`/pc remember <text>`、`/pc flush` 和 `/pc stats` 可直接查看状态和维护内容。

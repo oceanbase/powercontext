@@ -33,7 +33,7 @@ candidate_review 仅可列举和读取候选材料，不授予决策权限。
 | hermes | Agent 宿主 | 仅 master | minimal, recommended, full | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>external_skill<br>slash_command<br>persistent_scope_binding |
 | openclaw | Agent 宿主 | 仅 master | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>pre_compaction_capture |
 | opencode | Agent 宿主 | 仅 master | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection<br>handoff<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review |
-| pi | Agent 宿主 | 仅 master | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>handoff<br>pre_compaction_capture<br>slash_command |
+| pi | Agent 宿主 | 仅 master | minimal | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>handoff<br>experience_read_or_generate<br>skill_read_or_generate<br>candidate_review<br>pre_compaction_capture<br>slash_command |
 | workbuddy | Agent 宿主 | 仅 master | minimal, recommended | memory_read<br>memory_write<br>source_capture<br>context_injection<br>flush_or_checkpoint<br>work_contract<br>handoff<br>acknowledge<br>task_outcome<br>candidate_review<br>scope_organization<br>artifact_publication<br>persistent_scope_binding |
 | pydantic-ai | 框架适配器 | 实验性 | — | memory_read<br>memory_write<br>context_injection |
 | langchain | 框架适配器 | 仅 master | — | source_capture<br>context_injection |

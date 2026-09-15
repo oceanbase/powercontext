@@ -83,6 +83,10 @@ describe('Pi native tool surface', () => {
       'pc_handoff_finalize',
       'pc_handoff_commit',
       'pc_handoff_continue',
+      'pc_experience_get',
+      'pc_skill_get',
+      'pc_review_list',
+      'pc_review_get',
     ]))
     expect(tools.map((tool) => tool.name)).not.toContain('pc_call')
   })
@@ -124,6 +128,56 @@ describe('Pi native tool surface', () => {
       text: 'keep API async',
       scope_id: 'project:demo',
     })
+  })
+
+  it('reads exact artifacts and inspects candidates without requesting confirmation', async () => {
+    const registered: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => (
+      new Response(JSON.stringify({ status: 'ok' }))
+    ))
+    const runtime = createRuntime(fetch)
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
+    const context = {
+      cwd: '/workspace/repo',
+      hasUI: true,
+      ui: { confirm: vi.fn(async () => false) },
+    }
+    const signal = new AbortController().signal
+
+    await registeredTool<{ artifact: Record<string, unknown> }>(registered, 'pc_experience_get').execute(
+      'call-1', { artifact: { family: 'experience', artifact_id: 'exp-1', revision: 2 } }, signal,
+      () => undefined, context,
+    )
+    await registeredTool<{ artifact: Record<string, unknown> }>(registered, 'pc_skill_get').execute(
+      'call-2', { artifact: { family: 'skill', artifact_id: 'skill-1', revision: 3 } }, signal,
+      () => undefined, context,
+    )
+    await registeredTool<{ status?: string; family?: string; cursor?: string; limit?: number }>(
+      registered, 'pc_review_list',
+    ).execute('call-3', {
+      status: 'approved', family: 'skill', cursor: 'next-page', limit: 120,
+    }, signal, () => undefined, context)
+    await registeredTool<{ candidate_id: string }>(registered, 'pc_review_get').execute(
+      'call-4', { candidate_id: 'candidate-1' }, signal, () => undefined, context,
+    )
+
+    expect(context.ui.confirm).not.toHaveBeenCalled()
+    expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body))])).toEqual([
+      ['http://127.0.0.1:8000/v1/experience/get', {
+        artifact: { family: 'experience', artifact_id: 'exp-1', revision: 2 },
+        scope_id: 'project:demo',
+      }],
+      ['http://127.0.0.1:8000/v1/skill/get', {
+        artifact: { family: 'skill', artifact_id: 'skill-1', revision: 3 },
+        scope_id: 'project:demo',
+      }],
+      ['http://127.0.0.1:8000/v1/artifact-candidates/list', {
+        status: 'approved', family: 'skill', cursor: 'next-page', limit: 100, scope_id: 'project:demo',
+      }],
+      ['http://127.0.0.1:8000/v1/artifact-candidates/get', {
+        candidate_id: 'candidate-1', scope_id: 'project:demo',
+      }],
+    ])
   })
 
   it('registers the /pc status and diagnostic command', () => {

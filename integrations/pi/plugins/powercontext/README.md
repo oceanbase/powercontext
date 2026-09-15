@@ -12,7 +12,8 @@ powercontext setup pi --source /path/to/powercontext
 ```
 
 Start `powercontext server run`, then open a new Pi session in the project. The package supplies the
-`project-context` skill, `pc_*` Memory and Handoff tools, and `/pc` diagnostics.
+`project-context` skill, `pc_*` Memory, Handoff, Experience, Skill, and candidate-inspection tools, and `/pc`
+diagnostics. Candidate tools are read-only and never approve, reject, or revise artifacts.
 
 The package resolves an explicit Scope, a durable workspace binding, or the Server default. Use
 `POWERCONTEXT_PI_BASE_URL`, `POWERCONTEXT_PI_SCOPE_ID`, and `POWERCONTEXT_PI_CAPTURE_PROMPTS` to adjust the connection,

@@ -464,6 +464,18 @@ capabilities = ["handoff"]
 [[toolsets.tools]]
 id = "pc_handoff_continue:continue_handoff"
 capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_experience_get:get_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_get:get_skill"
+capabilities = ["skill_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_review_list:list_artifact_candidates"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_review_get:get_artifact_candidate"
+capabilities = ["candidate_review"]
 
 [[toolsets]]
 id = "pi-command"
@@ -617,13 +629,13 @@ tests = ["integrations/opencode/plugins/powercontext/tests/plugin.spec.ts"]
 id = "pi"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "pre_compaction_capture", "slash_command"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "pre_compaction_capture", "slash_command"]
 profiles = ["minimal"]
 toolsets = ["pi-tools", "pi-command", "pi-lifecycle"]
 [integrations.evidence]
 implementation = ["integrations/pi/plugins/powercontext/src/tools.ts", "integrations/pi/plugins/powercontext/extensions/powercontext.ts"]
 documentation = ["docs/en/docs/integrations/pi.md", "docs/zh/docs/integrations/pi.md"]
-tests = ["integrations/pi/plugins/powercontext/tests/extension.spec.ts"]
+tests = ["integrations/pi/plugins/powercontext/tests/extension.spec.ts", "integrations/pi/plugins/powercontext/tests/tools.spec.ts"]
 
 [[integrations]]
 id = "workbuddy"
