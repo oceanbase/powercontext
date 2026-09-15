@@ -151,6 +151,7 @@ from powercontext.builtin.persistence.supervision import (
 from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE_JOURNAL_HEADS_TABLE
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
+from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -495,6 +496,8 @@ class RelationalContexts:
         prompt_registry: PromptRegistry | None = None,
         prompt_demonstrators: dict[str, DemonstrationGenerator] | None = None,
         handoff_verification_keys: tuple[bytes, ...] = (),
+        topic_memory_write_timeout_seconds: float = 30.0,
+        topic_memory_write_concurrency: int = 4,
     ) -> None:
         self.database = database
         self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
@@ -551,7 +554,14 @@ class RelationalContexts:
             cursor_secret if cursor_secret is not None else secrets.token_bytes(32),
             verification_keys=handoff_verification_keys,
         )
+        topic_memory_writer = TopicMemoryManagementWriter(
+            topic_memory_repository,
+            embedding_model,
+            timeout_seconds=topic_memory_write_timeout_seconds,
+            max_concurrency=topic_memory_write_concurrency,
+        )
         family_writers = FamilyManagementWriterRegistry((
+            topic_memory_writer,
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
             ProfileManagementWriter(self.repositories.artifacts),
             MemoryManagementWriter(
@@ -606,6 +616,7 @@ class RelationalContexts:
             self.repositories.artifacts,
             self.scopes,
             experience_index=self.experience_index,
+            topic_memory_writer=topic_memory_writer,
         )
         self._candidate_pipeline = candidate_pipeline
         self.memory_extraction = candidate_pipeline is not None

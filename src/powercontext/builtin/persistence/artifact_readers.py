@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from hashlib import sha256
 from typing import Any, cast
 
@@ -34,7 +33,6 @@ from powercontext.builtin.records import (
     ArtifactCollectionItem,
     ArtifactListReader,
     ArtifactRecordPage,
-    InvalidBaseAccessRequestError,
     InvalidCursorError,
 )
 from powercontext.builtin.tags import TagFilter
@@ -69,20 +67,24 @@ class TopicMemoryArtifactListReader(ArtifactListReader):
         tag_filter: TagFilter | None,
         cursor_codec: SignedCursorCodec,
     ) -> ArtifactRecordPage:
-        if tag_filter is not None:
-            raise InvalidBaseAccessRequestError("tag", "is not supported for the topic-memory family")
-        expected_cursor: Mapping[str, JsonValue] = {
+        expected_cursor: dict[str, JsonValue] = {
             "version": 1,
             "endpoint": "list_artifacts",
             "scope_id": scope_id,
             "family": self.family,
             "order": "published_at:desc,artifact_id:asc,revision:desc",
         }
+        if tag_filter is not None:
+            expected_cursor["tag_filter"] = sha256(
+                rfc8785.dumps({"keys": list(tag_filter.keys), "match": tag_filter.match})
+            ).hexdigest()
         after_text = cursor_codec.after_text(cursor, expected_cursor)
         after = _decode_after(after_text)
 
         async with self._database.transaction() as connection:
-            browsed = await self._topics.browse_current(connection, scope_id, limit=limit, after=after)
+            browsed = await self._topics.browse_current(
+                connection, scope_id, limit=limit, after=after, tag_filter=tag_filter
+            )
             has_more = False
             if browsed:
                 has_more = (
@@ -92,6 +94,7 @@ class TopicMemoryArtifactListReader(ArtifactListReader):
                             scope_id,
                             limit=1,
                             after=_browse_cursor(browsed[-1]),
+                            tag_filter=tag_filter,
                         )
                     )
                     if len(browsed) == limit

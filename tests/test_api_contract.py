@@ -797,7 +797,7 @@ def test_base_access_create_requests_leave_identity_generation_to_the_server() -
     assert source["properties"]["source_type"]["default"] == "content"
 
     artifact = schemas["CreateArtifactRequest"]
-    assert len(artifact["oneOf"]) == 6
+    assert len(artifact["oneOf"]) == 7
     assert artifact["discriminator"]["propertyName"] == "family"
     prompt_request = schemas["CreatePromptArtifactRequest"]
     assert prompt_request["required"] == ["family", "prompt_key", "content"]
@@ -873,7 +873,7 @@ def test_standard_artifact_reads_share_topic_memory_family_and_display_metadata(
         family = next(parameter for parameter in paths[path]["get"]["parameters"] if parameter["name"] == "family")
         assert family["schema"] == {"$ref": "#/components/schemas/ArtifactReadFamily"}
     assert "topic-memory" in contract["components"]["schemas"]["ArtifactReadFamily"]["enum"]
-    assert "topic-memory" not in contract["components"]["schemas"]["BaseArtifactFamily"]["enum"]
+    assert "topic-memory" in contract["components"]["schemas"]["BaseArtifactFamily"]["enum"]
     item = http_models.ArtifactCollectionItem.model_validate({
         "scope_id": "scope-a",
         "family": "topic-memory",

@@ -397,6 +397,9 @@ paths:
         Profile artifacts cannot be copied or published across Scopes, whether or not the target already has a Profile.
         Requests for these families return HTTP 422 with code artifact_publication_unsupported and details.family.
         Rejection creates no target Artifact or publication record; other supported families retain their existing behavior.
+        Topic Memory publication requires scope.admin in both Scopes and atomically copies the exact revision
+        with its retrieval indexes into a new target identity. Tags and direct Sources are not copied.
+        Completed idempotent retries do not require embedding inference.
       operationId: publish_artifact
       x-powercontext-access: {resolver: publish_artifact_access}
       requestBody:
@@ -3089,6 +3092,8 @@ paths:
         Create returns 409 when it already exists and callers must use Replace to update it.
         Creating a Prompt requires scope.admin because its configuration affects the whole Scope;
         other families require scope.contribute.
+        Topic Memory accepts complete title, summary, and detail text without semantic generation;
+        its active head, chunks, and configured retrieval indexes are committed atomically.
       operationId: create_artifact
       x-powercontext-access: {resolver: create_artifact_access}
       parameters:
@@ -3276,6 +3281,8 @@ paths:
         Commit a complete next revision when If-Match identifies the current head.
         Replacing a Prompt requires current scope.admin authority, including switching to Auto and restoring
         an earlier revision. Artifact ownership does not authorize Prompt replacement after Scope role revocation.
+        Topic Memory replacement also requires scope.admin and preserves independently versioned tags.
+        Complete title, summary, and detail text replaces the head without semantic generation.
       operationId: replace_artifact
       x-powercontext-access: {resolver: path_artifact_write_access}
       parameters:
@@ -3292,7 +3299,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [memory, experience, skill, handoff, prompt]
+            enum: [memory, experience, skill, handoff, prompt, topic-memory]
         - name: artifact_id
           in: path
           required: true
@@ -8647,6 +8654,7 @@ components:
             $ref: "#/components/schemas/SourceReference"
     CreateArtifactRequest:
       oneOf:
+        - $ref: "#/components/schemas/CreateTopicMemoryArtifactRequest"
         - $ref: "#/components/schemas/CreateMemoryArtifactRequest"
         - $ref: "#/components/schemas/CreateExperienceArtifactRequest"
         - $ref: "#/components/schemas/CreateSkillArtifactRequest"
@@ -8657,11 +8665,33 @@ components:
         propertyName: family
         mapping:
           memory: "#/components/schemas/CreateMemoryArtifactRequest"
+          topic-memory: "#/components/schemas/CreateTopicMemoryArtifactRequest"
           experience: "#/components/schemas/CreateExperienceArtifactRequest"
           skill: "#/components/schemas/CreateSkillArtifactRequest"
           handoff: "#/components/schemas/CreateHandoffArtifactRequest"
           prompt: "#/components/schemas/CreatePromptArtifactRequest"
           profile: "#/components/schemas/CreateProfileArtifactRequest"
+    TopicMemoryWriteContent:
+      type: object
+      additionalProperties: false
+      required: [title, summary, detail]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 512, pattern: '.*\S.*'}
+        summary: {type: string, minLength: 1, maxLength: 8000, pattern: '.*\S.*'}
+        detail: {type: string, minLength: 1, maxLength: 125000, pattern: '.*\S.*'}
+    CreateTopicMemoryArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [family, content]
+      properties:
+        family: {type: string, enum: [topic-memory]}
+        content: {$ref: '#/components/schemas/TopicMemoryWriteContent'}
+    ReplaceTopicMemoryArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content: {$ref: '#/components/schemas/TopicMemoryWriteContent'}
     CreatePromptArtifactRequest:
       type: object
       additionalProperties: false
@@ -8760,7 +8790,7 @@ components:
     TaggableArtifactFamily:
       type: string
       description: Artifact families supporting logical tags; Prompt configurations are excluded.
-      enum: [memory, experience, skill, handoff]
+      enum: [memory, experience, skill, handoff, topic-memory]
     TagMatch:
       type: string
       enum: [all, any]
@@ -8833,7 +8863,7 @@ components:
         families:
           type: array
           minItems: 1
-          maxItems: 4
+          maxItems: 5
           uniqueItems: true
           items: {$ref: '#/components/schemas/TaggableArtifactFamily'}
         target_types:
@@ -8913,6 +8943,7 @@ components:
           nullable: true
     ReplaceArtifactRequest:
       oneOf:
+        - $ref: "#/components/schemas/ReplaceTopicMemoryArtifactRequest"
         - $ref: "#/components/schemas/ReplaceMemoryArtifactRequest"
         - $ref: "#/components/schemas/ReplaceExperienceArtifactRequest"
         - $ref: "#/components/schemas/ReplaceSkillArtifactRequest"
@@ -9274,7 +9305,7 @@ components:
       enum: [accepted]
     BaseArtifactFamily:
       type: string
-      enum: [memory, experience, skill, handoff, profile, prompt]
+      enum: [memory, experience, skill, handoff, profile, prompt, topic-memory]
     ArtifactReadFamily:
       type: string
       enum: [memory, experience, skill, handoff, profile, prompt, topic-memory]
