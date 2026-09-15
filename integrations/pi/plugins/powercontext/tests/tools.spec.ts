@@ -47,6 +47,7 @@ function createRuntime(fetch: FetchFn): PluginRuntime {
 }
 
 type RegisteredTool<Params> = {
+  parameters: TSchema
   execute: (
     id: string,
     params: Params,
@@ -89,7 +90,9 @@ describe('Pi native tool surface', () => {
       'pc_handoff_finalize',
       'pc_handoff_commit',
       'pc_handoff_continue',
+      'pc_experience_generate',
       'pc_experience_get',
+      'pc_skill_generate',
       'pc_skill_get',
       'pc_topic_search',
       'pc_topic_get',
@@ -159,6 +162,8 @@ describe('Pi native tool surface', () => {
         revision: { family: 'handoff', artifact_id: 'handoff-1', revision: 1 },
       }],
       ['pc_task_outcome', { source_id: 'outcome-1', outcome: { status: 'succeeded' } }],
+      ['pc_experience_generate', { source_refs: [], artifact_refs: [] }],
+      ['pc_skill_generate', { origin: 'source', source_refs: [], artifact_refs: [] }],
     ]
 
     for (const [name, params] of workWrites) {
@@ -177,6 +182,48 @@ describe('Pi native tool surface', () => {
     )
     expect(confirm).toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('routes generation requests as scoped, confirmed candidate writes', async () => {
+    const registered: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ status: 'pending', candidate: { id: 'candidate-1' } })))
+    const runtime = createRuntime(fetch)
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
+    const context = { cwd: '/workspace/repo', hasUI: true, ui: { confirm: vi.fn(async () => true) } }
+    const signal = new AbortController().signal
+    const source = { name: 'git', source_id: 'commit-1' }
+    const artifact = { family: 'experience', artifact_id: 'exp-1', revision: 1 }
+
+    await registeredTool<Record<string, unknown>>(registered, 'pc_experience_generate').execute(
+      'call-experience', { source_refs: [source], artifact_refs: [artifact], target: null, reason: 'requested' },
+      signal, () => undefined, context,
+    )
+    await registeredTool<Record<string, unknown>>(registered, 'pc_skill_generate').execute(
+      'call-skill', { origin: 'experience', source_refs: [source], artifact_refs: [artifact], target: null, reason: 'requested' },
+      signal, () => undefined, context,
+    )
+
+    expect(context.ui.confirm).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body))])).toEqual([
+      ['http://127.0.0.1:8000/v1/experience/generate', { source_refs: [source], artifact_refs: [artifact], target: null, reason: 'requested', scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/skill/generate', { origin: 'experience', source_refs: [source], artifact_refs: [artifact], target: null, reason: 'requested', scope_id: 'project:demo' }],
+    ])
+  })
+
+  it('bounds combined generation evidence to the OpenAPI limit', () => {
+    const registered: Array<Record<string, unknown>> = []
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, createRuntime(vi.fn()))
+    const source = { name: 'git', source_id: 'commit-1' }
+    const artifact = { family: 'experience', artifact_id: 'exp-1', revision: 1 }
+    const experienceSchema = registeredTool<Record<string, unknown>>(registered, 'pc_experience_generate').parameters
+    expect(Value.Check(experienceSchema as TSchema, {
+      source_refs: Array.from({ length: 32 }, () => source),
+      artifact_refs: [],
+    })).toBe(true)
+    expect(Value.Check(experienceSchema as TSchema, {
+      source_refs: Array.from({ length: 32 }, () => source),
+      artifact_refs: [artifact],
+    })).toBe(false)
   })
 
   it('routes structured work payloads to their scoped APIs unchanged after confirmation', async () => {

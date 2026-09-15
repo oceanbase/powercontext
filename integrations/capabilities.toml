@@ -477,8 +477,14 @@ capabilities = ["acknowledge"]
 id = "pc_task_outcome:record_task_outcome"
 capabilities = ["task_outcome"]
 [[toolsets.tools]]
+id = "pc_experience_generate:generate_experience"
+capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
 id = "pc_experience_get:get_experience"
 capabilities = ["experience_read_or_generate"]
+[[toolsets.tools]]
+id = "pc_skill_generate:generate_skill"
+capabilities = ["skill_read_or_generate"]
 [[toolsets.tools]]
 id = "pc_skill_get:get_skill"
 capabilities = ["skill_read_or_generate"]

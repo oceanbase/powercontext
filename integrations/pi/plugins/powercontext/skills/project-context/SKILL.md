@@ -53,6 +53,16 @@ this host; loading this Skill is not required before every response.
 - Use `pc_review_list` to inspect the candidate queue and `pc_review_get` for one exact candidate.
 - Candidate inspection does not authorize approval, rejection, revision, installation, publication, or execution.
 
+## Generate candidates
+
+- Call `pc_experience_generate` only when the user explicitly requests an Experience candidate and you have exact,
+  relevant Source or Artifact references. Its result is pending review, not a saved fact or active behavior.
+- Call `pc_skill_generate` only when the user explicitly requests a Skill candidate and you have exact evidence. Set
+  `origin` to `experience`, `source`, or `usage` according to the direct provenance.
+- Pass `source_refs` and `artifact_refs` exactly as returned. `target` and `reason` are optional; do not invent evidence
+  or use the current prompt as an exact reference. Generation does not approve, publish, install, or activate anything;
+  candidate decisions remain a human review action.
+
 ## Hand off work
 
 For the normal current-work transfer, use the structured `pc_handoff_current` workflow below. The lower-level
