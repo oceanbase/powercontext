@@ -58,7 +58,8 @@ const STATS_PERIOD = Type.Union([
   Type.Literal('7d'),
   Type.Literal('30d'),
 ])
-const NON_NEGATIVE_REVISION = Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])
+// Use a JSON Schema type array so Pi's validator preserves nullable integers instead of coercing them through a union.
+const NON_NEGATIVE_REVISION = Type.Unsafe({ type: ['integer', 'null'], minimum: 0 })
 const CITATION = Type.Object({}, { additionalProperties: true, description: 'Exact citation returned by PowerContext.' })
 const JSON_OBJECT = Type.Object({}, { additionalProperties: true })
 const NON_EMPTY_STRING = Type.String({ minLength: 1, maxLength: 8192, pattern: '.*\\S.*' })

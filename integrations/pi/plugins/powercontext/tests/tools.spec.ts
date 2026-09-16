@@ -15,6 +15,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { validateToolArguments, type Tool, type ToolCall } from '@earendil-works/pi-ai'
 import type { TSchema } from 'typebox'
 import { Value } from 'typebox/value'
 import powercontextPi from '../extensions/powercontext.ts'
@@ -187,6 +188,19 @@ describe('Pi native tool surface', () => {
     expect(Value.Check(stats.parameters, { period: '7d' })).toBe(true)
     expect(Value.Check(stats.parameters, { period: '90d' })).toBe(false)
     expect(Value.Check(stats.parameters, { period: '30d', extra: true })).toBe(false)
+  })
+
+  it('preserves nullable revision cursors through Pi argument validation', () => {
+    const registered: Array<Record<string, unknown>> = []
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, createRuntime(vi.fn()))
+    const tool = registeredTool<Record<string, unknown>>(registered, 'pc_memory_changes') as unknown as Tool
+    const call = (since_revision: unknown): ToolCall => ({
+      type: 'toolCall', id: 'call-validation', name: 'pc_memory_changes', arguments: { since_revision },
+    })
+
+    expect(validateToolArguments(tool, call(null))).toEqual({ since_revision: null })
+    expect(validateToolArguments(tool, call(0))).toEqual({ since_revision: 0 })
+    expect(() => validateToolArguments(tool, call(1.5))).toThrow('Validation failed')
   })
 
   it('requires confirmation and filters secrets for all structured work writes', async () => {
