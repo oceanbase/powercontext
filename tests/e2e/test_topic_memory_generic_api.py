@@ -28,6 +28,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTopicMemoryFTSIndex
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
@@ -271,6 +272,37 @@ def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path):
         (target, "topic_memory_indexing", "embedding", 1),
     }
     assert all(input_tokens > 0 and output_tokens == 0 for _, _, _, _, input_tokens, output_tokens in rows)
+
+
+def test_statistics_outage_does_not_block_topic_memory_writes(tmp_path, monkeypatch):
+    async def fail_record(*args, **kwargs):
+        raise RuntimeError("injected statistics storage failure")  # noqa: TRY003
+
+    monkeypatch.setattr(RelationalScopedStatistics, "record", fail_record)
+    embedding = UsageEmbeddings()
+    with TestClient(_app(tmp_path, embedding)) as client:
+        source, target = _scope(client, "statistics-source"), _scope(client, "statistics-target")
+        created = _create(client, source, "create")
+        path = created.headers["Location"]
+        replaced = client.put(
+            path,
+            headers={"If-Match": created.headers["ETag"]},
+            json={"content": _content("replace")},
+        )
+        assert replaced.status_code == 200, replaced.text
+        ref = {key: created.json()[key] for key in ("family", "artifact_id", "revision")}
+        published = client.post(
+            "/v1/artifact-publications",
+            json={
+                "source": {"scope_id": source, "artifact": ref},
+                "target_scope_id": target,
+                "idempotency_key": "statistics-outage",
+            },
+        )
+        assert published.status_code == 201, published.text
+        assert client.get(path).json()["content"] == _content("replace")
+        target_ref = published.json()["target"]["artifact"]
+        assert client.get(f"/v1/scopes/{target}/artifacts/topic-memory/{target_ref['artifact_id']}").status_code == 200
 
 
 def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path):

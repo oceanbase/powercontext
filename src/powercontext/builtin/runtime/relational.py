@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
@@ -35,6 +36,7 @@ from referencing.exceptions import Unresolvable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
@@ -229,6 +231,7 @@ from powercontext.sources import (
 )
 
 IdFactory = Callable[[str], str]
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -717,12 +720,30 @@ class RelationalContexts:
             operation: ModelUsageOperation,
             usage: InferenceUsage,
         ) -> None:
-            await self.statistics(scope_id).record(
-                purpose,
-                operation,
-                usage,
-                datetime.now(UTC).date(),
-            )
+            try:
+                await self.statistics(scope_id).record(
+                    purpose,
+                    operation,
+                    usage,
+                    datetime.now(UTC).date(),
+                )
+            except Exception as error:
+                # Usage is an operational side effect; a statistics outage
+                # must not turn a successful Artifact write into a failure.
+                log_safely(
+                    logger,
+                    logging.ERROR,
+                    "Model usage recording failed",
+                    exc_info=error,
+                    extra={
+                        "event": "statistics.model_usage.failed",
+                        "scope_id": scope_id,
+                        "purpose": purpose.value,
+                        "operation": operation.value,
+                        "outcome": "failure",
+                        "unit": "statistics",
+                    },
+                )
 
         return report
 
