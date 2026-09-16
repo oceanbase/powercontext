@@ -87,6 +87,8 @@ Replace 使用同样的 `content` 对象，family 来自路径，并必须提供
 
 服务端生成 Artifact ID、revision、发布时间和检索投影。客户端不能提交这些内部状态，也不能通过此请求任意指定 lineage、source_count、embedding 或 chunk。手工写入不调用文本生成模型，但向量部署需要调用 Embedding 服务。
 
+非空白内容可能不包含 Analyzer v1 可索引的词项，例如标题和概要只有 Emoji 或标点。此类内容仍可创建、替换和发布；内部 `topic_searchable_text` 可以是空字符串（不允许为 NULL），全文检索对其不产生命中，详情分块或向量通道仍按实际内容工作。真正的空白字段仍由请求校验拒绝。
+
 Create 保持现有通用接口的非幂等语义：相同标题或相同正文的两次请求可以创建两个主题，标题不是唯一键。客户端遇到响应丢失不得假定重试会返回同一 Artifact。Replace 沿用 ETag 并发保护；即使内容相同，只要前提匹配，也提交下一版本。
 
 ### 4.2 Schema 扩展

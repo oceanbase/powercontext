@@ -70,6 +70,8 @@ Replace accepts the same `content`, selects the family from its path, and requir
 
 The server chooses identity, revision, publication time, and projections. Clients cannot supply lineage, source_count, vectors, or chunks. Manual content does not invoke a generation model; vector deployments still require Embedding calls.
 
+Valid non-blank content may contain no Analyzer v1 terms, for example when a title and summary contain only emoji or punctuation. Such content remains valid for create, replace, and publication. Internal `topic_searchable_text` may be an empty string (never NULL); full-text search returns no match for that field, while detail chunks or vector channels continue to use the actual content. Truly blank request fields remain invalid.
+
 Create retains the generic API's non-idempotent semantics: identical titles or content may create separate topics. Clients cannot assume that retrying after a lost response returns the same Artifact. Replace uses ETag concurrency control and commits a next revision even when submitted content is unchanged.
 
 ### 4.2 Schema changes
