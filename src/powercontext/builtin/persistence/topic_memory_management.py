@@ -17,7 +17,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
@@ -34,8 +35,10 @@ from powercontext.builtin.artifacts.topic_memory import (
     prepare_topic_memory_projection,
 )
 from powercontext.builtin.inference import EmbeddingModel, InferenceTimeoutError, InvalidInferenceOutputError
+from powercontext.builtin.inference.usage import UsageReporter, bind_usage_reporter
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.records import InvalidBaseAccessRequestError
+from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.sources import SourceRef
 
 
@@ -55,11 +58,13 @@ class TopicMemoryManagementWriter:
         *,
         timeout_seconds: float = 30.0,
         max_concurrency: int = 4,
+        usage_reporter: Callable[[str], UsageReporter] | None = None,
     ) -> None:
         self.topics = topics
         self._embedding_model = embedding_model
         self._timeout_seconds = timeout_seconds
         self._slots = asyncio.Semaphore(max_concurrency)
+        self._usage_reporter = usage_reporter
 
     def artifact_id_for_create(self, generated: str, /) -> str:
         return generated
@@ -73,7 +78,13 @@ class TopicMemoryManagementWriter:
     def validate_replace(self, content: Mapping[str, JsonValue]) -> BaseModel:
         return self.validate_create(content)
 
-    async def prepare(self, content: BaseModel, /) -> TopicMemoryProjection:
+    async def prepare(
+        self,
+        content: BaseModel,
+        /,
+        *,
+        usage_scope_id: str | None = None,
+    ) -> TopicMemoryProjection:
         value = TopicMemoryContent.model_validate(content.model_dump())
         capabilities = self.topics.index.capabilities
         if not capabilities.fts:
@@ -86,8 +97,9 @@ class TopicMemoryManagementWriter:
         chunks = chunk_topic_memory_detail(value.detail)
         texts = (f"{value.title}\n{value.summary}", *(chunk.text for chunk in chunks))
         try:
-            async with asyncio.timeout(self._timeout_seconds), self._slots:
-                result = await model.embed(texts)
+            with self._embedding_usage(usage_scope_id):
+                async with asyncio.timeout(self._timeout_seconds), self._slots:
+                    result = await model.embed(texts)
         except TimeoutError as error:
             raise InferenceTimeoutError("topic-memory.index", self._timeout_seconds) from error
         if len(result.vectors) != len(texts):
@@ -97,6 +109,14 @@ class TopicMemoryManagementWriter:
             topic_embedding=result.vectors[0],
             chunk_embeddings=result.vectors[1:],
             embedding_profile=model.profile,
+        )
+
+    def _embedding_usage(self, scope_id: str | None):
+        if self._usage_reporter is None or scope_id is None:
+            return nullcontext()
+        return bind_usage_reporter(
+            self._usage_reporter(scope_id),
+            embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_INDEXING,
         )
 
     async def create(

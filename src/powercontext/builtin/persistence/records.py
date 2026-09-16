@@ -327,7 +327,11 @@ class RelationalRecordService:
                 ),
             ),
         )
-        prepared = await writer.prepare(command) if isinstance(writer, PreparingFamilyManagementWriter) else command
+        prepared = (
+            await writer.prepare(command, usage_scope_id=scope_id)
+            if isinstance(writer, PreparingFamilyManagementWriter)
+            else command
+        )
         try:
             async with self._database.transaction() as connection:
                 stored = await self._sources.add(connection, scope_id, source)
@@ -574,7 +578,7 @@ class RelationalRecordService:
             current_record = await self.get_artifact(scope_id, family, artifact_id)
             if expected_etag != _artifact_etag(current_record.revision):
                 raise ArtifactRevisionPreconditionError(expected_etag, _artifact_etag(current_record.revision))
-            prepared = await writer.prepare(command)
+            prepared = await writer.prepare(command, usage_scope_id=scope_id)
         async with self._database.transaction() as connection:
             try:
                 current = await self._artifacts.latest(connection, scope_id, family, artifact_id)

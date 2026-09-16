@@ -142,7 +142,7 @@ class FamilyManagementWriter(Protocol):
 class PreparingFamilyManagementWriter(Protocol):
     """Prepare request-local state before opening the write transaction."""
 
-    async def prepare(self, content: BaseModel, /) -> BaseModel: ...
+    async def prepare(self, content: BaseModel, /, *, usage_scope_id: str | None = None) -> BaseModel: ...
 
 
 class FamilyManagementWriterRegistry:

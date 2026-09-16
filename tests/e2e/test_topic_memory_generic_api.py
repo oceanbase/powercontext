@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
-from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
+from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError, InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTopicMemoryFTSIndex
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
@@ -40,6 +40,12 @@ class Embeddings:
         if self.unavailable:
             raise InferenceUnavailableError("embed")
         return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+class UsageEmbeddings(Embeddings):
+    async def embed(self, texts, /):
+        result = await super().embed(texts)
+        return result.model_copy(update={"usage": InferenceUsage(requests=1, input_tokens=len(texts), output_tokens=0)})
 
 
 def _app(tmp_path, embedding=None, *, embedding_timeout=30.0):
@@ -230,6 +236,41 @@ def test_valid_emoji_and_punctuation_content_has_empty_lexical_projection(tmp_pa
             json={"scope_id": target, "artifact": target_ref},
         )
         assert exact.status_code == 200 and exact.json()["title"] == "😀"
+
+
+def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path):
+    embedding = UsageEmbeddings()
+    with TestClient(_app(tmp_path, embedding)) as client:
+        source, target = _scope(client, "usage-source"), _scope(client, "usage-target")
+        created = _create(client, source, "create")
+        path = created.headers["Location"]
+        replaced = client.put(
+            path,
+            headers={"If-Match": created.headers["ETag"]},
+            json={"content": _content("replace")},
+        )
+        assert replaced.status_code == 200, replaced.text
+        ref = {key: created.json()[key] for key in ("family", "artifact_id", "revision")}
+        published = client.post(
+            "/v1/artifact-publications",
+            json={
+                "source": {"scope_id": source, "artifact": ref},
+                "target_scope_id": target,
+                "idempotency_key": "usage-publish",
+            },
+        )
+        assert published.status_code == 201, published.text
+
+    with sqlite3.connect(tmp_path / "topics.db") as connection:
+        rows = connection.execute(
+            "SELECT scope_id, purpose, operation, requests, input_tokens, output_tokens "
+            "FROM pc_model_usage_daily WHERE purpose = 'topic_memory_indexing' ORDER BY scope_id"
+        ).fetchall()
+    assert {(scope_id, purpose, operation, requests) for scope_id, purpose, operation, requests, *_ in rows} == {
+        (source, "topic_memory_indexing", "embedding", 2),
+        (target, "topic_memory_indexing", "embedding", 1),
+    }
+    assert all(input_tokens > 0 and output_tokens == 0 for _, _, _, _, input_tokens, output_tokens in rows)
 
 
 def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path):

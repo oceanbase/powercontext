@@ -123,7 +123,7 @@ class ArtifactPublicationApplication:
                 if existing is not None:
                     return _resolve_request(existing, request)
                 source = await writer.topics.get_exact(connection, request.source.scope_id, request.source.artifact)
-            projection = await writer.prepare(source.topic.content)
+            projection = await writer.prepare(source.topic.content, usage_scope_id=request.target_scope_id)
         try:
             async with self._database.transaction() as connection:
                 return await self._publish(connection, request, projection)

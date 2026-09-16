@@ -22,6 +22,7 @@ import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -105,7 +106,7 @@ from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.dream.models import DreamBudget, DreamOperation
 from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorizer, DreamService
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
-from powercontext.builtin.inference import EmbeddingModel, InvalidInferenceOutputError, TokenEstimator
+from powercontext.builtin.inference import EmbeddingModel, InferenceUsage, InvalidInferenceOutputError, TokenEstimator
 from powercontext.builtin.persistence.agent_skill_targets import RemoteAgentSkillTargetRepository
 from powercontext.builtin.persistence.artifact_governance import (
     ArtifactGovernance,
@@ -195,7 +196,7 @@ from powercontext.builtin.sources import (
     SourceJournalEntry,
     validate_scope_id,
 )
-from powercontext.builtin.statistics import RecallTokenMeasurement
+from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose, RecallTokenMeasurement
 from powercontext.builtin.triggers import (
     HANDOFF_BOUNDARY_TRIGGER_NAME,
     SOURCE_WINDOW_TRIGGER_NAME,
@@ -559,6 +560,7 @@ class RelationalContexts:
             embedding_model,
             timeout_seconds=topic_memory_write_timeout_seconds,
             max_concurrency=topic_memory_write_concurrency,
+            usage_reporter=self.model_usage_reporter,
         )
         family_writers = FamilyManagementWriterRegistry((
             topic_memory_writer,
@@ -704,6 +706,25 @@ class RelationalContexts:
         """Return product statistics bound to one scope."""
 
         return self._services_for(scope_id).statistics()
+
+    def model_usage_reporter(
+        self, scope_id: str, /
+    ) -> Callable[[ModelUsagePurpose, ModelUsageOperation, InferenceUsage], Awaitable[None]]:
+        """Return a best-effort usage callback for one operational Scope."""
+
+        async def report(
+            purpose: ModelUsagePurpose,
+            operation: ModelUsageOperation,
+            usage: InferenceUsage,
+        ) -> None:
+            await self.statistics(scope_id).record(
+                purpose,
+                operation,
+                usage,
+                datetime.now(UTC).date(),
+            )
+
+        return report
 
     async def register_source_definition(
         self,
