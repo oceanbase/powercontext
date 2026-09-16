@@ -53,6 +53,16 @@ this host; loading this Skill is not required before every response.
 - Use `pc_review_list` to inspect the candidate queue and `pc_review_get` for one exact candidate.
 - Candidate inspection does not authorize approval, rejection, revision, installation, publication, or execution.
 
+## Review candidates
+
+- Inspect the exact candidate with `pc_review_get` before making a decision. Treat the returned `candidate_id` and `version` as the decision target; do not reuse stale values.
+- Call `pc_review_approve` only after the user explicitly approves that exact pending candidate and version. Approval changes review state only; it does not install, publish, activate, or execute the Artifact.
+- Call `pc_review_reject` only after the user explicitly requests rejection of that exact candidate and version. Supply a concise non-empty reason.
+- Call `pc_review_revise` only after the user explicitly requests a content or evidence change. Preserve exact provenance, pass the current expected version, and treat the result as a new reviewable candidate rather than an approval.
+- Assessment, generation, or a suggested change is not a decision. Preserve returned Handoff/candidate references and versions unchanged when passing them to another task or tool, and report the operation result before claiming completion.
+
+These three operations are durable mutations. Pi requires interactive confirmation and refuses them without a UI; payloads still go through secret detection. Do not include credentials or secrets.
+
 ## Hand off work
 
 For the normal current-work transfer, use the structured `pc_handoff_current` workflow below. The lower-level

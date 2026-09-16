@@ -494,6 +494,15 @@ capabilities = ["candidate_review"]
 [[toolsets.tools]]
 id = "pc_review_get:get_artifact_candidate"
 capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_review_approve:approve_artifact_candidate"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_review_reject:reject_artifact_candidate"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_review_revise:revise_artifact_candidate"
+capabilities = ["candidate_review"]
 
 [[toolsets]]
 id = "pi-command"

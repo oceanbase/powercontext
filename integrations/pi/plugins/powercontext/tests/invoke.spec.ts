@@ -61,6 +61,9 @@ describe('Pi native tool invocation', () => {
       ['handoff_current_work', { handoff: { objective: 'api_key=secret' } }],
       ['acknowledge_handoff', { receiver: 'api_key=secret' }],
       ['record_task_outcome', { outcome: { summary: 'api_key=secret' } }],
+      ['approve_artifact_candidate', { candidate_id: 'api_key=secret', expected_version: 1 }],
+      ['reject_artifact_candidate', { reason: 'api_key=secret', candidate_id: 'candidate-1', expected_version: 1 }],
+      ['revise_artifact_candidate', { proposal: { lesson: 'api_key=secret' } }],
     ] as const
     for (const [operationId, payload] of structuredWrites) {
       await expect(invokeOperation(client, operationId, payload, 'scp_resolved')).resolves.toMatchObject({
