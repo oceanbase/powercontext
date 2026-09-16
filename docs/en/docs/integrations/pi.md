@@ -71,6 +71,7 @@ short, bounded best-effort flush at agent and session boundaries.
 The `powercontext-project-context` skill explains when to use native `pc_*` tools. The core tools are:
 
 - `pc_search`, `pc_memory_list`, `pc_memory_get`, `pc_memory_revise`, and `pc_memory_retire`;
+- `pc_memory_changes` for revision history and `pc_stats` for current-Scope diagnostics;
 - `pc_remember`, `pc_prepare_context`, and `pc_capture_source`;
 - `pc_handoff_activate`, `pc_handoff_prepare`, `pc_handoff_finalize`, `pc_handoff_commit`, and
   `pc_handoff_continue`;

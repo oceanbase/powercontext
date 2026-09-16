@@ -70,6 +70,7 @@ flush。
 `powercontext-project-context` skill 会说明何时调用原生 `pc_*` 工具。核心工具包括：
 
 - `pc_search`、`pc_memory_list`、`pc_memory_get`、`pc_memory_revise`、`pc_memory_retire`；
+- `pc_memory_changes` 用于查看变更历史，`pc_stats` 用于查看当前 Scope 的统计诊断；
 - `pc_remember`、`pc_prepare_context`、`pc_capture_source`；
 - `pc_handoff_activate`、`pc_handoff_prepare`、`pc_handoff_finalize`、`pc_handoff_commit`、
   `pc_handoff_continue`；

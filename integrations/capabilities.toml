@@ -435,6 +435,12 @@ capabilities = ["memory_read"]
 id = "pc_memory_get:get_memory_entry"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "pc_memory_changes:list_memory_changes"
+non_profile_reason = "Memory change history is not a profile capability."
+[[toolsets.tools]]
+id = "pc_stats:get_stats"
+non_profile_reason = "Diagnostics are not a profile capability."
+[[toolsets.tools]]
 id = "pc_remember:remember_memory"
 capabilities = ["memory_write"]
 [[toolsets.tools]]

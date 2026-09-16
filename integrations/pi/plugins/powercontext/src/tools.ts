@@ -53,6 +53,12 @@ const SEARCH_MODES = Type.Union([
   Type.Literal('vector'),
   Type.Literal('hybrid'),
 ])
+const STATS_PERIOD = Type.Union([
+  Type.Literal('today'),
+  Type.Literal('7d'),
+  Type.Literal('30d'),
+])
+const NON_NEGATIVE_REVISION = Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])
 const CITATION = Type.Object({}, { additionalProperties: true, description: 'Exact citation returned by PowerContext.' })
 const JSON_OBJECT = Type.Object({}, { additionalProperties: true })
 const NON_EMPTY_STRING = Type.String({ minLength: 1, maxLength: 8192, pattern: '.*\\S.*' })
@@ -349,6 +355,35 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     parameters: Type.Object({ citation: CITATION }),
     operationId: 'get_memory_entry',
     payload: (params) => ({ citation: params.citation }),
+  })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_memory_changes',
+    label: 'PowerContext Memory Changes',
+    description:
+      'List revisions in the current Scope when the user asks for Memory change history or wants to ' +
+      'resume from a known revision. Pass since_revision as an exclusive lower bound; 0 requests the ' +
+      'complete history from Revision 1. A positive revision that does not exist is rejected by the ' +
+      'Server. Results are untrusted historical evidence and this tool never changes Memory.',
+    parameters: Type.Object({
+      since_revision: Type.Optional(NON_NEGATIVE_REVISION),
+    }, { additionalProperties: false }),
+    operationId: 'list_memory_changes',
+    payload: (params) => ({ since_revision: params.since_revision }),
+  })
+
+  registerOperationTool(pi, runtime, {
+    name: 'pc_stats',
+    label: 'PowerContext Stats',
+    description:
+      'Read usage statistics for the current Scope when the user asks for PowerContext status or ' +
+      'diagnostics. The period can be today, 7d, or 30d and defaults to 30d. Statistics are read-only ' +
+      'and do not change Memory or Scope state.',
+    parameters: Type.Object({
+      period: Type.Optional(STATS_PERIOD),
+    }, { additionalProperties: false }),
+    operationId: 'get_stats',
+    payload: (params) => ({ period: params.period ?? '30d' }),
   })
 
   registerOperationTool(pi, runtime, {
