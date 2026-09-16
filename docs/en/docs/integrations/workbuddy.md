@@ -41,7 +41,7 @@ powercontext setup workbuddy --source /path/to/powercontext
 The installer writes the hook driver and scope resolver to `~/.workbuddy/hooks`,
 merges the `UserPromptSubmit` hook into `~/.workbuddy/settings.json`, registers
 the `powercontext` server in `~/.workbuddy/mcp.json`, and installs the
-`project-context` Skill under `~/.workbuddy/skills`. Existing settings and other
+`powercontext-project-context` Skill under `~/.workbuddy/skills`. Existing settings and other
 MCP servers are preserved, and the Skill's command placeholders are resolved
 automatically.
 
@@ -127,15 +127,15 @@ Merge the following `mcpServers` entry into `~/.workbuddy/mcp.json`:
 
 ```bash
 mkdir -p ~/.workbuddy/skills
-cp -R integrations/workbuddy/plugins/powercontext/skills/project-context \
+cp -R integrations/workbuddy/plugins/powercontext/skills/powercontext-project-context \
   ~/.workbuddy/skills/
-cat > ~/.workbuddy/skills/project-context/.powercontext.json <<'EOF'
+cat > ~/.workbuddy/skills/powercontext-project-context/.powercontext.json <<'EOF'
 {"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
 EOF
 ```
 
 Then replace `${POWERCONTEXT_PYTHON}` in
-`~/.workbuddy/skills/project-context/SKILL.md` with a shell-safe Python
+`~/.workbuddy/skills/powercontext-project-context/SKILL.md` with a shell-safe Python
 executable argument. Replace `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` with a
 shell-safe complete path to
 `<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py`.
@@ -167,7 +167,7 @@ The integration has two paths to the same Server:
 - MCP gives WorkBuddy explicit tools to read and maintain Memory, plus an
   explicit Handoff workflow.
 
-The `project-context` Skill binds the two paths together. An imperative such as
+The `powercontext-project-context` Skill binds the two paths together. An imperative such as
 `交接`, `交接当前工作`, or `handoff this work` is treated as explicit
 authorization to create one durable Handoff milestone. The Skill inspects the
 current conversation and repository, calls `handoff_current_work`, then
@@ -243,7 +243,7 @@ The Server resolves Scope for WorkBuddy in this order:
 3. a durable workspace binding;
 4. the Server's default Scope.
 
-Later WorkBuddy sessions in the same workspace reuse that Scope. The `project-context` Skill's `--bind-scope`
+Later WorkBuddy sessions in the same workspace reuse that Scope. The `powercontext-project-context` Skill's `--bind-scope`
 operation persists the workspace binding in PowerContext. The workspace path is hashed only as an external binding
 key; the plugin never derives a Scope ID from it.
 
@@ -307,5 +307,5 @@ message. Verify the whole installation with `powercontext doctor`.
 1. Remove the `UserPromptSubmit` PowerContext entry from `~/.workbuddy/settings.json`.
 2. Remove the `powercontext` entry from `~/.workbuddy/mcp.json`.
 3. Remove the hook files and the scope resolver from `<WORKBUDDY_HOOKS_DIR>`.
-4. Remove `~/.workbuddy/skills/project-context`.
+4. Remove `~/.workbuddy/skills/powercontext-project-context`.
 5. Optionally stop the Server and delete its local data directory.

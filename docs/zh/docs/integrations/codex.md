@@ -43,7 +43,7 @@ powercontext doctor codex
 交接
 ```
 
-`project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理目标、
+`powercontext-project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理目标、
 分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后在当前 Session Scope 中依次调用
 `handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回 exact Handoff Revision；用户不需要再填写交接
 内容或重复确认提交。

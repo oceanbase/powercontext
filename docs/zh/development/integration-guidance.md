@@ -35,20 +35,20 @@ Scope 由宿主和 Server 决定。复用解析后的绑定，不猜测身份或
 | --- | --- | --- |
 | DSH | 系统段和原生工具 | `pc_search`、`pc_memory_list`、`pc_remember`；候选决策由人工 `/pc review` 完成。 |
 | OpenCode | 系统 transform 和原生工具 | 同类 `pc_*` 名称；候选审核变更不作为模型工具开放。 |
-| Pi | `before_agent_start` 系统提示和原生工具 | 支持 Memory、Topic Memory、结构化工作与 Handoff，以及只读产物和候选检查；不提供候选修改工具。自动召回为空或失败时仍有基础指引。 |
+| Pi | `before_agent_start` 系统提示和原生工具 | 支持 Memory、Topic Memory、结构化工作与 Handoff，以及产物/候选检查、候选审核和外部 Skill。候选批准、拒绝、修订及精确外部 Skill 导入/分叉需要显式授权和交互确认，不会安装、发布或执行产物。自动召回为空或失败时仍有基础指引。 |
 | OpenClaw | Memory capability 提示和 provider 工具 | `powercontext_memory_search` / `powercontext_memory_store`；提示按当前目录说明 Memory 与结构化工作/Handoff，不推断 Memory 清单或候选 Review。 |
-| Hermes | provider 系统块和工具 schema | `powercontext_search_memory`、`powercontext_remember` 等实际工具；保留 `powercontext` Skill。 |
-| Codex、Claude Code、WorkBuddy | MCP 初始化指引和 OpenAPI 派生描述 | `search_memory`、`list_memory_entries`、`remember_memory`；各自现有 `project-context` Skill 保持一致。 |
+| Hermes | provider 系统块和工具 schema | `powercontext_search_memory`、`powercontext_remember` 等实际工具；使用 `powercontext:powercontext-project-context` 插件 Skill。 |
+| Codex、Claude Code、WorkBuddy | MCP 初始化指引和 OpenAPI 派生描述 | `search_memory`、`list_memory_entries`、`remember_memory`；各自现有 `powercontext-project-context` Skill 保持一致。 |
 
 可移植 Agent Plugin 的现有 Skill 使用相同语义。框架适配器与 Bub 验证工具不在本次迁移范围；工具权限、持久化格式、
-宿主命名与分发归属均保持原有设计。分层 Skill 属于 E，分发生成器由 #1405 / #1410 负责。
+[分层 Skill 路由](layered-skills.md)在统一的 `powercontext-project-context` 入口下提供各领域的详细流程。
 
 ## 复现验证
 
 将 `POWERCONTEXT_GUIDANCE_EXPORT` 设为已存在的本地目录，再运行各宿主注册测试，导出实际指引、工具定义和打包 Skill：
 
 ```sh
-uv run pytest tests/test_mcp.py tests/integrations/test_hermes_provider.py
+uv run pytest tests/test_mcp.py
 pnpm --dir integrations/dsh/plugins/powercontext test
 pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
 pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
@@ -56,6 +56,19 @@ pnpm --dir integrations/opencode/plugins/powercontext test
 pnpm --dir integrations/pi/plugins/powercontext test
 pnpm --dir integrations/openclaw/plugins/memory-powercontext test
 ```
+
+Hermes 在隔离的宿主目录中，通过原生 provider 加载器和 `PluginManager` 导出发现元数据。
+将 `POWERCONTEXT_HERMES_SOURCE` 指向支持的宿主源码，再导出目录：
+
+```sh
+git clone https://github.com/NousResearch/hermes-agent.git /tmp/pc-hermes
+git -C /tmp/pc-hermes checkout e624e9fde561e1add9388384012b295fde669ade
+POWERCONTEXT_HERMES_SOURCE=/tmp/pc-hermes uv run pytest tests/e2e/test_hermes_skills.py
+```
+
+固定版本为 Hermes v2026.8.18（CLI 0.20.4），与原生 CI 任务一致。导出时保留
+`POWERCONTEXT_GUIDANCE_EXPORT` 设置。模型看到的 Skill 名称和描述来自宿主目录；评估器只补充
+包内资源正文，不覆盖发现元数据。provider 单元测试不导出该目录。
 
 OpenClaw 须使用其固定 SDK 支持的 Node 版本，CI 使用 Node 24.15.0。各包测试、类型检查、构建、真实 DSH runtime
 测试和真实 Pi CLI 加载测试验证注册与执行链路；MCP 初始化通过真实 FastMCP client 检查。

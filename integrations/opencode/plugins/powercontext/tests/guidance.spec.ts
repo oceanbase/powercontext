@@ -41,6 +41,6 @@ it('exposes guidance through the actual system transform and resolves its tool n
   if (directory) writeFileSync(join(directory, 'opencode.json'), JSON.stringify({
     host: 'opencode', guidance: output.system.join('\n'),
     tools: tools.map(({ name, description, args }) => ({ name, description, parameters: tool.schema.toJSONSchema(tool.schema.object(args)) })),
-    skill: { name: 'project-context', content: readFileSync(new URL('../skills/project-context/SKILL.md', import.meta.url), 'utf8') },
+    skill: { name: 'powercontext-project-context', content: readFileSync(new URL('../skills/powercontext-project-context/SKILL.md', import.meta.url), 'utf8') },
   }, null, 2))
 })

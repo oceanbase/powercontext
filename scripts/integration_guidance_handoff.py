@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from powercontext.http._generated import models
@@ -166,11 +167,15 @@ class HandoffFixture:
         if self.prepared is None:
             return False
         decoder = json.JSONDecoder()
-        for index, character in enumerate(text):
-            if character != "{":
+        blocks = re.findall(r"```(?:json)?[ \t]*\r?\n(.*?)```", text, re.DOTALL | re.IGNORECASE)
+        for block in blocks or [text]:
+            start = re.search(r"[\[{]", block)
+            if start is None:
                 continue
             try:
-                value, _ = decoder.raw_decode(text[index:])
+                # Inspect the outer JSON value only. A wrapper/array or broken
+                # response containing a nested carrier cannot be transferred.
+                value, _ = decoder.raw_decode(block[start.start() :])
                 # Optional null metadata may be omitted without changing the
                 # transport value. Required nullable fields (for example base)
                 # must still be present, and evidence/receipts must remain exact.

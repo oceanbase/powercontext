@@ -16,7 +16,7 @@ description: 安装 PowerContext OpenCode 插件并控制其本地行为。
 powercontext setup opencode
 ```
 
-该命令会全局注册原生插件，并把属于 PowerContext 的 `project-context` Skill 安装到 OpenCode 配置目录。
+该命令会全局注册原生插件，并把属于 PowerContext 的 `powercontext-project-context` Skill 安装到 OpenCode 配置目录。
 如果同名 Skill 不是 PowerContext 安装的，命令会停止并保留原文件。本地 checkout 同样可以使用：
 
 ```bash

@@ -15,6 +15,7 @@
  */
 
 import { requireService } from './dsh-service.ts'
+import { DOMAIN_SKILLS } from './domain-skills.ts'
 import { PROJECT_CONTEXT_SKILL } from './skill-body.ts'
 
 export const GUIDANCE = `PowerContext provides durable project history and handoffs across agent sessions.
@@ -33,7 +34,7 @@ For a requested handoff, capture the inspected boundary, activate it, inspect a 
 Use pc_review_list / pc_review_get to inspect candidates. Generated candidates are not approved artifacts. Review decisions belong to the human /pc review command; never self-approve, install, publish, or execute a candidate.
 Revising or retiring Memory requires the exact current citation and the requested change. Preserve host approval checks.
 Report only observed results: empty retrieval is normal; failed, denied, unscoped, or unavailable operations did not complete the request. Identify the failed operation and safe returned reason without inventing a cause or claiming saved/restored context. Continue ordinary work and avoid repeated failed calls.
-Use the project-context Skill for a relevant detailed workflow when it is available; loading a Skill is not required before every response.`
+Use powercontext-project-context for routing, or powercontext-memory, powercontext-handoff, or powercontext-review directly when that domain needs detail and the Skill is available. Loading a Skill is not required before every response.`
 
 export function registerGuidance(ctx: { get: (name: string) => unknown }): void {
   const systemPrompt = requireService<{
@@ -57,10 +58,11 @@ export function registerSkill(ctx: { get: (name: string) => unknown }): void {
     }) => unknown
   }>(ctx, 'skills')
   skills.register({
-    name: 'project-context',
-    description: 'Restore project memory or transfer current work through PowerContext.',
+    name: 'powercontext-project-context',
+    description: 'PowerContext Memory search/save, inventory, handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Route to focused workflows when needed; ordinary coding and current-context summaries need no Skill detour.',
     source: 'runtime',
     whenToUse: 'Use when continuing work across sessions, recalling prior decisions, preparing a handoff, or maintaining durable memory.',
     content: PROJECT_CONTEXT_SKILL,
   })
+  for (const skill of DOMAIN_SKILLS) skills.register(skill)
 }

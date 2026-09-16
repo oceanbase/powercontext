@@ -12,7 +12,7 @@ powercontext setup pi --source /path/to/powercontext
 ```
 
 Start `powercontext server run`, then open a new Pi session in the project. The package supplies the
-`project-context` skill, `pc_*` Memory, Handoff, structured work-continuity, Experience, Skill, Topic Memory, and candidate-inspection tools, and `/pc`
+`powercontext-project-context` skill, `pc_*` Memory, Handoff, structured work-continuity, Experience, Skill, Topic Memory, and candidate-inspection tools, and `/pc`
 diagnostics. Candidate inspection is read-only; candidate approve, reject, and revise require explicit user confirmation and never install, publish, activate, or execute artifacts. External Skill discovery is read-only; importing or forking an exact resolved Skill requires explicit confirmation and does not execute or publish it.
 
 The package resolves an explicit Scope, a durable workspace binding, or the Server default. Use

@@ -97,7 +97,8 @@ export async function environment({ realModel } = {}) {
       })
       return
     }
-    const needsTool = JSON.stringify(body.messages).includes('RUN_PC_SEARCH')
+    const skillMatch = JSON.stringify(body.messages).match(/LOAD_PC_SKILL:(powercontext-(?:memory|handoff|review))/)
+    const needsTool = (skillMatch || JSON.stringify(body.messages).includes('RUN_PC_SEARCH'))
       && !body.messages.some(message => message.role === 'tool')
     const content = JSON.stringify(body.messages).includes(CANARY) ? CANARY : 'Task completed.'
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
@@ -108,7 +109,9 @@ export async function environment({ realModel } = {}) {
     if (needsTool) {
       res.end(chunk({ role: 'assistant', tool_calls: [{
         index: 0, id: 'fixture-search', type: 'function',
-        function: { name: 'pc_search', arguments: JSON.stringify({ query: 'aurora deployment color' }) },
+        function: skillMatch
+          ? { name: 'skill', arguments: JSON.stringify({ name: skillMatch[1] }) }
+          : { name: 'pc_search', arguments: JSON.stringify({ query: 'aurora deployment color' }) },
       }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n')
     } else {
       res.end(chunk({ role: 'assistant', content }) + chunk({}, 'stop') + 'data: [DONE]\n\n')

@@ -43,7 +43,7 @@ In a Codex session with the plugin installed and the PowerContext Server availab
 handoff this work
 ```
 
-The `project-context` Skill treats that imperative as explicit authorization to create one durable Handoff milestone.
+The `powercontext-project-context` Skill treats that imperative as explicit authorization to create one durable Handoff milestone.
 Codex inspects the current conversation and repository, assembles the objective, branch and worktree state, changed
 files, observed checks, blockers, omissions, and next action, then calls `handoff_current_work` followed by
 `commit_handoff` in the current Session Scope. After a successful commit, Codex reports the exact Handoff Revision; the

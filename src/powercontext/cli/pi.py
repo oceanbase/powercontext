@@ -41,7 +41,7 @@ from powercontext.paths import powercontext_data_dir
 PI_PACKAGE_NAME = "powercontext-pi"
 PI_PLUGIN_RELATIVE = Path("integrations") / "pi" / "plugins" / "powercontext"
 PI_EXTENSION = Path("extensions") / "powercontext.ts"
-PI_SKILL = Path("skills") / "project-context" / "SKILL.md"
+PI_SKILL = Path("skills") / "powercontext-project-context" / "SKILL.md"
 
 
 @dataclass(frozen=True, slots=True)

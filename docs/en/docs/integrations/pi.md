@@ -68,7 +68,7 @@ short, bounded best-effort flush at agent and session boundaries.
 
 ## Use explicit tools and commands
 
-The `project-context` skill explains when to use native `pc_*` tools. The core tools are:
+The `powercontext-project-context` skill explains when to use native `pc_*` tools. The core tools are:
 
 - `pc_search`, `pc_memory_list`, `pc_memory_get`, `pc_memory_revise`, and `pc_memory_retire`;
 - `pc_remember`, `pc_prepare_context`, and `pc_capture_source`;

@@ -16,7 +16,7 @@ The integration has three capability layers:
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives WorkBuddy explicit
   Memory and work-continuity tools (`search_memory`, `list_memory_entries`,
   `handoff_current_work`, `commit_handoff`, and so on);
-- the `project-context` Skill turns an imperative such as `交接`,
+- the `powercontext-project-context` Skill turns an imperative such as `交接`,
   `交接当前工作`, or `handoff this work` into one durable, committed Handoff,
   and restores project memory for continued work.
 
@@ -43,7 +43,7 @@ powercontext setup workbuddy --source /path/to/powercontext
 The installer copies the hook driver, its settings modules, and the scope
 resolver into `~/.workbuddy/hooks`, merges the `UserPromptSubmit` hook into
 `~/.workbuddy/settings.json`, registers the `powercontext` server in
-`~/.workbuddy/mcp.json`, and installs the `project-context` Skill under
+`~/.workbuddy/mcp.json`, and installs the `powercontext-project-context` Skill under
 `~/.workbuddy/skills`. Existing settings and other MCP servers are preserved,
 and the Skill's command placeholders are resolved automatically.
 Verify the result with `powercontext doctor workbuddy`.
@@ -141,18 +141,18 @@ Merge the following `mcpServers` entry into `~/.workbuddy/mcp.json`:
 
 #### 4. Install the Skill
 
-Copy the `project-context` Skill into the WorkBuddy skills directory:
+Copy the `powercontext-project-context` Skill into the WorkBuddy skills directory:
 
 ```bash
 mkdir -p ~/.workbuddy/skills
-cp -R integrations/workbuddy/plugins/powercontext/skills/project-context \
+cp -R integrations/workbuddy/plugins/powercontext/skills/powercontext-project-context \
   ~/.workbuddy/skills/
-cat > ~/.workbuddy/skills/project-context/.powercontext.json <<'EOF'
+cat > ~/.workbuddy/skills/powercontext-project-context/.powercontext.json <<'EOF'
 {"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
 EOF
 ```
 
-Then open `~/.workbuddy/skills/project-context/SKILL.md`. Replace
+Then open `~/.workbuddy/skills/powercontext-project-context/SKILL.md`. Replace
 `${POWERCONTEXT_PYTHON}` with a shell-safe Python executable argument and
 `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` with a shell-safe complete path to
 `<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py`.
@@ -244,5 +244,5 @@ values preserve the default unauthenticated flow. Never put the token itself in
 1. Remove the `UserPromptSubmit` PowerContext entry from `~/.workbuddy/settings.json`.
 2. Remove the `powercontext` entry from `~/.workbuddy/mcp.json`.
 3. Remove the hook files and the scope resolver from `<WORKBUDDY_HOOKS_DIR>`.
-4. Remove `~/.workbuddy/skills/project-context`.
+4. Remove `~/.workbuddy/skills/powercontext-project-context`.
 5. Optionally stop the Server and delete its local data directory.

@@ -48,10 +48,11 @@ def test_mcp_guidance_is_visible_without_loading_a_skill() -> None:
     assert set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", guidance)) <= names
     if directory := os.environ.get("POWERCONTEXT_GUIDANCE_EXPORT"):
         root = Path(__file__).parents[1]
-        for host in ("codex", "claude-code", "workbuddy", "agent-plugin"):
+        for host in ("codex", "claude-code", "workbuddy", "agent-plugin", "minimax"):
             plugin = root / "integrations" / host
             plugin /= "powercontext" if host == "agent-plugin" else "plugins/powercontext"
-            content = (plugin / "skills/project-context/SKILL.md").read_text(encoding="utf-8")
+            name = "powercontext-project-context"
+            content = (plugin / f"skills/{name}/SKILL.md").read_text(encoding="utf-8")
             catalog = {
                 "host": host,
                 "guidance": guidance,
@@ -59,7 +60,7 @@ def test_mcp_guidance_is_visible_without_loading_a_skill() -> None:
                     {"name": tool.name, "description": tool.description, "parameters": tool.inputSchema}
                     for tool in tools
                 ],
-                "skill": {"name": "project-context", "content": content},
+                "skill": {"name": name, "content": content},
             }
             (Path(directory) / f"{host}.json").write_text(json.dumps(catalog, indent=2), encoding="utf-8")
 

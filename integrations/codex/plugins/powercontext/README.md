@@ -10,7 +10,7 @@ The integration uses each public surface for the job it fits:
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
   Memory and work-continuity tools.
 
-The `project-context` skill uses four high-level work operations instead of
+The `powercontext-project-context` skill uses four high-level work operations instead of
 assembling the low-level Handoff lifecycle manually: `create_work_contract`,
 `handoff_current_work`, `acknowledge_handoff`, and `record_task_outcome`.
 When the user says `交接`, `交接当前工作`, `handoff this work`, or an equivalent

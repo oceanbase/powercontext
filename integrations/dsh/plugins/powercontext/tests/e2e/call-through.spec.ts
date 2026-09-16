@@ -302,10 +302,10 @@ describe('plugin HTTP call-through without a model', () => {
       await harness.fiber
       expect(harness.registrations.tools.length).toBeGreaterThan(0)
       expect(harness.registrations.commands.map(item => item.name)).toEqual(['pc'])
-      expect(harness.registrations.skills).toEqual([expect.objectContaining({
-        name: 'project-context',
+      expect(harness.registrations.skills).toEqual(expect.arrayContaining([expect.objectContaining({
+        name: 'powercontext-project-context',
         content: PROJECT_CONTEXT_SKILL,
-      })])
+      })]))
       expect(harness.registrations.sections).toEqual([expect.objectContaining({
         name: 'tool:powercontext',
         text: GUIDANCE,

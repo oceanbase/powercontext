@@ -42,7 +42,7 @@ from powercontext.paths import powercontext_data_dir
 OPENCODE_PLUGIN_NAME = "powercontext-opencode"
 OPENCODE_PLUGIN_RELATIVE = Path("integrations") / "opencode" / "plugins" / "powercontext"
 OPENCODE_BUNDLE = Path("lib") / "index.js"
-OPENCODE_SKILL = Path("skills") / "project-context" / "SKILL.md"
+OPENCODE_SKILL = Path("skills") / "powercontext-project-context" / "SKILL.md"
 SKILL_MANIFEST = ".powercontext.json"
 PLUGIN_MANIFEST = ".powercontext-opencode.json"
 MINIMUM_VERSION = (1, 18, 21)
@@ -96,7 +96,7 @@ def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
     require_complete_plugin(plugin_dir)
     config_dir = opencode_config_dir()
     plugin_target = config_dir / "plugins" / f"{OPENCODE_PLUGIN_NAME}.js"
-    skill_target = config_dir / "skills" / "project-context"
+    skill_target = config_dir / "skills" / "powercontext-project-context"
     require_replaceable_plugin(plugin_target)
     require_replaceable_skill(skill_target)
     _install_plugin(plugin_dir / OPENCODE_BUNDLE, plugin_target)
@@ -378,7 +378,7 @@ def run_opencode_diagnostics() -> dict[str, Diagnostic]:
             "plugin": Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error)),
             "skill": Diagnostic(status=DiagnosticStatus.SKIPPED, detail="not checked because config is unavailable"),
         }
-    skill = config_dir / "skills" / "project-context"
+    skill = config_dir / "skills" / "powercontext-project-context"
     skill_ok = _owned_skill(skill) and (skill / "SKILL.md").is_file()
     return {
         "opencode": Diagnostic(status=DiagnosticStatus.OK, detail=f"{executable} ({actual})"),

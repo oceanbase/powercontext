@@ -245,7 +245,7 @@ constraint 仍可在显式请求完整历史时审计。
 
 > 交接
 
-`交接` 是创建持久 Handoff 里程碑的明确授权。PowerContext 的 `project-context` Skill 会在同一轮中：
+`交接` 是创建持久 Handoff 里程碑的明确授权。PowerContext 的 `powercontext-project-context` Skill 会在同一轮中：
 
 1. 确认当前显式 Scope（即 `POWERCONTEXT_CODEX_SCOPE_ID`）；
 2. 检查当前目标、branch、worktree、changed files 和已运行检查；

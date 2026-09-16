@@ -42,12 +42,13 @@ test('documented setup installs the matched plugin, diagnoses the running host a
     assert.ok(references.length > 0, 'PowerContext guidance must reach the model before any Skill load')
     for (const name of references) assert.ok(catalog.has(name), `guidance refers to unavailable DSH tool: ${name}`)
     if (process.env.POWERCONTEXT_GUIDANCE_EXPORT) {
-      let skill
-      registerSkill({ get: () => ({ register(value) { skill = value } }) })
+      const skills = []
+      registerSkill({ get: () => ({ register(value) { skills.push(value) } }) })
       writeFileSync(join(process.env.POWERCONTEXT_GUIDANCE_EXPORT, 'dsh.json'), JSON.stringify({
         host: 'dsh', catalog_source: 'real SDK model request',
         guidance: system.map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n'),
-        skill,
+        skill: skills.find(skill => skill.name === 'powercontext-project-context'), skills,
+        host_skill_tools: request.tools.map(tool => tool.function).filter(tool => tool.name.includes('skill')),
         tools: request.tools.map(tool => tool.function).filter(tool => tool.name.startsWith('pc_')),
       }, null, 2))
     }
@@ -238,5 +239,28 @@ test('real DSH does not recall or capture into another configured Scope', { time
     const scoped = env.calls.filter(call => call.path !== '/v1/scope-bindings/resolve')
     assert.ok(scoped.length > 0)
     assert.ok(scoped.every(call => call.body.scope_id === other.scope_id))
+  } finally { await env.close() }
+})
+
+
+test('real DSH discovers bilingual domains and loads only the requested Skill', { timeout: 120000 }, async () => {
+  const env = await environment()
+  try {
+    const { instance } = env.harness()
+    const registered = []
+    registerSkill({ get: () => ({ register(value) { registered.push(value) } }) })
+    for (const domain of registered.filter(skill => skill.name !== 'powercontext-project-context')) {
+      await instance.run(`LOAD_PC_SKILL:${domain.name}`)
+      const requests = env.modelRequests.filter(request => request.stream)
+      const finalMessages = requests.at(-1).messages
+      assert.ok(JSON.stringify(finalMessages).includes(domain.description), `${domain.name} metadata is not model-visible`)
+      const result = finalMessages.find(message => message.role === 'tool')
+      assert.ok(result, `${domain.name} was not loaded through the host Skill tool`)
+      assert.ok(JSON.stringify(result).includes(domain.content.trim().split('\n')[0]))
+      for (const other of registered.filter(skill => skill.name !== domain.name)) {
+        assert.ok(!JSON.stringify(result).includes(other.content.trim().split('\n')[0]), `loading ${domain.name} also loaded ${other.name}`)
+      }
+    }
+    await instance.close()
   } finally { await env.close() }
 })

@@ -96,6 +96,31 @@ jobs:
           tests/test_service_bootstrap.py
           tests/test_cli_workbuddy.py::test_setup_workbuddy_remote_checkout_refreshes_the_requested_ref
 
+  hermes-skills:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Check out the supported Hermes host
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: NousResearch/hermes-agent
+          ref: e624e9fde561e1add9388384012b295fde669ade # v2026.8.18 / CLI 0.20.4
+          path: .hermes-native
+          persist-credentials: false
+
+      - name: Verify native Skill discovery and metadata
+        env:
+          POWERCONTEXT_HERMES_SOURCE: ${{ github.workspace }}/.hermes-native
+        run: uv run pytest tests/e2e/test_hermes_skills.py
+
   dsh-package:
     timeout-minutes: 30
     runs-on: ubuntu-latest

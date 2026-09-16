@@ -28,7 +28,7 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 
 ## Codex plugin
 
-The project-context skill tells Codex when to search, remember, revise, retire, delegate, hand off, acknowledge, or
+The powercontext-project-context skill tells Codex when to search, remember, revise, retire, delegate, hand off, acknowledge, or
 record an outcome. The prompt hook recalls relevant entries and captures user input as Source evidence. MCP tools
 perform explicit operations. The plugin never starts or embeds the Server.
 
@@ -80,7 +80,7 @@ See [Use Handoff Report](../workflows/use-handoff-report.md) for the report API.
 
 ## DeepSeek Harness plugin
 
-The project-context skill tells DeepSeek Harness when to search, remember, revise, or retire Memory. Before each model
+The powercontext-project-context skill tells DeepSeek Harness when to search, remember, revise, or retire Memory. Before each model
 step the plugin recalls relevant entries and captures user input as Source evidence. Named `pc_*` tools perform explicit
 HTTP operations. The plugin never starts or embeds the Server.
 
@@ -121,7 +121,7 @@ published on PyPI. The LangGraph adapter remains a separate node-and-tool integr
 
 ## Pi package
 
-The native Pi package supplies the `project-context` skill, named `pc_*` Memory and Handoff tools, and `/pc`
+The native Pi package supplies the `powercontext-project-context` skill, named `pc_*` Memory and Handoff tools, and `/pc`
 diagnostics. Before each normal agent start, it requests one strict, bounded PreparedContext value and independently
 captures an eligible user prompt as Source evidence. It does not synchronize Pi transcripts. Recall, capture, and
 boundary flushing fail open; explicit durable writes require interactive confirmation.

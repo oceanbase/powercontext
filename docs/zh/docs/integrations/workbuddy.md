@@ -37,7 +37,7 @@ powercontext setup workbuddy --source /path/to/powercontext
 
 安装器会把 hook 驱动和 scope resolver 写入 `~/.workbuddy/hooks`，把 `UserPromptSubmit` hook 合并进
 `~/.workbuddy/settings.json`，在 `~/.workbuddy/mcp.json` 中注册 `powercontext` server，并把
-`project-context` Skill 安装到 `~/.workbuddy/skills`。既有设置和其他 MCP server 会被保留，Skill 中的
+`powercontext-project-context` Skill 安装到 `~/.workbuddy/skills`。既有设置和其他 MCP server 会被保留，Skill 中的
 命令占位符也会被自动解析。
 
 使用以下命令验证安装：
@@ -119,14 +119,14 @@ PowerContext 的 Python executable，把 `<WORKBUDDY_HOOKS_DIR>` 替换为 hooks
 
 ```bash
 mkdir -p ~/.workbuddy/skills
-cp -R integrations/workbuddy/plugins/powercontext/skills/project-context \
+cp -R integrations/workbuddy/plugins/powercontext/skills/powercontext-project-context \
   ~/.workbuddy/skills/
-cat > ~/.workbuddy/skills/project-context/.powercontext.json <<'EOF'
+cat > ~/.workbuddy/skills/powercontext-project-context/.powercontext.json <<'EOF'
 {"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
 EOF
 ```
 
-然后把 `~/.workbuddy/skills/project-context/SKILL.md` 中的 `${POWERCONTEXT_PYTHON}` 替换为 shell-safe
+然后把 `~/.workbuddy/skills/powercontext-project-context/SKILL.md` 中的 `${POWERCONTEXT_PYTHON}` 替换为 shell-safe
 的 Python executable 参数，把 `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` 替换为 shell-safe 的完整
 `<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py` 路径。
 
@@ -153,7 +153,7 @@ powercontext doctor
   独立地把提示词采集为 Source 证据；
 - MCP 为 WorkBuddy 提供读取和维护 Memory 的显式工具，以及明确的 Handoff 工作流。
 
-`project-context` Skill 把两条路径连接起来。诸如 `交接`、`交接当前工作` 或 `handoff this work`
+`powercontext-project-context` Skill 把两条路径连接起来。诸如 `交接`、`交接当前工作` 或 `handoff this work`
 这样的指令会被视为创建持久交接里程碑的明确授权。Skill 会检查当前对话和仓库，调用
 `handoff_current_work`，然后通过 `commit_handoff` 立即提交返回的 `handoff`。预览或设计类请求保持只读。
 
@@ -214,7 +214,7 @@ Server 按以下顺序为 WorkBuddy 解析 Scope：
 3. 持久 workspace binding；
 4. Server 的默认 Scope。
 
-同一工作区后续开启的新 WorkBuddy 会话会复用同一个 Scope。`project-context` Skill 的 `--bind-scope` 操作会在
+同一工作区后续开启的新 WorkBuddy 会话会复用同一个 Scope。`powercontext-project-context` Skill 的 `--bind-scope` 操作会在
 PowerContext 中持久化 workspace binding。插件只把 workspace 路径哈希用作外部 binding key，不会据此生成 Scope ID。
 
 ## 连接启用鉴权的本地 Server
@@ -268,5 +268,5 @@ query、scope、prepared content、citation、response body 或 authorization va
 1. 从 `~/.workbuddy/settings.json` 删除 `UserPromptSubmit` 中的 PowerContext 条目。
 2. 从 `~/.workbuddy/mcp.json` 删除 `powercontext` 条目。
 3. 从 `<WORKBUDDY_HOOKS_DIR>` 删除 hook 文件和 scope resolver。
-4. 删除 `~/.workbuddy/skills/project-context`。
+4. 删除 `~/.workbuddy/skills/powercontext-project-context`。
 5. 可选：停止 Server 并删除其本地数据目录。

@@ -41,6 +41,6 @@ it('routes only to the registered Pi tools without requiring a Skill load', () =
   const output = process.env.POWERCONTEXT_GUIDANCE_EXPORT
   if (output) writeFileSync(join(output, 'pi.json'), JSON.stringify({
     host: 'pi', guidance: GUIDANCE, tools: tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
-    skill: { name: 'project-context', content: readFileSync(new URL('../skills/project-context/SKILL.md', import.meta.url), 'utf8') },
+    skill: { name: 'powercontext-project-context', content: readFileSync(new URL('../skills/powercontext-project-context/SKILL.md', import.meta.url), 'utf8') },
   }, null, 2))
 })

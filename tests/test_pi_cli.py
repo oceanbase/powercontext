@@ -28,13 +28,15 @@ from powercontext.cli.system import SetupError, doctor_app, setup_app
 def _write_pi_package(root: Path) -> Path:
     package = root / "integrations" / "pi" / "plugins" / "powercontext"
     (package / "extensions").mkdir(parents=True)
-    (package / "skills" / "project-context").mkdir(parents=True)
+    (package / "skills" / "powercontext-project-context").mkdir(parents=True)
     (package / "package.json").write_text(
         '{"name": "powercontext-pi", "pi": {"extensions": ["./extensions/powercontext.ts"]}}',
         encoding="utf-8",
     )
     (package / "extensions" / "powercontext.ts").write_text("export default () => {}\n", encoding="utf-8")
-    (package / "skills" / "project-context" / "SKILL.md").write_text("# Project Context\n", encoding="utf-8")
+    (package / "skills" / "powercontext-project-context" / "SKILL.md").write_text(
+        "# Project Context\n", encoding="utf-8"
+    )
     return package
 
 

@@ -33,12 +33,15 @@ from powercontext.cli.system import SetupError, doctor_app, setup_app
 
 def _write_plugin(root: Path, *, built: bool = True) -> Path:
     plugin = root / "integrations" / "opencode" / "plugins" / "powercontext"
-    (plugin / "skills" / "project-context").mkdir(parents=True)
+    (plugin / "skills" / "powercontext-project-context").mkdir(parents=True)
     (plugin / "package.json").write_text('{"name": "powercontext-opencode"}', encoding="utf-8")
-    (plugin / "skills" / "project-context" / "SKILL.md").write_text(
-        "---\nname: project-context\ndescription: test\n---\n",
+    (plugin / "skills" / "powercontext-project-context" / "SKILL.md").write_text(
+        "---\nname: powercontext-project-context\ndescription: test\n---\n",
         encoding="utf-8",
     )
+    references = plugin / "skills" / "powercontext-project-context" / "references"
+    references.mkdir()
+    (references / "memory.md").write_text("Memory procedure", encoding="utf-8")
     if built:
         (plugin / "lib").mkdir()
         (plugin / "lib" / "index.js").write_text("export default {}\n", encoding="utf-8")
@@ -195,11 +198,12 @@ def test_setup_opencode_installs_plugin_and_owned_skill(tmp_path: Path, monkeypa
 
     result = CliRunner().invoke(create_cli([setup_app]), ["setup", "opencode", "--source", str(checkout)])
 
-    skill = config / "skills" / "project-context"
+    skill = config / "skills" / "powercontext-project-context"
     assert result.exit_code == 0
     assert "PowerContext OpenCode setup complete." in result.output
     assert (config / "plugins" / "powercontext-opencode.js").is_file()
     assert (skill / "SKILL.md").is_file()
+    assert (skill / "references" / "memory.md").read_text(encoding="utf-8") == "Memory procedure"
     assert json.loads((skill / ".powercontext.json").read_text(encoding="utf-8"))["owner"] == "powercontext"
 
 
@@ -262,13 +266,13 @@ def test_opencode_skill_refresh_replaces_only_an_owned_installation(tmp_path: Pa
     second.mkdir()
     (first / "SKILL.md").write_text("first\n", encoding="utf-8")
     (second / "SKILL.md").write_text("second\n", encoding="utf-8")
-    target = tmp_path / "config" / "skills" / "project-context"
+    target = tmp_path / "config" / "skills" / "powercontext-project-context"
 
     opencode_cli._install_skill(first, target)
     opencode_cli._install_skill(second, target)
 
     assert (target / "SKILL.md").read_text(encoding="utf-8") == "second\n"
-    assert not list(target.parent.glob(".project-context.*"))
+    assert not list(target.parent.glob(".powercontext-project-context.*"))
 
 
 def test_interrupted_plugin_install_recovers_on_retry(tmp_path: Path, monkeypatch) -> None:
@@ -313,7 +317,7 @@ def test_setup_opencode_refuses_unowned_skill(tmp_path: Path, monkeypatch) -> No
     checkout = tmp_path / "checkout"
     plugin = _write_plugin(checkout)
     config = tmp_path / "config"
-    target = config / "skills" / "project-context"
+    target = config / "skills" / "powercontext-project-context"
     target.mkdir(parents=True)
     (target / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
@@ -427,9 +431,9 @@ def test_doctor_opencode_reports_plugin_and_skill(tmp_path: Path, monkeypatch) -
 
     plugin = _write_plugin(tmp_path / "checkout")
     config = tmp_path / "config"
-    skill = config / "skills" / "project-context"
+    skill = config / "skills" / "powercontext-project-context"
     opencode_cli._install_plugin(plugin / "lib" / "index.js", config / "plugins" / "powercontext-opencode.js")
-    opencode_cli._install_skill(plugin / "skills" / "project-context", skill)
+    opencode_cli._install_skill(plugin / "skills" / "powercontext-project-context", skill)
     monkeypatch.setattr(opencode_cli, "which", lambda _name: "/usr/bin/opencode")
     monkeypatch.setattr(opencode_cli, "_run_opencode", _fake_opencode(plugin, config))
     monkeypatch.setattr(
@@ -453,8 +457,8 @@ def test_doctor_opencode_rejects_configured_but_inactive_plugin(tmp_path: Path, 
 
     plugin = _write_plugin(tmp_path / "checkout with spaces")
     config = tmp_path / "config"
-    skill = config / "skills" / "project-context"
-    opencode_cli._install_skill(plugin / "skills" / "project-context", skill)
+    skill = config / "skills" / "powercontext-project-context"
+    opencode_cli._install_skill(plugin / "skills" / "powercontext-project-context", skill)
     monkeypatch.setattr(opencode_cli, "which", lambda _name: "/usr/bin/opencode")
 
     def inactive(*arguments: str, env: dict[str, str] | None = None) -> str:

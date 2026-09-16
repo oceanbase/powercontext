@@ -28,7 +28,7 @@ description: 在 Agent 集成、CLI、Python SDK、HTTP 和 MCP 之间选择。
 
 ## Codex 插件
 
-project-context skill 指导 Codex 何时检索、记忆、修订、停用、委托、交接、回执或记录结果。Prompt Hook 会恢复相关
+powercontext-project-context skill 指导 Codex 何时检索、记忆、修订、停用、委托、交接、回执或记录结果。Prompt Hook 会恢复相关
 条目，并把用户输入采集为 Source 证据；MCP 工具执行显式操作。插件不会启动或内嵌 Server。
 
 ## 工作连续性
@@ -72,7 +72,7 @@ selection。报告 API 见[使用 Handoff Report](../workflows/use-handoff-repor
 
 ## DeepSeek Harness 插件
 
-project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
+powercontext-project-context skill 指导 DeepSeek Harness 何时检索、记忆、修订或停用 Memory。每轮模型开口前，插件会恢复相关
 条目，并把用户输入采集为 Source 证据；具名 `pc_*` 工具执行显式 HTTP 操作。插件不会启动或内嵌 Server。
 
 ## Pydantic AI 适配器
@@ -107,7 +107,7 @@ LangGraph 适配器仍是单独的节点与工具集成。
 
 ## Pi package
 
-原生 Pi package 提供 `project-context` skill、具名 `pc_*` Memory/Handoff 工具和 `/pc` 诊断命令。每次普通 agent
+原生 Pi package 提供 `powercontext-project-context` skill、具名 `pc_*` Memory/Handoff 工具和 `/pc` 诊断命令。每次普通 agent
 启动前，它请求一个严格校验且有界的 PreparedContext，并独立采集符合条件的用户提示词作为 Source 证据。它不会同步
 Pi transcript。召回、采集和边界 flush 都会正常降级；显式持久化写入必须在交互式环境中确认。
 

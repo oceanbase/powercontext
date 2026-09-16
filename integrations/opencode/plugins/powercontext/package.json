@@ -15,7 +15,7 @@
   "files": [
     "lib/index.js",
     "lib/index.d.ts",
-    "skills/project-context/SKILL.md"
+    "skills/powercontext-project-context"
   ],
   "scripts": {
     "build": "tsdown",

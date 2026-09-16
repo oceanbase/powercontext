@@ -38,6 +38,7 @@ import jsonschema
 from dotenv import dotenv_values
 from integration_guidance_handoff import HandoffFixture
 from integration_guidance_native import NATIVE_HOSTS, NativeHandoffSession
+from integration_guidance_skills import SkillReadingModel, with_skill_resources
 
 ROUTES = {
     "search": {"pc_search", "search_memory", "powercontext_search_memory", "powercontext_memory_search"},
@@ -147,9 +148,20 @@ CASES = {
 }
 
 
+for _case in ("search", "handoff"):
+    _route, _prompts = CASES[_case]
+    CASES[f"skill_{_case}"] = (
+        _route,
+        (
+            "First read the relevant available PowerContext Skill workflow for this request. " + _prompts[0],
+            "先阅读与此请求相关的可用 PowerContext Skill 流程。" + _prompts[1],
+        ),
+    )
+
+
 def skill_description(skill: dict[str, Any]) -> str:
-    if value := skill.get("description"):
-        return str(value)
+    if "description" in skill:
+        return str(skill["description"])
     match = re.search(r"^description: (.+)$", skill.get("content", ""), re.MULTILINE)
     return match[1] if match else "PowerContext workflow guidance."
 
@@ -204,7 +216,8 @@ def scenario_messages(catalog: dict[str, Any], prompt: str, skill_mode: str) -> 
     if skill and skill_mode == "loaded":
         guidance += f"\nLoaded Skill {skill['name']}:\n{skill['content']}"
     elif skill and skill_mode == "unloaded":
-        guidance += f"\nOptional Skill catalog: {skill['name']}: {skill_description(skill)}"
+        for visible in catalog.get("skills", [skill]):
+            guidance += f"\nOptional Skill catalog: {visible['name']}: {skill_description(visible)}"
     return [{"role": "system", "content": guidance}, {"role": "user", "content": prompt}]
 
 
@@ -238,6 +251,10 @@ def catalog_arguments(call: dict[str, Any], catalog: dict[str, Any], *, native: 
         else arguments
     )
     jsonschema.validate(declared, schema)
+    for field in ("scope_id", "explicit_scope_id"):
+        if declared.get(field) is not None and declared[field] != "fixture-scope":
+            message = f"{name}.{field}: expected bound Scope fixture-scope, got {declared[field]!r}"
+            raise ValueError(message)
     return arguments
 
 
@@ -294,12 +311,17 @@ async def run_scenario(
         "prompt": prompts[language],
         "arguments_passed": False,
     }
+    reader = None
+    if "skill_resources" in catalog:
+        reader = SkillReadingModel(model, catalog["skill_resources"], available=skill_mode != "unavailable")
+        model = reader
     try:
         catalog = {**catalog, **catalog.get("variants", {}).get(case, {})}
         tools = [tool for tool in catalog["tools"] if case != "unavailable_save" or tool["name"] not in ROUTES["save"]]
         expected = ROUTES.get(route, set()) & {tool["name"] for tool in tools}
         messages = scenario_messages(catalog, prompts[language], skill_mode)
         response = await model.complete(messages, tools)
+        record["model_response"] = {key: response.get(key) for key in ("content", "tool_calls")}
         initial = validate_message(response)
         if (
             route in ROUTES
@@ -349,6 +371,8 @@ async def run_scenario(
             else str(error)
         )
         record.update(routing_passed=False, arguments_passed=False, error=type(error).__name__ + ": " + detail)
+    if reader is not None:
+        reader.record_into(record, case)
     apply_reporting_review(record, {})
     return record
 
@@ -440,10 +464,14 @@ async def evaluate(args: argparse.Namespace) -> int:
         message = "Provide LLM_MODEL, OPENAI_LLM_BASE_URL, and LLM_API_KEY in the selected environment file"
         raise ValueError(message)
     catalogs = [json.loads(path.read_text(encoding="utf-8")) for path in args.catalog]
+    if args.layered_skills:
+        catalogs = [with_skill_resources(catalog) for catalog in catalogs]
     output: list[dict[str, Any]] = []
     gate = asyncio.Semaphore(args.concurrency)
     report = {
-        "evaluation_version": "native-adapter-reporting-review-v2",
+        "evaluation_version": "layered-skill-workflows-v2"
+        if args.layered_skills
+        else "native-adapter-reporting-review-v2",
         "model": model_name,
         "provider_host": urlsplit(base_url).hostname,
         "method": "Live model over exported host catalogs; controlled tool replies; no mutations executed",
@@ -451,6 +479,9 @@ async def evaluate(args: argparse.Namespace) -> int:
         "unreviewed cases never count as acceptance passes. Native Handoff adapters use controlled HTTP replies and "
         "fixture approval, not a real host permission channel. "
         "Skill body presence is controlled; this is not Skill-discovery or full-host execution acceptance.",
+        "skill_resource_reads": "Optional evaluation-only reader of shipped resources"
+        if args.layered_skills
+        else "disabled",
         "max_tokens": args.max_tokens,
         "tool_choice": "auto",
         "catalogs": catalogs,
@@ -498,11 +529,14 @@ def main() -> int:
         "--reporting-review", type=Path, help="JSON mapping review_key to {passed: boolean, reason: string}"
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--layered-skills", action="store_true", help="Allow recorded reads of shipped Skill resources")
     parser.add_argument("--model")
     parser.add_argument("--base-url")
     parser.add_argument("--concurrency", type=int, choices=range(1, 5), default=2)
     parser.add_argument("--max-tokens", type=int, default=6000)
-    parser.add_argument("--cases", nargs="+", choices=list(CASES), default=list(CASES))
+    parser.add_argument(
+        "--cases", nargs="+", choices=list(CASES), default=[case for case in CASES if not case.startswith("skill_")]
+    )
     parser.add_argument(
         "--skill-modes", nargs="+", choices=("loaded", "unloaded", "unavailable"), default=["loaded", "unloaded"]
     )

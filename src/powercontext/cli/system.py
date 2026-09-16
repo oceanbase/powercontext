@@ -150,7 +150,7 @@ class SetupError(RuntimeError):
 
     @classmethod
     def incomplete_pi_package(cls, path: Path) -> SetupError:
-        return cls(f"PowerContext Pi package at {path} is missing its extension or project-context skill.")
+        return cls(f"PowerContext Pi package at {path} is missing its extension or powercontext-project-context skill.")
 
     @classmethod
     def missing_opencode_plugin(cls, path: Path) -> SetupError:
@@ -158,7 +158,9 @@ class SetupError(RuntimeError):
 
     @classmethod
     def incomplete_opencode_plugin(cls, path: Path) -> SetupError:
-        return cls(f"PowerContext OpenCode plugin at {path} is missing lib/index.js or project-context Skill.")
+        return cls(
+            f"PowerContext OpenCode plugin at {path} is missing lib/index.js or powercontext-project-context Skill."
+        )
 
     @classmethod
     def invalid_opencode_ref(cls, ref: str) -> SetupError:

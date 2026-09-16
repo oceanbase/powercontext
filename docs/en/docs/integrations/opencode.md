@@ -17,7 +17,7 @@ Server and CLI:
 powercontext setup opencode
 ```
 
-The setup command registers the native plugin globally and installs its owned `project-context` Skill under the
+The setup command registers the native plugin globally and installs its owned `powercontext-project-context` Skill under the
 OpenCode config directory. It refuses to replace an existing same-name Skill that is not owned by PowerContext. A
 local checkout is also supported:
 

@@ -57,11 +57,15 @@ def _write_plugin(root: Path) -> Path:
     cache = scripts / "__pycache__"
     cache.mkdir()
     (cache / "scope_binding.cpython-312.pyc").write_bytes(b"\x00")
-    skill = plugin / "skills" / "project-context"
+    skill = plugin / "skills" / "powercontext-project-context"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text(
         '${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
         encoding="utf-8",
+    )
+    (skill / "references").mkdir()
+    (skill / "references" / "scope-memory.md").write_text(
+        (skill / "SKILL.md").read_text(encoding="utf-8"), encoding="utf-8"
     )
     return plugin
 
@@ -113,13 +117,14 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
         assert (hooks_dir / name).is_file()
     assert (hooks_dir / "powercontext_scope_binding.py").is_file()
 
-    skill_markdown = home / "skills" / "project-context" / "SKILL.md"
+    skill_markdown = home / "skills" / "powercontext-project-context" / "SKILL.md"
     assert skill_markdown.is_file()
     skill_content = skill_markdown.read_text(encoding="utf-8")
     assert "${POWERCONTEXT_SCOPE_BINDING_SCRIPT}" not in skill_content
     assert "${POWERCONTEXT_PYTHON}" not in skill_content
     assert (hooks_dir / "powercontext_scope_binding.py").as_posix() in skill_content
     assert Path(sys.executable).as_posix() in skill_content
+    assert (skill_markdown.parent / "references" / "scope-memory.md").read_text(encoding="utf-8") == skill_content
     assert json.loads((skill_markdown.parent / ".powercontext.json").read_text(encoding="utf-8")) == {
         "schema": 1,
         "owner": "powercontext",
@@ -294,7 +299,7 @@ def test_setup_workbuddy_refuses_an_unowned_skill(tmp_path: Path, monkeypatch) -
     checkout = tmp_path / "powercontext"
     _write_plugin(checkout)
     home = tmp_path / "workbuddy"
-    skill = home / "skills" / "project-context"
+    skill = home / "skills" / "powercontext-project-context"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("user-owned\n", encoding="utf-8")
     monkeypatch.setenv("WORKBUDDY_HOME", str(home))
@@ -323,14 +328,18 @@ def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch) -
     first = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])
     assert first.exit_code == 0
 
-    (plugin / "skills" / "project-context" / "SKILL.md").write_text(
+    (plugin / "skills" / "powercontext-project-context" / "SKILL.md").write_text(
         'updated\n${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
         encoding="utf-8",
     )
     refreshed = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])
 
     assert refreshed.exit_code == 0
-    assert (home / "skills" / "project-context" / "SKILL.md").read_text(encoding="utf-8").startswith("updated\n")
+    assert (
+        (home / "skills" / "powercontext-project-context" / "SKILL.md")
+        .read_text(encoding="utf-8")
+        .startswith("updated\n")
+    )
 
 
 def test_setup_workbuddy_stops_before_writes_when_settings_snapshot_is_unreadable(tmp_path: Path, monkeypatch) -> None:

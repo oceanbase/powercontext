@@ -68,6 +68,7 @@ export function buildMemoryGuidance(availableTools: ReadonlySet<string>, citatio
       "prove Memory was produced and does not satisfy an explicit save. Ordinary coding needs no routine Memory calls.",
     "Summarizing or drafting from facts supplied in the current turn needs no retrieval or Scope resolution. An empty search does not authorize an inventory. If inventory or Handoff is unavailable, do not emulate it with Memory search or storage.",
     "Tool names in this guidance describe possible capabilities, not proof of availability. Before selecting an operation, check that its exact name appears in the current tool catalog. If absent, stop that operation and explicitly report it unavailable and incomplete. Never emit a call to an absent tool, simulate a call in text, or substitute another persistence operation.",
+    "If the optional powercontext-project-context Skill is available, read only the relevant workflow when needed. A Skill does not enable missing tools or grant write permission.",
     ...visible.map(([name, guidance]) => `${name}: ${guidance}`),
     "Only the listed tools are available through this provider. Do not infer Memory inventory, candidate Review, or " +
       "Skill installation capabilities. On failure identify the operation and safe returned reason, do not claim " +

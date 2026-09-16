@@ -39,14 +39,14 @@ These rules describe result interpretation; error classification follows the
 | --- | --- | --- |
 | DSH | Registered system section and native tools | `pc_search`, `pc_memory_list`, `pc_remember`; candidate decisions remain human `/pc review` commands. |
 | OpenCode | System transform and native tools | Same `pc_*` names; candidate-review mutations are not model tools. |
-| Pi | `before_agent_start` system prompt and native tools | Memory, Topic Memory, structured work/Handoff, and read-only artifact/candidate inspection; no candidate mutations. Guidance survives empty or failed automatic recall. |
+| Pi | `before_agent_start` system prompt and native tools | Memory, Topic Memory, structured work/Handoff, artifact/candidate inspection, candidate decisions and external Skills. Candidate approve/reject/revise and exact external import/fork require explicit authorization and interactive confirmation; they do not install, publish or execute artifacts. Guidance survives empty or failed automatic recall. |
 | OpenClaw | Memory capability prompt and provider tools | `powercontext_memory_search` / `powercontext_memory_store`; the prompt includes only tools available in the current context. Memory and structured work/Handoff are available when their tools are enabled; inventory and candidate Review are not inferred. |
-| Hermes | Provider system block and schemas | `powercontext_search_memory`, `powercontext_remember`, and supported operation tools; existing `powercontext` Skill. |
-| Codex, Claude Code, WorkBuddy | MCP initialize instructions and OpenAPI-derived descriptions | `search_memory`, `list_memory_entries`, `remember_memory`; each existing `project-context` Skill stays consistent. |
+| Hermes | Provider system block and schemas | `powercontext_search_memory`, `powercontext_remember`, and supported operation tools; `powercontext:powercontext-project-context` plugin Skill. |
+| Codex, Claude Code, WorkBuddy | MCP initialize instructions and OpenAPI-derived descriptions | `search_memory`, `list_memory_entries`, `remember_memory`; each existing `powercontext-project-context` Skill stays consistent. |
 
 The portable Agent Plugin's existing Skill shares these semantics. Framework adapters and the Bub evaluation harness
 are outside this migration. Host names, tool authority, persistence formats, and distribution ownership do not change.
-Layered Skills belong to E; the distribution generator belongs to #1405 / #1410.
+[Layered Skill routing](layered-skills.md) provides focused workflows behind the shared `powercontext-project-context` entry.
 
 ## Reproduce validation
 
@@ -54,7 +54,7 @@ Set `POWERCONTEXT_GUIDANCE_EXPORT` to an existing local directory, then run the 
 actual guidance, tool definitions, and packaged Skill:
 
 ```sh
-uv run pytest tests/test_mcp.py tests/integrations/test_hermes_provider.py
+uv run pytest tests/test_mcp.py
 pnpm --dir integrations/dsh/plugins/powercontext test
 pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
 pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
@@ -62,6 +62,19 @@ pnpm --dir integrations/opencode/plugins/powercontext test
 pnpm --dir integrations/pi/plugins/powercontext test
 pnpm --dir integrations/openclaw/plugins/memory-powercontext test
 ```
+
+Hermes exports discovery metadata through its native provider loader and `PluginManager`, using an isolated
+Hermes home. Point `POWERCONTEXT_HERMES_SOURCE` at the supported host checkout, then export the catalog:
+
+```sh
+git clone https://github.com/NousResearch/hermes-agent.git /tmp/pc-hermes
+git -C /tmp/pc-hermes checkout e624e9fde561e1add9388384012b295fde669ade
+POWERCONTEXT_HERMES_SOURCE=/tmp/pc-hermes uv run pytest tests/e2e/test_hermes_skills.py
+```
+
+This pins Hermes v2026.8.18 (CLI 0.20.4), also used by the native CI job. Keep `POWERCONTEXT_GUIDANCE_EXPORT`
+set for export. The model-visible Skill name and description come from the host catalog; the evaluator adds
+packaged resource bodies without replacing that discovery metadata. Provider unit tests do not export this catalog.
 
 Use a Node version supported by the pinned OpenClaw SDK; its CI uses Node 24.15.0. Package tests, type checks, builds,
 the real DSH runtime suite, and the real Pi CLI package test validate actual registration and execution independently

@@ -58,12 +58,19 @@ def register(ctx) -> None:
     provider = PowerContextMemoryProvider(_load_plugin_config())
     ctx.register_memory_provider(provider)
     register_skill = getattr(ctx, "register_skill", None)
-    skill_path = Path(__file__).parent / "skills" / "powercontext" / "SKILL.md"
+    skill_path = Path(__file__).parent / "skills" / "powercontext-project-context" / "SKILL.md"
     if callable(register_skill) and skill_path.is_file():
+        from agent.skill_utils import parse_frontmatter  # ty: ignore[unresolved-import]
+
+        metadata, _ = parse_frontmatter(skill_path.read_text(encoding="utf-8"))
+        description = metadata.get("description")
+        if not isinstance(description, str) or not description.strip():
+            message = f"{skill_path}: SKILL.md frontmatter requires a nonempty description"
+            raise ValueError(message)
         register_skill(
-            "powercontext",
+            "powercontext-project-context",
             skill_path,
-            "Use PowerContext memory, continuity, and review operations safely.",
+            description,
         )
 
 
