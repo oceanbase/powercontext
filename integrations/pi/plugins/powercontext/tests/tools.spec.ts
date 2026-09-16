@@ -182,7 +182,7 @@ describe('Pi native tool surface', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('validates candidate review parameters against the API limits', () => {
+  it('validates candidate review parameters against the API limits', async () => {
     const registered: Array<Record<string, unknown>> = []
     registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, createRuntime(vi.fn()))
 
@@ -217,7 +217,17 @@ describe('Pi native tool surface', () => {
       proposal: { situation: 'before', action: 'change', outcome: 'after', lesson: 'keep tests' },
       source_refs: Array.from({ length: 17 }, () => ({ name: 'test', source_id: 'source-1' })),
       artifact_refs: Array.from({ length: 16 }, () => ({ family: 'experience', artifact_id: 'artifact-1', revision: 1 })),
-    })).toBe(false)
+    })).toBe(true)
+    expect((revise.parameters as unknown as { type: string }).type).toBe('object')
+    await expect(registeredTool<Record<string, unknown>>(registered, 'pc_review_revise').execute(
+      'call-invalid-references', {
+        candidate_id: 'candidate-1',
+        expected_version: 1,
+        proposal: { situation: 'before', action: 'change', outcome: 'after', lesson: 'keep tests' },
+        source_refs: Array.from({ length: 17 }, () => ({ name: 'test', source_id: 'source-1' })),
+        artifact_refs: Array.from({ length: 16 }, () => ({ family: 'experience', artifact_id: 'artifact-1', revision: 1 })),
+      }, new AbortController().signal, () => undefined, { cwd: '/workspace/repo', hasUI: true, ui: { confirm: vi.fn() } },
+    )).rejects.toThrow('at most 32 references in total')
   })
 
   it('routes candidate review decisions through confirmed scoped operations', async () => {

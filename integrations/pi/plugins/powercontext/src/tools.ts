@@ -208,16 +208,16 @@ const SKILL_PROPOSAL = Type.Object({
   allowed_tools: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2000 }), Type.Null()])),
 }, { additionalProperties: false })
 const CANDIDATE_PROPOSAL = Type.Union([EXPERIENCE_PROPOSAL, SKILL_PROPOSAL])
-const REVISE_CANDIDATE = Type.Union(Array.from({ length: 33 }, (_, sourceMax) => Type.Object({
+const REVISE_CANDIDATE = Type.Object({
   candidate_id: CANDIDATE_ID,
   expected_version: EXPECTED_VERSION,
   proposal: CANDIDATE_PROPOSAL,
   memory_citations: Type.Optional(Type.Union([Type.Array(MEMORY_CITATION, { maxItems: 32 }), Type.Null()])),
-  source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: sourceMax }),
-  artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 - sourceMax }),
+  source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: 32 }),
+  artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 }),
   target: Type.Optional(Type.Union([ARTIFACT_REFERENCE, Type.Null()])),
   reason: Type.Optional(Type.Union([CANDIDATE_REASON, Type.Null()])),
-}, { additionalProperties: false })))
+}, { additionalProperties: false })
 type ReviseCandidateParams = {
   candidate_id: string
   expected_version: number
@@ -665,6 +665,9 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     operationId: 'revise_artifact_candidate',
     payload: (params) => {
       const value = params as ReviseCandidateParams
+      if (value.source_refs.length + value.artifact_refs.length > 32) {
+        throw new Error('source_refs and artifact_refs must contain at most 32 references in total')
+      }
       return {
         candidate_id: value.candidate_id,
         expected_version: value.expected_version,
