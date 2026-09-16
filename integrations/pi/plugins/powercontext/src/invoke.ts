@@ -85,6 +85,10 @@ const WRITE_OPERATIONS = new Set<OperationId>([
   'record_task_outcome',
   'generate_experience',
   'generate_skill',
+  'approve_artifact_candidate',
+  'reject_artifact_candidate',
+  'revise_artifact_candidate',
+  'import_external_skill',
 ])
 
 function mapServerError(error: ServerResponseError): ToolResult {
