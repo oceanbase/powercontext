@@ -27,6 +27,7 @@ describe('Pi configuration', () => {
       POWERCONTEXT_PI_CAPTURE_PROMPTS: 'false',
       POWERCONTEXT_PI_REQUEST_TIMEOUT_MS: '1200',
       POWERCONTEXT_PI_HTTP_BUDGET_MS: '5000',
+      POWERCONTEXT_PI_GENERATION_TIMEOUT_MS: '20000',
       POWERCONTEXT_PI_MAX_BYTES: '12000',
     })).toEqual({
       baseUrl: 'https://memory.example.test',
@@ -35,6 +36,7 @@ describe('Pi configuration', () => {
       authorization: 'Bearer token',
       capturePrompts: false,
       requestTimeoutMs: 1200,
+      generationTimeoutMs: 20000,
       httpBudgetMs: 5000,
       maxBytes: 12000,
       flushOnCapture: false,

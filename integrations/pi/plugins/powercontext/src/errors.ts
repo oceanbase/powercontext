@@ -42,6 +42,8 @@ export class TransportError extends ClientError {
 
 export class UnavailableError extends TransportError {}
 
+export class RequestTimeoutError extends TransportError {}
+
 export class InvalidResponseError extends ClientError {
   readonly path: string
 

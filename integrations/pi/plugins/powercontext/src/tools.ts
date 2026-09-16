@@ -36,6 +36,7 @@ type OperationTool<TParams extends TSchema> = {
   parameters: TParams
   operationId: OperationId
   payload: (params: Static<TParams>) => JsonObject
+  validate?: (params: Static<TParams>) => ToolResult | undefined
   mutates?: boolean
 }
 
@@ -184,18 +185,17 @@ const GENERATION_FIELDS = {
   target: Type.Optional(Type.Union([ARTIFACT_REFERENCE, Type.Null()])),
   reason: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2000 }), Type.Null()])),
 }
-const EVIDENCE_REF_COMBINATIONS = Array.from({ length: 33 }, (_, sourceMax) => Type.Object({
-  source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: sourceMax }),
-  artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 - sourceMax }),
+const EXPERIENCE_GENERATION = Type.Object({
+  source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: 32 }),
+  artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 }),
   ...GENERATION_FIELDS,
-}))
-const EXPERIENCE_GENERATION = Type.Union(EVIDENCE_REF_COMBINATIONS)
-const SKILL_GENERATION = Type.Union(EVIDENCE_REF_COMBINATIONS.map((schema) => Type.Intersect([
-  Type.Object({
-    origin: Type.Union([Type.Literal('experience'), Type.Literal('source'), Type.Literal('usage')]),
-  }),
-  schema,
-])))
+}, { additionalProperties: false })
+const SKILL_GENERATION = Type.Object({
+  origin: Type.Union([Type.Literal('experience'), Type.Literal('source'), Type.Literal('usage')]),
+  source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: 32 }),
+  artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 }),
+  ...GENERATION_FIELDS,
+}, { additionalProperties: false })
 type GenerationParams = {
   source_refs: Array<Static<typeof SOURCE_REFERENCE>>
   artifact_refs: Array<Static<typeof ARTIFACT_REFERENCE>>
@@ -204,6 +204,15 @@ type GenerationParams = {
 }
 type SkillGenerationParams = GenerationParams & {
   origin: 'experience' | 'source' | 'usage'
+}
+
+function validateGenerationEvidence(params: GenerationParams): ToolResult | undefined {
+  if (params.source_refs.length + params.artifact_refs.length <= 32) return undefined
+  return {
+    ok: false,
+    code: 'invalid_request',
+    message: 'Generation accepts at most 32 combined source_refs and artifact_refs.',
+  }
 }
 
 
@@ -241,6 +250,8 @@ function registerOperationTool<TParams extends TSchema>(
     description: definition.description,
     parameters: definition.parameters,
     async execute(_toolCallId, params, signal, _onUpdate, context) {
+      const invalid = definition.validate?.(params)
+      if (invalid) return render(invalid)
       return render(await invoke(
         runtime,
         context,
@@ -591,6 +602,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
         reason: value.reason,
       }
     },
+    validate: validateGenerationEvidence,
     mutates: true,
   })
 
@@ -614,6 +626,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
         reason: value.reason,
       }
     },
+    validate: validateGenerationEvidence,
     mutates: true,
   })
 

@@ -26,6 +26,7 @@ export interface ResolvedConfig {
   authorization: string | undefined
   capturePrompts: boolean
   requestTimeoutMs: number
+  generationTimeoutMs?: number
   httpBudgetMs: number
   maxBytes: number
   flushOnCapture: boolean
@@ -41,6 +42,7 @@ const DEFAULTS: ResolvedConfig = {
   authorization: undefined,
   capturePrompts: true,
   requestTimeoutMs: 1000,
+  generationTimeoutMs: 30_000,
   httpBudgetMs: 4000,
   maxBytes: 8000,
   flushOnCapture: false,
@@ -94,6 +96,9 @@ function envInteger(
 export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedConfig {
   const transport = resolveTransport('pi', env, undefined, undefined, DEFAULTS.baseUrl)
   const requestTimeoutMs = envInteger(env, 'POWERCONTEXT_PI_REQUEST_TIMEOUT_MS', DEFAULTS.requestTimeoutMs, 50, 30_000)
+  const generationTimeoutMs = envInteger(
+    env, 'POWERCONTEXT_PI_GENERATION_TIMEOUT_MS', DEFAULTS.generationTimeoutMs ?? 30_000, 1_000, 120_000,
+  )
   const httpBudgetMs = envInteger(env, 'POWERCONTEXT_PI_HTTP_BUDGET_MS', DEFAULTS.httpBudgetMs, 100, 60_000)
   if (requestTimeoutMs > httpBudgetMs) {
     throw new Error('POWERCONTEXT_PI_REQUEST_TIMEOUT_MS must not exceed POWERCONTEXT_PI_HTTP_BUDGET_MS')
@@ -106,6 +111,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): ResolvedCon
     authorization: envString(env, 'POWERCONTEXT_PI_AUTHORIZATION'),
     capturePrompts: envBoolean(env, 'POWERCONTEXT_PI_CAPTURE_PROMPTS') ?? DEFAULTS.capturePrompts,
     requestTimeoutMs,
+    generationTimeoutMs,
     httpBudgetMs,
     maxBytes: envInteger(env, 'POWERCONTEXT_PI_MAX_BYTES', DEFAULTS.maxBytes, 512, 32_768),
     flushOnCapture: envBoolean(env, 'POWERCONTEXT_PI_FLUSH_ON_CAPTURE') ?? DEFAULTS.flushOnCapture,
