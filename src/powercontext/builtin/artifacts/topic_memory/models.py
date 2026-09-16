@@ -92,7 +92,10 @@ class TopicMemoryProjection(BaseModel):
 
     content: TopicMemoryContent
     chunks: tuple[TopicMemoryChunk, ...]
-    topic_searchable_text: str = Field(min_length=1)
+    # A valid non-blank title/summary may contain no Analyzer v1 terms (for
+    # example, emoji or punctuation only).  Empty lexical text is a complete
+    # projection; it simply contributes no full-text matches.
+    topic_searchable_text: str = Field(min_length=0)
     topic_embedding: EmbeddingVector | None = None
     chunk_embeddings: tuple[EmbeddingVector, ...] = ()
     embedding_profile: EmbeddingProfile | None = None

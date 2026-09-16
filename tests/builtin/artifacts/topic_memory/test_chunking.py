@@ -68,6 +68,19 @@ def test_projection_indexes_title_summary_and_every_detail_chunk() -> None:
     assert "".join(chunk.text for chunk in projection.chunks) == content.detail
 
 
+def test_projection_allows_valid_content_without_lexical_title_terms() -> None:
+    content = TopicMemoryContent(
+        title="😀",
+        summary="!!!",
+        detail="Durable recovery procedures remain available.",
+    )
+
+    projection = prepare_topic_memory_projection(content)
+
+    assert projection.topic_searchable_text == ""
+    assert projection.chunks[0].text == content.detail
+
+
 def test_short_tail_is_merged_into_the_preceding_chunk() -> None:
     detail = f"{'a' * 1_300}\n\n{'tail ' * 20}"
 

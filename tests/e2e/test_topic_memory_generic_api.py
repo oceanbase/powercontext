@@ -176,6 +176,62 @@ def test_manual_topic_rejects_incomplete_blank_and_extra_content(tmp_path, conte
         assert client.get(f"/v1/scopes/{scope}/artifacts/topic-memory").json()["items"] == []
 
 
+def test_valid_emoji_and_punctuation_content_has_empty_lexical_projection(tmp_path):
+    with TestClient(_app(tmp_path)) as client:
+        source, target = _scope(client, "lexical-source"), _scope(client, "lexical-target")
+        content = {
+            "title": "😀",
+            "summary": "!!!",
+            "detail": "Durable recovery procedures remain available.",
+        }
+        created = client.post(
+            f"/v1/scopes/{source}/artifacts",
+            json={"family": "topic-memory", "content": content},
+        )
+        assert created.status_code == 201, created.text
+        path = created.headers["Location"]
+        assert client.get(path).json()["content"] == content
+        search = client.post(
+            "/v1/topic-memory/search",
+            json={"scope_id": source, "query": "Durable"},
+        )
+        assert search.status_code == 200 and search.json()["hits"], search.text
+        replaced = client.put(
+            path,
+            headers={"If-Match": created.headers["ETag"]},
+            json={
+                "content": {
+                    "title": ";",
+                    "summary": "🤖",
+                    "detail": "Changed recovery procedures remain available.",
+                }
+            },
+        )
+        assert replaced.status_code == 200, replaced.text
+        assert client.get(path).json()["content"]["title"] == ";"
+        old_search = client.post(
+            "/v1/topic-memory/search",
+            json={"scope_id": source, "query": "Durable"},
+        )
+        assert old_search.status_code == 200 and old_search.json()["hits"] == []
+        ref = {key: created.json()[key] for key in ("family", "artifact_id", "revision")}
+        published = client.post(
+            "/v1/artifact-publications",
+            json={
+                "source": {"scope_id": source, "artifact": ref},
+                "target_scope_id": target,
+                "idempotency_key": "emoji-publish",
+            },
+        )
+        assert published.status_code == 201, published.text
+        target_ref = published.json()["target"]["artifact"]
+        exact = client.post(
+            "/v1/topic-memory/get",
+            json={"scope_id": target, "artifact": target_ref},
+        )
+        assert exact.status_code == 200 and exact.json()["title"] == "😀"
+
+
 def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path):
     with TestClient(_app(tmp_path)) as client:
         scope = _scope(client, "legacy")
