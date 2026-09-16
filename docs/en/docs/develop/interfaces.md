@@ -20,8 +20,8 @@ All remote interfaces operate on the same Server and persistent Artifact storage
 | Pydantic AI adapter | Preview API; no supported standalone install yet | [Adapter status](../integrations/pydantic-ai.md) |
 | LangChain middleware | Bounded recall and completed-turn Source capture in `create_agent` | [Install from source](../integrations/langchain.md) |
 | LangGraph adapter | Memory tools and bounded recall inside a LangGraph graph | [Install from source](../integrations/langgraph.md) |
-| CLI | Setup, diagnostics, Server control, and human Candidate review | [Install and run](../get-started/install-and-run.md) |
-| Python Client SDK | Typed asynchronous calls to a running Server | [Install the client role](../get-started/install-and-run.md#install-a-python-role) |
+| CLI | Setup, diagnostics, Server control, and human Candidate review | [Install and run](../get-started/install-and-run.mdx) |
+| Python Client SDK | Typed asynchronous calls to a running Server | [Install the client role](../get-started/install-and-run.mdx#install-a-python-role) |
 | Core SDK | In-process Source, Artifact, Trigger, and composition contracts | [Python API reference](/en/modules/) |
 | HTTP | Service integration from any language | [HTTP API](http-api.md) |
 | MCP | Curated Agent tools for Source capture, Memory, work continuity, reports, and Candidate Review | Enabled by the Server at `/mcp` |
