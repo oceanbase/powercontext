@@ -503,6 +503,18 @@ capabilities = ["candidate_review"]
 [[toolsets.tools]]
 id = "pc_review_revise:revise_artifact_candidate"
 capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_external_scan:scan_external_skills"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
+[[toolsets.tools]]
+id = "pc_external_list:list_external_skills"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
+[[toolsets.tools]]
+id = "pc_external_resolve:resolve_external_skill"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
+[[toolsets.tools]]
+id = "pc_external_import:import_external_skill"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
 
 [[toolsets]]
 id = "pi-command"

@@ -76,6 +76,7 @@ flush。
 - `pc_experience_get`、`pc_skill_get`、`pc_review_list`、`pc_review_get`，用于只读查看 Artifact 和候选材料。
 - `pc_topic_search`、`pc_topic_get`，用于按主题查询当前 Topic Memory，并读取带 Source 引用的精确版本。
 - `pc_work_contract`、`pc_handoff_current`、`pc_handoff_acknowledge`、`pc_task_outcome`，用于结构化工作连续性。
+- `pc_external_scan`、`pc_external_list`、`pc_external_resolve`，用于发现和检查宿主本地 External Skill；`pc_external_import` 只在明确确认后导入或 fork 一个精确解析过的 Skill。
 
 查看候选材料不授予批准、拒绝、修订、安装、发布或执行权限。
 Topic Memory 查询是只读的；结果属于不可信历史证据，不是指令来源。
