@@ -208,17 +208,16 @@ const SKILL_PROPOSAL = Type.Object({
   allowed_tools: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2000 }), Type.Null()])),
 }, { additionalProperties: false })
 const CANDIDATE_PROPOSAL = Type.Union([EXPERIENCE_PROPOSAL, SKILL_PROPOSAL])
-const REVIEW_EVIDENCE_COMBINATIONS = Array.from({ length: 33 }, (_, sourceMax) => Type.Object({
+const REVISE_CANDIDATE = Type.Union(Array.from({ length: 33 }, (_, sourceMax) => Type.Object({
+  candidate_id: CANDIDATE_ID,
+  expected_version: EXPECTED_VERSION,
+  proposal: CANDIDATE_PROPOSAL,
   memory_citations: Type.Optional(Type.Union([Type.Array(MEMORY_CITATION, { maxItems: 32 }), Type.Null()])),
   source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: sourceMax }),
   artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 - sourceMax }),
   target: Type.Optional(Type.Union([ARTIFACT_REFERENCE, Type.Null()])),
   reason: Type.Optional(Type.Union([CANDIDATE_REASON, Type.Null()])),
-}))
-const REVISE_CANDIDATE = Type.Union(REVIEW_EVIDENCE_COMBINATIONS.map((schema) => Type.Intersect([
-  Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION, proposal: CANDIDATE_PROPOSAL }),
-  schema,
-])))
+}, { additionalProperties: false })))
 type ReviseCandidateParams = {
   candidate_id: string
   expected_version: number
@@ -642,7 +641,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     name: 'pc_review_approve',
     label: 'PowerContext Candidate Approve',
     description: 'Approve an inspected pending Artifact candidate only after the user explicitly approves that exact candidate and version. Approval does not install, publish, activate, or execute the Artifact.',
-    parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION }),
+    parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION }, { additionalProperties: false }),
     operationId: 'approve_artifact_candidate',
     payload: (params) => ({ candidate_id: params.candidate_id, expected_version: params.expected_version }),
     mutates: true,
@@ -652,7 +651,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     name: 'pc_review_reject',
     label: 'PowerContext Candidate Reject',
     description: 'Reject an inspected pending Artifact candidate only after the user explicitly requests that decision. Use its exact current version and a non-empty reason.',
-    parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION, reason: CANDIDATE_REASON }),
+    parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION, reason: CANDIDATE_REASON }, { additionalProperties: false }),
     operationId: 'reject_artifact_candidate',
     payload: (params) => ({ candidate_id: params.candidate_id, expected_version: params.expected_version, reason: params.reason }),
     mutates: true,

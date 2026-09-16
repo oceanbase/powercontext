@@ -193,6 +193,7 @@ describe('Pi native tool surface', () => {
     expect(Value.Check(approve.parameters, { candidate_id: 'candidate-1', expected_version: 1 })).toBe(true)
     expect(Value.Check(approve.parameters, { candidate_id: '', expected_version: 1 })).toBe(false)
     expect(Value.Check(approve.parameters, { candidate_id: 'candidate-1', expected_version: 0 })).toBe(false)
+    expect(Value.Check(approve.parameters, { candidate_id: 'candidate-1', expected_version: 1, extra: true })).toBe(false)
     expect(Value.Check(reject.parameters, { candidate_id: 'candidate-1', expected_version: 1, reason: '   ' })).toBe(false)
     expect(Value.Check(reject.parameters, { candidate_id: 'candidate-1', expected_version: 1, reason: 'x'.repeat(2001) })).toBe(false)
     expect(Value.Check(revise.parameters, {
