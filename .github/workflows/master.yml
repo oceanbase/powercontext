@@ -65,6 +65,37 @@ jobs:
       - name: Run end-to-end tests
         run: make e2e-test
 
+  windows-unit-portability:
+    timeout-minutes: 20
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Exercise fixtures without Windows long-path support
+        shell: pwsh
+        run: |
+          Set-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 0
+
+      # Keep pytest's default temporary root: a short --basetemp would hide
+      # regressions in the nested checkout fixtures covered by issue #1501.
+      - name: Run Windows portability regressions
+        shell: pwsh
+        run: >-
+          uv run pytest -q
+          tests/builtin/artifacts/skill/test_package.py
+          tests/builtin/runtime/test_external_skills.py
+          tests/test_cli.py::test_remote_enroll_can_install_automatic_service_in_one_command
+          tests/test_openclaw_cli.py::test_build_openclaw_plugin_runs_pnpm_install_non_interactively
+          tests/test_opencode_cli.py
+          tests/test_service_bootstrap.py
+          tests/test_cli_workbuddy.py::test_setup_workbuddy_remote_checkout_refreshes_the_requested_ref
+
   dsh-package:
     timeout-minutes: 30
     runs-on: ubuntu-latest
@@ -86,6 +117,9 @@ jobs:
       - name: Test built plugin in the real DSH runtime
         run: make dsh-runtime-test
 
+      - name: Verify DSH guidance adapter requests and results
+        run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[dsh]"
+
   pi-package:
     timeout-minutes: 20
     runs-on: ubuntu-latest
@@ -95,11 +129,53 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+
       - name: Set up project tools
         uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
 
       - name: Test Pi package
         run: make pi-test
+
+      - name: Verify Pi guidance adapter requests and results
+        run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[pi]"
+
+  opencode-package:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+      - name: Test OpenCode package
+        run: make opencode-test
+
+      - name: Verify OpenCode guidance adapter requests and results
+        run: uv run pytest "tests/test_integration_guidance_evaluation.py::test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes[opencode]"
+
+  openclaw-package:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up the Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+      # The pinned OpenClaw SDK requires the SQLite runtime shipped with Node 24.15+.
+      - run: mise install node@24.15.0
+      - name: Test OpenClaw package
+        run: mise exec node@24.15.0 -- make openclaw-plugin-test
+
+      - name: Verify OpenClaw guidance adapter requests and results
+        run: mise exec node@24.15.0 -- uv run pytest tests/test_integration_guidance_evaluation.py::test_openclaw_handoff_adapter_preserves_generated_source_identity
 
   opendal-package:
     timeout-minutes: 20

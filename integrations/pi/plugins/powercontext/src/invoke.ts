@@ -77,6 +77,11 @@ const WRITE_OPERATIONS = new Set<OperationId>([
   'retire_memory_entry',
   'activate_handoff',
   'commit_handoff',
+  'create_work_contract',
+  'handoff_current_work',
+  'acknowledge_handoff',
+  'record_task_outcome',
+  'import_external_skill',
 ])
 
 function mapServerError(error: ServerResponseError): ToolResult {

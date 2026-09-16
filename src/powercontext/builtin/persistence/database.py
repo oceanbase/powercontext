@@ -25,6 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from powercontext.builtin.persistence.errors import DatabaseClosedError
 
+# Repositories that read a whole Scope selection in one statement chunk it to stay
+# below the lowest bind-parameter ceiling across the supported backends.
+SELECTION_BATCH_SIZE = 500
+
 
 class AsyncDatabase:
     """Own or attach to one SQLAlchemy async engine.

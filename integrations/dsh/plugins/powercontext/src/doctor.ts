@@ -17,12 +17,13 @@
 import type { ClientSuccess } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { publicErrorCode } from './diagnostics.ts'
-import { InvalidResponseError, RESPONSE_ISSUES, ServerResponseError, TransportError } from './errors.ts'
+import { authenticationRejection, bodyFailureDetails, type BodyFailureDetails, InvalidResponseError,
+  RESPONSE_ISSUES, ResponseReadError, ServerResponseError, TransportError } from './errors.ts'
 import type { PluginRuntime } from './invoke.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
 import { PREPARED_CONTEXT_SCHEMA, validatePreparedContext } from './prepared-context.ts'
 
-export interface DoctorCheck {
+export interface DoctorCheck extends BodyFailureDetails {
   state: 'ok' | 'failed' | 'degraded' | 'skipped'
   code: string
   operation: string
@@ -83,7 +84,7 @@ function transportFailure(error: unknown): [string, string, string] {
       'Check the effective requestTimeoutMs and the running Server latency; inspect the failing dependency before increasing the timeout.']
   }
   if (cause instanceof Error && cause.name === 'AbortError') {
-    return ['cancelled', 'The diagnostic request was cancelled.', 'Run /pc doctor again when the current cancellation has completed.']
+    return ['cancelled', 'The request was cancelled.', 'Run /pc doctor again when the current cancellation has completed.']
   }
   const detail = record(cause) && record(cause.cause) ? cause.cause : cause
   const code = record(detail) ? detail.code : undefined
@@ -99,7 +100,26 @@ function transportFailure(error: unknown): [string, string, string] {
     'Check the effective endpoint host/port, proxy, network and Server service logs. The transport did not identify a narrower cause.']
 }
 
-function failure(operation: string, error: unknown): DoctorCheck {
+export function operationFailure(operation: string, error: unknown): DoctorCheck {
+  const rejection = authenticationRejection(error)
+  if (rejection && !(error instanceof ServerResponseError)) {
+    const result = operationFailure(operation, rejection)
+    const body = bodyFailureDetails(error)
+    return { ...result, ...body,
+      message: result.message + (body.response_body_error ? ` Reading the response body also failed (${body.response_body_error}).` : ''),
+      ...(error instanceof InvalidResponseError && error.issue ? { protocol_issue: error.issue } : {}) }
+  }
+  if (error instanceof ResponseReadError) {
+    const body = bodyFailureDetails(error)
+    const code = error.statusCode === 404 ? 'unclassified_not_found'
+      : error.statusCode === 503 ? 'service_unavailable'
+      : error.statusCode >= 400 ? 'http_error' : body.response_body_error!
+    return { ...check(operation, code,
+      `Received HTTP ${error.statusCode}, but reading the response body failed (${body.response_body_error}).`
+        + (error.statusCode === 404 ? ' The unread error body cannot distinguish a missing resource from a missing route.' : ''),
+      'Use this operation, HTTP status and request ID in Server logs; check Server/proxy response-body delivery. The operation result was not validated.'),
+      http_status: error.statusCode, ...requestId(error.requestId), ...body }
+  }
   if (error instanceof ServerResponseError) {
     const code = publicErrorCode(error.code)
     let result: DoctorCheck
@@ -118,7 +138,7 @@ function failure(operation: string, error: unknown): DoctorCheck {
         'Use the operation and request ID in the Server logs. This response cannot distinguish a missing resource from a missing route; inspect the contract check separately.')
     else if (error.statusCode === 503) result = check(operation, code ?? 'service_unavailable', 'The Server returned HTTP 503 for this operation.',
       'Inspect the separate readiness dependency results and the running Server logs for this operation.')
-    else result = check(operation, code ?? 'http_error', 'The Server rejected this diagnostic operation.',
+    else result = check(operation, code ?? 'http_error', 'The Server returned an HTTP error for this operation.',
       'Use this operation, HTTP status and request ID to locate the request in the Server logs.')
     return { ...result, http_status: error.statusCode, ...requestId(error.requestId) }
   }
@@ -128,12 +148,13 @@ function failure(operation: string, error: unknown): DoctorCheck {
     ...requestId(error.requestId),
     ...(error.issue ? { protocol_issue: error.issue } : {}),
     ...(error.statusCode === undefined ? {} : { http_status: error.statusCode }),
+    ...bodyFailureDetails(error),
   }
   if (error instanceof TransportError || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))) {
     const [code, message, recovery] = transportFailure(error)
     return check(operation, code, message, recovery)
   }
-  return check(operation, 'diagnostic_error', 'A local diagnostic operation failed before its result could be validated.',
+  return check(operation, 'diagnostic_error', 'A local operation failed before its result could be validated.',
     'Inspect the DSH plugin logs for this operation and report the installed plugin commit. No Server root cause was established.')
 }
 
@@ -256,9 +277,9 @@ export async function diagnoseServer(runtime: PluginRuntime, cwd?: string, signa
       if (signal?.aborted) {
         const reason = signal.reason instanceof Error && signal.reason.name === 'TimeoutError'
           ? signal.reason : new DOMException('Diagnostic cancelled', 'AbortError')
-        return failure(operation, reason)
+        return operationFailure(operation, reason)
       }
-      return failure(operation, error)
+      return operationFailure(operation, error)
     }
   }
   checks.liveness = await probe('get_liveness', async () => {

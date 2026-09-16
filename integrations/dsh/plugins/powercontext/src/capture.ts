@@ -18,8 +18,9 @@ import { createHash } from 'node:crypto'
 import type { PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
 import { logSafely, reportFailure } from './diagnostics.ts'
-import { MAX_SOURCE_LENGTH, TransportError } from './errors.ts'
+import { authenticationRejection, MAX_SOURCE_LENGTH, RequestNotSentError } from './errors.ts'
 import { containsSecret } from './secrets.ts'
+import { cancellationReason, type StatusAttempt } from './status.ts'
 
 export interface CaptureInput {
   client: PowerContextClient
@@ -31,6 +32,7 @@ export interface CaptureInput {
   turnId: string
   signal?: AbortSignal
   log: (event: Record<string, unknown>) => void
+  observation?: StatusAttempt
 }
 
 export function buildSourceId(scopeId: string, sessionId: string, turnId: string, prompt: string): string {
@@ -44,15 +46,16 @@ async function flushThrough(
   scopeId: string,
   position: number,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<boolean> {
   for (let i = 0; i < config.flushMaxCalls; i += 1) {
-    if (signal?.aborted) throw new TransportError('', signal.reason)
+    if (signal?.aborted) throw new RequestNotSentError('', signal.reason)
     const result = await client.request('flush_memory', { scope_id: scopeId }, signal)
     const cursor = result.kind === 'json' && result.value && typeof result.value === 'object'
       ? (result.value as { current_cursor?: unknown }).current_cursor
       : undefined
-    if (typeof cursor === 'number' && cursor >= position) return
+    if (typeof cursor === 'number' && cursor >= position) return true
   }
+  return false
 }
 
 function sourcePosition(value: unknown): number | undefined {
@@ -63,15 +66,26 @@ function sourcePosition(value: unknown): number | undefined {
 }
 
 export async function captureUserPrompt(input: CaptureInput): Promise<void> {
-  if (!input.config.capturePrompts) return
+  const observation = input.observation
+  observation?.skip('flush', 'capture_skipped')
+  if (!input.config.capturePrompts) {
+    observation?.skip('capture', 'capture_disabled')
+    return
+  }
   if (input.prompt.length > MAX_SOURCE_LENGTH || containsSecret(input.prompt)) {
+    observation?.skip('capture', input.prompt.length > MAX_SOURCE_LENGTH ? 'source_too_long' : 'sensitive_content')
     logSafely(input.log, { event: 'capture_content_source', outcome: 'skipped' })
     return
   }
   let position: number | undefined
   let captureStatus = 202
+  if (input.signal?.aborted) {
+    observation?.skip('capture', cancellationReason(input.signal))
+    return
+  }
+  observation?.record('capture', { state: 'running' })
   try {
-    if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
+    if (input.signal?.aborted) throw new RequestNotSentError('', input.signal.reason)
     const result = await input.client.request('capture_content_source', {
       scope_id: input.scopeId,
       source_id: buildSourceId(input.scopeId, input.sessionId, input.turnId, input.prompt),
@@ -87,15 +101,28 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
     position = result.kind === 'json' ? sourcePosition(result.value) : undefined
     captureStatus = result.status
   } catch (error) {
+    observation?.fail('capture', error, true, input.signal)
+    observation?.skip('flush', authenticationRejection(error) ? 'capture_rejected' : 'capture_not_confirmed')
     reportFailure(input.log, 'capture_content_source', error)
     return
   }
 
   logSafely(input.log, { event: 'capture_content_source', outcome: 'ok', status: captureStatus })
+  observation?.record('capture', { state: 'accepted', http_status: captureStatus })
+  observation?.skip('flush', input.config.flushOnCapture ? 'source_position_missing' : 'flush_disabled')
   if (input.config.flushOnCapture && position !== undefined) {
+    if (input.signal?.aborted) {
+      observation?.skip('flush', cancellationReason(input.signal))
+      return
+    }
+    observation?.record('flush', { state: 'running' })
     try {
-      await flushThrough(input.client, input.config, input.scopeId, position, input.signal)
+      const reached = await flushThrough(input.client, input.config, input.scopeId, position, input.signal)
+      observation?.record('flush', reached
+        ? { state: 'completed', code: 'cursor_reached', message: 'The processing cursor reached this Source position; Memory production is not verified.' }
+        : { state: 'incomplete', code: 'flush_budget_exhausted', message: 'The bounded flush calls ended without observing the cursor reach this Source position.' })
     } catch (error) {
+      observation?.fail('flush', error, true, input.signal)
       reportFailure(input.log, 'flush_memory', error)
     }
   }

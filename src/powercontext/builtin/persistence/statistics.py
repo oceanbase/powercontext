@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -25,6 +26,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.inference import InferenceUsage
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
 from powercontext.builtin.persistence.errors import InvalidRepositoryArgumentError
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_CANDIDATE_HEADS_TABLE,
@@ -76,43 +78,69 @@ class StatisticsRepository:
     """Read scoped product heads and maintain bounded usage aggregates."""
 
     async def inventory(self, connection: AsyncConnection, scope_id: str, /) -> StoredInventoryCounts:
-        scope = validate_scope_id(scope_id)
-        source_position = await connection.scalar(
-            select(SOURCE_JOURNAL_HEADS_TABLE.c.position).where(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id == scope)
-        )
-        artifact_rows = (
-            await connection.execute(
-                select(ARTIFACT_HEADS_TABLE.c.family, func.count())
-                .where(
-                    ARTIFACT_HEADS_TABLE.c.scope_id == scope,
+        counts = await self.inventory_many(connection, (scope_id,))
+        return counts[validate_scope_id(scope_id)]
+
+    async def inventory_many(
+        self,
+        connection: AsyncConnection,
+        scope_ids: Sequence[str],
+        /,
+    ) -> dict[str, StoredInventoryCounts]:
+        """Return head counts for every requested Scope, grouped in one pass per table."""
+
+        scopes = _validated_scopes(scope_ids)
+        positions: dict[str, int] = {}
+        artifacts: dict[str, list[tuple[str, int]]] = {scope: [] for scope in scopes}
+        candidates: dict[str, list[tuple[str, str, int]]] = {scope: [] for scope in scopes}
+        for batch in _batches(scopes):
+            for scope, position in (
+                await connection.execute(
+                    select(SOURCE_JOURNAL_HEADS_TABLE.c.scope_id, SOURCE_JOURNAL_HEADS_TABLE.c.position).where(
+                        SOURCE_JOURNAL_HEADS_TABLE.c.scope_id.in_(batch)
+                    )
                 )
-                .group_by(ARTIFACT_HEADS_TABLE.c.family)
-                .order_by(ARTIFACT_HEADS_TABLE.c.family)
+            ).all():
+                positions[str(scope)] = int(position)
+            for scope, family, total in (
+                await connection.execute(
+                    select(ARTIFACT_HEADS_TABLE.c.scope_id, ARTIFACT_HEADS_TABLE.c.family, func.count())
+                    .where(ARTIFACT_HEADS_TABLE.c.scope_id.in_(batch))
+                    .group_by(ARTIFACT_HEADS_TABLE.c.scope_id, ARTIFACT_HEADS_TABLE.c.family)
+                    .order_by(ARTIFACT_HEADS_TABLE.c.scope_id, ARTIFACT_HEADS_TABLE.c.family)
+                )
+            ).all():
+                artifacts[str(scope)].append((str(family), int(total)))
+            for scope, family, status, total in (
+                await connection.execute(
+                    select(
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.scope_id,
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.family,
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.status,
+                        func.count(),
+                    )
+                    .where(ARTIFACT_CANDIDATE_HEADS_TABLE.c.scope_id.in_(batch))
+                    .group_by(
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.scope_id,
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.family,
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.status,
+                    )
+                    .order_by(
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.scope_id,
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.family,
+                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.status,
+                    )
+                )
+            ).all():
+                candidates[str(scope)].append((str(family), str(status), int(total)))
+        return {
+            scope: StoredInventoryCounts(
+                sources=positions.get(scope, 0),
+                artifacts=tuple(artifacts[scope]),
+                candidates=tuple(candidates[scope]),
             )
-        ).all()
-        candidate_rows = (
-            await connection.execute(
-                select(
-                    ARTIFACT_CANDIDATE_HEADS_TABLE.c.family,
-                    ARTIFACT_CANDIDATE_HEADS_TABLE.c.status,
-                    func.count(),
-                )
-                .where(ARTIFACT_CANDIDATE_HEADS_TABLE.c.scope_id == scope)
-                .group_by(
-                    ARTIFACT_CANDIDATE_HEADS_TABLE.c.family,
-                    ARTIFACT_CANDIDATE_HEADS_TABLE.c.status,
-                )
-                .order_by(
-                    ARTIFACT_CANDIDATE_HEADS_TABLE.c.family,
-                    ARTIFACT_CANDIDATE_HEADS_TABLE.c.status,
-                )
-            )
-        ).all()
-        return StoredInventoryCounts(
-            sources=0 if source_position is None else int(source_position),
-            artifacts=tuple((str(family), int(total)) for family, total in artifact_rows),
-            candidates=tuple((str(family), str(status), int(total)) for family, status, total in candidate_rows),
-        )
+            for scope in scopes
+        }
 
     async def record(
         self,
@@ -187,37 +215,54 @@ class StatisticsRepository:
         end_date: date,
         /,
     ) -> tuple[StoredModelUsage, ...]:
-        scope = validate_scope_id(scope_id)
+        rows = await self.usage_many(connection, (scope_id,), start_date, end_date)
+        return rows[validate_scope_id(scope_id)]
+
+    async def usage_many(
+        self,
+        connection: AsyncConnection,
+        scope_ids: Sequence[str],
+        start_date: date,
+        end_date: date,
+        /,
+    ) -> dict[str, tuple[StoredModelUsage, ...]]:
+        """Return each requested Scope's daily model usage over one shared period."""
+
+        scopes = _validated_scopes(scope_ids)
         if start_date > end_date:
             raise InvalidRepositoryArgumentError("period", "start_date must not follow end_date")
-        rows = (
-            await connection.execute(
-                select(MODEL_USAGE_DAILY_TABLE)
-                .where(
-                    MODEL_USAGE_DAILY_TABLE.c.scope_id == scope,
-                    MODEL_USAGE_DAILY_TABLE.c.usage_date >= start_date,
-                    MODEL_USAGE_DAILY_TABLE.c.usage_date <= end_date,
+        collected: dict[str, list[StoredModelUsage]] = {scope: [] for scope in scopes}
+        for batch in _batches(scopes):
+            rows = (
+                await connection.execute(
+                    select(MODEL_USAGE_DAILY_TABLE)
+                    .where(
+                        MODEL_USAGE_DAILY_TABLE.c.scope_id.in_(batch),
+                        MODEL_USAGE_DAILY_TABLE.c.usage_date >= start_date,
+                        MODEL_USAGE_DAILY_TABLE.c.usage_date <= end_date,
+                    )
+                    .order_by(
+                        MODEL_USAGE_DAILY_TABLE.c.scope_id,
+                        MODEL_USAGE_DAILY_TABLE.c.usage_date,
+                        MODEL_USAGE_DAILY_TABLE.c.purpose,
+                        MODEL_USAGE_DAILY_TABLE.c.operation,
+                    )
                 )
-                .order_by(
-                    MODEL_USAGE_DAILY_TABLE.c.usage_date,
-                    MODEL_USAGE_DAILY_TABLE.c.purpose,
-                    MODEL_USAGE_DAILY_TABLE.c.operation,
+            ).mappings()
+            for row in rows:
+                collected[str(row["scope_id"])].append(
+                    StoredModelUsage(
+                        usage_date=row["usage_date"],
+                        purpose=ModelUsagePurpose(str(row["purpose"])),
+                        operation=ModelUsageOperation(str(row["operation"])),
+                        requests=int(row["requests"]),
+                        input_tokens=int(row["input_tokens"]),
+                        output_tokens=int(row["output_tokens"]),
+                        input_complete=bool(row["input_complete"]),
+                        output_complete=bool(row["output_complete"]),
+                    )
                 )
-            )
-        ).mappings()
-        return tuple(
-            StoredModelUsage(
-                usage_date=row["usage_date"],
-                purpose=ModelUsagePurpose(str(row["purpose"])),
-                operation=ModelUsageOperation(str(row["operation"])),
-                requests=int(row["requests"]),
-                input_tokens=int(row["input_tokens"]),
-                output_tokens=int(row["output_tokens"]),
-                input_complete=bool(row["input_complete"]),
-                output_complete=bool(row["output_complete"]),
-            )
-            for row in rows
-        )
+        return {scope: tuple(rows) for scope, rows in collected.items()}
 
     async def record_recall(
         self,
@@ -283,33 +328,74 @@ class StatisticsRepository:
         estimator_id: str,
         estimator_version: str,
     ) -> tuple[StoredRecallTokenUsage, ...]:
-        scope = validate_scope_id(scope_id)
+        rows = await self.recall_usage_many(
+            connection,
+            (scope_id,),
+            start_date,
+            end_date,
+            estimator_id=estimator_id,
+            estimator_version=estimator_version,
+        )
+        return rows[validate_scope_id(scope_id)]
+
+    async def recall_usage_many(
+        self,
+        connection: AsyncConnection,
+        scope_ids: Sequence[str],
+        start_date: date,
+        end_date: date,
+        *,
+        estimator_id: str,
+        estimator_version: str,
+    ) -> dict[str, tuple[StoredRecallTokenUsage, ...]]:
+        """Return each requested Scope's daily recall-token aggregates for one estimator."""
+
+        scopes = _validated_scopes(scope_ids)
         if start_date > end_date:
             raise InvalidRepositoryArgumentError("period", "start_date must not follow end_date")
-        rows = (
-            await connection.execute(
-                select(RECALL_TOKEN_DAILY_TABLE)
-                .where(
-                    RECALL_TOKEN_DAILY_TABLE.c.scope_id == scope,
-                    RECALL_TOKEN_DAILY_TABLE.c.usage_date >= start_date,
-                    RECALL_TOKEN_DAILY_TABLE.c.usage_date <= end_date,
-                    RECALL_TOKEN_DAILY_TABLE.c.estimator_id == estimator_id,
-                    RECALL_TOKEN_DAILY_TABLE.c.estimator_version == estimator_version,
+        collected: dict[str, list[StoredRecallTokenUsage]] = {scope: [] for scope in scopes}
+        for batch in _batches(scopes):
+            rows = (
+                await connection.execute(
+                    select(RECALL_TOKEN_DAILY_TABLE)
+                    .where(
+                        RECALL_TOKEN_DAILY_TABLE.c.scope_id.in_(batch),
+                        RECALL_TOKEN_DAILY_TABLE.c.usage_date >= start_date,
+                        RECALL_TOKEN_DAILY_TABLE.c.usage_date <= end_date,
+                        RECALL_TOKEN_DAILY_TABLE.c.estimator_id == estimator_id,
+                        RECALL_TOKEN_DAILY_TABLE.c.estimator_version == estimator_version,
+                    )
+                    .order_by(RECALL_TOKEN_DAILY_TABLE.c.scope_id, RECALL_TOKEN_DAILY_TABLE.c.usage_date)
                 )
-                .order_by(RECALL_TOKEN_DAILY_TABLE.c.usage_date)
-            )
-        ).mappings()
-        return tuple(
-            StoredRecallTokenUsage(
-                usage_date=row["usage_date"],
-                preparations=int(row["preparations"]),
-                ready_preparations=int(row["ready_preparations"]),
-                comparable_preparations=int(row["comparable_preparations"]),
-                baseline_tokens=int(row["baseline_tokens"]),
-                recalled_tokens=int(row["recalled_tokens"]),
-            )
-            for row in rows
-        )
+            ).mappings()
+            for row in rows:
+                collected[str(row["scope_id"])].append(
+                    StoredRecallTokenUsage(
+                        usage_date=row["usage_date"],
+                        preparations=int(row["preparations"]),
+                        ready_preparations=int(row["ready_preparations"]),
+                        comparable_preparations=int(row["comparable_preparations"]),
+                        baseline_tokens=int(row["baseline_tokens"]),
+                        recalled_tokens=int(row["recalled_tokens"]),
+                    )
+                )
+        return {scope: tuple(rows) for scope, rows in collected.items()}
+
+
+def _validated_scopes(scope_ids: Sequence[str], /) -> tuple[str, ...]:
+    """Validate and de-duplicate a selection while preserving caller order."""
+
+    seen: dict[str, None] = {}
+    for scope_id in scope_ids:
+        seen.setdefault(validate_scope_id(scope_id), None)
+    return tuple(seen)
+
+
+def _batches(scopes: tuple[str, ...], /) -> Iterator[tuple[str, ...]]:
+    """Split a selection so one query never exceeds a backend's bind-parameter limit."""
+
+    for start in range(0, len(scopes), SELECTION_BATCH_SIZE):
+        yield scopes[start : start + SELECTION_BATCH_SIZE]
 
 
 __all__ = ["StatisticsRepository", "StoredInventoryCounts", "StoredModelUsage", "StoredRecallTokenUsage"]

@@ -26,6 +26,7 @@ import { runRecallPreStep, type PromptMessage } from './recall.ts'
 import { resolveScopeId } from './scope.ts'
 import { registerGuidance, registerSkill } from './skill.ts'
 import { registerTools } from './tools.ts'
+import { RuntimeStatus } from './status.ts'
 
 export const name = PLUGIN_NAME
 
@@ -71,6 +72,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
   })
   const emitDiagnostic = createDiagnosticEmitter((line) => ctx.logger.warn(line))
   return {
+    status: new RuntimeStatus(),
     client,
     config: resolved,
     resolveScope: (cwd, signal) => resolveScopeId(client, cwd, resolved.scopeId, signal),
@@ -110,6 +112,7 @@ function registerRecall(ctx: Context, runtime: PluginRuntime, createUserMessage:
         },
       }),
       log: runtime.log,
+      status: runtime.status,
     })
   }) as never)
 }

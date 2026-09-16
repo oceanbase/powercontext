@@ -207,6 +207,18 @@ class MemoryService:
 
         return await self._backend.latest(artifact_id)
 
+    async def head_entries(self, artifact_id: str, /) -> tuple[Memory, tuple[MemoryEntryVersion, ...]]:
+        """Return the current Memory head together with its validated entry objects.
+
+        ``entries`` re-reads the caller's Memory to prove it matches storage, which a head
+        read straight from the backend already satisfies. Callers that need both the head
+        and its entries use this instead, so a read-only pass over many Scopes does not
+        re-fetch every Memory Revision it just loaded.
+        """
+
+        memory = await self._backend.latest(artifact_id)
+        return memory, await self._validated_entries(memory)
+
     async def revision(self, memory: ArtifactRef, /) -> Memory:
         """Return one exact Memory Revision by its stable reference."""
 

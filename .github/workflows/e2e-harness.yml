@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  TRUFFLEHOG_IMAGE: ghcr.io/trufflesecurity/trufflehog@sha256:aa821cf4ace8861c7d096d83818cdf7bb9719028a52d37a52eaad44086a52577 # v3.96.0
+  TRUFFLEHOG_IMAGE: ghcr.io/trufflesecurity/trufflehog@sha256:562bc231afa9de3d04de44cfe624252b08207de1fc3cebc5e7ed92bed7f279e4 # v3.97.4
   UV_VERSION: "0.10.12"
 
 concurrency:
@@ -77,60 +77,13 @@ jobs:
           DIAGNOSTICS_PATH: ${{ runner.temp }}/powercontext-e2e-diagnostics-${{ matrix.database }}
           EVIDENCE_PATH: ${{ github.workspace }}/.powercontext-e2e/${{ matrix.database }}/acceptance
           SCENARIO_OUTCOME: ${{ steps.acceptance_scenarios.outcome }}
-        run: |
-          set -eu
-          mkdir -p "${DIAGNOSTICS_PATH}"
-          summary="${DIAGNOSTICS_PATH}/summary.txt"
-          {
-            echo "database=${DATABASE}"
-            echo "diagnostic_format=powercontext-e2e-v1"
-            echo "scenario_outcome=${SCENARIO_OUTCOME}"
-            echo "scanner_image=${TRUFFLEHOG_IMAGE}"
-          } > "$summary"
-
-          if ! test -d "${EVIDENCE_PATH}"; then
-            echo "evidence_status=missing" >> "$summary"
-            echo "Replay evidence directory was not produced." >&2
-            exit 1
-          fi
-
-          file_count="$(find "${EVIDENCE_PATH}" -type f | wc -l | tr -d '[:space:]')"
-          if test "$file_count" = 0; then
-            echo "evidence_status=empty" >> "$summary"
-            echo "Replay evidence directory was empty." >&2
-            exit 1
-          fi
-          {
-            echo "evidence_status=present"
-            echo "evidence_file_count=${file_count}"
-          } >> "$summary"
-
-          set +e
-          docker run --rm \
-            --network none \
-            --volume "${EVIDENCE_PATH}:/evidence:ro" \
-            "${TRUFFLEHOG_IMAGE}" \
-            filesystem /evidence \
-            --no-verification \
-            --results=verified,unknown,unverified \
-            --fail \
-            --fail-on-scan-errors \
-            --no-update \
-            --json > /dev/null 2>&1
-          scanner_status=$?
-          set -e
-          if test "$scanner_status" -ne 0; then
-            {
-              echo "scan_status=failed"
-              echo "scanner_exit_code=${scanner_status}"
-            } >> "$summary"
-            echo "Replay evidence failed secret scanning; raw evidence will not be uploaded." >&2
-            exit 1
-          fi
-          echo "scan_status=clean" >> "$summary"
+        run: bash scripts/scan_e2e_evidence.sh
 
       - name: Upload sanitized replay diagnostics
-        if: always()
+        if: >-
+          always() &&
+          (steps.evidence_scan.outcome != 'success' ||
+           steps.acceptance_scenarios.outcome != 'success')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: e2e-acceptance-diagnostics-${{ matrix.database }}-${{ github.sha }}
@@ -153,9 +106,3 @@ jobs:
         env:
           POWERCONTEXT_E2E_DATABASE: ${{ matrix.database }}
         run: make harness-compose-down
-
-      - name: Enforce replay evidence policy
-        if: always() && steps.evidence_scan.outcome != 'success'
-        run: |
-          echo "Replay evidence is missing or did not pass secret scanning." >&2
-          exit 1

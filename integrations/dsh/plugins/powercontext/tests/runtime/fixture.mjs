@@ -138,6 +138,14 @@ export async function environment({ realModel } = {}) {
         await new Promise(resolve => res.once('close', () => { call.closed = true; resolve() }))
         return
       }
+      if (fault.holdBody) {
+        call.status = fault.status
+        res.writeHead(fault.status, { 'Content-Type': 'application/json', 'X-PowerContext-Request-ID': 'req-runtime-body' })
+        res.flushHeaders()
+        res.write('{"error":{"message":"private-response-marker')
+        await new Promise(resolve => res.once('close', () => { call.closed = true; resolve() }))
+        return
+      }
       json(res, { error: { code: fault.code, message: 'private-response-marker' } }, fault.status)
       call.status = fault.status
       return
@@ -163,6 +171,7 @@ export async function environment({ realModel } = {}) {
   const { scope_id: scopeId } = await api('/v1/scopes/default')
   const harnesses = []
   function harness(config = {}, options = {}) {
+    const { initializeTimeoutMs = 30000, maxTokens = 128 } = options
     const dshHome = mkdtempSync(join(home, 'host-'))
     const workspace = join(dshHome, 'workspace')
     mkdirSync(workspace)
@@ -204,20 +213,27 @@ export function apply(ctx) {
       DEEPSEEK_BASE_URL: model.url + '/v1', DSH_TELEMETRY_DISABLED: '1', ...options.env }
     const instance = new DeepSeekHarness({
       dshBin: process.env.DSH_TEST_BIN ?? dshBin, dshHome, patches: [patch], cwd: workspace, processCwd: workspace,
-      provider: 'deepseek-official', model: realModel?.model ?? 'deepseek-v4-flash', maxTokens: 128,
-      initializeTimeoutMs: 30000, requestTimeoutMs: realModel ? 120000 : 30000,
+      provider: 'deepseek-official', model: realModel?.model ?? 'deepseek-v4-flash', maxTokens,
+      initializeTimeoutMs, requestTimeoutMs: realModel ? 120000 : 30000,
       env,
     })
     harnesses.push(instance)
     const diagnostics = () => existsSync(diagnosticsFile)
       ? readFileSync(diagnosticsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : []
-    const doctor = async sessionId => {
-      const response = await fetch(readFileSync(commandAddress, 'utf8') + '/?session=' + encodeURIComponent(sessionId))
+    const command = async (sessionId, view) => {
+      const response = await fetch(readFileSync(commandAddress, 'utf8') + '/?session=' + encodeURIComponent(sessionId) + '&view=' + view)
       if (!response.ok) throw new Error(await response.text())
-      const result = await response.json()
+      return response.json()
+    }
+    const doctor = async sessionId => {
+      const result = await command(sessionId, 'doctor')
       return { kind: result.kind, ...JSON.parse(result.text) }
     }
-    return { instance, dshHome, workspace, installed, patch, env, diagnostics, doctor }
+    const status = async sessionId => {
+      const result = await command(sessionId, 'status')
+      return { kind: result.kind, ...JSON.parse(result.text.split('\nautomatic=')[1]) }
+    }
+    return { instance, dshHome, workspace, installed, patch, env, diagnostics, doctor, status }
   }
   return {
     home, api, scopeId, calls, modelRequests, harness, baseUrl: proxy.url,

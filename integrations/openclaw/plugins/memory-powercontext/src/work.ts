@@ -66,8 +66,8 @@ const handoffCitation = Type.Union([
 ]);
 const workClaim = Type.Object({
   text: workText,
-  basis: Type.Union([Type.Literal("declared"), Type.Literal("verified")]),
-  evidence: Type.Array(handoffCitation, { maxItems: 31 }),
+  basis: Type.Union([Type.Literal("declared"), Type.Literal("verified")], { description: "Use declared for inspected conversation or repository facts, even when the user calls progress verified. verified requires nonempty exact PowerContext evidence returned by an earlier operation." }),
+  evidence: Type.Array(handoffCitation, { maxItems: 31, description: "Use [] with declared. verified requires exact previously returned citations; never invent evidence from the new Source ID." }),
 }, { additionalProperties: false });
 const workContract = Type.Object({
   schema: Type.Literal("powercontext.work-contract.v1"),
@@ -295,7 +295,7 @@ export function createHandoffCurrentWorkTool(ctx: OpenClawPluginToolContext, dep
     name: POWERCONTEXT_HANDOFF_CURRENT_WORK_TOOL,
     label: "Prepare Current Work Handoff",
     description:
-      "Capture the inspected current-work boundary and return a temporary evidence-bearing Handoff. Provide schema powercontext.current-work-handoff.v1, trust untrusted_input, objective, at least one state claim, disposition, next_action (or null), and omissions. Preparation does not commit a durable milestone.",
+      "Prepare a requested current-work transfer; this captures its own Source, so no preliminary capture or retrieval is needed. source_id is optional at the top level beside handoff; omit it to generate an identity. Never put source_id inside handoff. Provide schema powercontext.current-work-handoff.v1, trust untrusted_input, objective, state, disposition, next_action, omissions. Each state item and next_action has text, basis, evidence: use declared with evidence=[] unless exact existing PowerContext citations are available. next_action is one claim or null, never an array; omissions is an array of strings. Return the handoff member unchanged, including schema, scope_id, base, content, and generation when present. A preview makes no write; temporary transfer does not authorize a durable commit.",
     parameters: Type.Object({
       handoff: currentWorkHandoff,
       source_id: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),

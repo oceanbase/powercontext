@@ -19,7 +19,11 @@ notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS fo
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: integration-manifest-check ## Run code quality tools.
+check: workflow-actions-check integration-manifest-check ## Run code quality tools.
+
+.PHONY: workflow-actions-check
+workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
+	@uv run python scripts/check_workflow_actions.py .github/workflows .github/actions
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"
 	@uv lock --locked
 	@echo "🚀 Linting code: Running prek"
@@ -146,6 +150,13 @@ dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a
 .PHONY: openclaw-plugin-build
 openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
 	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build
+
+.PHONY: openclaw-plugin-test
+openclaw-plugin-test: ## Install, test, type-check, and build with a Node runtime supported by the OpenClaw SDK.
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext test
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
+	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
 
 .PHONY: openclaw-plugin-pack
 openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
