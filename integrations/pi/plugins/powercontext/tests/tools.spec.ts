@@ -95,6 +95,10 @@ describe('Pi native tool surface', () => {
       'pc_topic_get',
       'pc_review_list',
       'pc_review_get',
+      'pc_external_scan',
+      'pc_external_list',
+      'pc_external_resolve',
+      'pc_external_import',
     ]))
     expect(tools.map((tool) => tool.name)).not.toContain('pc_call')
   })
@@ -177,6 +181,47 @@ describe('Pi native tool surface', () => {
     )
     expect(confirm).toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps external skill discovery read-only and confirms imports', async () => {
+    const registered: Array<Record<string, unknown>> = []
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ ok: true })))
+    const runtime = createRuntime(fetch)
+    registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, runtime)
+    const confirm = vi.fn(async () => true)
+    const context = { cwd: '/workspace/repo', hasUI: true, ui: { confirm } }
+    const signal = new AbortController().signal
+    const fingerprint = 'a'.repeat(64)
+
+    const denied = await registeredTool<Record<string, unknown>>(registered, 'pc_external_import').execute(
+      'call-import-no-ui', { external_skill_id: 'skill-1', fingerprint, mode: 'import' },
+      signal, () => undefined, { ...context, hasUI: false },
+    )
+    expect(denied.details).toMatchObject({ ok: false, code: 'confirmation_required' })
+
+    await registeredTool<Record<string, unknown>>(registered, 'pc_external_scan').execute(
+      'call-scan', {}, signal, () => undefined, context,
+    )
+    await registeredTool<{ include_unavailable: boolean }>(registered, 'pc_external_list').execute(
+      'call-list', { include_unavailable: true }, signal, () => undefined, context,
+    )
+    await registeredTool<{ external_skill_id: string; fingerprint: string }>(registered, 'pc_external_resolve').execute(
+      'call-resolve', { external_skill_id: 'skill-1', fingerprint }, signal, () => undefined, context,
+    )
+    await registeredTool<Record<string, unknown>>(registered, 'pc_external_import').execute(
+      'call-import', { external_skill_id: 'skill-1', fingerprint, mode: 'import', reason: null },
+      signal, () => undefined, context,
+    )
+
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body))])).toEqual([
+      ['http://127.0.0.1:8000/v1/external-skills/scan', { scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/external-skills/list', { include_unavailable: true, scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/external-skills/resolve', { external_skill_id: 'skill-1', fingerprint, scope_id: 'project:demo' }],
+      ['http://127.0.0.1:8000/v1/external-skills/import', {
+        external_skill_id: 'skill-1', fingerprint, mode: 'import', reason: null, scope_id: 'project:demo',
+      }],
+    ])
   })
 
   it('routes structured work payloads to their scoped APIs unchanged after confirmation', async () => {
