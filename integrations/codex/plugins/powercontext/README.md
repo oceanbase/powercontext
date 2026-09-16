@@ -94,10 +94,13 @@ deadlines. The Runtime owns final selection, rendering, exact citations, and the
 8000-byte output budget; the hook injects validated content unchanged.
 
 Optional local bearer authentication uses `POWERCONTEXT_CODEX_AUTHORIZATION`,
-whose value must be a complete `Bearer <token>` header. `.mcp.json` exposes it to
-Codex through an optional environment-backed header, and the hook reads the same
-value. Missing or empty values preserve the default unauthenticated flow. Never
-put the token in `.mcp.json`, the Server URL, or a static MCP header.
+whose value must be a complete `Bearer <token>` header. `powercontext setup
+codex` saves a URL-bound credential under
+`~/.codex/powercontext/credentials.json`; on Windows it also writes the matching
+value to the current user's environment so a restarted Codex Desktop can resolve
+the native MCP header. The hook reads the saved record, while an explicit process
+value overrides it. Missing credentials preserve the default unauthenticated
+flow. Never put the token in `.mcp.json`, the Server URL, or a static MCP header.
 
 Prompt capture is enabled by default. Set `POWERCONTEXT_CODEX_CAPTURE_PROMPTS=false`
 when prompts must not be persisted. Captured Sources are normally processed by

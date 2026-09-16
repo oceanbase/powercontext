@@ -88,9 +88,22 @@ class _McpEndpointSettingsSource(PydanticBaseSettingsSource):
 
     @override
     def __call__(self) -> dict[str, Any]:
-        server_url = _server_url_from_mcp_configuration()
-        authorization = _stored_authorization(server_url)
-        return {"server_url": server_url, **({"authorization": authorization} if authorization else {})}
+        return {"server_url": _server_url_from_mcp_configuration()}
+
+
+class _StoredAuthorizationSettingsSource(PydanticBaseSettingsSource):
+    """Load setup-managed authorization below explicit and environment settings."""
+
+    @override
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        if field_name == "authorization":
+            return _stored_authorization(_server_url_from_mcp_configuration()), field_name, False
+        return None, field_name, False
+
+    @override
+    def __call__(self) -> dict[str, Any]:
+        authorization = _stored_authorization(_server_url_from_mcp_configuration())
+        return {"authorization": authorization} if authorization else {}
 
 
 class CodexPluginSettings(BaseSettings):
@@ -170,6 +183,7 @@ class CodexPluginSettings(BaseSettings):
             init_settings,
             env_settings,
             dotenv_settings,
+            _StoredAuthorizationSettingsSource(settings_cls),
             file_secret_settings,
         )
 
@@ -197,8 +211,11 @@ def _stored_authorization(server_url: str) -> str | None:
         stored_url, authorization = payload.get("server_url"), payload.get("authorization")
         if not isinstance(stored_url, str) or not isinstance(authorization, str):
             return None
+        effective_mcp_url = (
+            server_url if urlsplit(server_url).path.rstrip("/").endswith("/mcp") else f"{server_url.rstrip('/')}/mcp"
+        )
         if _http_base_url(f"{stored_url.rstrip('/')}/mcp", allow_insecure_http=True) != _http_base_url(
-            server_url, allow_insecure_http=True
+            effective_mcp_url, allow_insecure_http=True
         ):
             return None
         scheme, separator, credential = authorization.partition(" ")

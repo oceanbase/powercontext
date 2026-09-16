@@ -107,20 +107,33 @@ export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
 
-Start Codex from an environment that contains the matching complete Authorization header:
+Run setup once from an environment that contains the matching complete Authorization header:
 
 ```bash
 export POWERCONTEXT_CODEX_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-codex
+powercontext setup codex
+powercontext doctor codex
 ```
 
-Restart Codex after changing the variable. The plugin's MCP configuration reads this optional header from the
-environment, and the prompt Hook reads the same value. Do not put the token in `.mcp.json`, the Server URL, or a
-static MCP header.
+On Windows PowerShell, set the value for the setup process like this:
 
-When the variable is absent or empty and Server authentication is disabled, the plugin behaves exactly as it does by
-default. When Server authentication is enabled but the header is missing or incorrect, the Hook fails open and emits
-an `authentication_failed` diagnostic; MCP tools remain unavailable without blocking the Codex session.
+```powershell
+$env:POWERCONTEXT_CODEX_AUTHORIZATION = "Bearer $env:POWERCONTEXT_LOCAL_TOKEN"
+powercontext setup codex
+powercontext doctor codex
+```
+
+Setup stores a URL-bound credential under `~/.codex/powercontext/credentials.json`. On Windows it also writes the
+matching `POWERCONTEXT_CODEX_AUTHORIZATION` value to the current user's environment and broadcasts a Windows
+environment-change notification. Existing processes do not receive the new value. Restart Desktop after setup so its
+new process inherits it. On other platforms, start Codex from an environment containing the variable. The prompt Hook
+reads the saved record, and an explicit process value overrides it. Do not put the token in `.mcp.json`, the Server URL,
+or a static MCP header.
+
+When no stored credential or process override is configured and Server authentication is disabled, the plugin behaves
+exactly as it does by default. When Server authentication is enabled but the effective credential is missing or
+incorrect, the Hook fails open and emits an `authentication_failed` diagnostic; MCP tools remain unavailable without
+blocking the Codex session.
 
 If the Server is unavailable, hook recall and capture fail open. Codex work continues, and explicit Memory tools
 report that the service is unavailable.
@@ -133,14 +146,14 @@ authorization value.
 
 ## Use a generated environment file
 
-After generating configuration with the wizard, load `.env` in the terminal that starts Codex.
+After generating configuration with the wizard, load `.env` before running setup.
 It supplies the URL, Authorization, and selected Scope without exposing the Server's model API keys:
 
 ```bash
 set -a
 . ./.env
 set +a
-codex
+powercontext setup codex
 ```
 
 For a planned new Scope, run the creation request in `.env.next-steps.md`, put the returned real `scope_id` in
@@ -154,8 +167,8 @@ The Server Scheduler processes new Sources at the configured interval.
 The Hook derives its Server URL from the installed plugin's `.mcp.json`, which MCP also reads.
 Both default to `http://127.0.0.1:8000`. For a custom port, SSH forwarding, or HTTPS, update that shared file.
 It takes precedence over `POWERCONTEXT_CODEX_SERVER_URL`; exporting that variable alone does not change the endpoint.
-`setup codex` does not update the MCP URL automatically. Follow the generated `.env.next-steps.md` configuration
-and retain this authentication form:
+`setup codex` updates the installed MCP URL. The native MCP client reads authorization from the host process environment
+in this form:
 
 ```json
 {
@@ -172,13 +185,14 @@ and retain this authentication form:
 }
 ```
 
-Replace the URL with your actual MCP endpoint and preserve other servers in the file. Read the token from the process
-environment rather than hard-coding it in JSON. The Hook binds the Scope and injects it into MCP data operations;
-a planned title or directory name is not a Scope ID.
+Replace the URL with your actual MCP endpoint and preserve other servers in the file, then rerun `powercontext setup
+codex` so Windows Desktop receives the matching user environment value. The token is never hard-coded in JSON. The
+Hook binds the Scope and injects it into MCP data operations; a planned title or directory name is not a Scope ID.
 
-Desktop apps may not inherit terminal environment variables; loading the file does not configure an already running
-desktop app. Restart the host you actually use, then check Hook capture and MCP separately. An MCP connected status
-does not prove Source capture. Complete the [Source, topic evolution, and cross-session recall check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation).
+Desktop apps do not inherit changes made inside an already running terminal. On Windows, setup persists the value in
+the current user's environment, but an already running Desktop instance must still be restarted. Run `powercontext
+doctor codex`, then check Hook capture and MCP separately. An MCP connected status does not prove Source capture.
+Complete the [Source, topic evolution, and cross-session recall check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation).
 
 ## Environment variables
 
@@ -186,7 +200,7 @@ does not prove Source capture. Complete the [Source, topic evolution, and cross-
 | --- | --- | --- |
 | `POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP for hooks |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | unset | Explicitly select an existing Scope instead of resolving bindings and the Server default |
-| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header; setup persists it in the Windows user environment for Desktop |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
@@ -201,5 +215,5 @@ replaces `.mcp.json`. Codex's own MCP policy still applies. See
 
 The outer Codex hook timeout is ten seconds. Recall, capture, and flush fail independently and never block Codex when
 the Server is unavailable or rejects authentication. Without an explicit Scope, the plugin resolves the Session
-binding, workspace binding, then Server default. Configuration variables must be present in the environment that
-starts Codex; restart Codex after changing them.
+binding, workspace binding, then Server default. Process-level settings must be present in the environment that starts
+Codex. Windows setup writes authorization to the user environment, but Desktop must be restarted to inherit it.

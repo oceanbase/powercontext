@@ -15,16 +15,20 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from powercontext.cli.authorization import (
     AuthorizationResolution,
     clear_stored_authorization,
+    configure_codex_desktop_authorization,
     credential_path,
     normalize_authorization,
+    read_codex_desktop_authorization,
     read_stored_authorization,
     setup_authorization_value,
     setup_server_url,
@@ -45,6 +49,7 @@ def test_normalize_authorization_rejects_invalid_values_without_echoing(value: s
         assert value not in str(error.value)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes are not enforced on Windows")
 def test_write_and_read_stored_authorization_is_atomic_and_private(tmp_path: Path) -> None:
     path = tmp_path / "powercontext" / "credentials.json"
 
@@ -69,6 +74,7 @@ def test_read_stored_authorization_ignores_a_different_server_url(tmp_path: Path
     )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes are not enforced on Windows")
 def test_read_stored_authorization_fails_closed_for_unsafe_files(tmp_path: Path) -> None:
     path = tmp_path / "credentials.json"
     path.write_text(
@@ -81,6 +87,7 @@ def test_read_stored_authorization_fails_closed_for_unsafe_files(tmp_path: Path)
     )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks may require elevated Windows privileges")
 def test_write_stored_authorization_rejects_a_symlink(tmp_path: Path) -> None:
     target = tmp_path / "target.json"
     target.write_text("{}")
@@ -118,3 +125,29 @@ def test_credential_path_uses_host_owned_roots(monkeypatch: pytest.MonkeyPatch, 
     assert credential_path("claude-code") == tmp_path / "claude" / "powercontext" / "credentials.json"
     assert credential_path("pi") == tmp_path / "pi" / "powercontext" / "credentials.json"
     assert credential_path("workbuddy") == tmp_path / "workbuddy" / "powercontext" / "credentials.json"
+
+
+def test_codex_desktop_authorization_uses_the_windows_user_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    import powercontext.cli.authorization as authorization
+
+    write = Mock()
+    monkeypatch.setattr(authorization.sys, "platform", "win32")
+    monkeypatch.setattr(authorization, "_write_windows_user_environment", write)
+    monkeypatch.setattr(
+        authorization,
+        "_read_windows_user_environment",
+        lambda _name: "Bearer saved-token",
+    )
+
+    assert configure_codex_desktop_authorization("saved-token") is True
+    assert read_codex_desktop_authorization() == "Bearer saved-token"
+    write.assert_called_once_with("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer saved-token")
+
+
+def test_codex_desktop_authorization_is_windows_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    import powercontext.cli.authorization as authorization
+
+    monkeypatch.setattr(authorization.sys, "platform", "linux")
+
+    assert configure_codex_desktop_authorization("saved-token") is False
+    assert read_codex_desktop_authorization() is None

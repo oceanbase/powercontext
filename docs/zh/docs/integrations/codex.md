@@ -100,19 +100,30 @@ export POWERCONTEXT_SERVER_AUTH_TOKEN="$POWERCONTEXT_LOCAL_TOKEN"
 powercontext server run
 ```
 
-在包含匹配 Authorization header 的环境中启动 Codex：
+在包含匹配 Authorization header 的环境中执行一次 setup：
 
 ```bash
 export POWERCONTEXT_CODEX_AUTHORIZATION="Bearer $POWERCONTEXT_LOCAL_TOKEN"
-codex
+powercontext setup codex
+powercontext doctor codex
 ```
 
-修改该变量后需要重启 Codex。插件的 MCP 配置从环境读取这个可选 header，Prompt Hook 读取同一个值。不要把
-token 写入 `.mcp.json`、Server URL 或静态 MCP header。
+Windows PowerShell 中，通过以下方式为 setup 进程设置该值：
 
-没有设置该变量或值为空，并且 Server 未启用鉴权时，插件行为与默认状态完全一致。如果 Server 已启用鉴权，
-但 header 缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP tools 不可用，但不会阻塞
-Codex 会话。
+```powershell
+$env:POWERCONTEXT_CODEX_AUTHORIZATION = "Bearer $env:POWERCONTEXT_LOCAL_TOKEN"
+powercontext setup codex
+powercontext doctor codex
+```
+
+setup 会把 URL 绑定的凭据保存到 `~/.codex/powercontext/credentials.json`。在 Windows 上，它还会把匹配的
+`POWERCONTEXT_CODEX_AUTHORIZATION` 写入当前用户环境，并广播 Windows 环境变更通知；已经运行的进程不会获得
+新值。setup 后需重启 Desktop，使新进程继承该值。其他平台仍需从包含此变量的环境启动 Codex。Prompt Hook
+读取保存的记录，显式进程值优先。不要把 token 写入 `.mcp.json`、Server URL 或静态 MCP header。
+
+没有保存凭据或配置进程级覆盖，并且 Server 未启用鉴权时，插件行为与默认状态完全一致。如果 Server 已启用
+鉴权，但有效凭据缺失或错误，Hook 会正常降级并写出 `authentication_failed` 诊断；MCP tools 不可用，但
+不会阻塞 Codex 会话。
 
 Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Codex。显式 Memory 工具会报告服务不可用。
 
@@ -123,14 +134,14 @@ Server 不可用时，Hook 的恢复和采集会正常降级，不会阻塞 Code
 
 ## 使用生成的环境文件
 
-如果已通过向导生成配置，在启动 Codex 的终端中加载 `.env`。
+如果已通过向导生成配置，在执行 setup 前加载 `.env`。
 它提供 URL、Authorization 和选定的 Scope，不需要把 Server `.env` 中的模型 API key 传给 Agent：
 
 ```bash
 set -a
 . ./.env
 set +a
-codex
+powercontext setup codex
 ```
 
 首次规划新 Scope 时，先执行 `.env.next-steps.md` 的创建请求，把响应的真实 `scope_id` 写入客户端文件的
@@ -143,7 +154,7 @@ codex
 Hook 的 Server 地址从已安装插件 `.mcp.json` 派生，MCP 也读取同一文件。
 本机默认是 `http://127.0.0.1:8000`；自定义端口、SSH 转发或 HTTPS 时，修改该文件使两条路径使用同一地址。
 该配置优先于 `POWERCONTEXT_CODEX_SERVER_URL`，不能只靠导出此环境变量改变连接地址。
-`setup codex` 不会自动修改 MCP URL，按 `.env.next-steps.md` 给出的配置调整，并保持以下认证形式：
+`setup codex` 会更新已安装插件的 MCP URL。原生 MCP 客户端按以下方式从宿主进程环境读取鉴权：
 
 ```json
 {
@@ -160,11 +171,13 @@ Hook 的 Server 地址从已安装插件 `.mcp.json` 派生，MCP 也读取同�
 }
 ```
 
-把 URL 换成本次实际 MCP 地址，保留文件中的其他服务器。Token 从进程环境读取，不要写死在 JSON 中。
-Scope 由 Hook 绑定，并注入 MCP 数据操作；不要把规划标题或目录名当成 Scope ID。
+把 URL 换成本次实际 MCP 地址并保留文件中的其他服务器，然后重新运行 `powercontext setup codex`，让 Windows
+Desktop 获得匹配的用户环境值。Token 不会被写死在 JSON 中。Scope 由 Hook 绑定，并注入 MCP 数据操作；不要把
+规划标题或目录名当成 Scope ID。
 
-桌面 App 可能不继承终端环境；在终端加载文件并不等于已配置正在运行的桌面 App。
-重启实际使用的宿主后，分别确认 Hook 采集成功与 MCP 可用。MCP 显示 connected 也不等于 Source 已采集。
+桌面 App 不会继承已经运行的终端内部发生的环境变化。在 Windows 上，setup 会把值持久化到当前用户环境，但已
+运行的 Desktop 仍需重启才能继承。运行 `powercontext doctor codex`，再分别确认 Hook 采集成功与 MCP 可用。
+MCP 显示 connected 也不等于 Source 已采集。
 最后完成[Source、主题演进与新会话召回验收](../get-started/quickstart.md#4-用普通对话验收-topic-memory)。
 
 ## 环境变量
@@ -173,7 +186,7 @@ Scope 由 Hook 绑定，并注入 MCP 数据操作；不要把规划标题或目
 | --- | --- | --- |
 | `POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` | `false` | 显式允许 Hook 使用非环回明文 HTTP |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | 未设置 | 显式选择一个已存在 Scope，不再解析 binding 和 Server 默认 Scope |
-| `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | 完整 `Bearer <token>` header；setup 会为 Desktop 持久化到 Windows 用户环境 |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
@@ -185,5 +198,5 @@ Hook 默认允许环回 HTTP，远程 HTTP 需要显式同意，HTTPS 证书校�
 `.mcp.json` 后需重新运行 setup。Codex 自身的 MCP 策略仍然生效。参见[连接远程 Server](../operate/connect-remote-server.md)。
 
 Codex Hook 外层超时为十秒。Server 不可用或拒绝鉴权时，恢复、采集和 flush 独立降级，不会阻塞 Codex。未显式指定
-Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。配置变量必须存在于启动 Codex 的
-进程环境中；修改后需要重启 Codex。
+Scope 时，插件依次解析 Session binding、workspace binding 和 Server 默认 Scope。进程级配置必须存在于启动
+Codex 的环境中；Windows setup 会把鉴权写入用户环境，但 Desktop 仍需重启才能继承。

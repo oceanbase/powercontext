@@ -25,7 +25,10 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from importlib.metadata import version
 from pathlib import Path
+from queue import Empty, Queue
 from shutil import which
+from threading import Thread
+from time import monotonic
 from typing import Annotated, Any, cast
 from urllib.error import HTTPError
 from urllib.parse import urlsplit, urlunsplit
@@ -54,6 +57,8 @@ DEFAULT_OPENCLAW_SERVER_URL = "http://127.0.0.1:8000"
 PLUGIN_NAME = "powercontext"
 CLAUDE_MARKETPLACE_NAME = "powercontext"
 _GITHUB_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$")
+_CODEX_REQUIRED_MCP_TOOLS = frozenset({"remember_memory", "search_memory"})
+_CODEX_APP_SERVER_TIMEOUT_SECONDS = 15.0
 
 setup_app = typer.Typer(
     name="setup",
@@ -437,6 +442,7 @@ def setup_codex(
     typer.echo("PowerContext Codex setup complete.")
     typer.echo(f"Plugin: {result.plugin}@{result.marketplace} ({result.plugin_version})")
     typer.echo(f"Data directory: {result.data_dir}")
+    typer.echo(f"Authorization: {result.authorization_state}")
     typer.echo("Next: run `powercontext server run`, start a new Codex session, then review `/hooks`.")
 
 
@@ -1080,16 +1086,26 @@ def install_codex_plugin(*, source: str, ref: str, server_url: str | None = None
     if server_url is not None:
         _configure_codex_endpoint(marketplace_name, _required_string(plugin, "version"), server_url)
     from powercontext.cli.authorization import (
+        configure_codex_desktop_authorization,
         configure_stored_authorization,
+        credential_path,
+        read_stored_authorization,
         setup_authorization_value,
         setup_server_url,
     )
 
+    authorization_server_url = setup_server_url("codex", server_url or DEFAULT_CLAUDE_CODE_SERVER_URL)
     authorization_state = configure_stored_authorization(
         "codex",
-        server_url=setup_server_url("codex", server_url or DEFAULT_CLAUDE_CODE_SERVER_URL),
+        server_url=authorization_server_url,
         value=setup_authorization_value("codex"),
     )
+    authorization = read_stored_authorization(credential_path("codex"), server_url=authorization_server_url)
+    if authorization.authorization is not None:
+        try:
+            configure_codex_desktop_authorization(authorization.authorization)
+        except OSError as error:
+            raise SetupError(f"Cannot configure Codex Desktop authorization: {error}") from error  # noqa: TRY003
     return CodexSetupResult(
         marketplace=marketplace_name,
         plugin=_required_string(plugin, "name"),
@@ -1329,7 +1345,7 @@ def _local_service_diagnostics(server_url: str) -> dict[str, Diagnostic]:
 
 
 def run_codex_diagnostics() -> dict[str, Diagnostic]:
-    """Collect diagnostics for the optional Codex integration."""
+    """Collect plugin and native MCP diagnostics for the optional Codex integration."""
 
     executable = which("codex")
     if executable is None:
@@ -1364,7 +1380,7 @@ def run_codex_diagnostics() -> dict[str, Diagnostic]:
             ),
             None,
         )
-    return {
+    diagnostics = {
         "codex": Diagnostic(status=DiagnosticStatus.OK, detail=executable),
         "plugin": Diagnostic(
             status=DiagnosticStatus.OK if plugin is not None else DiagnosticStatus.FAILED,
@@ -1375,6 +1391,292 @@ def run_codex_diagnostics() -> dict[str, Diagnostic]:
             ),
         ),
     }
+    if plugin is None:
+        diagnostics["mcp_configuration"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because the PowerContext plugin is unavailable",
+        )
+        diagnostics["authorization"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because the PowerContext MCP entry is unavailable",
+        )
+        diagnostics["mcp_tools"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because the PowerContext plugin is unavailable",
+        )
+        return diagnostics
+
+    try:
+        servers = _run_codex_mcp_list()
+    except SetupError as error:
+        diagnostics["mcp_configuration"] = Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
+        diagnostics["authorization"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because native MCP configuration is unavailable",
+        )
+        diagnostics["mcp_tools"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because native MCP configuration is unavailable",
+        )
+        return diagnostics
+
+    server = next((item for item in servers if item.get("name") == PLUGIN_NAME), None)
+    transport = server.get("transport") if server is not None else None
+    environment_headers = transport.get("env_http_headers") if isinstance(transport, dict) else None
+    mcp_url = transport.get("url") if isinstance(transport, dict) else None
+    configuration_ok = (
+        server is not None
+        and server.get("enabled") is True
+        and isinstance(mcp_url, str)
+        and bool(mcp_url)
+        and environment_headers == {"Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"}
+    )
+    diagnostics["mcp_configuration"] = Diagnostic(
+        status=DiagnosticStatus.OK if configuration_ok else DiagnosticStatus.FAILED,
+        detail=(
+            f"enabled with environment-backed authorization; auth_status={server.get('auth_status', 'unknown')}"
+            if configuration_ok and server is not None
+            else "PowerContext native MCP entry is missing, disabled, or lacks environment-backed authorization; "
+            "reinstall the current plugin"
+        ),
+    )
+    if not configuration_ok or not isinstance(mcp_url, str):
+        diagnostics["authorization"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because native MCP configuration is invalid",
+        )
+        diagnostics["mcp_tools"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because native MCP configuration is invalid",
+        )
+        return diagnostics
+
+    authorization_diagnostic, native_authorization = _resolve_codex_native_authorization(mcp_url)
+    diagnostics["authorization"] = authorization_diagnostic
+    if not authorization_diagnostic.ok:
+        diagnostics["mcp_tools"] = Diagnostic(
+            status=DiagnosticStatus.SKIPPED,
+            detail="not checked because Codex host authorization is invalid",
+        )
+        return diagnostics
+
+    try:
+        native_server = _probe_codex_mcp_status(authorization=native_authorization)
+    except SetupError as error:
+        diagnostics["mcp_tools"] = Diagnostic(status=DiagnosticStatus.FAILED, detail=str(error))
+        return diagnostics
+    tools = native_server.get("tools")
+    tool_names = set(tools) if isinstance(tools, dict) else set()
+    missing = sorted(_CODEX_REQUIRED_MCP_TOOLS - tool_names)
+    if native_authorization is None:
+        failure_hint = (
+            "; check Server availability and, for an authenticated Server, set "
+            "POWERCONTEXT_CODEX_AUTHORIZATION while rerunning `powercontext setup codex`"
+        )
+    else:
+        failure_hint = "; check Server availability and whether the setup-managed credential is still valid"
+    diagnostics["mcp_tools"] = Diagnostic(
+        status=DiagnosticStatus.OK if not missing else DiagnosticStatus.FAILED,
+        detail=(
+            f"Codex native MCP initialized and discovered {len(tool_names)} tools"
+            if not missing
+            else "Codex native MCP did not discover required tools: " + ", ".join(missing) + failure_hint
+        ),
+    )
+    return diagnostics
+
+
+def _resolve_codex_native_authorization(mcp_url: str) -> tuple[Diagnostic, str | None]:
+    """Resolve the redacted Codex host authorization state for one MCP URL."""
+
+    from powercontext.cli.authorization import (
+        credential_path,
+        normalize_authorization,
+        read_codex_desktop_authorization,
+        read_stored_authorization,
+    )
+
+    authorization = read_stored_authorization(
+        credential_path("codex"), server_url=mcp_url.rstrip("/").removesuffix("/mcp")
+    )
+    process_authorization: str | None = None
+    process_value = os.environ.get("POWERCONTEXT_CODEX_AUTHORIZATION")
+    if process_value:
+        with suppress(ValueError):
+            process_authorization = normalize_authorization(process_value)
+    desktop_authorization = read_codex_desktop_authorization()
+    expected_authorization = authorization.authorization
+    if expected_authorization is None:
+        native_authorization = process_authorization or desktop_authorization
+        authorization_ok = authorization.status == "not_configured"
+        authorization_detail = (
+            "no setup-managed credential; the native probe will verify the effective host environment"
+            if authorization_ok
+            else f"stored credential state is {authorization.status}; rerun `powercontext setup codex`"
+        )
+    else:
+        process_matches = process_authorization == expected_authorization
+        desktop_matches = desktop_authorization == expected_authorization
+        native_authorization = expected_authorization if process_matches or desktop_matches else None
+        authorization_ok = process_matches or desktop_matches
+        authorization_detail = (
+            "current process authorization matches the setup-managed credential"
+            if process_matches
+            else (
+                "Windows user authorization matches the setup-managed credential; restart Codex Desktop"
+                if desktop_matches
+                else "setup-managed credential is not available to the Codex host; rerun `powercontext setup codex`"
+            )
+        )
+    return (
+        Diagnostic(
+            status=DiagnosticStatus.OK if authorization_ok else DiagnosticStatus.FAILED,
+            detail=authorization_detail,
+        ),
+        native_authorization,
+    )
+
+
+def _run_codex_mcp_list() -> list[dict[str, Any]]:
+    """Read Codex's resolved native MCP configuration without exposing header values."""
+
+    command = ["codex", "mcp", "list", "--json"]
+    try:
+        completed = subprocess.run(  # noqa: S603 - arguments are fixed and do not contain credentials.
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise SetupError.command_unavailable(command[:-1], error) from error
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        raise SetupError.command_failed(command[:-1], detail)
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise SetupError.invalid_command_output(command[:-1], "invalid JSON") from error
+    if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+        raise SetupError.invalid_command_output(command[:-1], "an unexpected result")
+    return cast(list[dict[str, Any]], payload)
+
+
+def _probe_codex_mcp_status(*, authorization: str | None = None) -> dict[str, Any]:  # noqa: C901
+    """Initialize Codex app-server and return its PowerContext MCP status."""
+
+    executable = which("codex")
+    if executable is None:
+        raise SetupError.codex_unavailable()
+    environment = os.environ.copy()
+    if authorization is None:
+        environment.pop("POWERCONTEXT_CODEX_AUTHORIZATION", None)
+    else:
+        environment["POWERCONTEXT_CODEX_AUTHORIZATION"] = authorization
+    command = [executable, "app-server", "--listen", "stdio://"]
+    try:
+        process = subprocess.Popen(  # noqa: S603 - arguments are fixed and contain no credentials.
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+        )
+    except OSError as error:
+        raise SetupError.command_unavailable(command, error) from error
+    stdin = process.stdin
+    stdout = process.stdout
+    if stdin is None or stdout is None:
+        process.kill()
+        raise SetupError("Codex app-server did not provide stdio for the native MCP probe")  # noqa: TRY003
+
+    messages: Queue[dict[str, Any] | None] = Queue()
+
+    def read_messages() -> None:
+        try:
+            for line in stdout:
+                try:
+                    message = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(message, dict):
+                    messages.put(message)
+        finally:
+            messages.put(None)
+
+    reader = Thread(target=read_messages, name="powercontext-codex-app-server", daemon=True)
+    reader.start()
+
+    def send(message: dict[str, Any]) -> None:
+        try:
+            stdin.write(json.dumps(message, ensure_ascii=True, separators=(",", ":")) + "\n")
+            stdin.flush()
+        except OSError as error:
+            raise SetupError("Codex app-server closed during the native MCP probe") from error  # noqa: TRY003
+
+    def receive(request_id: int) -> dict[str, Any]:
+        deadline = monotonic() + _CODEX_APP_SERVER_TIMEOUT_SECONDS
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise SetupError("Codex native MCP probe timed out")  # noqa: TRY003
+            try:
+                message = messages.get(timeout=remaining)
+            except Empty as error:
+                raise SetupError("Codex native MCP probe timed out") from error  # noqa: TRY003
+            if message is None:
+                raise SetupError("Codex app-server exited before completing the native MCP probe")  # noqa: TRY003
+            if message.get("id") == request_id:
+                return message
+
+    try:
+        send({
+            "method": "initialize",
+            "id": 1,
+            "params": {
+                "clientInfo": {
+                    "name": "powercontext_doctor",
+                    "title": "PowerContext Doctor",
+                    "version": version("powercontext"),
+                }
+            },
+        })
+        initialized = receive(1)
+        if "error" in initialized:
+            raise SetupError("Codex app-server rejected native MCP probe initialization")  # noqa: TRY003
+        send({"method": "initialized", "params": {}})
+        send({
+            "method": "mcpServerStatus/list",
+            "id": 2,
+            "params": {"limit": 100, "detail": "toolsAndAuthOnly"},
+        })
+        response = receive(2)
+        result = response.get("result")
+        data = result.get("data") if isinstance(result, dict) else None
+        if not isinstance(data, list):
+            raise SetupError("Codex app-server returned an invalid native MCP status response")  # noqa: TRY003
+        server = next(
+            (item for item in data if isinstance(item, dict) and item.get("name") == PLUGIN_NAME),
+            None,
+        )
+        if server is None:
+            raise SetupError("Codex native MCP status does not include PowerContext")  # noqa: TRY003
+        return server
+    finally:
+        with suppress(OSError):
+            stdin.close()
+        with suppress(OSError):
+            process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        reader.join(timeout=1)
 
 
 def run_claude_code_diagnostics() -> dict[str, Diagnostic]:

@@ -1556,12 +1556,11 @@ def _codex_endpoint_steps(state: Wizard) -> list[str]:
     }
     return [
         state.ui.text(
-            "Codex: open the installed PowerContext plugin's .mcp.json. "
-            "set mcpServers.powercontext to the following connection. Keep other servers unchanged, "
-            "then restart Codex after loading the client environment. setup codex alone does not change this URL.",
-            "Codex：打开已安装 PowerContext 插件目录中的 .mcp.json，将 mcpServers.powercontext "
-            "连接改为下方内容，保留其他服务器配置。加载客户端环境后重启 Codex。"
-            "单独执行 setup codex 不会替你修改此 URL。",
+            "Codex: setup codex applies the following connection. On Windows it also configures the current user's "
+            "Codex authorization environment. If you change the connection manually, rerun setup codex, then restart "
+            "Codex.",
+            "Codex：setup codex 会应用下方连接；在 Windows 上还会配置当前用户的 Codex 鉴权环境。"
+            "如果手工修改连接，请重新运行 setup codex，然后重启 Codex。",
         ),
         "",
         "```json",

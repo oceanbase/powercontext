@@ -190,6 +190,44 @@ def test_codex_settings_match_persisted_base_url_with_mcp_endpoint(
     assert settings_module._stored_authorization("http://127.0.0.1:8000/mcp") == "Bearer saved"
 
 
+def test_codex_settings_match_persisted_base_url_with_hook_base_url(
+    settings_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    credential = tmp_path / "powercontext" / "credentials.json"
+    credential.parent.mkdir()
+    credential.write_text(
+        json.dumps({"version": 1, "server_url": "http://127.0.0.1:8000", "authorization": "Bearer saved"}),
+        encoding="utf-8",
+    )
+    credential.chmod(0o600)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+
+    assert settings_module._stored_authorization("http://127.0.0.1:8000") == "Bearer saved"
+
+
+def test_codex_settings_environment_authorization_overrides_stored_authorization(
+    recall_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    credential = tmp_path / "powercontext" / "credentials.json"
+    credential.parent.mkdir()
+    credential.write_text(
+        json.dumps({"version": 1, "server_url": "http://127.0.0.1:8000", "authorization": "Bearer saved"}),
+        encoding="utf-8",
+    )
+    credential.chmod(0o600)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer process-token")
+
+    authorization = recall_module.CodexPluginSettings().authorization
+
+    assert authorization is not None
+    assert authorization.get_secret_value() == "Bearer process-token"
+
+
 def test_codex_hooks_fix_session_and_data_plane_bindings() -> None:
     configuration = json.loads((PLUGIN_ROOT / "hooks" / "hooks.json").read_text())
 

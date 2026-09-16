@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +48,7 @@ _SERVER_URL_ENVIRONMENTS = {
     "workbuddy": "POWERCONTEXT_WORKBUDDY_SERVER_URL",
     "dsh": "POWERCONTEXT_DSH_BASE_URL",
 }
+_CODEX_AUTHORIZATION_ENVIRONMENT = "POWERCONTEXT_CODEX_AUTHORIZATION"
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,13 +190,75 @@ def setup_server_url(host: str, default: str) -> str:
     return os.environ.get(_SERVER_URL_ENVIRONMENTS[host], default)
 
 
+def configure_codex_desktop_authorization(value: str) -> bool:
+    """Persist Codex authorization in the Windows user environment used by Desktop."""
+
+    if sys.platform != "win32":
+        return False
+    authorization = normalize_authorization(value)
+    _write_windows_user_environment(_CODEX_AUTHORIZATION_ENVIRONMENT, authorization)
+    return True
+
+
+def read_codex_desktop_authorization() -> str | None:
+    """Read and validate the Windows user environment value used by Codex Desktop."""
+
+    if sys.platform != "win32":
+        return None
+    value = _read_windows_user_environment(_CODEX_AUTHORIZATION_ENVIRONMENT)
+    if value is None:
+        return None
+    try:
+        return normalize_authorization(value)
+    except ValueError:
+        return None
+
+
+def _write_windows_user_environment(name: str, value: str) -> None:
+    import ctypes
+    import winreg
+
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Environment", access=winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+
+    result = ctypes.c_size_t()
+    ctypes.set_last_error(0)
+    sent = ctypes.windll.user32.SendMessageTimeoutW(  # type: ignore[attr-defined]
+        0xFFFF,
+        0x001A,
+        0,
+        "Environment",
+        0x0002,
+        5000,
+        ctypes.byref(result),
+    )
+    error = ctypes.get_last_error()
+    if not sent and error:
+        raise OSError(error, "cannot notify Windows processes about the updated user environment")
+
+
+def _read_windows_user_environment(name: str) -> str | None:
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            value, value_type = winreg.QueryValueEx(key, name)
+    except FileNotFoundError:
+        return None
+    if value_type not in {winreg.REG_SZ, winreg.REG_EXPAND_SZ} or not isinstance(value, str):
+        return None
+    return value
+
+
 __all__ = [
     "AuthorizationResolution",
     "AuthorizationStatus",
     "clear_stored_authorization",
+    "configure_codex_desktop_authorization",
     "configure_stored_authorization",
     "credential_path",
     "normalize_authorization",
+    "read_codex_desktop_authorization",
     "read_stored_authorization",
     "setup_authorization_value",
     "setup_server_url",

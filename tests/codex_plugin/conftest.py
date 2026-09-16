@@ -45,7 +45,11 @@ def recall_module() -> ModuleType:
 
 @pytest.fixture(autouse=True)
 def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(tmp_path / "codex-diagnostics.json"))
+    monkeypatch.delenv("POWERCONTEXT_CODEX_AUTHORIZATION", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_CODEX_SCOPE_ID", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_CLIENT_API_TOKEN", raising=False)
 
 
 @pytest.fixture
