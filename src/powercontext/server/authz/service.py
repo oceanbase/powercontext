@@ -353,11 +353,12 @@ class DecisionState:
 class SnapshotDecisionRepository(Protocol):
     """Optional repository capability: one consistent read for decision inputs.
 
-    Implementations must read the revision, active bindings, artifact owners
-    and owned resources inside a single transaction (or single statement where
-    the backend allows), so the backend isolation supplies snapshot
-    consistency. Repositories that cannot offer this fall back to the bounded
-    revision-check-and-retry in :func:`read_decision_state`.
+    Implementations read the revision, active bindings, artifact owners and
+    owned resources inside a single snapshot, and must either pin that
+    snapshot themselves or verify it held for the whole read. A repository
+    that cannot offer the capability at all falls back to the bounded
+    revision-check-and-retry in :func:`read_decision_state`; one that offers it
+    but reports an unstable read is retried within the same budget.
     """
 
     async def decision_snapshot(
@@ -391,7 +392,21 @@ async def read_decision_state(
 
     snapshot_reader = getattr(repository, "decision_snapshot", None)
     if callable(snapshot_reader):
-        return await snapshot_reader(subjects, now=now, artifact_resources=artifact_resources, owned_by=owned_by)
+        # A snapshot read reports an unstable revision rather than a mixture of
+        # states; retry it within the same budget the separate-read fallback
+        # uses, so a profile that cannot pin its isolation degrades in latency
+        # instead of failing the decision outright.
+        last_error: AccessUnavailableError | None = None
+        for _ in range(_SNAPSHOT_RETRY_LIMIT):
+            try:
+                return await snapshot_reader(
+                    subjects, now=now, artifact_resources=artifact_resources, owned_by=owned_by
+                )
+            except AccessUnavailableError as error:
+                if error.code != "policy-snapshot-unstable":
+                    raise
+                last_error = error
+        raise AccessUnavailableError("policy-snapshot-unstable") from last_error
     for _ in range(_SNAPSHOT_RETRY_LIMIT):
         revision = await repository.policy_revision()
         bindings = await repository.active_bindings(subjects, now=now)

@@ -208,6 +208,40 @@ _RECEIPT_IDENTITY_OPERATION = "handoff.receipt.identity"
 _RECEIPT_COMMITTED_OPERATION = "handoff.receipt.committed"
 _RECEIVER_IDENTITY_MATCHES = "receiver_identity_matches"
 _RECEIVER_IDENTITY_MISMATCH = "receiver_identity_mismatch"
+_READ_SNAPSHOT_SAVEPOINT = "powercontext_decision_read_snapshot"
+
+
+async def _pin_read_snapshot(connection: AsyncConnection) -> None:
+    """Open the read transaction SQLite does not open for a bare SELECT.
+
+    sqlite3's legacy transaction control issues ``BEGIN`` for a writing
+    statement only, so consecutive ``SELECT`` statements inside one SQLAlchemy
+    transaction can still observe a concurrent commit between them: the
+    revision and the bindings read under it would then describe different
+    policy states. Pinning the snapshot before the first read keeps every
+    statement on the state it was labelled with.
+
+    ``SAVEPOINT`` is used rather than ``BEGIN`` because it composes: the read
+    may already run inside a transaction this repository did not open (a
+    shared in-memory connection, or a repository built with
+    :meth:`RelationalAccessRepository.with_connection`), and a second ``BEGIN``
+    raises "cannot start a transaction within a transaction".
+
+    Profiles this cannot pin are covered by the revision re-check in
+    :meth:`RelationalAccessRepository.decision_snapshot`.
+    """
+
+    if connection.dialect.name == "sqlite":
+        await connection.exec_driver_sql(f"SAVEPOINT {_READ_SNAPSHOT_SAVEPOINT}")
+
+
+async def _read_policy_revision(connection: AsyncConnection) -> str:
+    """Read the policy head revision as the label decisions are reported under."""
+
+    revision = await connection.scalar(
+        select(ACCESS_POLICY_HEADS_TABLE.c.revision).where(ACCESS_POLICY_HEADS_TABLE.c.name == _POLICY_HEAD)
+    )
+    return str(revision or 0)
 
 
 class RelationalAccessRepository:
@@ -544,22 +578,28 @@ class RelationalAccessRepository:
         artifact_resources: Sequence[ResourceRef] = (),
         owned_by: PrincipalRef | None = None,
     ) -> DecisionState:
-        """Read revision, active bindings and ownership in one transaction.
+        """Read revision, active bindings and ownership from one snapshot.
 
         Providers build their enforcers from this snapshot so a decision can
         never pair a policy revision with bindings from a different policy
-        state. Consistency across the statements depends on the backend
-        transaction isolation (a SQLite read transaction and an OceanBase
-        REPEATABLE READ transaction both provide it); callers without this
-        capability fall back to bounded revision-check-and-retry.
+        state.
+
+        The snapshot is pinned explicitly instead of being assumed from the
+        shared transaction, because SQLite does not open one for a bare
+        ``SELECT`` (see :func:`_pin_read_snapshot`). The revision is re-read
+        before the snapshot is released and the read fails closed when it
+        moved, so a profile whose isolation cannot be pinned — a READ COMMITTED
+        OceanBase connection, for instance — never labels data with a revision
+        it was not read at. Repositories that cannot offer either guarantee
+        fall back to the bounded revision-check-and-retry in
+        :func:`read_decision_state`.
         """
         binding_rows: Sequence[Mapping[Any, Any]] = ()
         owned_rows: Sequence[Mapping[Any, Any]] = ()
         artifact_owners: dict[str, ArtifactOwnerRelation] = {}
         async with self._database.connection(self._bound_connection) as connection:
-            revision = await connection.scalar(
-                select(ACCESS_POLICY_HEADS_TABLE.c.revision).where(ACCESS_POLICY_HEADS_TABLE.c.name == _POLICY_HEAD)
-            )
+            await _pin_read_snapshot(connection)
+            revision = await _read_policy_revision(connection)
             if subjects:
                 binding_rows = (
                     (
@@ -611,8 +651,10 @@ class RelationalAccessRepository:
                     .mappings()
                     .all()
                 )
+            if await _read_policy_revision(connection) != revision:
+                raise AccessUnavailableError("policy-snapshot-unstable")
         return DecisionState(
-            policy_revision=str(revision or 0),
+            policy_revision=revision,
             bindings=tuple(binding for row in binding_rows if (binding := _decode_binding(row)).active_at(now)),
             artifact_owners=artifact_owners,
             owned_resources=tuple(_decode_resource(row, artifact_only=True) for row in owned_rows),
