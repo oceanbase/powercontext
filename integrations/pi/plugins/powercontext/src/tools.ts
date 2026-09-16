@@ -182,19 +182,20 @@ const TASK_OUTCOME = Type.Object({
 })
 const CANDIDATE_ID = Type.String({ minLength: 1, maxLength: 128, pattern: '^[\\x21-\\x7E]+$' })
 const EXPECTED_VERSION = Type.Integer({ minimum: 1 })
+const CANDIDATE_REASON = Type.String({ minLength: 1, maxLength: 2000, pattern: '.*\\S.*' })
 const SKILL_PACKAGE_REFERENCE = Type.Object({
   tree_digest: Type.String({ pattern: '^[0-9a-f]{64}$' }),
   archive_digest: Type.String({ pattern: '^[0-9a-f]{64}$' }),
   file_count: Type.Integer({ minimum: 1, maximum: 256 }),
   uncompressed_size: Type.Integer({ minimum: 1, maximum: 4194304 }),
   archive_size: Type.Integer({ minimum: 1, maximum: 5242880 }),
-})
+}, { additionalProperties: false })
 const EXPERIENCE_PROPOSAL = Type.Object({
   situation: Type.String({ minLength: 1, maxLength: 8000, pattern: '.*\\S.*' }),
   action: Type.String({ minLength: 1, maxLength: 8000, pattern: '.*\\S.*' }),
   outcome: Type.String({ minLength: 1, maxLength: 8000, pattern: '.*\\S.*' }),
   lesson: Type.String({ minLength: 1, maxLength: 8000, pattern: '.*\\S.*' }),
-})
+}, { additionalProperties: false })
 const SKILL_PROPOSAL = Type.Object({
   name: Type.String({ minLength: 1, maxLength: 128, pattern: '^\\S(?:.*\\S)?$' }),
   description: Type.String({ minLength: 1, maxLength: 2000, pattern: '^\\S(?:.*\\S)?$' }),
@@ -205,14 +206,14 @@ const SKILL_PROPOSAL = Type.Object({
   compatibility: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 500 }), Type.Null()])),
   metadata: Type.Optional(Type.Record(Type.String(), Type.String(), { maxProperties: 64 })),
   allowed_tools: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2000 }), Type.Null()])),
-})
+}, { additionalProperties: false })
 const CANDIDATE_PROPOSAL = Type.Union([EXPERIENCE_PROPOSAL, SKILL_PROPOSAL])
 const REVIEW_EVIDENCE_COMBINATIONS = Array.from({ length: 33 }, (_, sourceMax) => Type.Object({
   memory_citations: Type.Optional(Type.Union([Type.Array(MEMORY_CITATION, { maxItems: 32 }), Type.Null()])),
   source_refs: Type.Array(SOURCE_REFERENCE, { maxItems: sourceMax }),
   artifact_refs: Type.Array(ARTIFACT_REFERENCE, { maxItems: 32 - sourceMax }),
   target: Type.Optional(Type.Union([ARTIFACT_REFERENCE, Type.Null()])),
-  reason: Type.Optional(Type.Union([Type.String({ minLength: 1, maxLength: 2000 }), Type.Null()])),
+  reason: Type.Optional(Type.Union([CANDIDATE_REASON, Type.Null()])),
 }))
 const REVISE_CANDIDATE = Type.Union(REVIEW_EVIDENCE_COMBINATIONS.map((schema) => Type.Intersect([
   Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION, proposal: CANDIDATE_PROPOSAL }),
@@ -651,7 +652,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     name: 'pc_review_reject',
     label: 'PowerContext Candidate Reject',
     description: 'Reject an inspected pending Artifact candidate only after the user explicitly requests that decision. Use its exact current version and a non-empty reason.',
-    parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION, reason: NON_EMPTY_STRING }),
+    parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION, reason: CANDIDATE_REASON }),
     operationId: 'reject_artifact_candidate',
     payload: (params) => ({ candidate_id: params.candidate_id, expected_version: params.expected_version, reason: params.reason }),
     mutates: true,
