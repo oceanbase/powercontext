@@ -478,8 +478,8 @@ def test_setup_workbuddy_rejects_a_missing_plugin(tmp_path: Path, monkeypatch) -
     assert "WorkBuddy plugin was not found" in result.output
 
 
-def test_setup_workbuddy_remote_checkout_refreshes_the_requested_ref(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+def test_setup_workbuddy_remote_checkout_refreshes_the_requested_ref(short_tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(short_tmp_path))
     generation = 0
 
     def fake_clone(source: str, ref: str, target: Path) -> None:

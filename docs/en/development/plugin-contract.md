@@ -5,6 +5,8 @@ description: Contract for the Plugin-visible integration diagnostics RFC.
 
 # Plugin-visible diagnostics contract
 
+Agent interpretation of operation results is covered by [tool routing and result reporting](integration-guidance.md).
+
 This page records the contract introduced by the Plugin-visible integration diagnostics RFC. It covers the diagnostic
 slice only; shared service state, service lifecycle, installation, and platform adapter contracts belong to their
 respective RFCs and implementation slices.

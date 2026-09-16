@@ -102,6 +102,51 @@ Scope 不可用时跳过 prepare 并说明原因。实际写入与处理由下�
 `powercontext doctor` 使用自己的 `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`；
 对齐 URL 后可复用它的 service/health 诊断，但不能认为它观察到了 DSH 的覆盖配置。
 
+## 查看最近一次自动执行
+
+在出现问题的会话中运行 `/pc`。除了 Scope 和 Server origin，输出中的 `automatic` 对象还会显示该会话和
+工作目录最近一次 pre-step 的实际观测。各阶段独立记录，不受 debug 日志是否可见或诊断限流影响。
+这个视图回答“刚才做了什么”；`/pc doctor` 回答“当前服务和配置是否可用”。
+
+| 阶段 | 含义 |
+| --- | --- |
+| `scope` | `resolved` 表示解析成功；失败或跳过时给出具体原因。 |
+| `prepare` | `ready` 表示取得通过校验的上下文，附字节数；`empty` 是正常空结果，也可能显示失败或跳过。 |
+| `capture` | `accepted` 仅表示 Server 接收了 Source 请求，不代表已经生成 Memory。 |
+| `flush` | `completed` / `cursor_reached` 表示处理游标已到达该 Source 位置；`incomplete` / `flush_budget_exhausted` 表示有界调用结束后仍未观察到游标到达。二者均不能证明产生了 Memory entry。 |
+| `injection` | `appended` 表示插件将 snapshot 加入了返回的 pre-step 消息，不代表模型已经读取或采纳。后续步骤拒绝进入请求、消息包装失败等情况单独说明。 |
+
+每个阶段初始为 `not_yet_observed`（尚未观察），执行中为 `running`。`skipped` 会明确说明
+`capture_disabled`、`no_user_text`、`sensitive_content`、`source_too_long`、`scope_unresolved`、
+`cancelled` 或 `deadline_exceeded` 等原因。`unavailable` 提供操作名、安全的 code/message，以及实际取得的
+HTTP status、协议校验项或通过格式检查的 request ID。传输失败只在证据明确时区分超时、取消、连接被拒绝、
+DNS 或 TLS 原因，无法细分时不会猜测。
+
+例如，`prepare: empty` 和 `capture: accepted` 可以同时成立。捕获或处理失败不会抹掉成功的读取结果。
+超时等未确认写入会带有 `confirmation: unconfirmed`：请求可能已经生效，不能据此断言没有写入，也不能盲目重试。
+这包括成功响应未完整读取，以及无法确定写入结果的 HTTP 错误。
+
+已收到 HTTP 401/403 时则显示 `confirmation: rejected`，表示该请求被认证或授权检查拒绝，不代表先前的捕获
+或同一轮中更早的 flush 请求被撤销。capture 已被拒绝时，flush 的跳过原因是 `capture_rejected`；捕获结果未知时
+仍使用 `capture_not_confirmed`。明确在请求发送前发生的失败不会带上未确认写入标记。
+
+响应头已收到、响应体未能完整读取时，会保留 `http_status` 和通过校验的 `request_id`，并提供
+`failure_phase: response_body` 及 `response_body_error`，后者区分 `request_timeout`、`cancelled`、
+`connection_failed` 和 `response_too_large`。例如 401 响应体超时仍显示 `authentication_failed`、`rejected`
+和响应体超时信息，应先检查凭据，再用请求 ID 定位日志。202 响应体超时仍为未确认，不会启动 flush。
+404 的错误响应体没有读到时，不能据此判断缺少路由。
+
+`attempt`、`turn`、`started_at`、各阶段的 `observed_at` 和 `age_ms` 标识记录属于哪次尝试、发生了多久。
+`freshness: current` 表示尝试发生在五分钟内，并且记录中的 Scope 与当前解析结果一致。
+`stale` 会说明 `age_limit`、`scope_unverified`、`scope_not_observed` 或 `scope_changed`。
+这里的新鲜度仅指本地观测的年龄和适用性，不保证服务端 Memory 是最新的。当前 Scope 检查失败时仍可看到旧记录，
+但会明确标为过期或未核实，不能把旧成功当作当前成功。
+
+插件只在内存中保留最多 64 个会话与工作目录组合，每个组合保留最近一次尝试。新尝试会替换旧记录，旧请求晚完成
+也不能覆盖新结果；达到上限时淘汰旧会话。重启或淘汰后恢复为 `not_yet_observed`。
+状态不保存输入正文、准备的上下文、凭据或原始异常文本。查看状态可以只读解析 Scope，但不会执行 prepare、capture、
+flush 或修改绑定。Doctor 探测和手动操作也不会覆盖自动执行记录。
+
 ## 验证采集、处理和新会话召回
 
 这是会写入测试证据的显式验收。完成上述匹配安装和提取配置后：

@@ -465,17 +465,47 @@ capabilities = ["handoff"]
 id = "pc_handoff_continue:continue_handoff"
 capabilities = ["handoff"]
 [[toolsets.tools]]
+id = "pc_work_contract:create_work_contract"
+capabilities = ["work_contract"]
+[[toolsets.tools]]
+id = "pc_handoff_current:handoff_current_work"
+capabilities = ["handoff"]
+[[toolsets.tools]]
+id = "pc_handoff_acknowledge:acknowledge_handoff"
+capabilities = ["acknowledge"]
+[[toolsets.tools]]
+id = "pc_task_outcome:record_task_outcome"
+capabilities = ["task_outcome"]
+[[toolsets.tools]]
 id = "pc_experience_get:get_experience"
 capabilities = ["experience_read_or_generate"]
 [[toolsets.tools]]
 id = "pc_skill_get:get_skill"
 capabilities = ["skill_read_or_generate"]
 [[toolsets.tools]]
+id = "pc_topic_search:search_topic_memory"
+capabilities = ["topic_memory_read"]
+[[toolsets.tools]]
+id = "pc_topic_get:get_topic_memory"
+capabilities = ["topic_memory_read"]
+[[toolsets.tools]]
 id = "pc_review_list:list_artifact_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
 id = "pc_review_get:get_artifact_candidate"
 capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "pc_external_scan:scan_external_skills"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
+[[toolsets.tools]]
+id = "pc_external_list:list_external_skills"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
+[[toolsets.tools]]
+id = "pc_external_resolve:resolve_external_skill"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
+[[toolsets.tools]]
+id = "pc_external_import:import_external_skill"
+non_profile_reason = "Pi Full profile promotion is deferred until dependent #1621 and #1625 are merged."
 
 [[toolsets]]
 id = "pi-command"
@@ -629,8 +659,8 @@ tests = ["integrations/opencode/plugins/powercontext/tests/plugin.spec.ts"]
 id = "pi"
 kind = "agent_host"
 availability = "master_only"
-capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "handoff", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "pre_compaction_capture", "slash_command"]
-profiles = ["minimal"]
+capabilities = ["memory_read", "memory_write", "source_capture", "context_injection", "flush_or_checkpoint", "work_contract", "handoff", "acknowledge", "task_outcome", "experience_read_or_generate", "skill_read_or_generate", "candidate_review", "topic_memory_read", "pre_compaction_capture", "slash_command"]
+profiles = ["minimal", "recommended"]
 toolsets = ["pi-tools", "pi-command", "pi-lifecycle"]
 [integrations.evidence]
 implementation = ["integrations/pi/plugins/powercontext/src/tools.ts", "integrations/pi/plugins/powercontext/extensions/powercontext.ts"]

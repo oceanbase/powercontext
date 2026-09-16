@@ -14,9 +14,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import socket
+import subprocess
 import sys
 import textwrap
 import time
@@ -117,6 +119,9 @@ def _write_probe_server(tmp_path: Path, mode: str) -> tuple[list[str], dict[str,
 
 def _assert_process_stopped(pid_path: Path) -> None:
     pid = int(pid_path.read_text(encoding="utf-8"))
+    if os.name == "nt":
+        _assert_windows_process_stopped(pid)
+        return
     for _ in range(100):
         try:
             os.kill(pid, 0)
@@ -124,6 +129,51 @@ def _assert_process_stopped(pid_path: Path) -> None:
             return
         time.sleep(0.01)
     pytest.fail(f"probe process {pid} is still running")
+
+
+def _assert_windows_process_stopped(pid: int) -> None:
+    if sys.platform != "win32":
+        pytest.fail("Windows process handles are only available on Windows")
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    # Query the PID published by the server, which can differ from Popen.pid
+    # when the Windows virtualenv launcher starts another Python process.
+    handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: the process no longer exists.
+            return
+        raise ctypes.WinError(error)
+    try:
+        result = kernel32.WaitForSingleObject(handle, 1000)
+        if result == 0xFFFFFFFF:  # WAIT_FAILED
+            raise ctypes.WinError(ctypes.get_last_error())
+        assert result == 0, f"probe process {pid} is still running"  # WAIT_OBJECT_0
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-handle semantics")
+def test_process_exit_assertion_rejects_a_live_windows_process(tmp_path: Path) -> None:
+    pid_path = tmp_path / "pid"
+    with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as process:
+        pid_path.write_text(str(process.pid), encoding="utf-8")
+        try:
+            # Unlike POSIX, os.kill(pid, 0) can terminate a Windows process.
+            with pytest.raises(AssertionError, match="is still running"):
+                _assert_process_stopped(pid_path)
+            assert process.poll() is None
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
 
 
 def test_setup_opencode_installs_plugin_and_owned_skill(tmp_path: Path, monkeypatch) -> None:
@@ -153,7 +203,7 @@ def test_setup_opencode_installs_plugin_and_owned_skill(tmp_path: Path, monkeypa
     assert json.loads((skill / ".powercontext.json").read_text(encoding="utf-8"))["owner"] == "powercontext"
 
 
-def test_remote_checkout_cache_is_scoped_by_source_and_resolved_commit(tmp_path: Path, monkeypatch) -> None:
+def test_remote_checkout_cache_is_scoped_by_source_and_resolved_commit(short_tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.opencode as opencode_cli
 
     commits = iter(["a" * 40, "b" * 40, "a" * 40])
@@ -161,7 +211,7 @@ def test_remote_checkout_cache_is_scoped_by_source_and_resolved_commit(tmp_path:
     def clone(_source: str, _ref: str, target: Path) -> None:
         _write_plugin(target)
 
-    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(short_tmp_path))
     monkeypatch.setattr(opencode_cli, "clone_github_source", clone)
     monkeypatch.setattr(opencode_cli, "_checkout_commit", lambda _target: next(commits), raising=False)
 
@@ -179,7 +229,7 @@ def test_remote_checkout_cache_is_scoped_by_source_and_resolved_commit(tmp_path:
     )
 
 
-def test_remote_checkout_refresh_failure_keeps_previous_commit(tmp_path: Path, monkeypatch) -> None:
+def test_remote_checkout_refresh_failure_keeps_previous_commit(short_tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.opencode as opencode_cli
 
     attempts = 0
@@ -191,7 +241,7 @@ def test_remote_checkout_refresh_failure_keeps_previous_commit(tmp_path: Path, m
             raise SetupError.git_clone_failed()
         _write_plugin(target)
 
-    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(short_tmp_path))
     monkeypatch.setattr(opencode_cli, "clone_github_source", clone)
     monkeypatch.setattr(opencode_cli, "_checkout_commit", lambda _target: "a" * 40)
 

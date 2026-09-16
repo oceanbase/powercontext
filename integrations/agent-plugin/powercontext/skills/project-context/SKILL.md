@@ -13,6 +13,33 @@ Use the PowerContext MCP tools for explicit Memory and Handoff operations. Do
 not infer that context was saved, revised, retired, or transferred until the
 corresponding tool call returns successfully.
 
+## Choose the operation
+
+Summarizing or drafting from facts supplied in the current turn needs no retrieval or Scope resolution. An empty search does not authorize an inventory. If inventory or Handoff is unavailable, do not emulate it with Memory search or storage.
+
+Tool names in this guidance describe possible capabilities, not proof of availability. Before selecting an operation, check that its exact name appears in the current tool catalog. If absent, stop that operation and explicitly report it unavailable and incomplete. Never emit a call to an absent tool, simulate a call in text, or substitute another persistence operation.
+
+Ordinary coding and conceptual questions need no routine PowerContext calls.
+When continuing work, use sufficient current context and retrieve additional
+history only when needed. Explicit "search my memories / 搜索记忆" requests
+require `search_memory` with a focused query. Use `list_memory_entries`
+only for an explicit inventory or audit ("list saved memories / 列出已保存的记忆"),
+not as the normal way to restore context.
+
+Explicit "remember this / 记住这个供以后使用" requests require `remember_memory`
+and confirmation of its actual result. A current-turn instruction or a preview
+does not authorize a write. Automatic Source capture does not satisfy an
+explicit save, and enabled hooks do not establish successful processing,
+retrieval, or injection. Source acceptance may produce no Memory.
+
+An empty retrieval is normal. On a failed, denied, unscoped, or unavailable
+operation, report the operation and its safe returned reason; do not guess a
+cause or claim successful saving or restoration. Continue ordinary work and
+avoid repeated failed calls. Preserve exact citations and current host approval
+checks. Candidate generation, reading, and assessment do not authorize approval,
+installation, publication, or execution. Use only tools actually available in
+this host; loading this Skill is not required before every response.
+
 ## Resolve Scope
 
 Before the first data-plane call, use `resolve_scope_binding` to obtain one
@@ -27,11 +54,23 @@ references, then bind the host identity when the integration supports durable
 binding. Creating or switching a Scope is a host action, not an implicit result
 of an ordinary Memory or Handoff call.
 
+## Current-work Handoff input
+
+Use `handoff_current_work` with a unique `source_id` and a `handoff` object
+containing `schema: "powercontext.current-work-handoff.v1"`, `trust: "untrusted_input"`,
+`objective`, `state`, `disposition`, `next_action`, and `omissions`. Both state
+items and a non-null next action are WorkClaims: `{text, basis, evidence}`.
+Use `basis: "declared"` and `evidence: []` for facts inspected in the current
+conversation or repository without an existing exact PowerContext citation.
+Do not use `citations` in a WorkClaim, invent evidence for the new `source_id`,
+or call a fact `verified` merely because the user checked it. Preserve the
+returned carrier unchanged, including its Server-created evidence references.
+
 ## Read Memory
 
 - Use `search_memory` with a focused query, `mode: "auto"`, and no more than
   eight results.
-- Use `list_memory_entries` to inspect active entries for the current scope.
+- Use `list_memory_entries` for an explicitly requested inventory of active entries in the current scope.
 - Set `include_inactive` to `true` only when the user explicitly asks to audit
   retired entries or the complete Memory snapshot.
 - Use `get_memory_entry` with the exact returned `citation` when immutable entry

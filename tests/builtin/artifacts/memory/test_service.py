@@ -180,3 +180,29 @@ def test_memory_organize_deduplicates_and_normalizes_existing_entries() -> None:
             assert entries[1] == versions[1]
 
     asyncio.run(scenario())
+
+
+def test_memory_head_entries_matches_head_and_entries_read_separately() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            service = (await contexts.get("head-entries")).artifacts.memory
+            initial = await service.remember(
+                memory=None,
+                entries=(
+                    MemoryEntryInput(kind="decision", text="Read a head and its entries together."),
+                    MemoryEntryInput(kind="fact", text="A head read from storage is already canonical."),
+                ),
+                mode="append",
+            )
+            assert initial is not None
+            forgotten = await service.forget(initial, entries=((await service.entries(initial))[0],), reason="done")
+
+            head = await service.head(forgotten.artifact_id)
+            separate = await service.entries(head)
+            combined_head, combined_entries = await service.head_entries(forgotten.artifact_id)
+
+            assert combined_head == head
+            assert combined_entries == separate
+            assert [item.state for item in combined_head.content.manifest.entries] == ["inactive", "active"]
+
+    asyncio.run(scenario())

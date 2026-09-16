@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel
@@ -26,6 +26,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
 from powercontext.builtin.persistence.errors import (
     GenerationConflictError,
     InvalidRepositoryArgumentError,
@@ -66,6 +67,36 @@ class SourceCursorRepository:
             statement = statement.with_for_update()
         row = (await connection.execute(statement)).mappings().one_or_none()
         return None if row is None else _decode_row(row)
+
+    async def load_many(
+        self,
+        connection: AsyncConnection,
+        scope_ids: Sequence[str],
+        binding_name: str,
+        /,
+    ) -> dict[str, StoredSourceCursor]:
+        """Return the cursors that exist for one binding across a Scope selection."""
+
+        _require_identifier("binding_name", binding_name, MAX_BINDING_NAME_LENGTH)
+        scopes: dict[str, None] = {}
+        for scope_id in scope_ids:
+            _require_identifier("scope_id", scope_id, MAX_SCOPE_ID_LENGTH)
+            scopes.setdefault(scope_id, None)
+        ordered = tuple(scopes)
+        loaded: dict[str, StoredSourceCursor] = {}
+        for start in range(0, len(ordered), SELECTION_BATCH_SIZE):
+            batch = ordered[start : start + SELECTION_BATCH_SIZE]
+            rows = (
+                await connection.execute(
+                    select(SOURCE_CURSORS_TABLE).where(
+                        SOURCE_CURSORS_TABLE.c.scope_id.in_(batch),
+                        SOURCE_CURSORS_TABLE.c.binding_name == binding_name,
+                    )
+                )
+            ).mappings()
+            for row in rows:
+                loaded[str(row["scope_id"])] = _decode_row(row)
+        return loaded
 
     async def save(
         self,

@@ -217,7 +217,7 @@ from powercontext.builtin.runtime.readiness import (
     RuntimeReadinessChecks,
     RuntimeReadinessStatus,
 )
-from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
+from powercontext.builtin.runtime.statistics import RelationalScopedStatistics, overview_selection
 from powercontext.builtin.scope import ScopeApplication, ScopeDescriptor, ScopeSelection
 from powercontext.builtin.scope.subject_sources import SubjectSourceService
 from powercontext.builtin.sources import (
@@ -695,9 +695,11 @@ class StatisticsApplication:
         async with self._runtime._operation():
             resolved = await self._runtime.scopes.resolve_selection(selection)
             captured_at = self._runtime._clock()
-            snapshots = tuple([
-                await self._runtime._statistics(scope.scope_id).overview(period, captured_at) for scope in resolved
-            ])
+            snapshots = await overview_selection(
+                tuple(self._runtime._statistics(scope.scope_id) for scope in resolved),
+                period,
+                captured_at,
+            )
         return aggregate_statistics(
             selection,
             tuple(scope.scope_id for scope in resolved),

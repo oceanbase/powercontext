@@ -19,6 +19,9 @@ import {
   MAX_RESPONSE_BYTES,
   PLUGIN_USER_AGENT,
   REQUEST_ID_HEADER,
+  RequestNotSentError,
+  ResponseReadError,
+  safeRequestId,
   ServerResponseError,
   TransportError,
   UnavailableError,
@@ -208,27 +211,29 @@ export class PowerContextClient {
     const spec = OPERATIONS[id as OperationId]
     const prepared = prepareRequest(spec, payload)
     const url = `${this.baseUrl}${prepared.path}${prepared.query}`
+    const init = this.buildInit(spec, prepared, signal)
+    if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(undefined, init.signal))
     try {
-      const response = await this.fetchImpl(url, this.buildInit(spec, prepared, signal))
-      return await this.parseResponse(id, spec, payload, response, options.readinessResponse === true)
+      const response = await this.fetchImpl(url, init)
+      return await this.parseResponse(id, spec, payload, response, options.readinessResponse === true, init.signal)
     } catch (error) {
       if (error instanceof ServerResponseError || error instanceof InvalidResponseError) throw error
       if (error instanceof UnknownOperationError) throw error
-      throw this.wrapTransport(prepared.path, error)
+      throw this.wrapTransport(prepared.path, error, init.signal)
     }
   }
 
   async readOpenApi(signal?: AbortSignal): Promise<ClientSuccess> {
     const path = '/openapi.json'
     const spec = OPERATIONS.get_liveness
+    const init = this.buildInit(spec, { path, query: '', headers: {}, body: undefined }, signal)
+    if (init.signal?.aborted) throw new RequestNotSentError(path, this.transportCause(undefined, init.signal))
     try {
-      const response = await this.fetchImpl(this.baseUrl + path, this.buildInit(spec, {
-        path, query: '', headers: {}, body: undefined,
-      }, signal))
-      return await this.parseResponse('openapi_document', { ...spec, path }, undefined, response)
+      const response = await this.fetchImpl(this.baseUrl + path, init)
+      return await this.parseResponse('openapi_document', { ...spec, path }, undefined, response, false, init.signal)
     } catch (error) {
       if (error instanceof ServerResponseError || error instanceof InvalidResponseError) throw error
-      throw this.wrapTransport(path, error)
+      throw this.wrapTransport(path, error, init.signal)
     }
   }
 
@@ -252,10 +257,15 @@ export class PowerContextClient {
     return init
   }
 
-  private wrapTransport(path: string, error: unknown): TransportError {
-    if (error instanceof Error && error.name === 'TimeoutError') return new UnavailableError(path, error)
-    if (error instanceof DOMException && error.name === 'AbortError') return new UnavailableError(path, error)
-    return new UnavailableError(path, error)
+  private transportCause(error: unknown, signal?: AbortSignal | null): unknown {
+    if (!signal?.aborted) return error
+    return new DOMException('HTTP operation stopped', signal.reason instanceof Error && signal.reason.name === 'TimeoutError'
+      ? 'TimeoutError' : 'AbortError')
+  }
+
+  private wrapTransport(path: string, error: unknown, signal?: AbortSignal | null): TransportError {
+    if (error instanceof TransportError) return error
+    return new UnavailableError(path, this.transportCause(error, signal))
   }
 
   private async parseResponse(
@@ -264,18 +274,19 @@ export class PowerContextClient {
     payload: JsonObject | undefined,
     response: Response,
     readinessResponse = false,
+    signal?: AbortSignal | null,
   ): Promise<ClientSuccess> {
     const success = (response.status >= 200 && response.status < 300)
       || hasStatus(spec.successStatuses as readonly number[], response.status)
       || (readinessResponse && id === 'get_readiness' && response.status === 503)
-    const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined
+    const requestId = safeRequestId(response.headers.get(REQUEST_ID_HEADER) ?? undefined)
     if (isRedirect(response.status) && !success) throw new InvalidResponseError(spec.path, requestId, response.status, 'redirect')
     let bytes: Uint8Array
     try {
       bytes = await readLimitedBody(response)
     } catch (error) {
       if (error instanceof InvalidResponseError) throw new InvalidResponseError(spec.path, requestId, response.status, error.issue)
-      throw error
+      throw new ResponseReadError(spec.path, this.transportCause(error, signal), response.status, requestId)
     }
     if (!success) {
       throw this.httpError(response.status, spec.path, requestId, bytes)

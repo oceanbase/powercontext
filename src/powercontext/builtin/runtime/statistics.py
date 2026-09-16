@@ -17,17 +17,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.artifacts.memory import MemoryService
 from powercontext.builtin.inference import InferenceUsage, TokenEstimatorProfile
-from powercontext.builtin.persistence.cursors import SourceCursorRepository
+from powercontext.builtin.persistence.cursors import SourceCursorRepository, StoredSourceCursor
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.statistics import (
     StatisticsRepository,
+    StoredInventoryCounts,
     StoredModelUsage,
     StoredRecallTokenUsage,
 )
@@ -70,6 +72,17 @@ _PERIOD_DAYS = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class _ScopeReads:
+    """One Scope's raw statistics rows, before projection into the contract."""
+
+    inventory: StoredInventoryCounts
+    processed_sources: int
+    memory_entries: tuple[tuple[str, str], ...]
+    usage: tuple[StoredModelUsage, ...]
+    recall: tuple[StoredRecallTokenUsage, ...]
+
+
 class RelationalScopedStatistics:
     """Assemble one scope's inventory and usage in explicit transactions."""
 
@@ -96,50 +109,52 @@ class RelationalScopedStatistics:
         captured_at = _as_utc(as_of)
         resolved_period = _resolve_period(period, captured_at.date())
         async with self._database.transaction() as connection:
-            stored_inventory = await self._repository.inventory(connection, self._scope_id)
-            cursor = await self._cursors.load(
-                connection,
-                self._scope_id,
-                SOURCE_WINDOW_TRIGGER_NAME,
-            )
-            memory_entries = await self._memory_entries(connection)
-            usage_rows = await self._repository.usage(
-                connection,
-                self._scope_id,
-                resolved_period.start_date,
-                resolved_period.end_date,
-            )
-            recall_rows = (
+            reads = await self._read(connection, resolved_period)
+        return self._assemble(reads, resolved_period, captured_at)
+
+    async def _read(self, connection: AsyncConnection, period: ResolvedUsagePeriod, /) -> _ScopeReads:
+        """Read one Scope's raw statistics rows on an already-open connection."""
+
+        cursor = await self._cursors.load(connection, self._scope_id, SOURCE_WINDOW_TRIGGER_NAME)
+        return _ScopeReads(
+            inventory=await self._repository.inventory(connection, self._scope_id),
+            processed_sources=_processed_sources(cursor),
+            memory_entries=await self._memory_entries(connection),
+            usage=await self._repository.usage(connection, self._scope_id, period.start_date, period.end_date),
+            recall=(
                 ()
                 if self._token_estimator is None
                 else await self._repository.recall_usage(
                     connection,
                     self._scope_id,
-                    resolved_period.start_date,
-                    resolved_period.end_date,
+                    period.start_date,
+                    period.end_date,
                     estimator_id=self._token_estimator.estimator_id,
                     estimator_version=self._token_estimator.version,
                 )
-            )
+            ),
+        )
 
-        processed = 0 if cursor is None else cursor.cursor.sequence
-        artifacts = tuple(FamilyCount(family=family, total=total) for family, total in stored_inventory.artifacts)
-        candidates = _candidate_inventory(stored_inventory.candidates)
+    def _assemble(self, reads: _ScopeReads, period: ResolvedUsagePeriod, captured_at: datetime, /) -> Statistics:
+        """Project one Scope's raw rows into the statistics contract."""
+
+        artifacts = tuple(FamilyCount(family=family, total=total) for family, total in reads.inventory.artifacts)
+        candidates = _candidate_inventory(reads.inventory.candidates)
         inventory = InventoryStatistics(
             sources=SourceInventoryStatistics(
-                total=stored_inventory.sources,
-                memory_processed=processed,
-                memory_pending=max(stored_inventory.sources - processed, 0),
+                total=reads.inventory.sources,
+                memory_processed=reads.processed_sources,
+                memory_pending=max(reads.inventory.sources - reads.processed_sources, 0),
             ),
             artifacts=ArtifactInventoryStatistics(
                 total=sum(item.total for item in artifacts),
                 by_family=artifacts,
             ),
             candidates=candidates,
-            memory=MemoryInventoryStatistics(entries=_memory_inventory(memory_entries)),
+            memory=MemoryInventoryStatistics(entries=_memory_inventory(reads.memory_entries)),
         )
-        usage = _usage_statistics(resolved_period, usage_rows)
-        recall = _recall_statistics(resolved_period, self._token_estimator, recall_rows)
+        usage = _usage_statistics(period, reads.usage)
+        recall = _recall_statistics(period, self._token_estimator, reads.recall)
         return Statistics(
             selection=ScopeSelection(mode="exact", scope_ids=(self._scope_id,)),
             scope_ids=(self._scope_id,),
@@ -189,12 +204,91 @@ class RelationalScopedStatistics:
     async def _memory_entries(self, connection: AsyncConnection) -> tuple[tuple[str, str], ...]:
         service = self._memory_service(connection)
         try:
-            memory = await service.head(self._memory_artifact_id)
+            memory, entries = await service.head_entries(self._memory_artifact_id)
         except ArtifactNotFoundError:
             return ()
-        entries = await service.entries(memory)
         states = {item.entry_id: item.state for item in memory.content.manifest.entries}
         return tuple((entry.kind, states[entry.entry_id]) for entry in entries)
+
+
+async def overview_selection(
+    services: Sequence[RelationalScopedStatistics],
+    period: StatisticsPeriod,
+    as_of: datetime,
+    /,
+) -> tuple[Statistics, ...]:
+    """Read a whole Scope selection in one transaction, one query per table instead of per Scope.
+
+    The per-Scope reads answer the same question for every Scope, so issuing them once per
+    Scope makes a selection cost ``scopes x queries`` round trips and one transaction each.
+    Reading them together keeps the cost of a selection close to the cost of one Scope, and
+    the shared transaction gives every Scope the same snapshot. Services must belong to one
+    Runtime, which is what ``StatisticsApplication`` hands over.
+    """
+
+    if not services:
+        return ()
+    captured_at = _as_utc(as_of)
+    resolved_period = _resolve_period(period, captured_at.date())
+    shared = services[0]
+    scope_ids = tuple(service._scope_id for service in services)
+    async with shared._database.transaction() as connection:
+        inventories = await shared._repository.inventory_many(connection, scope_ids)
+        cursors = await shared._cursors.load_many(connection, scope_ids, SOURCE_WINDOW_TRIGGER_NAME)
+        usage = await shared._repository.usage_many(
+            connection,
+            scope_ids,
+            resolved_period.start_date,
+            resolved_period.end_date,
+        )
+        recall = await _recall_by_scope(connection, shared._repository, services, resolved_period)
+        reads = [
+            _ScopeReads(
+                inventory=inventories[service._scope_id],
+                processed_sources=_processed_sources(cursors.get(service._scope_id)),
+                memory_entries=await service._memory_entries(connection),
+                usage=usage[service._scope_id],
+                recall=recall.get(service._scope_id, ()),
+            )
+            for service in services
+        ]
+    return tuple(
+        service._assemble(scope_reads, resolved_period, captured_at)
+        for service, scope_reads in zip(services, reads, strict=True)
+    )
+
+
+async def _recall_by_scope(
+    connection: AsyncConnection,
+    repository: StatisticsRepository,
+    services: Sequence[RelationalScopedStatistics],
+    period: ResolvedUsagePeriod,
+    /,
+) -> dict[str, tuple[StoredRecallTokenUsage, ...]]:
+    """Read recall aggregates once per estimator profile present in the selection."""
+
+    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for service in services:
+        estimator = service._token_estimator
+        if estimator is not None:
+            grouped[estimator.estimator_id, estimator.version].append(service._scope_id)
+    recall: dict[str, tuple[StoredRecallTokenUsage, ...]] = {}
+    for (estimator_id, estimator_version), scope_ids in grouped.items():
+        recall.update(
+            await repository.recall_usage_many(
+                connection,
+                tuple(scope_ids),
+                period.start_date,
+                period.end_date,
+                estimator_id=estimator_id,
+                estimator_version=estimator_version,
+            )
+        )
+    return recall
+
+
+def _processed_sources(cursor: StoredSourceCursor | None, /) -> int:
+    return 0 if cursor is None else cursor.cursor.sequence
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -389,4 +483,4 @@ def _usage_total(values: tuple[ModelUsageValue, ...]) -> ModelUsageValue:
     )
 
 
-__all__ = ["RelationalScopedStatistics"]
+__all__ = ["RelationalScopedStatistics", "overview_selection"]

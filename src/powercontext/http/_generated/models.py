@@ -3616,7 +3616,13 @@ class WorkClaim(BaseModel):
     )
     text: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     basis: WorkClaimBasis
-    evidence: Annotated[list[HandoffCitation], Field(max_length=31)]
+    evidence: Annotated[
+        list[HandoffCitation],
+        Field(
+            description="Use [] with declared. verified requires exact previously returned citations; never invent evidence from the new Source ID.",
+            max_length=31,
+        ),
+    ]
 
 
 class WorkContract(BaseModel):

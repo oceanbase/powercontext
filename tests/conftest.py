@@ -14,11 +14,22 @@
 
 """Repository-wide pytest collection controls."""
 
+from collections.abc import Iterator
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
 _REAL_E2E_ROOT = Path(__file__).parent / "e2e" / "real_experience_skill"
+
+
+@pytest.fixture
+def short_tmp_path() -> Iterator[Path]:
+    """Leave room for nested checkout caches and backup names on Windows."""
+    # pytest's user/session/test-name directories can exhaust MAX_PATH before
+    # the fixture's cache, commit hash, and plugin files have been appended.
+    with TemporaryDirectory(prefix="pc-") as directory:
+        yield Path(directory)
 
 
 @pytest.fixture(autouse=True)
