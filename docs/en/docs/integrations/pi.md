@@ -44,6 +44,8 @@ The package resolves one Server-owned Scope in this order: `POWERCONTEXT_PI_SCOP
 workspace, then the Server default. The workspace path is hashed only as an external binding key; it never becomes a
 Scope ID. Keep the explicit variable unset unless the host must force one existing Scope.
 
+With these capabilities enabled, Pi satisfies the repository's Full core integration profile.
+
 ## Control prompt capture
 
 Prompt capture is enabled by default. Disable it before starting Pi when current work must not be recorded:

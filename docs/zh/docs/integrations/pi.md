@@ -43,6 +43,8 @@ package 按 `POWERCONTEXT_PI_SCOPE_ID`、workspace 持久 binding、Server 默�
 管理的 Scope。workspace 路径只会哈希为外部 binding key，不会成为 Scope ID。仅在宿主必须固定到某个已有
 Scope 时设置显式变量。
 
+启用这些能力后，Pi 已满足仓库定义的 Full 核心接入 profile。
+
 ## 控制提示词采集
 
 默认开启提示词采集。当前工作不应被记录时，请在启动 Pi 前关闭：

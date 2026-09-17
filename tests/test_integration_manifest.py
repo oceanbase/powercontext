@@ -48,6 +48,27 @@ def test_manifest_matches_setup_catalog_evidence_and_actual_tool_surfaces() -> N
     assert tool_surface_errors(manifest) == ()
 
 
+def test_pi_declares_full_profile_after_external_skill_support_is_merged() -> None:
+    manifest = load_integration_manifest()
+    pi = next(integration for integration in manifest.integrations if integration.id == "pi")
+    pi_tools = next(toolset for toolset in manifest.toolsets if toolset.id == "pi-tools")
+    external_tools = {
+        "pc_external_scan:scan_external_skills",
+        "pc_external_list:list_external_skills",
+        "pc_external_resolve:resolve_external_skill",
+        "pc_external_import:import_external_skill",
+    }
+
+    assert "full" in pi.profiles
+    assert "external_skill" in pi.capabilities
+    assert {tool.id for tool in pi_tools.tools if tool.id in external_tools} == external_tools
+    assert all(
+        tool.capabilities == ("external_skill",)
+        for tool in pi_tools.tools
+        if tool.id in external_tools
+    )
+
+
 @pytest.mark.parametrize("missing_operation", [False, True])
 def test_tool_surface_probe_handles_long_descriptions_without_borrowing_operations(
     tmp_path: Path,
