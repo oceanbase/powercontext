@@ -62,11 +62,7 @@ def test_pi_declares_full_profile_after_external_skill_support_is_merged() -> No
     assert "full" in pi.profiles
     assert "external_skill" in pi.capabilities
     assert {tool.id for tool in pi_tools.tools if tool.id in external_tools} == external_tools
-    assert all(
-        tool.capabilities == ("external_skill",)
-        for tool in pi_tools.tools
-        if tool.id in external_tools
-    )
+    assert all(tool.capabilities == ("external_skill",) for tool in pi_tools.tools if tool.id in external_tools)
 
 
 @pytest.mark.parametrize("missing_operation", [False, True])
