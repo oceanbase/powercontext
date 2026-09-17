@@ -1568,6 +1568,7 @@ def _resolve_codex_native_authorization(mcp_url: str) -> tuple[Diagnostic, str |
     )
     process_value = os.environ.get("POWERCONTEXT_CODEX_AUTHORIZATION")
     process_authorization: str | None = None
+    comparable_process_authorization: str | None = None
     process_state = "not_configured"
     if process_value is not None:
         try:
@@ -1575,10 +1576,12 @@ def _resolve_codex_native_authorization(mcp_url: str) -> tuple[Diagnostic, str |
         except ValueError:
             process_state = "invalid"
         else:
-            if normalized_process_authorization != process_value:
+            scheme, separator, _credential = process_value.partition(" ")
+            if process_value != process_value.strip() or not separator or scheme.casefold() != "bearer":
                 process_state = "invalid"
             else:
                 process_authorization = process_value
+                comparable_process_authorization = normalized_process_authorization
                 process_state = "configured"
     desktop_authorization = read_codex_desktop_authorization()
     expected_authorization = authorization.authorization
@@ -1586,7 +1589,7 @@ def _resolve_codex_native_authorization(mcp_url: str) -> tuple[Diagnostic, str |
         stored_state=authorization.status,
         stored_authorization=expected_authorization,
         process_state=process_state,
-        process_authorization=process_authorization,
+        process_authorization=comparable_process_authorization,
         desktop_authorization=desktop_authorization,
     )
     stored_issue = _codex_stored_authorization_issue(authorization.status, checks["setup_managed"])
