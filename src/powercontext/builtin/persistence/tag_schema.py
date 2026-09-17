@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Preserve logical tags while widening the legacy family constraint."""
+"""Preserve logical tags while removing the legacy family whitelist."""
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -28,7 +28,7 @@ async def ensure_topic_memory_tag_schema(connection: AsyncConnection) -> None:
         # Start a real write transaction before DDL, including legacy sqlite3 mode.
         await connection.exec_driver_sql("UPDATE pc_artifact_tags SET tag = tag WHERE 0")
         ddl = await connection.scalar(text("SELECT sql FROM sqlite_master WHERE name = 'pc_artifact_tags'"))
-        if ddl is None or "topic-memory" in ddl:
+        if ddl is None or "ck_pc_artifact_tags_family" not in ddl:
             return
         create = str(CreateTable(ARTIFACT_TAGS_TABLE).compile(dialect=connection.dialect))
         await connection.exec_driver_sql(
@@ -50,9 +50,5 @@ async def ensure_topic_memory_tag_schema(connection: AsyncConnection) -> None:
                 "WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'ck_pc_artifact_tags_family'"
             )
         )
-        if clause is not None and "topic-memory" not in clause:
-            await connection.exec_driver_sql(
-                "ALTER TABLE pc_artifact_tags DROP CHECK ck_pc_artifact_tags_family, "
-                "ADD CONSTRAINT ck_pc_artifact_tags_family "
-                "CHECK (family IN ('memory', 'experience', 'skill', 'handoff', 'topic-memory'))"
-            )
+        if clause is not None:
+            await connection.exec_driver_sql("ALTER TABLE pc_artifact_tags DROP CHECK ck_pc_artifact_tags_family")

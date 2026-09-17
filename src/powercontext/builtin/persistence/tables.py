@@ -1043,9 +1043,6 @@ ARTIFACT_TAGS_TABLE = Table(
         ondelete="CASCADE",
     ),
     CheckConstraint(
-        "family IN ('memory', 'experience', 'skill', 'handoff', 'topic-memory')", name="ck_pc_artifact_tags_family"
-    ),
-    CheckConstraint(
         "(target_type = 'artifact' AND target_id = artifact_id) OR "
         "(target_type = 'memory_entry' AND family = 'memory')",
         name="ck_pc_artifact_tags_target",

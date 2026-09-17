@@ -305,7 +305,8 @@ def test_statistics_outage_does_not_block_topic_memory_writes(tmp_path, monkeypa
         assert client.get(f"/v1/scopes/{target}/artifacts/topic-memory/{target_ref['artifact_id']}").status_code == 200
 
 
-def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path):
+@pytest.mark.parametrize("topic_family", [False, True])
+def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path, topic_family):
     with TestClient(_app(tmp_path)) as client:
         scope = _scope(client, "legacy")
         created = client.post(
@@ -326,7 +327,14 @@ def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path
         ddl = connection.execute("SELECT sql FROM sqlite_master WHERE name = 'pc_artifact_tags'").fetchone()[0]
         rows = connection.execute("SELECT * FROM pc_artifact_tags").fetchall()
         connection.execute("DROP TABLE pc_artifact_tags")
-        connection.execute(ddl.replace(", 'topic-memory'", ""))
+        families = "'memory', 'experience', 'skill', 'handoff'" + (", 'topic-memory'" if topic_family else "")
+        connection.execute(
+            ddl.replace(
+                "CONSTRAINT ck_pc_artifact_tags_target",
+                f"CONSTRAINT ck_pc_artifact_tags_family CHECK (family IN ({families})), "
+                "CONSTRAINT ck_pc_artifact_tags_target",
+            )
+        )
         connection.executemany("INSERT INTO pc_artifact_tags VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
 
     class InterruptedUpgrade(Exception):
@@ -345,8 +353,8 @@ def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path
     asyncio.run(interrupted_upgrade())
     with sqlite3.connect(database) as connection:
         assert (
-            "topic-memory"
-            not in connection.execute("SELECT sql FROM sqlite_master WHERE name = 'pc_artifact_tags'").fetchone()[0]
+            "ck_pc_artifact_tags_family"
+            in connection.execute("SELECT sql FROM sqlite_master WHERE name = 'pc_artifact_tags'").fetchone()[0]
         )
         assert connection.execute("SELECT * FROM pc_artifact_tags").fetchall() == rows
     for _ in range(2):
@@ -364,6 +372,11 @@ def test_legacy_tags_survive_transactional_upgrade_and_repeated_startup(tmp_path
                 == 200
             )
     with sqlite3.connect(database) as connection:
+        ddl = connection.execute("SELECT sql FROM sqlite_master WHERE name = 'pc_artifact_tags'").fetchone()[0]
+        assert "ck_pc_artifact_tags_family" not in ddl
+        assert "ck_pc_artifact_tags_target" in ddl
+        assert connection.execute("PRAGMA foreign_key_list('pc_artifact_tags')").fetchall()
+        assert any(row[5] for row in connection.execute("PRAGMA table_info('pc_artifact_tags')"))
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         indexes = {row[1] for row in connection.execute("PRAGMA index_list('pc_artifact_tags')")}
         assert {"ix_pc_artifact_tags_family_key", "ix_pc_artifact_tags_key"} <= indexes
