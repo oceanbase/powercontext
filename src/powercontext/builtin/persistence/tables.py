@@ -409,6 +409,27 @@ ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
     ),
 )
 
+PORTABLE_RESTORE_RECEIPTS_TABLE = Table(
+    "pc_portable_restore_receipts",
+    SHARED_METADATA,
+    Column("bundle_id", identity_string(36), primary_key=True),
+    Column("format_version", Integer, nullable=False),
+    Column("total_digest", identity_string(71), nullable=False),
+    Column("record_count", BigInteger, nullable=False),
+    Column("status", identity_string(32), nullable=False),
+    Column("inserted", BigInteger, nullable=False),
+    Column("already_present", BigInteger, nullable=False),
+    Column("projections_ready", Boolean, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "status IN ('authoritative_restored', 'ready')",
+        name="ck_pc_portable_restore_receipts_status",
+    ),
+    CheckConstraint("record_count >= 0", name="ck_pc_portable_restore_receipts_record_count"),
+    CheckConstraint("inserted >= 0", name="ck_pc_portable_restore_receipts_inserted"),
+    CheckConstraint("already_present >= 0", name="ck_pc_portable_restore_receipts_existing"),
+)
+
 PROFILE_POLICIES_TABLE = Table(
     "pc_profile_policies",
     SHARED_METADATA,
@@ -905,6 +926,7 @@ SHARED_TABLES = (
     ARTIFACT_PUBLICATIONS_TABLE,
     ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_CANDIDATE_HEADS_TABLE,
+    PORTABLE_RESTORE_RECEIPTS_TABLE,
     PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,

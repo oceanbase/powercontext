@@ -82,6 +82,7 @@ cli = [
     "inquirerpy>=0.3,<1",
     "packaging>=24,<27",
     "platformdirs>=4,<5",
+    "powercontext[builtin]",
     "powercontext[client]",
     "pyyaml>=6,<7",
     "typer>=0.16,<1",
@@ -96,6 +97,7 @@ doctor = "powercontext.cli.system:doctor_app"
 service = "powercontext.service.cli:app"
 server = "powercontext.server.cli:app"
 setup = "powercontext.cli.system:setup_app"
+archive = "powercontext.cli.archive:archive_app"
 
 [project.urls]
 Homepage = "https://github.com/oceanbase/powercontext"
