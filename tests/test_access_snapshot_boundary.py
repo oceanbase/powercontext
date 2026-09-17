@@ -32,6 +32,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -54,7 +55,6 @@ from powercontext.server.authz import (
     ResourceRef,
     ResourceSearchRequest,
 )
-from powercontext.server.authz import repository as authz_repository
 from powercontext.server.authz.models import ArtifactOwnerRelation
 from powercontext.server.authz.repository import ACCESS_TABLES, RelationalAccessRepository
 
@@ -454,7 +454,7 @@ def test_snapshot_path_survives_two_connection_interleaving(tmp_path) -> None:
 
             async with SQLiteProfile.open(SQLiteConfig(url=database_url), tables=ACCESS_TABLES) as reader_profile:
                 reader_repository = RelationalAccessRepository(reader_profile.database)
-                original = authz_repository._read_policy_revision
+                original = reader_repository._read_policy_revision
                 reads = 0
                 grants = 0
 
@@ -469,8 +469,13 @@ def test_snapshot_path_survives_two_connection_interleaving(tmp_path) -> None:
                         await writer_repository.create_binding(_late_grant(f"viewer-late-{grants}", handoff))
                     return value
 
-                authz_repository._read_policy_revision = commit_between_reads
-                try:
+                # Patched on the repository the reader actually goes through, so
+                # the interception cannot silently miss the snapshot path.
+                with patch.object(
+                    reader_repository,
+                    "_read_policy_revision",
+                    new=commit_between_reads,
+                ):
                     for provider in (
                         BuiltinAuthorizationProvider(reader_repository),
                         CasbinAuthorizationProvider(reader_repository),
@@ -488,8 +493,6 @@ def test_snapshot_path_survives_two_connection_interleaving(tmp_path) -> None:
                         assert reads == 2, (
                             "the snapshot must hold on the first attempt, without spending the retry budget"
                         )
-                finally:
-                    authz_repository._read_policy_revision = original
 
     asyncio.run(scenario())
 
@@ -511,8 +514,7 @@ def test_snapshot_read_fails_closed_when_isolation_cannot_pinned(tmp_path) -> No
 
             async with SQLiteProfile.open(SQLiteConfig(url=database_url), tables=ACCESS_TABLES) as reader_profile:
                 reader_repository = RelationalAccessRepository(reader_profile.database)
-                original_revision = authz_repository._read_policy_revision
-                original_pin = authz_repository._pin_read_snapshot
+                original_revision = reader_repository._read_policy_revision
                 reads = 0
                 grants = 0
 
@@ -529,9 +531,10 @@ def test_snapshot_read_fails_closed_when_isolation_cannot_pinned(tmp_path) -> No
                 async def unpinnable(_connection: AsyncConnection) -> None:
                     return None
 
-                authz_repository._read_policy_revision = commit_between_reads
-                authz_repository._pin_read_snapshot = unpinnable
-                try:
+                with (
+                    patch.object(reader_repository, "_read_policy_revision", new=commit_between_reads),
+                    patch.object(reader_repository, "_pin_read_snapshot", new=unpinnable),
+                ):
                     for provider in (
                         BuiltinAuthorizationProvider(reader_repository),
                         CasbinAuthorizationProvider(reader_repository),
@@ -546,8 +549,5 @@ def test_snapshot_read_fails_closed_when_isolation_cannot_pinned(tmp_path) -> No
                                     context=AUDIT,
                                 )
                             )
-                finally:
-                    authz_repository._read_policy_revision = original_revision
-                    authz_repository._pin_read_snapshot = original_pin
 
     asyncio.run(scenario())

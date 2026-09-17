@@ -251,6 +251,20 @@ class RelationalAccessRepository:
         self._database = database
         self._bound_connection = connection
 
+    async def _pin_read_snapshot(self, connection: AsyncConnection) -> None:
+        """Open the read transaction for this repository's policy snapshot.
+
+        Overridable so a test (or an adapter) can exercise the path taken when
+        a backend cannot offer the guarantee; see :meth:`decision_snapshot`.
+        """
+
+        await _pin_read_snapshot(connection)
+
+    async def _read_policy_revision(self, connection: AsyncConnection) -> str:
+        """Read the policy head revision labelling this repository's decisions."""
+
+        return await _read_policy_revision(connection)
+
     async def get_receipt_identity(self, scope_id: str, source_id: str, /) -> HandoffReceiptIdentity | None:
         return await self._get_receipt_identity_event(
             scope_id,
@@ -598,8 +612,8 @@ class RelationalAccessRepository:
         owned_rows: Sequence[Mapping[Any, Any]] = ()
         artifact_owners: dict[str, ArtifactOwnerRelation] = {}
         async with self._database.connection(self._bound_connection) as connection:
-            await _pin_read_snapshot(connection)
-            revision = await _read_policy_revision(connection)
+            await self._pin_read_snapshot(connection)
+            revision = await self._read_policy_revision(connection)
             if subjects:
                 binding_rows = (
                     (
@@ -651,7 +665,7 @@ class RelationalAccessRepository:
                     .mappings()
                     .all()
                 )
-            if await _read_policy_revision(connection) != revision:
+            if await self._read_policy_revision(connection) != revision:
                 raise AccessUnavailableError("policy-snapshot-unstable")
         return DecisionState(
             policy_revision=revision,
