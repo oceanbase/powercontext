@@ -1571,11 +1571,15 @@ def _resolve_codex_native_authorization(mcp_url: str) -> tuple[Diagnostic, str |
     process_state = "not_configured"
     if process_value is not None:
         try:
-            process_authorization = normalize_authorization(process_value)
+            normalized_process_authorization = normalize_authorization(process_value)
         except ValueError:
             process_state = "invalid"
         else:
-            process_state = "configured"
+            if normalized_process_authorization != process_value:
+                process_state = "invalid"
+            else:
+                process_authorization = process_value
+                process_state = "configured"
     desktop_authorization = read_codex_desktop_authorization()
     expected_authorization = authorization.authorization
     checks = _codex_authorization_checks(

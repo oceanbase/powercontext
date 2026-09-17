@@ -473,6 +473,50 @@ def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_creden
     assert "replacement-token" not in report
 
 
+def test_codex_diagnostics_reject_bare_process_token_without_repairing_it(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer replacement-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "replacement-token")
+    monkeypatch.setattr(
+        authorization_cli,
+        "read_codex_desktop_authorization",
+        lambda: "Bearer replacement-token",
+    )
+    probe = Mock()
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
+    assert diagnostics["authorization"].checks == {
+        "current_process": "invalid",
+        "setup_managed": "matches_desktop_restart",
+        "desktop_restart": "configured",
+    }
+    assert "complete Bearer credential" in diagnostics["authorization"].detail
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.SKIPPED
+    probe.assert_not_called()
+    assert "replacement-token" not in json.dumps(diagnostics["authorization"].as_json())
+
+
 def test_codex_diagnostics_do_not_replace_process_authorization_with_windows_user_value(
     tmp_path: Path, monkeypatch
 ) -> None:
