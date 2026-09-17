@@ -116,16 +116,22 @@ def test_windows_support_preserves_native_command_error(tmp_path: Path, monkeypa
         output = message.encode("oem")
     except UnicodeEncodeError:
         pytest.skip("The system OEM code page cannot represent this diagnostic")
+    identity = b'"test\\user","S-1-5-21-1000"\r\n'
     adapter = WindowsTaskSchedulerAdapter(home=tmp_path, user_account="test\\user", user_sid="S-1-5-21-1000")
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], 5, b"", output)),
-    )
+
+    def run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        # ``support`` resolves the current user before it queries the task, so
+        # whoami must succeed for this to exercise the scheduler command.
+        if command[0] == "whoami.exe":
+            return subprocess.CompletedProcess(command, 0, identity, b"")
+        return subprocess.CompletedProcess(command, 5, b"", output)
+
+    monkeypatch.setattr(subprocess, "run", run)
 
     support, detail = adapter.support()
 
     assert support is SupportState.UNSUPPORTED
+    assert "Task Scheduler is unavailable" in detail
     assert message in detail
 
 
@@ -1575,6 +1581,8 @@ def test_service_install_cli_expands_the_environment_file_home_directory(
     controller.install.return_value = status
     monkeypatch.setattr(service_cli, "_controller", lambda: controller)
     monkeypatch.setenv("HOME", str(tmp_path))
+    # Windows expanduser reads USERPROFILE rather than HOME.
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     environment = tmp_path / "powercontext.env"
     environment.write_text("POWERCONTEXT_SERVER_ACCESS_MODE=disabled\n", encoding="utf-8")
 

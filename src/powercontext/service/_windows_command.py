@@ -36,7 +36,9 @@ def run_windows_command(command: Sequence[str], *, timeout: float) -> subprocess
         # otherwise leave stdout/stderr as None instead of reaching the caller.
         stdout = result.stdout.decode("oem")
         stderr = result.stderr.decode("oem")
-    except UnicodeError as error:
+    except (LookupError, UnicodeError) as error:
+        # LookupError covers the OEM codec being unavailable off Windows, so a
+        # misplaced call still reaches the caller as a command failure.
         raise subprocess.SubprocessError(  # noqa: TRY003
             f"cannot decode {command[0]} output using the Windows OEM code page"
         ) from error
