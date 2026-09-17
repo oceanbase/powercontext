@@ -22,6 +22,7 @@ import stat
 import sys
 import tempfile
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 from typing import Literal
 
@@ -216,14 +217,18 @@ def read_codex_desktop_authorization() -> str | None:
 
 def _write_windows_user_environment(name: str, value: str) -> None:
     import ctypes
-    import winreg
 
-    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Environment", access=winreg.KEY_SET_VALUE) as key:
-        winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+    winreg = vars(import_module("winreg"))
+    with winreg["CreateKeyEx"](winreg["HKEY_CURRENT_USER"], "Environment", access=winreg["KEY_SET_VALUE"]) as key:
+        winreg["SetValueEx"](key, name, 0, winreg["REG_SZ"], value)
 
     result = ctypes.c_size_t()
-    ctypes.set_last_error(0)
-    sent = ctypes.windll.user32.SendMessageTimeoutW(  # type: ignore[attr-defined]
+    ctypes_members = vars(ctypes)
+    set_last_error = ctypes_members["set_last_error"]
+    get_last_error = ctypes_members["get_last_error"]
+    user32 = ctypes_members["windll"].user32
+    set_last_error(0)
+    sent = user32.SendMessageTimeoutW(
         0xFFFF,
         0x001A,
         0,
@@ -232,20 +237,20 @@ def _write_windows_user_environment(name: str, value: str) -> None:
         5000,
         ctypes.byref(result),
     )
-    error = ctypes.get_last_error()
+    error = get_last_error()
     if not sent and error:
         raise OSError(error, "cannot notify Windows processes about the updated user environment")
 
 
 def _read_windows_user_environment(name: str) -> str | None:
-    import winreg
+    winreg = vars(import_module("winreg"))
 
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
-            value, value_type = winreg.QueryValueEx(key, name)
+        with winreg["OpenKey"](winreg["HKEY_CURRENT_USER"], "Environment") as key:
+            value, value_type = winreg["QueryValueEx"](key, name)
     except FileNotFoundError:
         return None
-    if value_type not in {winreg.REG_SZ, winreg.REG_EXPAND_SZ} or not isinstance(value, str):
+    if value_type not in {winreg["REG_SZ"], winreg["REG_EXPAND_SZ"]} or not isinstance(value, str):
         return None
     return value
 

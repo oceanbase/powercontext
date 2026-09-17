@@ -264,14 +264,10 @@ def test_codex_diagnostics_reject_url_mismatched_stored_authorization(tmp_path: 
         },
     )
     credential = tmp_path / "codex" / "powercontext" / "credentials.json"
-    credential.parent.mkdir(parents=True)
-    credential.write_text(
-        json.dumps({
-            "version": 1,
-            "server_url": "http://127.0.0.1:9000",
-            "authorization": "Bearer saved-token",
-        }),
-        encoding="utf-8",
+    authorization_cli.write_stored_authorization(
+        credential,
+        server_url="http://127.0.0.1:9000",
+        value="Bearer saved-token",
     )
     probe = Mock()
     monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
@@ -413,14 +409,10 @@ def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Pat
         },
     )
     credential = tmp_path / "codex" / "powercontext" / "credentials.json"
-    credential.parent.mkdir(parents=True)
-    credential.write_text(
-        json.dumps({
-            "version": 1,
-            "server_url": "http://127.0.0.1:8000",
-            "authorization": "Bearer saved-token",
-        }),
-        encoding="utf-8",
+    authorization_cli.write_stored_authorization(
+        credential,
+        server_url="http://127.0.0.1:8000",
+        value="Bearer saved-token",
     )
     monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer saved-token")
     probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
@@ -430,7 +422,134 @@ def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Pat
 
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert "Windows user authorization" in diagnostics["authorization"].detail
+    assert diagnostics["authorization"].checks == {
+        "current_process": "not_configured",
+        "setup_managed": "matches_desktop_restart",
+        "desktop_restart": "configured",
+    }
     probe.assert_called_once_with(authorization="Bearer saved-token")
+
+
+def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_credential(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer old-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].checks == {
+        "current_process": "configured",
+        "setup_managed": "stale",
+        "desktop_restart": "not_configured",
+    }
+    assert "setup-managed credential is stale" in diagnostics["authorization"].detail
+    assert diagnostics["mcp_tools"].status is DiagnosticStatus.OK
+    probe.assert_called_once_with(authorization="Bearer replacement-token")
+    report = json.dumps(diagnostics["authorization"].as_json())
+    assert "old-token" not in report
+    assert "replacement-token" not in report
+
+
+def test_codex_diagnostics_do_not_replace_process_authorization_with_windows_user_value(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer old-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
+    monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer old-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].checks == {
+        "current_process": "configured",
+        "setup_managed": "stale",
+        "desktop_restart": "differs_from_current_process",
+    }
+    assert "Windows user authorization differs" in diagnostics["authorization"].detail
+    probe.assert_called_once_with(authorization="Bearer replacement-token")
+
+
+def test_codex_diagnostics_report_matching_desktop_override_separately_from_stale_storage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {
+                    "name": "powercontext",
+                    "pluginId": "powercontext@powercontext",
+                    "installed": True,
+                    "enabled": True,
+                }
+            ]
+        },
+    )
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex" / "powercontext" / "credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer old-token",
+    )
+    monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
+    monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer replacement-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].status is DiagnosticStatus.OK
+    assert diagnostics["authorization"].checks == {
+        "current_process": "configured",
+        "setup_managed": "stale",
+        "desktop_restart": "matches_current_process",
+    }
+    probe.assert_called_once_with(authorization="Bearer replacement-token")
 
 
 def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp_path: Path, monkeypatch) -> None:
@@ -450,14 +569,10 @@ def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp
         },
     )
     credential = tmp_path / "codex" / "powercontext" / "credentials.json"
-    credential.parent.mkdir(parents=True)
-    credential.write_text(
-        json.dumps({
-            "version": 1,
-            "server_url": "http://127.0.0.1:8000",
-            "authorization": "Bearer saved-token",
-        }),
-        encoding="utf-8",
+    authorization_cli.write_stored_authorization(
+        credential,
+        server_url="http://127.0.0.1:8000",
+        value="Bearer saved-token",
     )
     probe = Mock()
     monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)

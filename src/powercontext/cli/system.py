@@ -1474,7 +1474,7 @@ def run_codex_diagnostics() -> dict[str, Diagnostic]:
             "POWERCONTEXT_CODEX_AUTHORIZATION while rerunning `powercontext setup codex`"
         )
     else:
-        failure_hint = "; check Server availability and whether the setup-managed credential is still valid"
+        failure_hint = "; check Server availability and whether the effective host credential is still valid"
     diagnostics["mcp_tools"] = Diagnostic(
         status=DiagnosticStatus.OK if not missing else DiagnosticStatus.FAILED,
         detail=(
@@ -1484,6 +1484,73 @@ def run_codex_diagnostics() -> dict[str, Diagnostic]:
         ),
     )
     return diagnostics
+
+
+def _codex_authorization_checks(
+    *,
+    stored_state: str,
+    stored_authorization: str | None,
+    process_state: str,
+    process_authorization: str | None,
+    desktop_authorization: str | None,
+) -> dict[str, str]:
+    if stored_authorization is None:
+        setup_managed_state = stored_state
+    elif process_authorization is not None:
+        setup_managed_state = "matches_current_process" if stored_authorization == process_authorization else "stale"
+    elif desktop_authorization is not None:
+        setup_managed_state = "matches_desktop_restart" if stored_authorization == desktop_authorization else "stale"
+    else:
+        setup_managed_state = "configured_but_unavailable_to_host"
+
+    if desktop_authorization is None:
+        desktop_restart_state = "not_configured"
+    elif process_authorization is None:
+        desktop_restart_state = "configured"
+    else:
+        desktop_restart_state = (
+            "matches_current_process"
+            if desktop_authorization == process_authorization
+            else "differs_from_current_process"
+        )
+    return {
+        "current_process": process_state,
+        "setup_managed": setup_managed_state,
+        "desktop_restart": desktop_restart_state,
+    }
+
+
+def _codex_stored_authorization_issue(stored_state: str, setup_managed_state: str) -> str | None:
+    if setup_managed_state == "stale":
+        return "setup-managed credential is stale"
+    if stored_state not in {"configured", "not_configured"}:
+        return f"stored credential state is {stored_state}"
+    return None
+
+
+def _codex_process_authorization_detail(stored_issue: str | None, desktop_restart_state: str) -> str:
+    detail_parts = ["current process authorization is configured and will be used by the native MCP probe"]
+    if stored_issue is not None:
+        detail_parts.append(stored_issue)
+    if desktop_restart_state == "differs_from_current_process":
+        detail_parts.append(
+            "Windows user authorization differs from the current process after restarting Codex Desktop"
+        )
+    elif desktop_restart_state == "not_configured":
+        detail_parts.append("Windows user authorization is not configured for a restarted Codex Desktop")
+    return "; ".join(detail_parts)
+
+
+def _codex_desktop_authorization_detail(*, matches_stored: bool, stored_issue: str | None) -> str:
+    detail_parts = [
+        "current process authorization is not configured; Windows user authorization will be used by the native MCP "
+        "probe for the environment expected after restarting Codex Desktop"
+    ]
+    if matches_stored:
+        detail_parts.append("Windows user authorization matches the setup-managed credential")
+    elif stored_issue is not None:
+        detail_parts.append(stored_issue)
+    return "; ".join(detail_parts)
 
 
 def _resolve_codex_native_authorization(mcp_url: str) -> tuple[Diagnostic, str | None]:
@@ -1499,41 +1566,80 @@ def _resolve_codex_native_authorization(mcp_url: str) -> tuple[Diagnostic, str |
     authorization = read_stored_authorization(
         credential_path("codex"), server_url=mcp_url.rstrip("/").removesuffix("/mcp")
     )
-    process_authorization: str | None = None
     process_value = os.environ.get("POWERCONTEXT_CODEX_AUTHORIZATION")
-    if process_value:
-        with suppress(ValueError):
+    process_authorization: str | None = None
+    process_state = "not_configured"
+    if process_value is not None:
+        try:
             process_authorization = normalize_authorization(process_value)
+        except ValueError:
+            process_state = "invalid"
+        else:
+            process_state = "configured"
     desktop_authorization = read_codex_desktop_authorization()
     expected_authorization = authorization.authorization
-    if expected_authorization is None:
-        native_authorization = process_authorization or desktop_authorization
-        authorization_ok = authorization.status == "not_configured"
-        authorization_detail = (
-            "no setup-managed credential; the native probe will verify the effective host environment"
-            if authorization_ok
+    checks = _codex_authorization_checks(
+        stored_state=authorization.status,
+        stored_authorization=expected_authorization,
+        process_state=process_state,
+        process_authorization=process_authorization,
+        desktop_authorization=desktop_authorization,
+    )
+    stored_issue = _codex_stored_authorization_issue(authorization.status, checks["setup_managed"])
+
+    if process_authorization is not None:
+        return (
+            Diagnostic(
+                status=DiagnosticStatus.OK,
+                detail=_codex_process_authorization_detail(stored_issue, checks["desktop_restart"]),
+                checks=checks,
+            ),
+            process_authorization,
+        )
+
+    if process_state == "invalid":
+        return (
+            Diagnostic(
+                status=DiagnosticStatus.FAILED,
+                detail=(
+                    "current process authorization is invalid; set a complete Bearer credential in "
+                    "POWERCONTEXT_CODEX_AUTHORIZATION"
+                ),
+                checks=checks,
+            ),
+            None,
+        )
+
+    if desktop_authorization is not None:
+        return (
+            Diagnostic(
+                status=DiagnosticStatus.OK,
+                detail=_codex_desktop_authorization_detail(
+                    matches_stored=expected_authorization == desktop_authorization,
+                    stored_issue=stored_issue,
+                ),
+                checks=checks,
+            ),
+            desktop_authorization,
+        )
+
+    authorization_ok = authorization.status == "not_configured"
+    authorization_detail = (
+        "no host authorization is configured; the native probe will verify an unauthenticated connection"
+        if authorization_ok
+        else (
+            "setup-managed credential is not available to the Codex host; rerun `powercontext setup codex`"
+            if authorization.status == "configured"
             else f"stored credential state is {authorization.status}; rerun `powercontext setup codex`"
         )
-    else:
-        process_matches = process_authorization == expected_authorization
-        desktop_matches = desktop_authorization == expected_authorization
-        native_authorization = expected_authorization if process_matches or desktop_matches else None
-        authorization_ok = process_matches or desktop_matches
-        authorization_detail = (
-            "current process authorization matches the setup-managed credential"
-            if process_matches
-            else (
-                "Windows user authorization matches the setup-managed credential; restart Codex Desktop"
-                if desktop_matches
-                else "setup-managed credential is not available to the Codex host; rerun `powercontext setup codex`"
-            )
-        )
+    )
     return (
         Diagnostic(
             status=DiagnosticStatus.OK if authorization_ok else DiagnosticStatus.FAILED,
             detail=authorization_detail,
+            checks=checks,
         ),
-        native_authorization,
+        None,
     )
 
 
