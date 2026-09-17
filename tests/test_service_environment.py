@@ -19,6 +19,7 @@ import subprocess
 import sys
 from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -46,13 +47,18 @@ def _environment_file(tmp_path: Path, content: str = "POWERCONTEXT_SERVER_HTTP_P
 
 
 def _secure_windows_file(path: Path) -> None:
-    account = subprocess.run(
-        ["whoami.exe"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=True,
-    ).stdout.strip()
+    account = (
+        subprocess
+        .run(
+            ["whoami.exe"],  # noqa: S607
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=10,
+            check=True,
+        )
+        .stdout.decode("oem")
+        .strip()
+    )
     subprocess.run(
         [  # noqa: S607
             "icacls.exe",
@@ -64,7 +70,6 @@ def _secure_windows_file(path: Path) -> None:
             "Administrators:(F)",
         ],
         capture_output=True,
-        text=True,
         timeout=10,
         check=True,
     )
@@ -104,13 +109,77 @@ def test_secure_env_loader_accepts_owned_0600_regular_file(tmp_path: Path) -> No
         assert loaded.identity.owner_sid is None
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Exercises Windows command output in an isolated console")
+@pytest.mark.parametrize("utf8_mode", [0, 1])
+@pytest.mark.parametrize("console_code_page", [0, 65001])
+def test_windows_env_loader_handles_native_output_encoding(
+    tmp_path: Path, utf8_mode: int, console_code_page: int
+) -> None:
+    environment = _environment_file(tmp_path).rename(tmp_path / "服务配置.env")
+    script = """
+import ctypes
+import subprocess
+import sys
+from pathlib import Path
+
+from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
+
+code_page = int(sys.argv[2])
+if code_page:
+    assert ctypes.windll.kernel32.SetConsoleOutputCP(code_page)
+path = Path(sys.argv[1])
+loaded = load_protected_environment_file(path)
+assert loaded.values == {"POWERCONTEXT_SERVER_HTTP_PORT": "8123"}
+subprocess.run(
+    ["icacls.exe", str(path), "/grant", "*S-1-5-32-545:(R)"],
+    capture_output=True, check=True, timeout=10,
+)
+try:
+    load_protected_environment_file(path)
+except ProtectedEnvironmentFileError as error:
+    assert "unexpected account" in str(error), str(error)
+else:
+    raise AssertionError("An environment file accessible by Users was accepted")
+"""
+    result = subprocess.run(
+        [sys.executable, "-X", f"utf8={utf8_mode}", "-c", script, str(environment), str(console_code_page)],
+        capture_output=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="backslashreplace")
+    assert not result.stderr, result.stderr.decode("utf-8", errors="backslashreplace")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL command decoding")
+def test_windows_env_loader_reports_undecodable_acl_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    invalid_output = b"\x81"
+    try:
+        invalid_output.decode("oem")
+    except UnicodeDecodeError:
+        pass
+    else:
+        pytest.skip("The system OEM code page accepts this byte without a trailing byte")
+    environment = _environment_file(tmp_path)
+    real_run = subprocess.run
+
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        if command[0] == "icacls.exe":
+            return subprocess.CompletedProcess(command, 0, invalid_output, b"")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(ProtectedEnvironmentFileError, match="cannot inspect the --env-file ACL: cannot decode icacls"):
+        load_protected_environment_file(environment)
+
+
 def test_secure_env_loader_rejects_group_readable_file(tmp_path: Path) -> None:
     environment = _environment_file(tmp_path)
     if os.name == "nt":
         subprocess.run(
             ["icacls.exe", str(environment), "/grant", "*S-1-5-32-545:(R)"],  # noqa: S607
             capture_output=True,
-            text=True,
             timeout=10,
             check=True,
         )
@@ -263,7 +332,6 @@ def test_launcher_rejects_env_drift_without_starting_server(
         subprocess.run(
             ["icacls.exe", str(environment), "/grant", "*S-1-5-32-545:(R)"],  # noqa: S607
             capture_output=True,
-            text=True,
             timeout=10,
             check=True,
         )

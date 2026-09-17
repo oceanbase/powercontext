@@ -27,6 +27,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from pathlib import Path
 
+from powercontext.service._windows_command import run_windows_command
 from powercontext.service.adapters.base import (
     atomic_write,
     decode_metadata,
@@ -381,13 +382,7 @@ class WindowsTaskSchedulerAdapter:
     def _run(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         command = ["schtasks.exe", *arguments]
         try:
-            result = subprocess.run(  # noqa: S603
-                command,
-                capture_output=True,
-                text=True,
-                timeout=_COMMAND_TIMEOUT_SECONDS,
-                check=False,
-            )
+            result = run_windows_command(command, timeout=_COMMAND_TIMEOUT_SECONDS)
         except (OSError, subprocess.SubprocessError) as error:
             raise ServiceError(f"failed to execute schtasks.exe: {error}") from error  # noqa: TRY003
         if check and result.returncode != 0:
@@ -603,12 +598,9 @@ def _is_service_account(account: str, sid: str) -> bool:
 
 def _current_user_identity() -> tuple[str, str]:
     try:
-        result = subprocess.run(
-            ["whoami.exe", "/user", "/fo", "csv", "/nh"],  # noqa: S607
-            capture_output=True,
-            text=True,
+        result = run_windows_command(
+            ["whoami.exe", "/user", "/fo", "csv", "/nh"],
             timeout=10,
-            check=False,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise ServiceError(f"cannot determine the current Windows user: {error}") from error  # noqa: TRY003

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from powercontext.cli.env_file import EnvironmentFileError, parse_environment
+from powercontext.service._windows_command import run_windows_command
 from powercontext.service.model import EnvironmentFileIdentity
 
 
@@ -122,12 +123,9 @@ def _validate_windows_protection(path: Path) -> str:
             f"--env-file must be owned by the current user (owner SID {sid}): {path}"
         )
     try:
-        result = subprocess.run(  # noqa: S603
-            ["icacls.exe", str(path)],  # noqa: S607
-            capture_output=True,
-            text=True,
+        result = run_windows_command(
+            ["icacls.exe", str(path)],
             timeout=10,
-            check=False,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise ProtectedEnvironmentFileError(f"cannot inspect the --env-file ACL: {error}") from error  # noqa: TRY003
@@ -240,12 +238,9 @@ def _windows_file_owner_sid(path: Path) -> str:
 
 def _windows_user_identity() -> tuple[str, str]:
     try:
-        result = subprocess.run(
-            ["whoami.exe", "/user", "/fo", "csv", "/nh"],  # noqa: S607
-            capture_output=True,
-            text=True,
+        result = run_windows_command(
+            ["whoami.exe", "/user", "/fo", "csv", "/nh"],
             timeout=10,
-            check=False,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise ProtectedEnvironmentFileError(f"cannot determine the current Windows user: {error}") from error  # noqa: TRY003

@@ -81,13 +81,18 @@ def _definition(tmp_path: Path, **overrides: object) -> ServiceDefinition:
 def _secure_windows_file(path: Path) -> None:
     if os.name != "nt":
         return
-    account = subprocess.run(
-        ["whoami.exe"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=True,
-    ).stdout.strip()
+    account = (
+        subprocess
+        .run(
+            ["whoami.exe"],  # noqa: S607
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=10,
+            check=True,
+        )
+        .stdout.decode("oem")
+        .strip()
+    )
     subprocess.run(
         [  # noqa: S607
             "icacls.exe",
@@ -99,10 +104,29 @@ def _secure_windows_file(path: Path) -> None:
             "Administrators:(F)",
         ],
         capture_output=True,
-        text=True,
         timeout=10,
         check=True,
     )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Task Scheduler command decoding")
+def test_windows_support_preserves_native_command_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    message = "Access denied: café"
+    try:
+        output = message.encode("oem")
+    except UnicodeEncodeError:
+        pytest.skip("The system OEM code page cannot represent this diagnostic")
+    adapter = WindowsTaskSchedulerAdapter(home=tmp_path, user_account="test\\user", user_sid="S-1-5-21-1000")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        Mock(return_value=subprocess.CompletedProcess(["schtasks.exe"], 5, b"", output)),
+    )
+
+    support, detail = adapter.support()
+
+    assert support is SupportState.UNSUPPORTED
+    assert message in detail
 
 
 class FakeAdapter:
@@ -642,7 +666,6 @@ def test_service_install_rejects_a_group_readable_environment_file(tmp_path: Pat
         subprocess.run(
             ["icacls.exe", str(environment), "/grant", "*S-1-5-32-545:(R)"],  # noqa: S607
             capture_output=True,
-            text=True,
             timeout=10,
             check=True,
         )
