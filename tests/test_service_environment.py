@@ -26,6 +26,7 @@ import pytest
 
 import powercontext.service.environment as service_environment
 from powercontext.service import launcher as service_launcher
+from powercontext.service._windows_command import run_windows_command
 from powercontext.service.adapters.base import definition_state
 from powercontext.service.environment import ProtectedEnvironmentFileError, load_protected_environment_file
 from powercontext.service.model import (
@@ -180,6 +181,25 @@ def test_windows_env_loader_reports_undecodable_acl_output(tmp_path: Path, monke
     monkeypatch.setattr(subprocess, "run", run)
     with pytest.raises(ProtectedEnvironmentFileError, match="cannot inspect the --env-file ACL: cannot decode icacls"):
         load_protected_environment_file(environment)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native command decoding")
+def test_run_windows_command_never_silently_drops_undecodable_output() -> None:
+    """The caller must never see returncode 0 with stdout missing, as in issue #1627."""
+
+    # Capturing with text=True decoded on the subprocess reader thread, where the
+    # UnicodeDecodeError was swallowed and left stdout as None. 0x81 is undefined
+    # in the ANSI code page an English console reports and an incomplete lead byte
+    # in a DBCS one, so it defeats that capture on either, while the OEM decode
+    # this module performs instead either succeeds or reports a command failure.
+    command = [sys.executable, "-c", "import sys;sys.stdout.buffer.write(bytes([0x81]))"]
+
+    try:
+        result = run_windows_command(command, timeout=30)
+    except subprocess.SubprocessError as error:
+        assert "cannot decode" in str(error)
+    else:
+        assert isinstance(result.stdout, str)
 
 
 def test_secure_env_loader_rejects_group_readable_file(tmp_path: Path) -> None:
