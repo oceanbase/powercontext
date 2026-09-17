@@ -93,6 +93,14 @@ def _secure_windows_file(path: Path) -> None:
         .stdout.decode("oem")
         .strip()
     )
+    # An elevated shell — what hosted Windows runners use — creates files owned
+    # by Administrators rather than by the account itself, which the loader rejects.
+    subprocess.run(
+        ["icacls.exe", str(path), "/setowner", account],  # noqa: S607
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
     subprocess.run(
         [  # noqa: S607
             "icacls.exe",
