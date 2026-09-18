@@ -1,0 +1,47 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: 0.0.1
+type: plugin
+author: oceanbase
+name: powercontext
+label:
+  en_US: PowerContext
+  zh_Hans: PowerContext
+description:
+  en_US: Durable external memory and execution evidence for agents and workflows.
+  zh_Hans: 为 Agent 和工作流提供外置长期记忆和执行证据。
+icon: icon.svg
+created_at: '2026-09-09T00:00:00Z'
+resource:
+  memory: 268435456
+  permission:
+    tool:
+      enabled: false
+    model:
+      enabled: false
+      llm: false
+plugins:
+  tools:
+  - provider/powercontext.yaml
+meta:
+  version: 0.0.1
+  arch:
+  - amd64
+  - arm64
+  runner:
+    language: python
+    version: '3.12'
+    entrypoint: main
+  minimum_dify_version: 1.17.0
