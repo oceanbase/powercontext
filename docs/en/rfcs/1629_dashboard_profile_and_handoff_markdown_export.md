@@ -86,8 +86,6 @@ sample body sections do not define a new content schema. All implemented control
 
 ### Profile reading page
 
-![Profile reading layout](../../assets/dashboard-profile-handoff/profile.png)
-
 The existing Scope selector and navigation remain on the left. The main column presents the heading, revision metadata,
 complete body, and references. Version history opens server-paginated revisions with metadata only where available;
 unavailable history is not represented by an empty clickable action.
@@ -97,8 +95,6 @@ history restores the previous history position. Closing evidence retains the rea
 
 ### Handoff collection with download
 
-![Handoff collection download actions](../../assets/dashboard-profile-handoff/handoff-list.png)
-
 Keep the objective, state, preview, and reading link, adding a secondary Export Markdown action per item. Continuable,
 blocked, and complete are textual states, not color-only distinctions. Empty collections have no objectless download
 action. Each read/download pair carries the same exact reference; exporting one item does not generate the latest Scope
@@ -106,16 +102,12 @@ report. Do not add an ambiguous collection-level export button.
 
 ### Handoff detail with download
 
-![Handoff detail download action](../../assets/dashboard-profile-handoff/handoff-detail.png)
-
 The heading shows the objective, artifact identity, and revision beside the primary Export Markdown action. Preserve
 complete state, next action, omissions, citations, and evidence inspection. Return to collection restores its position.
 Use native browser downloads with HTMX boost disabled, no format picker, and no premature success message. An error
 page links to the same Handoff; authentication preserves that exact detail as its return destination.
 
 ### Mobile reading
-
-![Mobile Handoff reading and download](../../assets/dashboard-profile-handoff/handoff-mobile.png)
 
 Reuse the collapsible navigation. Stack the title, revision, primary action, and body in reading order. Download appears
 before the body; actions and long references wrap. Wide code scrolls within its own block, not the whole page. Profiles

@@ -58,15 +58,11 @@ Dashboard 已能阅读记忆、经验、技能、交接、提示词和主题记�
 
 ### Profile reading page
 
-![画像页面 UI 预设计](../../assets/dashboard-profile-handoff/profile.png)
-
 左侧为已有范围选择与导航，右侧依次呈现页头、版本元信息、完整正文和来源。页头右侧为“版本历史”。历史目录采用服务端分页，显示 Revision 及实际可用的元信息；当前页无历史入口可用时，不显示可点击的空按钮。
 
 选择历史条目进入固定 Revision 的阅读状态，显示“历史画像 · Revision N”；“返回当前画像”重新解析当前 Head。“返回版本历史”恢复原历史目录位置。来源弹窗关闭后保留阅读位置。
 
 ### Handoff collection with download
-
-![交接目录导出 UI 预设计](../../assets/dashboard-profile-handoff/handoff-list.png)
 
 目录条目保留目标、状态、摘要及阅读入口，在操作区增加次要按钮“导出 Markdown”。继续进行、阻塞和完成用文字表达，不只依赖颜色。目录没有可读条目时不出现无对象的下载按钮。
 
@@ -74,15 +70,11 @@ Dashboard 已能阅读记忆、经验、技能、交接、提示词和主题记�
 
 ### Handoff detail with download
 
-![交接详情导出 UI 预设计](../../assets/dashboard-profile-handoff/handoff-detail.png)
-
 页头显示目标、Artifact ID 和 Revision，主要操作为“导出 Markdown”。正文完整展示状态、下一步、遗漏及 citations，来源核对位于正文后。返回目录恢复进入详情前的分页位置。
 
 下载使用浏览器原生附件行为，禁用 HTMX boost，不增加格式选择器，不预先显示“导出成功”。错误页提供“返回此交接”；需要认证时保留该精确详情作为登录后的返回目标。
 
 ### Mobile reading
-
-![交接移动端 UI 预设计](../../assets/dashboard-profile-handoff/handoff-mobile.png)
 
 小屏复用顶部折叠菜单。标题、版本、主要操作和正文按顺序排列；下载按钮位于正文之前，操作区可自然换行。长引用允许换行，代码块仅在自身区域滚动，不让整个页面横向滚动。画像使用相同阅读顺序，版本历史保持可达。来源弹窗沿用小屏全屏模式。
 
