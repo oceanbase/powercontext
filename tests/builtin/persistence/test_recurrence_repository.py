@@ -252,6 +252,25 @@ def test_match_replay_returns_the_persisted_key_when_the_new_payload_differs() -
     asyncio.run(scenario())
 
 
+def test_match_savepoint_rolls_back_with_outer_sqlite_transaction_after_read_only_work() -> None:
+    async def scenario() -> None:
+        repository = RecurrenceRepository()
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
+        ) as profile:
+            async with profile.database.transaction() as connection:
+                await _seed_scope(connection)
+            with pytest.raises(RuntimeError, match="rollback"):
+                async with profile.database.transaction() as connection:
+                    assert await repository.find_match(connection, SCOPE, OUTCOME_REF, _item_ref()) is None
+                    await repository.append_match(connection, _match())
+                    raise RuntimeError("rollback")
+            async with profile.database.transaction() as connection:
+                assert await repository.matches(connection, SCOPE) == ()
+
+    asyncio.run(scenario())
+
+
 def test_observation_integrity_errors_outside_replay_are_not_suppressed() -> None:
     async def scenario() -> None:
         repository = RecurrenceRepository()
@@ -261,6 +280,25 @@ def test_observation_integrity_errors_outside_replay_are_not_suppressed() -> Non
         ):
             with pytest.raises(IntegrityError):
                 await repository.append_observation(connection, _selected())
+
+    asyncio.run(scenario())
+
+
+def test_observation_savepoint_rolls_back_with_outer_sqlite_transaction_after_read_only_work() -> None:
+    async def scenario() -> None:
+        repository = RecurrenceRepository()
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
+        ) as profile:
+            async with profile.database.transaction() as connection:
+                await _seed_scope(connection)
+            with pytest.raises(RuntimeError, match="rollback"):
+                async with profile.database.transaction() as connection:
+                    assert await repository.observations(connection, SCOPE) == ()
+                    await repository.append_observation(connection, _selected())
+                    raise RuntimeError("rollback")
+            async with profile.database.transaction() as connection:
+                assert await repository.observations(connection, SCOPE) == ()
 
     asyncio.run(scenario())
 

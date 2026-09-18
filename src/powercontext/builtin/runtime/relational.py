@@ -397,6 +397,7 @@ class _ScopedServices:
             sources=self.repositories.sources,
             artifacts=self.repositories.artifacts,
             recurrence=self.repositories.recurrence,
+            evidence=self.evidence(),
         )
 
     def generation(self) -> ReviewedGenerationService:

@@ -76,6 +76,7 @@ class RecurrenceRepository:
             "payload": dump_model(match, kind=_MATCH_KIND, name=key),
         }
         try:
+            await _ensure_sqlite_outer_transaction(connection)
             async with connection.begin_nested():
                 await connection.execute(insert(RECURRENCE_MATCH_TABLE).values(**values))
         except IntegrityError:
@@ -150,6 +151,7 @@ class RecurrenceRepository:
             "payload": dump_model(observation, kind=_OBSERVATION_KIND, name=identifier),
         }
         try:
+            await _ensure_sqlite_outer_transaction(connection)
             async with connection.begin_nested():
                 await connection.execute(insert(RECURRENCE_OBSERVATION_TABLE).values(**values))
         except IntegrityError:
@@ -298,6 +300,20 @@ def _decode_observation(row: Any) -> RecurrenceObservation:
         kind=_OBSERVATION_KIND,
         name=identifier,
     )
+
+
+async def _ensure_sqlite_outer_transaction(connection: AsyncConnection, /) -> None:
+    """Force SQLite savepoints to participate in the caller's outer transaction."""
+
+    if connection.dialect.name != "sqlite" or not connection.in_transaction() or connection.in_nested_transaction():
+        return
+    raw = await connection.get_raw_connection()
+    driver = getattr(raw, "driver_connection", None)
+    in_transaction = getattr(driver, "in_transaction", None)
+    if in_transaction is None:
+        in_transaction = getattr(getattr(driver, "_conn", None), "in_transaction", None)
+    if in_transaction is False:
+        await connection.exec_driver_sql("BEGIN")
 
 
 __all__ = ["RecurrenceRepository"]

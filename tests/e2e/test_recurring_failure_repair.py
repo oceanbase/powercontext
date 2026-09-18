@@ -41,6 +41,7 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffContent,
     HandoffStatement,
 )
+from powercontext.builtin.evidence.resolver import EvidenceResolver
 from powercontext.builtin.persistence import RecurrenceRepository
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.sources import SourceRepository
@@ -158,6 +159,26 @@ async def _record(sources: SourceRepository, ledger: RelationalRecurrenceLedger,
         return through, await ledger.record_window(connection, rows)
 
 
+async def _missing_memory(*_args, **_kwargs):
+    raise AssertionError("recurring failure e2e does not resolve memory citations")  # noqa: TRY003
+
+
+def _ledger(database, sources, artifacts, repository) -> RelationalRecurrenceLedger:
+    return RelationalRecurrenceLedger(
+        database=database,
+        scope_id=SCOPE,
+        sources=sources,
+        artifacts=artifacts,
+        recurrence=repository,
+        evidence=EvidenceResolver(
+            scope_id=SCOPE,
+            sources=sources,
+            artifacts=artifacts,
+            memory_reader=_missing_memory,
+        ),
+    )
+
+
 def test_a_third_recurrence_asks_for_review_when_the_fix_is_content() -> None:
     """Three unbroken recurrences surface a revision candidate; human decides."""
 
@@ -166,13 +187,7 @@ def test_a_third_recurrence_asks_for_review_when_the_fix_is_content() -> None:
             sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
             artifacts = ArtifactRepository((Handoff, Experience), sources=sources)
             repository = RecurrenceRepository()
-            ledger = RelationalRecurrenceLedger(
-                database=profile.database,
-                scope_id=SCOPE,
-                sources=sources,
-                artifacts=artifacts,
-                recurrence=repository,
-            )
+            ledger = _ledger(profile.database, sources, artifacts, repository)
             async with profile.database.transaction() as connection:
                 await _seed(connection, sources, artifacts, "experience_content")
 
@@ -199,13 +214,7 @@ def test_a_recall_policy_repair_proposes_no_artifact_change() -> None:
             sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
             artifacts = ArtifactRepository((Handoff, Experience), sources=sources)
             repository = RecurrenceRepository()
-            ledger = RelationalRecurrenceLedger(
-                database=profile.database,
-                scope_id=SCOPE,
-                sources=sources,
-                artifacts=artifacts,
-                recurrence=repository,
-            )
+            ledger = _ledger(profile.database, sources, artifacts, repository)
             async with profile.database.transaction() as connection:
                 await _seed(connection, sources, artifacts, "recall_policy")
 
@@ -234,13 +243,7 @@ def test_a_streak_never_crosses_a_revision_boundary() -> None:
             sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
             artifacts = ArtifactRepository((Handoff, Experience), sources=sources)
             repository = RecurrenceRepository()
-            ledger = RelationalRecurrenceLedger(
-                database=profile.database,
-                scope_id=SCOPE,
-                sources=sources,
-                artifacts=artifacts,
-                recurrence=repository,
-            )
+            ledger = _ledger(profile.database, sources, artifacts, repository)
             async with profile.database.transaction() as connection:
                 await _seed(connection, sources, artifacts, "experience_content")
 
@@ -282,13 +285,7 @@ def test_an_accepted_handoff_with_an_outcome_records_selection() -> None:
             sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
             artifacts = ArtifactRepository((Handoff, Experience), sources=sources)
             repository = RecurrenceRepository()
-            ledger = RelationalRecurrenceLedger(
-                database=profile.database,
-                scope_id=SCOPE,
-                sources=sources,
-                artifacts=artifacts,
-                recurrence=repository,
-            )
+            ledger = _ledger(profile.database, sources, artifacts, repository)
             async with profile.database.transaction() as connection:
                 await _seed(connection, sources, artifacts, "experience_content")
                 await sources.add(

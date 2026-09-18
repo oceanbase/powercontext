@@ -39,8 +39,10 @@ from powercontext.builtin.artifacts.handoff import Handoff
 from powercontext.builtin.artifacts.handoff.models import (
     HandoffArtifactCitation,
     HandoffContent,
+    HandoffSourceCitation,
     HandoffStatement,
 )
+from powercontext.builtin.evidence.resolver import EvidenceResolver
 from powercontext.builtin.persistence import RecurrenceRepository
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.sources import SourceRepository
@@ -72,6 +74,7 @@ HANDOFF_REF = ArtifactRef(family="handoff", artifact_id="handoff-1", revision=1)
 RECEIPT_REF = SourceRef(source_type="content", source_id="receipt-1")
 
 CITATION = HandoffArtifactCitation(artifact_ref=EXPERIENCE_REF)
+MISSING_SOURCE_CITATION = HandoffSourceCitation(source_ref=SourceRef(source_type="content", source_id="never-existed"))
 
 
 def _experience(*, repair_surface: RepairSurface = "experience_content") -> ExperienceContent:
@@ -226,6 +229,26 @@ async def _window(
     return await sources.list_window(connection, SCOPE, after=after, through=through)
 
 
+async def _missing_memory(*_args, **_kwargs):
+    raise AssertionError("recurrence tests do not resolve memory citations")  # noqa: TRY003
+
+
+def _ledger(database, sources, artifacts, repository) -> RelationalRecurrenceLedger:
+    return RelationalRecurrenceLedger(
+        database=database,
+        scope_id=SCOPE,
+        sources=sources,
+        artifacts=artifacts,
+        recurrence=repository,
+        evidence=EvidenceResolver(
+            scope_id=SCOPE,
+            sources=sources,
+            artifacts=artifacts,
+            memory_reader=_missing_memory,
+        ),
+    )
+
+
 def test_fully_proven_verdict_is_recorded_as_avoided() -> None:
     async def scenario() -> None:
         async with SQLiteProfile.open(
@@ -241,13 +264,7 @@ def test_fully_proven_verdict_is_recorded_as_avoided() -> None:
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection, after=1)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 proposals = await ledger.record_window(connection, rows)
 
             async with profile.database.transaction() as connection:
@@ -278,13 +295,7 @@ def test_unproven_outcome_records_no_verdict() -> None:
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection, after=1)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 await ledger.record_window(connection, rows)
 
             async with profile.database.transaction() as connection:
@@ -312,13 +323,7 @@ def test_a_recurring_failure_is_recorded_as_recurred_not_avoided() -> None:
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection, after=1)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 await ledger.record_window(connection, rows)
 
             async with profile.database.transaction() as connection:
@@ -331,6 +336,84 @@ def test_a_recurring_failure_is_recorded_as_recurred_not_avoided() -> None:
             assert len(matches) == 1
             assert matches[0].result == "matched"
             assert matches[0].candidate_set_mode == "handoff_citations"
+
+    asyncio.run(scenario())
+
+
+def test_unresolvable_nested_failure_evidence_is_not_recorded_as_recurred() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
+        ) as profile:
+            sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+            repository = RecurrenceRepository()
+            async with profile.database.transaction() as connection:
+                await _seed_scope(connection)
+                artifacts = await _seed_artifacts(connection, sources)
+                await _add_receipt(sources, connection)
+                outcome = _outcome(
+                    status="failed",
+                    observations=_failed_outcome().observations,
+                    checks=(
+                        TaskCheck(
+                            name=CUE,
+                            status="failed",
+                            basis="verified",
+                            evidence=(MISSING_SOURCE_CITATION,),
+                        ),
+                    ),
+                )
+                await _add_source(sources, connection, "outcome-missing-failure-evidence", outcome.model_dump_json())
+
+            async with profile.database.transaction() as connection:
+                rows = await _window(sources, connection, after=1)
+                ledger = _ledger(profile.database, sources, artifacts, repository)
+                await ledger.record_window(connection, rows)
+
+            async with profile.database.transaction() as connection:
+                observations = await repository.observations(connection, SCOPE)
+                matches = await repository.matches(connection, SCOPE)
+
+            assert tuple(observation.event for observation in observations) == ("selected",)
+            assert matches == ()
+
+    asyncio.run(scenario())
+
+
+def test_unresolvable_nested_success_evidence_is_not_recorded_as_avoided() -> None:
+    async def scenario() -> None:
+        async with SQLiteProfile.open(
+            SQLiteConfig(), tables=SCOPE_TABLES + SHARED_TABLES + RECURRENCE_TABLES
+        ) as profile:
+            sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
+            repository = RecurrenceRepository()
+            async with profile.database.transaction() as connection:
+                await _seed_scope(connection)
+                artifacts = await _seed_artifacts(connection, sources)
+                await _add_receipt(sources, connection)
+                outcome = _outcome(
+                    status="succeeded",
+                    observations=(WorkClaim(text=CONDITION, basis="verified", evidence=(MISSING_SOURCE_CITATION,)),),
+                    checks=(
+                        TaskCheck(
+                            name=CHECK_SUBJECT,
+                            status="passed",
+                            basis="verified",
+                            evidence=(MISSING_SOURCE_CITATION,),
+                        ),
+                    ),
+                )
+                await _add_source(sources, connection, "outcome-missing-success-evidence", outcome.model_dump_json())
+
+            async with profile.database.transaction() as connection:
+                rows = await _window(sources, connection, after=1)
+                ledger = _ledger(profile.database, sources, artifacts, repository)
+                await ledger.record_window(connection, rows)
+
+            async with profile.database.transaction() as connection:
+                observations = await repository.observations(connection, SCOPE)
+
+            assert tuple(observation.event for observation in observations) == ("selected",)
 
     asyncio.run(scenario())
 
@@ -350,13 +433,7 @@ def test_replaying_one_window_adds_no_duplicate_rows() -> None:
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection, after=1)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 first = await ledger.record_window(connection, rows)
                 second = await ledger.record_window(connection, rows)
 
@@ -397,13 +474,7 @@ def test_unlinked_failure_window_still_records_recurrence() -> None:
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 await ledger.record_window(connection, rows)
 
             async with profile.database.transaction() as connection:
@@ -447,20 +518,21 @@ def test_unlinked_failure_matches_after_sixty_four_non_failure_experiences() -> 
                 outcome = _outcome(
                     status="failed",
                     observations=_failed_outcome().observations,
-                    checks=_failed_outcome().checks,
+                    checks=(
+                        TaskCheck(
+                            name=CUE,
+                            status="failed",
+                            basis="verified",
+                            evidence=(HandoffArtifactCitation(artifact_ref=matching_ref),),
+                        ),
+                    ),
                     linked=False,
                 )
                 await _add_source(sources, connection, "outcome-after-ordinary-heads", outcome.model_dump_json())
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 await ledger.record_window(connection, rows)
                 matches = await repository.matches(connection, SCOPE)
                 observations = await repository.observations(connection, SCOPE)
@@ -489,13 +561,7 @@ def test_unresolvable_receipt_does_not_fallback_to_scope_heads() -> None:
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 await ledger.record_window(connection, rows)
                 matches = await repository.matches(connection, SCOPE)
 
@@ -532,13 +598,7 @@ def test_receipt_pointing_to_missing_handoff_does_not_fallback_to_scope_heads() 
 
             async with profile.database.transaction() as connection:
                 rows = await _window(sources, connection)
-                ledger = RelationalRecurrenceLedger(
-                    database=profile.database,
-                    scope_id=SCOPE,
-                    sources=sources,
-                    artifacts=artifacts,
-                    recurrence=repository,
-                )
+                ledger = _ledger(profile.database, sources, artifacts, repository)
                 await ledger.record_window(connection, rows)
                 assert await repository.matches(connection, SCOPE) == ()
                 assert await repository.observations(connection, SCOPE) == ()

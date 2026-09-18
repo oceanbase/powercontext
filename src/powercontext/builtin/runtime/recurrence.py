@@ -30,7 +30,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext.artifacts import ArtifactRef
+from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.experience.incubation import TASK_OUTCOME_SOURCE_KIND
 from powercontext.builtin.artifacts.experience.models import ExperienceContent
@@ -54,7 +54,14 @@ from powercontext.builtin.artifacts.experience.recurrence import (
     terminal_streak,
 )
 from powercontext.builtin.artifacts.handoff import Handoff
-from powercontext.builtin.artifacts.handoff.models import HandoffArtifactCitation, HandoffContent
+from powercontext.builtin.artifacts.handoff.models import (
+    HandoffArtifactCitation,
+    HandoffContent,
+    HandoffMemoryCitation,
+    HandoffSourceCitation,
+)
+from powercontext.builtin.evidence.models import EvidenceResolutionError
+from powercontext.builtin.evidence.resolver import EvidenceResolver
 from powercontext.builtin.persistence import RecurrenceRepository
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -96,6 +103,7 @@ class RelationalRecurrenceLedger:
     sources: SourceRepository
     artifacts: ArtifactRepository
     recurrence: RecurrenceRepository
+    evidence: EvidenceResolver
 
     async def record_window(
         self,
@@ -194,6 +202,15 @@ class RelationalRecurrenceLedger:
             if pair is None:
                 continue
             condition_ref, check_ref = pair
+            condition = _item(outcome, condition_ref)
+            check = _item(outcome, check_ref)
+            if (
+                condition is None
+                or check is None
+                or not await self._item_evidence_available(connection, condition)
+                or not await self._item_evidence_available(connection, check)
+            ):
+                continue
             await self._append(
                 connection,
                 event="avoided",
@@ -312,6 +329,8 @@ class RelationalRecurrenceLedger:
                 continue
             item = _item(outcome, failure_ref)
             if item is None:
+                continue
+            if not await self._item_evidence_available(connection, item):
                 continue
             candidates = freeze_candidate_set(
                 mode=mode,
@@ -476,6 +495,19 @@ class RelationalRecurrenceLedger:
             return None
         return artifact.content if isinstance(artifact.content, ExperienceContent) else None
 
+    async def _item_evidence_available(self, connection: AsyncConnection, item: Any, /) -> bool:
+        sources, artifacts, memory_citations = _citation_refs(getattr(item, "evidence", ()))
+        try:
+            await self.evidence.validate(
+                connection,
+                sources=sources,
+                artifacts=artifacts,
+                memory_citations=memory_citations,
+            )
+        except EvidenceResolutionError:
+            return False
+        return True
+
 
 def _task_outcome(row: StoredSource, /) -> TaskOutcome | None:
     value = row.value
@@ -529,6 +561,22 @@ def _content_of(contents: _Contents, ref: ArtifactRef, /) -> ExperienceContent |
         if (candidate.family, candidate.artifact_id, candidate.revision) == identity:
             return content
     return None
+
+
+def _citation_refs(
+    citations: tuple[Any, ...], /
+) -> tuple[tuple[SourceRef, ...], tuple[ArtifactRef, ...], tuple[MemoryCitation, ...]]:
+    sources: list[SourceRef] = []
+    artifacts: list[ArtifactRef] = []
+    memory_citations: list[MemoryCitation] = []
+    for citation in citations:
+        if isinstance(citation, HandoffSourceCitation):
+            sources.append(citation.source_ref)
+        elif isinstance(citation, HandoffArtifactCitation):
+            artifacts.append(citation.artifact_ref)
+        elif isinstance(citation, HandoffMemoryCitation):
+            memory_citations.append(citation.memory_citation)
+    return tuple(sources), tuple(artifacts), tuple(memory_citations)
 
 
 def _revision_reason(streak: int, ref: ArtifactRef, cue_key: str, /) -> str:
