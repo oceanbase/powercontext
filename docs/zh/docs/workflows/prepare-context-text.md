@@ -88,6 +88,9 @@ asyncio.run(export_context())
 省略 `assembly` 的默认 prepare 请求还会召回当前 Scope 中可用的 Topic Memory。
 显式 `assembly` 通过选择 `topic-memory` 包含主题记忆；`assembly: {}` 仍只选择 Memory 和 Experience。
 
+当前 Scope 没有 Topic 时，主题召回会跳过查询 Embedding。组装上下文时，每次 Topic 查询 Embedding 最多等待
+250 毫秒，超时后回退到 FTS，避免缓慢的可选模型阻塞已召回的 Memory。直接检索 Topic 仍使用配置的模型超时。
+
 同一类别内保留召回顺序，包括已有 Memory reranker 的排序。前面的候选因预算无法装入时，rank 可能不连续。
 被排除的类别不会参与召回。重复类别、非法 limit、`sort_by` 或 `min_confidence` 等不支持的字段，以及显式
 `assembly: null`，都会返回 HTTP 422。

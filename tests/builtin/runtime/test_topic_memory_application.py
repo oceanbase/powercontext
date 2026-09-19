@@ -199,6 +199,34 @@ async def test_topic_search_uses_hybrid_and_hides_retrieval_controls_from_the_re
     assert set(SearchTopicMemoryRequest.model_fields) == {"query", "limit"}
 
 
+@_async_test
+async def test_topic_search_returns_fts_when_online_embedding_budget_expires() -> None:
+    cancelled = asyncio.Event()
+
+    class SlowEmbedding:
+        profile = _Embedding.profile
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+            raise AssertionError
+
+    async def search(_scope: str, _query: str, **kwargs: Any) -> TopicMemorySearchResult:
+        return TopicMemorySearchResult(mode=kwargs["mode"])
+
+    scoped = _runtime(topic_memory_search=search, topic_memory_embedding_model=SlowEmbedding()).topic_memory.for_scope(
+        "scope-a"
+    )
+    async with asyncio.timeout(1):
+        result = await scoped.search(
+            SearchTopicMemoryRequest(query="supervisor recovery"), embedding_timeout_seconds=0.01
+        )
+    assert result.mode == "fts"
+    assert cancelled.is_set()
+
+
 @pytest.mark.parametrize(
     "failure",
     [InferenceUnavailableError("embed"), InferenceTimeoutError("embed", 1.0)],

@@ -122,7 +122,6 @@ from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorize
 from powercontext.builtin.evidence.resolver import AuthorizationContext, ScopedEvidenceAuthorizer
 from powercontext.builtin.inference import (
     EmbeddingModel,
-    InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
 )
@@ -313,6 +312,9 @@ TopicMemoryFlush = Callable[[str], Awaitable[bool]]
 TopicMemorySearchObserver = Callable[[str, bool], None]
 
 logger = logging.getLogger(__name__)
+
+# Leave room for database reads and assembly within the default one-second Hook request.
+_CONTEXT_TOPIC_EMBEDDING_TIMEOUT_SECONDS = 0.25
 
 _MEMORY_CAPTURE_STAGE = "memory.capture"
 _MEMORY_CAPTURE_SOURCE_COUNT = "powercontext.memory.capture.source_count"
@@ -1410,6 +1412,7 @@ class ScopedContextApplication:
                         SearchTopicMemoryRequest(query=bounded_query, limit=limit),
                         admission=admission,
                         query_embedding=reuse,
+                        embedding_timeout_seconds=_CONTEXT_TOPIC_EMBEDDING_TIMEOUT_SECONDS,
                     )
                 )
             )
@@ -2539,6 +2542,7 @@ class ScopedTopicMemoryApplication:
         *,
         admission: AdmissionFloor | None = None,
         query_embedding: MemoryQueryEmbedding | None = None,
+        embedding_timeout_seconds: float | None = None,
     ) -> TopicMemorySearchResult:
         search = self._runtime._topic_memory_search
         if search is None:
@@ -2557,6 +2561,9 @@ class ScopedTopicMemoryApplication:
             embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL,
         ):
             embedding = self._runtime._topic_memory_embedding_model
+            browse = self._runtime._topic_memory_browse
+            if embedding is not None and browse is not None and not await browse(self.scope_id, limit=1, after=None):
+                embedding = None
             if embedding is None:
                 result = await search(
                     self.scope_id,
@@ -2573,6 +2580,7 @@ class ScopedTopicMemoryApplication:
                     search,
                     admission,
                     query_embedding,
+                    embedding_timeout_seconds,
                 )
         observer = self._runtime._topic_memory_search_observer
         if observer is not None:
@@ -2599,6 +2607,7 @@ class ScopedTopicMemoryApplication:
         search: TopicMemorySearch,
         admission: AdmissionFloor | None,
         query_embedding: MemoryQueryEmbedding | None,
+        embedding_timeout_seconds: float | None,
     ) -> tuple[TopicMemorySearchResult, bool]:
         if query_embedding is not None and query_embedding.embedding_profile == embedding.profile:
             result = await search(
@@ -2612,10 +2621,11 @@ class ScopedTopicMemoryApplication:
             )
             return result.model_copy(update={"query_embedding": query_embedding, "embedding_calls": 0}), False
         try:
-            embedded = await embedding.embed((request.query,))
+            async with asyncio.timeout(embedding_timeout_seconds):
+                embedded = await embedding.embed((request.query,))
             if len(embedded.vectors) != 1:
                 raise InvalidInferenceOutputError("embed", "provider returned the wrong vector count")
-        except (InferenceUnavailableError, InferenceTimeoutError) as error:
+        except (InferenceUnavailableError, TimeoutError) as error:
             used_fallback = True
             log_safely(
                 logger,
@@ -2625,9 +2635,7 @@ class ScopedTopicMemoryApplication:
                     "event": "topic_memory.search.embedding_fallback",
                     "outcome": "fallback",
                     "mode": "fts",
-                    "error_code": (
-                        "inference_timeout" if isinstance(error, InferenceTimeoutError) else "inference_unavailable"
-                    ),
+                    "error_code": ("inference_timeout" if isinstance(error, TimeoutError) else "inference_unavailable"),
                     "unit": "topic-memory",
                 },
             )

@@ -33,6 +33,8 @@ from fastmcp.client.transports import StreamableHttpTransport
 from pydantic import SecretStr
 from pydantic_ai.models.test import TestModel
 
+from powercontext.builtin.artifacts.memory import EmbeddingProfile
+from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
 from powercontext.client import PowerContextClient
@@ -49,6 +51,89 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
 AUTH_TOKEN = "codex-e2e-token"  # noqa: S105 - non-secret test credential.
 AUTHORIZATION = f"Bearer {AUTH_TOKEN}"
+
+
+@pytest.mark.parametrize("with_topic", [False, True], ids=["empty-topics", "existing-topic"])
+def test_codex_hook_injects_fts_memory_while_optional_embedding_is_stalled(tmp_path: Path, with_topic: bool) -> None:
+    class StalledEmbedding:
+        profile = EmbeddingProfile(profile_id="stalled", model="stalled", dimension=2)
+        stalled = False
+        available = False
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            if self.stalled:
+                await asyncio.sleep(20)
+            if self.available:
+                return EmbeddingResult(vectors=tuple((1.0, 0.0) for _ in texts))
+            raise InferenceUnavailableError("embed")
+
+    embedding = StalledEmbedding()
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'stalled.db'}"),
+            auth=BearerAuthConfig(token=SecretStr(AUTH_TOKEN)),
+            access=AccessControlConfig(mode="enforced"),
+        ),
+        embedding_model=embedding,
+    )
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    base_url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+    server = uvicorn.Server(uvicorn.Config(app, log_level="critical", timeout_graceful_shutdown=1))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    try:
+        _wait_until_started(server, thread)
+        plugin = _copy_plugin(tmp_path, base_url)
+        scope_id = _create_scope(base_url, authorization=AUTHORIZATION)
+        text = "For ORCHID the release codename is ORCHID-728 and the required validation command is pytest -q."
+        with httpx.Client(base_url=base_url, headers={"Authorization": AUTHORIZATION}) as http:
+            http.post(
+                "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": text}
+            ).raise_for_status()
+            if with_topic:
+                embedding.available = True
+                http.post(
+                    f"/v1/scopes/{scope_id}/artifacts",
+                    json={
+                        "family": "topic-memory",
+                        "content": {"title": "ORCHID release TOPIC-1665", "summary": text, "detail": text},
+                    },
+                ).raise_for_status()
+                embedding.available = False
+        embedding.stalled = True
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("POWERCONTEXT_")}
+        environment.update(
+            POWERCONTEXT_CODEX_SCOPE_ID=scope_id,
+            POWERCONTEXT_CODEX_AUTHORIZATION=AUTHORIZATION,
+            POWERCONTEXT_CLIENT_CONFIG_FILE=str(tmp_path / "client.json"),
+            POWERCONTEXT_DIAGNOSTIC_STATE_FILE=str(tmp_path / "diagnostics.json"),
+            POWERCONTEXT_HOME=str(tmp_path / "home"),
+        )
+        recalled = subprocess.run(
+            [sys.executable, str(plugin / "hooks" / "recall.py")],
+            env=environment,
+            input=json.dumps({
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": str(tmp_path),
+                "prompt": "What are the ORCHID release codename and required validation command?",
+                "session_id": "stalled-embedding",
+            }),
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        output = json.loads(recalled.stdout)
+        assert "ORCHID-728" in output["hookSpecificOutput"]["additionalContext"]
+        assert "pytest -q" in output["hookSpecificOutput"]["additionalContext"]
+        if with_topic:
+            assert "TOPIC-1665" in output["hookSpecificOutput"]["additionalContext"]
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        listener.close()
+        assert not thread.is_alive()
 
 
 @pytest.mark.parametrize("authentication_enabled", [False, True], ids=["public", "authenticated"])

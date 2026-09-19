@@ -88,6 +88,10 @@ asyncio.run(export_context())
 Default prepare requests without `assembly` also recall Topic Memory from the current Scope when available.
 With explicit `assembly`, select `topic-memory` to include it. `assembly: {}` still selects only Memory and Experience.
 
+Topic recall skips query Embedding when the Scope has no current Topics. During context preparation, each Topic
+query Embedding attempt has a 250 ms budget and falls back to FTS on timeout, so a slow optional provider does not
+hold up already retrieved Memory. Direct Topic search keeps the configured provider timeout.
+
 Entries retain retrieval order within a family. Existing Memory reranking remains authoritative. Rank can have gaps
 when an earlier entry cannot fit. An excluded family is not recalled. Duplicate families, invalid limits, unsupported
 fields such as `sort_by` or `min_confidence`, and explicit `assembly: null` return HTTP 422.
