@@ -26,6 +26,9 @@ Topic Memory 只属于当前 Scope。Source 被采集后不会同步生成主题
 Topic Memory 不会因为显式写入一条 Memory 就自动生成。它需要有意义的 Source 窗口、满足 Topic 要求的 Generation 配置，
 以及已启用的 Topic 处理。模型可以修订已有主题、合并证据，也可以判断本轮不需要发布新主题修订。
 
+已注册的远程 Source Observation 可以与内置 Source 在同一窗口中处理。Topic 处理优先使用已保存的标准文本证据投影，
+没有该投影时使用采集的 payload，不要求 Server 安装远程 Source 的本地适配器。发布的修订保留原始 Source 引用，便于追溯。
+
 ## 生命周期
 
 ```text

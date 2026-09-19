@@ -17,6 +17,9 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 
+import pytest
+from pydantic import BaseModel
+
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.prompt import PromptContent
 from powercontext.builtin.artifacts.topic_memory import (
@@ -45,14 +48,27 @@ from powercontext.builtin.runtime.artifact_processing import (
 )
 from powercontext.builtin.runtime.composition import open_builtin_contexts
 from powercontext.builtin.runtime.config import BuiltinConfig
+from powercontext.builtin.runtime.models import SubmitSourceObservation
 from powercontext.builtin.runtime.topic_memory_processing import (
+    ArtifactProcessingWaveKind,
     TopicMemoryAtomicPublisher,
     TopicMemoryProcessor,
     TopicMemoryStageSet,
+    TopicMemoryWindowAssignment,
     TopicMemoryWindowSelector,
 )
 from powercontext.builtin.runtime.topic_memory_scope import TopicMemoryScopeProcessor
 from powercontext.builtin.sources import ContentCapture
+from powercontext.sources import (
+    TEXT_EVIDENCE_PROJECTION_KEY,
+    AdapterSourceDefinition,
+    SourceDefinitionRegistry,
+    SourceMaterialization,
+    SourceRef,
+    TextEvidence,
+)
+from powercontext.sources.observations import manifest_for_definition, project_source_for_transport
+from tests.builtin.persistence.contract import NoteAdapter, NoteSource
 
 
 class _QueueGenerator:
@@ -96,6 +112,118 @@ def _content(label: str) -> TopicMemoryContent:
         summary=f"{label} summary",
         detail=f"# {label}\n\nzircon evidence for {label}",
     )
+
+
+@pytest.mark.parametrize("with_projection", [False, True], ids=["captured-payload", "text-projection"])
+def test_remote_observation_and_content_window_processes_after_restart(tmp_path, with_projection) -> None:
+    class NoteProjection:
+        name = TEXT_EVIDENCE_PROJECTION_KEY.name
+        version = TEXT_EVIDENCE_PROJECTION_KEY.version
+        source_class = NoteSource
+        output_class: type[BaseModel] = TextEvidence
+
+        def project(self, source):
+            return TextEvidence(source_type="note", source_id=source.name, content="Projected release validation")
+
+    class CheckingProbe(_QueueGenerator):
+        async def generate(self, value, /):
+            note, content = value.evidence
+            assert note.source_type == "note" and content.source_type == "content"
+            assert "Validate the release with pytest" in content.content
+            if with_projection:
+                assert "Projected release validation" in note.content
+                assert "Raw release evidence" not in note.content
+            else:
+                assert "Raw release evidence" in note.content
+            assert "remote-source-identity" not in note.content
+            return await super().generate(value)
+
+    async def scenario() -> None:
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'remote-topic.db'}"))
+        registry = SourceDefinitionRegistry((
+            AdapterSourceDefinition(NoteAdapter(), projections=(NoteProjection(),) if with_projection else ()),
+        ))
+        observation = project_source_for_transport(
+            registry,
+            NoteSource(
+                name="remote-source-identity",
+                materialization=SourceMaterialization.CAPTURED,
+                body="Raw release evidence",
+            ),
+        )
+        async with open_builtin_contexts(config) as contexts:
+            await contexts.register_source_definition(manifest_for_definition(registry.definition_for_name("note")))
+            receipt = await contexts.submit_source_observation(
+                SubmitSourceObservation(scope_id="scope-a", observation=observation)
+            )
+            scope = await contexts.get("scope-a")
+            await scope.sources.capture(
+                ContentCapture(source_id="builtin-control", content="Validate the release with pytest")
+            )
+            builtin_ref = SourceRef(source_type="content", source_id="builtin-control")
+
+        async with open_builtin_contexts(config) as contexts:
+            sources, topics = contexts.repositories.sources, contexts.repositories.topic_memories
+            selector = TopicMemoryWindowSelector(
+                contexts.database, sources, contexts.token_estimator, context_window_tokens=100_000
+            )
+            assert await selector.select("scope-a", 0, 2) == 2
+            async with contexts.database.transaction() as connection:
+                term = await contexts.repositories.processing_leases.start_single_process_term(
+                    connection, "remote-test"
+                )
+            unexpected = _QueueGenerator()
+            evidence_ids = ("evidence-0001", "evidence-0002")
+            stages = TopicMemoryStageSet(
+                probe=CheckingProbe(
+                    TopicMemoryProbeOutput(probes=(TopicMemoryProbe(query="release", evidence_ids=evidence_ids),))
+                ),
+                global_evolver=_QueueGenerator(
+                    TopicMemoryGlobalOutput(
+                        proposals=(TopicMemoryProposal(content=_content("release"), evidence_ids=evidence_ids),)
+                    )
+                ),
+                planner=unexpected,
+                evolver=unexpected,
+                temporary=unexpected,
+                reconciler=unexpected,
+                estimator=contexts.token_estimator,
+                input_tokens_limit=100_000,
+            )
+            processor = TopicMemoryProcessor(
+                database=contexts.database,
+                sources=sources,
+                topics=topics,
+                stages=stages,
+                publisher=TopicMemoryAtomicPublisher(
+                    contexts.database, sources, topics, leases=contexts.repositories.processing_leases
+                ),
+                id_factory=lambda: "remote-topic",
+            )
+            result = await processor.process(
+                TopicMemoryWindowAssignment(
+                    binding_name=TOPIC_MEMORY_SOURCE_WINDOW_BINDING,
+                    scope_id="scope-a",
+                    source_after=0,
+                    source_through=2,
+                    wave_target=2,
+                    claimed_flush_generation=1,
+                    cursor_generation=None,
+                    wave_kind=ArtifactProcessingWaveKind.EXPLICIT,
+                    fence=term.fence("single-process"),
+                    worker_id="worker",
+                )
+            )
+            assert result.outcome.value == "succeeded"
+
+        async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
+            topic = await contexts.repositories.artifacts.latest(connection, "scope-a", "topic-memory", "remote-topic")
+            assert topic.lineage.sources == (receipt.source_ref, builtin_ref)
+            assert topic.content.title == "release topic"
+            cursor = await contexts.repositories.cursors.load(connection, "scope-a", TOPIC_MEMORY_SOURCE_WINDOW_BINDING)
+            assert cursor is not None and cursor.cursor.sequence == 2
+
+    asyncio.run(scenario())
 
 
 def test_source_capture_to_multi_window_create_update_noop(tmp_path) -> None:

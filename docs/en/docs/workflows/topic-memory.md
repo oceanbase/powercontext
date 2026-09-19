@@ -29,6 +29,10 @@ Topic Memory is not created by an explicit Memory write. A meaningful Source win
 and enabled Topic processing are required. The model can revise an existing topic, merge evidence, or decide that no
 new topic revision is warranted.
 
+Registered remote Source observations can share a processing window with built-in Sources. Topic processing uses the
+stored standard text-evidence projection when available, or the captured payload otherwise; it does not require a
+local adapter for the remote Source. Published revisions retain the original Source references for provenance.
+
 ## Lifecycle
 
 ```text
