@@ -172,6 +172,10 @@ def _annotate_mcp_component(
 
     if not isinstance(component, OpenAPITool):
         return
+    if route.operation_id == GET_HANDOFF_REPORT.operation_id:
+        # This operation returns either a JSON object or Markdown text. MCP's
+        # object output schema would require structured content for both formats.
+        component.output_schema = None
     if route.operation_id in _MCP_READ_ONLY_OPERATION_IDS:
         component.annotations = ToolAnnotations(
             readOnlyHint=True,

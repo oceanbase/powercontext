@@ -16,8 +16,10 @@ import asyncio
 from pathlib import Path
 
 import httpx
+import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
+from mcp.types import TextContent
 
 from powercontext.builtin.artifacts.handoff import (
     HandoffDraft,
@@ -38,6 +40,56 @@ class DeterministicHandoffPipeline:
             disposition="continuable",
             next_action=HandoffStatement(text="Pass the inspected Handoff to the next task.", citations=citations),
         )
+
+
+@pytest.mark.parametrize("report_format", ["json", "markdown"])
+def test_mcp_handoff_report_preserves_both_http_formats(tmp_path: Path, report_format: str) -> None:
+    app = create_server_app(
+        settings=ServerSettings(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'reports.db'}"))
+    )
+
+    def create_http_client(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+        **_: object,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            follow_redirects=True,
+        )
+
+    async def exercise_report() -> None:
+        transport = StreamableHttpTransport("http://testserver/mcp/", httpx_client_factory=create_http_client)
+        async with app.router.lifespan_context(app), create_http_client() as http, Client(transport) as client:
+            created = await client.call_tool(
+                "create_scope",
+                {"title": "Report formats", "summary": "Report transport acceptance", "idempotency_key": "reports"},
+            )
+            assert created.structured_content is not None
+            scope_id = created.structured_content["scope_id"]
+            payload = {"selection": {"mode": "exact", "scope_ids": [scope_id]}, "format": report_format}
+
+            response = await http.post("/v1/handoff-reports/get", json=payload)
+            response.raise_for_status()
+            result = await client.call_tool("get_handoff_report", payload)
+            assert not result.is_error
+            if report_format == "markdown":
+                assert response.headers["content-type"].startswith("text/markdown")
+                assert result.content
+                assert isinstance(result.content[0], TextContent)
+                assert "Report formats" in result.content[0].text
+                assert "Report formats" in response.text
+            else:
+                assert response.headers["content-type"].startswith("application/json")
+                assert result.structured_content is not None
+                assert result.structured_content.keys() == response.json().keys()
+
+    asyncio.run(exercise_report())
 
 
 def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path) -> None:
