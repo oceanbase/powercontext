@@ -296,9 +296,59 @@ def test_unprivileged_requests_cannot_distinguish_missing_owner(tmp_path, backen
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("backend", ["builtin", "casbin"])
+def test_missing_memory_in_readable_scope_is_not_owner_pending(tmp_path, backend):
+    async def scenario():
+        async with _server(tmp_path, backend) as (_, client, _):
+            source_scope = await _scope(client)
+            target = await client.post(
+                "/v1/scopes", json={"title": "Empty", "summary": "Empty", "idempotency_key": "empty"}
+            )
+            assert target.status_code == 201, target.text
+            empty_scope = target.json()["scope_id"]
+            for scope in (source_scope, empty_scope):
+                await _grant(client, scope, "reader", "scope.viewer")
+            remembered = await client.post(
+                "/v1/memory/remember",
+                json={"scope_id": source_scope, "kind": "fact", "text": "PRIVATE_SCOPE_FACT"},
+            )
+            assert remembered.status_code == 200, remembered.text
+            entries = await client.post("/v1/memory/entries/list", json={"scope_id": source_scope})
+            citation = entries.json()["entries"][0]["citation"]
+            reader = {"Authorization": "Bearer reader"}
+            correct = await client.post(
+                "/v1/memory/entries/get", headers=reader, json={"scope_id": source_scope, "citation": citation}
+            )
+            assert correct.status_code == 200, correct.text
+            for _ in range(2):
+                missing = await client.post(
+                    "/v1/memory/entries/get", headers=reader, json={"scope_id": empty_scope, "citation": citation}
+                )
+                assert missing.status_code == 404, missing.text
+                assert missing.json()["error"]["code"] == "memory_not_found"
+                assert "PRIVATE_SCOPE_FACT" not in missing.text
+            unknown = {**citation, "entry_id": "absent-entry"}
+            missing = await client.post(
+                "/v1/memory/entries/get", headers=reader, json={"scope_id": source_scope, "citation": unknown}
+            )
+            assert missing.status_code == 404, missing.text
+            denied = [
+                await client.post(
+                    "/v1/memory/entries/get",
+                    headers={"Authorization": "Bearer stranger"},
+                    json={"scope_id": scope, "citation": citation},
+                )
+                for scope in (source_scope, empty_scope, "absent-scope")
+            ]
+            assert [response.status_code for response in denied] == [403, 403, 403]
+            assert denied[0].json()["error"] == denied[1].json()["error"] == denied[2].json()["error"]
+
+    asyncio.run(scenario())
+
+
 def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, monkeypatch):
     async def scenario():
-        async with _server(tmp_path) as (_, client, access):
+        async with _server(tmp_path) as (app, client, access):
             scope_id = await _scope(client)
 
             async def unavailable(*args, **kwargs):
@@ -315,6 +365,15 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
                 )
                 assert created.status_code == 503, created.text
             # The content is durably committed, but the owner did not commit.
+            records = app.state.application.records.for_scope(scope_id)
+            identities = await records.logical_artifacts()
+            stored = await records.get_artifact("memory", identities[0].artifact_id)
+            entry = stored.content["manifest"]["entries"][0]
+            citation = {
+                "memory_ref": {"family": "memory", "artifact_id": stored.artifact_id, "revision": stored.revision},
+                "entry_id": entry["entry_id"],
+                "entry_version_id": entry["entry_version_id"],
+            }
             referencing = await client.post(
                 "/v1/scopes",
                 json={
@@ -327,6 +386,7 @@ def test_owner_failure_blocks_collections_and_context_before_content(tmp_path, m
             assert referencing.status_code == 201
             current = referencing.json()["scope_id"]
             requests = [
+                ("POST", "/v1/memory/entries/get", {"scope_id": scope_id, "citation": citation}),
                 ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE"}),
                 ("POST", "/v1/context/prepare", {"scope_id": current, "query": "PRIVATE", "assembly": {}}),
                 ("POST", "/v1/memory/entries/list", {"scope_id": scope_id}),
