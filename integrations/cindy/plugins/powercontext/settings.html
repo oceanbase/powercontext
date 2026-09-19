@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PowerContext settings</title>
+    <style>
+      body { margin: 0; padding: 12px; font: inherit; }
+      form { display: grid; gap: 12px; }
+      label { display: grid; gap: 5px; }
+      input, select, button { font: inherit; padding: 7px; }
+      input, select { width: 100%; }
+      .consent { display: flex; align-items: start; gap: 8px; }
+      .consent input { width: auto; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      p { margin: 4px 0; line-height: 1.5; }
+      #status { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <form id="settings">
+      <label>Server URL
+        <input id="server-url" type="url" value="http://127.0.0.1:8000" required autocomplete="off">
+      </label>
+      <label>Explicit Scope ID (optional; overrides session and workspace bindings)
+        <input id="scope-id" type="text" maxlength="256" autocomplete="off">
+      </label>
+      <label>Authentication
+        <select id="auth-mode">
+          <option value="none">No authentication</option>
+          <option value="bearer">Bearer token</option>
+        </select>
+      </label>
+      <label>New Bearer token (leave empty to keep the saved credential)
+        <input id="token" type="password" maxlength="8000" autocomplete="new-password">
+      </label>
+      <p id="credential-status">Loading credential status...</p>
+      <label class="consent">
+        <input id="allow-insecure" type="checkbox">
+        Allow plaintext HTTP outside loopback for this Server URL. Content and credentials will be unencrypted.
+      </label>
+      <div class="actions">
+        <button type="submit">Save settings</button>
+        <button id="clear-token" type="button">Remove saved credential</button>
+      </div>
+      <p>After saving, call the PowerContext status tool to check the connection. Changes apply to the next tool call.</p>
+      <p id="status" role="status" aria-live="polite"></p>
+    </form>
+    <script src="settings.js"></script>
+  </body>
+</html>
