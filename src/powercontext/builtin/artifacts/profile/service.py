@@ -56,7 +56,7 @@ from powercontext.builtin.persistence.tables import PROFILE_POLICIES_TABLE
 from powercontext.builtin.records import BaseValueConflictError, BaseValueNotFoundError
 from powercontext.builtin.scope.errors import ScopeNotFoundError
 from powercontext.builtin.scope.repository import ScopeRepository
-from powercontext.builtin.source_eligibility import is_generation_eligible
+from powercontext.builtin.source_eligibility import is_automatic_processing_eligible
 from powercontext.builtin.sources import SourceCursor
 from powercontext.errors import RevisionConflictError
 
@@ -243,7 +243,7 @@ class RelationalProfileService:
         if authorize_snapshot is not None:
             await authorize_snapshot(current)
         through = window[-1].journal_position
-        evidence = tuple(item for item in window if is_generation_eligible(item.value))
+        evidence = tuple(item for item in window if is_automatic_processing_eligible(item.value))
         markdown = None
         if evidence:
             if self.generator is None:

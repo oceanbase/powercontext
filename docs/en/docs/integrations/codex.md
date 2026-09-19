@@ -63,7 +63,7 @@ The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt.
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The Runtime labels
 Memory-derived items as untrusted history, preserves exact citations, and owns final selection and rendering. Explicit
 search remains available through the Client and MCP; it is not a second automatic recall step. Automatically injected
-content and Handoffs are historical information. Codex must still check current code, user requests, and system
+history and Handoffs must be checked against current code, user requests, and system
 instructions before acting on them.
 
 Memory stores durable, reusable decisions, constraints, and state. A Handoff temporarily transfers the current task to
@@ -78,6 +78,10 @@ readable text with configurable Memory/Experience sections, limits, and metadata
 [Prepare standard context text](../workflows/prepare-context-text.md) for a complete example and output rules.
 
 ## Control prompt capture
+
+For automatic current-code references, configure the Server repository and set `POWERCONTEXT_CODEX_INCLUDE_CODE=true`
+before starting Codex. The hook negotiates support and injects the Server's combined, bounded text unchanged.
+See [Use current code in prepared context](../workflows/git-repository-understanding.md) for indexing and limits.
 
 Prompt capture is enabled by default. Disable it before starting Codex when the current work must not be recorded:
 

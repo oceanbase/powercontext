@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from powercontext.builtin.sources import ContentSource
@@ -44,6 +45,26 @@ def is_generation_eligible(source: Source, /) -> bool:
     """Return whether a hydrated Source may enter a model or Candidate."""
 
     return not isinstance(source, ContentSource) or source.internal is None
+
+
+def is_code_query_source(source: Source, /) -> bool:
+    """Recognize opt-in saved code evidence; this marker is not authentication."""
+
+    if not isinstance(source, ContentSource):
+        return False
+    content = source.wire_content if source.wire_content_present else source.content
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (ValueError, RecursionError):
+            return False
+    return isinstance(content, dict) and content.get("schema") == "powercontext.code-query.v1"
+
+
+def is_automatic_processing_eligible(source: Source, /) -> bool:
+    """Keep code snapshots out of automatic history extraction, retaining explicit use."""
+
+    return is_generation_eligible(source) and not is_code_query_source(source)
 
 
 def require_source_eligible(

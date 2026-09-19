@@ -17,6 +17,7 @@
 // generated from openapi/powercontext.yaml; do not edit.
 
 export const OPERATIONS = {
+  query_code: { method: 'POST', path: '/v1/scopes/{scope_id}/code/query', location: "body", scopeMode: 'current', pathParameters: ['scope_id'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   create_subject_source: { method: 'POST', path: '/v1/scopes/{scope_id}/subject-sources', location: "body", scopeMode: 'none', pathParameters: ['scope_id'], queryParams: [], headerParams: [], successStatuses: [201], emptyStatuses: [] },
   get_profile_policy: { method: 'GET', path: '/v1/scopes/{scope_id}/profile-policy', location: null, scopeMode: 'none', pathParameters: ['scope_id'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },
   put_profile_policy: { method: 'PUT', path: '/v1/scopes/{scope_id}/profile-policy', location: "body", scopeMode: 'none', pathParameters: ['scope_id'], queryParams: [], headerParams: [], successStatuses: [200], emptyStatuses: [] },

@@ -10,6 +10,60 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         "version": "1.0.0",
     },
     "paths": {
+        "/v1/scopes/{scope_id}/code/query": {
+            "post": {
+                "tags": ["code"],
+                "summary": "Query current Python repository structure or verify code readiness",
+                "description": "Read-only, "
+                "deployment-configured "
+                "repository lookup. Use "
+                "status for feature "
+                "negotiation. Code is "
+                "untrusted evidence. "
+                "Continuations bind the "
+                "checked fingerprint; "
+                "changed content requires "
+                "fresh localization. Only "
+                "the current Scope grants "
+                "repository access. "
+                "Results may omit dynamic "
+                "or ambiguous "
+                "relationships.",
+                "operationId": "query_code",
+                "x-powercontext-scope-mode": "current",
+                "x-powercontext-access": {"resolver": "path_scope_read_access"},
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CodeQueryRequest"}}},
+                },
+                "responses": {
+                    "200": {
+                        "description": "A bounded code result or current code status.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CodeQueryResult"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "501": {
+                        "description": "The operation or language is not supported by this engine build.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+                    },
+                },
+            }
+        },
         "/v1/scopes/{scope_id}/subject-sources": {
             "post": {
                 "tags": ["profile"],
@@ -7518,6 +7572,47 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "query": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
                     "max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0, "default": 8000},
+                    "include_code": {
+                        "type": "boolean",
+                        "description": "Supplement "
+                        "this "
+                        "turn "
+                        "with "
+                        "current "
+                        "code "
+                        "references "
+                        "in "
+                        "the "
+                        "same "
+                        "byte "
+                        "and "
+                        "entry "
+                        "budget. "
+                        "Omitted "
+                        "or "
+                        "false "
+                        "preserves "
+                        "existing "
+                        "behavior. "
+                        "With "
+                        "true, "
+                        "omitted/default "
+                        "assembly "
+                        "selects "
+                        "Memory "
+                        "and "
+                        "Experience; "
+                        "sections=[] "
+                        "selects "
+                        "only "
+                        "code. "
+                        "No "
+                        "Code "
+                        "Artifact "
+                        "is "
+                        "created.",
+                        "default": False,
+                    },
                     "assembly": {"$ref": "#/components/schemas/ContextAssembly"},
                 },
                 "additionalProperties": False,
@@ -9476,6 +9571,258 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["items", "next_cursor"],
+            },
+            "CodeAffectedTestsOperation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["affected_tests"]},
+                    "changed_paths": {"items": {"type": "string"}, "type": "array", "maxItems": 100, "minItems": 1},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "changed_paths"],
+            },
+            "CodeImpactOperation": {
+                "properties": {
+                    "path": {"type": "string"},
+                    "qualified_name": {"type": "string", "maxLength": 4096, "minLength": 1},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                    "kind": {"type": "string", "enum": ["impact"]},
+                    "depth": {"type": "integer", "maximum": 5.0, "minimum": 1.0, "default": 2},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["path", "qualified_name", "start_line", "kind"],
+            },
+            "CodeReadOperation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["read"]},
+                    "path": {"type": "string"},
+                    "file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "end_line": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "path", "file_sha256", "start_line", "end_line"],
+            },
+            "CodeStatusOperation": {
+                "properties": {"kind": {"type": "string", "enum": ["status"]}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind"],
+            },
+            "CodeSymbolsOperation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["symbols"]},
+                    "query": {"type": "string", "maxLength": 8192, "minLength": 1},
+                    "path": {"type": "string", "nullable": True},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "query"],
+            },
+            "CodeTargetOperation": {
+                "properties": {
+                    "path": {"type": "string"},
+                    "qualified_name": {"type": "string", "maxLength": 4096, "minLength": 1},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                    "kind": {"type": "string", "enum": ["callers", "callees"]},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["path", "qualified_name", "start_line", "kind"],
+            },
+            "CodeTreeOperation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["tree"]},
+                    "path": {"type": "string", "nullable": True},
+                    "depth": {"type": "integer", "maximum": 5.0, "minimum": 1.0, "default": 2},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind"],
+            },
+            "CodeQueryRequest": {
+                "properties": {
+                    "operation": {
+                        "oneOf": [
+                            {"$ref": "#/components/schemas/CodeStatusOperation"},
+                            {"$ref": "#/components/schemas/CodeTreeOperation"},
+                            {"$ref": "#/components/schemas/CodeSymbolsOperation"},
+                            {"$ref": "#/components/schemas/CodeTargetOperation"},
+                            {"$ref": "#/components/schemas/CodeImpactOperation"},
+                            {"$ref": "#/components/schemas/CodeAffectedTestsOperation"},
+                            {"$ref": "#/components/schemas/CodeReadOperation"},
+                        ],
+                        "discriminator": {
+                            "propertyName": "kind",
+                            "mapping": {
+                                "affected_tests": "#/components/schemas/CodeAffectedTestsOperation",
+                                "callees": "#/components/schemas/CodeTargetOperation",
+                                "callers": "#/components/schemas/CodeTargetOperation",
+                                "impact": "#/components/schemas/CodeImpactOperation",
+                                "read": "#/components/schemas/CodeReadOperation",
+                                "status": "#/components/schemas/CodeStatusOperation",
+                                "symbols": "#/components/schemas/CodeSymbolsOperation",
+                                "tree": "#/components/schemas/CodeTreeOperation",
+                            },
+                        },
+                    },
+                    "expected_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0, "default": 16000},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["operation"],
+                "description": "Read-only code query. "
+                "Continuations other than "
+                "status/tree/symbols require "
+                "expected_fingerprint. Relative "
+                "paths cannot escape the "
+                "configured repository. max_bytes "
+                "includes the complete success "
+                "JSON body. No Source or Artifact "
+                "is written.",
+            },
+            "CodeCoverage": {
+                "properties": {
+                    "included_files": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "indexed_files": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "omitted_files": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "parse_failures": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "unresolved_references": {"type": "integer", "minimum": 0.0, "default": 0},
+                    "truncated": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+                "type": "object",
+            },
+            "CodeItem": {
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["definition", "relationship", "test", "file", "directory", "snippet"],
+                    },
+                    "path": {"type": "string"},
+                    "location": {"allOf": [{"$ref": "#/components/schemas/CodeLocation"}], "nullable": True},
+                    "file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "content": {"type": "string", "nullable": True},
+                    "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "signature": {"type": "string", "nullable": True},
+                    "relationships": {
+                        "items": {"$ref": "#/components/schemas/CodeRelationship"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "truncated": {"type": "boolean", "default": False},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "path"],
+            },
+            "CodeLocation": {
+                "properties": {
+                    "path": {"type": "string"},
+                    "qualified_name": {"type": "string", "nullable": True},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "end_line": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["path", "start_line", "end_line"],
+            },
+            "CodeRelationship": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["calls", "imports", "references", "inherits", "unknown"]},
+                    "method": {
+                        "type": "string",
+                        "enum": ["tree-sitter", "scip", "heuristic", "unknown"],
+                        "default": "unknown",
+                    },
+                    "source": {"allOf": [{"$ref": "#/components/schemas/CodeLocation"}], "nullable": True},
+                    "target": {"allOf": [{"$ref": "#/components/schemas/CodeLocation"}], "nullable": True},
+                    "call_line": {"type": "integer", "minimum": 1.0, "nullable": True},
+                    "missing": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind"],
+            },
+            "CodeQueryResponse": {
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "enum": ["powercontext.code-query.v1"],
+                        "default": "powercontext.code-query.v1",
+                    },
+                    "scope_id": {"type": "string"},
+                    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "commit": {"type": "string"},
+                    "git_object_format": {"type": "string", "enum": ["sha1", "sha256"]},
+                    "dirty": {"type": "boolean"},
+                    "checked_at": {"type": "string"},
+                    "operation": {"type": "string"},
+                    "status": {"type": "string", "enum": ["ok", "partial"]},
+                    "items": {"items": {"$ref": "#/components/schemas/CodeItem"}, "type": "array", "default": []},
+                    "coverage": {"$ref": "#/components/schemas/CodeCoverage"},
+                    "limitations": {"items": {"type": "string"}, "type": "array", "default": []},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "fingerprint",
+                    "commit",
+                    "git_object_format",
+                    "dirty",
+                    "checked_at",
+                    "operation",
+                    "status",
+                    "coverage",
+                ],
+            },
+            "CodeStatusResponse": {
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "enum": ["powercontext.code-status.v1"],
+                        "default": "powercontext.code-status.v1",
+                    },
+                    "scope_id": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["disabled", "missing", "building", "ready", "stale", "failed"],
+                    },
+                    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "protocol": {
+                        "type": "string",
+                        "enum": ["powercontext.code-query.v1"],
+                        "default": "powercontext.code-query.v1",
+                    },
+                    "languages": {"items": {"type": "string"}, "type": "array", "default": ["python"]},
+                    "capabilities": {"items": {"type": "string"}, "type": "array", "default": []},
+                    "limitations": {"items": {"type": "string"}, "type": "array", "default": []},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "status"],
+            },
+            "CodeQueryResult": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/CodeQueryResponse"},
+                    {"$ref": "#/components/schemas/CodeStatusResponse"},
+                ],
+                "discriminator": {
+                    "propertyName": "schema",
+                    "mapping": {
+                        "powercontext.code-query.v1": "#/components/schemas/CodeQueryResponse",
+                        "powercontext.code-status.v1": "#/components/schemas/CodeStatusResponse",
+                    },
+                },
             },
         },
         "responses": {

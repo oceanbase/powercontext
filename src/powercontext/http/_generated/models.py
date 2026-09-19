@@ -2520,6 +2520,226 @@ class AccessAuditPage(BaseModel):
     next_cursor: Annotated[StrictStr | None, Field(max_length=2048)]
 
 
+class Kind3(StrEnum):
+    AFFECTED_TESTS = "affected_tests"
+
+
+class CodeAffectedTestsOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["affected_tests"]
+    changed_paths: Annotated[list[StrictStr], Field(max_length=100, min_length=1)]
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+
+
+class Kind4(StrEnum):
+    IMPACT = "impact"
+
+
+class CodeImpactOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path: StrictStr
+    qualified_name: Annotated[StrictStr, Field(max_length=4096, min_length=1)]
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+    kind: Literal["impact"]
+    depth: Annotated[StrictInt, Field(ge=1, le=5)] = 2
+
+
+class Kind5(StrEnum):
+    READ = "read"
+
+
+class CodeReadOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["read"]
+    path: StrictStr
+    file_sha256: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    end_line: Annotated[StrictInt, Field(ge=1)]
+
+
+class Kind6(StrEnum):
+    STATUS = "status"
+
+
+class CodeStatusOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["status"]
+
+
+class Kind7(StrEnum):
+    SYMBOLS = "symbols"
+
+
+class CodeSymbolsOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["symbols"]
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
+    path: StrictStr | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+
+
+class Kind8(StrEnum):
+    CALLERS = "callers"
+    CALLEES = "callees"
+
+
+class CodeTargetOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path: StrictStr
+    qualified_name: Annotated[StrictStr, Field(max_length=4096, min_length=1)]
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+    kind: Literal["callees", "callers"]
+
+
+class Kind9(StrEnum):
+    TREE = "tree"
+
+
+class CodeTreeOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["tree"]
+    path: StrictStr | None = None
+    depth: Annotated[StrictInt, Field(ge=1, le=5)] = 2
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+
+
+class CodeQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: Annotated[
+        CodeStatusOperation
+        | CodeTreeOperation
+        | CodeSymbolsOperation
+        | CodeTargetOperation
+        | CodeImpactOperation
+        | CodeAffectedTestsOperation
+        | CodeReadOperation,
+        Field(discriminator="kind"),
+    ]
+    expected_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 16000
+
+
+class CodeCoverage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    included_files: Annotated[StrictInt, Field(ge=0)] = 0
+    indexed_files: Annotated[StrictInt, Field(ge=0)] = 0
+    omitted_files: Annotated[StrictInt, Field(ge=0)] = 0
+    parse_failures: Annotated[StrictInt, Field(ge=0)] = 0
+    unresolved_references: Annotated[StrictInt, Field(ge=0)] = 0
+    truncated: StrictBool = False
+
+
+class Kind10(StrEnum):
+    DEFINITION = "definition"
+    RELATIONSHIP = "relationship"
+    TEST = "test"
+    FILE = "file"
+    DIRECTORY = "directory"
+    SNIPPET = "snippet"
+
+
+class CodeLocation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path: StrictStr
+    qualified_name: StrictStr | None = None
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    end_line: Annotated[StrictInt, Field(ge=1)]
+
+
+class Kind11(StrEnum):
+    CALLS = "calls"
+    IMPORTS = "imports"
+    REFERENCES = "references"
+    INHERITS = "inherits"
+    UNKNOWN = "unknown"
+
+
+class Method(StrEnum):
+    TREE_SITTER = "tree-sitter"
+    SCIP = "scip"
+    HEURISTIC = "heuristic"
+    UNKNOWN = "unknown"
+
+
+class CodeRelationship(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Kind11
+    method: Method = Method.UNKNOWN
+    source: CodeLocation | None = None
+    target: CodeLocation | None = None
+    call_line: Annotated[StrictInt | None, Field(ge=1)] = None
+    missing: StrictStr | None = None
+
+
+class Schema4(StrEnum):
+    POWERCONTEXT_CODE_QUERY_V1 = "powercontext.code-query.v1"
+
+
+class GitObjectFormat(StrEnum):
+    SHA1 = "sha1"
+    SHA256 = "sha256"
+
+
+class Status3(StrEnum):
+    OK = "ok"
+    PARTIAL = "partial"
+
+
+class Schema5(StrEnum):
+    POWERCONTEXT_CODE_STATUS_V1 = "powercontext.code-status.v1"
+
+
+class Status4(StrEnum):
+    DISABLED = "disabled"
+    MISSING = "missing"
+    BUILDING = "building"
+    READY = "ready"
+    STALE = "stale"
+    FAILED = "failed"
+
+
+class Protocol(StrEnum):
+    POWERCONTEXT_CODE_QUERY_V1 = "powercontext.code-query.v1"
+
+
+class CodeStatusResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Literal["powercontext.code-status.v1"], Field(alias="schema")]
+    scope_id: StrictStr
+    status: Status4
+    fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    protocol: Protocol = Protocol.POWERCONTEXT_CODE_QUERY_V1
+    languages: list[StrictStr] = ["python"]
+    capabilities: list[StrictStr] = []
+    limitations: list[StrictStr] = []
+
+
 class FlushProfileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3418,6 +3638,43 @@ class ListAccessAuditRequest(BaseModel):
     limit: Annotated[StrictInt, Field(ge=1, le=500)] = 100
 
 
+class CodeItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Kind10
+    path: StrictStr
+    location: CodeLocation | None = None
+    file_sha256: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    content: StrictStr | None = None
+    content_sha256: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    signature: StrictStr | None = None
+    relationships: Annotated[list[CodeRelationship], Field(validate_default=True)] = []
+    truncated: StrictBool = False
+
+
+class CodeQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Literal["powercontext.code-query.v1"], Field(alias="schema")]
+    scope_id: StrictStr
+    fingerprint: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    commit: StrictStr
+    git_object_format: GitObjectFormat
+    dirty: StrictBool
+    checked_at: StrictStr
+    operation: StrictStr
+    status: Status3
+    items: Annotated[list[CodeItem], Field(validate_default=True)] = []
+    coverage: CodeCoverage
+    limitations: list[StrictStr] = []
+
+
+class CodeQueryResult(RootModel[CodeQueryResponse | CodeStatusResponse]):
+    root: Annotated[CodeQueryResponse | CodeStatusResponse, Field(discriminator="schema_")]
+
+
 class CreateSubjectSourceResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3652,6 +3909,12 @@ class PrepareContextRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+    include_code: Annotated[
+        StrictBool,
+        Field(
+            description="Supplement this turn with current code references in the same byte and entry budget. Omitted or false preserves existing behavior. With true, omitted/default assembly selects Memory and Experience; sections=[] selects only code. No Code Artifact is created."
+        ),
+    ] = False
     assembly: ContextAssembly | None = None
 
 

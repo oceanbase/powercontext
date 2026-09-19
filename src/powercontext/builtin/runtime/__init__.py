@@ -34,6 +34,23 @@ from powercontext.builtin.artifacts.handoff import (
 )
 from powercontext.builtin.artifacts.memory.models import MemoryChange
 from powercontext.builtin.artifacts.memory.prompts import MemoryExtractionProfile
+from powercontext.builtin.code.config import CodeConfig, CodeGraphConfig, CodeLimits
+from powercontext.builtin.code.models import (
+    CodeAffectedTestsOperation,
+    CodeCoverage,
+    CodeImpactOperation,
+    CodeItem,
+    CodeLocation,
+    CodeQueryRequest,
+    CodeQueryResponse,
+    CodeReadOperation,
+    CodeRelationship,
+    CodeStatusOperation,
+    CodeStatusResponse,
+    CodeSymbolsOperation,
+    CodeTargetOperation,
+    CodeTreeOperation,
+)
 from powercontext.builtin.dream.application import DreamApplication, ScopedDreamApplication
 from powercontext.builtin.dream.models import (
     CreateDreamRunRequest,
@@ -207,6 +224,23 @@ __all__ = [
     "CandidateFamilyCount",
     "CandidateInventoryStatistics",
     "CaptureSource",
+    "CodeAffectedTestsOperation",
+    "CodeConfig",
+    "CodeCoverage",
+    "CodeGraphConfig",
+    "CodeImpactOperation",
+    "CodeItem",
+    "CodeLimits",
+    "CodeLocation",
+    "CodeQueryRequest",
+    "CodeQueryResponse",
+    "CodeReadOperation",
+    "CodeRelationship",
+    "CodeStatusOperation",
+    "CodeStatusResponse",
+    "CodeSymbolsOperation",
+    "CodeTargetOperation",
+    "CodeTreeOperation",
     "CommitConnectorCheckpoint",
     "ConnectorCheckpointState",
     "ContextAssembly",

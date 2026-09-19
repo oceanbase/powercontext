@@ -69,6 +69,17 @@ var ServerResponseError = class extends ClientError {
 //#endregion
 //#region src/operations.generated.ts
 const OPERATIONS = {
+	query_code: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/code/query",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	create_subject_source: {
 		method: "POST",
 		path: "/v1/scopes/{scope_id}/subject-sources",

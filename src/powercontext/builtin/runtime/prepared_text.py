@@ -47,10 +47,16 @@ class ContextTextItem:
     truncated: bool = False
 
 
-def render_context_text(items: Sequence[ContextTextItem], assembly: ContextAssembly) -> str:
+def render_context_text(
+    items: Sequence[ContextTextItem],
+    assembly: ContextAssembly,
+    *,
+    code_section: str | None = None,
+) -> str:
     """Render already selected entries without interpreting historical Markdown."""
 
-    parts = ["# PowerContext historical context", TRUST_POLICY, _BEGIN_MARKER]
+    title = "# PowerContext context" if code_section else "# PowerContext historical context"
+    parts = [title, TRUST_POLICY, _BEGIN_MARKER]
     for section in assembly.sections:
         included = [item for item in items if item.artifact.artifact.family == section.family]
         if not included:
@@ -66,6 +72,8 @@ def render_context_text(items: Sequence[ContextTextItem], assembly: ContextAssem
             parts.append(f"### {title} {number}")
             parts.append(_metadata(item, assembly))
             parts.append("\n".join(f">     {line}" for line in item.content.split("\n")))
+    if code_section:
+        parts.append(code_section)
     parts.append(_END_MARKER)
     return "\n\n".join(parts)
 
@@ -92,6 +100,8 @@ def fit_context_text_item(
     candidate: ContextTextItem,
     assembly: ContextAssembly,
     max_bytes: int,
+    *,
+    code_section: str | None = None,
 ) -> FitOutcome:
     """Fit the longest display prefix, retaining complete citations and escapes.
 
@@ -105,7 +115,8 @@ def fit_context_text_item(
     def fits(item: ContextTextItem) -> bool:
         return (
             len(item.content.encode("utf-8")) <= _MAX_BODY_BYTES
-            and len(render_context_text((*included, item), assembly).encode("utf-8")) <= max_bytes
+            and len(render_context_text((*included, item), assembly, code_section=code_section).encode("utf-8"))
+            <= max_bytes
         )
 
     if fits(complete):

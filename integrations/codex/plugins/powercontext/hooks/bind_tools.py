@@ -70,6 +70,7 @@ _CURRENT_OPERATIONS = frozenset({
     "list_memory_entries",
     "list_remote_skill_targets",
     "prepare_context",
+    "query_code",
     "prepare_handoff",
     "propose_experience",
     "propose_skill",
@@ -110,6 +111,8 @@ def main(settings: CodexPluginSettings | None = None) -> int:
         ):
             return 0
         operation = tool_name.removeprefix(_PREFIX)
+        if operation == "powercontext_code_query":
+            operation = "query_code"
         if operation in _CONTROL_OPERATIONS:
             updated = dict(tool_input)
             updated["key"] = session_binding_key(session_id)

@@ -117,6 +117,12 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryCurrentItem,
     TopicMemorySearchResult,
 )
+from powercontext.builtin.code.errors import (
+    CodeChangedError,
+    CodeError,
+    CodeUnavailableError,
+    UnsupportedCodeCapabilityError,
+)
 from powercontext.builtin.dream.application import DreamApplication
 from powercontext.builtin.dream.models import CreateDreamRunRequest as RuntimeCreateDreamRunRequest
 from powercontext.builtin.dream.models import DreamError
@@ -295,7 +301,7 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     SubmitSourceObservation as RuntimeSubmitSourceObservation,
 )
-from powercontext.builtin.runtime.application import BuiltinRuntime, PromptApplication
+from powercontext.builtin.runtime.application import BuiltinRuntime, CodeApplication, PromptApplication
 from powercontext.builtin.scope import (
     ScopeApplication,
     ScopeBindingNotFoundError,
@@ -620,6 +626,8 @@ from powercontext.http._generated.models import (
 from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
+    CodeQueryRequest,
+    CodeQueryResult,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
     TaggableArtifactFamily,
@@ -710,6 +718,7 @@ from powercontext.http._generated.operations import (
     PUBLISH_REMOTE_SKILL,
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
+    QUERY_CODE,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -1215,6 +1224,7 @@ class ServerApplication(Protocol):
     records: _RecordApplication
     ingestion: _RemoteIngestionApplication
     context: _ContextApplication
+    code: CodeApplication
     experience: _ExperienceApplication
     external_skills: _ExternalSkillApplication
     handoff: _HandoffApplication
@@ -1407,6 +1417,7 @@ def create_app(
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_CONTEXT, prepare_context)
+    _add_route(app, QUERY_CODE, query_code)
     _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)
     _add_route(app, HANDOFF_CURRENT_WORK, handoff_current_work)
     _add_route(app, ACKNOWLEDGE_HANDOFF, acknowledge_handoff)
@@ -2878,6 +2889,15 @@ async def search_memory(
     return mapping.search_response(result)
 
 
+async def query_code(
+    scope_id: str,
+    request: CodeQueryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> CodeQueryResult:
+    result = await application.code.for_scope(scope_id).query(mapping.code_query_request(request))
+    return CodeQueryResult.model_validate_json(result.model_dump_json(by_alias=True))
+
+
 async def prepare_context(
     request: PrepareContextRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -4299,6 +4319,7 @@ _COLLECTION_CONTENT_OPERATIONS = frozenset({
     "list_memory_entries",
     "list_memory_changes",
     "prepare_context",
+    "query_code",
     "list_managed_skills",
     "list_artifact_candidates",
     "get_artifact_candidate",
@@ -5114,8 +5135,20 @@ def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
             "capacity_exceeded": 429,
         }
         return statuses.get(error.code, 422), error.code, "The Dream request could not be completed.", None
+    if isinstance(error, CodeError):
+        return _map_code_error(error)
     service_error = _map_service_error(error)
     return _map_domain_error(error) if service_error is None else service_error
+
+
+def _map_code_error(error: CodeError) -> tuple[int, str, str, dict[str, Any] | None]:
+    if isinstance(error, CodeChangedError):
+        return 409, error.code, "Repository content changed; refresh the index and locate the target again.", None
+    if isinstance(error, UnsupportedCodeCapabilityError):
+        return 501, error.code, "This code analysis is not supported by the deployed engine.", None
+    if isinstance(error, CodeUnavailableError):
+        return 503, error.code, "Current code analysis is unavailable.", None
+    return 422, error.code, "The code query parameters, target, or output budget are invalid.", None
 
 
 def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:  # noqa: C901

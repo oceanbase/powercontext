@@ -31,7 +31,7 @@
           {
             "type": "command",
             "command": "uv run --frozen --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/recall.py\"",
-            "timeout": 10,
+            "timeout": 20,
             "statusMessage": "Syncing PowerContext"
           }
         ]

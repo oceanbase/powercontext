@@ -96,6 +96,15 @@ def test_prepare_client_preserves_omitted_and_explicit_assembly() -> None:
                     "assembly": {"sections": []},
                 })
             )
+            await client.prepare_context(PrepareContextRequest(scope_id="scope", query="false", include_code=False))
+            await client.prepare_context(
+                PrepareContextRequest.model_validate({
+                    "scope_id": "scope",
+                    "query": "code",
+                    "include_code": True,
+                    "assembly": {},
+                })
+            )
         assert "assembly" not in bodies[0]
         assert bodies[1]["assembly"]["format"] == "markdown"
         assert bodies[1]["assembly"]["sections"] == [
@@ -103,6 +112,9 @@ def test_prepare_client_preserves_omitted_and_explicit_assembly() -> None:
             {"family": "experience", "limit": 2},
         ]
         assert bodies[2]["assembly"]["sections"] == []
+        assert all("include_code" not in body for body in bodies[:4])
+        assert bodies[4]["include_code"] is True
+        assert bodies[4]["assembly"] == {}
 
     asyncio.run(scenario())
 

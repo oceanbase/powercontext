@@ -40,6 +40,7 @@ from powercontext.builtin.persistence.errors import (
 )
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.tables import SOURCE_JOURNAL_HEADS_TABLE, SOURCES_TABLE
+from powercontext.builtin.source_eligibility import is_code_query_source
 from powercontext.builtin.sources.content import ContentSource
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 from powercontext.errors import SourceDefinitionNotFoundError
@@ -168,9 +169,10 @@ class SourceRepository:
         # Centralized here so capture, record projection and import all publish
         # discoverable input atomically. Replayed Source identities do not dirty
         # a binding again. Disabled processors simply retain ordinary dirty.
-        intents = ArtifactProcessingIntentRepository()
-        for binding_name in SOURCE_PROCESSING_BINDINGS:
-            await intents.mark_dirty(connection, scope_id, binding_name)
+        if not is_code_query_source(source):
+            intents = ArtifactProcessingIntentRepository()
+            for binding_name in SOURCE_PROCESSING_BINDINGS:
+                await intents.mark_dirty(connection, scope_id, binding_name)
         return StoredSource(ref=ref, value=source, journal_position=position), True
 
     async def get(

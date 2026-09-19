@@ -23,11 +23,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from scripts.evaluate_integration_guidance import apply_reporting_review, run_scenario, validate_message
-from scripts.integration_guidance_handoff import HandoffFixture
-from scripts.integration_guidance_native import NativeHandoffSession
-from scripts.integration_guidance_skills import with_skill_resources
+from evaluate_integration_guidance import apply_reporting_review, run_scenario, validate_message
+from integration_guidance_handoff import HandoffFixture
+from integration_guidance_native import NativeHandoffSession
+from integration_guidance_skills import with_skill_resources
 
 
 def call(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:

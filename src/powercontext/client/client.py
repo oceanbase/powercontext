@@ -195,6 +195,8 @@ from powercontext.http import (
 from powercontext.http._generated.models import (
     ArtifactTagPage,
     ArtifactTagSet,
+    CodeQueryRequest,
+    CodeQueryResult,
     QueryArtifactTagsRequest,
     ReplaceArtifactTagsRequest,
 )
@@ -275,6 +277,7 @@ from powercontext.http._generated.operations import (
     PUBLISH_REMOTE_SKILL,
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
+    QUERY_CODE,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -912,6 +915,11 @@ class PowerContextClient:
 
         return await self._request(GET_TOPIC_MEMORY, request)
 
+    async def query_code(self, scope_id: str, request: CodeQueryRequest) -> CodeQueryResult:
+        """Read the configured repository without creating persistent evidence."""
+
+        return await self._request(QUERY_CODE, request, path_parameters={"scope_id": scope_id})
+
     async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
         """Prepare final bounded context for one Agent turn."""
 
@@ -1240,6 +1248,15 @@ def _prepare_request(
             and "assembly" not in request.model_fields_set
         ):
             payload.pop("assembly", None)
+        if (
+            operation is PREPARE_CONTEXT
+            and isinstance(request, PrepareContextRequest)
+            and request.include_code
+            and request.assembly is not None
+        ):
+            payload["assembly"] = request.assembly.model_dump(mode="json", exclude_unset=True)
+        if operation is PREPARE_CONTEXT and isinstance(request, PrepareContextRequest) and not request.include_code:
+            payload.pop("include_code", None)
         if operation.request_location == "query":
             request_query.update({key: value for key, value in payload.items() if value is not None})
         else:

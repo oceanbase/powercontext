@@ -156,6 +156,7 @@ def create_server_app(  # noqa: C901
         handoff_report=resolved.handoff_report,
         inference=resolved.inference,
         external_skills=resolved.external_skills,
+        code=resolved.code,
     )
     metrics = ServerMetrics() if resolved.metrics.enabled else None
     resolved_tracing = ServerTracing.context_only() if tracing is None else tracing

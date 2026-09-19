@@ -116,6 +116,10 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchMode,
     TopicMemorySearchResult,
 )
+from powercontext.builtin.code.config import CodeConfig
+from powercontext.builtin.code.errors import CodeChangedError, CodeUnavailableError, UnsupportedCodeCapabilityError
+from powercontext.builtin.code.models import CodeQueryRequest, CodeQueryResponse, CodeStatusResponse
+from powercontext.builtin.code.service import CodeService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.dream.application import DreamApplication
 from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorizer, DreamService
@@ -811,6 +815,32 @@ class StatisticsApplication:
         )
 
 
+class ScopedCodeApplication:
+    """Query the deployment-configured repository for one existing Scope."""
+
+    def __init__(self, runtime: BuiltinRuntime, scope_id: str) -> None:
+        self._runtime = runtime
+        self.scope_id = validate_scope_id(scope_id)
+
+    async def query(self, request: CodeQueryRequest, /) -> CodeQueryResponse | CodeStatusResponse:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._code_service.query(self.scope_id, request)
+
+    async def index(self) -> CodeStatusResponse:
+        async with self._runtime._scope_operation(self.scope_id):
+            return await self._runtime._code_service.index(self.scope_id)
+
+
+class CodeApplication:
+    """Expose local repository operations without a new stored resource."""
+
+    def __init__(self, runtime: BuiltinRuntime) -> None:
+        self._runtime = runtime
+
+    def for_scope(self, scope_id: str, /) -> ScopedCodeApplication:
+        return ScopedCodeApplication(self._runtime, scope_id)
+
+
 class ScopedContextApplication:
     """Prepare final context for one scope using Runtime-owned source policy."""
 
@@ -827,14 +857,16 @@ class ScopedContextApplication:
     ) -> PreparedContext:
         if (
             request.assembly is not None
+            and (not request.include_code or "sections" in request.assembly.model_fields_set)
             and sum(section.limit for section in request.assembly.sections) > self._runtime.context_assembly_max_entries
         ):
             raise InvalidRuntimeRequestError("context-assembly-entry-limit")
         async with self._runtime._scope_operation(self.scope_id) as scope:
-            if request.assembly is not None and not request.assembly.sections:
+            code_only = request.assembly is not None and not request.assembly.sections
+            if code_only and not request.include_code:
                 return PreparedContextBuilder().empty()
             if authorize_scopes is not None:
-                await authorize_scopes((self.scope_id, *scope.context_references))
+                await authorize_scopes((self.scope_id,) if code_only else (self.scope_id, *scope.context_references))
             return await self._prepare(request, scope)
 
     async def _prepare(self, request: PrepareContextRequest, scope: ScopeDescriptor, /) -> PreparedContext:
@@ -895,10 +927,11 @@ class ScopedContextApplication:
         """
 
         builder = PreparedContextBuilder()
-        scope_ids = [self.scope_id, *scope.context_references]
+        assembly = request.assembly
+        scope_ids = [self.scope_id, *scope.context_references] if assembly is None or assembly.sections else []
         families: set[str] = (
-            {section.family for section in request.assembly.sections}
-            if request.assembly is not None
+            {section.family for section in assembly.sections}
+            if assembly is not None
             else {MEMORY_FAMILY, EXPERIENCE_FAMILY, TOPIC_MEMORY_FAMILY}
         )
         # Caller-owned cache of the query vectors round 0 already paid for, keyed by scope.
@@ -927,6 +960,7 @@ class ScopedContextApplication:
                     if profile is not None:
                         profile_candidates.append(PreparedProfileCandidate(scope_id=scope_id, profile=profile))
 
+        code_response, code_omission = await self._prepare_code(request)
         policy = self._runtime.recall_sufficiency_policy
         recall_effort: RecallEffort | None = None
         if policy is not None:
@@ -945,6 +979,8 @@ class ScopedContextApplication:
                 experience_candidates=experience_candidates,
                 topic_memory_hits=topic_memory_hits,
                 profile_candidates=profile_candidates,
+                code_response=code_response,
+                code_omission=code_omission,
                 reuse=reuse,
                 topic_reuse=topic_reuse,
                 round_zero=round_zero,
@@ -970,6 +1006,9 @@ class ScopedContextApplication:
                 topic_memory_hits=topic_memory_hits,
                 experience_candidates=experience_candidates,
                 profile_candidates=profile_candidates,
+                code_response=code_response,
+                code_omission=code_omission,
+                max_entries=self._runtime.context_assembly_max_entries,
             )
             if recall_effort is not None:
                 recall_effort = replace(
@@ -981,7 +1020,9 @@ class ScopedContextApplication:
                 )
             if span is not None:
                 span.set_attributes({
-                    "powercontext.context.build.selected_count": len(build.origins),
+                    "powercontext.context.build.selected_count": len(build.origins) + len(build.code_items),
+                    "powercontext.context.build.code_selected_count": len(build.code_items),
+                    "powercontext.context.build.code_section_bytes": build.code_section_bytes,
                     "powercontext.context.build.status": build.context.status,
                     "powercontext.context.build.content_bytes": build.context.content_bytes,
                 })
@@ -1009,6 +1050,8 @@ class ScopedContextApplication:
         experience_candidates: list[PreparedExperienceCandidates],
         topic_memory_hits: tuple[TopicMemorySearchHit, ...],
         profile_candidates: Sequence[PreparedProfileCandidate],
+        code_response: CodeQueryResponse | None,
+        code_omission: str | None,
         reuse: dict[str, MemoryQueryEmbedding],
         topic_reuse: dict[str, MemoryQueryEmbedding],
         round_zero: _RecallRoundOutcome,
@@ -1060,6 +1103,9 @@ class ScopedContextApplication:
                 topic_memory_hits=topic_memory_hits,
                 experience_candidates=experience_candidates,
                 profile_candidates=profile_candidates,
+                code_response=code_response,
+                code_omission=code_omission,
+                max_entries=self._runtime.context_assembly_max_entries,
             )
             assessment = gate.assess(
                 candidates,
@@ -1144,6 +1190,9 @@ class ScopedContextApplication:
                         builder.experience_candidate_limit,
                     ),
                     profile_candidates=profile_candidates,
+                    code_response=code_response,
+                    code_omission=code_omission,
+                    max_entries=self._runtime.context_assembly_max_entries,
                 )
                 assessment = gate.assess(
                     candidates,
@@ -1277,6 +1326,29 @@ class ScopedContextApplication:
             embedding_calls=embedding_calls + topic_outcome.embedding_calls,
             generation_calls=generation_calls,
         )
+
+    async def _prepare_code(self, request: PrepareContextRequest) -> tuple[CodeQueryResponse | None, str | None]:
+        if not request.include_code:
+            return None, None
+        with self._runtime._stage("code.prepare", attributes={}) as span:
+            try:
+                response = await self._runtime._code_service.prepare(self.scope_id, request.query)
+            except (CodeUnavailableError, CodeChangedError, UnsupportedCodeCapabilityError) as error:
+                if span is not None:
+                    span.set_attributes({"powercontext.code.omission": error.code})
+                return None, error.code
+            if span is not None:
+                span.set_attributes({
+                    "powercontext.code.candidate_count": len(response.items),
+                    "powercontext.code.fingerprint": response.fingerprint,
+                    "powercontext.code.matched": bool(response.items),
+                    "powercontext.code.indexed_files": response.coverage.indexed_files,
+                    "powercontext.code.omitted_files": response.coverage.omitted_files,
+                    "powercontext.code.parse_failures": response.coverage.parse_failures,
+                    "powercontext.code.unresolved_references": response.coverage.unresolved_references,
+                    "powercontext.code.truncated": response.coverage.truncated,
+                })
+            return response, None
 
     async def _recall_scope(
         self,
@@ -2870,6 +2942,7 @@ class BuiltinRuntime:
         capabilities: RuntimeCapabilities,
         source_window_limit: int = 100,
         context_assembly_max_entries: int = 8,
+        code_service: CodeService | None = None,
         recall_sufficiency_policy: RecallSufficiencyPolicy | None = None,
         scope_cache_size: int = DEFAULT_SCOPE_CACHE_SIZE,
         scope_evictor: ScopeEvictor | None = None,
@@ -2970,6 +3043,7 @@ class BuiltinRuntime:
         self._scheduled_experience_runner = scheduled_experience_runner
         self.source_window_limit = source_window_limit
         self.context_assembly_max_entries = context_assembly_max_entries
+        self._code_service = code_service or CodeService(CodeConfig())
         self.recall_sufficiency_policy = recall_sufficiency_policy
         self._scope_cache = ScopeCache(
             scope_cache_size,
@@ -2988,6 +3062,7 @@ class BuiltinRuntime:
         self.sources = SourceApplication(self)
         self.ingestion = RemoteIngestionApplication(self, remote_ingestion)
         self.context = ContextApplication(self)
+        self.code = CodeApplication(self)
         self.experience = ExperienceApplication(self)
         self.dream = DreamApplication(self)
         self.external_skills = ExternalSkillApplication(self)

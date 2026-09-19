@@ -1632,7 +1632,11 @@ def test_selector_closes_read_transaction_and_runs_estimator_off_loop() -> None:
 
 
 @pytest.mark.parametrize("only_lineage", [False, True])
-def test_topic_windows_exclude_lineage_only_sources_and_advance_the_full_journal(only_lineage: bool) -> None:
+@pytest.mark.parametrize("code_snapshot", [False, True])
+def test_topic_windows_exclude_automatic_ineligible_sources_and_advance_the_full_journal(
+    only_lineage: bool,
+    code_snapshot: bool,
+) -> None:
     async def scenario() -> None:
         manager, profile, _, topics = await _repositories()
         sources = SourceRepository((CONTENT_SOURCE_ADAPTER,))
@@ -1652,7 +1656,13 @@ def test_topic_windows_exclude_lineage_only_sources_and_advance_the_full_journal
                         ContentSource(
                             name=f"source-{position}",
                             materialization=SourceMaterialization.CAPTURED,
-                            content="private-lineage-sentinel" if lineage_only else "eligible source",
+                            content=(
+                                '{"schema":"powercontext.code-query.v1","items":[{"content":"private-lineage-sentinel"}]}'
+                                if lineage_only and code_snapshot
+                                else "private-lineage-sentinel"
+                                if lineage_only
+                                else "eligible source"
+                            ),
                             internal=ContentSourceInternal(
                                 role="lineage_only",
                                 operation="artifact_create",
@@ -1660,7 +1670,7 @@ def test_topic_windows_exclude_lineage_only_sources_and_advance_the_full_journal
                                     scope_id="scope-a", family="profile", artifact_id="profile", revision=1
                                 ),
                             )
-                            if lineage_only
+                            if lineage_only and not code_snapshot
                             else None,
                         ),
                     )

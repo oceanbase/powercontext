@@ -125,7 +125,9 @@ class RelationalRecallTokenEstimator:
 
     async def estimate(self, build: PreparedContextBuild, /) -> RecallTokenMeasurement:
         source_refs: set[tuple[str, str, str]] = set()
-        comparable = build.context.status == "ready" and bool(build.origins)
+        # Current code has no persisted Source baseline. Counting its text
+        # against historical Sources would report a misleading reduction.
+        comparable = build.context.status == "ready" and bool(build.origins) and not build.code_items
 
         async with self._database.transaction() as connection:
             resolver = _RecallOriginResolver(

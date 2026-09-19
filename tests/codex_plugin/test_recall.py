@@ -53,6 +53,58 @@ def _prepared(content: str | None = "prepared context", *, status: str = "ready"
     }
 
 
+@pytest.mark.parametrize("status", [200, 404, 405, 501])
+def test_code_negotiation_preserves_legacy_request_and_exact_text(
+    recall_module: ModuleType,
+    status: int,
+) -> None:
+    requests = []
+    text = "## Current code references\n\n>     中文 / literal evidence\n"
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - base class keyword parameter.
+            pass
+
+        def do_POST(self):
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, payload))
+            negotiation = self.path.endswith("/code/query")
+            self.send_response(status if negotiation else 200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "schema": "powercontext.code-status.v1",
+                        "protocol": "powercontext.code-query.v1",
+                        "scope_id": "scope",
+                        "status": "ready",
+                        "capabilities": ["prepare"],
+                    }
+                    if negotiation and status == 200
+                    else {}
+                    if negotiation
+                    else _prepared(text)
+                ).encode()
+            )
+
+    with _serve(Handler) as url:
+        settings = recall_module.CodexPluginSettings(include_code=True).model_copy(update={"server_url": url})
+        assert settings.request_timeout_seconds == 6
+        assert settings.http_budget_seconds == 15
+        result = recall_module._recall_context("query", "scope", settings=settings, deadline=time.monotonic() + 15)
+    assert result == text
+    assert requests[0] == ("/v1/scopes/scope/code/query", {"operation": {"kind": "status"}})
+    assert requests[1][0] == "/v1/context/prepare"
+    assert requests[1][1].get("include_code") is (True if status == 200 else None)
+
+
+def test_code_timeout_defaults_do_not_override_explicit_host_budgets(recall_module: ModuleType) -> None:
+    settings = recall_module.CodexPluginSettings(include_code=True, request_timeout_seconds=2, http_budget_seconds=3)
+    assert settings.request_timeout_seconds == 2
+    assert settings.http_budget_seconds == 3
+
+
 def test_recall_emits_bounded_untrusted_context(
     recall_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

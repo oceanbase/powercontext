@@ -137,6 +137,9 @@ non_profile_reason = "Candidate decision authority is outside this capability co
 [[toolsets.tools]]
 id = "revise_artifact_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "powercontext_code_query"
+non_profile_reason = "Current repository analysis is outside the durable-context capability profile."
 
 [[toolsets]]
 id = "prompt-hooks"

@@ -59,6 +59,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.code.service import CodeService
 from powercontext.builtin.dream.generation import (
     DREAM_INSTRUCTIONS,
     DreamGenerationInput,
@@ -479,6 +480,7 @@ async def open_builtin_runtime(
                 ),
                 source_window_limit=config.runtime.source_window_limit,
                 context_assembly_max_entries=config.runtime.context_assembly_max_entries,
+                code_service=CodeService(config.code),
                 recall_sufficiency_policy=RecallSufficiencyPolicy.from_runtime_config(config.runtime),
                 scope_cache_size=config.runtime.scope_cache_size,
                 scope_evictor=contexts.evict,

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from pydantic import BaseModel
@@ -276,5 +277,42 @@ def test_candidate_inference_does_not_hold_the_database_transaction() -> None:
             assert pending.high_watermark == 2
             assert pending.current_cursor == 2
             assert pending.source_count == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("as_object", [False, True])
+def test_saved_code_is_readable_and_skipped_when_later_sources_advance_memory(as_object: bool) -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(
+            BuiltinConfig(database=SQLiteConfig()), candidate_pipeline=EchoCandidatePipeline()
+        ) as contexts:
+            context = await contexts.get("project")
+            content = {"schema": "powercontext.code-query.v1", "items": [{"content": "code-only-sentinel"}]}
+            source = ContentSource(
+                name="saved-code",
+                materialization=SourceMaterialization.CAPTURED,
+                content=json.dumps(content),
+                wire_content=content if as_object else None,
+                wire_content_present=as_object,
+            )
+            async with contexts.database.transaction() as connection:
+                stored = await contexts.repositories.sources.add(connection, "project", source)
+            assert await context.sources.get(source) == source
+            materialized = await context.sources.read(source)
+            assert isinstance(materialized, ContentCapture)
+            assert materialized.content == json.dumps(content)
+            skipped = await context.triggers.flush(limit=10)
+            assert skipped.source_count == 0 and skipped.current_cursor == stored.journal_position
+            assert skipped.memory_ref is None
+            await context.sources.capture(
+                ContentCapture(source_id="ordinary", content="Keep user decisions across sessions.")
+            )
+            flushed = await context.triggers.flush(limit=10)
+            assert flushed.source_count == 1 and flushed.current_cursor > skipped.current_cursor
+            assert flushed.memory_ref is not None
+            memory = await context.artifacts.memory.head(context.artifacts.memory_artifact_id)
+            entries = await context.artifacts.memory.entries(memory)
+            assert [entry.text for entry in entries] == ["Keep user decisions across sessions."]
 
     asyncio.run(scenario())

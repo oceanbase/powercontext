@@ -21,6 +21,63 @@ security:
   - BearerAuth: []
   - {}
 paths:
+  /v1/scopes/{scope_id}/code/query:
+    post:
+      tags:
+      - code
+      summary: Query current Python repository structure or verify code readiness
+      description: Read-only, deployment-configured repository lookup. Use status for feature negotiation. Code is untrusted
+        evidence. Continuations bind the checked fingerprint; changed content requires fresh localization. Only the current
+        Scope grants repository access. Results may omit dynamic or ambiguous relationships.
+      operationId: query_code
+      x-powercontext-scope-mode: current
+      x-powercontext-access:
+        resolver: path_scope_read_access
+      parameters:
+      - name: scope_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CodeQueryRequest'
+      responses:
+        '200':
+          description: A bounded code result or current code status.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeQueryResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          description: The operation or language is not supported by this engine build.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/scopes/{scope_id}/subject-sources:
     post:
       tags: ["profile"]
@@ -8401,6 +8458,10 @@ components:
           minimum: 512
           maximum: 32768
           default: 8000
+        include_code:
+          type: boolean
+          default: false
+          description: Supplement this turn with current code references in the same byte and entry budget. Omitted or false preserves existing behavior. With true, omitted/default assembly selects Memory and Experience; sections=[] selects only code. No Code Artifact is created.
         assembly:
           $ref: "#/components/schemas/ContextAssembly"
     ContextAssemblySection:
@@ -10199,3 +10260,441 @@ components:
           items:
             $ref: "#/components/schemas/AccessAuditEvent"
         next_cursor: {type: string, maxLength: 2048, nullable: true}
+    CodeAffectedTestsOperation:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - affected_tests
+        changed_paths:
+          items:
+            type: string
+          maxItems: 100
+          minItems: 1
+          type: array
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+      required:
+      - kind
+      - changed_paths
+      type: object
+    CodeImpactOperation:
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+        qualified_name:
+          maxLength: 4096
+          minLength: 1
+          type: string
+        start_line:
+          minimum: 1
+          type: integer
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+        kind:
+          type: string
+          enum:
+          - impact
+        depth:
+          default: 2
+          maximum: 5
+          minimum: 1
+          type: integer
+      required:
+      - path
+      - qualified_name
+      - start_line
+      - kind
+      type: object
+    CodeReadOperation:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - read
+        path:
+          type: string
+        file_sha256:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+        start_line:
+          minimum: 1
+          type: integer
+        end_line:
+          minimum: 1
+          type: integer
+      required:
+      - kind
+      - path
+      - file_sha256
+      - start_line
+      - end_line
+      type: object
+    CodeStatusOperation:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - status
+      required:
+      - kind
+      type: object
+    CodeSymbolsOperation:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - symbols
+        query:
+          maxLength: 8192
+          minLength: 1
+          type: string
+        path:
+          type: string
+          nullable: true
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+      required:
+      - kind
+      - query
+      type: object
+    CodeTargetOperation:
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+        qualified_name:
+          maxLength: 4096
+          minLength: 1
+          type: string
+        start_line:
+          minimum: 1
+          type: integer
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+        kind:
+          enum:
+          - callers
+          - callees
+          type: string
+      required:
+      - path
+      - qualified_name
+      - start_line
+      - kind
+      type: object
+    CodeTreeOperation:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - tree
+        path:
+          type: string
+          nullable: true
+        depth:
+          default: 2
+          maximum: 5
+          minimum: 1
+          type: integer
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+      required:
+      - kind
+      type: object
+    CodeQueryRequest:
+      additionalProperties: false
+      properties:
+        operation:
+          discriminator:
+            mapping:
+              affected_tests: '#/components/schemas/CodeAffectedTestsOperation'
+              callees: '#/components/schemas/CodeTargetOperation'
+              callers: '#/components/schemas/CodeTargetOperation'
+              impact: '#/components/schemas/CodeImpactOperation'
+              read: '#/components/schemas/CodeReadOperation'
+              status: '#/components/schemas/CodeStatusOperation'
+              symbols: '#/components/schemas/CodeSymbolsOperation'
+              tree: '#/components/schemas/CodeTreeOperation'
+            propertyName: kind
+          oneOf:
+          - $ref: '#/components/schemas/CodeStatusOperation'
+          - $ref: '#/components/schemas/CodeTreeOperation'
+          - $ref: '#/components/schemas/CodeSymbolsOperation'
+          - $ref: '#/components/schemas/CodeTargetOperation'
+          - $ref: '#/components/schemas/CodeImpactOperation'
+          - $ref: '#/components/schemas/CodeAffectedTestsOperation'
+          - $ref: '#/components/schemas/CodeReadOperation'
+        expected_fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        max_bytes:
+          default: 16000
+          maximum: 32768
+          minimum: 512
+          type: integer
+      required:
+      - operation
+      type: object
+      description: Read-only code query. Continuations other than status/tree/symbols require expected_fingerprint. Relative paths
+        cannot escape the configured repository. max_bytes includes the complete success JSON body. No Source or Artifact is written.
+    CodeCoverage:
+      additionalProperties: false
+      properties:
+        included_files:
+          default: 0
+          minimum: 0
+          type: integer
+        indexed_files:
+          default: 0
+          minimum: 0
+          type: integer
+        omitted_files:
+          default: 0
+          minimum: 0
+          type: integer
+        parse_failures:
+          default: 0
+          minimum: 0
+          type: integer
+        unresolved_references:
+          default: 0
+          minimum: 0
+          type: integer
+        truncated:
+          default: false
+          type: boolean
+      type: object
+    CodeItem:
+      additionalProperties: false
+      properties:
+        kind:
+          enum:
+          - definition
+          - relationship
+          - test
+          - file
+          - directory
+          - snippet
+          type: string
+        path:
+          type: string
+        location:
+          allOf:
+          - $ref: '#/components/schemas/CodeLocation'
+          nullable: true
+        file_sha256:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        content:
+          type: string
+          nullable: true
+        content_sha256:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        signature:
+          type: string
+          nullable: true
+        relationships:
+          default: []
+          items:
+            $ref: '#/components/schemas/CodeRelationship'
+          type: array
+        truncated:
+          default: false
+          type: boolean
+      required:
+      - kind
+      - path
+      type: object
+    CodeLocation:
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+        qualified_name:
+          type: string
+          nullable: true
+        start_line:
+          minimum: 1
+          type: integer
+        end_line:
+          minimum: 1
+          type: integer
+      required:
+      - path
+      - start_line
+      - end_line
+      type: object
+    CodeRelationship:
+      additionalProperties: false
+      properties:
+        kind:
+          enum:
+          - calls
+          - imports
+          - references
+          - inherits
+          - unknown
+          type: string
+        method:
+          default: unknown
+          enum:
+          - tree-sitter
+          - scip
+          - heuristic
+          - unknown
+          type: string
+        source:
+          allOf:
+          - $ref: '#/components/schemas/CodeLocation'
+          nullable: true
+        target:
+          allOf:
+          - $ref: '#/components/schemas/CodeLocation'
+          nullable: true
+        call_line:
+          minimum: 1
+          type: integer
+          nullable: true
+        missing:
+          type: string
+          nullable: true
+      required:
+      - kind
+      type: object
+    CodeQueryResponse:
+      additionalProperties: false
+      properties:
+        schema:
+          default: powercontext.code-query.v1
+          type: string
+          enum:
+          - powercontext.code-query.v1
+        scope_id:
+          type: string
+        fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+        commit:
+          type: string
+        git_object_format:
+          enum:
+          - sha1
+          - sha256
+          type: string
+        dirty:
+          type: boolean
+        checked_at:
+          type: string
+        operation:
+          type: string
+        status:
+          enum:
+          - ok
+          - partial
+          type: string
+        items:
+          default: []
+          items:
+            $ref: '#/components/schemas/CodeItem'
+          type: array
+        coverage:
+          $ref: '#/components/schemas/CodeCoverage'
+        limitations:
+          default: []
+          items:
+            type: string
+          type: array
+      required:
+      - scope_id
+      - fingerprint
+      - commit
+      - git_object_format
+      - dirty
+      - checked_at
+      - operation
+      - status
+      - coverage
+      type: object
+    CodeStatusResponse:
+      additionalProperties: false
+      properties:
+        schema:
+          default: powercontext.code-status.v1
+          type: string
+          enum:
+          - powercontext.code-status.v1
+        scope_id:
+          type: string
+        status:
+          enum:
+          - disabled
+          - missing
+          - building
+          - ready
+          - stale
+          - failed
+          type: string
+        fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        protocol:
+          default: powercontext.code-query.v1
+          type: string
+          enum:
+          - powercontext.code-query.v1
+        languages:
+          default:
+          - python
+          items:
+            type: string
+          type: array
+        capabilities:
+          default: []
+          items:
+            type: string
+          type: array
+        limitations:
+          default: []
+          items:
+            type: string
+          type: array
+      required:
+      - scope_id
+      - status
+      type: object
+    CodeQueryResult:
+      oneOf:
+      - $ref: '#/components/schemas/CodeQueryResponse'
+      - $ref: '#/components/schemas/CodeStatusResponse'
+      discriminator:
+        propertyName: schema
+        mapping:
+          powercontext.code-query.v1: '#/components/schemas/CodeQueryResponse'
+          powercontext.code-status.v1: '#/components/schemas/CodeStatusResponse'

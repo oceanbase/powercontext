@@ -10,6 +10,9 @@ approved Experience, committed Profile snapshots, and Topic Memory, arrange thei
 rank and confidence status.
 Use an existing Scope that you can read; reading referenced Scopes also requires permission.
 
+To supplement history with current Python code, configure a repository and set `include_code=true`.
+Code shares the total budget and is not an Artifact family. See [Use current code in prepared context](git-repository-understanding.md).
+
 ## Select and order sections
 
 Save this request as `prepare.json`, replacing `scope_id` with your Scope ID:

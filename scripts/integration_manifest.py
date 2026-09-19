@@ -425,9 +425,9 @@ def tool_surface_errors(manifest: IntegrationManifest, repository_root: Path = R
 
 def _probe_toolset(probe: ToolSurfaceProbe, root: Path) -> set[str]:
     if probe is ToolSurfaceProbe.SERVER_MCP:
-        from powercontext.server.mcp import _MCP_OPERATION_IDS
+        from powercontext.server.mcp import _MCP_OPERATION_IDS, MCP_TOOL_NAME_OVERRIDES
 
-        return set(_MCP_OPERATION_IDS)
+        return {MCP_TOOL_NAME_OVERRIDES.get(operation, operation) for operation in _MCP_OPERATION_IDS}
     if probe is ToolSurfaceProbe.JSON_PROMPT_HOOK:
         return _prompt_hook_ids(root)
     if probe is ToolSurfaceProbe.DSH_TOOLS:

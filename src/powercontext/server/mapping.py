@@ -48,6 +48,7 @@ from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
 )
 from powercontext.builtin.artifacts.topic_memory import PublishedTopicMemory, TopicMemorySearchResult
+from powercontext.builtin.code.models import CodeQueryRequest as RuntimeCodeQueryRequest
 from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance
 from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
 from powercontext.builtin.review import ArtifactCandidatePage as RuntimeArtifactCandidatePage
@@ -342,6 +343,7 @@ from powercontext.http import (
     RememberMemoryRequest as TransportRememberMemoryRequest,
 )
 from powercontext.http import RepairSurface as TransportRepairSurface
+from powercontext.http._generated.models import CodeQueryRequest as TransportCodeQueryRequest
 from powercontext.sources import (
     ConnectorBinding as RuntimeConnectorBinding,
 )
@@ -682,6 +684,10 @@ def topic_memory_search_request(value: SearchTopicMemoryRequest) -> RuntimeSearc
 
 def topic_memory_get_request(value: GetTopicMemoryRequest) -> RuntimeGetTopicMemoryRequest:
     return RuntimeGetTopicMemoryRequest(artifact=runtime_artifact_reference(value.artifact))
+
+
+def code_query_request(value: TransportCodeQueryRequest) -> RuntimeCodeQueryRequest:
+    return RuntimeCodeQueryRequest.model_validate_json(value.model_dump_json(exclude_unset=True))
 
 
 def prepare_context_request(value: TransportPrepareContextRequest) -> PrepareContextRequest:

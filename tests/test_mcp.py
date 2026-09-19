@@ -36,6 +36,31 @@ from powercontext.server.mcp import create_mcp_server, mount_mcp
 ResultT = TypeVar("ResultT")
 
 
+def test_code_tool_keeps_required_fields_for_each_operation() -> None:
+    async def schema() -> dict[str, Any]:
+        async with Client(create_mcp_server(create_app())) as client:
+            return next(
+                tool.inputSchema for tool in await client.list_tools() if tool.name == "powercontext_code_query"
+            )
+
+    parameters = asyncio.run(schema())
+    operations = parameters["properties"]["operation"]["oneOf"]
+    expected = {
+        "status": {"kind"},
+        "tree": {"kind"},
+        "symbols": {"kind", "query"},
+        "callers": {"kind", "path", "qualified_name", "start_line"},
+        "callees": {"kind", "path", "qualified_name", "start_line"},
+        "impact": {"kind", "path", "qualified_name", "start_line"},
+        "affected_tests": {"kind", "changed_paths"},
+        "read": {"kind", "path", "file_sha256", "start_line", "end_line"},
+    }
+    for operation in operations:
+        kind_schema = operation["properties"]["kind"]
+        kind = kind_schema["enum"][0] if "enum" in kind_schema else kind_schema["const"]
+        assert set(operation["required"]) == expected[kind]
+
+
 def test_mcp_guidance_is_visible_without_loading_a_skill() -> None:
     async def inspect() -> tuple[str, list[Any]]:
         async with Client(create_mcp_server(create_app())) as client:
@@ -102,6 +127,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
+        "powercontext_code_query",
         "reject_artifact_candidate",
         "record_task_outcome",
         "resolve_scope_binding",

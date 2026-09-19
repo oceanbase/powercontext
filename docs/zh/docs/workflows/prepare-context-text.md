@@ -9,6 +9,9 @@ description: 选择 Memory、Experience、Profile 和 Topic Memory 的输出类�
 已批准的 Experience、正式 Profile 快照和 Topic Memory，调整章节顺序、限制条数，并展示召回位置和置信度状态。请使用已存在且具有读取权限的
 Scope；读取其引用的其他 Scope 也需要对应权限。
 
+需要同时补充当前 Python 代码时，配置仓库并设置 `include_code=true`。代码共享总预算，不增加制品类别。
+操作步骤见[在上下文中使用当前代码](git-repository-understanding.md)。
+
 ## 选择类别和顺序
 
 把下面的请求保存为 `prepare.json`，将 `scope_id` 替换成实际 Scope ID：

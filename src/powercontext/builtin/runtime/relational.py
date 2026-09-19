@@ -188,7 +188,7 @@ from powercontext.builtin.runtime.recurrence import RelationalRecurrenceLedger
 from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.builtin.scope import ScopeApplication
 from powercontext.builtin.scope.subject_sources import SubjectSourceService
-from powercontext.builtin.source_eligibility import is_generation_eligible, require_source_eligible
+from powercontext.builtin.source_eligibility import is_automatic_processing_eligible, require_source_eligible
 from powercontext.builtin.sources import (
     BUILTIN_SOURCE_REGISTRY,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_ADAPTER,
@@ -1708,7 +1708,9 @@ class _RelationalTriggers:
             through=action.through,
         )
         return tuple(
-            row.value for row in rows if row.journal_position <= action.through and is_generation_eligible(row.value)
+            row.value
+            for row in rows
+            if row.journal_position <= action.through and is_automatic_processing_eligible(row.value)
         )
 
     async def _prepare_memory(
@@ -1793,7 +1795,7 @@ class _RelationalExperienceIncubator:
             if pipeline is None:
                 raise RuntimeError("Experience incubation pipeline is not configured")  # noqa: TRY003
             action = transition.actions[0]
-            eligible_rows = tuple(row for row in rows if is_generation_eligible(row.value))
+            eligible_rows = tuple(row for row in rows if is_automatic_processing_eligible(row.value))
             if not eligible_rows:
                 async with self._services.database.transaction() as connection:
                     if processing is not None:

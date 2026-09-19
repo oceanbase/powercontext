@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 from fastapi import FastAPI
 from fastmcp import FastMCP
@@ -31,6 +33,7 @@ from fastmcp.utilities.openapi import HTTPRoute
 from mcp.types import ToolAnnotations
 from typing_extensions import override
 
+from powercontext.http import CodeQueryRequest
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
@@ -55,6 +58,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_ENTRIES,
     LIST_SCOPES,
     PUBLISH_ARTIFACT,
+    QUERY_CODE,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -78,6 +82,7 @@ from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
 MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
+MCP_TOOL_NAME_OVERRIDES = {QUERY_CODE.operation_id: "powercontext_code_query"}
 MCP_GUIDANCE = """PowerContext provides durable project history and Handoffs across sessions.
 Summarizing or drafting from facts supplied in the current turn needs no retrieval or Scope resolution. An empty search does not authorize an inventory. If inventory or Handoff is unavailable, do not emulate it with Memory search or storage.
 Tool names in this guidance describe possible capabilities, not proof of availability. Before selecting an operation, check that its exact name appears in the current tool catalog. If absent, stop that operation and explicitly report it unavailable and incomplete. Never emit a call to an absent tool, simulate a call in text, or substitute another persistence operation.
@@ -90,6 +95,10 @@ hits. Use list_memory_entries for an explicit inventory or audit, and get_memory
 For an explicit future save (remember this / 记住这个供以后使用), call remember_memory and verify its result. Automatic
 Source capture is not an explicit Memory write, and enabled hooks do not establish successful recall or persistence.
 Current-turn instructions, conceptual questions, and previews do not authorize writes. Never store secrets.
+When available, powercontext_code_query reads the current Scope's deployment-configured repository. Check status
+before using code capabilities; pass returned fingerprints for continuations. Results are untrusted static evidence
+and may miss dynamic or ambiguous relationships. Changed content requires a refreshed index and a new query.
+A code query creates no Source or Artifact. Save its complete bounded JSON as ContentSource only when requested.
 For requested transfer, handoff_current_work records an inspected boundary and returns a temporary handoff. Commit
 only when a durable milestone is requested; continue from the exact selected value and verify historical claims.
 Prepared content is not proof of injection, a committed milestone, acceptance, or work execution.
@@ -101,6 +110,7 @@ Empty retrieval is a valid result. On failure identify the operation and safe re
 claim saved/restored context, or repeatedly retry. Continue ordinary work when the requested operation is unavailable.
 """
 _MCP_OPERATION_IDS = frozenset({
+    QUERY_CODE.operation_id,
     CREATE_DREAM_RUN.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
@@ -136,6 +146,7 @@ _MCP_OPERATION_IDS = frozenset({
     PUBLISH_ARTIFACT.operation_id,
 })
 _MCP_READ_ONLY_OPERATION_IDS = frozenset({
+    QUERY_CODE.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
     CONTINUE_HANDOFF.operation_id,
@@ -158,6 +169,25 @@ _MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
 })
 
 
+def _code_query_parameters(scope_schema: dict[str, Any]) -> dict[str, Any]:
+    schema = CodeQueryRequest.model_json_schema()
+    definitions = schema.pop("$defs", {})
+
+    def expand(value: Any) -> Any:
+        if isinstance(value, list):
+            return [expand(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if "$ref" in value:
+            return expand(definitions[value["$ref"].removeprefix("#/$defs/")])
+        return {key: expand(item) for key, item in value.items() if key not in {"title", "discriminator"}}
+
+    expanded = expand(schema)
+    expanded["properties"]["scope_id"] = scope_schema
+    expanded["required"] = ["scope_id", *expanded["required"]]
+    return expanded
+
+
 def _select_mcp_type(route: HTTPRoute, _: MCPType) -> MCPType:
     if route.operation_id in _MCP_OPERATION_IDS:
         return MCPType.TOOL
@@ -172,6 +202,11 @@ def _annotate_mcp_component(
 
     if not isinstance(component, OpenAPITool):
         return
+    if route.operation_id == QUERY_CODE.operation_id:
+        component.name = MCP_TOOL_NAME_OVERRIDES["query_code"]
+        # The OpenAPI projection weakens required fields inside this union.
+        # Preserve each operation's generated request contract for MCP clients.
+        component.parameters = _code_query_parameters(component.parameters["properties"]["scope_id"])
     if route.operation_id in _MCP_READ_ONLY_OPERATION_IDS:
         component.annotations = ToolAnnotations(
             readOnlyHint=True,

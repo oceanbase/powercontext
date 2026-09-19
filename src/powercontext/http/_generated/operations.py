@@ -33,6 +33,8 @@ from powercontext.http._generated.models import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CodeQueryRequest,
+    CodeQueryResult,
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
@@ -203,6 +205,35 @@ class AccessRequirement(BaseModel):
     scope_id_field: str | None
     resolver: str
 
+
+QUERY_CODE = Operation[CodeQueryRequest, CodeQueryResult](
+    method="POST",
+    path="/v1/scopes/{scope_id}/code/query",
+    operation_id="query_code",
+    request_type=CodeQueryRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=CodeQueryResult,
+    success_status=200,
+    summary="Query current Python repository structure or verify code readiness",
+    tags=("code",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "A bounded code result or current code status.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        501: {"description": "The operation or language is not supported by this engine build."},
+    },
+    access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
+)
 
 CREATE_SUBJECT_SOURCE = Operation[CreateSubjectSourceRequest, CreateSubjectSourceResponse](
     method="POST",

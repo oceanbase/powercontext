@@ -121,11 +121,21 @@ class CodexPluginSettings(BaseSettings):
     authorization: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = None
     context_assembly: dict[str, Any] | None = None
+    include_code: bool = False
     capture_prompts: bool = True
     flush_on_capture: bool = False
     request_timeout_seconds: float = Field(default=1.0, gt=0)
     http_budget_seconds: float = Field(default=4.0, gt=0)
     flush_max_calls: int = Field(default=4, ge=1, le=16)
+
+    @model_validator(mode="after")
+    def configure_code_timeouts(self) -> CodexPluginSettings:
+        if self.include_code:
+            if "request_timeout_seconds" not in self.model_fields_set:
+                self.request_timeout_seconds = 6.0
+            if "http_budget_seconds" not in self.model_fields_set:
+                self.http_budget_seconds = 15.0
+        return self
 
     @field_validator("allow_insecure_http", mode="before")
     @classmethod

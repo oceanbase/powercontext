@@ -171,6 +171,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "list_artifact_candidates",
         "list_memory_entries",
         "list_scopes",
+        "powercontext_code_query",
         "publish_artifact",
         "record_task_outcome",
         "resolve_scope_binding",

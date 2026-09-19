@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from powercontext.builtin.artifacts.skill import AgentSkillTarget
+from powercontext.builtin.code.config import CodeConfig
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
@@ -215,6 +216,7 @@ class ServerSettings(BaseSettings):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+    code: CodeConfig = Field(default_factory=CodeConfig)
 
     @field_validator("cursor_signing_secret")
     @classmethod

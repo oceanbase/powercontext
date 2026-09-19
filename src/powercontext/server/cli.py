@@ -124,6 +124,7 @@ async def _processing_maintenance(
         inference=settings.inference,
         handoff_report=settings.handoff_report,
         external_skills=settings.external_skills,
+        code=settings.code,
     )
     manifest = canonical_processing_manifest(config)
     database = settings.database
@@ -279,6 +280,7 @@ async def _run_background_async(settings: ServerSettings, tracing: Any) -> None:
         handoff_report=settings.handoff_report,
         inference=settings.inference,
         external_skills=settings.external_skills,
+        code=settings.code,
     )
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()

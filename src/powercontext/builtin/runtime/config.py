@@ -40,6 +40,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.code.config import CodeConfig
 from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
@@ -402,6 +403,7 @@ class BuiltinConfig(BaseModel):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+    code: CodeConfig = Field(default_factory=CodeConfig)
 
     @model_validator(mode="before")
     @classmethod

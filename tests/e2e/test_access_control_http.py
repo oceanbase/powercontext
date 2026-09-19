@@ -25,6 +25,7 @@ from pydantic import SecretStr
 
 from powercontext.builtin.artifacts.handoff import HandoffDraft, HandoffGenerationRequest, HandoffStatement
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.code.config import CodeConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
 from powercontext.builtin.sources import ContentSource
@@ -35,6 +36,8 @@ from powercontext.http import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     CaptureContentSourceRequest,
+    CodeQueryRequest,
+    CodeStatusOperation,
     CommitHandoffRequest,
     ContinueHandoffRequest,
     CreateAccessBindingRequest,
@@ -46,6 +49,7 @@ from powercontext.http import (
     ListAccessResourcesRequest,
     ListArtifactsRequest,
     ListMemoryEntriesRequest,
+    PrepareContextRequest,
     QueryArtifactTagsRequest,
     ReplaceArtifactRequest,
     ReplaceArtifactTagsRequest,
@@ -170,6 +174,8 @@ def test_logical_handoff_grant_and_revoke_cross_the_public_server_boundary(tmp_p
                         revision=first_committed.reference,
                     )
                 )
+                with pytest.raises(ForbiddenResponseError):
+                    await receiver.query_code(scope_id, CodeQueryRequest(operation=CodeStatusOperation(kind="status")))
                 assert exact.selected_revision == first_committed.reference
                 assert exact.content is not None
                 assert exact.content.state[0].citations
@@ -848,11 +854,14 @@ def _app(
     principal: PrincipalRef,
     token: str,
     scheduler_path: Path,
+    *,
+    code: CodeConfig | None = None,
 ):
     authentication = StaticBearerAuthenticationProvider(token, principal)
     return create_server_app(
         settings=ServerSettings(
             database=database,
+            code=CodeConfig() if code is None else code,
             access=AccessControlConfig(
                 mode="enforced",
                 deployment_id=DEPLOYMENT_ID,
@@ -880,3 +889,61 @@ async def _client(app, token: str) -> AsyncIterator[PowerContextClient]:
         ) as client,
     ):
         yield client
+
+
+def test_code_status_and_prepare_require_scope_read_before_cache_access(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        database = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'code-access.db'}")
+        async with open_builtin_access_control(
+            database, bootstrap_administrators=(ADMIN,), deployment_id=DEPLOYMENT_ID
+        ) as access:
+            async with _client(
+                _app(database, access, ADMIN, "admin-token", tmp_path / "admin-scheduler.db"), "admin-token"
+            ) as admin:
+                scope = await admin.create_scope(
+                    CreateScopeRequest(title="Protected code", summary="Code access", idempotency_key="code")
+                )
+            cache = tmp_path / "code-cache"
+            code = CodeConfig(
+                enabled=True, repositories={scope.scope_id: tmp_path / "unavailable-repository"}, cache_dir=cache
+            )
+            async with _client(
+                _app(database, access, VIEWER, "viewer-token", tmp_path / "viewer-scheduler.db", code=code),
+                "viewer-token",
+            ) as viewer:
+                with pytest.raises(ForbiddenResponseError):
+                    await viewer.query_code(
+                        scope.scope_id, CodeQueryRequest(operation=CodeStatusOperation(kind="status"))
+                    )
+                with pytest.raises(ForbiddenResponseError):
+                    await viewer.prepare_context(
+                        PrepareContextRequest.model_validate({
+                            "scope_id": scope.scope_id,
+                            "query": "private code",
+                            "include_code": True,
+                            "assembly": {"sections": []},
+                        })
+                    )
+                assert not cache.exists()
+            async with _client(
+                _app(database, access, ADMIN, "admin-token", tmp_path / "grant-scheduler.db"), "admin-token"
+            ) as admin:
+                await admin.create_access_binding(
+                    CreateAccessBindingRequest.model_validate({
+                        "subject": {"type": VIEWER.type, "id": VIEWER.id},
+                        "resource": {"type": "scope", "scope_id": scope.scope_id},
+                        "role": "scope.viewer",
+                        "idempotency_key": "code-reader",
+                    })
+                )
+            async with _client(
+                _app(database, access, VIEWER, "viewer-token", tmp_path / "read-scheduler.db", code=code),
+                "viewer-token",
+            ) as viewer:
+                status = await viewer.query_code(
+                    scope.scope_id, CodeQueryRequest(operation=CodeStatusOperation(kind="status"))
+                )
+                assert status.root.status == "missing"
+                assert cache.exists()
+
+    asyncio.run(scenario())

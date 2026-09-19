@@ -32,6 +32,7 @@
     "manage-prompts",
     "---Context output---",
     "prepare-context-text",
+    "git-repository-understanding",
     "configure-vector-search"
   ]
 }

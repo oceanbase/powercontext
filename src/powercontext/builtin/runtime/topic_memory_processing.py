@@ -109,7 +109,7 @@ from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkerCompletion,
     ArtifactProcessingWorkerOutcome,
 )
-from powercontext.builtin.source_eligibility import is_generation_eligible
+from powercontext.builtin.source_eligibility import is_automatic_processing_eligible
 from powercontext.builtin.sources import (
     CONTENT_SOURCE_NAME,
     EXTERNAL_SKILL_SNAPSHOT_SOURCE_NAME,
@@ -1220,7 +1220,7 @@ async def _project_window(
     result: list[TopicMemoryEvidence] = []
     characters = 0
     for index, item in enumerate(stored, start=1):
-        if is_generation_eligible(item.value):
+        if is_automatic_processing_eligible(item.value):
             projected = await _project_evidence(index, item, sources)
             characters += len(projected.content)
             if characters > MAX_TOPIC_MEMORY_SOURCE_CHARACTERS:

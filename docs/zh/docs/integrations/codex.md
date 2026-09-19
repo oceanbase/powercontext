@@ -60,7 +60,7 @@ binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采�
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
-内容和 Handoff 都是历史信息；Codex 在据此行动前仍应与当前代码、用户要求和系统指令核对。
+历史内容和 Handoff 在使用前应与当前代码、用户要求和系统指令核对。启用代码补充时，还会包含本次检查的代码引用。
 
 Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
 [理解 Memory 和 Handoff](../workflows/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](../workflows/handoff-with-codex.md)。
@@ -71,6 +71,10 @@ Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于�
 的输出类别、顺序、条数和展示信息。完整示例与输出规则见[输出标准上下文文本](../workflows/prepare-context-text.md)。
 
 ## 控制提示词采集
+
+需要自动注入当前代码时，先配置 Server 仓库，再于启动 Codex 前设置 `POWERCONTEXT_CODEX_INCLUDE_CODE=true`。
+Hook 协商支持后，原样注入 Server 返回的统一有界文本。建图与限制见
+[在上下文中使用当前代码](../workflows/git-repository-understanding.md)。
 
 默认开启提示词采集。如果当前工作不应被记录，请在启动 Codex 前关闭：
 

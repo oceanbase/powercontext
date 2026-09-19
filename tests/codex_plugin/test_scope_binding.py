@@ -73,7 +73,7 @@ def test_pre_tool_hook_scope_modes_match_generated_openapi_metadata(bind_tools_m
     assert bind_tools_module._SELECTION_OPERATIONS == SELECTION_OPERATIONS
 
 
-@pytest.mark.parametrize("operation", sorted(CURRENT_OPERATIONS))
+@pytest.mark.parametrize("operation", [*sorted(CURRENT_OPERATIONS), "powercontext_code_query"])
 def test_pre_tool_hook_binds_every_current_scope_operation(
     operation: str,
     bind_tools_module: ModuleType,

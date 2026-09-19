@@ -28,6 +28,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any, Protocol, cast
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -228,18 +229,49 @@ def _prepare_context(
     settings: CodexPluginSettings,
     deadline: float,
 ) -> Mapping[str, object]:
+    include_code = settings.include_code and _supports_code(scope_id, settings=settings, deadline=deadline)
     return _post_json(
         "/v1/context/prepare",
         {
             "scope_id": scope_id,
             "query": query,
             "max_bytes": _MAX_CONTEXT_BYTES,
+            **({"include_code": True} if include_code else {}),
             **({"assembly": settings.context_assembly} if settings.context_assembly is not None else {}),
         },
         settings=settings,
         deadline=deadline,
         expected_status=200,
     )
+
+
+def _supports_code(scope_id: str, *, settings: CodexPluginSettings, deadline: float) -> bool:
+    try:
+        response = _post_json(
+            f"/v1/scopes/{quote(scope_id, safe='')}/code/query",
+            {"operation": {"kind": "status"}},
+            settings=settings,
+            deadline=deadline,
+            expected_status=200,
+        )
+    except _HttpStatusError as error:
+        if error.status not in {404, 405, 501}:
+            raise
+        _emit_context_event("code_unavailable", event_name="code_prepare", error_code="code_protocol_unsupported")
+        return False
+    current_status = response.get("status")
+    capabilities = response.get("capabilities")
+    supported = (
+        response.get("schema") == "powercontext.code-status.v1"
+        and response.get("protocol") == "powercontext.code-query.v1"
+        and response.get("scope_id") == scope_id
+        and isinstance(current_status, str)
+        and current_status in {"disabled", "missing", "building", "ready", "stale", "failed"}
+        and (current_status != "ready" or (isinstance(capabilities, list) and "prepare" in capabilities))
+    )
+    if not supported:
+        _emit_context_event("code_unavailable", event_name="code_prepare", error_code="code_protocol_unsupported")
+    return supported
 
 
 def _capture_prompt(
