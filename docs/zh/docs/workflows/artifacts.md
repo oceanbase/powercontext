@@ -35,6 +35,10 @@ Replace。缺少 `If-Match` 返回 `428`，ETag 过期返回 `412`；接口不�
 引用结果或向另一个 Agent 交付时，保留家族、Artifact ID 和精确 Revision。
 当前 head 可以前进，历史 Revision 保持不变。
 
+Artifact 的 `sources` 会保留每个来源的 `source_type` 和 `source_id`，包括 `note` 等动态注册的类型。
+读取列表、详情和历史版本时，应将 `source_type` 作为开放的 Source 名称处理。
+Python Client 将该字段表示为字符串，请直接使用，不再访问枚举的 `.value`。
+
 完整的请求字段、响应模型和可调试的接口示例请参阅[完整 HTTP API 参考](/api/)。
 接口鉴权、并发控制和常用调用流程见 [HTTP API 使用说明](../develop/http-api.md)。
 Topic Memory 当前是专用的只读检索视图，不使用上述通用写接口。

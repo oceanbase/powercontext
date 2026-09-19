@@ -9579,7 +9579,7 @@ components:
       properties:
         source_type:
           type: string
-          enum: [content]
+          description: Stable Source type, including dynamically registered Source names.
         source_id:
           type: string
           minLength: 1

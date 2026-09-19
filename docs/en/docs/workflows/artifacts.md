@@ -37,6 +37,10 @@ Use the scoped HTTP routes in the [API contract](../develop/http-api.md):
 Keep the family, Artifact ID, and exact Revision when citing a result or handing it to another Agent.
 The current head can advance while a historical Revision remains unchanged.
 
+Artifact `sources` preserve each source's `source_type` and `source_id`, including dynamically registered types such
+as `note`. Treat `source_type` as an open Source name when reading lists, details, and historical revisions.
+The Python Client exposes this field as a string; use it directly instead of accessing an enum's `.value`.
+
 See the [complete HTTP API reference](/api/) for request fields, response models, and interactive operation examples.
 For authentication, concurrency control, and common call flows, see the [HTTP API guide](../develop/http-api.md).
 Topic Memory is currently a specialized read-only retrieval view and does not use the generic write operations above.

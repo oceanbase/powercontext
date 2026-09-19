@@ -8902,7 +8902,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "SourceTypeReference": {
                 "properties": {
-                    "source_type": {"type": "string", "enum": ["content"]},
+                    "source_type": {
+                        "type": "string",
+                        "description": "Stable Source type, including dynamically registered Source names.",
+                    },
                     "source_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": "^[\\x21-\\x7E]+$"},
                 },
                 "additionalProperties": False,
