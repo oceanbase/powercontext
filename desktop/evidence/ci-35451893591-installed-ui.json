@@ -1,0 +1,8 @@
+{
+  "commit": "3aea0371f54573a077e3c28ad174d7245a0912d0",
+  "installedExecutableSha256": "05b555adc731d6382a77ab9e6eec38bc46c6f4eed5199d9bc1e6e39313929775",
+  "driverSha256": "9e9b1f048d2cc781deee084e6cb6e9f2f3417a33ed45d96cf7c34be4eb23077b",
+  "scope": "Hosted Windows runner, actual installed WebView2 with automation enabled; not clean Windows 11 qualification",
+  "result": "failed",
+  "browserVersion": null
+}

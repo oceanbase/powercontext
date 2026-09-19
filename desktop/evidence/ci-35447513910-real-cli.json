@@ -1,0 +1,175 @@
+{
+  "version": "1.0.1.dev64+g088ca7b94",
+  "wheelSha256": "ae9d529231cfebbf61b3defbc76342836dc0208ea45eed7bbfdc44ae3c0e3570",
+  "launcherSha256": "a06b463425fa148b0086b953d3fe3676e66be9f1ebeab0bc8760b42bd208d372",
+  "environment": "Isolated home and system-only PATH; wheel extracted on explicit test PYTHONPATH",
+  "result": {
+    "integrations": {
+      "checkedAt": 1789827033,
+      "exitCode": 1,
+      "hosts": [
+        {
+          "checks": [
+            {
+              "field": "claude_code",
+              "status": "failed"
+            },
+            {
+              "field": "plugin",
+              "status": "skipped"
+            }
+          ],
+          "host": "claude-code",
+          "presence": "missing"
+        },
+        {
+          "checks": [
+            {
+              "field": "codex",
+              "status": "failed"
+            },
+            {
+              "field": "plugin",
+              "status": "skipped"
+            }
+          ],
+          "host": "codex",
+          "presence": "missing"
+        },
+        {
+          "checks": [
+            {
+              "field": "dsh",
+              "status": "failed"
+            },
+            {
+              "field": "plugin",
+              "status": "skipped"
+            }
+          ],
+          "host": "dsh",
+          "presence": "missing"
+        },
+        {
+          "checks": [
+            {
+              "field": "hermes",
+              "status": "failed"
+            },
+            {
+              "field": "plugin",
+              "status": "skipped"
+            }
+          ],
+          "host": "hermes",
+          "presence": "missing"
+        },
+        {
+          "checks": [
+            {
+              "field": "openclaw",
+              "status": "failed"
+            },
+            {
+              "field": "plugin",
+              "status": "skipped"
+            }
+          ],
+          "host": "openclaw",
+          "presence": "missing"
+        },
+        {
+          "checks": [
+            {
+              "field": "opencode",
+              "status": "failed"
+            },
+            {
+              "field": "plugin",
+              "status": "skipped"
+            },
+            {
+              "field": "skill",
+              "status": "skipped"
+            }
+          ],
+          "host": "opencode",
+          "presence": "missing"
+        },
+        {
+          "checks": [
+            {
+              "field": "package",
+              "status": "skipped"
+            },
+            {
+              "field": "pi",
+              "status": "failed"
+            }
+          ],
+          "host": "pi",
+          "presence": "missing"
+        },
+        {
+          "checks": [
+            {
+              "field": "hooks",
+              "status": "failed"
+            },
+            {
+              "field": "mcp",
+              "status": "failed"
+            },
+            {
+              "field": "settings",
+              "status": "failed"
+            },
+            {
+              "field": "skill",
+              "status": "failed"
+            }
+          ],
+          "host": "workbuddy",
+          "presence": "present"
+        }
+      ],
+      "items": [
+        {
+          "field": "integrations",
+          "status": "failed"
+        }
+      ]
+    },
+    "service": {
+      "checkedAt": 1789827026,
+      "exitCode": 1,
+      "hosts": [],
+      "items": [
+        {
+          "field": "support",
+          "status": "supported"
+        },
+        {
+          "field": "registration",
+          "status": "not_installed"
+        },
+        {
+          "field": "definition",
+          "status": "unknown"
+        },
+        {
+          "field": "manager_ownership",
+          "status": "unknown"
+        },
+        {
+          "field": "manager",
+          "status": "unknown"
+        },
+        {
+          "field": "server_liveness",
+          "status": "unknown"
+        }
+      ]
+    }
+  }
+}

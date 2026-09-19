@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-19",
+  "mode": "development WebView2/native, not installed package",
+  "serverWheel": "powercontext-1.0.1.dev61+g63f918b7e.d20260919-py3-none-any.whl",
+  "scopeId": "scp_1vr45bjnnvf768v9dv9mact73t",
+  "syntheticBody": "desktopnative20260919 中文 café\n第二行：纯文本 <script>synthetic</script>",
+  "clipboardCitation": {
+    "memory_ref": {
+      "family": "memory",
+      "artifact_id": "memory",
+      "revision": 1
+    },
+    "entry_id": "mem_ent_71dcb0a7c56a4a00acfdac073b9763d6",
+    "entry_version_id": "mem_ver_a1d033f0133e44b4b30b50f986775737"
+  },
+  "bodyClipboardVerifiedByPaste": true,
+  "citationClipboardVerifiedByPaste": true,
+  "independentReadAndWriteAfterNormalExit": true,
+  "frontendSource": "dc7f2384",
+  "nativeExecutableSha256": "5d63f4153d6a07c653bf7257c92212caf6200e439ff034764578041a9df8eaf1",
+  "limits": [
+    "Development window, not installed package",
+    "Existing administrator account with WebView2",
+    "Chinese entered through accessibility value setting, not actual IME composition",
+    "No screen-reader or 800x600/200-percent qualification in this observation"
+  ]
+}

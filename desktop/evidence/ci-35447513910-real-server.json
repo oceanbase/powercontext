@@ -1,0 +1,25 @@
+{
+  "serverWheel": "powercontext-1.0.1.dev64+g088ca7b94-py3-none-any.whl",
+  "serverWheelSha256": "ae9d529231cfebbf61b3defbc76342836dc0208ea45eed7bbfdc44ae3c0e3570",
+  "contractSha256": "de9750808e12e7a6c7a88b736b5368ba3b7c5fcf3c986f1c8cb762b66afce03c",
+  "desktopCommit": "088ca7b9445e98f837561b8183703b863b8a98ed",
+  "desktopWorkingTreeDirty": false,
+  "networkScope": "Independent loopback HTTP/TLS fixture processes; not an external production deployment",
+  "cases": [
+    {
+      "mode": "loopback-anonymous",
+      "result": "passed",
+      "serverAliveAfterClientExit": true
+    },
+    {
+      "mode": "loopback-bearer",
+      "result": "passed",
+      "serverAliveAfterClientExit": true
+    },
+    {
+      "mode": "https-bearer-base-path",
+      "result": "passed",
+      "serverAliveAfterClientExit": true
+    }
+  ]
+}

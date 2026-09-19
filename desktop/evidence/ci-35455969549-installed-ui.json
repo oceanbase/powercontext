@@ -1,0 +1,27 @@
+{
+  "commit": "94c45bb62b92b9a6c4e675bc5e2ae265ec0f7c2a",
+  "sourceInstallerCommit": "e98ff6b9890611593e1a57bc7153f8d581852d86",
+  "debugConfiguration": "Temporary machine WebView2 policy for powercontext-desktop.exe on disposable runner; restored on exit",
+  "installedExecutableSha256": "182484b9557ebc699fb1e7bd3a16b79d2f07180e8ddea52e596a18c8ef31e74c",
+  "driverSha256": "9e9b1f048d2cc781deee084e6cb6e9f2f3417a33ed45d96cf7c34be4eb23077b",
+  "scope": "Hosted Windows runner, actual installed WebView2 with automation enabled; not clean Windows 11 qualification",
+  "result": "passed",
+  "stage": "complete",
+  "webviewDebugEndpointReady": true,
+  "browserVersion": "152.0.4191.66",
+  "packagedUrl": "http://tauri.localhost/",
+  "workflow": {
+    "serverWheelSha256": "a769d5a2c8fe7fc61bdc929c021057a2269e63626cb12053c71cb4a0063813fd",
+    "mode": "anonymous loopback SQLite, no model",
+    "explicitConnectionAndScope": true,
+    "saveSearchExactRead": true,
+    "independentServerExactRead": true,
+    "bodyAndCitationClipboardPaste": true,
+    "twoServerConnectionIsolation": true,
+    "disconnectReconnectClearsContent": true,
+    "inactiveProfileRemovalPreservesServerData": true,
+    "enterDoesNotSubmit": true,
+    "committedLostResponseUnknownWithoutReplay": true
+  },
+  "screenshotCaptured": true
+}

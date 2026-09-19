@@ -1,0 +1,10 @@
+{
+  "scope": "Hosted runner; not standard-user, absent-WebView2 or visual UI qualification",
+  "runnerImage": "20260907.229.1",
+  "commit": "088ca7b9445e98f837561b8183703b863b8a98ed",
+  "installerSha256": "58282974C5DCB674DE9A2ED47DAF498107B2798B4C7E0BA381C6FE83CC5E7011",
+  "signature": "NotSigned",
+  "installExit": 0,
+  "uninstallExit": 0,
+  "externalSentinelPreserved": true
+}

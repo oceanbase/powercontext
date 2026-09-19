@@ -1,0 +1,45 @@
+{
+  "contractSha256": "de9750808e12e7a6c7a88b736b5368ba3b7c5fcf3c986f1c8cb762b66afce03c",
+  "operations": {
+    "get_liveness": {
+      "method": "GET",
+      "path": "/health/live"
+    },
+    "get_readiness": {
+      "method": "GET",
+      "path": "/health/ready"
+    },
+    "get_capabilities": {
+      "method": "GET",
+      "path": "/v1/capabilities"
+    },
+    "list_scopes": {
+      "method": "GET",
+      "path": "/v1/scopes"
+    },
+    "get_scope": {
+      "method": "GET",
+      "path": "/v1/scopes/{scope_id}"
+    },
+    "get_default_scope": {
+      "method": "GET",
+      "path": "/v1/scopes/default"
+    },
+    "remember_memory": {
+      "method": "POST",
+      "path": "/v1/memory/remember"
+    },
+    "search_memory": {
+      "method": "POST",
+      "path": "/v1/memory/search"
+    },
+    "get_memory_entry": {
+      "method": "POST",
+      "path": "/v1/memory/entries/get"
+    },
+    "get_access_principal": {
+      "method": "GET",
+      "path": "/v1/access/me"
+    }
+  }
+}

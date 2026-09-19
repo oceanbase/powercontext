@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-09-19",
+  "scope": "Existing Windows developer account after normal development and installed Desktop exits",
+  "directories": [
+    {
+      "location": "APPDATA/com.powercontext.desktop.preview",
+      "fileCount": 1
+    },
+    {
+      "location": "LOCALAPPDATA/com.powercontext.desktop.preview",
+      "fileCount": 335
+    }
+  ],
+  "markers": [
+    "desktopinstalled20260919",
+    "desktopnative20260919"
+  ],
+  "method": "rg -l -a --hidden --no-ignore -F for both exact synthetic markers in each application directory",
+  "exitCodes": [
+    1,
+    1
+  ],
+  "matches": [],
+  "limitations": [
+    "Exact byte marker scan only; transformed or encoded content was not exhaustively inspected",
+    "Does not cover clipboard history, crash dumps, OS indexing or system logs outside the application directories",
+    "No GUI interaction or storage mutation performed"
+  ]
+}

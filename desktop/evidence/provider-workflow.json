@@ -1,0 +1,350 @@
+{
+  "environment": {
+    "os": "Windows-11-10.0.26200-SP0",
+    "architecture": "AMD64",
+    "python": "3.12.13",
+    "clientBuildProfile": "debug",
+    "percentileMethod": "nearest rank",
+    "budget": "No approved numerical budget; observation only"
+  },
+  "serverWheel": "powercontext-1.0.1.dev61+g63f918b7e.d20260919-py3-none-any.whl",
+  "serverWheelSha256": "de90495cf9cf66a00a0b063825b458557b63b805faf8ff64f33d2dcd8bb73ec9",
+  "contractSha256": "de9750808e12e7a6c7a88b736b5368ba3b7c5fcf3c986f1c8cb762b66afce03c",
+  "desktopCommit": "68436a4654d26dbff202b007a680179b6145c9dc",
+  "desktopWorkingTreeDirty": true,
+  "networkScope": "Independent loopback HTTP/TLS fixture processes; not an external production deployment",
+  "cases": [
+    {
+      "mode": "loopback-anonymous",
+      "result": "passed",
+      "serverAliveAfterClientExit": true,
+      "providerIdentityChangeInvalidatesContext": false,
+      "sameIdentityRevocationDeniesHistoricalCitation": false,
+      "performance": {
+        "exactRead": {
+          "count": 20,
+          "p50Ms": 30.2695,
+          "p95Ms": 32.379,
+          "samplesMs": [
+            28.269,
+            28.7192,
+            28.8193,
+            29.0029,
+            29.6855,
+            29.7545,
+            29.906499999999998,
+            29.9391,
+            30.1935,
+            30.2695,
+            30.3727,
+            30.4302,
+            30.7747,
+            30.9317,
+            31.1605,
+            31.242800000000003,
+            31.602999999999998,
+            32.0685,
+            32.379,
+            32.537299999999995
+          ]
+        },
+        "noteCount": 13,
+        "save": {
+          "count": 11,
+          "p50Ms": 79.19239999999999,
+          "p95Ms": 85.53059999999999,
+          "samplesMs": [
+            75.2433,
+            76.16760000000001,
+            76.3025,
+            77.473,
+            78.68799999999999,
+            79.19239999999999,
+            80.61659999999999,
+            81.96159999999999,
+            82.4308,
+            85.0175,
+            85.53059999999999
+          ]
+        },
+        "scope": "Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
+        "search": {
+          "count": 20,
+          "p50Ms": 60.8341,
+          "p95Ms": 65.2313,
+          "samplesMs": [
+            57.3011,
+            59.1113,
+            59.6893,
+            59.6905,
+            60.0042,
+            60.0889,
+            60.4541,
+            60.5756,
+            60.760099999999994,
+            60.8341,
+            60.8418,
+            61.153,
+            61.808299999999996,
+            62.6105,
+            62.6719,
+            62.91629999999999,
+            62.9174,
+            63.30629999999999,
+            65.2313,
+            65.7423
+          ]
+        }
+      }
+    },
+    {
+      "mode": "loopback-bearer",
+      "result": "passed",
+      "serverAliveAfterClientExit": true,
+      "providerIdentityChangeInvalidatesContext": false,
+      "sameIdentityRevocationDeniesHistoricalCitation": false,
+      "performance": {
+        "exactRead": {
+          "count": 20,
+          "p50Ms": 53.3501,
+          "p95Ms": 55.233900000000006,
+          "samplesMs": [
+            51.3061,
+            51.9358,
+            52.2523,
+            52.3349,
+            52.3668,
+            52.7939,
+            53.05929999999999,
+            53.1958,
+            53.3251,
+            53.3501,
+            53.4747,
+            53.5475,
+            53.8163,
+            54.044000000000004,
+            54.1094,
+            54.1454,
+            54.3296,
+            55.048300000000005,
+            55.233900000000006,
+            55.4015
+          ]
+        },
+        "noteCount": 13,
+        "save": {
+          "count": 11,
+          "p50Ms": 117.8473,
+          "p95Ms": 126.94720000000001,
+          "samplesMs": [
+            103.9538,
+            104.8578,
+            110.27080000000001,
+            115.99289999999999,
+            116.1269,
+            117.8473,
+            120.0056,
+            121.3749,
+            121.8554,
+            125.5154,
+            126.94720000000001
+          ]
+        },
+        "scope": "Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
+        "search": {
+          "count": 20,
+          "p50Ms": 113.1708,
+          "p95Ms": 115.7753,
+          "samplesMs": [
+            109.295,
+            109.7586,
+            110.01310000000001,
+            110.0478,
+            111.4325,
+            111.446,
+            111.8713,
+            112.1298,
+            112.50640000000001,
+            113.1708,
+            113.3151,
+            113.75699999999999,
+            113.7778,
+            113.7864,
+            114.1905,
+            114.2927,
+            115.2616,
+            115.49629999999999,
+            115.7753,
+            117.8365
+          ]
+        }
+      }
+    },
+    {
+      "mode": "https-bearer-base-path",
+      "result": "passed",
+      "serverAliveAfterClientExit": true,
+      "providerIdentityChangeInvalidatesContext": false,
+      "sameIdentityRevocationDeniesHistoricalCitation": false,
+      "performance": {
+        "exactRead": {
+          "count": 20,
+          "p50Ms": 54.1608,
+          "p95Ms": 57.8187,
+          "samplesMs": [
+            49.3559,
+            51.306200000000004,
+            51.5103,
+            51.8362,
+            51.8751,
+            53.043,
+            53.7028,
+            53.744800000000005,
+            54.1189,
+            54.1608,
+            54.2122,
+            54.2689,
+            55.2536,
+            55.744299999999996,
+            56.1102,
+            56.804300000000005,
+            56.8754,
+            57.101800000000004,
+            57.8187,
+            60.5086
+          ]
+        },
+        "noteCount": 13,
+        "save": {
+          "count": 11,
+          "p50Ms": 114.8705,
+          "p95Ms": 126.1707,
+          "samplesMs": [
+            111.85889999999999,
+            112.6129,
+            112.9396,
+            114.1066,
+            114.118,
+            114.8705,
+            114.9785,
+            119.89099999999999,
+            121.036,
+            122.0662,
+            126.1707
+          ]
+        },
+        "scope": "Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
+        "search": {
+          "count": 20,
+          "p50Ms": 113.98859999999999,
+          "p95Ms": 123.13159999999999,
+          "samplesMs": [
+            110.1799,
+            110.4536,
+            110.8698,
+            111.9226,
+            112.2622,
+            112.2762,
+            112.3218,
+            112.3904,
+            112.6963,
+            113.98859999999999,
+            114.2398,
+            114.88969999999999,
+            115.02130000000001,
+            115.2676,
+            117.26159999999999,
+            118.3453,
+            119.12920000000001,
+            123.0976,
+            123.13159999999999,
+            130.87380000000002
+          ]
+        }
+      }
+    },
+    {
+      "mode": "loopback-provider",
+      "result": "passed",
+      "serverAliveAfterClientExit": true,
+      "providerIdentityChangeInvalidatesContext": true,
+      "sameIdentityRevocationDeniesHistoricalCitation": true,
+      "performance": {
+        "exactRead": {
+          "count": 20,
+          "p50Ms": 54.2451,
+          "p95Ms": 56.9688,
+          "samplesMs": [
+            52.5259,
+            53.0028,
+            53.330799999999996,
+            53.8071,
+            53.815799999999996,
+            53.8243,
+            53.982,
+            54.080799999999996,
+            54.2214,
+            54.2451,
+            54.8422,
+            54.864200000000004,
+            55.0943,
+            55.1307,
+            55.7299,
+            55.8115,
+            56.5067,
+            56.5986,
+            56.9688,
+            57.0085
+          ]
+        },
+        "noteCount": 13,
+        "save": {
+          "count": 11,
+          "p50Ms": 115.876,
+          "p95Ms": 121.8325,
+          "samplesMs": [
+            110.5975,
+            113.703,
+            114.1868,
+            114.92660000000001,
+            115.1749,
+            115.876,
+            118.9081,
+            118.9803,
+            121.0571,
+            121.22189999999999,
+            121.8325
+          ]
+        },
+        "scope": "Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
+        "search": {
+          "count": 20,
+          "p50Ms": 112.6643,
+          "p95Ms": 114.9313,
+          "samplesMs": [
+            108.29719999999999,
+            110.08840000000001,
+            111.3542,
+            111.79039999999999,
+            111.9251,
+            112.29,
+            112.3811,
+            112.53299999999999,
+            112.5393,
+            112.6643,
+            113.1046,
+            113.92009999999999,
+            114.3522,
+            114.378,
+            114.4457,
+            114.65599999999999,
+            114.6627,
+            114.8631,
+            114.9313,
+            116.62060000000001
+          ]
+        }
+      }
+    }
+  ]
+}

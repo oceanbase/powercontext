@@ -1,0 +1,264 @@
+{
+  "serverWheel": "powercontext-1.0.1.dev61+g63f918b7e.d20260919-py3-none-any.whl",
+  "serverWheelSha256": "de90495cf9cf66a00a0b063825b458557b63b805faf8ff64f33d2dcd8bb73ec9",
+  "contractSha256": "de9750808e12e7a6c7a88b736b5368ba3b7c5fcf3c986f1c8cb762b66afce03c",
+  "desktopCommit": "088ca7b9445e98f837561b8183703b863b8a98ed",
+  "desktopWorkingTreeDirty": true,
+  "networkScope": "Independent loopback HTTP/TLS fixture processes; not an external production deployment",
+  "cases": [
+    {
+      "mode": "loopback-anonymous",
+      "result": "passed",
+      "serverAliveAfterClientExit": true,
+      "performance": {
+        "exactRead": {
+          "count": 20,
+          "p50Ms": 30.236099999999997,
+          "p95Ms": 33.589800000000004,
+          "samplesMs": [
+            27.248,
+            27.962500000000002,
+            28.4415,
+            28.512800000000002,
+            28.715,
+            28.8007,
+            28.8074,
+            29.6306,
+            29.7654,
+            30.236099999999997,
+            30.568,
+            30.895,
+            30.9106,
+            31.0103,
+            31.1758,
+            32.2218,
+            32.597899999999996,
+            33.1938,
+            33.589800000000004,
+            34.2943
+          ]
+        },
+        "noteCount": 13,
+        "save": {
+          "count": 11,
+          "p50Ms": 96.1135,
+          "p95Ms": 183.3563,
+          "samplesMs": [
+            77.6782,
+            78.07690000000001,
+            87.53,
+            88.9176,
+            94.9752,
+            96.1135,
+            96.9184,
+            106.301,
+            106.7726,
+            107.64219999999999,
+            183.3563
+          ]
+        },
+        "scope": "Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
+        "search": {
+          "count": 20,
+          "p50Ms": 62.465199999999996,
+          "p95Ms": 67.1151,
+          "samplesMs": [
+            56.5614,
+            59.257600000000004,
+            60.9638,
+            61.3091,
+            61.7295,
+            61.762,
+            61.9525,
+            62.2624,
+            62.4618,
+            62.465199999999996,
+            63.24720000000001,
+            63.2901,
+            63.295100000000005,
+            64.0587,
+            64.8142,
+            64.93599999999999,
+            65.6898,
+            65.8195,
+            67.1151,
+            69.47449999999999
+          ]
+        }
+      }
+    },
+    {
+      "mode": "loopback-bearer",
+      "result": "passed",
+      "serverAliveAfterClientExit": true,
+      "performance": {
+        "exactRead": {
+          "count": 20,
+          "p50Ms": 57.0691,
+          "p95Ms": 59.4827,
+          "samplesMs": [
+            54.348,
+            55.3064,
+            55.3813,
+            55.5148,
+            55.944,
+            56.0004,
+            56.555,
+            56.745200000000004,
+            56.9204,
+            57.0691,
+            57.3684,
+            57.780499999999996,
+            58.1468,
+            58.4104,
+            58.4197,
+            58.493,
+            58.7927,
+            59.1378,
+            59.4827,
+            60.0786
+          ]
+        },
+        "noteCount": 13,
+        "save": {
+          "count": 11,
+          "p50Ms": 123.55040000000001,
+          "p95Ms": 133.2773,
+          "samplesMs": [
+            116.59469999999999,
+            118.82239999999999,
+            119.1632,
+            120.1482,
+            122.85889999999999,
+            123.55040000000001,
+            125.91820000000001,
+            125.97569999999999,
+            127.08900000000001,
+            129.30829999999997,
+            133.2773
+          ]
+        },
+        "scope": "Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
+        "search": {
+          "count": 20,
+          "p50Ms": 122.3404,
+          "p95Ms": 132.7628,
+          "samplesMs": [
+            115.9966,
+            116.8864,
+            118.3108,
+            121.0864,
+            121.2452,
+            121.32600000000001,
+            121.60759999999999,
+            121.70649999999999,
+            121.9281,
+            122.3404,
+            122.42269999999999,
+            122.5752,
+            122.6548,
+            122.70150000000001,
+            123.69149999999999,
+            125.9198,
+            129.77730000000003,
+            131.55339999999998,
+            132.7628,
+            135.1571
+          ]
+        }
+      }
+    },
+    {
+      "mode": "https-bearer-base-path",
+      "result": "passed",
+      "serverAliveAfterClientExit": true,
+      "performance": {
+        "exactRead": {
+          "count": 20,
+          "p50Ms": 58.4003,
+          "p95Ms": 67.5426,
+          "samplesMs": [
+            54.2547,
+            55.1286,
+            55.741600000000005,
+            56.315400000000004,
+            56.960499999999996,
+            57.0707,
+            57.1038,
+            57.9316,
+            58.2725,
+            58.4003,
+            58.563900000000004,
+            59.0556,
+            59.3583,
+            59.6827,
+            59.7365,
+            59.79750000000001,
+            62.57840000000001,
+            63.9697,
+            67.5426,
+            68.6664
+          ]
+        },
+        "noteCount": 13,
+        "save": {
+          "count": 11,
+          "p50Ms": 125.21370000000002,
+          "p95Ms": 128.05069999999998,
+          "samplesMs": [
+            117.8108,
+            120.2207,
+            121.756,
+            124.2043,
+            124.93849999999999,
+            125.21370000000002,
+            125.38659999999999,
+            125.61810000000001,
+            125.92970000000001,
+            126.9378,
+            128.05069999999998
+          ]
+        },
+        "scope": "Native ConnectionManager round trips, including identity recheck; local fixture; no UI latency or approved budget",
+        "search": {
+          "count": 20,
+          "p50Ms": 121.5113,
+          "p95Ms": 134.2323,
+          "samplesMs": [
+            113.67399999999999,
+            116.7222,
+            117.4458,
+            119.73540000000001,
+            119.73870000000001,
+            120.6332,
+            121.11489999999999,
+            121.22189999999999,
+            121.28490000000001,
+            121.5113,
+            121.56060000000001,
+            122.0095,
+            122.2243,
+            123.16829999999999,
+            123.4621,
+            126.6931,
+            131.43089999999998,
+            131.71089999999998,
+            134.2323,
+            139.0478
+          ]
+        }
+      }
+    }
+  ],
+  "measurementDate": "2026-09-19",
+  "environment": {
+    "os": "Windows 11 Pro 10.0.26200 x64",
+    "account": "existing administrator development account",
+    "cpu": "AMD Ryzen 9 8945HX, 16 cores / 32 logical processors",
+    "physicalMemoryBytes": 33605316608,
+    "clientBuildProfile": "debug",
+    "data": "13 synthetic notes per isolated SQLite Scope; saves measured while populating, reads after population",
+    "percentileMethod": "nearest rank",
+    "budget": "not defined; no pass/fail budget claim"
+  }
+}

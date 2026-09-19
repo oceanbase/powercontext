@@ -1,0 +1,30 @@
+{
+  "source": "dc7f2384 (application sources unchanged through 0018e8a2)",
+  "buildProfile": "release",
+  "installerBytes": 2580161,
+  "installerSha256": "B751CD1EE37803D9909562EFF3422037A0C8B59FFF686714DEDC8764320408A1",
+  "signature": "NotSigned",
+  "installedExecutableBytes": 11344896,
+  "installedExecutableSha256": "E658774A054184F1AF1DDC93FE79B9B0AC1D037C59B292202F24EC24D1248368",
+  "installExit": 0,
+  "environment": "Existing Windows 11 developer administrator account; WebView2 already installed",
+  "nativeUi": "Passed installed anonymous loopback save, FTS, exact read, body/reference clipboard paste verification",
+  "clipboardCitation": {
+    "memory_ref": {
+      "family": "memory",
+      "artifact_id": "memory",
+      "revision": 3
+    },
+    "entry_id": "mem_ent_1b65540cb21e4c1e8dd11272baa722ae",
+    "entry_version_id": "mem_ver_b6c5bed67afd48479d2eda1931b0dc47"
+  },
+  "normalExitIndependentReadWrite": true,
+  "zoomObservation": "Five native Ctrl+plus increments; reader and controls accessible by scrolling; exact zoom factor was not queried",
+  "limitations": [
+    "Existing administrator developer environment, not clean standard-user qualification",
+    "No actual Chinese IME or screen reader trial",
+    "Exact 200% zoom and 800x600 not established",
+    "Abnormal-exit trial not executed; computer operation stopped by user",
+    "Unsigned local release package, not signed distribution qualification"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "scope": "Hosted runner; not standard-user, absent-WebView2 or visual UI qualification",
+  "runnerImage": "20260907.229.1",
+  "commit": "0018e8a2edd9d0033d021ab5b9dac2f60246c84a",
+  "measuredAtUtc": "2026-09-19T14:38:29.5092853Z",
+  "os": "Microsoft Windows Server 2025 Datacenter 10.0.26100 64-bit",
+  "buildProfile": "release",
+  "installerBytes": 2580814,
+  "installerSha256": "2586DAE019241FFAC9680EDC6DD1AA35B9CA61C0CC315C5632B901A7739B276F",
+  "signature": "NotSigned",
+  "signerSubject": null,
+  "installedExecutableSha256": "F040C60F3A7597ACFBF9D2ED441B20F889902DB29E2D74AF7EEC42EDC3DB6CB9",
+  "installedExecutableBytes": 11344384,
+  "installExit": 0,
+  "uninstallExit": 0,
+  "externalSentinelPreserved": true
+}
