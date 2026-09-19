@@ -1131,7 +1131,7 @@ def _configure_codex_endpoint(marketplace: str, plugin_version: str, server_url:
         entry = config["mcpServers"][PLUGIN_NAME]
         if not isinstance(entry, dict) or entry.get("type") != "http":
             raise ValueError("Expected an HTTP MCP server")  # noqa: TRY003, TRY301
-        entry["url"] = server_url.rstrip("/") + "/mcp"
+        entry["url"] = server_url.rstrip("/") + "/mcp/"
         _write_bytes_atomically(path, (json.dumps(config, indent=2) + "\n").encode())
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise SetupError(  # noqa: TRY003

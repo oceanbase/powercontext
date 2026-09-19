@@ -7,7 +7,7 @@ The integration uses each public surface for the job it fits:
 
 - the `UserPromptSubmit` hook first calls `POST /v1/context/prepare`, then
   independently captures the current prompt with `POST /v1/sources/content`;
-- Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
+- Streamable HTTP MCP at `http://127.0.0.1:8000/mcp/` gives Codex the curated
   Memory and work-continuity tools.
 
 Codex does not expose a plugin-defined status-line item. Its `tui.status_line`

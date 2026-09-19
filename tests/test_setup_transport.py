@@ -159,7 +159,7 @@ def test_codex_setup_updates_native_mcp_endpoint_without_touching_headers(tmp_pa
         "mcpServers": {
             "powercontext": {
                 "type": "http",
-                "url": "http://127.0.0.1:8000/mcp",
+                "url": "http://127.0.0.1:8000/mcp/",
                 "env_http_headers": {"Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"},
             }
         }
@@ -167,7 +167,7 @@ def test_codex_setup_updates_native_mcp_endpoint_without_touching_headers(tmp_pa
     path.write_text(json.dumps(original))
     _configure_codex_endpoint("powercontext", "0.1.0", "http://192.0.2.10:8000")
     changed = json.loads(path.read_text())["mcpServers"]["powercontext"]
-    assert changed["url"] == "http://192.0.2.10:8000/mcp"
+    assert changed["url"] == "http://192.0.2.10:8000/mcp/"
     assert changed["env_http_headers"] == original["mcpServers"]["powercontext"]["env_http_headers"]
 
 

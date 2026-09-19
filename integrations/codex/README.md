@@ -23,7 +23,7 @@ content unchanged; it never performs a second selection or falls back to the old
 outcomes are returned as content-free diagnostic JSON in the top-level `systemMessage` on stdout; when context is
 also available, the same response includes `hookSpecificOutput`.
 
-The installed plugin defaults to `http://127.0.0.1:8000/mcp`. The plugin configuration and Hook use only
+The installed plugin defaults to `http://127.0.0.1:8000/mcp/`. The plugin configuration and Hook use only
 environment-backed values for optional credentials; they do not store tokens in the plugin configuration.
 
 Run the integration tests from a repository checkout:
