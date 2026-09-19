@@ -49,6 +49,14 @@ from powercontext.client.receiver_service import (
     install_systemd_user_service,
     uninstall_systemd_user_service,
 )
+from powercontext.client.session_import import (
+    SUPPORTED_SESSION_IMPORT_HOSTS,
+    SessionImportError,
+    SessionImportResult,
+)
+from powercontext.client.session_import import (
+    import_sessions as run_session_import,
+)
 from powercontext.client.settings import ClientSettings
 from powercontext.client.skill_receiver import (
     RECEIVER_VERSION,
@@ -1288,6 +1296,28 @@ def _print_receiver_watch_error(error: Exception, retry_delay: float) -> None:
     typer.echo(f"Remote Skill sync failed; retrying in {retry_delay:g} seconds: {error}", err=True)
 
 
+def _print_session_import_result(result: SessionImportResult, *, dry_run: bool, flush_requested: bool) -> None:
+    action = "Would import" if dry_run else "Imported"
+    typer.echo(
+        f"{action} {result.imported} Codex user prompt(s) from {result.scanned_files} session file(s); "
+        f"{result.skipped} skipped, {result.failed} failed."
+    )
+    if result.failed_files:
+        typer.echo(f"Failed to parse {result.failed_files} session file(s).")
+    for reason, count in sorted(result.skipped_by_reason.items()):
+        typer.echo(f"Skipped {count} prompt(s): {reason}.")
+    for reason, count in sorted(result.failed_by_reason.items()):
+        typer.echo(f"Failed {count} prompt(s): {reason}.")
+    if result.checkpoint_file is not None:
+        typer.echo(f"Checkpoint: {result.checkpoint_file}")
+    if dry_run:
+        typer.echo("Dry run only; no Sources were written.")
+    elif flush_requested:
+        typer.echo(f"Flushed {len(result.flushed_scopes)} Scope(s).")
+    else:
+        typer.echo("Sources were written only; run with --flush to request Memory extraction.")
+
+
 def _install_remote_skill_service(config_file: Path, interval: float) -> ReceiverServiceInstallation:
     try:
         config = _read_receiver_config(config_file)
@@ -1362,6 +1392,86 @@ def _options(context: typer.Context, *, allow_insecure_http: bool | None = None)
         json_output=overrides.json_output,
         allow_insecure_http=settings.allow_insecure_http,
     )
+
+
+def import_sessions(
+    context: typer.Context,
+    host: Annotated[
+        str,
+        typer.Option(help=f"Agent host to import from. Supported: {', '.join(SUPPORTED_SESSION_IMPORT_HOSTS)}."),
+    ],
+    scope_id: Annotated[
+        str | None,
+        typer.Option(help="Import every discovered prompt into this existing Scope instead of resolving per session."),
+    ] = None,
+    codex_home: Annotated[
+        Path | None,
+        typer.Option(help="Codex home directory to scan. Defaults to CODEX_HOME or ~/.codex."),
+    ] = None,
+    checkpoint_file: Annotated[
+        Path | None,
+        typer.Option(help="Persistent import checkpoint file. Defaults under the Codex home directory."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--no-dry-run", help="Inspect importable prompts without writing Sources."),
+    ] = False,
+    flush: Annotated[
+        bool,
+        typer.Option("--flush/--no-flush", help="Run Memory flush after writing Sources for each touched Scope."),
+    ] = False,
+) -> None:
+    """Import pre-install user prompts from one agent host as ordinary Content Sources."""
+
+    asyncio.run(
+        _import_sessions(
+            context,
+            host=host,
+            scope_id=scope_id,
+            codex_home=codex_home,
+            checkpoint_file=checkpoint_file,
+            dry_run=dry_run,
+            flush=flush,
+        )
+    )
+
+
+async def _import_sessions(
+    context: typer.Context,
+    *,
+    host: str,
+    scope_id: str | None,
+    codex_home: Path | None,
+    checkpoint_file: Path | None,
+    dry_run: bool,
+    flush: bool,
+) -> None:
+    options = _options(context)
+    try:
+        token = None if options.api_token is None else options.api_token.get_secret_value()
+        async with PowerContextClient(
+            options.server_url, token=token, timeout=options.timeout, allow_insecure_http=options.allow_insecure_http
+        ) as client:
+            result = await run_session_import(
+                client,
+                host=host,
+                scope_id=scope_id,
+                codex_home=codex_home,
+                checkpoint_file=checkpoint_file,
+                dry_run=dry_run,
+                flush=flush,
+            )
+    except SessionImportError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    except ClientError as exc:
+        typer.echo(_error_message(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    if options.json_output:
+        typer.echo(json.dumps(result.as_json(), ensure_ascii=False, indent=2))
+        return
+    _print_session_import_result(result, dry_run=dry_run, flush_requested=flush)
 
 
 async def _execute(context: typer.Context, operation: _ClientOperation) -> None:
@@ -1791,12 +1901,24 @@ def register_commands(cli: typer.Typer) -> set[str]:
     cli.command()(stats)
     cli.command()(live)
     cli.command()(ready)
+    cli.command("import-sessions")(import_sessions)
     cli.add_typer(dream_app, name="dream")
     cli.add_typer(candidate_app, name="candidate")
     cli.add_typer(experience_app, name="experience")
     cli.add_typer(skill_app, name="skill")
     cli.add_typer(external_skill_app, name="external-skill")
-    return {"capabilities", "stats", "live", "ready", "dream", "candidate", "experience", "skill", "external-skill"}
+    return {
+        "capabilities",
+        "stats",
+        "live",
+        "ready",
+        "import-sessions",
+        "dream",
+        "candidate",
+        "experience",
+        "skill",
+        "external-skill",
+    }
 
 
 __all__ = ["configure_client", "register_commands"]
