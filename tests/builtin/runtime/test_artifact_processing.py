@@ -15,8 +15,10 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import os
 import signal
+import sys
 import threading
 import time
 from pathlib import Path
@@ -81,6 +83,35 @@ async def _wait_until(predicate, *, timeout_seconds: float = 3.0) -> None:
             await asyncio.sleep(0.01)
 
 
+def _assert_child_exited(pid: int) -> None:
+    if sys.platform != "win32":
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+        return
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE; never terminate during observation.
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: PID no longer exists.
+            return
+        raise ctypes.WinError(error)
+    try:
+        result = kernel32.WaitForSingleObject(handle, 0)
+        if result == 0xFFFFFFFF:
+            raise ctypes.WinError(ctypes.get_last_error())
+        assert result == 0
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def test_spawn_launcher_runs_a_real_child_process() -> None:
     async def scenario() -> None:
         assignment = ArtifactProcessingWorkAssignment(
@@ -138,12 +169,7 @@ def test_supervisor_close_kills_spawned_worker_and_stales_its_fence(tmp_path) ->
             assert child_pid is not None
 
             await asyncio.wait_for(supervisor.close(), timeout=SPAWN_TEST_TIMEOUT_SECONDS)
-            child_reaped = False
-            try:
-                os.kill(child_pid, 0)
-            except ProcessLookupError:
-                child_reaped = True
-            assert child_reaped
+            _assert_child_exited(child_pid)
 
             async with ArtifactProcessingSupervisor(
                 database=profile.database,
@@ -164,6 +190,7 @@ def test_supervisor_close_kills_spawned_worker_and_stales_its_fence(tmp_path) ->
     asyncio.run(scenario())
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Injects failure into POSIX Popen._launch")
 def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatch) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'spawn-cancel-close.db'}")
@@ -209,12 +236,7 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
             finally:
                 release_start.set()
             await asyncio.wait_for(close_task, timeout=SPAWN_TEST_TIMEOUT_SECONDS)
-            child_reaped = False
-            try:
-                os.kill(child_pid, 0)
-            except ProcessLookupError:
-                child_reaped = True
-            assert child_reaped
+            _assert_child_exited(child_pid)
 
             async with ArtifactProcessingSupervisor(
                 database=profile.database,
@@ -231,6 +253,7 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
     asyncio.run(scenario())
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Injects failure into POSIX Popen._launch")
 def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path, monkeypatch) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'spawn-timeout-close.db'}")
@@ -308,8 +331,9 @@ def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path,
             ]
             with pytest.raises(ProcessLookupError):
                 os.kill(child_pid, 0)
-            with pytest.raises(ChildProcessError):
-                await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
+            if sys.platform != "win32":
+                with pytest.raises(ChildProcessError):
+                    await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
 
             async with ArtifactProcessingSupervisor(
                 database=profile.database,
@@ -327,6 +351,7 @@ def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path,
 
 
 @pytest.mark.parametrize("cancel_start", [False, True], ids=["ordinary-failure", "cancelled-failure"])
+@pytest.mark.skipif(sys.platform == "win32", reason="Injects failure into POSIX Popen._launch")
 def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_path, monkeypatch, cancel_start) -> None:
     async def scenario() -> None:
         ready = tmp_path / f"worker-ready-{cancel_start}"
@@ -378,7 +403,55 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
         assert child_pid is not None
         with pytest.raises(ProcessLookupError):
             os.kill(child_pid, 0)
-        with pytest.raises(ChildProcessError):
-            await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
+        if sys.platform != "win32":
+            with pytest.raises(ChildProcessError):
+                await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_spawn_start_cleans_up_child_before_returning(tmp_path, monkeypatch) -> None:
+    async def scenario() -> None:
+        ready = tmp_path / "cancelled-start-ready"
+        launched = threading.Event()
+        release = threading.Event()
+        child_pid: int | None = None
+        real_start = artifact_processing_module._start_owned_spawn_process
+
+        def delayed_start(process, owner):
+            nonlocal child_pid
+            real_start(process, owner)
+            child_pid = process.pid
+            launched.set()
+            release.wait(timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+
+        monkeypatch.setattr(artifact_processing_module, "_start_owned_spawn_process", delayed_start)
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name=BINDING,
+            scope_id=str(ready),
+            artifact_family="topic-memory",
+            claimed_request_generation=1,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global",
+                holder_id="holder-a",
+                supervisor_generation=1,
+                lease_mode="single-process",
+            ),
+            worker_id="00000000-0000-4000-8000-000000000001",
+        )
+        start_task = asyncio.create_task(SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment))
+        try:
+            assert await asyncio.to_thread(launched.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+            start_task.cancel()
+            await asyncio.sleep(0.05)
+            assert not start_task.done()
+        finally:
+            release.set()
+            if not start_task.done() and not start_task.cancelling():
+                start_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(start_task, timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+        assert child_pid is not None
+        _assert_child_exited(child_pid)
 
     asyncio.run(scenario())

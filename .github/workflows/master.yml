@@ -77,6 +77,15 @@ jobs:
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
 
+      - name: Check Windows worker types
+        run: >-
+          uv run --locked --no-sync ty check --python-platform win32
+          src/powercontext/builtin/runtime/artifact_processing.py
+          tests/builtin/runtime/test_artifact_processing.py
+
+      - name: Verify spawned worker lifecycle on Windows
+        run: uv run --locked --no-sync pytest -q tests/builtin/runtime/test_artifact_processing.py
+
       - name: Exercise fixtures without Windows long-path support
         shell: pwsh
         run: |

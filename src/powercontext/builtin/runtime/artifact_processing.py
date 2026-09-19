@@ -29,7 +29,6 @@ from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from multiprocessing.connection import Connection
 from multiprocessing.context import SpawnProcess
 from multiprocessing.process import BaseProcess
 from random import SystemRandom
@@ -43,8 +42,10 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
 if sys.platform == "win32":
+    from multiprocessing.connection import PipeConnection as Connection
     from multiprocessing.popen_spawn_win32 import Popen as SpawnPopen
 else:
+    from multiprocessing.connection import Connection
     from multiprocessing.popen_spawn_posix import Popen as SpawnPopen
 
 from powercontext._logging import log_safely
