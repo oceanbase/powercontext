@@ -24,6 +24,7 @@ from itertools import pairwise
 _FTS_MIN_QUERY_COVERAGE = 0.25
 _FTS_MIN_MATCHED_TERMS = 2
 _FTS_SHORT_QUERY_MAX_TERMS = 2
+_FTS_COVERAGE_TERM_BUDGET = 24
 _MIN_SEMANTIC_SIMILARITY = 0.3
 
 
@@ -130,7 +131,9 @@ def analyze_text_with_spans(value: str) -> tuple[tuple[str, int, int], ...]:
 def fts_query_requirements(value: str, /, *, floor: AdmissionFloor | None = None) -> tuple[tuple[str, ...], int]:
     """Return distinct Analyzer terms and the shared admission threshold.
 
-    ``floor=None`` uses this module's historical constants exactly. A supplied ``floor`` only
+    All query terms remain searchable, but coverage is computed over at most 24 terms
+    (six required matches at the default floor). Appended execution instructions must not
+    keep raising the evidence needed from a concise fact. A supplied ``floor`` only
     relaxes the score-style coverage requirement; the term-count floor is never below one, so a
     candidate must still share at least one real Analyzer term. For a short query (two terms or
     fewer) the term side is already one, so lowering the floor there is a no-op.
@@ -146,7 +149,7 @@ def fts_query_requirements(value: str, /, *, floor: AdmissionFloor | None = None
         if len(query_terms) <= _FTS_SHORT_QUERY_MAX_TERMS
         else max(
             min_matched,
-            math.ceil(len(query_terms) * coverage),
+            math.ceil(min(len(query_terms), _FTS_COVERAGE_TERM_BUDGET) * coverage),
         )
     )
     return query_terms, required_matches

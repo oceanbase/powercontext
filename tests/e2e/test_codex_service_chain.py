@@ -34,7 +34,7 @@ from pydantic import SecretStr
 from pydantic_ai.models.test import TestModel
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.runtime import InferenceConfig
+from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     ListMemoryEntriesRequest,
@@ -49,6 +49,78 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEX_PLUGIN = PROJECT_ROOT / "integrations" / "codex" / "plugins" / "powercontext"
 AUTH_TOKEN = "codex-e2e-token"  # noqa: S105 - non-secret test credential.
 AUTHORIZATION = f"Bearer {AUTH_TOKEN}"
+
+
+@pytest.mark.parametrize("recall_gate_enabled", [False, True], ids=["default", "gate-enabled"])
+def test_execution_constraints_preserve_fts_facts_through_codex_hook(tmp_path, recall_gate_enabled):
+    app = create_server_app(
+        settings=ServerSettings(
+            auth=BearerAuthConfig(token=SecretStr(AUTH_TOKEN)),
+            access=AccessControlConfig(mode="enforced"),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'recall.db'}"),
+            runtime=RuntimeConfig(artifact_processing_families=(), recall_gate_enabled=recall_gate_enabled),
+            mcp=McpConfig(enabled=False),
+        ),
+        scheduler_path=tmp_path / "scheduler.db",
+    )
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    host, port = listener.getsockname()
+    base_url = f"http://{host}:{port}"
+    server = uvicorn.Server(uvicorn.Config(app, log_level="critical"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+    thread.start()
+    facts = {
+        "The synthetic Quartz application has deployment codename QUARTZ-8413.",
+        "The validation command for the synthetic Quartz application is `python -m pytest -q`.",
+    }
+    unrelated = "PostgreSQL advisory locks coordinate leader election."
+    question = "For the synthetic Quartz application, what are the deployment codename and validation command?"
+    suffix = (
+        " Use only the context already supplied to you. Do not call tools, read files, inspect old sessions, or delegate."
+        " If the facts are absent, say unknown."
+    )
+    try:
+        _wait_until_started(server, thread)
+        scope_id = _create_scope(base_url, authorization=AUTHORIZATION)
+        plugin = tmp_path / "plugin"
+        shutil.copytree(CODEX_PLUGIN, plugin, ignore=shutil.ignore_patterns("__pycache__", ".venv"))
+        config = json.loads((plugin / ".mcp.json").read_text())
+        config["mcpServers"]["powercontext"]["url"] = f"{base_url}/mcp"
+        (plugin / ".mcp.json").write_text(json.dumps(config))
+        with httpx.Client(base_url=base_url, headers={"Authorization": AUTHORIZATION}, timeout=10) as client:
+            for text in (*sorted(facts), unrelated):
+                remembered = client.post(
+                    "/v1/memory/remember", json={"scope_id": scope_id, "kind": "fact", "text": text}
+                )
+                remembered.raise_for_status()
+            for repeat in range(2):
+                for index, query in enumerate((question, question + suffix)):
+                    found = client.post("/v1/memory/search", json={"scope_id": scope_id, "query": query, "mode": "fts"})
+                    found.raise_for_status()
+                    assert {hit["text"] for hit in found.json()["hits"]} == facts
+                    prepared = client.post(
+                        "/v1/context/prepare", json={"scope_id": scope_id, "query": query, "max_bytes": 8000}
+                    )
+                    prepared.raise_for_status()
+                    assert prepared.json()["status"] == "ready"
+                    recalled = _run_hook(
+                        plugin,
+                        prompt=query,
+                        turn_id=f"recall-{repeat}-{index}",
+                        authorization=AUTHORIZATION,
+                        scope_id=scope_id,
+                        flush_on_capture=False,
+                    )
+                    context = json.loads(recalled.stdout)["hookSpecificOutput"]["additionalContext"]
+                    for content in (prepared.json()["content"], context):
+                        assert all(fact in content for fact in facts)
+                        assert unrelated not in content
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+        listener.close()
+    assert not thread.is_alive()
 
 
 @pytest.mark.parametrize("authentication_enabled", [False, True], ids=["public", "authenticated"])
@@ -343,10 +415,11 @@ def _run_hook(
     turn_id: str,
     authorization: str | None,
     scope_id: str,
+    flush_on_capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     environment: dict[str, str] = {
         **os.environ,
-        "POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE": "true",
+        "POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE": "true" if flush_on_capture else "false",
         "POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS": "10",
         "POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS": "5",
         "POWERCONTEXT_CODEX_SCOPE_ID": scope_id,

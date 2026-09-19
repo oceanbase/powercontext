@@ -101,6 +101,31 @@ def test_fts_admission_keeps_one_term_queries_usable() -> None:
     assert admit_fts_candidates("atomic", (candidate,)) == (candidate,)
 
 
+@pytest.mark.parametrize(
+    "instructions",
+    [
+        "Use only the context already supplied to you. Do not call tools, read files, inspect old sessions, or delegate. "
+        "If the facts are absent, say unknown.",
+        "Answer concisely using available evidence. Avoid browsing websites, running commands, accessing documents, "
+        "querying external services, editing repositories, creating tasks, or starting background work.",
+    ],
+)
+def test_long_prompt_admission_keeps_concise_facts_and_rejects_weak_overlap(instructions) -> None:
+    query = "For the synthetic Quartz application, what are the deployment codename and validation command?"
+    facts = (
+        channel_hit("codename", text="The synthetic Quartz application has deployment codename QUARTZ-8413."),
+        channel_hit(
+            "validation", text="The validation command for the synthetic Quartz application is `python -m pytest -q`."
+        ),
+    )
+    unrelated = channel_hit("locks", text="Use PostgreSQL advisory locks for leader election.")
+    candidates = (*facts, unrelated)
+
+    assert admit_fts_candidates(query, candidates) == facts
+    assert admit_fts_candidates(f"{query} {instructions}", candidates) == facts
+    assert admit_fts_candidates(f"{instructions} {query}", candidates) == facts
+
+
 def test_vector_admission_converts_unit_l2_distance_to_cosine_threshold() -> None:
     boundary = (2.0 * (1.0 - 0.3)) ** 0.5
     accepted = channel_hit("accepted", distance=boundary)

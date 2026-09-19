@@ -20,6 +20,12 @@ it is temporary and does not create another Memory entry.
 Host tool names differ; see [Connect Agents](../integrations/index.md). The
 [HTTP API](../develop/http-api.md) exposes the complete request schemas and concurrency requirements.
 
+FTS uses every analyzed query term for candidate retrieval. Its default admission threshold requires 25% of distinct
+query terms, with a minimum of two matches and a maximum of six; one- or two-term queries require one match. This
+bounds the effect of extra execution instructions in long prompts while still rejecting weak lexical overlap. The
+same rule applies to direct search and prepared context without enabling the optional recall gate. FTS remains lexical
+retrieval, so matching words alone do not establish semantic relevance.
+
 ## Automatic context and extraction
 
 Recall hooks ask the Server for bounded PreparedContext. An `empty` result is valid when no relevant information is

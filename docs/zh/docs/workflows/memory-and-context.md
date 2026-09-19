@@ -17,6 +17,10 @@ Memory 保存持久的决策、约束和事实。PreparedContext 为单次请求
 
 各宿主工具名称不同，见[接入 Agent](../integrations/index.md)。完整请求结构和并发要求见 [HTTP API](../develop/http-api.md)。
 
+FTS 使用分析后的全部查询词检索候选。默认准入要求匹配 25% 的不同查询词，至少两个、最多六个；只有一两个词的查询
+要求匹配一个词。这样可以限制长 Prompt 中附加执行指令对匹配门槛的影响，同时过滤词项重合过少的候选。
+直接搜索和上下文准备使用相同规则，无需开启可选的 recall gate。FTS 仍是词项检索，词语重合本身不能证明语义相关。
+
 ## 自动上下文与提取
 
 召回 Hook 向 Server 请求有大小上限的 PreparedContext。没有相关信息时返回 `empty` 是正常结果。
