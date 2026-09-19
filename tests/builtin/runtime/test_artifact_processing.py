@@ -17,8 +17,10 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -73,6 +75,58 @@ def _ignore_sigterm(assignment: ArtifactProcessingWorkAssignment) -> ArtifactPro
     Path(assignment.scope_id).touch()
     while True:
         time.sleep(0.1)
+
+
+if sys.platform == "win32":
+    import _winapi
+
+    # `OpenProcess` reports a pid that no longer names a process as ERROR_INVALID_PARAMETER;
+    # any other failure (ERROR_ACCESS_DENIED above all) means the child may still be running.
+    _ERROR_INVALID_PARAMETER = 87
+
+    def _assert_child_exited(pid: int) -> None:
+        """Windows frees the pid on exit; a handle we can still open must already be signalled."""
+
+        try:
+            handle = _winapi.OpenProcess(_winapi.SYNCHRONIZE, False, pid)
+        except OSError as error:
+            if error.winerror == _ERROR_INVALID_PARAMETER:
+                return
+            raise
+        try:
+            assert _winapi.WaitForSingleObject(handle, 0) == _winapi.WAIT_OBJECT_0
+        finally:
+            _winapi.CloseHandle(handle)
+
+    def _assert_child_reaped(pid: int) -> None:
+        """Windows leaves no zombie for a later wait to collect, so exiting is the whole contract."""
+
+        _assert_child_exited(pid)
+
+else:
+
+    def _assert_child_exited(pid: int) -> None:
+        """POSIX reports a missing process only once the child's exit status has been collected."""
+
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def _assert_child_reaped(pid: int) -> None:
+        """A reaped child leaves no zombie, so a non-blocking wait can no longer find it."""
+
+        _assert_child_exited(pid)
+        with pytest.raises(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
+
+
+# multiprocessing creates the spawn child in `Popen._launch` on POSIX and in `Popen.__init__` on
+# Windows. Both take `(popen, process_obj)` and leave the same attributes (`pid`, `returncode`,
+# `sentinel`, `finalizer`) set on return, so one failure-injection hook fits either seam.
+_SPAWN_LAUNCH_SEAM = "__init__" if sys.platform == "win32" else "_launch"
+
+
+def _real_spawn_launch():
+    return getattr(cast(Any, artifact_processing_module._OwnedSpawnPopen), _SPAWN_LAUNCH_SEAM)
 
 
 async def _wait_until(predicate, *, timeout_seconds: float = 3.0) -> None:
@@ -138,12 +192,7 @@ def test_supervisor_close_kills_spawned_worker_and_stales_its_fence(tmp_path) ->
             assert child_pid is not None
 
             await asyncio.wait_for(supervisor.close(), timeout=SPAWN_TEST_TIMEOUT_SECONDS)
-            child_reaped = False
-            try:
-                os.kill(child_pid, 0)
-            except ProcessLookupError:
-                child_reaped = True
-            assert child_reaped
+            _assert_child_exited(child_pid)
 
             async with ArtifactProcessingSupervisor(
                 database=profile.database,
@@ -170,7 +219,7 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
         spawned = threading.Event()
         release_start = threading.Event()
         child_pid: int | None = None
-        real_launch = cast(Any, artifact_processing_module._OwnedSpawnPopen)._launch
+        real_launch = _real_spawn_launch()
 
         def stalled_launch(popen, process):
             nonlocal child_pid
@@ -179,7 +228,7 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
             spawned.set()
             release_start.wait(timeout=5)
 
-        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, "_launch", stalled_launch)
+        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, _SPAWN_LAUNCH_SEAM, stalled_launch)
         async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
             await _request(profile.database, str(tmp_path / "worker-ready"))
             supervisor = ArtifactProcessingSupervisor(
@@ -209,12 +258,7 @@ def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatc
             finally:
                 release_start.set()
             await asyncio.wait_for(close_task, timeout=SPAWN_TEST_TIMEOUT_SECONDS)
-            child_reaped = False
-            try:
-                os.kill(child_pid, 0)
-            except ProcessLookupError:
-                child_reaped = True
-            assert child_reaped
+            _assert_child_exited(child_pid)
 
             async with ArtifactProcessingSupervisor(
                 database=profile.database,
@@ -241,7 +285,7 @@ def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path,
         tracked_pipes = []
         spawn_context = artifact_processing_module.multiprocessing.get_context("spawn")
         real_pipe = type(spawn_context).Pipe
-        real_launch = cast(Any, artifact_processing_module._OwnedSpawnPopen)._launch
+        real_launch = _real_spawn_launch()
 
         def tracking_pipe(context, duplex=True):
             connections = real_pipe(context, duplex=duplex)
@@ -260,7 +304,7 @@ def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path,
             release_start.wait(timeout=5)
 
         monkeypatch.setattr(type(spawn_context), "Pipe", tracking_pipe)
-        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, "_launch", stalled_launch)
+        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, _SPAWN_LAUNCH_SEAM, stalled_launch)
         async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
             await _request(profile.database, str(ready))
             supervisor = ArtifactProcessingSupervisor(
@@ -306,10 +350,7 @@ def test_supervisor_close_waits_for_cleanup_after_worker_start_timeout(tmp_path,
                 and not task.done()
                 and task.get_name().startswith("powercontext-artifact-worker-")
             ]
-            with pytest.raises(ProcessLookupError):
-                os.kill(child_pid, 0)
-            with pytest.raises(ChildProcessError):
-                await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
+            _assert_child_reaped(child_pid)
 
             async with ArtifactProcessingSupervisor(
                 database=profile.database,
@@ -333,7 +374,7 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
         launched = threading.Event()
         release_failure = threading.Event()
         child_pid: int | None = None
-        real_launch = cast(Any, artifact_processing_module._OwnedSpawnPopen)._launch
+        real_launch = _real_spawn_launch()
 
         def failing_launch(popen, process):
             nonlocal child_pid
@@ -348,7 +389,7 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
                 release_failure.wait(timeout=5)
             raise RuntimeError
 
-        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, "_launch", failing_launch)
+        monkeypatch.setattr(artifact_processing_module._OwnedSpawnPopen, _SPAWN_LAUNCH_SEAM, failing_launch)
         assignment = ArtifactProcessingWorkAssignment(
             binding_name=BINDING,
             scope_id=str(ready),
@@ -376,9 +417,58 @@ def test_spawn_launcher_reaps_child_when_popen_raises_before_publication(tmp_pat
                 await start_task
 
         assert child_pid is not None
-        with pytest.raises(ProcessLookupError):
-            os.kill(child_pid, 0)
-        with pytest.raises(ChildProcessError):
-            await asyncio.to_thread(os.waitpid, child_pid, os.WNOHANG)
+        _assert_child_reaped(child_pid)
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_spawn_start_reaps_the_published_child_before_returning(tmp_path, monkeypatch) -> None:
+    """Cancel once the child is fully published, hooking this module rather than a spawn internal."""
+
+    async def scenario() -> None:
+        ready = tmp_path / "cancelled-start-ready"
+        started = threading.Event()
+        release_start = threading.Event()
+        child_pid: int | None = None
+        real_start = artifact_processing_module._start_owned_spawn_process
+
+        def stalled_start(process, owner):
+            nonlocal child_pid
+            real_start(process, owner)
+            child_pid = process.pid
+            started.set()
+            release_start.wait(timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+
+        monkeypatch.setattr(artifact_processing_module, "_start_owned_spawn_process", stalled_start)
+        assignment = ArtifactProcessingWorkAssignment(
+            binding_name=BINDING,
+            scope_id=str(ready),
+            artifact_family="topic-memory",
+            claimed_request_generation=1,
+            fence=ArtifactProcessingFence(
+                supervisor_group="global",
+                holder_id="holder-a",
+                supervisor_generation=1,
+                lease_mode="single-process",
+            ),
+            worker_id="00000000-0000-4000-8000-000000000001",
+        )
+        start_task = asyncio.create_task(SpawnArtifactProcessingWorkerLauncher(_ignore_sigterm).start(assignment))
+        try:
+            assert await asyncio.to_thread(started.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+            start_task.cancel()
+            await asyncio.sleep(0.05)
+            assert not start_task.done()
+        finally:
+            release_start.set()
+            if not start_task.done() and not start_task.cancelling():
+                start_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await asyncio.wait_for(start_task, timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+
+        assert start_task.cancelled()
+
+        assert child_pid is not None
+        _assert_child_exited(child_pid)
 
     asyncio.run(scenario())
