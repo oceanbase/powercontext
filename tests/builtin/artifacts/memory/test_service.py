@@ -15,9 +15,13 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 from powercontext.builtin.artifacts.memory import (
+    EmbeddingProfile,
     Memory,
+    MemoryBackend,
+    MemoryCapabilities,
     MemoryCommit,
     MemoryContent,
     MemoryEntryInput,
@@ -26,10 +30,11 @@ from powercontext.builtin.artifacts.memory import (
     MemoryManifestEntry,
     MemoryProjection,
     MemoryRerankDecision,
+    MemorySearchChannels,
     MemoryService,
 )
 from powercontext.builtin.artifacts.memory.canonical import entry_content_hash, memory_content_hash
-from powercontext.builtin.inference import InferenceUsage
+from powercontext.builtin.inference import EmbeddingResult, InferenceUsage
 from powercontext.builtin.persistence.memory import RelationalMemoryBackend
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
@@ -50,6 +55,67 @@ class _SelectingReranker:
             selected_ranks=(3, 1),
             usage=InferenceUsage(requests=1, input_tokens=20, output_tokens=2),
         )
+
+
+QUERY_EMBEDDING_PROFILE = EmbeddingProfile(profile_id="query-v1", model="test:query", dimension=3)
+
+
+class _QueryRecordingEmbedding:
+    def __init__(self) -> None:
+        self.document_texts: list[str] = []
+        self.query_texts: list[str] = []
+        self.profile = QUERY_EMBEDDING_PROFILE
+
+    async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        self.document_texts.extend(texts)
+        return EmbeddingResult(vectors=tuple((0.0, 1.0, 0.0) for _ in texts))
+
+    async def embed_query(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        self.query_texts.extend(texts)
+        return EmbeddingResult(vectors=tuple((1.0, 0.0, 0.0) for _ in texts))
+
+
+class _QuerySearchBackend:
+    def __init__(self, memory: Memory) -> None:
+        self._memory = memory
+        self.query_vector: tuple[float, ...] | None = None
+
+    async def capabilities(self) -> MemoryCapabilities:
+        return MemoryCapabilities(fts=True, vector=True, hybrid=True, embedding_profile=QUERY_EMBEDDING_PROFILE)
+
+    async def get(self, _ref):
+        return self._memory
+
+    async def latest(self, _artifact_id):
+        return self._memory
+
+    async def vector_complete(self, _memories, _profile) -> bool:
+        return True
+
+    async def search(self, request, /) -> MemorySearchChannels:
+        self.query_vector = request.query_vector
+        return MemorySearchChannels()
+
+
+def test_memory_vector_search_uses_query_embedding_path() -> None:
+    memory = Memory(
+        artifact_id="memory",
+        revision=1,
+        content=MemoryContent(manifest=MemoryManifest(entries=())),
+    )
+
+    async def scenario() -> None:
+        embedding = _QueryRecordingEmbedding()
+        backend = _QuerySearchBackend(memory)
+        service = MemoryService(backend=cast(MemoryBackend, backend), embedding_model=embedding)
+
+        await service.search("project", memories=(memory,), mode="vector")
+
+        assert embedding.document_texts == []
+        assert embedding.query_texts == ["project"]
+        assert backend.query_vector == (1.0, 0.0, 0.0)
+
+    asyncio.run(scenario())
 
 
 def test_memory_search_applies_injected_reranker_after_coarse_fusion() -> None:

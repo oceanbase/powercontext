@@ -1420,6 +1420,14 @@ async def _embedding_models(
     if settings.embedding_model is None:
         return None, None
 
+    from powercontext.builtin.inference.minimax import is_minimax_embedding
+
+    if is_minimax_embedding(
+        str(settings.embedding_base_url) if settings.embedding_base_url is not None else None,
+        settings.embedding_model,
+    ):
+        return _minimax_embedding_models(settings, resources, instrumentation)
+
     from pydantic_ai import Embedder
     from pydantic_ai.embeddings import EmbeddingSettings, infer_embedding_model
 
@@ -1466,6 +1474,49 @@ async def _embedding_models(
 
     # Readiness runs outside an application operation, so use the same provider model
     # without instrumentation to avoid exporting an orphan inference span.
+    return adapter(instrumentation), adapter(False)
+
+
+def _minimax_embedding_models(
+    settings: InferenceConfig,
+    resources: AsyncExitStack,
+    instrumentation: InstrumentationSettings | None,
+) -> tuple[EmbeddingModel | None, EmbeddingModel | None]:
+    """Build operational and readiness MiniMax embedding adapters.
+
+    MiniMax is detected by host or model prefix and requires an explicit base URL
+    plus a header secret, both already supplied by the inference configuration.
+    """
+
+    from powercontext.builtin.artifacts.memory import EmbeddingProfile
+    from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel, _embedding_model_name
+
+    if settings.embedding_model is None or settings.embedding_base_url is None:
+        raise BuiltinConfigurationError("inference-endpoint-provider")
+    profile = EmbeddingProfile(
+        profile_id=_required(settings.embedding_profile_id),
+        model=settings.embedding_model,
+        dimension=_required(settings.embedding_dimension),
+        distance="l2",
+        normalization=settings.embedding_normalization,
+    )
+    headers = _resolve_headers(settings.embedding_headers) if settings.embedding_headers else None
+    model_name = _embedding_model_name(settings.embedding_model)
+
+    def adapter(instrument: InstrumentationSettings | bool | None) -> EmbeddingModel:
+        model = MiniMaxEmbeddingModel(
+            base_url=str(settings.embedding_base_url),
+            model=model_name,
+            headers=headers,
+            profile=profile,
+            batch_size=settings.embedding_batch_size,
+            timeout_seconds=settings.embedding_timeout_seconds,
+        )
+        resources.push_async_callback(model.aclose)
+        return model
+
+    # MiniMax has no OpenTelemetry instrumentation hook; readiness uses the same
+    # instance kind as the operational adapter.
     return adapter(instrumentation), adapter(False)
 
 

@@ -125,6 +125,7 @@ from powercontext.builtin.inference import (
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
+    embed_query,
 )
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
@@ -2612,7 +2613,7 @@ class ScopedTopicMemoryApplication:
             )
             return result.model_copy(update={"query_embedding": query_embedding, "embedding_calls": 0}), False
         try:
-            embedded = await embedding.embed((request.query,))
+            embedded = await embed_query(embedding, (request.query,))
             if len(embedded.vectors) != 1:
                 raise InvalidInferenceOutputError("embed", "provider returned the wrong vector count")
         except (InferenceUnavailableError, InferenceTimeoutError) as error:

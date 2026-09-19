@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 from pydantic_ai import Embedder
@@ -186,3 +186,62 @@ def test_stale_topic_runtime_rejects_reads_after_empty_store_reconfiguration(tmp
             ]
 
     asyncio.run(scenario())
+
+
+def test_embedding_models_use_minimax_adapter_for_minimax_host(monkeypatch) -> None:
+    import json
+
+    import httpx
+    from pydantic import AnyHttpUrl, SecretStr
+
+    from powercontext.builtin.inference.minimax import MiniMaxEmbeddingModel
+
+    captured: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "vectors": [[0.1] * 1536],
+                "total_tokens": 1,
+                "base_resp": {"status_code": 0, "status_msg": "success"},
+            },
+        )
+
+    original_async_client = httpx.AsyncClient
+
+    def make_client(*args, **kwargs) -> httpx.AsyncClient:
+        return original_async_client(transport=httpx.MockTransport(handler))
+
+    # MiniMaxEmbeddingModel builds its own httpx.AsyncClient; route it to the mock.
+    monkeypatch.setattr(httpx, "AsyncClient", make_client)
+
+    async def scenario() -> None:
+        config = InferenceConfig(
+            embedding_model="openai:embo-01",
+            embedding_base_url=AnyHttpUrl("https://api.minimaxi.com/v1"),
+            embedding_headers={"Authorization": SecretStr("Bearer test")},
+            embedding_profile_id="mm-1536-v1",
+            embedding_dimension=1536,
+        )
+        async with AsyncExitStack() as resources:
+            operational, _readiness = await _embedding_models(config, resources, None)
+            assert operational is not None
+            assert isinstance(operational, MiniMaxEmbeddingModel)
+            # The embedding adapter owns an httpx client registered with the runtime
+            # stack, so it must be exercised before the stack closes it.
+            result = await operational.embed(("hello",))
+            assert len(result.vectors) == 1
+            assert len(result.vectors[0]) == 1536
+            query_result = await operational.embed_query(("hello",))
+            assert len(query_result.vectors) == 1
+            assert len(query_result.vectors[0]) == 1536
+
+    asyncio.run(scenario())
+    assert captured[0]["texts"] == ["hello"]
+    assert captured[0]["type"] == "db"
+    assert captured[0]["model"] == "embo-01"
+    assert captured[1]["texts"] == ["hello"]
+    assert captured[1]["type"] == "query"
+    assert captured[1]["model"] == "embo-01"

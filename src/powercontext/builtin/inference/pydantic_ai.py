@@ -20,7 +20,7 @@ import asyncio
 from collections.abc import Sequence
 from contextlib import nullcontext
 from copy import copy
-from typing import Generic, Self, TypeVar, cast
+from typing import Generic, Literal, Self, TypeVar, cast
 
 from pydantic import BaseModel, Field
 from typing_extensions import override
@@ -245,11 +245,23 @@ class PydanticAIEmbeddingModel:
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         """Embed documents and validate order, count, dimension, and finite values."""
 
+        return await self._embed(texts, input_type="document")
+
+    async def embed_query(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        """Embed retrieval queries and validate order, count, dimension, and finite values."""
+
+        return await self._embed(texts, input_type="query")
+
+    async def _embed(self, texts: tuple[str, ...], *, input_type: Literal["document", "query"]) -> EmbeddingResult:
+        """Embed one document or query batch through Pydantic AI."""
+
         if not texts:
             return EmbeddingResult(vectors=())
 
         try:
-            result = await asyncio.wait_for(self._embed_batches(texts), timeout=self._limits.timeout_seconds)
+            result = await asyncio.wait_for(
+                self._embed_batches(texts, input_type=input_type), timeout=self._limits.timeout_seconds
+            )
         except asyncio.CancelledError:
             raise
         except InvalidInferenceOutputError:
@@ -266,14 +278,18 @@ class PydanticAIEmbeddingModel:
 
         return result
 
-    async def _embed_batches(self, texts: tuple[str, ...]) -> EmbeddingResult:
+    async def _embed_batches(
+        self, texts: tuple[str, ...], *, input_type: Literal["document", "query"]
+    ) -> EmbeddingResult:
         vectors: list[tuple[float, ...]] = []
         requests = 0
         input_tokens = 0
         for start in range(0, len(texts), self._batch_size):
             batch = texts[start : start + self._batch_size]
-            result = await self._embedder.embed_documents(batch)
-            vectors.extend(self._validated_vectors(batch, result.inputs, result.input_type, result.embeddings))
+            result = await self._embedder.embed(batch, input_type=input_type)
+            vectors.extend(
+                self._validated_vectors(batch, result.inputs, result.input_type, result.embeddings, input_type)
+            )
             requests += 1
             input_tokens += result.usage.input_tokens
         return EmbeddingResult(
@@ -287,8 +303,9 @@ class PydanticAIEmbeddingModel:
         inputs: Sequence[str],
         input_type: str,
         values: Sequence[Sequence[float]],
+        expected_input_type: Literal["document", "query"],
     ) -> tuple[tuple[float, ...], ...]:
-        if input_type != "document":
+        if input_type != expected_input_type:
             raise InvalidInferenceOutputError("embed", "provider returned the wrong input type")
         returned_inputs = tuple(inputs)
         rows = tuple(values)

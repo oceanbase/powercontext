@@ -31,7 +31,12 @@ from powercontext.builtin.inference.models import (
     GenerationResult,
     InferenceUsage,
 )
-from powercontext.builtin.inference.protocols import EmbeddingModel, StructuredGenerator
+from powercontext.builtin.inference.protocols import (
+    EmbeddingModel,
+    QueryEmbeddingModel,
+    StructuredGenerator,
+    embed_query,
+)
 from powercontext.builtin.inference.tokens import TokenEstimator, TokenEstimatorProfile, character_token_estimator
 
 __all__ = [
@@ -45,8 +50,10 @@ __all__ = [
     "InferenceUnavailableError",
     "InferenceUsage",
     "InvalidInferenceOutputError",
+    "QueryEmbeddingModel",
     "StructuredGenerator",
     "TokenEstimator",
     "TokenEstimatorProfile",
     "character_token_estimator",
+    "embed_query",
 ]

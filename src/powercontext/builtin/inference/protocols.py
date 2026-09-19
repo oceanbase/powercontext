@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 from powercontext.builtin.inference.models import EmbeddingResult, GenerationResult
 
@@ -45,3 +45,21 @@ class EmbeddingModel(Protocol):
         """Return exactly one ordered vector for each input text."""
 
         ...
+
+
+@runtime_checkable
+class QueryEmbeddingModel(Protocol):
+    """Embed retrieval queries when a provider distinguishes queries from documents."""
+
+    async def embed_query(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        """Return exactly one ordered query vector for each input text."""
+
+        ...
+
+
+async def embed_query(model: EmbeddingModel, texts: tuple[str, ...], /) -> EmbeddingResult:
+    """Embed retrieval queries, falling back to document embeddings for symmetric models."""
+
+    if isinstance(model, QueryEmbeddingModel):
+        return await model.embed_query(texts)
+    return await model.embed(texts)

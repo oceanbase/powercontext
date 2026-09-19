@@ -86,6 +86,7 @@ from powercontext.builtin.inference import (
     EmbeddingVector,
     InferenceTimeoutError,
     InferenceUnavailableError,
+    embed_query,
 )
 from powercontext.builtin.tags import TagFilter
 from powercontext.errors import RevisionConflictError
@@ -539,7 +540,7 @@ class MemoryService:
         if reuse is not None and reuse.embedding_profile == profile:
             return selected_mode, reuse.query_vector, reuse, 0
         try:
-            query_vector = (await self._embed_texts((query,), profile))[0]
+            query_vector = (await self._embed_texts((query,), profile, query=True))[0]
         except (InferenceUnavailableError, InferenceTimeoutError) as error:
             if requested_mode == "auto" and capabilities.fts:
                 return "fts", None, None, 1
@@ -987,11 +988,13 @@ class MemoryService:
         self,
         texts: tuple[str, ...],
         profile: EmbeddingProfile,
+        *,
+        query: bool = False,
     ) -> tuple[EmbeddingVector, ...]:
         embedding_model = self._embedding_model
         if embedding_model is None or embedding_model.profile != profile:
             raise CapabilityNotSupportedError("embedding-profile")
-        result = await embedding_model.embed(texts)
+        result = await embed_query(embedding_model, texts) if query else await embedding_model.embed(texts)
         vectors = result.vectors
         if len(vectors) != len(texts):
             raise InvalidEmbeddingError("count")

@@ -132,6 +132,7 @@ class RecordingEmbeddingModel(PydanticAIEmbeddingModelBase):
     def __init__(self) -> None:
         super().__init__()
         self.calls: list[tuple[str, ...]] = []
+        self.input_types: list[EmbedInputType] = []
 
     @property
     def model_name(self) -> str:
@@ -150,6 +151,7 @@ class RecordingEmbeddingModel(PydanticAIEmbeddingModelBase):
     ) -> PydanticAIEmbeddingResult:
         prepared, _ = self.prepare_embed(inputs, settings)
         self.calls.append(tuple(prepared))
+        self.input_types.append(input_type)
         return PydanticAIEmbeddingResult(
             embeddings=((1.0, 2.0, 3.0),) * len(prepared),
             inputs=prepared,
@@ -461,6 +463,23 @@ def test_embedding_adapter_preserves_order_across_bounded_provider_batches() -> 
         assert result.vectors == ((1.0, 2.0, 3.0),) * 5
         assert result.usage.requests == 3
         assert result.usage.input_tokens == 5
+
+    asyncio.run(scenario())
+
+
+def test_embedding_adapter_forwards_query_input_type() -> None:
+    async def scenario() -> None:
+        provider = RecordingEmbeddingModel()
+        model = PydanticAIEmbeddingModel(
+            embedder=Embedder(provider),
+            profile=TEST_PROFILE,
+        )
+
+        result = await model.embed_query(("find this",))
+
+        assert provider.calls == [("find this",)]
+        assert provider.input_types == ["query"]
+        assert result.vectors == ((1.0, 2.0, 3.0),)
 
     asyncio.run(scenario())
 
