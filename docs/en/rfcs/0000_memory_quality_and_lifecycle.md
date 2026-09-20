@@ -1,10 +1,10 @@
 - Proposal Name: `memory_quality_and_lifecycle`
 - Start Date: 2026-09-18
 - Tracking Issue: [oceanbase/powercontext#1590](https://github.com/oceanbase/powercontext/issues/1590)
-- Related RFCs: [RFC 0014](0014_memory_layer_design.md), [RFC 0019](0019_local_source_memory_runtime.md),
-  [RFC 0028](0028_context_pack.md), [RFC 0050](0050_artifact_candidate_review_inbox.md),
-  [RFC 0080](0080_memory_search_reranking.md), [RFC 1229](1229_unified_workloads_and_long_horizon_memory_evaluation.md),
-  and [RFC 1560](https://github.com/oceanbase/powercontext/blob/master/docs/en/rfcs/1560_recall_sufficiency_gate.md)
+- Related RFCs: [RFC 0014](/en/rfcs/0014_memory_layer_design), [RFC 0019](/en/rfcs/0019_local_source_memory_runtime),
+  [RFC 0028](/en/rfcs/0028_context_pack), [RFC 0050](/en/rfcs/0050_artifact_candidate_review_inbox),
+  [RFC 0080](/en/rfcs/0080_memory_search_reranking), [RFC 1229](/en/rfcs/1229_unified_workloads_and_long_horizon_memory_evaluation),
+  and [RFC 1560](/en/rfcs/1560_recall_sufficiency_gate)
 - Related work: [#1425](https://github.com/oceanbase/powercontext/issues/1425),
   [#1321](https://github.com/oceanbase/powercontext/issues/1321),
   [#1556](https://github.com/oceanbase/powercontext/issues/1556),
@@ -213,6 +213,12 @@ validated, the entry remains `unknown`/untrusted and the ranking policy stays di
 
 This is a Source/SourceDefinition adapter-surface change and lands before, not alongside, the ranking feature. The
 first ranking policy does not use a `verified_source_bonus` or model-generated authority score.
+
+For deployments that accept materially untrusted Sources, a later evaluation may compare a bounded
+source-class-occupancy policy with neutral and calibrated provenance-ranking baselines. It may cap the share of a fixed
+candidate pool or delivered Context Pack occupied by a lower-authority class, but must retain an explicit route for
+legitimate answer-bearing evidence. This is an opt-in experiment, not a stage-1 default or a substitute for the Source
+declaration contract.
 
 ## Independent quality dimensions
 
@@ -469,11 +475,16 @@ All parameters are seeds. No non-neutral default is enabled without evidence fro
 6. **Longitudinal regression:** run Ledger-QA-shaped sequences of revisions and score both current-state and
    “what was true at time/revision T?” answers by final task/world state as well as retrieval metrics.
 7. **Safety:** include provenance poisoning and low-authority/high-frequency-access cases separately from relevance.
-8. **Recall-gate composition:** with FTS/vector/hybrid, reranker on/off, and recall gate on/off, confirm every quality
+8. **Source-class occupancy:** for deployments accepting materially untrusted Sources, compare the neutral baseline and
+   any calibrated additive provenance-ranking baseline with an opt-in, bounded cap on the lower-authority share of the
+   fixed candidate pool or delivered Context Pack. Preserve a route for legitimate answer-bearing evidence and report
+   attack success, trusted and untrusted evidence recall, citation correctness, abstention, and false exclusion. This is
+   not a default policy without a concrete threat model and held-out benefit.
+9. **Recall-gate composition:** with FTS/vector/hybrid, reranker on/off, and recall gate on/off, confirm every quality
    reorder preserves the member identities of each round’s reranker pool.
-9. **Backend parity:** run conformance and rebuild cases on SQLite and OceanBase; report retrieval, task, safety, and
+10. **Backend parity:** run conformance and rebuild cases on SQLite and OceanBase; report retrieval, task, safety, and
    cost separately.
-10. **Full-context reference:** report a full-material reference independently, so model reading failures are not
+11. **Full-context reference:** report a full-material reference independently, so model reading failures are not
     misattributed to retrieval or lifecycle policy.
 
 The evaluation follows RFC 0080 and RFC 1229 boundaries: PowerContext exposes its actual behavior and traces; workload
@@ -553,8 +564,12 @@ acceptance thresholds.
 - [VoiceMem](https://arxiv.org/abs/2608.26005) supports the candidate-density hypothesis only; it is not evidence for
   this RFC’s freshness formula.
 - [Revoked](https://arxiv.org/abs/2609.08258) motivates deterministic retrieval-time enforcement of known validity.
+- [Utility Under Attack](https://arxiv.org/abs/2608.21230) motivates source-poisoning and non-default source-class-
+  occupancy evaluation; it does not justify inferring source authority from content or making a cap the default.
 - [Selective Memory](https://arxiv.org/abs/2603.15994) and [ProMem](https://arxiv.org/abs/2601.04463) motivate
   reversible retirement and later alignment/verification work, not unreviewed semantic deletion.
+- [Retain or Consolidate?](https://arxiv.org/abs/2607.17545) reinforces preserving raw authority when evidence already
+  fits the budget, rather than introducing automatic body compaction.
 - [Rate–Distortion Theory for Agent Memory Compaction](https://arxiv.org/abs/2607.08032) motivates measuring
   irreversible, query-unknown pre-query discarding under a shared budget; it does not authorize body compaction here.
 - Additional proposer-supplied background is collected in [1](https://mp.weixin.qq.com/s/UDkGQvutJn-OQg0KunOqzw),
