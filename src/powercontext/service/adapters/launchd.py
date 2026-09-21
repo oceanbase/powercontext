@@ -97,6 +97,10 @@ class LaunchdUserAdapter:
             definition, metadata = _definition_and_metadata_from_payload(payload)
             if definition.definition_version == DEFINITION_VERSION:
                 expected = plistlib.loads(self.render(definition))
+                # Intact older definitions remain owned so install can replace
+                # their background scheduling policy without manual removal.
+                if payload.get("ProcessType") == "Background":
+                    expected["ProcessType"] = "Background"
             elif definition.definition_version == _LEGACY_DEFINITION_VERSION:
                 expected = _legacy_payload(self.identifier, definition, metadata)
             else:
@@ -162,7 +166,9 @@ class LaunchdUserAdapter:
             "RunAtLoad": True,
             "KeepAlive": {"PathState": {str(retry_token): True}},
             "ThrottleInterval": 5,
-            "ProcessType": "Background",
+            # This Server handles user requests. Background scheduling can
+            # throttle import/database I/O beyond the startup deadline (#1571).
+            "ProcessType": "Standard",
             "StandardOutPath": str(log_dir / "server.stdout.log"),
             "StandardErrorPath": str(log_dir / "server.stderr.log"),
             "EnvironmentVariables": {

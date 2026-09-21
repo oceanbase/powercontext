@@ -156,6 +156,7 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
             assert payload["ProgramArguments"][0] == os.path.abspath(sys.executable)
             assert payload["ProgramArguments"][1:3] == ["-m", "powercontext_service_bootstrap"]
             assert payload["RunAtLoad"] is True
+            assert payload["ProcessType"] == "Standard"
             assert "PathState" in payload["KeepAlive"]
             assert payload["StandardOutPath"].endswith("logs/server.stdout.log")
             assert payload["StandardErrorPath"].endswith("logs/server.stderr.log")
@@ -187,6 +188,39 @@ def test_native_service_definition_matches_running_process(tmp_path: Path) -> No
         _capture_native_failure(adapter, tmp_path)
         with suppress(Exception):
             controller.uninstall()
+        _cleanup(adapter)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="LaunchAgent scheduling is macOS-specific")
+def test_native_service_upgrades_background_scheduling(tmp_path: Path) -> None:
+    adapter = _native_adapter(suffix="upgrade")
+    environment = _environment_file(tmp_path)
+    controller = ServiceController(adapter)
+    target = f"gui/{_current_uid()}/{adapter.identifier}"
+
+    try:
+        assert controller.install(env_file=environment).ok
+        original_pid = re.search(r"^\s*pid = (\d+)\s*$", _run("launchctl", "print", target).stdout, re.MULTILINE)
+        assert original_pid is not None
+        original_definition = adapter.inspect().definition
+        # Represent an existing registration from before the scheduling fix,
+        # retaining its metadata and the live process until install reconciles it.
+        payload = plistlib.loads(adapter.artifact_path.read_bytes())
+        payload["ProcessType"] = "Background"
+        adapter.artifact_path.write_bytes(plistlib.dumps(payload))
+
+        assert controller.install(env_file=environment).ok
+
+        assert adapter.inspect().definition == original_definition
+        assert plistlib.loads(adapter.artifact_path.read_bytes())["ProcessType"] == "Standard"
+        upgraded_pid = re.search(r"^\s*pid = (\d+)\s*$", _run("launchctl", "print", target).stdout, re.MULTILINE)
+        assert upgraded_pid is not None and upgraded_pid.group(1) != original_pid.group(1)
+
+        assert controller.install(env_file=environment).ok
+        repeated_pid = re.search(r"^\s*pid = (\d+)\s*$", _run("launchctl", "print", target).stdout, re.MULTILINE)
+        assert repeated_pid is not None and repeated_pid.group(1) == upgraded_pid.group(1)
+    finally:
+        _capture_native_failure(adapter, tmp_path)
         _cleanup(adapter)
 
 

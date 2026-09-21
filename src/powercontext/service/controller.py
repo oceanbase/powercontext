@@ -90,7 +90,9 @@ class ServiceController:
             self._require_mutable_registration(registration)
             loaded = self._adapter.loaded_registration()
             self._require_mutable_manager_registration(loaded)
-            changed = registration.definition != definition
+            # Native settings such as launchd's scheduling policy are not
+            # represented in the shared metadata, but still require a reload.
+            changed = registration.definition != definition or registration.content != self._adapter.render(definition)
             loaded_changed = loaded.state is ManagerOwnershipState.OWNED and loaded.definition != definition
             manager_before = (
                 self._adapter.manager_state() if loaded.state is ManagerOwnershipState.OWNED else ManagerState.INACTIVE

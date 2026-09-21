@@ -397,6 +397,28 @@ def test_service_install_is_idempotent_when_definition_is_current(tmp_path: Path
     assert adapter.events == ["enable"]
 
 
+def test_service_install_reconciles_native_settings_with_unchanged_metadata(tmp_path: Path) -> None:
+    adapter = FakeAdapter(tmp_path)
+    controller = ServiceController(adapter, probe=_manager_probe(adapter), sleep=lambda _: None)
+    controller.install()
+    assert adapter.definition is not None
+    definition = adapter.definition
+    # Native scheduling settings are not part of ServiceDefinition metadata.
+    adapter.content = b"previous native settings"
+    adapter.events.clear()
+
+    status = controller.install()
+
+    assert status.ok
+    assert adapter.definition == definition
+    assert adapter.content == adapter.render(definition)
+    assert adapter.events == ["write", "reload", "enable", "start:True"]
+
+    adapter.events.clear()
+    assert controller.install().ok
+    assert adapter.events == ["enable"]
+
+
 def test_registration_status_does_not_query_manager_availability(tmp_path: Path) -> None:
     adapter = FakeAdapter(tmp_path)
     definition = _definition(tmp_path)
@@ -764,6 +786,7 @@ def test_launchd_definition_round_trips_with_argument_array_and_logs(
     assert installed.state is RegistrationState.INSTALLED
     assert installed.definition == definition
     assert payload["ProgramArguments"][0] == executable
+    assert payload["ProcessType"] == "Standard"
     assert payload["StandardOutPath"].replace("\\", "/").endswith("logs/server.stdout.log")
     retry_token = Path(definition.data_dir) / "logs" / "launchd-retry.enabled"
     assert payload["KeepAlive"] == {"PathState": {str(retry_token): True}}
@@ -1014,6 +1037,28 @@ def test_windows_uninstall_recovery_uses_scoped_task_commands(tmp_path: Path) ->
     assert adapter.uninstall_recovery("remove") == 'schtasks.exe /Delete /TN "\\PowerContext Test" /F /HRESULT'
 
 
+@pytest.mark.parametrize("changed_field", ["ProcessType", "ThrottleInterval", "ProgramArguments"])
+def test_launchd_inspect_accepts_only_an_intact_background_definition(tmp_path: Path, changed_field: str) -> None:
+    adapter = LaunchdUserAdapter(home=tmp_path, uid=501)
+    definition = _definition(tmp_path)
+    payload = plistlib.loads(adapter.render(definition))
+    payload["ProcessType"] = "Background"
+    adapter.write(plistlib.dumps(payload))
+
+    registration = adapter.inspect()
+
+    assert registration.state is RegistrationState.INSTALLED
+    assert registration.definition == definition
+
+    payload[changed_field] = {
+        "ProcessType": "Interactive",
+        "ThrottleInterval": 1,
+        "ProgramArguments": ["/bin/sleep", "30"],
+    }[changed_field]
+    adapter.artifact_path.write_bytes(plistlib.dumps(payload))
+    assert adapter.inspect().state is RegistrationState.INVALID
+
+
 def test_launchd_inspect_accepts_only_an_intact_legacy_owned_definition(tmp_path: Path) -> None:
     adapter = LaunchdUserAdapter(home=tmp_path, uid=501)
     definition = _definition(tmp_path, definition_version=1)
@@ -1029,6 +1074,7 @@ def test_launchd_inspect_accepts_only_an_intact_legacy_owned_definition(tmp_path
         "60",
     ]
     payload["KeepAlive"] = {"SuccessfulExit": False}
+    payload["ProcessType"] = "Background"
     adapter.artifact_path.parent.mkdir(parents=True)
     adapter.artifact_path.write_bytes(plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=True))
 
