@@ -136,7 +136,8 @@ Content-Type: application/json
 
 创建需要目标 Scope 的 `scope.contribute` 权限，请求体提交完整的 `title`、`summary` 和 `detail`。内容不经过语义
 生成，主题内容、当前 head、分块和当前部署启用的检索索引会在同一次提交内完成，因此通用读取和专用检索看到的是同一个
-主题版本。整体替换生成下一条不可变 Revision，必须携带当前 head 的 `If-Match`。
+主题版本。整体替换需要当前 Scope 的 `scope.admin` 权限，生成下一条不可变 Revision，并且必须携带当前 head 的
+`If-Match`。
 
 标签按[使用标签整理内容](manage-artifact-tags.md)管理；Topic Memory 的整体标签使用 `scope.read` 读取、
 `scope.admin` 修改。
