@@ -48,9 +48,16 @@ class MemoryEntryInactiveError(MemoryEntryError, RuntimeError):
 
 
 class InvalidMemoryCandidateError(MemoryLayerError, ValueError):
-    def __init__(self, code: str, detail: object | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: object | None = None,
+        *,
+        canonical_code: str | None = None,
+    ) -> None:
         self.code = code
         self.detail = detail
+        self.canonical_code = canonical_code
         messages = {
             "remember-mode": f"unsupported memory remember mode: {detail}",
             "identity-kind": f"unsupported memory identity kind: {detail}",

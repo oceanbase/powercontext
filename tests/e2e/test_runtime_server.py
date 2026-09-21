@@ -39,6 +39,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCandidateRequest,
     MemoryEntryInput,
 )
+from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCandidateError
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -987,3 +988,73 @@ def test_runtime_server_rejects_non_strict_transport_values(tmp_path: Path) -> N
 
     assert [response.status_code for response in responses] == [422, 422, 422]
     assert {response.json()["error"]["code"] for response in responses} == {"invalid_request"}
+
+
+def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path) -> None:
+    app = create_server_app(settings=_server_settings(tmp_path / "runtime.db"))
+
+    with TestClient(app) as transport:
+        default_scope = transport.get("/v1/scopes/default")
+        default_scope.raise_for_status()
+        scope_id = default_scope.json()["scope_id"]
+        remembered = transport.post(
+            "/v1/memory/remember",
+            json={"scope_id": scope_id, "kind": "decision", "text": "Keep canonical errors actionable."},
+        )
+        remembered.raise_for_status()
+        responses = [
+            transport.post(
+                "/v1/memory/remember",
+                json={"scope_id": scope_id, "kind": "decision", "text": "a" * 8_193},
+            ),
+            transport.post(
+                "/v1/memory/entries/revise",
+                json={
+                    "scope_id": scope_id,
+                    "citation": remembered.json()["entry"]["citation"],
+                    "kind": "decision",
+                    "text": "🧠" * 2_049,
+                },
+            ),
+        ]
+
+    expected_error = {
+        "code": "invalid_request",
+        "message": "The request is invalid.",
+        "details": {
+            "code": "text-too-long",
+            "message": "memory entry text must not exceed 8192 UTF-8 bytes",
+        },
+    }
+    assert [response.status_code for response in responses] == [422, 422]
+    assert [response.json()["error"] for response in responses] == [expected_error, expected_error]
+
+
+def test_runtime_server_keeps_unstructured_memory_errors_private(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    async def invalid_remember(_self: ScopedMemoryApplication, _request: object, /) -> None:
+        raise InvalidMemoryCandidateError("canonical", "private implementation detail")
+
+    monkeypatch.setattr(ScopedMemoryApplication, "remember", invalid_remember)
+    app = create_server_app(settings=_server_settings(tmp_path / "runtime.db"))
+
+    with TestClient(app) as transport:
+        default_scope = transport.get("/v1/scopes/default")
+        default_scope.raise_for_status()
+        response = transport.post(
+            "/v1/memory/remember",
+            json={
+                "scope_id": default_scope.json()["scope_id"],
+                "kind": "decision",
+                "text": "valid text",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == {
+        "code": "invalid_request",
+        "message": "The request is invalid.",
+        "details": None,
+    }

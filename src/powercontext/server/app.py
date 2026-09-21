@@ -5467,12 +5467,27 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
             InvalidRuntimeRequestError,
         ),
     ):
-        return status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request", "The request is invalid.", None
+        return (
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "invalid_request",
+            "The request is invalid.",
+            _invalid_request_details(error),
+        )
     if isinstance(error, InferenceTimeoutError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_timeout", "Model inference timed out.", None
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _invalid_request_details(error: Exception) -> dict[str, Any] | None:
+    if (
+        isinstance(error, InvalidMemoryCandidateError)
+        and error.code == "canonical"
+        and error.canonical_code is not None
+    ):
+        return {"code": error.canonical_code, "message": str(error.detail)}
+    return None
 
 
 def _map_source_ingestion_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
