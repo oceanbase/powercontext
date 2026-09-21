@@ -84,7 +84,7 @@ def _version() -> str:
     return value
 
 
-def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
+def install_opencode_plugin(*, source: str, ref: str, server_url: str = "http://127.0.0.1:8000") -> OpenCodeSetupResult:
     """Install the plugin and its owned global Skill from one checkout."""
 
     opencode_executable()
@@ -115,7 +115,6 @@ def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
     from powercontext.cli.authorization import (
         configure_stored_authorization,
         setup_authorization_value,
-        setup_server_url,
     )
 
     return OpenCodeSetupResult(
@@ -125,7 +124,7 @@ def install_opencode_plugin(*, source: str, ref: str) -> OpenCodeSetupResult:
         data_dir=str(data_dir),
         authorization_state=configure_stored_authorization(
             "opencode",
-            server_url=setup_server_url("opencode", "http://127.0.0.1:8000"),
+            server_url=server_url,
             value=setup_authorization_value("opencode"),
         ),
     )

@@ -20,6 +20,7 @@ import json
 import os
 import re
 import sys
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,6 +31,7 @@ import typer
 from powercontext.client.transport_policy import (
     client_config_file,
     load_client_settings,
+    normalize_client_url,
     parse_client_boolean,
     resolve_client_transport,
 )
@@ -37,6 +39,9 @@ from powercontext.transport import is_loopback_host
 
 if TYPE_CHECKING:
     from powercontext.cli.system import Diagnostic
+
+
+setup_environment_file: ContextVar[Path | None] = ContextVar("setup_environment_file", default=None)
 
 
 @dataclass(frozen=True)
@@ -70,17 +75,14 @@ def prepare_setup_transport(
 
             validate_dsh_setup_transport()
         prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
-        has_environment_url = any(
-            os.environ.get(key)
-            for key in (
-                prefix + "BASE_URL",
-                prefix + "SERVER_URL",
-                prefix + "ENDPOINT",
-                "POWERCONTEXT_CLIENT_SERVER_URL",
-            )
-        )
-        if server_url is None and not has_environment_url and not load_client_settings(host).get("server_url"):
-            server_url = existing_native_endpoint(host)
+        server_url = resolve_setup_endpoint(host, server_url=server_url)
+        loaded = setup_environment()
+        if allow_insecure_http is None:
+            consent_keys = (prefix + "ALLOW_INSECURE_HTTP", "POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP")
+            if not any(key in os.environ for key in consent_keys):
+                configured_consent = next((loaded[key] for key in consent_keys if key in loaded), None)
+                if configured_consent is not None:
+                    allow_insecure_http = parse_client_boolean(configured_consent)
         endpoint, allowed = resolve_client_transport(
             host, server_url=server_url, allow_insecure_http=allow_insecure_http
         )
@@ -124,11 +126,85 @@ def prepare_setup_transport(
     return SetupTransport(host, endpoint, allowed)
 
 
+def setup_environment() -> dict[str, str]:
+    """Read setup configuration without executing shell code or changing the process."""
+    from powercontext.cli.env_file import read_environment_file
+
+    explicit = setup_environment_file.get()
+    path = explicit.expanduser() if explicit is not None else Path.cwd() / ".env"
+    try:
+        return read_environment_file(path) if explicit is not None or path.is_file() else {}
+    except (OSError, ValueError) as error:
+        raise ValueError("Cannot read setup environment file; check its path and assignment syntax") from error  # noqa: TRY003
+
+
+def _explicit_setup_endpoint(host: str, server_url: str) -> str:
+    """Honor a chosen URL only when inherited runtime overrides cannot undo it."""
+    endpoint = normalize_client_url(server_url).removesuffix("/mcp").rstrip("/")
+    prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
+    keys = (prefix + "BASE_URL", prefix + "SERVER_URL", prefix + "ENDPOINT", "POWERCONTEXT_CLIENT_SERVER_URL")
+    if host == "claude-code":
+        keys += ("CLAUDE_PLUGIN_OPTION_SERVER_URL",)
+    for key in keys:
+        if os.environ.get(key) and normalize_client_url(os.environ[key]).removesuffix("/mcp").rstrip("/") != endpoint:
+            raise ValueError(  # noqa: TRY003
+                f"{key} conflicts with --server-url and would override the installed endpoint at runtime. "
+                f"Unset {key} or set it to the selected URL, then rerun setup."
+            )
+    return endpoint
+
+
+def resolve_setup_endpoint(host: str, *, server_url: str | None = None, default: str = "http://127.0.0.1:8000") -> str:
+    """Choose one endpoint, rejecting ambiguous explicit settings before installation.
+
+    A command-line URL is an explicit choice. Otherwise URL declarations must agree;
+    the local listening port is only a fallback when no client endpoint exists.
+    """
+    if server_url is not None:
+        return _explicit_setup_endpoint(host, server_url)
+    prefix = "POWERCONTEXT_" + ("CLAUDE" if host == "claude-code" else host.upper().replace("-", "_")) + "_"
+    keys = (prefix + "BASE_URL", prefix + "SERVER_URL", prefix + "ENDPOINT", "POWERCONTEXT_CLIENT_SERVER_URL")
+    loaded = setup_environment()
+    candidates = [
+        (name, normalize_client_url(values[name]).removesuffix("/mcp").rstrip("/"))
+        for values in (loaded, os.environ)
+        for name in keys
+        if values.get(name)
+    ]
+    saved = load_client_settings(host).get("server_url")
+    native = existing_native_endpoint(host)
+    for name, value in (("saved client settings", saved), ("native host settings", native)):
+        if value:
+            candidates.append((name, normalize_client_url(value).removesuffix("/mcp").rstrip("/")))
+    if len({value for _, value in candidates}) > 1:
+        names = ", ".join(dict.fromkeys(name for name, _ in candidates))
+        raise ValueError(  # noqa: TRY003
+            f"Conflicting PowerContext endpoints in {names}. Choose --server-url explicitly, "
+            "then align or unset conflicting runtime environment overrides before restarting the Agent."
+        )
+    if candidates:
+        return candidates[0][1]
+    values = loaded | dict(os.environ)
+    if public_url := values.get("POWERCONTEXT_SERVER_PUBLIC_URL"):
+        return normalize_client_url(public_url).removesuffix("/mcp").rstrip("/")
+    if "POWERCONTEXT_SERVER_HTTP_PORT" not in values:
+        return default
+    try:
+        port = int(values["POWERCONTEXT_SERVER_HTTP_PORT"])
+    except ValueError:
+        port = 0
+    if not 1 <= port <= 65535:
+        raise ValueError("POWERCONTEXT_SERVER_HTTP_PORT must be an integer between 1 and 65535")  # noqa: TRY003
+    return f"http://127.0.0.1:{port}"
+
+
 def existing_native_endpoint(host: str) -> str | None:
     """Preserve existing native endpoints when setup has no connection override."""
 
+    from powercontext.cli.native_transport import configured_native_endpoint
+
     if host != "workbuddy":
-        return None
+        return configured_native_endpoint(host)
     from powercontext.cli.workbuddy import workbuddy_home
 
     path = workbuddy_home() / "mcp.json"
@@ -154,10 +230,10 @@ def save_setup_transport(settings: SetupTransport) -> None:
         config: Any = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"version": 1, "hosts": {}}
         if not isinstance(config, dict) or config.get("version") != 1 or not isinstance(config.get("hosts"), dict):
             raise ValueError("Client configuration must have version 1 and a hosts object")  # noqa: TRY003, TRY301
-        config["hosts"][settings.host] = {
-            "server_url": settings.server_url,
-            "allow_insecure_http": settings.allow_insecure_http,
-        }
+        entry = config["hosts"].setdefault(settings.host, {})
+        if not isinstance(entry, dict):
+            raise ValueError("Client host configuration must be an object")  # noqa: TRY003, TRY004, TRY301
+        entry.update(server_url=settings.server_url, allow_insecure_http=settings.allow_insecure_http)
         updates: list[tuple[Path, dict[str, Any]]] = []
         if settings.host == "hermes":
             native_path = hermes_config_file()

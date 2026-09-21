@@ -46,6 +46,44 @@ provider 凭据，不要把它们写入命令行参数。
 
 Windows 支持为 `experimental`。将文件用于个人服务前，按[部署 Server](../operate/deploy-server.md)限制其 ACL。
 
+### 选择或修改 Web / Server 端口
+
+Dashboard、HTTP API 和 MCP 共用一个 Server 监听端口，没有独立的 Dashboard 端口。
+运行 `powercontext config init --output .env`，选择本地使用场景，在 **Dashboard 与访问** 中输入端口，例如 `18000`。
+默认值为已有端口，首次配置时为 `8000`；允许范围为 `1–65535` 的整数。
+向导会探测所选本机 Server 监听端口。若已被占用，可选择换一个端口或继续使用；继续使用时，必须在启动 Server 前
+先停止占用进程，向导不会自动杀进程。探测不会预留端口，也不会检查另一台电脑上的 SSH 转发端口；
+无法确认可用性时，会提示启动前自行检查。
+
+修改已有文件时，选择 **只修改指定模块**，再选择 **Dashboard 与访问**，修改端口后选择 **查看并保存** 并确认。
+也可以通过相同步骤恢复 `8000`。向导将端口保存为 `POWERCONTEXT_SERVER_HTTP_PORT`；
+已有 Agent 的连接地址需要更新时，请重新配置 Agent 连接。
+
+通过 `powercontext server run --env-file .env` 启动服务。如果 Server 已在运行，请先停止，再使用该文件重新启动；
+保存文件不会自动重载或重启进程。选择 `18000` 后，Dashboard 入口为 `http://127.0.0.1:18000/`，
+MCP 地址为 `http://127.0.0.1:18000/mcp`。CLI 参数和进程环境变量仍优先于文件中的配置。
+
+远程访问时，公开 HTTPS URL 与内部监听端口相互独立。使用 SSH 转发时，分别选择 Server 端口和客户端转发端口，
+然后执行向导生成的隧道命令。
+
+### 为另一个 Agent 安装相同连接
+
+安装入口为每个 Agent 统一解析一次连接地址，插件、MCP 配置和按 URL 绑定的凭据共用该结果。
+默认发现当前目录的 `.env`，也可以显式指定文件；读取配置不会执行文件中的命令：
+
+```bash
+powercontext setup --env-file .env codex
+powercontext setup --env-file .env pi
+```
+
+`--env-file` 必须放在 Agent 子命令之前。安装时会检查客户端地址与已有 Agent 配置是否冲突，不会静默覆盖。
+没有客户端地址时，使用配置中的公开 URL，或根据 `POWERCONTEXT_SERVER_HTTP_PORT` 生成本地地址。
+存在冲突时，可显式选择，例如 `powercontext setup --env-file .env codex --server-url http://127.0.0.1:18000`。
+进程环境中冲突的 URL 变量仍需清除或修改，因为它们可能在运行时覆盖安装配置。
+
+此流程统一连接地址，不迁移所有 Agent 的密钥存储；Hermes 和 OpenClaw 仍沿用各自的原生认证配置。
+修改连接后，请重启已运行的 Agent。
+
 ## 2. 检查并校验
 
 ```bash

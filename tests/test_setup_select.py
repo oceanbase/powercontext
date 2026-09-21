@@ -34,6 +34,14 @@ from powercontext.cli.system import Diagnostic, DiagnosticStatus, SetupError, se
 FIRST_CLASS_HOSTS = ("codex", "claude-code", "dsh", "openclaw", "opencode", "pi", "hermes")
 
 
+@pytest.fixture(autouse=True)
+def isolate_setup_configuration(tmp_path, monkeypatch) -> None:
+    """Keep endpoint discovery independent of the developer's environment file."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+
+
 def _cli():
     return create_cli([setup_app])
 
@@ -84,6 +92,26 @@ def _patch_diagnostics(monkeypatch, **replacements: Mock) -> dict[str, Mock]:
 def _assert_not_called(*installers: Mock) -> None:
     for installer in installers:
         installer.assert_not_called()
+
+
+def test_selected_agents_share_resolved_endpoint_and_persistence(tmp_path, monkeypatch) -> None:
+    """Multi-host orchestration forwards one endpoint to installers and native Hermes settings."""
+    from powercontext.client.transport_policy import load_client_settings
+
+    installers = _patch_installers(monkeypatch)
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    arguments = ["setup", "select", "--server-url", "http://127.0.0.1:18000", "--json"]
+    for host in FIRST_CLASS_HOSTS:
+        arguments.extend(["--host", host])
+    result = _invoke(arguments)
+    assert result.exit_code == 0, result.output
+    for host, installer in installers.items():
+        assert load_client_settings(host)["server_url"] == "http://127.0.0.1:18000"
+        if host != "hermes":
+            assert installer.call_args.kwargs["server_url"] == "http://127.0.0.1:18000"
+    native = json.loads((tmp_path / "hermes/powercontext/config.json").read_text())
+    assert native["base_url"] == "http://127.0.0.1:18000"
 
 
 def test_setup_without_subcommand_prints_help_and_installs_nothing(monkeypatch) -> None:
@@ -316,7 +344,9 @@ def test_setup_select_passes_source_ref_and_host_specific_defaults(monkeypatch) 
         server_url="http://127.0.0.1:8000",
         allow_insecure_http=False,
     )
-    installers["opencode"].assert_called_once_with(source="oceanbase/powercontext", ref="tested-ref")
+    installers["opencode"].assert_called_once_with(
+        source="oceanbase/powercontext", ref="tested-ref", server_url="http://127.0.0.1:8000"
+    )
 
 
 def test_setup_select_passes_server_override_to_openclaw(monkeypatch) -> None:

@@ -18,6 +18,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import powercontext.cli.config_wizard as config_wizard
@@ -27,6 +28,63 @@ from powercontext.cli.config_wizard_agents import AGENT_SPEC_BY_ID
 from powercontext.cli.config_wizard_seekdb import SeekDBDependency, SeekDBInstallPlan, SeekDBInstallResult
 from powercontext.cli.config_wizard_ui import WizardUI
 from powercontext.cli.env_file import parse_environment
+from powercontext.server.configuration import server_settings_context
+
+
+@pytest.fixture(autouse=True)
+def available_listener(monkeypatch) -> None:
+    """Keep prompt-flow tests independent of services running on the test machine."""
+    monkeypatch.setattr(config_wizard, "_listener_port_available", lambda host, port: True)
+
+
+@pytest.mark.parametrize("stored_port", [None, "8000", "19000"])
+@pytest.mark.parametrize("selected_port", ["18000", "8000"])
+def test_local_port_is_saved_with_matching_connection_urls(
+    tmp_path: Path, stored_port: str | None, selected_port: str
+) -> None:
+    """Persist fresh and edited listener ports with matching client and Dashboard URLs."""
+    output = tmp_path / "server.env"
+    database = tmp_path / "context.db"
+    if stored_port is not None:
+        output.write_text(
+            f"POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_HTTP_PORT={stored_port}\n",
+            encoding="utf-8",
+        )
+    mode = "configure\n" if stored_port is not None else ""
+    result = CliRunner().invoke(
+        app,
+        ["init", "--language", "en", "--output", str(output)],
+        input=f"sqlite\n{database}\n{mode}local\nbase\ny\n{selected_port}\ncodex\ndefault\nnone\ny\n",
+    )
+    assert result.exit_code == 0, result.output
+    values = parse_environment(output.read_text())
+    address = f"http://127.0.0.1:{selected_port}"
+    assert values["POWERCONTEXT_SERVER_HTTP_PORT"] == selected_port
+    with server_settings_context(env_file=output) as settings:
+        assert settings.http.port == int(selected_port)
+    assert values["POWERCONTEXT_CLIENT_SERVER_URL"] == address
+    assert f"Dashboard: {address}/dashboard/home" in result.output
+    assert f"MCP endpoint: {address}/mcp" in result.output
+    assert "restart it with the saved configuration" in output.with_name("server.env.next-steps.md").read_text()
+
+
+def test_edit_network_module_changes_existing_default_port(tmp_path: Path) -> None:
+    """Update the default listener without reconfiguring unrelated modules."""
+    output = tmp_path / "server.env"
+    output.write_text(
+        "POWERCONTEXT_SERVER_DATABASE_KIND=sqlite\nPOWERCONTEXT_SERVER_HTTP_PORT=8000\nCUSTOM_FLAG=keep\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        app,
+        ["init", "--language", "en", "--output", str(output)],
+        input=f"sqlite\n{tmp_path / 'context.db'}\nedit\nnetwork\nlocal\ny\n18000\ndone\ny\n",
+    )
+    assert result.exit_code == 0, result.output
+    values = parse_environment(output.read_text())
+    assert values["POWERCONTEXT_SERVER_HTTP_PORT"] == "18000"
+    assert values["CUSTOM_FLAG"] == "keep"
+    assert "http://127.0.0.1:18000/dashboard/home" in result.output
 
 
 class AgentAnswers(WizardUI):
@@ -203,7 +261,7 @@ def test_openclaw_next_steps_use_plugin_configuration_contract(tmp_path: Path) -
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\nopenclaw\nnew\nnone\ny\n",
+        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\n\nopenclaw\nnew\nnone\ny\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -225,7 +283,7 @@ def test_base_wizard_writes_private_environment_without_models(tmp_path: Path) -
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{database}\nlocal\nbase\nn\nnone\ny\ny\n",
+        input=f"sqlite\n{database}\nlocal\nbase\nn\n\nnone\ny\ny\n",
     )
     assert result.exit_code == 0, result.output
     values = parse_environment(output.read_text())
@@ -244,7 +302,7 @@ def test_cancel_in_chinese_does_not_write_files(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         app,
         ["init", "--language", "zh", "--output", str(output)],
-        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\nn\nnone\ny\nn\n",
+        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\nn\n\nnone\ny\nn\n",
     )
     assert result.exit_code == 0, result.output
     assert "配置向导" in result.output
@@ -328,7 +386,7 @@ def test_seekdb_install_runs_behind_prompts_and_finishes_after_save(tmp_path: Pa
     result = CliRunner().invoke(
         app,
         ["init", "--language", "zh", "--output", str(output)],
-        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\nnone\ny\ny\n",
+        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -368,7 +426,7 @@ def test_seekdb_install_failure_prints_one_manual_command(tmp_path: Path, monkey
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\nnone\ny\ny\n",
+        input=f"seekdb\n{tmp_path / 'seekdb'}\ny\nlocal\nbase\nn\n\nnone\ny\ny\n",
     )
 
     assert result.exit_code == 0, result.output
@@ -381,7 +439,7 @@ def test_dashboard_finish_shows_new_token_once_and_clear_old_bindings(tmp_path: 
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\ncodex\ndefault\nclaude-code\ndefault\nnone\ny\n",
+        input=f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\ny\n\ncodex\ndefault\nclaude-code\ndefault\nnone\ny\n",
     )
     assert result.exit_code == 0, result.output
     server_values = parse_environment(output.read_text())
@@ -409,7 +467,7 @@ def test_full_memory_configuration_shares_provider_and_adds_profile_recall(tmp_p
         app,
         ["init", "--language", "en", "--output", str(output)],
         input=(
-            f"sqlite\n{tmp_path / 'context.db'}\nlocal\nfull\nn\n"
+            f"sqlite\n{tmp_path / 'context.db'}\nlocal\nfull\nn\n\n"
             "bailian\n\n\nexample-test-key\ny\n\nrecommended\ncodex\nexisting\nproject:demo\nnone\ny\n"
         ),
     )
@@ -448,7 +506,7 @@ def test_custom_topic_memory_does_not_require_embedding(tmp_path: Path) -> None:
         ["init", "--language", "en", "--output", str(output)],
         input=(
             f"sqlite\n{tmp_path / 'context.db'}\nlocal\ncustom\n"
-            "n\ny\nn\nn\nn\nn\nn\nn\nbailian\n\n\nexample-test-key\nrecommended\nnone\ny\ny\n"
+            "n\ny\nn\nn\nn\nn\nn\nn\n\nbailian\n\n\nexample-test-key\nrecommended\nnone\ny\ny\n"
         ),
     )
     assert result.exit_code == 0, result.output
@@ -478,7 +536,7 @@ def test_ssh_forwarding_configures_the_agent_on_the_other_computer(tmp_path: Pat
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=(f"sqlite\n{tmp_path / 'context.db'}\nremote\nbase\ny\nssh\nt1\n18000\ncodex\nother\n\nnew\nnone\ny\n"),
+        input=(f"sqlite\n{tmp_path / 'context.db'}\nremote\nbase\ny\nssh\n\nt1\n18000\ncodex\nother\n\nnew\nnone\ny\n"),
     )
     assert result.exit_code == 0, result.output
     values = parse_environment(output.read_text())
@@ -610,7 +668,7 @@ def test_processing_choice_says_selected_automatic_capabilities_are_already_enab
         ["init", "--language", "zh", "--output", str(output)],
         input=(
             f"sqlite\n{tmp_path / 'context.db'}\nlocal\ncustom\n"
-            "n\ny\nn\nn\nn\nn\nn\nn\nbailian\n\n\nkey\nrecommended\nnone\ny\nn\n"
+            "n\ny\nn\nn\nn\nn\nn\nn\n\nbailian\n\n\nkey\nrecommended\nnone\ny\nn\n"
         ),
     )
     assert result.exit_code == 0, result.output
@@ -626,7 +684,7 @@ def test_agents_are_selected_one_at_a_time_and_get_independent_scope_plans(tmp_p
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=(f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\nn\ncodex\nnew\nclaude-code\nnew\nnone\ny\n"),
+        input=(f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\nn\n\ncodex\nnew\nclaude-code\nnew\nnone\ny\n"),
     )
     assert result.exit_code == 0, result.output
     assert result.output.count("Select an Agent to configure") == 3
@@ -646,7 +704,7 @@ def test_existing_scope_is_requested_separately_for_each_agent(tmp_path: Path) -
         app,
         ["init", "--language", "en", "--output", str(output)],
         input=(
-            f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\nn\n"
+            f"sqlite\n{tmp_path / 'context.db'}\nlocal\nbase\nn\n\n"
             "codex\nexisting\nSCOPE_CODEX\nclaude-code\nexisting\nSCOPE_CLAUDE\nnone\ny\n"
         ),
     )

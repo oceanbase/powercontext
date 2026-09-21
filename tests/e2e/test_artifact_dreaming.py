@@ -155,13 +155,17 @@ def config(database: DatabaseConfig) -> BuiltinConfig:
 
 
 @pytest.mark.parametrize("existing", [False, True], ids=["new-config", "enable-skill"])
-def test_wizard_skill_selection_accepts_dream_derivation(tmp_path: Path, existing: bool) -> None:
+def test_wizard_skill_selection_accepts_dream_derivation(
+    tmp_path: Path, existing: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from typer.testing import CliRunner
 
     from powercontext.builtin.runtime import open_builtin_runtime as open_runtime
+    from powercontext.cli import config_wizard
     from powercontext.cli.config import app as config_app
     from powercontext.server.configuration import server_settings_context
 
+    monkeypatch.setattr(config_wizard, "_listener_port_available", lambda host, port: True)
     output = tmp_path / "server.env"
     choices = "custom\nn\nn\nn\nn\nn\ny\nn\n"
     if existing:
@@ -173,7 +177,7 @@ def test_wizard_skill_selection_accepts_dream_derivation(tmp_path: Path, existin
         )
         answers = "edit\ncapabilities\n" + choices + "done\ny\n"
     else:
-        answers = "local\n" + choices + "n\nbailian\n\n\nexample-test-key\nnone\ny\ny\n"
+        answers = "local\n" + choices + "n\n\nbailian\n\n\nexample-test-key\nnone\ny\ny\n"
     result = CliRunner().invoke(
         config_app,
         ["init", "--language", "en", "--output", str(output)],

@@ -38,12 +38,8 @@ from urllib.request import Request, urlopen
 import typer
 from pydantic import ValidationError
 
-from powercontext.cli.transport import (
-    add_transport_diagnostic,
-    is_remote_http,
-    prepare_setup_transport,
-    save_setup_transport,
-)
+from powercontext.cli.hosts import setup_host
+from powercontext.cli.transport import add_transport_diagnostic, is_remote_http
 from powercontext.client.settings import normalize_server_url
 from powercontext.client.transport_policy import resolve_client_transport
 from powercontext.http import HealthResponse, ReadinessResponse, ReadinessStatus
@@ -398,6 +394,20 @@ class Diagnostic:
         return result
 
 
+@setup_app.callback()
+def setup_configuration(
+    context: typer.Context,
+    env_file: Annotated[
+        Path | None, typer.Option(help="Setup environment file; defaults to .env in this directory.")
+    ] = None,
+) -> None:
+    """Select a safely parsed configuration file for all setup targets."""
+    from powercontext.cli.transport import setup_environment_file
+
+    token = setup_environment_file.set(env_file)
+    context.call_on_close(lambda: setup_environment_file.reset(token))
+
+
 @setup_app.command("codex")
 def setup_codex(
     source: Annotated[
@@ -426,11 +436,14 @@ def setup_codex(
     """Install the PowerContext Codex plugin and prepare local storage."""
 
     try:
-        transport = prepare_setup_transport(
-            "codex", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_codex_plugin(source=source, ref=ref, server_url=transport.server_url)
-        save_setup_transport(transport)
+        result = setup_host(
+            "codex",
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -484,17 +497,15 @@ def setup_claude_code(
     plan = _claude_setup_plan()
     _write_claude_setup_plan(plan)
     try:
-        transport = prepare_setup_transport(
-            "claude-code", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_claude_code_plugin(
+        result = setup_host(
+            "claude-code",
             source=source,
             ref=ref,
-            server_url=transport.server_url,
-            allow_insecure_http=transport.allow_insecure_http,
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
             capture_prompts=capture_prompts,
-        )
-        save_setup_transport(transport)
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -535,14 +546,17 @@ def setup_dsh(
 ) -> None:
     """Install the PowerContext DeepSeek Harness plugin and prepare local storage."""
 
-    from powercontext.cli.dsh import install_dsh_plugin, run_dsh_diagnostics
+    from powercontext.cli.dsh import run_dsh_diagnostics
 
     try:
-        transport = prepare_setup_transport(
-            "dsh", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_dsh_plugin(source=source, ref=ref)
-        save_setup_transport(transport)
+        result = setup_host(
+            "dsh",
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -588,19 +602,15 @@ def setup_openclaw(
 ) -> None:
     """Build, install, and configure the PowerContext OpenClaw memory plugin."""
 
-    from powercontext.cli.openclaw import install_openclaw_plugin
-
     try:
-        transport = prepare_setup_transport(
-            "openclaw", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_openclaw_plugin(
+        result = setup_host(
+            "openclaw",
             source=source,
             ref=ref,
-            server_url=transport.server_url,
-            allow_insecure_http=transport.allow_insecure_http,
-        )
-        save_setup_transport(transport)
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -643,14 +653,17 @@ def setup_pi(
 ) -> None:
     """Install the PowerContext Pi package and prepare local storage."""
 
-    from powercontext.cli.pi import install_pi_plugin, run_pi_diagnostics
+    from powercontext.cli.pi import run_pi_diagnostics
 
     try:
-        transport = prepare_setup_transport(
-            "pi", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_pi_plugin(source=source, ref=ref)
-        save_setup_transport(transport)
+        result = setup_host(
+            "pi",
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -696,14 +709,17 @@ def setup_opencode(
 ) -> None:
     """Install the PowerContext OpenCode plugin and Skill."""
 
-    from powercontext.cli.opencode import install_opencode_plugin, run_opencode_diagnostics
+    from powercontext.cli.opencode import run_opencode_diagnostics
 
     try:
-        transport = prepare_setup_transport(
-            "opencode", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_opencode_plugin(source=source, ref=ref)
-        save_setup_transport(transport)
+        result = setup_host(
+            "opencode",
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -750,14 +766,17 @@ def setup_hermes(
 ) -> None:
     """Install the PowerContext Hermes provider and /pc command companion."""
 
-    from powercontext.cli.hermes import install_hermes_plugin, run_hermes_diagnostics
+    from powercontext.cli.hermes import run_hermes_diagnostics
 
     try:
-        transport = prepare_setup_transport(
-            "hermes", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_hermes_plugin(source=source, ref=ref)
-        save_setup_transport(transport)
+        result = setup_host(
+            "hermes",
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -794,7 +813,7 @@ def setup_select(
     ] = DEFAULT_MARKETPLACE_REF,
     server_url: Annotated[
         str | None,
-        typer.Option(help="PowerContext Server base URL override for Claude Code and OpenClaw."),
+        typer.Option(help="PowerContext Server base URL override for every selected Agent."),
     ] = None,
     capture_prompts: Annotated[
         bool,
@@ -853,14 +872,17 @@ def setup_workbuddy(
 ) -> None:
     """Install the PowerContext WorkBuddy hooks, MCP server, and Skill."""
 
-    from powercontext.cli.workbuddy import install_workbuddy_plugin, run_workbuddy_diagnostics
+    from powercontext.cli.workbuddy import run_workbuddy_diagnostics
 
     try:
-        transport = prepare_setup_transport(
-            "workbuddy", server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-        )
-        result = install_workbuddy_plugin(source=source, ref=ref, server_url=transport.server_url)
-        save_setup_transport(transport)
+        result = setup_host(
+            "workbuddy",
+            source=source,
+            ref=ref,
+            server_url=server_url,
+            allow_insecure_http=allow_insecure_http,
+            json_output=json_output,
+        ).result
     except SetupError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -1095,10 +1117,9 @@ def install_codex_plugin(*, source: str, ref: str, server_url: str | None = None
         credential_path,
         read_stored_authorization,
         setup_authorization_value,
-        setup_server_url,
     )
 
-    authorization_server_url = setup_server_url("codex", server_url or DEFAULT_CLAUDE_CODE_SERVER_URL)
+    authorization_server_url = server_url or DEFAULT_CLAUDE_CODE_SERVER_URL
     authorization_state = configure_stored_authorization(
         "codex",
         server_url=authorization_server_url,
