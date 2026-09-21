@@ -51,6 +51,7 @@ header:
     - '**/*.lockb'
     - 'benchmark/locomo/dataset/**'
     - 'benchmark/locomo/results/**'
+    - 'benchmark/locomo_plus/results/**'
     - 'tox.ini'
     - 'Makefile'
     - 'zensical.toml'
