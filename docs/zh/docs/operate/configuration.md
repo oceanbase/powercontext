@@ -71,6 +71,15 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory 选择策略：`coding` 或 `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | 在 Memory 粗召回后应用 listwise rerank |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | 交给 reranker 的粗排候选池大小 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ENABLED` | `false` | 启用可选的召回充分性门控；关闭时召回行为与不启用该功能时一致 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MAX_ROUNDS` | `2` | 首轮召回之后最多追加的搜索轮数；取值 `0`–`2`，`0` 表示只评估、不追加 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_CANDIDATES` | `2` | 判定召回充分所需的最少候选数量 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_SCORE` | `0.35` | 判定充分所要求的最优候选分数下限 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_GAP` | `0.02` | 最优候选与次优候选之间要求的最小分数差 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_LEXICAL_OVERLAP` | `0.5` | 判定充分所要求的词法覆盖率下限 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND1_MIN_SEMANTIC_SIMILARITY` | `0.15` | 第一轮追加搜索使用的语义相似度准入下限；启用时不得高于首轮的 `0.3` |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND2_MIN_SEMANTIC_SIMILARITY` | `0.10` | 第二轮追加搜索使用的语义相似度准入下限；启用时不得高于第一轮的值 |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | 已启用 `MEMORY_RERANK_ENABLED` 时是否仍允许追加搜索；默认在 rerank 之后不再追加 |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | 未设置 | Memory 自动准入间隔；`SCHEDULE_SECONDS` 保留为兼容别名 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | 未设置 | Topic Memory 自动准入间隔；未设置时不接纳新的自动调用 |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | 每个 Topic Memory Window 的 Source 数量上限，硬上限为 100；一次 Scope 调用可完成多个 Window |
@@ -118,6 +127,11 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | 单次 rerank operation 的最大 model request 数量 |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | 未设置 | Experience 自动准入间隔；未设置时保留已接受工作，停止新的自动准入 |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | 自动生成本机项目 target | 覆盖默认值的 host identity 和显式 Agent Skill targets JSON object |
+
+召回充分性门控默认关闭。启用后，Runtime 在 `prepare_context` 阶段评估首轮候选的数量、来源家族覆盖、最优候选分数和词法
+覆盖；判定为不足时最多追加两轮搜索，并在每轮放宽候选准入的语义相似度下限。门控判断本身不调用模型，追加轮次沿用同一请求的
+Scope、家族、条数限制和上下文预算，并复用已经生成的查询向量。第一轮和第二轮的语义相似度下限必须保持递减顺序，违反该顺序
+会导致启动失败。启用后可能增加检索次数和延迟，请在自己的数据上评估召回结果和延迟变化。
 
 Topic Worker 对尚未推进的 Scope Cursor 强制使用持久额度：跨全部重试最多 3 次尝试、512 次预留 provider 请求和
 64,000,000 个估算 token 容量单位。Window 的 canonical evidence（包含 metadata）最多 4,194,304 个字符，并限制

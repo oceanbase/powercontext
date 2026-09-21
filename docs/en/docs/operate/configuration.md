@@ -75,6 +75,15 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_EXTRACTION_PROFILE` | `coding` | Memory selection policy: `coding` or `conversation` |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_ENABLED` | `false` | Apply listwise reranking after coarse Memory retrieval |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_RERANK_CANDIDATE_LIMIT` | `30` | Coarse candidate pool supplied to the reranker |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ENABLED` | `false` | Enable the optional recall-sufficiency gate; disabling it keeps recall identical to a deployment without the feature |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MAX_ROUNDS` | `2` | Most expansion rounds after the first recall; `0` to `2`, where `0` assesses without expanding |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_CANDIDATES` | `2` | Fewest candidates a recall needs to count as sufficient |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_SCORE` | `0.35` | Lowest top-candidate score still accepted as sufficient |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_TOP_GAP` | `0.02` | Smallest score gap required between the top two candidates |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_MIN_LEXICAL_OVERLAP` | `0.5` | Lowest lexical coverage still accepted as sufficient |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND1_MIN_SEMANTIC_SIMILARITY` | `0.15` | Semantic-similarity admission floor for the first expansion round; must not exceed the round-zero `0.3` |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ROUND2_MIN_SEMANTIC_SIMILARITY` | `0.10` | Semantic-similarity admission floor for the second expansion round; must not exceed the first round's value |
+| `POWERCONTEXT_SERVER_RUNTIME_RECALL_GATE_ALLOW_WITH_RERANK` | `false` | Whether expansion may still run when `MEMORY_RERANK_ENABLED` is set; by default reranking ends the expansion |
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_SCHEDULE_SECONDS` | unset | Memory automatic admission interval; `SCHEDULE_SECONDS` remains a compatibility alias |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SCHEDULE_SECONDS` | unset | Topic Memory automatic admission interval; unset disables new automatic admission |
 | `POWERCONTEXT_SERVER_RUNTIME_TOPIC_MEMORY_SOURCE_WINDOW_LIMIT` | `10` | Maximum Sources per Topic Memory Window, capped at 100; one Scope invocation can finish several Windows |
@@ -122,6 +131,14 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_INFERENCE_RERANK_MAX_REQUESTS` | generation request limit | Maximum model requests in one rerank operation |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_SCHEDULE_SECONDS` | unset | Experience automatic admission interval; unset preserves accepted work and stops new automatic admission |
 | `POWERCONTEXT_SERVER_EXTERNAL_SKILLS` | automatic local project targets | JSON override containing the host identity and explicit Agent Skill targets |
+
+The recall-sufficiency gate is disabled by default. When enabled, the Runtime assesses the first recall's candidate
+count, family coverage, top-candidate score, and lexical coverage during `prepare_context`; when it judges the result
+insufficient, it may expand up to two more rounds and relaxes the semantic-similarity admission floor each round. The
+assessment calls no model, and expansion reuses the same request's Scope, families, limits, and context budget along
+with the query vectors already produced. The round-one and round-two similarity floors must stay in decreasing order, or
+startup fails. Enabling the gate can add search rounds and latency, so evaluate retrieval results and latency on your own
+data.
 
 Topic Workers enforce a durable allowance per unadvanced Scope Cursor: 3 attempts, 512 reserved provider requests,
 and 64,000,000 estimated token-capacity units across all retries. A Window admits at most 4,194,304 canonical evidence
