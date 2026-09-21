@@ -1,9 +1,5 @@
 # LoCoMo-Plus benchmark
 
-This benchmark evaluates factual and cognitive memory through PowerContext's public Runtime APIs.
-It addresses [issue #1601](https://github.com/oceanbase/powercontext/issues/1601) and keeps the existing
-[LoCoMo benchmark](../locomo/README.md) unchanged.
-
 The default `memory` arm captures timestamped dialogue Sources, extracts conversational Memory, retrieves Memory
 with hybrid search, generates an answer, and grades it with an explicitly selected judge model. Each run uses its own
 SQLite database inside its results directory; the database configuration in the supplied environment file is not used.
