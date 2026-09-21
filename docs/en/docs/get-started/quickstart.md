@@ -55,10 +55,11 @@ powercontext config validate --env-file .env
 powercontext server run --env-file .env
 ```
 
-Keep the terminal running. Open the Dashboard URL printed by the wizard; the local default is
-`http://127.0.0.1:8000/dashboard/home`. Sign in with the **Server token**, not a model API key.
-An empty Dashboard is expected before you capture data. For operation after closing the terminal, use a
-[persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server).
+Keep the terminal running. Open the Dashboard URL printed by the wizard, using the port saved as
+`POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. Sign in with the **Server token**, not a model API key.
+An empty Dashboard is expected before you capture data. For operation after closing the terminal, stop the foreground
+Server and install a [persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server)
+with `powercontext service install --env-file .env` to reuse the same configuration.
 
 Open another terminal, load the client settings, and check the running service:
 

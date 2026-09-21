@@ -61,7 +61,7 @@ Agent 的安装、连接参数和验证步骤见[各自的集成文档](../integ
 powercontext server run
 ```
 
-未设置环境变量时，Server 会：
+没有环境变量或环境文件时，Server 会：
 
 - 监听 `127.0.0.1:8000`；
 - 在 `/mcp` 启用 Streamable HTTP MCP；

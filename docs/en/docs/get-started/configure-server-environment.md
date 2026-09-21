@@ -57,8 +57,9 @@ Windows support is `experimental`. Before using the file for a personal service,
 
 Dashboard, HTTP API, and MCP share one Server listener; there is no separate Dashboard port.
 Run `powercontext config init --output .env`, select local usage, and enter a port such as `18000` in
-**Dashboard and access**. The default is the existing port, or `8000` for a fresh setup. Valid ports are
-integers from `1` to `65535`. The wizard probes the selected local Server listener. If the port is occupied,
+**Dashboard and access**. The wizard suggests `17429` for a fresh setup and uses the configured port for an
+existing file. The selected port is saved explicitly; runtime and `--template` defaults remain `8000`.
+Valid ports are integers from `1` to `65535`. The wizard probes the selected local Server listener. If the port is occupied,
 choose another port or explicitly keep it; keeping it requires stopping the occupying process before starting
 Server. The wizard never terminates processes. This check does not reserve the port or inspect SSH forwarded
 ports on another computer. If availability cannot be checked, the wizard warns you to verify it before startup.

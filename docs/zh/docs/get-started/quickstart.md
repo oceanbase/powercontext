@@ -54,9 +54,10 @@ powercontext config validate --env-file .env
 powercontext server run --env-file .env
 ```
 
-保持终端运行。在浏览器打开向导输出的 Dashboard 地址；本机默认是
-`http://127.0.0.1:8000/dashboard/home`，使用 **Server Token** 登录，不是模型 API key。
-首次没有数据是正常现象。需要关闭终端后继续运行时，改用[个人后台服务](../operate/deploy-server.md#运行持久个人-server)。
+保持终端运行。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
+`POWERCONTEXT_SERVER_HTTP_PORT` 为准。使用 **Server Token** 登录，不是模型 API key。
+首次没有数据是正常现象。需要关闭终端后继续运行时，先停止前台 Server，再通过
+`powercontext service install --env-file .env` 安装[个人后台服务](../operate/deploy-server.md#运行持久个人-server)，复用同一份配置。
 
 另开终端，加载客户端连接配置并检查服务：
 

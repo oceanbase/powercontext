@@ -64,7 +64,7 @@ Follow the [guide for each integration](../integrations/index.md) for Agent inst
 powercontext server run
 ```
 
-With no environment variables, the Server:
+Without environment variables or an environment file, the Server:
 
 - binds to `127.0.0.1:8000`;
 - enables Streamable HTTP MCP at `/mcp`;

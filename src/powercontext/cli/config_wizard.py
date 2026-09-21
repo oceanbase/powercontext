@@ -56,6 +56,7 @@ SERVER = "POWERCONTEXT_SERVER_"
 RUNTIME = f"{SERVER}RUNTIME_"
 INFERENCE = f"{SERVER}INFERENCE_"
 CLIENT = "POWERCONTEXT_CLIENT_"
+SUGGESTED_SERVER_PORT = 17429
 FEATURES = (
     ("memory", "Automatic Memory extraction", "后台 Memory 提取"),
     ("topic-memory", "Automatic Topic Memory", "Topic Memory 自动整理"),
@@ -438,16 +439,16 @@ def _server_url(ui: WizardUI, default: str) -> str:
 def _stored_network_port(state: Wizard) -> int:
     """Return a valid editable port default, warning when stored input is invalid."""
     try:
-        port = int(state.values.get(f"{SERVER}HTTP_PORT", "8000"))
+        port = int(state.values.get(f"{SERVER}HTTP_PORT", str(SUGGESTED_SERVER_PORT)))
     except ValueError:
         port = 0
     if 1 <= port <= 65535:
         return port
     state.ui.say(
-        "The existing Server port is invalid. Using 8000 as the editable default.",
-        "已有 Server 端口无效，将以 8000 作为可修改的默认值。",
+        f"The existing Server port is invalid. Using {SUGGESTED_SERVER_PORT} as the editable default.",
+        f"已有 Server 端口无效，将以 {SUGGESTED_SERVER_PORT} 作为可修改的默认值。",
     )
-    return 8000
+    return SUGGESTED_SERVER_PORT
 
 
 def _listener_port_available(host: str, port: int) -> bool:

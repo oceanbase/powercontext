@@ -41,7 +41,7 @@ Server 配置使用 `POWERCONTEXT_SERVER_` 前缀。
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `POWERCONTEXT_SERVER_HTTP_HOST` | `127.0.0.1` | 监听地址 |
-| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | 监听端口 |
+| `POWERCONTEXT_SERVER_HTTP_PORT` | `8000` | 监听端口；配置向导在首次设置时建议使用 `17429` |
 | `POWERCONTEXT_SERVER_WORKSPACE` | Server 启动目录 | 本机项目级 Agent Skill 目录的解析根目录 |
 | `POWERCONTEXT_SERVER_MCP_ENABLED` | `true` | 启用 Streamable HTTP MCP |
 | `POWERCONTEXT_SERVER_MCP_PATH` | `/mcp` | MCP 路径 |

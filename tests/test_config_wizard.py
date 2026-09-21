@@ -38,7 +38,7 @@ def available_listener(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("stored_port", [None, "8000", "19000"])
-@pytest.mark.parametrize("selected_port", ["18000", "8000"])
+@pytest.mark.parametrize("selected_port", ["", "18000", "8000"])
 def test_local_port_is_saved_with_matching_connection_urls(
     tmp_path: Path, stored_port: str | None, selected_port: str
 ) -> None:
@@ -58,10 +58,11 @@ def test_local_port_is_saved_with_matching_connection_urls(
     )
     assert result.exit_code == 0, result.output
     values = parse_environment(output.read_text())
-    address = f"http://127.0.0.1:{selected_port}"
-    assert values["POWERCONTEXT_SERVER_HTTP_PORT"] == selected_port
+    expected_port = selected_port or stored_port or "17429"
+    address = f"http://127.0.0.1:{expected_port}"
+    assert values["POWERCONTEXT_SERVER_HTTP_PORT"] == expected_port
     with server_settings_context(env_file=output) as settings:
-        assert settings.http.port == int(selected_port)
+        assert settings.http.port == int(expected_port)
     assert values["POWERCONTEXT_CLIENT_SERVER_URL"] == address
     assert f"Dashboard: {address}/dashboard/home" in result.output
     assert f"MCP endpoint: {address}/mcp" in result.output
@@ -269,7 +270,7 @@ def test_openclaw_next_steps_use_plugin_configuration_contract(tmp_path: Path) -
     assert not any(name.startswith("POWERCONTEXT_OPENCLAW_") for name in client)
     steps = output.with_name("server.env.next-steps.md").read_text()
     assert "powercontext setup openclaw" in steps
-    assert "--server-url http://127.0.0.1:8000" in steps
+    assert "--server-url http://127.0.0.1:17429" in steps
     assert "plugins.entries.memory-powercontext.config.endpoint" in steps
     assert "plugins.entries.memory-powercontext.config.autoCapture true" in steps
     assert "plugins.entries.memory-powercontext.config.scopeId '<returned-scope-id>'" in steps
@@ -447,7 +448,7 @@ def test_dashboard_finish_shows_new_token_once_and_clear_old_bindings(tmp_path: 
     token = server_values["POWERCONTEXT_SERVER_AUTH_TOKEN"]
     saved_summary = result.output.split("Connection details", maxsplit=1)[1]
     assert result.output.count(token) == 1
-    assert "Dashboard: http://127.0.0.1:8000/dashboard/home" in saved_summary
+    assert "Dashboard: http://127.0.0.1:17429/dashboard/home" in saved_summary
     assert "shown only this time" in saved_summary
     assert f"POWERCONTEXT_SERVER_AUTH_TOKEN in {output}" in saved_summary
     assert token not in output.with_name("server.env.next-steps.md").read_text()
@@ -540,13 +541,13 @@ def test_ssh_forwarding_configures_the_agent_on_the_other_computer(tmp_path: Pat
     )
     assert result.exit_code == 0, result.output
     values = parse_environment(output.read_text())
-    assert values["POWERCONTEXT_SERVER_HTTP_PORT"] == "8000"
+    assert values["POWERCONTEXT_SERVER_HTTP_PORT"] == "17429"
     client = parse_environment(output.read_text())
     assert "POWERCONTEXT_CODEX_SERVER_URL" not in client
     assert client["POWERCONTEXT_CLIENT_SERVER_URL"] == "http://127.0.0.1:18000"
     steps = output.with_name("server.env.next-steps.md").read_text()
     assert '"url": "http://127.0.0.1:18000/mcp"' in steps
-    tunnel = "ssh -N -L 18000:127.0.0.1:8000 t1"
+    tunnel = "ssh -N -L 18000:127.0.0.1:17429 t1"
     assert tunnel in steps
     saved_summary = result.output.split("Connection details", maxsplit=1)[1]
     assert tunnel in saved_summary
