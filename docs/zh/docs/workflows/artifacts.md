@@ -5,7 +5,7 @@ description: 读取当前与历史版本，并按 Artifact 家族选择修改方
 
 # 管理 Artifact
 
-Artifact 保存有版本的结果。Memory、Experience、Skill、Handoff、Profile 和 Prompt 各自有不同的写入规则；
+Artifact 保存有版本的结果。Memory、Topic Memory、Experience、Skill、Handoff、Profile 和 Prompt 各自有不同的写入规则；
 共用 REST 外层结构不意味着可以互换这些工作流。
 
 ## 创建和替换
@@ -42,11 +42,13 @@ Python Client 将该字段表示为字符串，请直接使用，不再访问枚
 
 完整的请求字段、响应模型和可调试的接口示例请参阅[完整 HTTP API 参考](/api/)。
 接口鉴权、并发控制和常用调用流程见 [HTTP API 使用说明](../develop/http-api.md)。
-Topic Memory 当前是专用的只读检索视图，不使用上述通用写接口。
+Topic Memory 也使用上述通用接口：创建和整体替换提交完整的 `title`、`summary` 和 `detail`，内容不经过语义生成。
+它的专用搜索和范围化读取见[使用 Topic Memory](topic-memory.md)。
 
 ## 按对应工作流修改
 
 - [Memory](memory-and-context.md)：显式写入、修订或退役条目。
+- [Topic Memory](topic-memory.md)：直接提交完整主题内容，或按精确 Revision 读取主题。
 - [Experience 与 Skill](experience-and-skill-lifecycle.md)：发布或导出前检查并批准 Candidate。
 - [Handoff](handoff-with-codex.md)：检查并提交当前工作边界。
 - [Prompt](manage-prompts.md)：在一个 Scope 内自定义操作提示词。

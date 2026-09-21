@@ -5,9 +5,9 @@ description: 从长期 Source 处理中查找主题摘要，并按精确 Revisio
 
 # 使用 Topic Memory
 
-Topic Memory 是面向长期主题的只读检索型 Artifact family。它把一个 Scope 中持续累积的 Source 处理成
-`title`、`summary` 和渐进式展开的 `detail`，适合先定位主题、再按需读取全文；它不替代 Memory、Experience、Skill
-或 Handoff。
+Topic Memory 是面向长期主题的 Artifact family。它把一个 Scope 中持续累积的 Source 处理成 `title`、`summary`
+和渐进式展开的 `detail`，适合先定位主题、再按需读取全文；调用方也可以按[管理 Artifact](artifacts.md)中的通用接口
+直接提交完整主题内容。它不替代 Memory、Experience、Skill 或 Handoff。
 
 Topic Memory 只属于当前 Scope。Source 被采集后不会同步生成主题，必须由已配置的后台处理能力推进。
 
@@ -122,6 +122,28 @@ Content-Type: application/json
 响应包含 `title`、`summary`、完整 `detail` 和 `source_refs`。即使主题的当前 head 后续前进，精确引用仍指向同一
 历史 Revision，适合审计、引用和渐进式 disclosure。
 
+## 通过通用 Artifact 接口写入
+
+除 Source 处理外，Topic Memory 也使用[管理 Artifact](artifacts.md)中的通用接口：
+
+| 操作 | 路由 |
+| --- | --- |
+| 创建 | `POST /v1/scopes/{scope_id}/artifacts`（`family` 为 `topic-memory`） |
+| 整体替换 | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` |
+| 列举 head | `GET /v1/scopes/{scope_id}/artifacts/{family}` |
+| 读取 head、列举修订、读取精确修订 | `GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}`、`.../revisions`、`.../revisions/{revision}` |
+| 标签读写与查询 | `GET`/`PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags`、`POST /v1/scopes/{scope_id}/artifact-tags/query` |
+
+创建需要目标 Scope 的 `scope.contribute` 权限，请求体提交完整的 `title`、`summary` 和 `detail`。内容不经过语义
+生成，主题内容、当前 head、分块和当前部署启用的检索索引会在同一次提交内完成，因此通用读取和专用检索看到的是同一个
+主题版本。整体替换生成下一条不可变 Revision，必须携带当前 head 的 `If-Match`。
+
+标签按[使用标签整理内容](manage-artifact-tags.md)管理；Topic Memory 的整体标签使用 `scope.read` 读取、
+`scope.admin` 修改。
+
+把某个精确 Revision 发布到另一个 Scope 使用 `POST /v1/artifact-publications`，需要源 Scope 和目标 Scope 的
+`scope.admin` 权限。发布会在目标 Scope 中创建独立身份并携带其检索索引；标签和直接 Source 不会复制。
+
 ## 组装到 PreparedContext
 
 需要把主题摘要注入一次 Agent turn 时，在 `POST /v1/context/prepare` 的 `assembly` 中显式加入
@@ -151,8 +173,7 @@ MCP 暴露只读的 `search_topic_memory` 和 `get_topic_memory` 工具。Agent 
 
 ## 当前边界
 
-- 没有通用的 Topic Memory create、update、delete 或 retire 接口；主题由 Source 处理产生，并以不可变 Revision 保存。
-- Topic Memory 不在当前 Taggable Artifact family 列表中，不能套用 Memory、Experience、Skill 或 Handoff 的标签接口。
+- 通用接口不接受 Topic Memory delete 或 retire 操作；主题以不可变 Revision 保存，当前 head 由后台处理或显式写入推进。
 - Source capture 不会同步生成主题；需要后台处理和相应的生成能力。
 - 备份、恢复、worker 可用性和检索故障属于[部署与运维](../operate/index.md)，不是本生命周期的一部分。
 

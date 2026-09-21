@@ -5,8 +5,8 @@ description: Read current and historical revisions, then choose the write workfl
 
 # Manage Artifacts
 
-Artifacts preserve versioned results. Memory, Experience, Skill, Handoff, Profile, and Prompt have family-specific write rules;
-sharing a REST envelope does not make those workflows interchangeable.
+Artifacts preserve versioned results. Memory, Topic Memory, Experience, Skill, Handoff, Profile, and Prompt have
+family-specific write rules; sharing a REST envelope does not make those workflows interchangeable.
 
 ## Create and replace
 
@@ -44,11 +44,14 @@ The Python Client exposes this field as a string; use it directly instead of acc
 
 See the [complete HTTP API reference](/api/) for request fields, response models, and interactive operation examples.
 For authentication, concurrency control, and common call flows, see the [HTTP API guide](../develop/http-api.md).
-Topic Memory is currently a specialized read-only retrieval view and does not use the generic write operations above.
+Topic Memory also uses these generic interfaces: creation and replacement submit complete `title`, `summary`, and
+`detail` text without semantic generation. See [Use Topic Memory](topic-memory.md) for its dedicated search and scoped
+reads.
 
 ## Change content through its workflow
 
 - [Memory](memory-and-context.md): explicitly write, revise, or retire entries.
+- [Topic Memory](topic-memory.md): submit complete topic content directly, or read a topic by exact Revision.
 - [Experience and Skill](experience-and-skill-lifecycle.md): inspect and approve Candidates before publication or export.
 - [Handoff](handoff-with-codex.md): inspect and commit the current work boundary.
 - [Prompt](manage-prompts.md): customize operation guidance within one Scope.
