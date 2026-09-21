@@ -217,6 +217,96 @@ def test_prepare_requires_read_access_to_every_referenced_scope(tmp_path, assemb
     asyncio.run(scenario())
 
 
+def test_bootstrap_retry_reauthorizes_exact_items_after_context_references_change(tmp_path):
+    async def scenario():
+        async with _server(tmp_path) as (_, client, _):
+            shared = await _scope(client)
+            remembered = await client.post(
+                "/v1/memory/remember",
+                json={
+                    "scope_id": shared,
+                    "kind": "constraint",
+                    "text": "PRIVATE bootstrap constraint.",
+                },
+            )
+            assert remembered.status_code == 200, remembered.text
+            citation = remembered.json()["entry"]["citation"]
+            memory_id = citation["memory_ref"]["artifact_id"]
+            entry_id = citation["entry_id"]
+            tags_path = f"/v1/scopes/{shared}/artifacts/memory/{memory_id}/entries/{entry_id}/tags"
+            tags = await client.get(tags_path)
+            assert tags.status_code == 200, tags.text
+            tagged = await client.put(
+                tags_path,
+                headers={"If-Match": tags.headers["ETag"]},
+                json={"tags": ["bootstrap-context"]},
+            )
+            assert tagged.status_code == 200, tagged.text
+
+            created = await client.post(
+                "/v1/scopes",
+                json={
+                    "title": "Current bootstrap scope",
+                    "summary": "References reviewed bootstrap context",
+                    "idempotency_key": "bootstrap-current",
+                    "context_references": [shared],
+                },
+            )
+            assert created.status_code == 201, created.text
+            current = created.json()["scope_id"]
+            await _grant(client, current, "bob", "scope.viewer")
+            headers = {"Authorization": "Bearer bob"}
+            payload = {
+                "scope_id": current,
+                "enabled": True,
+                "lifecycle": "resume",
+                "integration": "access-regression",
+                "event_id": "stable-bootstrap-event",
+            }
+            disabled = await client.post(
+                "/v1/context/bootstrap",
+                headers=headers,
+                json={**payload, "enabled": False, "event_id": "disabled-bootstrap-event"},
+            )
+            assert disabled.status_code == 200, disabled.text
+            assert disabled.json()["status"] == "skipped"
+            assert "PRIVATE bootstrap constraint" not in disabled.text
+            denied = await client.post("/v1/context/bootstrap", headers=headers, json=payload)
+            assert denied.status_code == 403
+            assert "PRIVATE bootstrap constraint" not in denied.text
+
+            grant = await _grant(client, shared, "bob", "scope.viewer")
+            pending = await client.post("/v1/context/bootstrap", headers=headers, json=payload)
+            assert pending.status_code == 200, pending.text
+            assert pending.json()["status"] == "ready"
+            assert "PRIVATE bootstrap constraint" in pending.json()["content"]
+
+            updated = await client.put(
+                f"/v1/scopes/{current}",
+                json={
+                    "expected_version": created.json()["version"],
+                    "title": created.json()["title"],
+                    "summary": created.json()["summary"],
+                    "context_references": [],
+                },
+            )
+            assert updated.status_code == 200, updated.text
+            revoked = await client.post(
+                "/v1/access/bindings/revoke",
+                json={
+                    "binding_id": grant["binding_id"],
+                    "expected_version": grant["version"],
+                    "idempotency_key": "revoke-bootstrap-reader",
+                },
+            )
+            assert revoked.status_code == 200, revoked.text
+            retry = await client.post("/v1/context/bootstrap", headers=headers, json=payload)
+            assert retry.status_code == 403
+            assert "PRIVATE bootstrap constraint" not in retry.text
+
+    asyncio.run(scenario())
+
+
 async def _grant(client, scope_id, principal, role, resource=None):
     response = await client.post(
         "/v1/access/bindings/create",

@@ -77,6 +77,23 @@ class _McpConfiguration(BaseModel):
         return self
 
 
+class BootstrapHandoff(BaseModel):
+    """One explicitly selected exact committed Handoff."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    family: Literal["handoff"] = "handoff"
+    artifact_id: str = Field(min_length=1, max_length=128)
+    revision: int = Field(ge=1)
+
+    @field_validator("artifact_id")
+    @classmethod
+    def validate_artifact_id(cls, value: str) -> str:
+        if value != value.strip() or not value.isascii() or not value.isprintable():
+            raise ValueError("bootstrap Handoff identity must be printable ASCII")  # noqa: TRY003
+        return value
+
+
 class _McpEndpointSettingsSource(PydanticBaseSettingsSource):
     """Load the hook endpoint from the same file consumed by Codex MCP."""
 
@@ -121,6 +138,9 @@ class CodexPluginSettings(BaseSettings):
     authorization: SecretStr | None = Field(default=None, repr=False)
     scope_id: str | None = None
     context_assembly: dict[str, Any] | None = None
+    bootstrap_context: bool = False
+    bootstrap_max_bytes: int = Field(default=4096, ge=512, le=8192)
+    bootstrap_handoff: BootstrapHandoff | None = None
     capture_prompts: bool = True
     flush_on_capture: bool = False
     request_timeout_seconds: float = Field(default=1.0, gt=0)
@@ -250,4 +270,4 @@ def _http_base_url(mcp_url: str, *, allow_insecure_http: bool = False) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, base_path, "", "")).rstrip("/")
 
 
-__all__ = ["CodexPluginSettings"]
+__all__ = ["BootstrapHandoff", "CodexPluginSettings"]

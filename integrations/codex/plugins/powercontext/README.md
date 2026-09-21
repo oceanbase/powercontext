@@ -5,6 +5,8 @@ does not embed storage or start the server.
 
 The integration uses each public surface for the job it fits:
 
+- the opt-in `SessionStart` hook injects one bounded, curated bootstrap package
+  before the first prompt and records a content-free delivery receipt;
 - the `UserPromptSubmit` hook first calls `POST /v1/context/prepare`, then
   independently captures the current prompt with `POST /v1/sources/content`;
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives Codex the curated
@@ -73,6 +75,14 @@ default Scope. `UserPromptSubmit` uses that binding for recall and capture.
 `PreToolUse` injects the same binding into PowerContext data-plane tools, so an
 Agent-supplied `scope_id` cannot redirect a write. Repository and directory
 identities are binding lookup inputs only; they never generate a Scope ID.
+
+Bootstrap context is disabled by default. Set
+`POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=true` to include active Memory entries
+explicitly tagged `bootstrap-context`; use
+`POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` for the 512–8192-byte budget and
+`POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` for one exact committed Handoff identity.
+The first ordinary recall carries the successful receipt so exact delivered
+Memory versions are not repeated.
 
 Set `POWERCONTEXT_CODEX_SCOPE_ID` only when the host must explicitly bind every
 request to one known Scope.

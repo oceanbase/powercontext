@@ -226,6 +226,9 @@ from powercontext.builtin.runtime import (
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
 )
+from powercontext.builtin.runtime import BootstrapContext as RuntimeBootstrapContext
+from powercontext.builtin.runtime import BootstrapContextRequest as RuntimeBootstrapContextRequest
+from powercontext.builtin.runtime import BootstrapDeliveryReceipt as RuntimeBootstrapDeliveryReceipt
 from powercontext.builtin.runtime import (
     CommitConnectorCheckpoint as RuntimeCommitConnectorCheckpoint,
 )
@@ -266,6 +269,7 @@ from powercontext.builtin.runtime import (
     ProposeExperienceRequest as RuntimeProposeExperienceRequest,
 )
 from powercontext.builtin.runtime import ProposeSkillRequest as RuntimeProposeSkillRequest
+from powercontext.builtin.runtime import RecordBootstrapDeliveryRequest as RuntimeRecordBootstrapDeliveryRequest
 from powercontext.builtin.runtime import (
     RejectArtifactCandidateRequest as RuntimeRejectArtifactCandidateRequest,
 )
@@ -399,6 +403,9 @@ from powercontext.http import (
     ArtifactRevision,
     ArtifactRevisionPage,
     BaseArtifactFamily,
+    BootstrapContext,
+    BootstrapContextRequest,
+    BootstrapDeliveryReceipt,
     CandidatePermissions,
     Capabilities,
     CaptureContentSourceRequest,
@@ -495,6 +502,7 @@ from powercontext.http import (
     ReadinessStatus,
     ReconcileRemoteSkillsRequest,
     ReconcileRemoteSkillsResponse,
+    RecordBootstrapDeliveryRequest,
     RecordRemoteSkillReceiptRequest,
     RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
@@ -701,6 +709,7 @@ from powercontext.http._generated.operations import (
     LIST_SCOPES,
     LIST_SOURCES,
     OPENAPI_VERSION,
+    PREPARE_BOOTSTRAP_CONTEXT,
     PREPARE_CONTEXT,
     PREPARE_HANDOFF,
     PROPOSE_EXPERIENCE,
@@ -711,6 +720,7 @@ from powercontext.http._generated.operations import (
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
     RECONCILE_REMOTE_SKILLS,
+    RECORD_BOOTSTRAP_DELIVERY,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
@@ -915,6 +925,26 @@ class _ScopedContextApplication(Protocol):
 
 class _ContextApplication(Protocol):
     def for_scope(self, scope_id: str, /) -> _ScopedContextApplication: ...
+
+
+class _ScopedBootstrapApplication(Protocol):
+    async def prepare(
+        self,
+        request: RuntimeBootstrapContextRequest,
+        /,
+        *,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None = None,
+    ) -> RuntimeBootstrapContext: ...
+
+    async def record_delivery(
+        self,
+        request: RuntimeRecordBootstrapDeliveryRequest,
+        /,
+    ) -> RuntimeBootstrapDeliveryReceipt: ...
+
+
+class _BootstrapApplication(Protocol):
+    def for_scope(self, scope_id: str, /) -> _ScopedBootstrapApplication: ...
 
 
 class _ScopedExperienceApplication(Protocol):
@@ -1215,6 +1245,7 @@ class ServerApplication(Protocol):
     records: _RecordApplication
     ingestion: _RemoteIngestionApplication
     context: _ContextApplication
+    bootstrap: _BootstrapApplication
     experience: _ExperienceApplication
     external_skills: _ExternalSkillApplication
     handoff: _HandoffApplication
@@ -1406,6 +1437,8 @@ def create_app(
     _add_route(app, FLUSH_MEMORY, flush_memory)
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
+    _add_route(app, PREPARE_BOOTSTRAP_CONTEXT, prepare_bootstrap_context)
+    _add_route(app, RECORD_BOOTSTRAP_DELIVERY, record_bootstrap_delivery)
     _add_route(app, PREPARE_CONTEXT, prepare_context)
     _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)
     _add_route(app, HANDOFF_CURRENT_WORK, handoff_current_work)
@@ -2906,6 +2939,44 @@ async def prepare_context(
     return mapping.prepared_context_response(result)
 
 
+async def prepare_bootstrap_context(
+    request: BootstrapContextRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> BootstrapContext:
+    prepared_request = mapping.bootstrap_context_request(request)
+    scoped = application.bootstrap.for_scope(request.scope_id)
+    access = access_control_for_mode(
+        http_request.app.state.access_control,
+        mode=http_request.app.state.access_mode,
+    )
+    if access is None:
+        result = await scoped.prepare(prepared_request)
+    else:
+
+        async def authorize_scopes(scope_ids: tuple[str, ...]) -> None:
+            await access.require_all(
+                _require_principal(),
+                tuple((AccessAction.SCOPE_READ, ResourceRef.scope(scope_id)) for scope_id in scope_ids),
+                context=_access_audit_context(PREPARE_BOOTSTRAP_CONTEXT.operation_id),
+            )
+            for scope_id in scope_ids[1:]:
+                await require_scope_content_ready(http_request, scope_id)
+
+        result = await scoped.prepare(prepared_request, authorize_scopes=authorize_scopes)
+    return mapping.bootstrap_context_response(result)
+
+
+async def record_bootstrap_delivery(
+    request: RecordBootstrapDeliveryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> BootstrapDeliveryReceipt:
+    result = await application.bootstrap.for_scope(request.scope_id).record_delivery(
+        mapping.record_bootstrap_delivery_request(request)
+    )
+    return mapping.bootstrap_delivery_response(result)
+
+
 async def create_work_contract(
     request: CreateWorkContractRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -4299,6 +4370,7 @@ _COLLECTION_CONTENT_OPERATIONS = frozenset({
     "list_memory_entries",
     "list_memory_changes",
     "prepare_context",
+    "prepare_bootstrap_context",
     "list_managed_skills",
     "list_artifact_candidates",
     "get_artifact_candidate",

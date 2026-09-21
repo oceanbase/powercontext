@@ -35,6 +35,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
+from bootstrap_state import load_receipt  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
 from scope_binding import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
@@ -145,11 +146,13 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             settings=settings,
             deadline=http_deadline,
         )
+        bootstrap_receipt_id = load_receipt(session_id, scope_id)
         context = _recall_context(
             prompt,
             scope_id,
             settings=settings,
             deadline=http_deadline,
+            bootstrap_receipt_id=bootstrap_receipt_id,
             emitted_diagnostics=emitted_diagnostics,
             diagnostic_events=diagnostic_events,
         )
@@ -227,6 +230,7 @@ def _prepare_context(
     *,
     settings: CodexPluginSettings,
     deadline: float,
+    bootstrap_receipt_id: str | None = None,
 ) -> Mapping[str, object]:
     return _post_json(
         "/v1/context/prepare",
@@ -235,6 +239,7 @@ def _prepare_context(
             "query": query,
             "max_bytes": _MAX_CONTEXT_BYTES,
             **({"assembly": settings.context_assembly} if settings.context_assembly is not None else {}),
+            **({"bootstrap_receipt_id": bootstrap_receipt_id} if bootstrap_receipt_id is not None else {}),
         },
         settings=settings,
         deadline=deadline,
@@ -409,11 +414,23 @@ def _recall_context(
     *,
     settings: CodexPluginSettings,
     deadline: float,
+    bootstrap_receipt_id: str | None = None,
     emitted_diagnostics: set[str] | None = None,
     diagnostic_events: list[dict[str, object]] | None = None,
 ) -> str | None:
     try:
-        prepared = _validate_prepared_context(_prepare_context(query, scope_id, settings=settings, deadline=deadline))
+        response = (
+            _prepare_context(query, scope_id, settings=settings, deadline=deadline)
+            if bootstrap_receipt_id is None
+            else _prepare_context(
+                query,
+                scope_id,
+                settings=settings,
+                deadline=deadline,
+                bootstrap_receipt_id=bootstrap_receipt_id,
+            )
+        )
+        prepared = _validate_prepared_context(response)
     except _HttpStatusError as error:
         outcome = _http_failure_outcome(error, operation="context_prepare")
         if outcome is not None:

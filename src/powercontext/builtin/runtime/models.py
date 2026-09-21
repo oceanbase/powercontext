@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from hashlib import sha256
 from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
@@ -56,9 +57,22 @@ from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
+BootstrapContextSchema: TypeAlias = Literal["powercontext.bootstrap-context.v1"]
+BootstrapContextProfile: TypeAlias = Literal["powercontext.scope-bootstrap.v1"]
+BootstrapContextLifecycle: TypeAlias = Literal["startup", "resume", "clear", "compact", "restore", "fork"]
+BootstrapContextStatus: TypeAlias = Literal["ready", "empty", "skipped"]
+BootstrapReceiptState: TypeAlias = Literal["pending", "injected", "skipped", "failed"]
+BootstrapSkipReason: TypeAlias = Literal[
+    "disabled",
+    "no_eligible_context",
+    "already_delivered",
+    "preparation_failed",
+]
 ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal
 
 PREPARED_CONTEXT_SCHEMA: PreparedContextSchema = "powercontext.prepared-context.v1"
+BOOTSTRAP_CONTEXT_SCHEMA: BootstrapContextSchema = "powercontext.bootstrap-context.v1"
+BOOTSTRAP_CONTEXT_PROFILE: BootstrapContextProfile = "powercontext.scope-bootstrap.v1"
 
 
 class _PreparedContextModel(BaseModel):
@@ -227,6 +241,7 @@ class PrepareContextRequest(_PreparedContextModel):
     query: Annotated[str, Field(min_length=1, max_length=8192)]
     max_bytes: Annotated[int, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
+    bootstrap_receipt_id: Annotated[str, Field(min_length=1, max_length=64)] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -240,6 +255,13 @@ class PrepareContextRequest(_PreparedContextModel):
     def validate_query(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("query must contain non-whitespace content")  # noqa: TRY003
+        return value
+
+    @field_validator("bootstrap_receipt_id")
+    @classmethod
+    def validate_bootstrap_receipt_id(cls, value: str | None) -> str | None:
+        if value is not None and (value != value.strip() or not value.isascii() or not value.isprintable()):
+            raise ValueError("bootstrap_receipt_id must be a printable exact identifier")  # noqa: TRY003
         return value
 
 
@@ -262,6 +284,117 @@ class PreparedContext(_PreparedContextModel):
         if len(self.content.encode("utf-8")) != self.content_bytes:
             raise ValueError("prepared context byte count does not match content")  # noqa: TRY003
         return self
+
+
+class BootstrapContextRequest(_PreparedContextModel):
+    """Prepare curated context for one host lifecycle boundary without a fake query."""
+
+    enabled: bool = False
+    profile: BootstrapContextProfile = BOOTSTRAP_CONTEXT_PROFILE
+    lifecycle: BootstrapContextLifecycle
+    integration: Annotated[str, Field(min_length=1, max_length=64)]
+    event_id: Annotated[str, Field(min_length=1, max_length=512)] | None = None
+    max_bytes: Annotated[int, Field(ge=512, le=8192)] = 4096
+    handoff: ArtifactRef | None = None
+
+    @field_validator("integration", "event_id")
+    @classmethod
+    def validate_host_identity(cls, value: str | None) -> str | None:
+        if value is not None and (value != value.strip() or not value.isascii() or not value.isprintable()):
+            raise ValueError("host identity must be printable ASCII without surrounding whitespace")  # noqa: TRY003
+        return value
+
+    @field_validator("handoff")
+    @classmethod
+    def validate_handoff(cls, value: ArtifactRef | None) -> ArtifactRef | None:
+        if value is not None and value.family != "handoff":
+            raise ValueError("bootstrap handoff must use the handoff family")  # noqa: TRY003
+        return value
+
+
+class BootstrapContextItem(_PreparedContextModel):
+    """One delivered item pinned to exact authoritative content."""
+
+    kind: Literal["memory_entry", "handoff"]
+    scope_id: Annotated[str, Field(min_length=1, max_length=256)]
+    artifact: ArtifactRef
+    entry_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    entry_version_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    content_digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+    truncated: bool = False
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> BootstrapContextItem:
+        has_entry = self.entry_id is not None or self.entry_version_id is not None
+        if self.kind == "memory_entry":
+            if not (self.entry_id is not None and self.entry_version_id is not None):
+                raise ValueError("memory bootstrap items require an exact entry version")  # noqa: TRY003
+            if self.artifact.family != "memory":
+                raise ValueError("memory bootstrap items require a Memory Artifact")  # noqa: TRY003
+        elif has_entry or self.artifact.family != "handoff":
+            raise ValueError("handoff bootstrap items require only an exact Handoff Artifact")  # noqa: TRY003
+        return self
+
+
+class BootstrapDeliveryReceipt(_PreparedContextModel):
+    """Content-free durable delivery state exposed to a host integration."""
+
+    receipt_id: Annotated[str, Field(min_length=1, max_length=64)]
+    state: BootstrapReceiptState
+
+
+class BootstrapContext(_PreparedContextModel):
+    """A final bounded bootstrap package or a normal non-delivery result."""
+
+    schema_version: BootstrapContextSchema = Field(default=BOOTSTRAP_CONTEXT_SCHEMA, alias="schema")
+    status: BootstrapContextStatus
+    reason: BootstrapSkipReason | None = None
+    profile: BootstrapContextProfile = BOOTSTRAP_CONTEXT_PROFILE
+    content: str | None
+    content_bytes: Annotated[int, Field(ge=0)]
+    package_digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")] | None = None
+    items: Annotated[tuple[BootstrapContextItem, ...], Field(max_length=7, strict=False)] = ()
+    truncated: bool = False
+    receipt: BootstrapDeliveryReceipt
+
+    @model_validator(mode="after")
+    def validate_result(self) -> BootstrapContext:
+        if self.status == "ready":
+            if (
+                self.reason is not None
+                or self.receipt.state != "pending"
+                or self.content is None
+                or not self.content.strip()
+                or self.package_digest is None
+                or not self.items
+                or len(self.content.encode("utf-8")) != self.content_bytes
+                or self.package_digest != f"sha256:{sha256(self.content.encode('utf-8')).hexdigest()}"
+            ):
+                raise ValueError("ready bootstrap context is incomplete")  # noqa: TRY003
+            return self
+        if self.content is not None or self.content_bytes != 0 or self.package_digest is not None or self.items:
+            raise ValueError("non-ready bootstrap context must not contain package data")  # noqa: TRY003
+        if self.status == "empty" and self.reason != "no_eligible_context":
+            raise ValueError("empty bootstrap context requires the no-content reason")  # noqa: TRY003
+        if self.status == "empty" and self.receipt.state != "skipped":
+            raise ValueError("empty bootstrap context requires a skipped receipt")  # noqa: TRY003
+        if self.status == "skipped" and self.reason is None:
+            raise ValueError("skipped bootstrap context requires a reason")  # noqa: TRY003
+        if self.status == "skipped" and (
+            self.reason == "no_eligible_context"
+            or (self.reason == "disabled" and self.receipt.state != "skipped")
+            or (self.reason == "preparation_failed" and self.receipt.state != "failed")
+            or (self.reason == "already_delivered" and self.receipt.state == "pending")
+        ):
+            raise ValueError("skipped bootstrap context has an inconsistent receipt")  # noqa: TRY003
+        return self
+
+
+class RecordBootstrapDeliveryRequest(_PreparedContextModel):
+    """Finalize one pending delivery receipt without accepting content or error text."""
+
+    receipt_id: Annotated[str, Field(min_length=1, max_length=64)]
+    outcome: Literal["injected", "failed"]
 
 
 class MemoryEntryRecord(BaseModel):

@@ -76,6 +76,7 @@ from powercontext.builtin.inference.usage import (
     UsageReportingEmbeddingModel,
     UsageReportingStructuredGenerator,
 )
+from powercontext.builtin.persistence.bootstrap_receipts import BootstrapReceiptRepository
 from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
 from powercontext.builtin.persistence.memory_index import CompositeMemoryIndex, MemoryIndex
 from powercontext.builtin.persistence.oceanbase.experience_index import OceanBaseExperienceFTSIndex
@@ -522,6 +523,7 @@ async def open_builtin_runtime(
                 remote_skill_distribution=contexts.remote_skill_distribution(),
                 statistics_service=contexts.statistics,
                 record_service=contexts.records,
+                bootstrap_receipts=BootstrapReceiptRepository(contexts.database),
                 prompt_service=contexts.prompts,
                 recall_token_estimator=contexts.estimate_recall_tokens,
                 recall_effort_sink=recall_effort_sink,

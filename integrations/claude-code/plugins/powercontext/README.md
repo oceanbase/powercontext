@@ -16,6 +16,14 @@ Automatic recall and prompt capture run on `UserPromptSubmit`. The plugin never
 reads the Claude Code transcript or captures Claude's final response in v1.
 Prompt Sources are evidence and are never marked as `task-outcome` by the hook.
 
+An opt-in `SessionStart` hook can inject one bounded curated package before the
+first prompt on startup, resume, clear, compact, or fork. Enable it with
+`POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT=true`. Only active Memory entries tagged
+`bootstrap-context` and one explicitly selected exact committed Handoff are
+eligible. `POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES` controls the 512–8192-byte
+budget, and `POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF` supplies the Handoff JSON
+identity. The plugin persists only a content-free delivery receipt.
+
 Scope is resolved by the Server from an explicit override, the current session
 or workspace binding, and finally the Server default. Bindings let multiple
 agents share the same Scope without deriving identities locally.

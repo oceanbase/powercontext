@@ -24,8 +24,8 @@ powercontext doctor codex
 该命令会把仓库添加为 Codex marketplace，安装 PowerContext 插件，并创建用户数据目录。重复执行是安全的。
 `--ref` 应与安装 PowerContext 工具时使用的 ref 一致。
 
-配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `UserPromptSubmit` Hook，并在收到提示时
-授予信任。
+配置完成后开启新的 Codex 会话。通过 `/hooks` 查看 PowerContext `SessionStart` 和 `UserPromptSubmit` Hook，
+并在收到提示时授予信任。
 
 ## 理解自动恢复、Memory 和 Handoff
 
@@ -64,6 +64,38 @@ Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`
 
 Memory 用于长期保存可复用的决策、约束和状态；Handoff 用于临时移交当前任务，不能用几条 Memory 替代。概念边界见
 [理解 Memory 和 Handoff](../workflows/memory-and-handoff.md)，操作步骤见[在 Codex 中交接工作](../workflows/handoff-with-codex.md)。
+
+## 选择启用 Session 启动上下文
+
+启动上下文默认关闭。若要在 Codex 的 `startup`、`resume`、`clear` 或 `compact` 事件中，于第一条 prompt 前加载一份
+小而确定的上下文包，请用以下环境启动 Codex：
+
+```bash
+export POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT=true
+codex
+```
+
+固定 profile `powercontext.scope-bootstrap.v1` 最多包含 6 条显式标记为 `bootstrap-context` 的 active Memory；
+顺序是当前 Scope 优先，其次是最多 8 个直接 Context References。它不会扫描全部 Memory、Source、transcript、pending
+Candidate 或生成的 instruction，也会排除类型类似 secret 的 Memory。所有历史文本都标记为不可信，不能覆盖当前的
+用户、developer、system 或仓库指令。
+
+默认总预算是 4096 UTF-8 bytes，可在 512 到 8192 之间调整：
+
+```bash
+export POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES=6144
+```
+
+系统不会自动选择 Handoff。若要加入当前 Scope 中一个 exact committed Handoff，请在启动 Codex 前提供其不可变身份：
+
+```bash
+export POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF='{"artifact_id":"HANDOFF_ID","revision":3}'
+```
+
+通过 Memory entry tag API，只把经过审阅、适合每个新 Session 的决策、约束、目标、已验证状态或仓库指南标记为
+`bootstrap-context`。不含正文的 delivery receipt 让重试保持幂等；成功注入后，第一条普通查询会携带该 receipt，
+Runtime 仅排除已经注入的 exact Memory versions，新修订版本仍可正常召回。准备、校验或回执失败时都会 fail open，
+不注入任何内容。
 
 ## 选择标准上下文文本
 
@@ -187,6 +219,9 @@ MCP 显示 connected 也不等于 Source 已采集。
 | `POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` | `false` | 显式允许 Hook 使用非环回明文 HTTP |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | 未设置 | 显式选择一个已存在 Scope，不再解析 binding 和 Server 默认 Scope |
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | 完整 `Bearer <token>` header；setup 会为 Desktop 持久化到 Windows 用户环境 |
+| `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT` | `false` | 在支持的 `SessionStart` 事件中注入精选启动 profile |
+| `POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` | `4096` | 启动上下文总预算；有效范围为 512 到 8192 bytes |
+| `POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` | 未设置 | 一个 exact committed Handoff 的 JSON 身份，例如 `{"artifact_id":"...","revision":3}` |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
 | `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |

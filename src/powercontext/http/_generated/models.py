@@ -1408,6 +1408,20 @@ class MemoryCitation(BaseModel):
     entry_version_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
+class Outcome1(StrEnum):
+    INJECTED = "injected"
+    FAILED = "failed"
+
+
+class RecordBootstrapDeliveryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    receipt_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    outcome: Outcome1
+
+
 class ContextAssemblyFamily(StrEnum):
     MEMORY = "memory"
     EXPERIENCE = "experience"
@@ -2035,6 +2049,48 @@ class PreparedContextSchema(StrEnum):
 class PreparedContextStatus(StrEnum):
     READY = "ready"
     EMPTY = "empty"
+
+
+class BootstrapContextSchema(StrEnum):
+    POWERCONTEXT_BOOTSTRAP_CONTEXT_V1 = "powercontext.bootstrap-context.v1"
+
+
+class BootstrapContextProfile(StrEnum):
+    POWERCONTEXT_SCOPE_BOOTSTRAP_V1 = "powercontext.scope-bootstrap.v1"
+
+
+class BootstrapContextLifecycle(StrEnum):
+    STARTUP = "startup"
+    RESUME = "resume"
+    CLEAR = "clear"
+    COMPACT = "compact"
+    RESTORE = "restore"
+    FORK = "fork"
+
+
+class BootstrapContextStatus(StrEnum):
+    READY = "ready"
+    EMPTY = "empty"
+    SKIPPED = "skipped"
+
+
+class BootstrapContextItemKind(StrEnum):
+    MEMORY_ENTRY = "memory_entry"
+    HANDOFF = "handoff"
+
+
+class BootstrapReceiptState(StrEnum):
+    PENDING = "pending"
+    INJECTED = "injected"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+class BootstrapSkipReason(StrEnum):
+    DISABLED = "disabled"
+    NO_ELIGIBLE_CONTEXT = "no_eligible_context"
+    ALREADY_DELIVERED = "already_delivered"
+    PREPARATION_FAILED = "preparation_failed"
 
 
 class EntryChangeOperation(StrEnum):
@@ -2810,6 +2866,43 @@ class PreparedContext(BaseModel):
     content_bytes: Annotated[StrictInt, Field(ge=0)]
 
 
+class BootstrapContextItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: BootstrapContextItemKind
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    artifact: ArtifactReference
+    entry_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+    entry_version_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+    content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    truncated: StrictBool
+
+
+class BootstrapDeliveryReceipt(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    receipt_id: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    state: BootstrapReceiptState
+
+
+class BootstrapContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[BootstrapContextSchema, Field(alias="schema")]
+    status: BootstrapContextStatus
+    reason: Annotated[BootstrapSkipReason | None, Field(...)]
+    profile: BootstrapContextProfile
+    content: Annotated[StrictStr | None, Field(...)]
+    content_bytes: Annotated[StrictInt, Field(ge=0)]
+    package_digest: Annotated[StrictStr | None, Field(pattern="^sha256:[0-9a-f]{64}$")]
+    items: Annotated[list[BootstrapContextItem], Field(max_length=7)]
+    truncated: StrictBool
+    receipt: BootstrapDeliveryReceipt
+
+
 class EntryChange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3025,6 +3118,30 @@ class MemoryRevisionChanges(BaseModel):
     )
     memory_ref: ArtifactReference
     changes: list[EntryChange]
+
+
+class BootstrapContextRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    enabled: StrictBool = False
+    profile: BootstrapContextProfile = BootstrapContextProfile.POWERCONTEXT_SCOPE_BOOTSTRAP_V1
+    lifecycle: BootstrapContextLifecycle
+    integration: Annotated[StrictStr, Field(max_length=64, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    event_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Optional stable host event identity; persisted only as a digest.",
+            max_length=512,
+            min_length=1,
+            pattern="^[\\x20-\\x7E]+$",
+        ),
+    ] = None
+    max_bytes: Annotated[StrictInt, Field(ge=512, le=8192)] = 4096
+    handoff: Annotated[
+        ArtifactReference | None, Field(description="Optional exact committed Handoff Revision in the current Scope.")
+    ] = None
 
 
 class ContextAssemblySection(BaseModel):
@@ -3653,6 +3770,15 @@ class PrepareContextRequest(BaseModel):
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
+    bootstrap_receipt_id: Annotated[
+        StrictStr | None,
+        Field(
+            description="Optional exact receipt for the last successfully injected bootstrap package. Only identical Memory entry versions from an injected same-Scope receipt are removed from this query result.",
+            max_length=64,
+            min_length=1,
+            pattern="^[\\x21-\\x7E]+$",
+        ),
+    ] = None
 
 
 class GeneratedCandidateResponse(BaseModel):

@@ -143,7 +143,7 @@ id = "prompt-hooks"
 probe = "json_prompt_hook"
 [[toolsets.tools]]
 id = "codex:SessionStart"
-capabilities = ["persistent_scope_binding"]
+capabilities = ["context_injection", "persistent_scope_binding"]
 [[toolsets.tools]]
 id = "codex:PreToolUse"
 capabilities = ["persistent_scope_binding"]
@@ -153,6 +153,9 @@ capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
 [[toolsets.tools]]
 id = "codex:Stop"
 non_profile_reason = "Reports scoped recall-token estimates after completed turns."
+[[toolsets.tools]]
+id = "claude-code:SessionStart"
+capabilities = ["context_injection"]
 [[toolsets.tools]]
 id = "claude-code:UserPromptSubmit"
 capabilities = ["source_capture", "context_injection", "flush_or_checkpoint"]
@@ -615,9 +618,9 @@ capabilities = ["memory_read", "memory_write", "source_capture", "context_inject
 profiles = ["minimal", "recommended"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]
-implementation = ["integrations/codex/plugins/powercontext/.mcp.json", "integrations/codex/plugins/powercontext/hooks/recall.py"]
+implementation = ["integrations/codex/plugins/powercontext/.mcp.json", "integrations/codex/plugins/powercontext/hooks/session_binding.py", "integrations/codex/plugins/powercontext/hooks/recall.py"]
 documentation = ["docs/en/docs/integrations/codex.md", "docs/zh/docs/integrations/codex.md"]
-tests = ["tests/codex_plugin/test_contract.py", "tests/e2e/test_codex_service_chain.py"]
+tests = ["tests/codex_plugin/test_bootstrap.py", "tests/codex_plugin/test_contract.py", "tests/e2e/test_bootstrap_host_service_chain.py", "tests/e2e/test_codex_service_chain.py"]
 
 [[integrations]]
 id = "claude-code"
@@ -627,9 +630,9 @@ capabilities = ["memory_read", "memory_write", "source_capture", "context_inject
 profiles = ["minimal", "recommended"]
 toolsets = ["server-mcp", "prompt-hooks"]
 [integrations.evidence]
-implementation = ["integrations/claude-code/plugins/powercontext/.mcp.json", "integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py"]
+implementation = ["integrations/claude-code/plugins/powercontext/.mcp.json", "integrations/claude-code/plugins/powercontext/hooks/session_start.py", "integrations/claude-code/plugins/powercontext/hooks/user_prompt_submit.py"]
 documentation = ["docs/en/docs/integrations/claude-code.md", "docs/zh/docs/integrations/claude-code.md"]
-tests = ["tests/claude_code_plugin/test_contract.py", "tests/e2e/test_claude_code_service_chain.py"]
+tests = ["tests/claude_code_plugin/test_bootstrap.py", "tests/claude_code_plugin/test_contract.py", "tests/e2e/test_bootstrap_host_service_chain.py", "tests/e2e/test_claude_code_service_chain.py"]
 
 [[integrations]]
 id = "dsh"

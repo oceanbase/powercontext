@@ -52,7 +52,7 @@ powercontext doctor claude-code
 claude
 ```
 
-使用 `/hooks` 确认 `UserPromptSubmit` Hook，使用 `/mcp` 确认 `powercontext` Server。
+使用 `/hooks` 确认 `SessionStart` 和 `UserPromptSubmit` Hook，使用 `/mcp` 确认 `powercontext` Server。
 两者分别负责采集/召回和显式工具调用，必须都连接成功。`doctor claude-code` 主要检查安装状态，
 完整记忆还需完成[Source 与主题验收](../get-started/quickstart.md#4-用普通对话验收-topic-memory)。
 
@@ -76,6 +76,29 @@ MCP endpoint 来自 setup 保存的 `server_url`，Hook 可被 `POWERCONTEXT_CLA
 2. 最多调用一次 `POST /v1/context/prepare`；
 3. 严格校验 `powercontext.prepared-context.v1`，再通过 `additionalContext` 原样注入；
 4. 独立地将 prompt 采集为普通 Content Source 证据。
+
+启动上下文是独立且默认关闭的 `SessionStart` 路径。在启动 Claude Code 前显式启用：
+
+```bash
+export POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT=true
+claude
+```
+
+在 `startup`、`resume`、`clear`、`compact` 和 `fork` 事件中，固定 profile
+`powercontext.scope-bootstrap.v1` 最多注入 6 条显式标记为 `bootstrap-context` 的 active Memory；当前 Scope
+优先，其次是最多 8 个直接 Context References。它不会扫描全部 Memory、Source、transcript、pending Candidate 或生成的
+instruction，也会排除类型类似 secret 的 Memory。内容始终是不可信历史，不能覆盖当前指令。
+
+默认预算为 4096 bytes，可通过 `POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES` 在 512 到 8192 之间调整。系统不会
+自动选择 Handoff；只有确实要交给新 Session 时，才显式指定当前 Scope 中一个 exact committed Handoff：
+
+```bash
+export POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF='{"artifact_id":"HANDOFF_ID","revision":3}'
+```
+
+通过 Memory entry tag API，只把经过审阅的决策、约束、目标、已验证状态或仓库指南标记为 `bootstrap-context`。
+插件在 `${CLAUDE_PLUGIN_DATA}` 下只保存不含正文的 receipt；成功注入后，第一条普通查询仅排除已注入的 exact Memory
+versions，新修订版本仍可召回。准备、校验或回执失败时都会 fail open，不注入任何内容。
 
 配置 generation model 后，Source pipeline 可能进一步提取 Memory。提示词采集不会调用 `remember_memory`，
 Hook 也不会把普通 prompt 标记为 `task-outcome`。
@@ -207,6 +230,9 @@ claude plugin marketplace remove powercontext
 | `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP` | `false` | 显式允许 PowerContext 请求使用非环回明文 HTTP |
 | `POWERCONTEXT_CLAUDE_SCOPE_ID` | 未设置 | 覆盖持久 binding 和 Server 默认 Scope |
 | `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
+| `POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT` | `false` | 在支持的 `SessionStart` 事件中注入精选启动 profile |
+| `POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES` | `4096` | 启动上下文总预算；有效范围为 512 到 8192 bytes |
+| `POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF` | 未设置 | 一个 exact committed Handoff 的 JSON 身份，例如 `{"artifact_id":"...","revision":3}` |
 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | 把用户 prompt 采集为普通 Source 证据 |
 | `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
 | `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |

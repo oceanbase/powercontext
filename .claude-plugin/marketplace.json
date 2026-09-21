@@ -10,7 +10,7 @@
       "name": "powercontext",
       "source": "./integrations/claude-code/plugins/powercontext",
       "description": "Restore project memory and transfer current work from Claude Code",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "category": "Productivity"
     }
   ]

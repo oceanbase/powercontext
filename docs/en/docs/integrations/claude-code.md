@@ -56,7 +56,7 @@ powercontext doctor claude-code
 claude
 ```
 
-Use `/hooks` to confirm the `UserPromptSubmit` Hook and `/mcp` to confirm the `powercontext` Server.
+Use `/hooks` to confirm the `SessionStart` and `UserPromptSubmit` Hooks and `/mcp` to confirm the `powercontext` Server.
 These are separate capture/recall and explicit-tool connections; both must work. `doctor claude-code` primarily checks
 installation state. Complete the [Source and Topic check](../get-started/quickstart.md#4-verify-topic-memory-with-ordinary-conversation) to verify memory behavior.
 
@@ -81,6 +81,31 @@ For each user prompt, the Hook:
 2. calls `POST /v1/context/prepare` at most once;
 3. strictly validates `powercontext.prepared-context.v1` and injects it unchanged through `additionalContext`;
 4. independently captures the prompt as ordinary Content Source evidence.
+
+Bootstrap context is a separate, opt-in `SessionStart` path. Enable it before launching Claude Code:
+
+```bash
+export POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT=true
+claude
+```
+
+On `startup`, `resume`, `clear`, `compact`, and `fork`, the fixed `powercontext.scope-bootstrap.v1` profile can inject
+at most six active Memory entries explicitly tagged `bootstrap-context`, considering the current Scope before at most eight direct
+Context References. It never scans all Memory, Sources, transcripts, pending Candidates, or generated instructions;
+secret-like Memory kinds are excluded. The content is untrusted history and cannot override current instructions.
+
+The default 4096-byte budget can be set from 512 through 8192 bytes with
+`POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES`. No Handoff is selected automatically. Select one exact committed Handoff
+from the current Scope only when it is intended for the new Session:
+
+```bash
+export POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF='{"artifact_id":"HANDOFF_ID","revision":3}'
+```
+
+Use the Memory-entry tag API to add `bootstrap-context` only to reviewed decisions, constraints, objectives, verified
+state, or repository guidance. The plugin stores a content-free receipt under `${CLAUDE_PLUGIN_DATA}`; successful
+delivery lets the first ordinary query suppress only the exact Memory versions already injected. Revised versions remain
+eligible. Preparation, validation, and receipt failures fail open and inject nothing.
 
 The Source pipeline may later extract Memory when a generation model is configured. Prompt capture does not call
 `remember_memory`, and the Hook never labels an ordinary prompt as `task-outcome`.
@@ -222,6 +247,9 @@ run with `--keep-data`.
 | `POWERCONTEXT_CLAUDE_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP for PowerContext requests |
 | `POWERCONTEXT_CLAUDE_SCOPE_ID` | unset | Override durable bindings and the Server default Scope |
 | `POWERCONTEXT_CLAUDE_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
+| `POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT` | `false` | Inject the curated bootstrap profile on supported `SessionStart` events |
+| `POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES` | `4096` | Bootstrap package limit; valid values are 512 through 8192 bytes |
+| `POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF` | unset | JSON identity of one exact committed Handoff, for example `{"artifact_id":"...","revision":3}` |
 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | Capture user prompts as ordinary Source evidence |
 | `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
 | `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request Hook timeout |

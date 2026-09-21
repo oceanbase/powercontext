@@ -1090,6 +1090,32 @@ RECEIPT_MIGRATION_REVIEW_TABLE = Table(
     Column("reason", String(64), nullable=False),
 )
 
+CONTEXT_BOOTSTRAP_RECEIPTS_TABLE = Table(
+    "pc_context_bootstrap_receipts",
+    SHARED_METADATA,
+    Column("receipt_id", identity_string(64), primary_key=True),
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
+    Column("event_key", identity_string(64), nullable=True),
+    Column("integration", identity_string(64), nullable=False),
+    Column("lifecycle", identity_string(16), nullable=False),
+    Column("profile", identity_string(64), nullable=False),
+    Column("state", identity_string(16), nullable=False),
+    Column("reason", identity_string(32), nullable=True),
+    Column("max_bytes", Integer, nullable=False),
+    Column("package_digest", identity_string(71), nullable=True),
+    Column("content_bytes", Integer, nullable=False),
+    Column("truncated", Boolean, nullable=False),
+    Column("items", _canonical_payload_type(), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
+    UniqueConstraint("event_key", name="uq_pc_context_bootstrap_receipts_event"),
+    CheckConstraint(
+        "state IN ('pending', 'injected', 'skipped', 'failed')",
+        name="ck_pc_context_bootstrap_receipts_state",
+    ),
+    CheckConstraint("max_bytes >= 512 AND max_bytes <= 8192", name="ck_pc_context_bootstrap_receipts_budget"),
+    CheckConstraint("content_bytes >= 0", name="ck_pc_context_bootstrap_receipts_content_bytes"),
+)
+
 # The recurrence ledger is append-only: every correction is a new row, and the
 # only write path is the existing task-outcome incubation window.
 RECURRENCE_MATCH_TABLE = Table(
@@ -1187,5 +1213,10 @@ BUILTIN_TABLES = (
     + MEMORY_TABLES
     + STATISTICS_TABLES
     + RECURRENCE_TABLES
-    + (ARTIFACT_TAGS_TABLE, DREAM_RUNS_TABLE, RECEIPT_MIGRATION_REVIEW_TABLE)
+    + (
+        ARTIFACT_TAGS_TABLE,
+        DREAM_RUNS_TABLE,
+        RECEIPT_MIGRATION_REVIEW_TABLE,
+        CONTEXT_BOOTSTRAP_RECEIPTS_TABLE,
+    )
 )

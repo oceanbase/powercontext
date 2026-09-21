@@ -46,6 +46,32 @@ def _is_loopback_host(host: str) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class BootstrapHandoff:
+    """One explicitly selected exact committed Handoff."""
+
+    artifact_id: str
+    revision: int
+    family: str = "handoff"
+
+    def __post_init__(self) -> None:
+        if (
+            self.family != "handoff"
+            or not self.artifact_id
+            or self.artifact_id != self.artifact_id.strip()
+            or len(self.artifact_id) > 128
+            or not self.artifact_id.isascii()
+            or not self.artifact_id.isprintable()
+            or not isinstance(self.revision, int)
+            or isinstance(self.revision, bool)
+            or self.revision < 1
+        ):
+            raise ValueError("invalid bootstrap Handoff identity")  # noqa: TRY003
+
+    def as_request(self) -> dict[str, object]:
+        return {"family": self.family, "artifact_id": self.artifact_id, "revision": self.revision}
+
+
+@dataclass(frozen=True, slots=True)
 class ClaudeCodePluginSettings:
     """Configuration loaded once by a plugin entry point."""
 
@@ -53,6 +79,9 @@ class ClaudeCodePluginSettings:
     authorization: str | None = None
     scope_id: str | None = None
     context_assembly: dict[str, object] | None = None
+    bootstrap_context: bool = False
+    bootstrap_max_bytes: int = 4096
+    bootstrap_handoff: BootstrapHandoff | None = None
     capture_prompts: bool = True
     flush_on_capture: bool = False
     request_timeout_seconds: float = 1.0
@@ -81,6 +110,8 @@ class ClaudeCodePluginSettings:
         object.__setattr__(self, "scope_id", _optional_text(self.scope_id))
         if self.request_timeout_seconds <= 0 or self.http_budget_seconds <= 0:
             raise ValueError("PowerContext HTTP timeouts must be positive")  # noqa: TRY003
+        if not 512 <= self.bootstrap_max_bytes <= 8192:
+            raise ValueError("PowerContext bootstrap_max_bytes must be between 512 and 8192")  # noqa: TRY003
         if not 1 <= self.flush_max_calls <= 16:
             raise ValueError("PowerContext flush_max_calls must be between 1 and 16")  # noqa: TRY003
 
@@ -111,6 +142,15 @@ class ClaudeCodePluginSettings:
             ),
             scope_id=_first_environment("POWERCONTEXT_CLAUDE_SCOPE_ID"),
             context_assembly=_environment_object("POWERCONTEXT_CLAUDE_CONTEXT_ASSEMBLY"),
+            bootstrap_context=_environment_bool(
+                "POWERCONTEXT_CLAUDE_BOOTSTRAP_CONTEXT",
+                default=False,
+            ),
+            bootstrap_max_bytes=_environment_int(
+                "POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES",
+                default=4096,
+            ),
+            bootstrap_handoff=_environment_bootstrap_handoff("POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF"),
             capture_prompts=_environment_bool(
                 "POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS",
                 "CLAUDE_PLUGIN_OPTION_CAPTURE_PROMPTS",
@@ -154,6 +194,20 @@ def _environment_object(name: str) -> dict[str, object] | None:
     if not isinstance(parsed, dict):
         raise ValueError("PowerContext context assembly must be a JSON object")  # noqa: TRY003, TRY004
     return parsed
+
+
+def _environment_bootstrap_handoff(name: str) -> BootstrapHandoff | None:
+    value = _environment_object(name)
+    if value is None:
+        return None
+    if not {"artifact_id", "revision"} <= set(value) or not set(value) <= {"family", "artifact_id", "revision"}:
+        raise ValueError("PowerContext bootstrap Handoff must be an exact identity")  # noqa: TRY003
+    artifact_id = value.get("artifact_id")
+    revision = value.get("revision")
+    family = value.get("family", "handoff")
+    if not isinstance(artifact_id, str) or not isinstance(revision, int) or not isinstance(family, str):
+        raise TypeError("PowerContext bootstrap Handoff must be an exact identity")  # noqa: TRY003
+    return BootstrapHandoff(artifact_id=artifact_id, revision=revision, family=family)
 
 
 def _environment_bool(*names: str, default: bool) -> bool:
@@ -246,4 +300,4 @@ def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
     return urlunsplit((scheme, netloc, path, "", "")).rstrip("/")
 
 
-__all__ = ["ClaudeCodePluginSettings"]
+__all__ = ["BootstrapHandoff", "ClaudeCodePluginSettings"]

@@ -26,8 +26,10 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CLAUDE_CODE_ROOT = REPOSITORY_ROOT / "integrations" / "claude-code"
 PLUGIN_ROOT = CLAUDE_CODE_ROOT / "plugins" / "powercontext"
 _PLUGIN_MODULE_NAMES = (
+    "bootstrap_state",
     "claude_code_settings",
     "hooks",
+    "hooks.bootstrap_context",
     "hooks.prepared_context",
     "scripts",
     "scripts.workspace_scope",
@@ -78,6 +80,15 @@ def hook_module(plugin_imports: None) -> ModuleType:
 @pytest.fixture(autouse=True)
 def isolated_diagnostic_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(tmp_path / "claude-code-diagnostics.json"))
+    monkeypatch.setenv("POWERCONTEXT_CLAUDE_BOOTSTRAP_STATE_DIR", str(tmp_path / "plugin-data"))
+
+
+@pytest.fixture
+def session_start_module(plugin_imports: None) -> ModuleType:
+    return _load_module(
+        "powercontext_claude_code_session_start",
+        PLUGIN_ROOT / "hooks" / "session_start.py",
+    )
 
 
 @pytest.fixture
