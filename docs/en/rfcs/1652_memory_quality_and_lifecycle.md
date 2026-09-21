@@ -103,9 +103,11 @@ quality-adjusted order: A  C  B  D  E  F
 No new member appears. A record that did not survive RRF cannot be promoted into the reranker’s input by quality.
 This keeps quality a conservative selection aid rather than a hidden second recall mechanism.
 
-When the RFC 1560 recall gate is enabled, its sufficiency assessment and budget probe use the baseline order. Quality
-reordering is applied only after the gate has stopped issuing rounds, so it cannot change the gate decision or expansion
-accounting.
+When the RFC 1560 recall gate is enabled, each issued search round retains the current ordering boundary: quality
+reordering occurs within that round's fixed coarse pool, the existing optional listwise reranker runs, and the gate
+receives the resulting `result.hits`. This RFC does not defer reranking or substitute a baseline-only gate input.
+With quality disabled or neutral, the gate receives the same reranked results, makes the same decisions, and retains the
+same cost accounting as current behavior.
 
 The public hit `score` remains the baseline RRF score. A proposed in-process `MemoryRankingTrace` explains the
 bounded reorder for diagnostics and evaluation; HTTP search output does not gain that trace in the first phase.
@@ -277,22 +279,21 @@ per-channel candidates
   -> existing FTS/vector admission
   -> validity filtering for the requested temporal view
   -> baseline RRF and coarse-pool truncation
-  -> [recall gate enabled] baseline-only sufficiency assessment and bounded expansion
-  -> final baseline fixed pool
-  -> bounded stable quality reorder inside that final pool
-  -> optional listwise reranker over the same final member identities
-  -> final limit
-  -> existing Context Pack candidate and byte budgets
+  -> bounded stable quality reorder inside that round's fixed pool
+  -> existing optional listwise reranker over the same member identities
+  -> `result.hits`
+  -> [recall gate enabled] existing sufficiency assessment and bounded next-round decision
+  -> final limit and existing Context Pack candidate and byte budgets
 ```
 
 `fuse_rankings()` currently truncates to its `limit`; `MemoryService` supplies `coarse_limit`, which is `k` without a
 reranker and at least the configured reranker candidate limit with one. Quality runs only after that truncation.
 It cannot extend fusion, lower admission thresholds, or alter the reranker’s member identities.
 
-When the recall gate is disabled, the final baseline pool is the single post-RRF pool. When it is enabled, the gate
-assesses baseline order and baseline Builder-fit results only; quality reorder and listwise reranking are excluded from
-the gate decision. The final baseline pool is formed only after the gate stops expanding. The reorder is then a
-deterministic `bounded_stable_reorder`:
+When the recall gate is disabled, this sequence has one post-RRF pool. When it is enabled, the same sequence runs for
+each issued round: the gate receives the `result.hits` produced after the current optional reranker, exactly as it does
+today. Quality does not create a new gate-input mode or defer reranking. The reorder is a deterministic
+`bounded_stable_reorder`:
 
 1. Start from the fixed RRF sequence.
 2. Compute a policy-versioned proposed rank adjustment from the independent dimensions and query intent.
@@ -338,13 +339,15 @@ The disabled-by-default recall sufficiency gate in [RFC 1560](https://github.com
 and PR #1596 may issue additional bounded searches with a relaxed `AdmissionFloor`. That expansion is a new recall
 round, not a quality-driven pool-membership change.
 
-For each issued round, this RFC applies validity filtering after that round’s channel admission and before baseline RRF.
-The gate accumulates and assesses baseline-order candidates; its Builder budget probe also uses baseline order. Quality
-reorder and the optional listwise reranker run only after the gate terminates, on the final fixed pool. Consequently,
-quality cannot change whether the gate expands, its configured maximum or actual rounds, admission floors, query-embedding
-reuse, admission/cost accounting, or the in-process `RecallEffort` sink. `MemoryRankingTrace` and the gate’s aggregate
-effort trace remain separate. Evaluation must confirm that the final quality reorder preserves the final reranker member
-identities, and that every gate round remains governed by the RFC 1560 baseline view.
+For each issued round, this RFC applies validity filtering after that round’s channel admission and before baseline RRF,
+then applies a bounded reorder within that round’s fixed coarse pool before the existing optional listwise reranker.
+The gate receives the reranker-produced `result.hits`, preserving RFC 1560’s current gate-input semantics. This RFC
+does not defer reranking, substitute baseline-order candidates, or change the gate algorithm, configured maximum rounds,
+admission floors, query-embedding reuse, cost-trace semantics, or the in-process `RecallEffort` sink. With quality
+disabled or neutral, behavior is identical to RFC 1560/#1596. When quality is enabled, its bounded reordering can be
+observed through the existing reranked gate input; evaluation must report any resulting expansion decision, final-pool,
+and cost differences. `MemoryRankingTrace` and the gate’s aggregate effort trace remain separate. Evaluation must also
+confirm that every quality reorder preserves the member identities passed to that round’s reranker.
 
 ## Near-duplicate alignment
 
@@ -480,8 +483,10 @@ All parameters are seeds. No non-neutral default is enabled without evidence fro
    fixed candidate pool or delivered Context Pack. Preserve a route for legitimate answer-bearing evidence and report
    attack success, trusted and untrusted evidence recall, citation correctness, abstention, and false exclusion. This is
    not a default policy without a concrete threat model and held-out benefit.
-9. **Recall-gate composition:** with FTS/vector/hybrid, reranker on/off, and recall gate on/off, confirm every quality
-   reorder preserves the member identities of each round’s reranker pool.
+9. **Recall-gate composition:** with FTS/vector/hybrid, reranker on/off, and recall gate on/off, confirm that a disabled
+   or neutral policy gives the gate the same reranked `result.hits`, expansion decisions, final pool, and effort trace as
+   RFC 1560/#1596. With quality enabled, confirm each reorder preserves the member identities of that round’s reranker
+   pool and report any changes in gate decisions, final membership, reranker calls, and `added_generation_calls`.
 10. **Backend parity:** run conformance and rebuild cases on SQLite and OceanBase; report retrieval, task, safety, and
    cost separately.
 11. **Full-context reference:** report a full-material reference independently, so model reading failures are not
@@ -496,7 +501,8 @@ acceptance thresholds.
 1. **Source prerequisite and neutral projection:** add the versioned Source evidence declaration, lifecycle projection
    rebuild, internal annotation shape, and conformance fixtures. Ranking remains disabled.
 2. **Stage-1 validity and fixed-pool ranking:** add current-state validity filtering, `MemoryRankingTrace`, and the
-   disabled-by-default `±2` reorder. Preserve #1596 recall-gate accounting and RFC 0080 reranker behavior.
+   disabled-by-default `±2` reorder. Preserve #1596’s per-round rerank-then-gate input semantics and RFC 0080
+   reranker behavior.
 3. **Alignment and L1:** add bounded near-duplicate relationships/proposals, inventory, tiers, and dry-run L1.
 4. **L2 review:** separately stage Memory Candidate/review integration, operation records, consolidation, explicit
    supersession, and promotion. Do not couple it to PR #1586’s Experience recurrence work.
@@ -518,8 +524,10 @@ acceptance thresholds.
   lower importance into the deactivation floor.
 - Known inactive/superseded records are filtered before RRF and reranking for ordinary current-state recall; historical reads
   preserve exact originals, while unknown conflicts remain marked.
-- Quality ordering never changes channel admission, fixed RRF-pool membership, gate expansion policy, or public RRF score
-  semantics. `MemoryRankingTrace` makes validity and membership invariance auditable.
+- Quality ordering never changes channel admission, the fixed RRF-pool membership passed to a round’s reranker, the gate
+  algorithm/configuration, or public RRF score semantics. Each round still reranks before the gate receives `result.hits`;
+  disabled or neutral quality preserves RFC 1560/#1596 behavior. `MemoryRankingTrace` makes validity and membership
+  invariance auditable.
 - The evaluation plan reports retrieval, task, safety, cost, and backend-parity results for SQLite and OceanBase, including the
   joint #1556/#1596 recall-gate matrix.
 

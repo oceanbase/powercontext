@@ -93,6 +93,11 @@ Memory 写入，保留其精确证据和不可变 entry version。
 成员集合不会改变。没有通过 RRF 的记录不能被质量策略带入 reranker 输入。由此，质量是保守的选择辅助，而不是
 隐含的第二套召回机制。
 
+启用 RFC 1560 recall gate 时，每个已发起的搜索 round 仍保持现有顺序边界：质量重排只在该 round 的固定粗候选池内进行，
+随后运行既有的可选 listwise reranker，gate 接收由此产生的 `result.hits`。本 RFC 不会延迟 rerank，也不会把
+仅基线顺序的结果替换为 gate 输入。质量关闭或保持中性时，gate 接收与当前行为相同的重排结果、作出相同决策，并保持
+相同的成本统计。
+
 公开 hit `score` 保持为基线 RRF 分数。提议中的进程内 `MemoryRankingTrace` 用于诊断与评测；第一阶段 HTTP
 搜索输出不携带该 trace。
 
@@ -243,18 +248,17 @@ importance = clamp(base + updates_state - thin_penalty, 0..3)
   → 既有 FTS/vector 准入
   → 请求时间视图的有效性过滤
   → 基线 RRF 与粗候选池截断
-  → （启用 recall gate 时）仅用基线顺序评估 sufficiency 并进行有界 expansion
-  → gate 停止后的最终基线固定池
-  → 仅在最终固定池内做有界稳定质量重排
-  → 对同一最终成员做可选 listwise reranker
-  → 最终 limit
-  → 既有 Context Pack 候选数与字节预算
+  → 仅在该 round 固定池内做有界稳定质量重排
+  → 对相同成员运行既有的可选 listwise reranker
+  → `result.hits`
+  → （启用 recall gate 时）既有 sufficiency 评估与有界的下一轮决策
+  → 最终 limit 与既有 Context Pack 候选数、字节预算
 ```
 
 `fuse_rankings()` 目前在函数内按 `limit` 截断；`MemoryService` 传入 `coarse_limit`，无 reranker 时为 `k`，有
 reranker 时至少为其候选上限。质量只能在该截断**之后**运行；不得扩展 fusion、降低准入门槛，或改变 reranker 的
-成员身份。recall gate 关闭时，最终基线池就是单次 RRF 池；启用时，gate 只看基线顺序和基线 Builder-fit 结果，质量重排和
-listwise reranker 不参与 gate 决策，直到 gate 停止扩展后才执行。
+成员身份。recall gate 关闭时，该顺序只有一个 post-RRF pool；启用时，每个已发起的 round 都运行同一顺序：gate 接收
+由既有可选 reranker 产生的 `result.hits`，与当前行为一致。质量不会创建新的 gate 输入模式，也不会延迟 rerank。
 
 重排由确定性的 `bounded_stable_reorder` 完成：
 
@@ -299,11 +303,13 @@ rerank trace。
 中的 recall sufficiency gate 可以用较宽松的 `AdmissionFloor` 发起额外、有界的搜索。
 这种 expansion 是新的 recall round，不是由质量策略改变成员。
 
-每个 round 均在该轮通道准入后、基线 RRF 前进行有效性过滤。gate 累积并评估基线顺序候选，Builder budget probe 也使用
-基线顺序；质量重排和可选 listwise reranker 只在 gate 终止后、最终固定池上执行。因此质量不能改变 gate 是否扩展、配置的最大轮数
-或实际轮数，也不能改变 admission floor、query embedding 复用、准入/成本统计或进程内 `RecallEffort` sink。
-`MemoryRankingTrace` 与 gate 的 aggregate effort trace 相互独立。评测必须确认最终质量重排保持最终 reranker 成员 identity，且每个
-gate round 都由 RFC 1560 的基线视图驱动。
+每个 round 均在该轮通道准入后、基线 RRF 前进行有效性过滤，然后只在该轮固定粗候选池内做有界重排，再运行既有的可选
+listwise reranker。gate 接收 reranker 产生的 `result.hits`，保持 RFC 1560 现有的 gate 输入语义。本 RFC 不会延迟
+rerank，不会替换为基线顺序候选，也不会改变 gate 算法、配置的最大轮数、admission floor、query embedding 复用、
+成本 trace 语义或进程内 `RecallEffort` sink。质量关闭或保持中性时，行为与 RFC 1560/#1596 完全一致；启用质量后，
+其有界重排可通过既有的 rerank 后 gate 输入被观察到，评测必须报告由此产生的 expansion 决策、最终候选池和成本差异。
+`MemoryRankingTrace` 与 gate 的 aggregate effort trace 相互独立；评测还必须确认每次质量重排都保持传入该 round
+reranker 的成员 identity。
 
 ## 近重复对齐
 
@@ -416,7 +422,9 @@ inventory 可以报告有界 active/inactive count、manifest 增长和 automati
    opt-in 的有界低 authority 占比上限（固定候选池或最终 Context Pack）。必须保留合法 answer-bearing evidence 的路径，
    并报告攻击成功率、可信/不可信证据召回、citation 正确性、abstention 与误排除。没有明确威胁模型和留出集收益前，
    它不是默认策略。
-9. **recall-gate 组合：** FTS/vector/hybrid、reranker 开/关、recall gate 开/关的矩阵中，确认每轮质量重排保持 reranker 成员 identity。
+9. **recall-gate 组合：** 在 FTS/vector/hybrid、reranker 开/关、recall gate 开/关的矩阵中，确认质量关闭或中性时，gate
+   接收与 RFC 1560/#1596 相同的 rerank 后 `result.hits`、expansion 决策、最终候选池和 effort trace；启用质量后，确认每轮重排
+   保持该轮 reranker pool 的成员 identity，并报告 gate 决策、最终成员、reranker 调用与 `added_generation_calls` 的任何变化。
 10. **后端一致：** SQLite 与 OceanBase 上运行 conformance/rebuild，用检索、任务、安全、成本分开报告。
 11. **Full-context 参考：** 单独报告完整材料注入结果，避免把模型阅读失败误归因于检索或生命周期策略。
 
@@ -428,7 +436,7 @@ inventory 可以报告有界 active/inactive count、manifest 增长和 automati
 1. **Source 前置与中性投影：** 新增版本化 Source evidence declaration、生命周期投影重建、内部 annotation 形状和
    conformance fixture；排序仍关闭。
 2. **第一阶段有效性与固定池排序：** 新增当前状态有效性过滤、`MemoryRankingTrace` 和默认关闭的 `±2` 重排；保持
-   #1596 recall-gate 统计与 RFC 0080 reranker 行为。
+   #1596 的逐轮“rerank 后再交给 gate”输入语义与 RFC 0080 reranker 行为。
 3. **对齐与 L1：** 新增有界 near-duplicate relation/proposal、inventory、tier 和 dry-run L1。
 4. **L2 review：** 单独分阶段实现 Memory Candidate/review 集成、operation record、consolidation、显式 supersession
    和 promotion；不得与 #1586 的 Experience recurrence 工作耦合。
@@ -445,7 +453,8 @@ inventory 可以报告有界 active/inactive count、manifest 增长和 automati
 - L2 批准前不能改变权威状态；批准的 consolidation 保留证据谱系，显式 supersession 保留新旧状态，未解决冲突不推断时间顺序。
 - 近重复处理不得进行未经验证的语义合并或丢弃，相似关系也不得静默把 importance 降入自动停用门槛。
 - 已知 inactive/superseded 条目在普通当前状态检索中必须于 RRF 和 reranker 前过滤；历史读取保留精确原文，未知冲突继续标注。
-- 质量排序不得改变通道准入、固定 RRF 池成员、gate expansion 策略或公开 RRF score；`MemoryRankingTrace` 必须能审计有效性和成员不变性。
+- 质量排序不得改变通道准入、传入某轮 reranker 的固定 RRF 池成员、gate 算法/配置或公开 RRF score；每轮仍须先 rerank，
+  再由 gate 接收 `result.hits`；质量关闭或中性时必须保持 RFC 1560/#1596 行为。`MemoryRankingTrace` 必须能审计有效性和成员不变性。
 - 评测计划必须覆盖 SQLite/OceanBase 的检索、任务、安全、成本和后端一致性，并包含 #1556/#1596 的联合 recall-gate 矩阵。
 
 # 缺点
