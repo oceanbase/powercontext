@@ -59,6 +59,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.dream.bindings import DREAM_OPERATIONS
 from powercontext.builtin.dream.generation import (
     DREAM_INSTRUCTIONS,
     DreamGenerationInput,
@@ -459,9 +460,9 @@ async def open_builtin_runtime(
         if dream_generator is not None and config.runtime.dream_enabled:
             registered_families = {binding.artifact_family for binding in processing_bindings}
             configured_operations = tuple(
-                operation
-                for operation, family in (("refine_experience", "experience"), ("derive_skill", "skill"))
-                if family in registered_families
+                spec.operation
+                for spec in DREAM_OPERATIONS
+                if spec.family in registered_families
             )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
         runtime = await resources.enter_async_context(

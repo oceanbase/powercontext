@@ -40,7 +40,7 @@ def select_evidence(
     nodes = {node.evidence_id: node for node in manifest.nodes}
     for node_id in used:
         node = nodes.get(node_id)
-        if node is None or node.role in {"unresolved", "lineage_only"} or (skill and node.kind == "memory"):
+        if node is None or node.role in {"unresolved", "lineage_only", "target"} or (skill and node.kind == "memory"):
             raise EvidenceResolutionError("invalid_generation_output")
     chosen = set(used)
     origins = (*manifest.artifacts, *manifest.memory_citations)

@@ -23,7 +23,7 @@ from weakref import WeakKeyDictionary
 
 from sqlalchemy import func, select
 
-from powercontext.builtin.dream.bindings import DREAM_BINDINGS
+from powercontext.builtin.dream.bindings import DREAM_OPERATIONS
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_INTENTS_TABLE
 from powercontext.builtin.runtime import BuiltinRuntime
@@ -84,13 +84,13 @@ async def open_dream_runtime(config, **kwargs):
     controller = Controller()
     bindings = tuple(
         ArtifactProcessingBinding(
-            binding_name=binding,
-            artifact_family="skill" if operation == "derive_skill" else "experience",
+            binding_name=spec.binding,
+            artifact_family=spec.family,
             launcher=controller,
             max_workers=4,
             worker_timeout_seconds=180,
         )
-        for operation, binding in DREAM_BINDINGS.items()
+        for spec in DREAM_OPERATIONS
     )
     async with open_runtime(config, artifact_processing_bindings=bindings, **kwargs) as runtime:
         controller.runtime = runtime

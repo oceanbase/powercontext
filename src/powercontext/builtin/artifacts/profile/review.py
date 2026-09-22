@@ -40,11 +40,13 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
     policies = ProfilePolicyRepository()
     policy = await policies.get(connection, service._scope_id, for_update=True)
     candidate = await service._candidates.lock_pending(connection, service._scope_id, candidate_id, expected_version)
-    if policy is None or policy.pending_candidate_id != candidate_id:
-        raise BaseValueConflictError("profile_candidate", (service._scope_id,))
     proposal = candidate.proposal
     if not isinstance(proposal, ProfileCandidateProposal):
         raise InvalidCandidateError("family", "profile required")
+    if proposal.dream_run_id is not None:
+        return await _decide_dream_profile(service, connection, candidate, policy, reason=reason)
+    if policy is None or policy.pending_candidate_id != candidate_id:
+        raise BaseValueConflictError("profile_candidate", (service._scope_id,))
     cursors = SourceCursorRepository()
     cursor = await cursors.load(connection, service._scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True)
     if (0 if cursor is None else cursor.cursor.sequence) != proposal.source_window.after:
@@ -96,6 +98,41 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
     )
     await ArtifactProcessingIntentRepository().mark_dirty(connection, service._scope_id, PROFILE_SOURCE_WINDOW_BINDING)
     return result
+
+
+async def _decide_dream_profile(service, connection, candidate, policy, *, reason=None):
+    proposal = candidate.proposal
+    if proposal.policy_version != (None if policy is None else policy.version):
+        raise BaseValueConflictError("profile_policy", (service._scope_id,))
+    if reason is not None:
+        return await service._candidates.reject(
+            connection, service._scope_id, candidate.candidate_id, candidate.version, reason
+        )
+    await service._validate_evidence(
+        connection, candidate.sources, candidate.artifacts, candidate.memory_citations
+    )
+    current = await service._artifacts.latest(connection, service._scope_id, "profile", PROFILE_ARTIFACT_ID)
+    if current.as_ref() != candidate.target:
+        raise BaseValueConflictError("profile_head", (service._scope_id,))
+    draft = ProfileDraft(
+        content=ProfileContent(
+            content=proposal.content,
+            generation=ProfileGeneration(
+                mode="dream_review_approved",
+                created_at=datetime.now(UTC),
+                generator_id=proposal.generator_id,
+                generator_version=proposal.generator_version,
+                dream_run_id=proposal.dream_run_id,
+            ),
+        ),
+        sources=candidate.sources,
+        artifacts=candidate.artifacts,
+        memory_citations=candidate.memory_citations,
+    )
+    artifact = await service._artifacts.revise(connection, service._scope_id, current, draft)
+    return await service._candidates.mark_approved(
+        connection, service._scope_id, candidate.candidate_id, candidate.version, artifact.as_ref()
+    )
 
 
 def revise_profile(current, proposal, sources, artifacts, target):

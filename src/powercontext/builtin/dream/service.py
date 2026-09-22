@@ -28,8 +28,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
-from powercontext.builtin.dream.bindings import DREAM_BINDINGS
+from powercontext.builtin.dream.bindings import DREAM_BINDINGS, operations_for_binding
 from powercontext.builtin.dream.generation import DreamGenerationInput, DreamGenerator
 from powercontext.builtin.dream.models import (
     DREAM_PROMPT_VERSION,
@@ -59,6 +60,7 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream import DreamRepository, database_now
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.tables import SCOPES_TABLE
 from powercontext.builtin.review.errors import ArtifactTargetConflictError
 from powercontext.builtin.review.generation import SkillGenerationOrigin, validate_skill_lineage
@@ -165,6 +167,7 @@ class DreamService:
                 sources=request.sources,
                 artifacts=request.artifacts,
                 memory_citations=request.memory_citations,
+                target=request.target,
                 project=False,
                 lock_memory=True,
             )
@@ -207,13 +210,13 @@ class DreamService:
         if self.processing is None:
             raise RuntimeError("Dream execution requires a Supervisor invocation")  # noqa: TRY003
         work = self.processing.assignment
-        operation: DreamOperation = "derive_skill" if work.artifact_family == "skill" else "refine_experience"
-        if DREAM_BINDINGS[operation] != work.binding_name:
+        operations = operations_for_binding(work.binding_name)
+        if not operations:
             raise ValueError("Dream operation and processing binding do not match")  # noqa: TRY003
         async with self._transaction() as connection:
             await self.processing.start(connection)
             record = await self.repository.next_pending(
-                connection, work.scope_id, operation, through_generation=work.claimed_request_generation
+                connection, work.scope_id, operations, through_generation=work.claimed_request_generation
             )
             if record is None:
                 return False
@@ -221,7 +224,7 @@ class DreamService:
                 connection, record, model_config_id=None if self.generator is None else self.generator.config_id
             )
             if record.run.terminal:
-                await self._complete_invocation(connection, operation)
+                await self._complete_invocation(connection)
                 return True
         try:
             async with self._transaction() as connection:
@@ -238,12 +241,12 @@ class DreamService:
             await self._fail_or_retry(record, _error_code(error), retry=False)
         return True
 
-    async def _complete_invocation(self, connection: AsyncConnection, operation: DreamOperation) -> None:
+    async def _complete_invocation(self, connection: AsyncConnection) -> None:
         if self.processing is None:
             raise RuntimeError("Dream execution requires a Supervisor invocation")  # noqa: TRY003
         work = self.processing.assignment
         current = await self.processing.guard(connection)
-        remaining = await self.repository.next_pending(connection, work.scope_id, operation)
+        remaining = await self.repository.next_pending(connection, work.scope_id, operations_for_binding(work.binding_name))
         if remaining is not None and current.requested_generation == work.claimed_request_generation:
             await self.intents.request(connection, work.scope_id, work.binding_name)
         # Dream never consumes or clears the Family's ordinary Source progress.
@@ -309,6 +312,7 @@ class DreamService:
                 sources=request.sources,
                 artifacts=request.artifacts,
                 memory_citations=request.memory_citations,
+                target=request.target,
                 include_memory_text=request.operation != "derive_skill",
                 pinned=record.run.input_manifest,
                 lock_memory=connection is not None,
@@ -323,7 +327,9 @@ class DreamService:
             candidate = None
             if plan.outcome == "proposed":
                 if self.attest_candidate is not None:
-                    family = "skill" if run.operation == "derive_skill" else "experience"
+                    family = {"derive_skill": "skill", "refine_experience": "experience", "revise_profile": "profile"}[
+                        run.operation
+                    ]
                     await self.attest_candidate(connection, record, _candidate_id(record), family)
                 candidate = await self._propose(connection, record, plan, resolved)
             completed = run.model_copy(
@@ -336,7 +342,7 @@ class DreamService:
                 }
             )
             await self.repository.finish(connection, record, completed)
-            await self._complete_invocation(connection, run.operation)
+            await self._complete_invocation(connection)
 
     async def _propose(
         self,
@@ -371,6 +377,27 @@ class DreamService:
                 target=None,
                 reason=plan.reason,
                 candidate_id=_candidate_id(record),
+            )
+        elif isinstance(plan.proposal, ProfileWriteContent) and record.run.operation == "revise_profile":
+            policy = await ProfilePolicyRepository().get(connection, record.run.scope_id, for_update=True)
+            if policy is None or record.run.target is None or self.generator is None:
+                raise DreamError("capability_unavailable")
+            proposal = ProfileCandidateProposal(
+                content=plan.proposal.content,
+                dream_run_id=record.run.run_id,
+                policy_version=policy.version,
+                generator_id=self.generator.config_id,
+                generator_version=DREAM_PROMPT_VERSION,
+                created_at=await database_now(connection),
+            )
+            candidate = await review.propose_profile_dream(
+                proposal,
+                sources=selected.sources,
+                artifacts=selected.artifacts,
+                target=record.run.target,
+                reason=plan.reason,
+                candidate_id=_candidate_id(record),
+                memory_citations=selected.memory_citations,
             )
         else:
             raise DreamError("invalid_generation_output")
@@ -420,7 +447,7 @@ class DreamService:
                 else:
                     failed = current.run.model_copy(update={"status": "failed", "error": code, "completed_at": now})
                     await self.repository.finish(connection, current, failed)
-                await self._complete_invocation(connection, current.run.operation)
+                await self._complete_invocation(connection)
         except DreamError as error:
             if error.code != "attempt_conflict":
                 raise

@@ -46,6 +46,7 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
+from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.sources import StoredSource
 from powercontext.builtin.review.errors import (
@@ -169,6 +170,32 @@ class ReviewService:
                 candidate_id=candidate_id,
             )
         return _skill_candidate(candidate)
+
+    async def propose_profile_dream(
+        self,
+        proposal: ProfileCandidateProposal,
+        /,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        target: ArtifactRef,
+        reason: str,
+        candidate_id: str,
+        memory_citations: tuple[MemoryCitation, ...] = (),
+    ) -> ArtifactCandidate[ProfileCandidateProposal]:
+        if proposal.dream_run_id is None or proposal.source_window is not None:
+            raise InvalidCandidateError("proposal", "a Dream Profile Candidate requires a Dream run")
+        candidate = await self._propose(
+            "profile",
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            target=target,
+            reason=reason,
+            candidate_id=candidate_id,
+            memory_citations=memory_citations,
+        )
+        return ArtifactCandidate[ProfileCandidateProposal].model_validate(candidate.model_dump(mode="python"))
 
     async def _propose(
         self,
@@ -299,6 +326,9 @@ class ReviewService:
         canonical_artifacts = _unique_artifacts(artifacts)
         _validate_reason(reason)
         async with self._connection() as connection:
+            preview = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if preview.family == "profile":
+                await ProfilePolicyRepository().get(connection, self._scope_id, for_update=True)
             current = await self._candidates.lock_pending(
                 connection,
                 self._scope_id,

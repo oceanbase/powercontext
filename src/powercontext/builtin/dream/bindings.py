@@ -12,13 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Map explicit Dream operations to their output Family's processing binding."""
+"""Map enabled Dream operations to their owning Family processing binding."""
+
+from dataclasses import dataclass
 
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
+from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
+from powercontext.builtin.dream.models import DreamOperation
 
 SKILL_DREAM_BINDING = "skill.dream.v1"
-DREAM_BINDINGS = {
-    "refine_experience": EXPERIENCE_INCUBATION_CURSOR_NAME,
-    "derive_skill": SKILL_DREAM_BINDING,
-}
+
+
+@dataclass(frozen=True)
+class DreamOperationSpec:
+    operation: DreamOperation
+    family: str
+    binding: str
+
+
+# An operation belongs here only after its resolver, generator, Candidate and
+# approval writer are implemented. This registry controls worker dispatch as
+# well as admission; a readable Artifact Family alone does not enable Dream.
+DREAM_OPERATIONS = (
+    DreamOperationSpec("refine_experience", "experience", EXPERIENCE_INCUBATION_CURSOR_NAME),
+    DreamOperationSpec("derive_skill", "skill", SKILL_DREAM_BINDING),
+    DreamOperationSpec("revise_profile", "profile", PROFILE_SOURCE_WINDOW_BINDING),
+)
+DREAM_BINDINGS = {spec.operation: spec.binding for spec in DREAM_OPERATIONS}
+
+
+def operations_for_binding(binding: str) -> tuple[DreamOperation, ...]:
+    return tuple(spec.operation for spec in DREAM_OPERATIONS if spec.binding == binding)
+
+
 DREAM_PROVIDERS = frozenset({"openai", "openai-chat", "openai-responses", "anthropic"})

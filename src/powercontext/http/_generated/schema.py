@@ -4585,14 +4585,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "properties": {
                     "schema": {"type": "string", "enum": ["powercontext.profile-candidate.v1"]},
                     "content": {"type": "string", "minLength": 1},
-                    "source_window": {"$ref": "#/components/schemas/ProfileSourceWindow"},
+                    "source_window": {"$ref": "#/components/schemas/ProfileSourceWindow", "nullable": True},
+                    "dream_run_id": {"type": "string", "nullable": True},
+                    "policy_version": {"type": "integer", "minimum": 1.0, "nullable": True},
                     "generator_id": {"type": "string", "minLength": 1},
                     "generator_version": {"type": "string", "minLength": 1},
                     "created_at": {"type": "string", "format": "date-time"},
                 },
                 "additionalProperties": False,
                 "type": "object",
-                "required": ["schema", "content", "source_window", "generator_id", "generator_version", "created_at"],
+                "required": ["schema", "content", "generator_id", "generator_version", "created_at"],
             },
             "CreateProfileArtifactRequest": {
                 "properties": {
@@ -4985,11 +4987,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["principal", "receiver_identity_matches"],
                 "description": "Server-owned attestation stored separately from the immutable untrusted Receipt.",
             },
-            "DreamOperation": {"type": "string", "enum": ["refine_experience", "derive_skill"]},
+            "DreamOperation": {"type": "string", "enum": ["refine_experience", "derive_skill", "revise_profile"]},
             "DreamStatus": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
             "DreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
-            "DreamEvidenceKind": {"type": "string", "enum": ["source", "experience", "memory", "unresolved"]},
-            "DreamEvidenceRole": {"type": "string", "enum": ["root", "derived", "lineage_only", "unresolved"]},
+            "DreamEvidenceKind": {
+                "type": "string",
+                "enum": ["source", "experience", "memory", "profile", "unresolved"],
+            },
+            "DreamEvidenceRole": {
+                "type": "string",
+                "enum": ["root", "derived", "target", "lineage_only", "unresolved"],
+            },
             "DreamEvidenceIndependence": {"type": "string", "enum": ["attested", "unknown"]},
             "DreamSourceReference": {
                 "properties": {
@@ -5039,14 +5047,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["operation", "idempotency_key"],
-                "description": "Select 1-20 exact Experience "
+                "description": "Select 1-20 exact Artifact "
                 "or Memory citations after "
                 "deduplication, with at most "
                 "32 combined references "
-                "including Sources. Only "
-                "refine_experience accepts "
-                "Memory citations or a "
-                "target.",
+                "including Sources. A Profile "
+                "revision requires its exact "
+                "current Profile target and "
+                "supporting evidence.",
             },
             "DreamBudget": {
                 "properties": {
@@ -5204,11 +5212,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "description": "Exact "
                         "Memory "
                         "entry "
-                        "provenance; "
-                        "non-empty "
-                        "only "
+                        "provenance "
                         "for "
-                        "Experience. "
+                        "Experience "
+                        "or "
+                        "reviewed "
+                        "Profile "
+                        "Dream "
+                        "changes. "
                         "Counted "
                         "toward "
                         "the "

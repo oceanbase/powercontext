@@ -28,6 +28,7 @@ from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.memory import Memory, MemoryEntryVersion
 from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCitationError, MemoryEntryNotFoundError
+from powercontext.builtin.artifacts.profile.models import Profile
 from powercontext.builtin.evidence.models import (
     EVIDENCE_TRANSFORM_VERSION,
     EvidenceEdge,
@@ -181,6 +182,7 @@ class EvidenceResolver:
         sources: tuple[SourceRef, ...] = (),
         artifacts: tuple[ArtifactRef, ...] = (),
         memory_citations: tuple[MemoryCitation, ...] = (),
+        target: ArtifactRef | None = None,
         include_memory_text: bool = True,
         lock_memory: bool = False,
         pinned: EvidenceManifest | None = None,
@@ -196,12 +198,15 @@ class EvidenceResolver:
                 sources=sources,
                 artifacts=artifacts,
                 memory_citations=memory_citations,
+                target=target,
                 project=False,
             )
             owners = tuple(citation for node in observed.manifest.nodes for citation in node.memory_citations)
             await self._lock_memories(connection, owners)
         for ref in refs:
             await self._visit(connection, ref, traversal, depth=0, direct=True, lock_memory=lock_memory)
+        if target is not None and (target_id := evidence_id(target)) in traversal.nodes:
+            traversal.nodes[target_id] = traversal.nodes[target_id].model_copy(update={"role": "target"})
         if pinned is not None:
             self._restore_snapshot(traversal, pinned)
         groups = self._groups(traversal)
@@ -299,6 +304,14 @@ class EvidenceResolver:
             return await self._read_memory(connection, ref, locked=locked)
         artifact = await self.artifacts.get(connection, self.scope_id, ref)
         digest = content_digest(artifact.model_dump_json().encode())
+        if isinstance(artifact, Profile):
+            return (
+                EvidenceNode(
+                    evidence_id=evidence_id(ref), kind="profile", artifact=ref, digest=digest, role="derived"
+                ),
+                artifact.content.content,
+                (),
+            )
         if ref.family == "prompt":
             return (
                 EvidenceNode(

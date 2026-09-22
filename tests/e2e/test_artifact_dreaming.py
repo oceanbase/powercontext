@@ -20,6 +20,7 @@ import asyncio
 import os
 from collections.abc import Iterator
 from contextlib import nullcontext, suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
@@ -30,6 +31,12 @@ from sqlalchemy.engine import make_url
 
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.profile.models import (
+    ProfileContent,
+    ProfileDraft,
+    ProfileGeneration,
+    ProfileWriteContent,
+)
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.dream.generation import DreamGenerationInput
 from powercontext.builtin.dream.models import DreamError, DreamPlan
@@ -152,6 +159,79 @@ class MemoryPipeline:
 
 def config(database: DatabaseConfig) -> BuiltinConfig:
     return BuiltinConfig(database=database, runtime=RuntimeConfig())
+
+
+def test_profile_dream_requires_review_and_preserves_source_cursor(database: DatabaseConfig) -> None:
+    class ProfileDreamGenerator:
+        config_id = "profile-dream-test"
+
+        async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
+            assert value.operation == "revise_profile"
+            assert any(item.kind == "profile" for item in value.evidence.evidence)
+            evidence = next(item.evidence_id for item in value.evidence.evidence if item.kind == "source")
+            return GenerationResult(
+                output=DreamPlan(
+                    outcome="proposed",
+                    reason="The explicit relocation supersedes the old location.",
+                    intent="correct",
+                    proposal=ProfileWriteContent(content="# Profile\n\nBased in Shenzhen."),
+                    evidence_ids=(evidence,),
+                ),
+                usage=InferenceUsage(requests=1),
+            )
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(config(database), dream_generator=ProfileDreamGenerator()) as runtime:
+            assert runtime.scopes is not None and runtime.profiles is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Profile Dream", summary="Review before activation", idempotency_key="profile-dream")
+            )
+            scope_id = scope.scope_id
+            await runtime.profiles.put_policy(scope_id, generation_enabled=False, expected_version=0)
+            async with runtime.profiles.database.transaction() as connection:
+                initial = await runtime.profiles.artifacts.create(
+                    connection,
+                    scope_id,
+                    "profile",
+                    ProfileDraft(
+                        content=ProfileContent(
+                            content="# Profile\n\nBased in Shanghai.",
+                            generation=ProfileGeneration(mode="manual_create", created_at=datetime.now(UTC)),
+                        )
+                    ),
+                )
+            source = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="relocation", content="I moved to Shenzhen and am now based there.", metadata={})
+            )
+            run = await runtime.dream.for_scope(scope_id).create(
+                CreateDreamRunRequest(
+                    operation="revise_profile",
+                    target=initial.as_ref(),
+                    artifacts=(initial.as_ref(),),
+                    sources=(source.source_ref,),
+                    idempotency_key="relocation",
+                )
+            )
+            await process_pending(runtime)
+            completed = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=run.run_id))
+            assert completed.outcome == "proposed" and completed.candidate is not None
+            async with runtime.profiles.database.transaction() as connection:
+                before = await runtime.profiles.latest(connection, scope_id)
+            assert before is not None and before.content.content.endswith("Shanghai.\n")
+            approved = await runtime.review.for_scope(scope_id).approve(
+                ApproveArtifactCandidateRequest(
+                    candidate_id=completed.candidate.candidate_id,
+                    expected_version=completed.candidate.version,
+                )
+            )
+            assert approved.result_artifact is not None
+            async with runtime.profiles.database.transaction() as connection:
+                after = await runtime.profiles.latest(connection, scope_id)
+            assert after is not None and after.content.content.endswith("Shenzhen.\n")
+            assert after.content.generation.mode == "dream_review_approved"
+            assert after.content.generation.dream_run_id == run.run_id
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("existing", [False, True], ids=["new-config", "enable-skill"])

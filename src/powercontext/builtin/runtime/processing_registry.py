@@ -21,7 +21,7 @@ from typing import Any
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
-from powercontext.builtin.dream.bindings import DREAM_PROVIDERS, SKILL_DREAM_BINDING
+from powercontext.builtin.dream.bindings import DREAM_OPERATIONS, DREAM_PROVIDERS, SKILL_DREAM_BINDING
 from powercontext.builtin.dream.models import DreamOperation
 from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
@@ -73,9 +73,9 @@ def dream_operations(config: BuiltinConfig) -> tuple[DreamOperation, ...]:
         return ()
     families = processing_capabilities(config)
     return tuple(
-        operation
-        for operation, family in (("refine_experience", "experience"), ("derive_skill", "skill"))
-        if family in families
+        spec.operation
+        for spec in DREAM_OPERATIONS
+        if spec.family in families
     )
 
 

@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.profile.models import ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.evidence.models import (
     EvidenceLimits,
@@ -34,7 +35,7 @@ from powercontext.builtin.evidence.models import (
 from powercontext.errors import PowerContextError
 from powercontext.sources import SourceRef
 
-DreamOperation = Literal["refine_experience", "derive_skill"]
+DreamOperation = Literal["refine_experience", "derive_skill", "revise_profile"]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
 DreamIntent = Literal["create", "corroborate", "refine", "correct", "derive"]
@@ -74,7 +75,8 @@ class CreateDreamRunRequest(BaseModel):
         selected = len(self.artifacts) + len(self.memory_citations)
         if not 1 <= selected <= 20 or selected + len(self.sources) > 32:
             raise DreamError("evidence_limit_exceeded")
-        if any(ref.family != "experience" for ref in self.artifacts):
+        allowed_families = {"experience"} if self.operation != "revise_profile" else {"experience", "profile"}
+        if any(ref.family not in allowed_families for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
         if any(
             ref.memory_ref.family != "memory"
@@ -87,6 +89,12 @@ class CreateDreamRunRequest(BaseModel):
             raise DreamError("invalid_target")
         if self.operation == "derive_skill" and (
             self.memory_citations or self.target is not None or not self.artifacts
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_profile" and (
+            self.target is None
+            or self.target.family != "profile"
+            or any(ref.family == "profile" and ref != self.target for ref in self.artifacts)
         ):
             raise DreamError("invalid_dream_operation")
         return self
@@ -172,7 +180,7 @@ class DreamPlan(BaseModel):
     outcome: DreamOutcome
     reason: str = Field(min_length=1, max_length=2000)
     intent: DreamIntent | None = None
-    proposal: ExperienceContent | SkillContent | None = None
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent | None = None
     evidence_ids: tuple[str, ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
@@ -192,6 +200,12 @@ class DreamPlan(BaseModel):
         if request.operation == "derive_skill":
             valid = (
                 isinstance(self.proposal, SkillContent) and self.intent == "derive" and self.proposal.package is None
+            )
+        elif request.operation == "revise_profile":
+            valid = (
+                isinstance(self.proposal, ProfileWriteContent)
+                and self.proposal.restored_from_revision is None
+                and self.intent == "correct"
             )
         else:
             intents = {"create"} if request.target is None else {"corroborate", "refine", "correct"}

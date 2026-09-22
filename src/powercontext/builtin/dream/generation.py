@@ -31,6 +31,9 @@ For refine_experience, identify reusable situation/action/outcome/lesson pattern
 A preference or unsupported assertion alone is not a task experience: return no_change.
 When task actions or results lack usable source support, return needs_evidence and explain the gap.
 For derive_skill, derive one instruction-only Skill from the supplied Experience evidence.
+For revise_profile, compare the exact current Profile with new evidence and propose a complete Markdown replacement.
+Treat Profile text as the target under review, never as independent support for its own assertions.
+Distinguish temporary plans from durable facts. Use correct as the intent for a supported replacement.
 Provide name, description, instructions, and at least one concrete validation check in validation.
 Use a package-compatible name: at most 64 lowercase letters, digits, and single separating hyphens.
 Keep description within 1024 characters. Trim text fields and omit trailing whitespace in instructions.
@@ -53,7 +56,7 @@ Never invent evidence IDs or provenance. The reason must be concise and at most 
 class DreamGenerationInput(BaseModel):
     operation: DreamOperation
     target_evidence_id: str | None = Field(
-        description="Exact evidence ID of the Experience being replaced; null when creating a new Artifact."
+        description="Exact evidence ID of the Artifact being replaced; null when creating a new Artifact."
     )
     evidence: EvidenceProjection
 

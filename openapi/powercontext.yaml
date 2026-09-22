@@ -4540,7 +4540,7 @@ components:
     ProfileCandidateProposal:
       type: "object"
       additionalProperties: false
-      required: ["schema","content","source_window","generator_id","generator_version","created_at"]
+      required: ["schema","content","generator_id","generator_version","created_at"]
       properties:
         schema:
           type: "string"
@@ -4550,6 +4550,14 @@ components:
           minLength: 1
         source_window:
           $ref: "#/components/schemas/ProfileSourceWindow"
+          nullable: true
+        dream_run_id:
+          type: "string"
+          nullable: true
+        policy_version:
+          type: "integer"
+          minimum: 1
+          nullable: true
         generator_id:
           type: "string"
           minLength: 1
@@ -5102,6 +5110,7 @@ components:
       enum:
       - refine_experience
       - derive_skill
+      - revise_profile
     DreamStatus:
       type: string
       enum:
@@ -5121,12 +5130,14 @@ components:
       - source
       - experience
       - memory
+      - profile
       - unresolved
     DreamEvidenceRole:
       type: string
       enum:
       - root
       - derived
+      - target
       - lineage_only
       - unresolved
     DreamEvidenceIndependence:
@@ -5199,8 +5210,8 @@ components:
       - operation
       - idempotency_key
       type: object
-      description: Select 1-20 exact Experience or Memory citations after deduplication, with at most 32 combined references
-        including Sources. Only refine_experience accepts Memory citations or a target.
+      description: Select 1-20 exact Artifact or Memory citations after deduplication, with at most 32 combined references
+        including Sources. A Profile revision requires its exact current Profile target and supporting evidence.
     DreamBudget:
       additionalProperties: false
       properties:
@@ -5477,7 +5488,7 @@ components:
           type: array
           maxItems: 32
           default: []
-          description: Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.
+          description: Exact Memory entry provenance for Experience or reviewed Profile Dream changes. Counted toward the combined evidence bound.
           items:
             $ref: "#/components/schemas/MemoryCitation"
         permissions:

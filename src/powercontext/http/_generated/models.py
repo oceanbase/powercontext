@@ -107,7 +107,9 @@ class ProfileCandidateProposal(BaseModel):
     )
     schema_: Annotated[Schema, Field(alias="schema")]
     content: Annotated[StrictStr, Field(min_length=1)]
-    source_window: ProfileSourceWindow
+    source_window: ProfileSourceWindow | None = None
+    dream_run_id: StrictStr | None = None
+    policy_version: Annotated[StrictInt | None, Field(ge=1)] = None
     generator_id: Annotated[StrictStr, Field(min_length=1)]
     generator_version: Annotated[StrictStr, Field(min_length=1)]
     created_at: AwareDatetime
@@ -345,6 +347,7 @@ class CandidatePermissions(BaseModel):
 class DreamOperation(StrEnum):
     REFINE_EXPERIENCE = "refine_experience"
     DERIVE_SKILL = "derive_skill"
+    REVISE_PROFILE = "revise_profile"
 
 
 class DreamStatus(StrEnum):
@@ -364,12 +367,14 @@ class DreamEvidenceKind(StrEnum):
     SOURCE = "source"
     EXPERIENCE = "experience"
     MEMORY = "memory"
+    PROFILE = "profile"
     UNRESOLVED = "unresolved"
 
 
 class DreamEvidenceRole(StrEnum):
     ROOT = "root"
     DERIVED = "derived"
+    TARGET = "target"
     LINEAGE_ONLY = "lineage_only"
     UNRESOLVED = "unresolved"
 
@@ -3492,7 +3497,7 @@ class ArtifactCandidate(BaseModel):
     memory_citations: Annotated[
         list[MemoryCitation],
         Field(
-            description="Exact Memory entry provenance; non-empty only for Experience. Counted toward the combined evidence bound.",
+            description="Exact Memory entry provenance for Experience or reviewed Profile Dream changes. Counted toward the combined evidence bound.",
             max_length=32,
             validate_default=True,
         ),

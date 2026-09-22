@@ -168,13 +168,16 @@ class DreamRepository:
         self,
         connection: AsyncConnection,
         scope_id: str,
-        operation: str,
+        operation: str | tuple[str, ...],
         *,
         through_generation: int | None = None,
     ) -> DreamRecord | None:
+        operations = (operation,) if isinstance(operation, str) else operation
+        if not operations:
+            return None
         statement = select(RUNS.c.payload).where(
             RUNS.c.scope_id == scope_id,
-            RUNS.c.operation == operation,
+            RUNS.c.operation.in_(operations),
             RUNS.c.status.in_(("queued", "running")),
         )
         if through_generation is not None:
