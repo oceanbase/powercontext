@@ -56,7 +56,6 @@ from powercontext.builtin.evidence.models import EvidenceResolutionError
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.builtin.review.errors import InvalidCandidateError
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
@@ -504,31 +503,9 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
     asyncio.run(scenario())
 
 
-def test_skill_dream_rebuilds_one_file_package_before_review(database: DatabaseConfig) -> None:
-    class SkillRevisionGenerator:
-        config_id = "skill-revision-test"
-
-        async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
-            assert value.operation == "revise_skill"
-            evidence = next(item.evidence_id for item in value.evidence.evidence if item.kind == "source")
-            return GenerationResult(
-                output=DreamPlan(
-                    outcome="proposed",
-                    reason="A task outcome shows the old retry order was unsafe.",
-                    intent="correct",
-                    proposal=SkillContent(
-                        name="invented-name",
-                        description="Check the receipt before retrying.",
-                        instructions="Check the receipt first, then retry if needed.",
-                        validation=("No duplicate action was issued.",),
-                    ),
-                    evidence_ids=(evidence,),
-                ),
-                usage=InferenceUsage(requests=1),
-            )
-
+def test_skill_dream_revision_stays_unavailable_without_trusted_evaluation(database: DatabaseConfig) -> None:
     async def scenario() -> None:
-        async with open_builtin_runtime(config(database), dream_generator=SkillRevisionGenerator()) as runtime:
+        async with open_builtin_runtime(config(database), dream_generator=Generator()) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Skill Revision", summary="Package stays pending", idempotency_key="skill-revision")
@@ -550,32 +527,26 @@ def test_skill_dream_rebuilds_one_file_package_before_review(database: DatabaseC
                     "receipt-check",
                     SkillDraft(content=original, sources=(source.source_ref,)),
                 )
-            run = await runtime.dream.for_scope(scope.scope_id).create(
-                CreateDreamRunRequest(
-                    operation="revise_skill",
-                    target=target.as_ref(),
-                    artifacts=(target.as_ref(),),
-                    sources=(source.source_ref,),
-                    idempotency_key="skill-feedback",
-                )
+            prepared = await runtime._provider.review(scope.scope_id).prepare_skill_revision(
+                target.as_ref(),
+                SkillContent(
+                    name="invented-name",
+                    description="Check the receipt before retrying.",
+                    instructions="Check the receipt first, then retry if needed.",
+                    validation=("No duplicate action was issued.",),
+                ),
             )
-            await process_pending(runtime)
-            completed = await runtime.dream.for_scope(scope.scope_id).get(GetDreamRunRequest(run_id=run.run_id))
-            assert completed.outcome == "proposed" and completed.candidate is not None, completed.error
-            candidate = await runtime.review.for_scope(scope.scope_id).get(
-                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
-            )
-            assert isinstance(candidate.proposal, SkillContent)
-            assert candidate.proposal.name == "receipt-check"
-            assert candidate.proposal.license == "MIT"
-            assert candidate.proposal.package is not None
-            assert candidate.proposal.package.file_count == 1
+            assert prepared.name == "receipt-check" and prepared.license == "MIT"
+            assert prepared.package is not None and prepared.package.file_count == 1
             assert (await runtime.skill.for_scope(scope.scope_id).get(GetSkillRequest(artifact=target.as_ref()))).revision == 1
-            with pytest.raises(InvalidCandidateError, match="trusted_evaluation_required"):
-                await runtime.review.for_scope(scope.scope_id).approve(
-                    ApproveArtifactCandidateRequest(
-                        candidate_id=candidate.candidate_id,
-                        expected_version=candidate.version,
+            with pytest.raises(DreamError, match="capability_unavailable"):
+                await runtime.dream.for_scope(scope.scope_id).create(
+                    CreateDreamRunRequest(
+                        operation="revise_skill",
+                        target=target.as_ref(),
+                        artifacts=(target.as_ref(),),
+                        sources=(source.source_ref,),
+                        idempotency_key="skill-feedback",
                     )
                 )
 
