@@ -990,7 +990,8 @@ def test_runtime_server_rejects_non_strict_transport_values(tmp_path: Path) -> N
     assert {response.json()["error"]["code"] for response in responses} == {"invalid_request"}
 
 
-def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path) -> None:
+@pytest.mark.parametrize("text", ["a" * 8_193, "界" * 2_731, "🧠" * 2_049], ids=["ascii", "chinese", "emoji"])
+def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path, text: str) -> None:
     app = create_server_app(settings=_server_settings(tmp_path / "runtime.db"))
 
     with TestClient(app) as transport:
@@ -1002,10 +1003,12 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path) -
             json={"scope_id": scope_id, "kind": "decision", "text": "Keep canonical errors actionable."},
         )
         remembered.raise_for_status()
+        before = transport.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+        before.raise_for_status()
         responses = [
             transport.post(
                 "/v1/memory/remember",
-                json={"scope_id": scope_id, "kind": "decision", "text": "a" * 8_193},
+                json={"scope_id": scope_id, "kind": "decision", "text": text},
             ),
             transport.post(
                 "/v1/memory/entries/revise",
@@ -1013,10 +1016,13 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path) -
                     "scope_id": scope_id,
                     "citation": remembered.json()["entry"]["citation"],
                     "kind": "decision",
-                    "text": "🧠" * 2_049,
+                    "text": text,
                 },
             ),
         ]
+        after = transport.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+        after.raise_for_status()
+        assert after.json() == before.json()
 
     expected_error = {
         "code": "invalid_request",
@@ -1028,6 +1034,34 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path) -
     }
     assert [response.status_code for response in responses] == [422, 422]
     assert [response.json()["error"] for response in responses] == [expected_error, expected_error]
+
+
+@pytest.mark.parametrize(
+    ("text", "normalized"),
+    [
+        ("a" * 8_192, "a" * 8_192),
+        ("🧠" * 2_048, "🧠" * 2_048),
+        (" " + "a" * 8_192 + " ", "a" * 8_192),
+        ("e\u0301" * 4_096, "é" * 4_096),
+    ],
+    ids=["ascii-limit", "emoji-limit", "trimmed-limit", "nfc-limit"],
+)
+def test_runtime_server_accepts_normalized_memory_byte_limit(tmp_path: Path, text: str, normalized: str) -> None:
+    app = create_server_app(settings=_server_settings(tmp_path / "runtime.db"))
+
+    with TestClient(app) as transport:
+        scope = transport.get("/v1/scopes/default")
+        scope.raise_for_status()
+        payload = {"scope_id": scope.json()["scope_id"], "kind": "decision", "text": text}
+        remembered = transport.post("/v1/memory/remember", json=payload)
+        remembered.raise_for_status()
+        assert remembered.json()["entry"]["text"] == normalized
+        revised = transport.post(
+            "/v1/memory/entries/revise",
+            json={**payload, "citation": remembered.json()["entry"]["citation"]},
+        )
+        revised.raise_for_status()
+        assert revised.json()["entry"]["text"] == normalized
 
 
 def test_runtime_server_keeps_unstructured_memory_errors_private(

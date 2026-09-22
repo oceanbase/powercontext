@@ -204,6 +204,26 @@ Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策�
 }
 ```
 
+`/v1/memory/remember` 和 `/v1/memory/entries/revise` 的正文在 Unicode NFC 规范化并去掉首尾空白后，
+最多为 8192 个 UTF-8 字节。这是字节数限制，不是字符数限制。正文超限时返回 HTTP `422`，
+顶层错误码仍为 `invalid_request`：
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "The request is invalid.",
+    "details": {
+      "code": "text-too-long",
+      "message": "memory entry text must not exceed 8192 UTF-8 bytes"
+    }
+  }
+}
+```
+
+客户端可通过 `error.details.code` 识别具体的规范化校验错误。其他错误的详情仍可能为 `null`；
+没有结构化错误码的 Memory 错误不会向客户端返回内部异常文本。
+
 常见状态码：
 
 | 状态码 | 含义 |
