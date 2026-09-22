@@ -39,6 +39,7 @@ class DreamOperationSpec:
 DREAM_OPERATIONS = (
     DreamOperationSpec("refine_experience", "experience", EXPERIENCE_INCUBATION_CURSOR_NAME),
     DreamOperationSpec("derive_skill", "skill", SKILL_DREAM_BINDING),
+    DreamOperationSpec("revise_skill", "skill", SKILL_DREAM_BINDING),
     DreamOperationSpec("revise_profile", "profile", PROFILE_SOURCE_WINDOW_BINDING),
     DreamOperationSpec("revise_memory", "memory", SOURCE_WINDOW_TRIGGER_NAME),
     DreamOperationSpec("revise_topic_memory", "topic-memory", TOPIC_MEMORY_SOURCE_WINDOW_BINDING),

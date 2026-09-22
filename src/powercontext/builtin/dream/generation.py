@@ -43,6 +43,9 @@ causes, open questions, and next steps as distinct claims. Use correct as the in
 For refresh_handoff, propose complete Handoff content with exact citations for every state
 and next-action claim. A proposed action is not a completed action. Do not claim activation,
 receiver acknowledgement, or an executed business tool. Return generation as null and use correct.
+For revise_skill, use the exact existing Skill as the target and task outcome evidence as grounds.
+Only revise instructions, validation, and description; preserve name and other metadata.
+Do not infer that selection means execution or success. Return package as null and use correct.
 Provide name, description, instructions, and at least one concrete validation check in validation.
 Use a package-compatible name: at most 64 lowercase letters, digits, and single separating hyphens.
 Keep description within 1024 characters. Trim text fields and omit trailing whitespace in instructions.

@@ -65,7 +65,7 @@ from powercontext.builtin.persistence.errors import ArtifactProcessingLeadership
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.tables import SCOPES_TABLE
-from powercontext.builtin.review.errors import ArtifactTargetConflictError
+from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.generation import SkillGenerationOrigin, validate_skill_lineage
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
@@ -264,6 +264,13 @@ class DreamService:
         ):
             raise DreamError("capability_unavailable")
         await self._authorize(run.scope_id, record.principal_id, "contribute")
+        if run.operation == "revise_skill" and run.target is not None:
+            try:
+                await self.review(run.scope_id, None).require_instruction_skill_target(run.target)
+            except InvalidCandidateError as error:
+                if error.detail == "unsupported_target":
+                    raise DreamError("unsupported_target") from error
+                raise
         resolved = await self._resolve(record)
         usage = run.usage.model_copy(update={"model_calls": run.usage.model_calls + 1})
         if usage.model_calls > run.budget.max_model_calls:
@@ -300,7 +307,10 @@ class DreamService:
         generated.output.validate_operation(record.request)
         plan = _supported_plan(record, generated.output, resolved)
         if isinstance(plan.proposal, SkillContent):
-            prepared = await self.review(run.scope_id, None).prepare_skill(plan.proposal)
+            if run.operation == "revise_skill" and run.target is not None:
+                prepared = await self.review(run.scope_id, None).prepare_skill_revision(run.target, plan.proposal)
+            else:
+                prepared = await self.review(run.scope_id, None).prepare_skill(plan.proposal)
             plan = plan.model_copy(update={"proposal": prepared})
         await self._commit(record, plan)
 
@@ -332,6 +342,7 @@ class DreamService:
                 if self.attest_candidate is not None:
                     family = {
                         "derive_skill": "skill",
+                        "revise_skill": "skill",
                         "refine_experience": "experience",
                         "revise_profile": "profile",
                         "revise_memory": "memory",
@@ -379,12 +390,13 @@ class DreamService:
                 candidate_id=_candidate_id(record),
             )
         elif isinstance(plan.proposal, SkillContent):
-            validate_skill_lineage(SkillGenerationOrigin.EXPERIENCE, selected.sources, selected.artifacts, None)
+            if record.run.operation == "derive_skill":
+                validate_skill_lineage(SkillGenerationOrigin.EXPERIENCE, selected.sources, selected.artifacts, None)
             candidate = await review.propose_skill(
                 plan.proposal,
                 sources=selected.sources,
                 artifacts=selected.artifacts,
-                target=None,
+                target=record.run.target,
                 reason=plan.reason,
                 candidate_id=_candidate_id(record),
             )

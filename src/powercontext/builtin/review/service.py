@@ -52,6 +52,7 @@ from powercontext.builtin.evidence.resolver import AuthorizationContext, Evidenc
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
 from powercontext.builtin.persistence.family_management import HandoffManagementWriter
@@ -538,6 +539,17 @@ class ReviewService:
                     expected_version,
                 )
             )
+            if candidate.family == Skill.family and candidate.candidate_id.startswith("cand_dream_"):
+                run_id = candidate.candidate_id.removeprefix("cand_dream_")
+                run = await DreamRepository().get(connection, self._scope_id, run_id)
+                if (
+                    run.run.operation not in {"derive_skill", "revise_skill"}
+                    or run.run.candidate is None
+                    or run.run.candidate.candidate_id != candidate.candidate_id
+                ):
+                    raise InvalidCandidateError("evaluation", "Dream Skill origin is invalid")
+                if run.run.operation == "revise_skill":
+                    raise InvalidCandidateError("evaluation", "trusted_evaluation_required")
             _validate_approval_lineage(candidate)
             await self._validate_evidence(
                 connection,
@@ -824,6 +836,39 @@ class ReviewService:
         async with self._connection() as connection:
             await self._skill_packages.add(connection, self._scope_id, snapshot)
         return snapshot.as_skill_content()
+
+    async def prepare_skill_revision(self, target: ArtifactRef, proposal: SkillContent, /) -> SkillContent:
+        """Rebuild a one-file Skill while preserving the target's protected metadata."""
+
+        async with self._connection() as connection:
+            current = await self._instruction_skill_target(connection, target)
+            content = proposal.model_copy(
+                update={
+                    "name": current.content.name,
+                    "license": current.content.license,
+                    "compatibility": current.content.compatibility,
+                    "metadata": current.content.metadata,
+                    "allowed_tools": current.content.allowed_tools,
+                    "package": None,
+                }
+            )
+            snapshot = build_instruction_skill_package(content)
+            await self._skill_packages.add(connection, self._scope_id, snapshot)
+        return snapshot.as_skill_content()
+
+    async def require_instruction_skill_target(self, target: ArtifactRef, /) -> None:
+        async with self._connection() as connection:
+            await self._instruction_skill_target(connection, target)
+
+    async def _instruction_skill_target(self, connection: AsyncConnection, target: ArtifactRef) -> Skill:
+        current = await self._artifacts.get(connection, self._scope_id, target)
+        if not isinstance(current, Skill):
+            raise InvalidCandidateError("target", "expected an exact managed Skill")
+        if current.content.package is not None:
+            snapshot = await self._skill_packages.get(connection, self._scope_id, current.content.package)
+            if len(snapshot.entries) != 1 or snapshot.entries[0].path != "SKILL.md":
+                raise InvalidCandidateError("target", "unsupported_target")
+        return current
 
     async def _canonical_skill_proposal(
         self,

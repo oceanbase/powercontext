@@ -356,6 +356,7 @@ class CandidatePermissions(BaseModel):
 class DreamOperation(StrEnum):
     REFINE_EXPERIENCE = "refine_experience"
     DERIVE_SKILL = "derive_skill"
+    REVISE_SKILL = "revise_skill"
     REVISE_PROFILE = "revise_profile"
     REVISE_MEMORY = "revise_memory"
     REVISE_TOPIC_MEMORY = "revise_topic_memory"

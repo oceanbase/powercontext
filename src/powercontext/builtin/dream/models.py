@@ -39,7 +39,7 @@ from powercontext.errors import PowerContextError
 from powercontext.sources import SourceRef
 
 DreamOperation = Literal[
-    "refine_experience", "derive_skill", "revise_profile", "revise_memory", "revise_topic_memory", "refresh_handoff"
+    "refine_experience", "derive_skill", "revise_skill", "revise_profile", "revise_memory", "revise_topic_memory", "refresh_handoff"
 ]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
@@ -76,7 +76,7 @@ class CreateDreamRunRequest(BaseModel):
         return tuple(sorted(unique_references(value), key=reference_key))
 
     @model_validator(mode="after")
-    def validate_selection(self):
+    def validate_selection(self):  # noqa: C901 - bounded validation for each registered operation
         selected = len(self.artifacts) + len(self.memory_citations)
         selected_limit = 21 if self.operation == "revise_memory" else 20
         if not 1 <= selected <= selected_limit or selected + len(self.sources) > 32:
@@ -84,6 +84,7 @@ class CreateDreamRunRequest(BaseModel):
         allowed_families = {
             "refine_experience": {"experience"},
             "derive_skill": {"experience"},
+            "revise_skill": {"experience", "skill"},
             "revise_profile": {"experience", "profile"},
             "revise_memory": {"experience", "memory"},
             "revise_topic_memory": {"experience", "topic-memory"},
@@ -102,6 +103,13 @@ class CreateDreamRunRequest(BaseModel):
             raise DreamError("invalid_target")
         if self.operation == "derive_skill" and (
             self.memory_citations or self.target is not None or not self.artifacts
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_skill" and (
+            self.target is None
+            or self.target.family != "skill"
+            or any(ref.family == "skill" and ref != self.target for ref in self.artifacts)
+            or not self.sources
         ):
             raise DreamError("invalid_dream_operation")
         if self.operation == "revise_profile" and (
@@ -234,6 +242,8 @@ class DreamPlan(BaseModel):
             valid = (
                 isinstance(self.proposal, SkillContent) and self.intent == "derive" and self.proposal.package is None
             )
+        elif request.operation == "revise_skill":
+            valid = isinstance(self.proposal, SkillContent) and self.intent == "correct" and self.proposal.package is None
         elif request.operation == "revise_profile":
             valid = (
                 isinstance(self.proposal, ProfileWriteContent)

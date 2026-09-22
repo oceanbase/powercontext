@@ -5035,6 +5035,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "enum": [
                     "refine_experience",
                     "derive_skill",
+                    "revise_skill",
                     "revise_profile",
                     "revise_memory",
                     "revise_topic_memory",

@@ -90,7 +90,7 @@ async def open_dream_runtime(config, **kwargs):
             max_workers=4,
             worker_timeout_seconds=180,
         )
-        for spec in DREAM_OPERATIONS
+        for spec in {item.binding: item for item in DREAM_OPERATIONS}.values()
     )
     async with open_runtime(config, artifact_processing_bindings=bindings, **kwargs) as runtime:
         controller.runtime = runtime
