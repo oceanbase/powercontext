@@ -36,7 +36,11 @@ from powercontext.builtin.sources import SourceCursor
 
 
 async def decide_profile(service, connection, candidate_id, expected_version, *, reason=None):
-    # Acquire Policy before Candidate/Artifact, matching generation's lock order.
+    # Admission and Workers lock Intent before Policy. Source-window decisions
+    # update this same Intent at commit, so acquire it before any business locks.
+    intents = ArtifactProcessingIntentRepository()
+    await intents.ensure(connection, service._scope_id, PROFILE_SOURCE_WINDOW_BINDING)
+    await intents.load(connection, service._scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True)
     policies = ProfilePolicyRepository()
     policy = await policies.get(connection, service._scope_id, for_update=True)
     candidate = await service._candidates.lock_pending(connection, service._scope_id, candidate_id, expected_version)
@@ -97,7 +101,7 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
         SourceCursor(sequence=proposal.source_window.through),
         expected_generation=None if cursor is None else cursor.generation,
     )
-    await ArtifactProcessingIntentRepository().mark_dirty(connection, service._scope_id, PROFILE_SOURCE_WINDOW_BINDING)
+    await intents.mark_dirty(connection, service._scope_id, PROFILE_SOURCE_WINDOW_BINDING)
     return result
 
 

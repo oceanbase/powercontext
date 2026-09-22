@@ -2323,3 +2323,134 @@ def test_rfc_memory_example_matches_native_and_http_request_contract():
     assert native.target is not None and native.target in native.artifacts
     assert native.memory_citations[0].memory_ref == native.target
     assert CreateDreamRunRequest.model_validate(transport.model_dump(mode="json")) == native
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject", "policy"])
+def test_profile_dream_admission_completes_with_concurrent_decision(  # noqa: C901 - three public races share a lock barrier
+    database, monkeypatch, decision
+):
+    from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING, ProfileCandidateProposal
+    from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
+    from powercontext.builtin.persistence.profile import ProfilePolicyRepository
+    from powercontext.builtin.records import ArtifactWrite
+    from powercontext.builtin.runtime.relational import RelationalContexts
+
+    class ProfileGenerator:
+        async def generate(self, value):
+            return "# Profile\n\nPrefers Chinese."
+
+    async def scenario():
+        async with open_builtin_runtime(config(database), dream_generator=Generator()) as runtime:
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Concurrent Profile", summary="Review and Dream", idempotency_key="profile-locks")
+            )
+            sid = scope.scope_id
+            contexts = RelationalContexts(database=runtime.profiles.database)
+            profiles = contexts.profiles
+            initial = await contexts.records.create_artifact(
+                sid, "profile", ArtifactWrite(content={"content": "# Profile\n\nBased in Shanghai."})
+            )
+            policy = await profiles.get_policy(sid)
+            await profiles.put_policy(
+                sid, generation_enabled=True, activation_mode="review_required", expected_version=policy.version
+            )
+            source = await runtime.sources.for_scope(sid).capture(
+                CaptureSource(source_id="preference", content="Please use Chinese.", metadata={})
+            )
+            profiles.generator = ProfileGenerator()
+            pending = await profiles.flush(sid)
+            assert pending.status == "review_pending" and pending.candidate_id is not None
+            candidate = await contexts.review(sid).get_candidate(pending.candidate_id)
+            target = candidate.target
+            assert target is not None
+            assert isinstance(candidate.proposal, ProfileCandidateProposal)
+            source_window = candidate.proposal.source_window
+            assert source_window is not None
+            policy = await profiles.get_policy(sid)
+            dream_ready, competitor_ready, release_dream = asyncio.Event(), asyncio.Event(), asyncio.Event()
+            original_policy_get = ProfilePolicyRepository.get
+            original_intent_load = ArtifactProcessingIntentRepository.load
+
+            async def policy_get(repository, *args, **kwargs):
+                task = asyncio.current_task()
+                assert task is not None
+                if task.get_name() == "profile-dream-admission" and kwargs.get("for_update"):
+                    dream_ready.set()
+                    await release_dream.wait()
+                return await original_policy_get(repository, *args, **kwargs)
+
+            async def intent_load(repository, connection, scope_id, binding, **kwargs):
+                task = asyncio.current_task()
+                assert task is not None
+                if task.get_name() == "profile-decision" and binding == PROFILE_SOURCE_WINDOW_BINDING:
+                    competitor_ready.set()
+                return await original_intent_load(repository, connection, scope_id, binding, **kwargs)
+
+            # Pause admission with its Intent held, before it requests Policy.
+            # The competing public operation must finish without circular lock waits.
+            monkeypatch.setattr(ProfilePolicyRepository, "get", policy_get)
+            monkeypatch.setattr(ArtifactProcessingIntentRepository, "load", intent_load)
+
+            async def decide():
+                if decision == "policy":
+                    return await profiles.put_policy(
+                        sid,
+                        generation_enabled=False,
+                        activation_mode="review_required",
+                        expected_version=policy.version,
+                    )
+                review = runtime.review.for_scope(sid)
+                if decision == "approve":
+                    return await review.approve(
+                        ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=1)
+                    )
+                return await review.reject(
+                    RejectArtifactCandidateRequest(
+                        candidate_id=candidate.candidate_id, expected_version=1, reason="Needs clarification"
+                    )
+                )
+
+            tasks = []
+            try:
+                async with asyncio.timeout(15):
+                    admission = asyncio.create_task(
+                        runtime.dream.for_scope(sid).create(
+                            CreateDreamRunRequest(
+                                operation="revise_profile",
+                                target=target,
+                                artifacts=(target,),
+                                sources=(source.source_ref,),
+                                idempotency_key="concurrent-profile",
+                            )
+                        ),
+                        name="profile-dream-admission",
+                    )
+                    tasks.append(admission)
+                    await dream_ready.wait()
+                    competing = asyncio.create_task(decide(), name="profile-decision")
+                    tasks.append(competing)
+                    await competitor_ready.wait()
+                    release_dream.set()
+                    run, result = await asyncio.gather(admission, competing)
+            finally:
+                release_dream.set()
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+            assert run.status == "queued"
+            saved = await contexts.review(sid).get_candidate(candidate.candidate_id)
+            current = await contexts.records.get_artifact(sid, "profile", initial.artifact_id)
+            current_policy = await profiles.get_policy(sid)
+            async with profiles.database.transaction() as connection:
+                cursor = await profiles.cursors.load(connection, sid, PROFILE_SOURCE_WINDOW_BINDING)
+            if decision == "policy":
+                assert not result.generation_enabled
+                assert saved.status == "pending" and current_policy.pending_candidate_id == candidate.candidate_id
+                assert (0 if cursor is None else cursor.cursor.sequence) == pending.current_cursor
+            else:
+                assert saved.status == ("approved" if decision == "approve" else "rejected")
+                assert current_policy.pending_candidate_id is None
+                assert cursor is not None and cursor.cursor.sequence == source_window.through
+            assert current.revision == initial.revision + (decision == "approve")
+
+    asyncio.run(scenario())

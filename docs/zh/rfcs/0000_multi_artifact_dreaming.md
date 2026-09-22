@@ -263,7 +263,7 @@ Tag 不是 Artifact Family。新增 `CatalogChangeCandidate`，复用 Review Inb
 
 审批共同步骤：校验身份及当前权限；读取候选以确定服务端注册的 Family/origin adapter；完成所需的事务外准备；由 adapter 从事务开始决定完整锁顺序并锁定候选 expected_version；核对目标基准；复核证据及当前 active 状态；核对 schema 和适用的确定性 policy；调用事务内 Family writer；原子保存正式结果和审核状态。通用层不得先锁 Candidate 再交给 adapter 补锁其他资源；预读的候选版本、origin 和内容必须在事务内重新校验。
 
-同一 Family 的 HTTP、SDK 及其他审核入口共用相同的事务与锁顺序。Profile 保持 Policy → Candidate → Source Cursor（仅 Source-window 候选）→ Profile head 校验与条件写入；Dream Profile 不读取或推进 Source Cursor。approve/revise/reject 中涉及相同资源的操作也必须遵守该顺序，不允许某一入口改成 Candidate → Policy。其他 Family 按既有写入流程确定锁顺序，并通过并发验收验证。
+同一 Family 的 HTTP、SDK 及其他审核入口共用相同的事务与锁顺序。Profile 的完整锁顺序包含调度状态：Processing Intent → Policy → Candidate → Source Cursor（仅 Source-window 候选）→ Profile head 校验与条件写入。Dream admission 与 Worker 先锁同一 canonical binding 的 Processing Intent；approve/reject 和 Policy 更新也必须在获取 Policy 前锁定该 Intent，禁止持有 Policy 后再反向申请 Intent。只编辑候选且不访问 Intent 的 revise 从 Policy 开始，保持其余资源的相对顺序。Dream Profile 不读取或推进 Source Cursor。approve/revise/reject 中涉及相同资源的操作也必须遵守该顺序，不允许某一入口改成 Candidate → Policy。其他 Family 按既有写入流程确定锁顺序，并通过并发验收验证。
 
 发生冲突或校验失败时，候选保留 pending 并返回可操作原因，不自动 rebase。拒绝 Dream 候选不会修改 Artifact/Tag，也不会推进普通 Source cursor；既有 Source-window 候选仍按原有规则处理游标。修订不能换 target，目标变化需要新候选。候选正文修改会产生新 version，旧版本及其证据继续可追溯。
 
@@ -343,6 +343,7 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | 同根 Source 被多次转述 | 不增加独立证据数量 |
 | 相同幂等请求、响应丢失、Worker 接管 | 同一请求者和协议版本内至多一个正式候选/结果，旧任期不能提交 |
 | 同 Scope 不同请求者使用相同 idempotency_key 或相同证据 | 不误报幂等冲突，不复用对方 Run/Candidate，归属与执行身份各自保持 |
+| Profile Dream admission 与 Source-window approve/reject、Policy 更新并发 | 有界完成，无 Intent/Policy 循环等待；仅普通审批按原逻辑推进 Source Cursor |
 | HTTP/SDK 并发审核同一 Source-window Profile 候选 | 各入口使用一致的 Policy 优先锁顺序，按版本条件完成或返回冲突，不产生反向锁等待 |
 | A0/A1 部署未配置 B1/C 存储与接口 | 可以启动并启用已完成的首期操作，后续阶段能力保持关闭 |
 | 缺证据、无变化、执行失败 | 三者可区分，不产生虚构正式制品 |
