@@ -6,7 +6,9 @@
 # Summary
 将 Dream 从现有的 Experience 提炼与 Skill 派生，扩展为按制品生命周期执行的受控复盘能力。新增 Memory 条目修订、Profile 画像校正、Topic Memory 主题校正、Handoff 交接刷新、现有 Skill 修订和 Prompt 改进，并为 Tag 提供独立的分类变更提案。所有操作沿用“精确证据、后台运行、待审候选、条件提交、完整来源”的原则，一次运行只处理一个目标，不直接覆盖正式状态。所有新增 Dream 操作都必须先写入待审核 Candidate；只有 Reviewer 批准当前候选版本并通过目标当前基准校验后，变更才能生效：Artifact 由所属 Family 的写入器提交新 Revision、推进 head，Tag 按其 ETag 条件替换标签集。Dream 生成成功或候选入库本身不改变正式状态。
 
-Dream 负责提出可解释的变化，Family adapter 负责语义校验和提交，Reviewer 负责批准，应用或评测服务负责实际业务验证。Source 保持原始证据身份，不被 Dream 改写；Tag 保持 catalog 属性身份，不伪装成 Artifact。第一阶段交付 Memory、Profile、Topic Memory，后续阶段扩展 Handoff、Skill、Prompt 和 Tag。自动发现、全量夜间扫描、多目标原子合并及无人值守发布不作为本提案的交付前提。
+Dream 负责提出可解释的变化，Family adapter 负责语义校验和提交，Reviewer 负责批准，应用负责后续实际业务验证。Source 保持原始证据身份，不被 Dream 改写；Tag 保持 catalog 属性身份，不伪装成 Artifact。第一阶段交付 Memory、Profile、Topic Memory，后续阶段扩展 Handoff、Skill、Prompt 和 Tag。自动发现、全量夜间扫描、多目标原子合并及无人值守发布不作为本提案的交付前提。
+
+本 PR 的所有扩展操作统一沿用 Experience 提炼、Skill 派生的证据驱动提案与人工审核逻辑。可信评测为后续可选增强，本 PR 不实现相关服务、接口、存储或审批门槛，也不以其配置作为能力启用条件。
 
 # Motivation
 ## 现有能力与缺口
@@ -22,7 +24,7 @@ Dream 负责提出可解释的变化，Family adapter 负责语义校验和提�
 | Profile 已有 Candidate 审核，但绑定 Source window、Policy pending 指针和游标推进 | Dream 选取离散证据，不能冒充连续消费窗口 |
 | Topic Memory 有自身生成、融合和检索投影 | 手动修订不能被旧后台结果覆盖，旧 chunk 不得与新 head 混用 |
 | Handoff 有 prepare、commit/activate、接收方核验等语义 | 生成文本不能替代交接激活或接收确认 |
-| Prompt 是运行配置，正式 head 会影响后续推理选择 | 发布不是纯内容编辑，需要评测门槛、明确权限及回滚 |
+| Prompt 是运行配置，正式 head 会影响后续推理选择 | 发布不是纯内容编辑，需要确定性校验、人工审核、明确权限及回滚 |
 | Tag 使用独立的可变集合和 ETag | 标签变化不应创建 Artifact Revision |
 | Candidate 的 MemoryCitation 当前限制为 Experience | 新 family 必须显式增加合法引用与审核校验，不能全局取消约束 |
 
@@ -68,8 +70,8 @@ DreamRun：解析来源、冻结证据、生成与类型校验
 | `revise_profile`，新增 | 当前 Profile 的完整快照候选 | 主体归属、稳定偏好、临时安排与明确变更 | 人工审核后替换 head，不消费 Source window |
 | `revise_topic_memory`，新增 | 一个 Topic Memory 的完整内容候选 | 新进展、已排除假设、未决问题及来源 | 保持 topic identity，提交新版本与检索更新意图 |
 | `refresh_handoff`，新增 | 当前 Handoff 的完整修订候选 | 目标、已完成事项、阻塞、下一步 | 批准只形成正式版本，仍需现有显式激活与接收核验 |
-| `revise_skill`，新增 | 当前 managed Skill 的替换候选 | 使用反例、步骤、前置条件与检查方法 | 通过内容校验、评测和审核后发布，安装执行仍独立 |
-| `revise_prompt`，新增 | 已注册 Prompt key 的完整配置候选 | instructions、demonstrations 的失败模式 | 评测与配置写权限通过后发布，后续推理解析新 head |
+| `revise_skill`，新增 | 当前 managed Skill 的替换候选 | 使用反例、步骤、前置条件与检查方法 | 通过内容校验和人工审核后发布，安装执行仍独立 |
+| `revise_prompt`，新增 | 已注册 Prompt key 的完整配置候选 | instructions、demonstrations 的失败模式 | 内容校验、人工审核与配置写权限通过后发布，后续推理解析新 head |
 | `revise_tags`，新增 | 单一逻辑 target 的标签集合变更候选 | 错误分类、同义重复、缺失分类 | ETag 条件替换，不创建 Artifact Revision |
 
 
@@ -131,7 +133,7 @@ Dream 保留 `queued/running/succeeded/failed` 状态及 `proposed/no_change/nee
 | proposal_schema / validator | 类型化输出与确定性业务约束 |
 | processing_family / binding | 所属执行资源与现有 Supervisor 绑定 |
 | review_adapter / commit_adapter | 审核校验、锁顺序和原子提交 |
-| effect / evaluation_policy | 审核后的实际影响及必须满足的评测要求 |
+| effect | 审核后的实际影响 |
 
 
 注册表是服务端固定配置，不接收请求内 Python 路径、任意工具名、SQL 或自定义执行代码。Family registry 可发现读取能力，不等于已经支持 Dream。只有解析、生成、审核、提交和后台执行能力全部就绪时，operation 才能对外启用。
@@ -151,7 +153,7 @@ Dream 保留 `queued/running/succeeded/failed` 状态及 `proposed/no_change/nee
 
 当前生成 Client 将 Dream operation 和 Candidate proposal 解析为封闭枚举/联合类型。新操作上线前必须协调升级服务端、Python Client、CLI、集成插件和 Dashboard；旧 Client 不得在不理解新类型的情况下读取新 Run 或 Candidate。不能以忽略未知字段、伪造旧 operation 或返回空 proposal 掩盖不兼容。部署验收须明确最低 Client 版本；若生产环境无法协调升级，应先提供按能力过滤的兼容读取策略，再启用新 operation，而不是让旧 Client 在 list/get 上解析失败。
 
-Tag 不是 Artifact；C 阶段的 Catalog Change Candidate 与 Artifact Candidate 的结果类型不同。只在该阶段证明现有接口无法准确表达 ETag 与结果类型后，才增加独立的 Tag 候选接口。可信评测登记接口同样归 B1 阶段，不成为 A0/A1 前置条件。
+Tag 不是 Artifact；C 阶段的 Catalog Change Candidate 与 Artifact Candidate 的结果类型不同。只在该阶段证明现有接口无法准确表达 ETag 与结果类型后，才增加独立的 Tag 候选接口。可信评测仅作为后续可选增强，本 PR 不实现评测器注册、评测结果登记接口、评测存储或评测审批门槛。
 
 新增操作请求复用 `operation`、`artifacts`、`memory_citations`、`sources` 和 `idempotency_key`。Artifact 操作的 `target` 保持精确 ArtifactRef，并必须同时出现在 `artifacts` 中；Memory 的目标条目及版本通过 `memory_citations` 指定，必须属于该目标 Memory。引用去重后计入统一预算；目标内容不能单独证明自身断言。Profile、Topic Memory 和 Handoff 的待修订目标仅按权限、存在性与精确 head 校验；其历史引用失效不阻止以新的有效证据纠正目标。本次选中的支持证据仍须递归校验，不能通过目标角色豁免。Tag 的 TagTarget、expected_etag 和正文基准由 C 阶段的独立 Catalog Change 请求表达，不改变 Artifact Dream 的 target 类型。
 
@@ -223,23 +225,23 @@ Dream 不推进 Topic Source Cursor。后续正常融合以新 head 作为基准
 
 当前 prepare/commit 已校验的 token、basis、引用和激活条件不能因增加 Candidate 被旁路。实现需把可复用的内容校验和非激活提交提取到事务内 writer，再由 Dream 审核 adapter 调用；不得伪造接收方核验记录。已被接收的历史 Revision 保持不变，新版本不改写旧接收记录。
 
-## 8. Skill 修订与评测契约
+## 8. Skill 修订与审核契约
 `derive_skill` 保持原语义，`revise_skill` 明确指向一个已有 managed Skill。首期支持 instruction-only Skill，按包内实际文件判断支持范围，不以 package 字段是否存在判断。现有纯指令内容也会规范化为仅含根目录 SKILL.md 的标准包；这种单文件包属于支持范围。对于尚无 package 的旧纯指令内容，沿用既有规范化流程生成单文件标准包。
 
-服务端读取目标精确 package digest 对应的包快照，只有包内仅含根目录 SKILL.md 时才允许本期修订；包含额外附件、脚本或依赖文件的包返回明确的 unsupported_target，不默默丢弃文件。修订保留未授权改变的 frontmatter 和元数据，生成新的标准包，经过既有包校验、评测与审核后提交精确 package 引用；不得只修改缓存的 instructions 字段而保留旧 package 引用。多文件包的路径、签名和资产替换另行设计。
+服务端读取目标精确 package digest 对应的包快照，只有包内仅含根目录 SKILL.md 时才允许本期修订；包含额外附件、脚本或依赖文件的包返回明确的 unsupported_target，不默默丢弃文件。修订保留未授权改变的 frontmatter 和元数据，生成新的标准包，经过既有包校验与人工审核后提交精确 package 引用；不得只修改缓存的 instructions 字段而保留旧 package 引用。多文件包的路径、签名和资产替换另行设计。
 
 输入需要与目标版本关联的任务结果、使用反馈或已批准 Experience。输出保留适用范围、前置条件、指令与验证要求，不推断“被选中”就是“被执行”或“有效”。负面用例不删除，不以新增步骤数作为质量指标。
 
-审核要求可信评测记录固定到 candidate_id、candidate_version、proposal_digest、目标版本、评测集版本和评测器版本。评测服务由部署者注册，单独鉴权提交。普通用户随手填写 `passed=true` 或上传自述 Source 不能满足门槛。评测在隔离环境运行，无生产凭据和任意外部副作用，预算独立计量。
+所有本 PR 扩展的 Dream 能力（Memory、Profile、Topic Memory、Handoff、Skill、Prompt、Tag）统一沿用 Experience 提炼与 Skill 派生的逻辑：基于精确证据由模型生成改进提案，程序执行结构、来源、权限和版本等确定性校验，先形成 pending Candidate，再由人工审核批准后按所属资源的条件提交规则生效。Tag 保留独立 Catalog Change Candidate，不改变其 ETag 和正文双基准约束。
 
-确定性 schema、来源和禁止越权检查必须全部通过；业务门槛由版本化 evaluation policy 固定，失败和 unknown 都不能当成通过。Reviewer 修改实质内容或证据后，旧评测记录失效。批准不安装、不执行、不自动分发 Skill，原有显式使用路径保持。
+确定性 schema、来源和禁止越权检查必须全部通过；Reviewer 修改实质内容或证据后产生新候选版本，重新校验并审核。未接入可信评测服务、没有评测集或评分阈值，不阻塞本 PR 任一扩展操作的实现、启用或批准。批准不安装、不执行、不自动分发 Skill，原有显式使用路径保持。模型给出的改进理由、validation 文本和人工批准均不代表已证明质量提升。
 
 ## 9. Prompt 改进与生效契约
-仅支持已注册且允许自定义的 Prompt key，例如 `memory.extract`。输入包含当前精确 Prompt、已核验的错误输出及原始 Source、期望输出与独立保留测试集。错误输出作为被诊断对象，不作为事实来源；expected output 需要人工标注或其他可信来源。
+仅支持已注册且允许自定义的 Prompt key，例如 `memory.extract`。输入包含当前精确 Prompt、已核验的错误输出及原始 Source，以及有依据的期望输出或纠正反馈。错误输出作为被诊断对象，不作为事实来源；expected output 需要人工标注或其他可信来源。
 
 候选只修改现有 `mode/instructions/demonstrations`，所有 demonstration 按该 Prompt Definition 的输入输出 schema 校验。首期输出固定为 custom 模式，不修改 Prompt key、模型配置、trust rules、工具集合或资源上限。
 
-训练示例与保留测试集必须按根 Source 分离，不能把保留答案写进 demonstrations 后宣称改进。评分对比同一输入和固定执行配置下的 baseline 与 candidate，检查误提取、漏提取、主体混淆、时态混淆、token 成本和 trust-rule 回归。只有已注册的评测器可以登记评测通过记录。
+Prompt 与其他扩展操作采用相同的证据提案、确定性校验和人工审核流程。保留目标 key 的 schema、证据来源、权限、版本与 trust rules 校验；本 PR 不实现保留测试集登记、baseline/candidate 自动评分或可信评测准入。缺少合理改进依据时返回 no_change 或 needs_evidence，不因模型自述通过测试而宣称有效改进。
 
 当前 Prompt head 在后续 inference 中解析，因此批准该候选就是配置发布。审批 UI 和响应必须明确显示这一影响，Reviewer 同时需要 review authority 与现有 Prompt 写权限。先保存一个“已批准但不生效”的 head 会与现有语义冲突，本期不增加该中间状态。
 
@@ -257,18 +259,18 @@ Tag 不是 Artifact Family。新增 `CatalogChangeCandidate`，复用 Review Inb
 ## 11. 候选模型与审批事务
 对新增 Artifact family 注册专门 proposal 类型和审核 adapter，复用已有候选版本、pending/approved/rejected 及 result_artifact 语义。所有 Dream-origin Artifact 变更，无论该 Family 的既有自动生成是否需要审核，都只能先进入 pending Candidate；批准时重新核对候选版本、证据、权限和目标当前 head，条件提交新 Revision 并原子标记 approved。审核前以及冲突时不得让 Dream 结果进入正式 head 或检索生效状态。既有非 Dream 自动生成路径保持原有策略，不以 Family 级开关统一改变其行为。MemoryCitation 从“仅 Experience”改为逐 operation/family 的白名单校验，而不是无条件放开。
 
-新增 Candidate 保存 origin、operation、精确 target、proposal digest、evidence manifest 引用、validation policy digest 和可选 evaluation refs。需要模型生成的只有内容计划、已给定 evidence ID 及说明，目标身份、CAS token、事务结果和 generation 元数据均由服务端填写。
+新增 Candidate 保存 origin、operation、精确 target、proposal digest、evidence manifest 引用、validation policy digest；本 PR 不增加 evaluation refs。需要模型生成的只有内容计划、已给定 evidence ID 及说明，目标身份、CAS token、事务结果和 generation 元数据均由服务端填写。
 
-审批共同步骤：校验身份及当前权限；读取候选以确定服务端注册的 Family/origin adapter；完成所需的事务外准备；由 adapter 从事务开始决定完整锁顺序并锁定候选 expected_version；核对目标基准；复核证据及当前 active 状态；核对 schema、评测记录和 policy；调用事务内 Family writer；原子保存正式结果和审核状态。通用层不得先锁 Candidate 再交给 adapter 补锁其他资源；预读的候选版本、origin 和内容必须在事务内重新校验。
+审批共同步骤：校验身份及当前权限；读取候选以确定服务端注册的 Family/origin adapter；完成所需的事务外准备；由 adapter 从事务开始决定完整锁顺序并锁定候选 expected_version；核对目标基准；复核证据及当前 active 状态；核对 schema 和适用的确定性 policy；调用事务内 Family writer；原子保存正式结果和审核状态。通用层不得先锁 Candidate 再交给 adapter 补锁其他资源；预读的候选版本、origin 和内容必须在事务内重新校验。
 
 同一 Family 的 HTTP、SDK 及其他审核入口共用相同的事务与锁顺序。Profile 保持 Policy → Candidate → Source Cursor（仅 Source-window 候选）→ Profile head 校验与条件写入；Dream Profile 不读取或推进 Source Cursor。approve/revise/reject 中涉及相同资源的操作也必须遵守该顺序，不允许某一入口改成 Candidate → Policy。其他 Family 按既有写入流程确定锁顺序，并通过并发验收验证。
 
-发生冲突或校验失败时，候选保留 pending 并返回可操作原因，不自动 rebase。拒绝 Dream 候选不会修改 Artifact/Tag，也不会推进普通 Source cursor；既有 Source-window 候选仍按原有规则处理游标。修订不能换 target，目标变化需要新候选。候选正文修改会产生新 version，旧版本和其评测记录继续可追溯。
+发生冲突或校验失败时，候选保留 pending 并返回可操作原因，不自动 rebase。拒绝 Dream 候选不会修改 Artifact/Tag，也不会推进普通 Source cursor；既有 Source-window 候选仍按原有规则处理游标。修订不能换 target，目标变化需要新候选。候选正文修改会产生新 version，旧版本及其证据继续可追溯。
 
 ## 12. 持久化、索引与后台执行
 A0/A1 复用 `pc_dream_runs`、`pc_artifact_candidate_heads`、`pc_artifact_candidate_versions` 和各 Family 的既有存储，不新增业务表。operation spec version、类型化 target、result reference 及 proposal/origin 优先使用已有类型化 payload；只有查询、唯一约束或事务校验确实需要时才增加必要列和索引。Dream 的数据库唯一约束和请求查询沿用 `(scope_id, principal_key, idempotency_key)`，principal_key 沿用既有请求者身份编码。
 
-可信评测记录存储归属 B1，记录主体、候选 digest、评测集版本、policy 版本、结果与用量，不复制用户凭据或完整训练集；仅在无法用既有可信存储满足不可伪造记录与版本绑定时新增专用表。Tag 候选及版本存储归属 C，以其独立结果类型和 ETag 事务语义论证所需新表，不复用 Artifact head 表。两者的接口、表结构与迁移均随所属阶段交付，不作为 A0/A1 的启动、迁移或能力启用前置条件。
+Tag 候选及版本存储归属 C，以其独立结果类型和 ETag 事务语义论证所需新表，不复用 Artifact head 表；接口、表结构与迁移随该阶段交付，不作为 A0/A1 前置条件。可信评测的注册、记录存储、结果登记、版本化质量门槛与隔离执行基础设施均不在本 PR 范围内，不新增评测专用表或预留空接口。
 
 所有 schema 变化同时覆盖 SQLite 与 OceanBase。新增 Profile generation mode 和 Candidate proposal 在对应 operation 启用前，必须使持久化 reader、HTTP serializer、Client 和 Dashboard 同步识别。上线后不理解新增封闭类型的旧 Client 应收到明确的升级提示或使用兼容过滤，不得伪造旧 mode、空 Source window 或成功的空结果。
 
@@ -296,7 +298,6 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | 生成期间目标改变、证据撤回 | Run failed，无候选或正式写入 |
 | 内容太大、预算耗尽 | Run failed，明确 evidence_limit_exceeded/budget_exceeded |
 | 模型输出伪造引用、错误类型或目标外变更 | failed: invalid_generation_output |
-| 审批缺少有效评测 | 409 evaluation_required/stale_evaluation，保留 pending |
 | policy 改变或候选 expected_version 不匹配 | 409，要求重新检查 |
 | Topic 投影准备失败或准备期间候选、head、检索配置改变 | 批准失败，Candidate 保持 pending，正式 head 和检索投影均不变；重新准备后再审核 |
 
@@ -310,8 +311,8 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | --- | --- | --- |
 | A0 | Operation registry、现有 v1 契约扩展、证据角色、typed target、共用审核扩展；复用现有 Run/Candidate 表 | Client 与 Server 协调升级，旧操作回归、请求者幂等隔离与统一锁顺序通过，未注册操作关闭 |
 | A1 | Memory、Profile、Topic Memory 显式复盘；不依赖 Tag 或可信评测存储 | 条目原子提交、Profile 游标隔离、Topic 完整投影原子发布及启动一致性通过 |
-| B1 | Handoff 刷新、仅含 SKILL.md 的纯指令 Skill 包修订、可信评测接口与存储 | 激活边界、包内容准入与评测门槛通过，真实任务端到端验证完成 |
-| B2 | Prompt 改进 | 同 key schema、保留测试集、配置发布权限及回滚通过 |
+| B1 | Handoff 刷新、仅含 SKILL.md 的纯指令 Skill 包修订 | 激活边界、包内容准入、证据校验与人工审核链路通过，真实任务端到端验证完成 |
+| B2 | Prompt 改进 | 同 key schema、证据校验、人工审核、配置发布权限及回滚通过 |
 | C | Tag 单 target 分类治理、独立候选接口与存储、统一 Inbox | ETag/正文双基准、独立结果类型、历史记录通过，新表必要性明确 |
 
 
@@ -332,9 +333,10 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | Handoff 只有计划，没有执行结果 | 不把计划改成完成，不产生 accepted |
 | Skill 仅含 SKILL.md 的标准包（含现有纯指令生成结果） | 可以生成修订候选，审核通过后提交新的合法标准包 |
 | Skill 包含额外文件 | 明确拒绝，不能悄悄删附件、脚本或依赖文件 |
-| 候选编辑后复用旧评测 | 审核拒绝，要求重测 |
-| 普通调用方提交自述 passed=true | 不能获得可信评测通过记录 |
-| Prompt 保留测试集进入 demonstrations | 隔离检查失败，不能报告有效改进 |
+| 候选编辑后使用旧 expected_version 批准 | 版本冲突；新版本重新完成确定性校验与人工审核 |
+| 普通调用方提交自述 passed=true | 不替代证据校验和人工审核，不宣称质量已经提升 |
+| Prompt demonstration 不符合目标 key 的 schema | 校验失败，不发布配置 |
+| 所有扩展操作均未配置可信评测服务 | 已实现且其他配置就绪时可生成候选并按确定性校验与人工审核批准 |
 | Prompt 发布与回滚 | 新推理使用新 head，在途推理固定旧版本，回滚产生更高 Revision |
 | Tag 标签未变但正文已变 | 正文基准冲突，不按旧内容修改分类 |
 | Tag 审核成功 | 只改变标签集，不创建 Artifact Revision |
@@ -348,13 +350,13 @@ idempotency_key 按第 2 节包含请求者身份的唯一范围处理相同请�
 | 旧 Client 与扩展后的 v1 Server | 未升级时收到明确升级提示或只读取其可解析类型；升级后可读取新增 Run 与 Candidate |
 
 
-SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复验收。使用隔离数据完成一条真实链路：原始会话写入、生成初始制品、追加纠正证据、Dream 提案、人工审核、后续任务使用、结果回查。模型质量评测使用时间隔离的后续任务，对比“无 Dream”“普通重新生成”“本提案”，报告错误更新率、遗漏率、审核修改量、后续任务质量、延迟与总成本，不预设提升百分比。
+SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复验收。使用隔离数据完成一条真实链路：原始会话写入、生成初始制品、追加纠正证据、Dream 提案、人工审核、后续任务使用、结果回查。工程测试验证公开行为、约束和事务正确性，不构成产品运行时的可信评测依赖，也不将模型提案或人工批准视为质量提升证明。
 
 # Drawbacks
 + 每种 Family 都需要专门 writer 和校验，统一入口不能消除条目、游标、激活和配置发布的语义差异。
 + 全量 Memory head CAS 在活跃 Scope 中可能频繁冲突；采用更细粒度 CAS 会增加 manifest 合并复杂度，本期选择可解释的保守冲突。
 + 完整 Profile/Topic 快照增加上下文和输出成本，预算可能使大型目标暂不可处理。
-+ 人工审核与 Skill/Prompt 评测增加等待和运营负担；错误的评测集仍可能选出错误配置。
++ 人工审核增加等待和运营负担；模型提案与人工批准本身不能证明实际任务质量提升。
 + 扩展现有 v1 封闭枚举与 Profile generation 需要协调升级 Client；静默伪装成旧类型会更危险。
 + Tag 的独立候选实现增加代码，但可避免把可变分类与不可变 Artifact Revision 混成一种生命周期。
 
@@ -389,7 +391,7 @@ SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复�
 下列问题应在对应阶段启用前由维护者决策，不能委托模型临时决定：
 
 1. 扩展现有 v1 后的最低支持 Client 版本，以及旧 Client 的升级提示或兼容过滤策略。
-2. Skill 与各 Prompt key 的首组保留评测集、版本化质量门槛和评测责任人。本文规定必须有可信门槛，具体业务分数需实测确定。
+2. Skill 与各 Prompt key 的证据展示、差异比较及配置发布影响提示应如何呈现给 Reviewer。
 3. 现有 Handoff 非激活提交能力应如何从 prepare/commit 代码提取，确保与现有 token 和 receiver checks 完全一致。
 4. Catalog Change Candidate 的统一 Inbox 分页是否由服务端合并游标实现，还是先通过类型筛选页提供；无论 UI 方案如何，底层生命周期不混用。
 5. 发布后质量异常由哪个应用监控并发起显式回滚；本 RFC 不承诺自动因果归因或无人值守回滚。
@@ -397,6 +399,7 @@ SQLite 与 OceanBase 都执行并发冲突、租约隔离和原子失败恢复�
 这些问题不阻塞 A0/A1 的独立实现；涉及后续阶段的能力必须在问题解决、契约测试通过后才对外宣告可用。
 
 # Future possibilities
++ 可信评测作为后续可选增强，另行定义评测器注册与鉴权、独立保留集、版本化质量门槛、绑定精确候选版本的结果记录及隔离执行。是否接入由后续方案决定；本 PR 不实现，也不阻塞本 PR 的审核发布链路。
 + 基于新增根证据、反例和纠正的周期性 discovery，设置静默期、候选去重和待审容量限制。
 + Memory entry 合并、明确停用与恢复，Topic 拆分/合并，以及可解释的多目标原子变更组。
 + 完整 Skill package 的静态差异、隔离测试和制品签名，保持执行与发布权限独立。
