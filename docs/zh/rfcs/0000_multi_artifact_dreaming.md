@@ -153,7 +153,7 @@ Dream 保留 `queued/running/succeeded/failed` 状态及 `proposed/no_change/nee
 
 Tag 不是 Artifact；C 阶段的 Catalog Change Candidate 与 Artifact Candidate 的结果类型不同。只在该阶段证明现有接口无法准确表达 ETag 与结果类型后，才增加独立的 Tag 候选接口。可信评测登记接口同样归 B1 阶段，不成为 A0/A1 前置条件。
 
-新增操作请求复用 `operation`、`artifacts`、`memory_citations`、`sources` 和 `idempotency_key`。Artifact 操作的 `target` 保持精确 ArtifactRef，并必须同时出现在 `artifacts` 中；Memory 的目标条目及版本通过 `memory_citations` 指定，必须属于该目标 Memory。引用去重后计入统一预算；目标内容不能单独证明自身断言。Tag 的 TagTarget、expected_etag 和正文基准由 C 阶段的独立 Catalog Change 请求表达，不改变 Artifact Dream 的 target 类型。
+新增操作请求复用 `operation`、`artifacts`、`memory_citations`、`sources` 和 `idempotency_key`。Artifact 操作的 `target` 保持精确 ArtifactRef，并必须同时出现在 `artifacts` 中；Memory 的目标条目及版本通过 `memory_citations` 指定，必须属于该目标 Memory。引用去重后计入统一预算；目标内容不能单独证明自身断言。Profile、Topic Memory 和 Handoff 的待修订目标仅按权限、存在性与精确 head 校验；其历史引用失效不阻止以新的有效证据纠正目标。本次选中的支持证据仍须递归校验，不能通过目标角色豁免。Tag 的 TagTarget、expected_etag 和正文基准由 C 阶段的独立 Catalog Change 请求表达，不改变 Artifact Dream 的 target 类型。
 
 示例中的标识须替换为服务返回的真实值：
 
@@ -217,7 +217,7 @@ Family 名称使用现有 `topic-memory`。候选保持 `title/summary/detail` �
 Dream 不推进 Topic Source Cursor。后续正常融合以新 head 作为基准处理新增 Source，不从旧快照重建后覆盖审核结论。相关后台 CAS 与投影一致性验收是开启该 operation 的前置条件。
 
 ## 7. Handoff 刷新契约
-只针对精确 Handoff Revision，保持 work identity、目标任务与原有结构化内容约束。对已完成、未完成、阻塞和下一步的每一项变更提供结果来源。没有新的状态证据时返回 no_change 或 needs_evidence，不能仅凭时间流逝宣称任务完成。
+只针对精确 Handoff Revision，保持 work identity、目标任务与原有结构化内容约束。生成输出、候选修订及最终提交均要求 objective 与目标版本一致；改变任务应走独立的显式操作。对已完成、未完成、阻塞和下一步的每一项变更提供结果来源。没有新的状态证据时返回 no_change 或 needs_evidence，不能仅凭时间流逝宣称任务完成。
 
 候选生成不改变当前激活交接，不写 accepted acknowledgement，不变更任务授权。批准形成正式 Handoff Revision，应用随后按现有接口显式激活该版本，接收方仍核对 live state、capability 和 authorization。
 
@@ -274,7 +274,7 @@ A0/A1 复用 `pc_dream_runs`、`pc_artifact_candidate_heads`、`pc_artifact_cand
 
 Supervisor 保持一个 processing family 一个 canonical binding，不为 Dream 另建常驻 scheduler。Memory、Profile、Topic、Experience、Skill 复用各自资源归属；Handoff、Prompt 等尚无完整后台 Dream 能力的 Family，须补齐规范 binding、Worker 配置与能力声明后才能启用。Tag 作业路由到其 owning Artifact family binding，并在注册表区分 operation，不能为 `tag` 伪造 Family。
 
-同一 binding 内显式 Run 按固定顺序执行。为避免普通 Source 处理饥饿，新增轮转策略：最多连续处理 4 个显式 Run 后，若存在可执行的 Source 工作则执行一次 Source pass，再继续 Dream。计数通过现有调用状态表的 `consecutive_dream_attempts` 列持久化，不新增表，不因 Worker 重启重置；Source pass 完成时归零，并保留尚待处理的 Dream 请求。没有 Source 工作时不人为阻塞 Dream；现有 v1 Run 的语义与预算保持。
+同一 binding 内显式 Run 按固定顺序执行。为避免普通 Source 处理饥饿，新增轮转策略：最多连续处理 4 个显式 Run 后，若存在可执行的 Source 工作则执行一次 Source pass，再继续 Dream。计数通过现有调用状态表的 `consecutive_dream_attempts` 列持久化，不新增表，不因 Worker 重启重置；启动先补齐该增量列，再执行 processing schema 完整性检查，旧数据库保留已有待处理请求；Source pass 完成时归零，并保留尚待处理的 Dream 请求。没有 Source 工作时不人为阻塞 Dream；现有 v1 Run 的语义与预算保持。
 
 Run 的候选落库、结果记录、租约 fence 检查、调用确认和后继调度意图在同一事务提交。Family 审核复用各自已有的投影发布契约，不统一引入异步 outbox；Topic Memory 按第 6 节在事务外准备完整投影，在批准事务内原子发布。只有既有 Family 已采用异步投影时才沿用其 processing intent，不为本次扩展新增通用索引任务表。审批等待不占 Dream Worker。查询只读取，不因 prepare_context 或 search 自动启动 Dream。
 
