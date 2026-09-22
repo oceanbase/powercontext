@@ -5151,6 +5151,7 @@ components:
       - revise_profile
       - revise_memory
       - revise_topic_memory
+      - refresh_handoff
     DreamStatus:
       type: string
       enum:
@@ -5172,6 +5173,7 @@ components:
       - memory
       - profile
       - topic_memory
+      - handoff
       - unresolved
     DreamEvidenceRole:
       type: string
@@ -5555,6 +5557,7 @@ components:
             - $ref: "#/components/schemas/ProfileCandidateProposal"
             - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
             - $ref: "#/components/schemas/TopicMemoryDreamProposal"
+            - $ref: "#/components/schemas/HandoffContent"
         source_refs:
           type: array
           maxItems: 32
@@ -8764,6 +8767,7 @@ components:
             - $ref: "#/components/schemas/ProfileWriteContent"
             - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
             - $ref: "#/components/schemas/TopicMemoryDreamProposal"
+            - $ref: "#/components/schemas/HandoffContent"
         source_refs:
           type: array
           maxItems: 32
@@ -9665,7 +9669,7 @@ components:
       enum: [today, 7d, 30d]
     CandidateFamily:
       type: string
-      enum: [experience, skill, profile, memory, topic-memory]
+      enum: [experience, skill, profile, memory, topic-memory, handoff]
     ExternalSkillInstallationScope:
       type: string
       enum: [user, project, plugin]

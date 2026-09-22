@@ -23,6 +23,7 @@ from powercontext.builtin.dream.models import DreamOperation
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 
 SKILL_DREAM_BINDING = "skill.dream.v1"
+HANDOFF_DREAM_BINDING = "handoff.dream.v1"
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ DREAM_OPERATIONS = (
     DreamOperationSpec("revise_profile", "profile", PROFILE_SOURCE_WINDOW_BINDING),
     DreamOperationSpec("revise_memory", "memory", SOURCE_WINDOW_TRIGGER_NAME),
     DreamOperationSpec("revise_topic_memory", "topic-memory", TOPIC_MEMORY_SOURCE_WINDOW_BINDING),
+    DreamOperationSpec("refresh_handoff", "handoff", HANDOFF_DREAM_BINDING),
 )
 DREAM_BINDINGS = {spec.operation: spec.binding for spec in DREAM_OPERATIONS}
 

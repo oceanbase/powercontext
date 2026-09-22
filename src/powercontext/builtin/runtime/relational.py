@@ -52,6 +52,7 @@ from powercontext.builtin.artifacts.handoff import (
     ActivateHandoff,
     Handoff,
     HandoffActivation,
+    HandoffContent,
     HandoffEvidenceUnavailableError,
     HandoffGenerationPipeline,
     HandoffService,
@@ -308,6 +309,7 @@ class _ScopedServices:
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
     topic_writer: TopicMemoryManagementWriter
+    handoff_writer: HandoffManagementWriter
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -394,6 +396,7 @@ class _ScopedServices:
             connection=connection,
             memory=lambda bound: self.memory(self.sources(bound)[1], bound),
             topic_writer=self.topic_writer,
+            handoff_writer=self.handoff_writer,
         )
 
     def recurrence_ledger(self) -> RelationalRecurrenceLedger:
@@ -550,6 +553,7 @@ class RelationalContexts:
                 Profile.family: ProfileCandidateProposal,
                 Memory.family: MemoryDreamCandidateProposal,
                 TopicMemory.family: TopicMemoryContent,
+                Handoff.family: HandoffContent,
             }),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),
@@ -594,6 +598,16 @@ class RelationalContexts:
             usage_reporter=self.model_usage_reporter,
         )
         self._topic_memory_writer = topic_memory_writer
+        handoff_writer = HandoffManagementWriter(
+            database=database,
+            artifacts=self.repositories.artifacts,
+            sources=self.repositories.sources,
+            memory_index=self.index,
+            id_factory=self._id_factory,
+            memory_artifact_id=memory_artifact_id,
+            handoff_artifact_id=handoff_artifact_id,
+        )
+        self._handoff_writer = handoff_writer
         family_writers = FamilyManagementWriterRegistry((
             topic_memory_writer,
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
@@ -611,15 +625,7 @@ class RelationalContexts:
                 self.experience_index,
                 self.repositories.skill_packages,
             ),
-            HandoffManagementWriter(
-                database=database,
-                artifacts=self.repositories.artifacts,
-                sources=self.repositories.sources,
-                memory_index=self.index,
-                id_factory=self._id_factory,
-                memory_artifact_id=memory_artifact_id,
-                handoff_artifact_id=handoff_artifact_id,
-            ),
+            handoff_writer,
         ))
         self.profiles = RelationalProfileService(
             database,
@@ -1413,6 +1419,7 @@ class RelationalContexts:
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
             topic_writer=self._topic_memory_writer,
+            handoff_writer=self._handoff_writer,
         )
 
 

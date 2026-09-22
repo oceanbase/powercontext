@@ -5032,13 +5032,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "DreamOperation": {
                 "type": "string",
-                "enum": ["refine_experience", "derive_skill", "revise_profile", "revise_memory", "revise_topic_memory"],
+                "enum": [
+                    "refine_experience",
+                    "derive_skill",
+                    "revise_profile",
+                    "revise_memory",
+                    "revise_topic_memory",
+                    "refresh_handoff",
+                ],
             },
             "DreamStatus": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
             "DreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
             "DreamEvidenceKind": {
                 "type": "string",
-                "enum": ["source", "experience", "memory", "profile", "topic_memory", "unresolved"],
+                "enum": ["source", "experience", "memory", "profile", "topic_memory", "handoff", "unresolved"],
             },
             "DreamEvidenceRole": {
                 "type": "string",
@@ -5302,6 +5309,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/ProfileCandidateProposal"},
                             {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
                             {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
+                            {"$ref": "#/components/schemas/HandoffContent"},
                         ]
                     },
                     "source_refs": {
@@ -8037,6 +8045,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/ProfileWriteContent"},
                             {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
                             {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
+                            {"$ref": "#/components/schemas/HandoffContent"},
                         ]
                     },
                     "source_refs": {
@@ -9010,7 +9019,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
             },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
-            "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile", "memory", "topic-memory"]},
+            "CandidateFamily": {
+                "type": "string",
+                "enum": ["experience", "skill", "profile", "memory", "topic-memory", "handoff"],
+            },
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
             "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},
             "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},

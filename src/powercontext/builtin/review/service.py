@@ -31,7 +31,9 @@ from powercontext.builtin.artifacts.experience.recurrence import (
     normalize_match_text,
 )
 from powercontext.builtin.artifacts.handoff.models import (
+    Handoff,
     HandoffArtifactCitation,
+    HandoffContent,
     HandoffMemoryCitation,
     HandoffSourceCitation,
 )
@@ -52,6 +54,7 @@ from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
+from powercontext.builtin.persistence.family_management import HandoffManagementWriter
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
@@ -77,7 +80,7 @@ from powercontext.sources import SourceRef
 
 IdFactory = Callable[[str], str]
 ReviewedProposal: TypeAlias = (
-    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent
+    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent | HandoffContent
 )
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
@@ -101,6 +104,7 @@ class ReviewService:
         evidence: EvidenceResolver | None = None,
         memory: Callable[[AsyncConnection | None], MemoryService] | None = None,
         topic_writer: TopicMemoryManagementWriter | None = None,
+        handoff_writer: HandoffManagementWriter | None = None,
         authorization_context: Callable[[], AbstractAsyncContextManager[None]] = nullcontext,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -115,6 +119,7 @@ class ReviewService:
         self._evidence = evidence
         self._memory = memory
         self._topic_writer = topic_writer
+        self._handoff_writer = handoff_writer
         self._authorization_context = authorization_context
         self._bound_connection = connection
 
@@ -263,6 +268,31 @@ class ReviewService:
             candidate_id=candidate_id,
         )
         return ArtifactCandidate[TopicMemoryContent].model_validate(candidate.model_dump(mode="python"))
+
+    async def propose_handoff_dream(
+        self,
+        proposal: HandoffContent,
+        /,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        memory_citations: tuple[MemoryCitation, ...],
+        target: ArtifactRef,
+        reason: str,
+        candidate_id: str,
+    ) -> ArtifactCandidate[HandoffContent]:
+        _validate_handoff_citations(proposal, sources, artifacts, memory_citations, target)
+        candidate = await self._propose(
+            Handoff.family,
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            memory_citations=memory_citations,
+            target=target,
+            reason=reason,
+            candidate_id=candidate_id,
+        )
+        return ArtifactCandidate[HandoffContent].model_validate(candidate.model_dump(mode="python"))
 
     async def _propose(
         self,
@@ -426,6 +456,8 @@ class ReviewService:
                     for change in proposal.changes
                 ):
                     raise InvalidCandidateError("proposal", "Memory Dream change is outside selected evidence")
+            if isinstance(proposal, HandoffContent):
+                _validate_handoff_citations(proposal, canonical_sources, canonical_artifacts, citations, target)
             canonical_sources = await self._validate_evidence(
                 connection,
                 canonical_sources,
@@ -478,7 +510,7 @@ class ReviewService:
             )
         return _reviewed_candidate(rejected)
 
-    async def approve(
+    async def approve(  # noqa: C901 - each Family keeps its own transactional publication boundary
         self,
         candidate_id: str,
         expected_version: int,
@@ -492,6 +524,8 @@ class ReviewService:
             return await self._approve_memory_dream(candidate_id, expected_version)
         if current.family == TopicMemory.family:
             return await self._approve_topic_memory_dream(candidate_id, expected_version)
+        if current.family == Handoff.family:
+            return await self._approve_handoff_dream(candidate_id, expected_version)
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
             if current.family == "profile":
@@ -644,6 +678,41 @@ class ReviewService:
             )
             approved = await self._candidates.mark_approved(
                 connection, self._scope_id, candidate_id, expected_version, published.topic.as_ref()
+            )
+        return _reviewed_candidate(approved)
+
+    async def _approve_handoff_dream(self, candidate_id: str, expected_version: int) -> ReviewedCandidate:
+        if self._handoff_writer is None:
+            raise InvalidCandidateError("family", "Handoff Dream writer is unavailable")
+        async with self._connection() as connection:
+            preview = _reviewed_candidate(await self._candidates.get(connection, self._scope_id, candidate_id))
+            if preview.target is None:
+                raise InvalidCandidateError("target", "Handoff Dream requires an existing target")
+            current = await self._artifacts.latest(
+                connection, self._scope_id, Handoff.family, preview.target.artifact_id, for_update=True
+            )
+            if current.as_ref() != preview.target:
+                raise ArtifactTargetConflictError(preview.target, current.as_ref())
+            candidate = _reviewed_candidate(
+                await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
+            )
+            if not isinstance(current, Handoff) or not isinstance(candidate.proposal, HandoffContent):
+                raise InvalidCandidateError("family", "Handoff Dream proposal required")
+            _validate_handoff_citations(
+                candidate.proposal,
+                candidate.sources,
+                candidate.artifacts,
+                candidate.memory_citations,
+                candidate.target,
+            )
+            await self._validate_evidence(
+                connection, candidate.sources, candidate.artifacts, candidate.memory_citations
+            )
+            committed = await self._handoff_writer.commit_reviewed(
+                connection, self._scope_id, current, candidate.proposal, candidate.sources
+            )
+            approved = await self._candidates.mark_approved(
+                connection, self._scope_id, candidate_id, expected_version, committed.as_ref()
             )
         return _reviewed_candidate(approved)
 
@@ -802,9 +871,35 @@ def _validate_proposal_family(family: str, proposal: object) -> None:
         "profile": ProfileCandidateProposal,
         Memory.family: MemoryDreamCandidateProposal,
         TopicMemory.family: TopicMemoryContent,
+        Handoff.family: HandoffContent,
     }.get(family)
     if expected is None or type(proposal) is not expected:
         raise InvalidCandidateError("family", family)
+
+
+def _validate_handoff_citations(
+    proposal: HandoffContent,
+    sources: tuple[SourceRef, ...],
+    artifacts: tuple[ArtifactRef, ...],
+    memory_citations: tuple[MemoryCitation, ...],
+    target: ArtifactRef | None,
+) -> None:
+    if proposal.generation is not None or target is None:
+        raise InvalidCandidateError("proposal", "Dream Handoff cannot claim generated or activated content")
+    statements = (*proposal.state, *((proposal.next_action,) if proposal.next_action is not None else ()))
+    for statement in statements:
+        for citation in statement.citations:
+            if isinstance(citation, HandoffSourceCitation) and citation.source_ref in sources:
+                continue
+            if (
+                isinstance(citation, HandoffArtifactCitation)
+                and citation.artifact_ref in artifacts
+                and citation.artifact_ref != target
+            ):
+                continue
+            if isinstance(citation, HandoffMemoryCitation) and citation.memory_citation in memory_citations:
+                continue
+            raise InvalidCandidateError("proposal", "Handoff claim cites evidence outside the selected inputs")
 
 
 async def _has_resolved_failure_evidence(  # noqa: C901 - each citation kind has a distinct resolution boundary

@@ -30,6 +30,12 @@ from pydantic import SecretStr
 from sqlalchemy.engine import make_url
 
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.handoff.models import (
+    HandoffContent,
+    HandoffDraft,
+    HandoffSourceCitation,
+    HandoffStatement,
+)
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
 from powercontext.builtin.artifacts.memory.models import MemoryDreamEntryChange, MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import (
@@ -401,6 +407,98 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(database: D
                 after = await topics.get_exact(connection, scope_id, approved.result_artifact)
             assert after.topic.content.summary == "The replay can create a duplicate."
             assert after.is_current
+
+    asyncio.run(scenario())
+
+
+def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig) -> None:
+    class HandoffDreamGenerator:
+        config_id = "handoff-dream-test"
+
+        def __init__(self):
+            self.correction = None
+
+        async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
+            assert value.operation == "refresh_handoff" and self.correction is not None
+            source_id = next(item.evidence_id for item in value.evidence.evidence if item.kind == "source")
+            citation = HandoffSourceCitation(source_ref=self.correction)
+            return GenerationResult(
+                output=DreamPlan(
+                    outcome="proposed",
+                    reason="The new source confirms the handoff progress.",
+                    intent="correct",
+                    proposal=HandoffContent(
+                        objective="Finish the support request.",
+                        state=(HandoffStatement(text="The replacement has been issued.", citations=(citation,)),),
+                        disposition="continuable",
+                        next_action=HandoffStatement(
+                            text="Confirm the tracking number with the recipient.", citations=(citation,)
+                        ),
+                    ),
+                    evidence_ids=(source_id,),
+                ),
+                usage=InferenceUsage(requests=1),
+            )
+
+    async def scenario() -> None:
+        generator = HandoffDreamGenerator()
+        async with open_builtin_runtime(config(database), dream_generator=generator) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Handoff Dream", summary="Review without activation", idempotency_key="handoff-dream")
+            )
+            scope_id = scope.scope_id
+            original_source = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="handoff-original", content="The replacement is pending.", metadata={})
+            )
+            handoffs = runtime.handoff.for_scope(scope_id)
+            initial = await handoffs.finalize(
+                HandoffDraft(
+                    objective="Finish the support request.",
+                    state=(
+                        HandoffStatement(
+                            text="The replacement is pending.",
+                            citations=(HandoffSourceCitation(source_ref=original_source.source_ref),),
+                        ),
+                    ),
+                    disposition="continuable",
+                )
+            )
+            current = await handoffs.commit(initial)
+            correction = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="handoff-correction", content="The replacement has been issued.", metadata={})
+            )
+            generator.correction = correction.source_ref
+            run = await runtime.dream.for_scope(scope_id).create(
+                CreateDreamRunRequest(
+                    operation="refresh_handoff",
+                    target=current.as_ref(),
+                    artifacts=(current.as_ref(),),
+                    sources=(correction.source_ref,),
+                    idempotency_key="refresh-handoff",
+                )
+            )
+            for _ in range(3):
+                await process_pending(runtime)
+                completed = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=run.run_id))
+                if completed.terminal:
+                    break
+            assert completed.outcome == "proposed" and completed.candidate is not None, (
+                completed.status,
+                completed.error,
+            )
+            assert (await handoffs.latest()).revision == 1
+            approved = await runtime.review.for_scope(scope_id).approve(
+                ApproveArtifactCandidateRequest(
+                    candidate_id=completed.candidate.candidate_id,
+                    expected_version=completed.candidate.version,
+                )
+            )
+            assert approved.result_artifact is not None
+            updated = await handoffs.latest()
+            assert updated is not None and updated.revision == 2
+            assert updated.content.generation is None
+            assert updated.content.state[0].text == "The replacement has been issued."
 
     asyncio.run(scenario())
 

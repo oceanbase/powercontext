@@ -1069,8 +1069,10 @@ def skill_proposal(value: SkillContent) -> SkillProposal:
 
 
 def reviewed_content(
-    value: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryDreamProposal,
-) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent | RuntimeMemoryDreamCandidateProposal | RuntimeTopicMemoryContent:
+    value: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryDreamProposal | TransportHandoffContent,
+) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent | RuntimeMemoryDreamCandidateProposal | RuntimeTopicMemoryContent | HandoffContent:
+    if isinstance(value, TransportHandoffContent):
+        return runtime_handoff_content(value)
     if isinstance(value, TopicMemoryDreamProposal):
         return RuntimeTopicMemoryContent.model_validate(value.model_dump(mode="json"))
     if isinstance(value, MemoryDreamCandidateProposal):
@@ -1084,7 +1086,9 @@ def reviewed_content(
 
 def reviewed_proposal(
     value: object,
-) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryDreamProposal:
+) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryDreamProposal | TransportHandoffContent:
+    if isinstance(value, HandoffContent):
+        return handoff_content(value)
     if isinstance(value, RuntimeTopicMemoryContent):
         return TopicMemoryDreamProposal.model_validate(value.model_dump(mode="json"))
     if isinstance(value, RuntimeMemoryDreamCandidateProposal):

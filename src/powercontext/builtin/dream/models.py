@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
@@ -38,7 +39,7 @@ from powercontext.errors import PowerContextError
 from powercontext.sources import SourceRef
 
 DreamOperation = Literal[
-    "refine_experience", "derive_skill", "revise_profile", "revise_memory", "revise_topic_memory"
+    "refine_experience", "derive_skill", "revise_profile", "revise_memory", "revise_topic_memory", "refresh_handoff"
 ]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
@@ -86,6 +87,7 @@ class CreateDreamRunRequest(BaseModel):
             "revise_profile": {"experience", "profile"},
             "revise_memory": {"experience", "memory"},
             "revise_topic_memory": {"experience", "topic-memory"},
+            "refresh_handoff": {"experience", "handoff"},
         }[self.operation]
         if any(ref.family not in allowed_families for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
@@ -120,6 +122,12 @@ class CreateDreamRunRequest(BaseModel):
             self.target is None
             or self.target.family != "topic-memory"
             or any(ref.family == "topic-memory" and ref != self.target for ref in self.artifacts)
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "refresh_handoff" and (
+            self.target is None
+            or self.target.family != "handoff"
+            or any(ref.family == "handoff" and ref != self.target for ref in self.artifacts)
         ):
             raise DreamError("invalid_dream_operation")
         return self
@@ -205,7 +213,7 @@ class DreamPlan(BaseModel):
     outcome: DreamOutcome
     reason: str = Field(min_length=1, max_length=2000)
     intent: DreamIntent | None = None
-    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamWrite | TopicMemoryContent | None = None
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamWrite | TopicMemoryContent | HandoffContent | None = None
     evidence_ids: tuple[str, ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
@@ -243,6 +251,12 @@ class DreamPlan(BaseModel):
             )
         elif request.operation == "revise_topic_memory":
             valid = isinstance(self.proposal, TopicMemoryContent) and self.intent == "correct"
+        elif request.operation == "refresh_handoff":
+            valid = (
+                isinstance(self.proposal, HandoffContent)
+                and self.proposal.generation is None
+                and self.intent == "correct"
+            )
         else:
             intents = {"create"} if request.target is None else {"corroborate", "refine", "correct"}
             valid = isinstance(self.proposal, ExperienceContent) and self.intent in intents

@@ -571,6 +571,25 @@ class HandoffManagementWriter:
             force_revision=True,
         )
 
+    async def commit_reviewed(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        current: Handoff,
+        content: HandoffContent,
+        sources: tuple[SourceRef, ...],
+    ) -> Handoff:
+        """Commit an approved Handoff without activating or acknowledging it."""
+
+        if current.artifact_id != self._handoff_artifact_id or content.generation is not None:
+            raise InvalidBaseAccessRequestError("handoff", "reviewed replacement must target the local singleton")
+        prepared = PreparedHandoff(scope_id=scope_id, base=current.as_ref(), content=content)
+        return await self._service(scope_id, connection).commit(
+            prepared,
+            additional_sources=sources,
+            force_revision=True,
+        )
+
 
 async def _apply_memory_plan(service: MemoryService, plan: Any, direct_source: SourceRef) -> Memory:
     if plan.commit is None:

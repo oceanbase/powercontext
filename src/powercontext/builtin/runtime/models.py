@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, m
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory.models import (
     MemoryCitation,
     MemoryDreamCandidateProposal,
@@ -59,7 +60,7 @@ from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
 ReviewedProposal: TypeAlias = (
-    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent
+    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent | HandoffContent
 )
 
 PREPARED_CONTEXT_SCHEMA: PreparedContextSchema = "powercontext.prepared-context.v1"
@@ -410,7 +411,7 @@ class ListArtifactCandidatesRequest(BaseModel):
     """Filter and page the current Review Inbox."""
 
     status: CandidateStatus = CandidateStatus.PENDING
-    family: Literal["experience", "skill", "profile", "memory", "topic-memory"] | None = None
+    family: Literal["experience", "skill", "profile", "memory", "topic-memory", "handoff"] | None = None
     cursor: str | None = None
     limit: Annotated[int, Field(ge=1, le=MAX_CANDIDATE_PAGE_SIZE)] = DEFAULT_CANDIDATE_PAGE_SIZE
 
@@ -429,7 +430,7 @@ class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
 
 
 class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
-    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryContent
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryContent | HandoffContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
     memory_citations: tuple[MemoryCitation, ...] | None = None

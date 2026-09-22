@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import Experience
+from powercontext.builtin.artifacts.handoff.models import Handoff
 from powercontext.builtin.artifacts.memory import Memory, MemoryEntryVersion
 from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCitationError, MemoryEntryNotFoundError
 from powercontext.builtin.artifacts.profile.models import Profile
@@ -317,6 +318,14 @@ class EvidenceResolver:
             return (
                 EvidenceNode(
                     evidence_id=evidence_id(ref), kind="topic_memory", artifact=ref, digest=digest, role="derived"
+                ),
+                artifact.content.model_dump_json(),
+                (),
+            )
+        if isinstance(artifact, Handoff):
+            return (
+                EvidenceNode(
+                    evidence_id=evidence_id(ref), kind="handoff", artifact=ref, digest=digest, role="derived"
                 ),
                 artifact.content.model_dump_json(),
                 (),

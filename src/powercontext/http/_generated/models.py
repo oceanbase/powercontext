@@ -359,6 +359,7 @@ class DreamOperation(StrEnum):
     REVISE_PROFILE = "revise_profile"
     REVISE_MEMORY = "revise_memory"
     REVISE_TOPIC_MEMORY = "revise_topic_memory"
+    REFRESH_HANDOFF = "refresh_handoff"
 
 
 class DreamStatus(StrEnum):
@@ -380,6 +381,7 @@ class DreamEvidenceKind(StrEnum):
     MEMORY = "memory"
     PROFILE = "profile"
     TOPIC_MEMORY = "topic_memory"
+    HANDOFF = "handoff"
     UNRESOLVED = "unresolved"
 
 
@@ -2037,6 +2039,7 @@ class CandidateFamily(StrEnum):
     PROFILE = "profile"
     MEMORY = "memory"
     TOPIC_MEMORY = "topic-memory"
+    HANDOFF = "handoff"
 
 
 class ExternalSkillInstallationScope(StrEnum):
@@ -3253,53 +3256,6 @@ class ReadinessResponse(BaseModel):
     checks: dict[str, StrictStr]
 
 
-class ReviseArtifactCandidateRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    memory_citations: Annotated[
-        list[MemoryCitation] | None,
-        Field(
-            description="Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty for supported Memory-citing Candidate families.",
-            max_length=32,
-        ),
-    ] = None
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
-    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    expected_version: Annotated[StrictInt, Field(ge=1)]
-    proposal: (
-        ExperienceProposal
-        | SkillProposal
-        | ProfileWriteContent
-        | MemoryDreamCandidateProposal
-        | TopicMemoryDreamProposal
-    )
-    source_refs: Annotated[
-        list[SourceReference],
-        Field(
-            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
-            max_length=32,
-        ),
-    ]
-    artifact_refs: Annotated[
-        list[ArtifactReference],
-        Field(
-            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
-            max_length=32,
-        ),
-    ]
-    target: ArtifactReference | None = None
-    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
-
-    @model_validator(mode="after")
-    def _reject_excess_candidate_evidence(self):
-        if len(self.source_refs) + len(self.artifact_refs) + len(self.memory_citations or ()) > 32:
-            raise ValueError(  # noqa: TRY003
-                "source_refs and artifact_refs together must not exceed 32 references"
-            )
-        return self
-
-
 class SearchMemoryHit(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3531,69 +3487,6 @@ class DreamRunPage(BaseModel):
     next_cursor: StrictStr | None = None
 
 
-class ArtifactCandidate(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    memory_citations: Annotated[
-        list[MemoryCitation],
-        Field(
-            description="Exact Memory entry provenance for Experience, Profile Dream or Memory Dream changes. Counted toward the combined evidence bound.",
-            max_length=32,
-            validate_default=True,
-        ),
-    ] = []
-    permissions: Annotated[
-        CandidatePermissions | None,
-        Field(description="Current Principal permissions in enforced mode; advisory and checked again on mutation."),
-    ] = None
-    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
-    version: Annotated[StrictInt, Field(ge=1)]
-    family: CandidateFamily
-    status: CandidateStatus
-    proposal: (
-        ExperienceProposal
-        | SkillProposal
-        | ProfileCandidateProposal
-        | MemoryDreamCandidateProposal
-        | TopicMemoryDreamProposal
-    )
-    source_refs: Annotated[
-        list[SourceReference],
-        Field(
-            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
-            max_length=32,
-        ),
-    ]
-    artifact_refs: Annotated[
-        list[ArtifactReference],
-        Field(
-            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
-            max_length=32,
-        ),
-    ]
-    target: Annotated[ArtifactReference | None, Field(...)]
-    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
-    result_artifact: Annotated[ArtifactReference | None, Field(...)]
-    decision_reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
-
-    @model_validator(mode="after")
-    def _reject_excess_candidate_evidence(self):
-        if len(self.source_refs) + len(self.artifact_refs) + len(self.memory_citations or ()) > 32:
-            raise ValueError(  # noqa: TRY003
-                "source_refs and artifact_refs together must not exceed 32 references"
-            )
-        return self
-
-
-class ArtifactCandidatePage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    candidates: list[ArtifactCandidate]
-    next_cursor: Annotated[StrictStr | None, Field(...)]
-
-
 class HandoffCitation(RootModel[HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation]):
     root: Annotated[
         HandoffSourceCitation | HandoffArtifactCitation | HandoffMemoryCitation, Field(discriminator="kind")
@@ -3714,14 +3607,6 @@ class PrepareContextRequest(BaseModel):
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
-
-
-class GeneratedCandidateResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    status: GeneratedCandidateStatus
-    candidate: Annotated[ArtifactCandidate | None, Field(...)]
 
 
 class CreatePromptArtifactRequest(BaseModel):
@@ -3913,6 +3798,54 @@ class PreparedHandoff(BaseModel):
     content: HandoffContent
 
 
+class ReviseArtifactCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    memory_citations: Annotated[
+        list[MemoryCitation] | None,
+        Field(
+            description="Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty for supported Memory-citing Candidate families.",
+            max_length=32,
+        ),
+    ] = None
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    proposal: (
+        ExperienceProposal
+        | SkillProposal
+        | ProfileWriteContent
+        | MemoryDreamCandidateProposal
+        | TopicMemoryDreamProposal
+        | HandoffContent
+    )
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: ArtifactReference | None = None
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) + len(self.memory_citations or ()) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
 class CreateHandoffArtifactRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3926,6 +3859,70 @@ class ReplaceHandoffArtifactRequest(BaseModel):
         extra="forbid",
     )
     content: HandoffContent
+
+
+class ArtifactCandidate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    memory_citations: Annotated[
+        list[MemoryCitation],
+        Field(
+            description="Exact Memory entry provenance for Experience, Profile Dream or Memory Dream changes. Counted toward the combined evidence bound.",
+            max_length=32,
+            validate_default=True,
+        ),
+    ] = []
+    permissions: Annotated[
+        CandidatePermissions | None,
+        Field(description="Current Principal permissions in enforced mode; advisory and checked again on mutation."),
+    ] = None
+    candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    version: Annotated[StrictInt, Field(ge=1)]
+    family: CandidateFamily
+    status: CandidateStatus
+    proposal: (
+        ExperienceProposal
+        | SkillProposal
+        | ProfileCandidateProposal
+        | MemoryDreamCandidateProposal
+        | TopicMemoryDreamProposal
+        | HandoffContent
+    )
+    source_refs: Annotated[
+        list[SourceReference],
+        Field(
+            description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    artifact_refs: Annotated[
+        list[ArtifactReference],
+        Field(
+            description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
+            max_length=32,
+        ),
+    ]
+    target: Annotated[ArtifactReference | None, Field(...)]
+    reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+    result_artifact: Annotated[ArtifactReference | None, Field(...)]
+    decision_reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+
+    @model_validator(mode="after")
+    def _reject_excess_candidate_evidence(self):
+        if len(self.source_refs) + len(self.artifact_refs) + len(self.memory_citations or ()) > 32:
+            raise ValueError(  # noqa: TRY003
+                "source_refs and artifact_refs together must not exceed 32 references"
+            )
+        return self
+
+
+class ArtifactCandidatePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    candidates: list[ArtifactCandidate]
+    next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
 class PreparedWorkHandoff(BaseModel):
@@ -4005,6 +4002,14 @@ class HandoffActivation(BaseModel):
     previous_position: Annotated[StrictInt, Field(ge=0)]
     current_position: Annotated[StrictInt, Field(ge=0)]
     draft: Annotated[HandoffDraft | None, Field(...)]
+
+
+class GeneratedCandidateResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    status: GeneratedCandidateStatus
+    candidate: Annotated[ArtifactCandidate | None, Field(...)]
 
 
 class CreateArtifactRequest(

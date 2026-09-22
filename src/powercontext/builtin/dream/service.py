@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamCandidateProposal, MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
@@ -335,6 +336,7 @@ class DreamService:
                         "revise_profile": "profile",
                         "revise_memory": "memory",
                         "revise_topic_memory": "topic-memory",
+                        "refresh_handoff": "handoff",
                     }[
                         run.operation
                     ]
@@ -352,7 +354,7 @@ class DreamService:
             await self.repository.finish(connection, record, completed)
             await self._complete_invocation(connection)
 
-    async def _propose(
+    async def _propose(  # noqa: C901 - operation-specific Candidate adapters share one atomic Run commit
         self,
         connection: AsyncConnection,
         record: DreamRecord,
@@ -431,6 +433,18 @@ class DreamService:
                 plan.proposal,
                 sources=selected.sources,
                 artifacts=selected.artifacts,
+                target=record.run.target,
+                reason=plan.reason,
+                candidate_id=_candidate_id(record),
+            )
+        elif isinstance(plan.proposal, HandoffContent) and record.run.operation == "refresh_handoff":
+            if record.run.target is None:
+                raise DreamError("invalid_generation_output")
+            candidate = await review.propose_handoff_dream(
+                plan.proposal,
+                sources=selected.sources,
+                artifacts=selected.artifacts,
+                memory_citations=selected.memory_citations,
                 target=record.run.target,
                 reason=plan.reason,
                 candidate_id=_candidate_id(record),

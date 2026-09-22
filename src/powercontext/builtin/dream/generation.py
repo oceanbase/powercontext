@@ -40,6 +40,9 @@ Do not add, merge, deactivate, restore, or rename entries; use correct as the in
 For revise_topic_memory, compare the exact current Topic with verified new evidence and propose
 complete title, summary, and detail content. Preserve confirmed results, hypotheses, ruled-out
 causes, open questions, and next steps as distinct claims. Use correct as the intent.
+For refresh_handoff, propose complete Handoff content with exact citations for every state
+and next-action claim. A proposed action is not a completed action. Do not claim activation,
+receiver acknowledgement, or an executed business tool. Return generation as null and use correct.
 Provide name, description, instructions, and at least one concrete validation check in validation.
 Use a package-compatible name: at most 64 lowercase letters, digits, and single separating hyphens.
 Keep description within 1024 characters. Trim text fields and omit trailing whitespace in instructions.
