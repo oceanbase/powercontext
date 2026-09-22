@@ -7,8 +7,10 @@ from types import SimpleNamespace
 from typing import cast
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, ConfigDict
 
 from powercontext.builtin.catalog_changes.application import CatalogChangeApplication
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
@@ -26,6 +28,62 @@ from powercontext.server.dream_compatibility import negotiate_dream_contract
 from tests.e2e.test_catalog_changes import proposal, seed
 from tests.test_dashboard import create_scope
 from tests.test_dashboard import dashboard as dashboard
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_capabilities_remain_decodable_by_legacy_clients(enabled):
+    # Freeze the pre-extension field set: old generated clients reject extra fields.
+    class LegacyCapabilities(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        prompts: dict[str, object] = {}
+        artifact_dreaming: bool = False
+        source_types: list[str]
+        artifact_families: list[str]
+        memory_extraction: bool
+        experience_generation: bool = False
+        managed_skill_generation: bool = False
+        external_skill_registry: bool = False
+        handoff_generation: bool
+        search_modes: list[str]
+        context_versions: list[str]
+
+    legacy = LegacyCapabilities(
+        artifact_dreaming=enabled,
+        source_types=["content"],
+        artifact_families=["memory"],
+        memory_extraction=False,
+        handoff_generation=False,
+        search_modes=["fts"],
+        context_versions=["powercontext.prepared-context.v1"],
+    )
+    operations = (
+        [
+            {"operation": "refine_experience", "output_kind": "artifact_candidate", "effect": "review_then_publish"},
+            {
+                "operation": "revise_tags",
+                "output_kind": "catalog_change_candidate",
+                "effect": "review_then_replace_tags",
+            },
+        ]
+        if enabled
+        else []
+    )
+    payload = {**legacy.model_dump(), "artifact_dreaming_operations": operations}
+    app = FastAPI()
+    app.middleware("http")(negotiate_dream_contract)
+
+    @app.get("/v1/capabilities")
+    async def capabilities():
+        return payload
+
+    with TestClient(app) as client:
+        old = client.get("/v1/capabilities")
+        assert old.status_code == 200
+        assert LegacyCapabilities.model_validate(old.json()) == legacy
+        current = client.get("/v1/capabilities", headers={"X-PowerContext-Dream-Contract": "2"})
+        assert current.status_code == 200
+        assert current.json() == payload
 
 
 def test_catalog_http_client_preserves_separate_result_and_version_history(tmp_path):

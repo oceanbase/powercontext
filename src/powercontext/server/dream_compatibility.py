@@ -93,10 +93,8 @@ def _legacy_payload(value: Any) -> Any:
         return value
     result = dict(value)
     _legacy_profile(result)
-    if "artifact_dreaming_operations" in result:
-        result["artifact_dreaming_operations"] = [
-            item for item in result["artifact_dreaming_operations"] if item["operation"] in LEGACY_DREAM_OPERATIONS
-        ]
+    # Legacy Capabilities is a closed schema, even when no Dream operations are enabled.
+    result.pop("artifact_dreaming_operations", None)
     if "run_id" in result and "operation" in result and "accepted_at" in result:
         _legacy_run(result)
     if "candidate_id" in result and "proposal" in result and "family" in result:
