@@ -4567,6 +4567,36 @@ components:
         created_at:
           type: "string"
           format: "date-time"
+    MemoryDreamEntryChange:
+      type: object
+      additionalProperties: false
+      required: [entry_id, entry_version_id, kind, text, reason, sources]
+      properties:
+        entry_id: {type: string, minLength: 1, maxLength: 128}
+        entry_version_id: {type: string, minLength: 1, maxLength: 128}
+        kind: {type: string, minLength: 1}
+        text: {type: string, minLength: 1}
+        reason: {type: string, minLength: 1, maxLength: 2000}
+        sources:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/DreamSourceReference"
+    MemoryDreamCandidateProposal:
+      type: object
+      additionalProperties: false
+      required: [base, dream_run_id, changes]
+      properties:
+        base:
+          $ref: "#/components/schemas/ArtifactReference"
+        dream_run_id: {type: string, minLength: 1}
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/MemoryDreamEntryChange"
     CreateProfileArtifactRequest:
       type: "object"
       additionalProperties: false
@@ -5111,6 +5141,7 @@ components:
       - refine_experience
       - derive_skill
       - revise_profile
+      - revise_memory
     DreamStatus:
       type: string
       enum:
@@ -5210,8 +5241,8 @@ components:
       - operation
       - idempotency_key
       type: object
-      description: Select 1-20 exact Artifact or Memory citations after deduplication, with at most 32 combined references
-        including Sources. A Profile revision requires its exact current Profile target and supporting evidence.
+      description: Select exact Artifact or Memory citations after deduplication, with at most 32 combined references
+        including Sources. Profile and Memory revisions require their exact current target and supporting evidence.
     DreamBudget:
       additionalProperties: false
       properties:
@@ -5488,7 +5519,7 @@ components:
           type: array
           maxItems: 32
           default: []
-          description: Exact Memory entry provenance for Experience or reviewed Profile Dream changes. Counted toward the combined evidence bound.
+          description: Exact Memory entry provenance for Experience, Profile Dream or Memory Dream changes. Counted toward the combined evidence bound.
           items:
             $ref: "#/components/schemas/MemoryCitation"
         permissions:
@@ -5512,6 +5543,7 @@ components:
             - $ref: "#/components/schemas/ExperienceProposal"
             - $ref: "#/components/schemas/SkillProposal"
             - $ref: "#/components/schemas/ProfileCandidateProposal"
+            - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -8698,7 +8730,7 @@ components:
           type: array
           maxItems: 32
           nullable: true
-          description: Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty only for Experience.
+          description: Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty for supported Memory-citing Candidate families.
           items:
             $ref: "#/components/schemas/MemoryCitation"
         scope_id:
@@ -8719,6 +8751,7 @@ components:
             - $ref: "#/components/schemas/ExperienceProposal"
             - $ref: "#/components/schemas/SkillProposal"
             - $ref: "#/components/schemas/ProfileWriteContent"
+            - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -9620,7 +9653,7 @@ components:
       enum: [today, 7d, 30d]
     CandidateFamily:
       type: string
-      enum: [experience, skill, profile]
+      enum: [experience, skill, profile, memory]
     ExternalSkillInstallationScope:
       type: string
       enum: [user, project, plugin]

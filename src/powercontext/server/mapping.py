@@ -33,6 +33,9 @@ from powercontext.builtin.artifacts.handoff.generation_metadata import (
     HandoffGenerationEnvelope,
     HandoffGenerationMetadata,
 )
+from powercontext.builtin.artifacts.memory.models import (
+    MemoryDreamCandidateProposal as RuntimeMemoryDreamCandidateProposal,
+)
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal as RuntimeProfileCandidateProposal
 from powercontext.builtin.artifacts.profile.models import ProfileWriteContent as RuntimeProfileWriteContent
 from powercontext.builtin.artifacts.skill import (
@@ -231,6 +234,7 @@ from powercontext.http import (
     ListMemoryChangesResponse,
     ListMemoryEntriesResponse,
     ManagedSkillLibraryEntry,
+    MemoryDreamCandidateProposal,
     MemoryEntry,
     MemoryEntryState,
     MemoryMatchedBy,
@@ -1063,8 +1067,10 @@ def skill_proposal(value: SkillContent) -> SkillProposal:
 
 
 def reviewed_content(
-    value: ExperienceProposal | SkillProposal | ProfileWriteContent,
-) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent:
+    value: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal,
+) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent | RuntimeMemoryDreamCandidateProposal:
+    if isinstance(value, MemoryDreamCandidateProposal):
+        return RuntimeMemoryDreamCandidateProposal.model_validate(value.model_dump(mode="json"))
     if isinstance(value, ProfileWriteContent):
         return RuntimeProfileWriteContent.model_validate(value.model_dump(mode="json"))
     if isinstance(value, ExperienceProposal):
@@ -1072,7 +1078,11 @@ def reviewed_content(
     return skill_content(value)
 
 
-def reviewed_proposal(value: object) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal:
+def reviewed_proposal(
+    value: object,
+) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal | MemoryDreamCandidateProposal:
+    if isinstance(value, RuntimeMemoryDreamCandidateProposal):
+        return MemoryDreamCandidateProposal.model_validate(value.model_dump(mode="json"))
     if isinstance(value, RuntimeProfileCandidateProposal):
         return ProfileCandidateProposal.model_validate(value.model_dump(mode="json", by_alias=True))
     if isinstance(value, ExperienceContent):

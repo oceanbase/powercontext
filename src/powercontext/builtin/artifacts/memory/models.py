@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Literal, TypeAlias
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from powercontext.artifacts import Artifact, ArtifactRef
 from powercontext.artifacts import MemoryCitation as MemoryCitation
@@ -137,6 +137,40 @@ class MemoryEntryVersion(BaseModel):
     created_in_revision: int
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
+
+
+class MemoryDreamEntryChange(BaseModel):
+    """One current logical entry replacement supported by exact Sources."""
+
+    entry_id: str = Field(min_length=1, max_length=128)
+    entry_version_id: str = Field(min_length=1, max_length=128)
+    kind: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=2000)
+    sources: tuple[SourceRef, ...] = Field(min_length=1, max_length=32)
+
+
+class MemoryDreamWrite(BaseModel):
+    """Model-proposed changes; target identity and run provenance stay server-owned."""
+
+    changes: tuple[MemoryDreamEntryChange, ...] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def distinct_entries(self):
+        if len({change.entry_id for change in self.changes}) != len(self.changes):
+            raise ValueError("Memory Dream changes must target distinct entries")  # noqa: TRY003
+        return self
+
+
+class MemoryDreamCandidateProposal(MemoryDreamWrite):
+    base: ArtifactRef
+    dream_run_id: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_base(self):
+        if self.base.family != Memory.family:
+            raise ValueError("Memory Dream requires a Memory base")  # noqa: TRY003
+        return self
 
 
 class MemoryRevisionChanges(BaseModel):

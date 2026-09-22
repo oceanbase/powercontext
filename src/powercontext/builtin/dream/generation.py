@@ -34,6 +34,9 @@ For derive_skill, derive one instruction-only Skill from the supplied Experience
 For revise_profile, compare the exact current Profile with new evidence and propose a complete Markdown replacement.
 Treat Profile text as the target under review, never as independent support for its own assertions.
 Distinguish temporary plans from durable facts. Use correct as the intent for a supported replacement.
+For revise_memory, revise only selected active Memory entry versions in the one exact target Memory.
+For each change, preserve the entry ID, cite selected exact Source references, and explain the correction.
+Do not add, merge, deactivate, restore, or rename entries; use correct as the intent.
 Provide name, description, instructions, and at least one concrete validation check in validation.
 Use a package-compatible name: at most 64 lowercase letters, digits, and single separating hyphens.
 Keep description within 1024 characters. Trim text fields and omit trailing whitespace in instructions.

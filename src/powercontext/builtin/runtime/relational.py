@@ -67,6 +67,7 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
     MemoryWritePlan,
 )
+from powercontext.builtin.artifacts.memory.models import MemoryDreamCandidateProposal
 from powercontext.builtin.artifacts.profile import Profile
 from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal
@@ -389,6 +390,7 @@ class _ScopedServices:
             id_factory=self.id_factory,
             evidence=self.evidence(),
             connection=connection,
+            memory=lambda bound: self.memory(self.sources(bound)[1], bound),
         )
 
     def recurrence_ledger(self) -> RelationalRecurrenceLedger:
@@ -543,6 +545,7 @@ class RelationalContexts:
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,
                 Profile.family: ProfileCandidateProposal,
+                Memory.family: MemoryDreamCandidateProposal,
             }),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),

@@ -31,6 +31,7 @@ from sqlalchemy.engine import make_url
 
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.memory import MemoryCandidateRequest, MemoryEntryInput
+from powercontext.builtin.artifacts.memory.models import MemoryDreamEntryChange, MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import (
     ProfileContent,
     ProfileDraft,
@@ -230,6 +231,92 @@ def test_profile_dream_requires_review_and_preserves_source_cursor(database: Dat
             assert after is not None and after.content.content.endswith("Shenzhen.\n")
             assert after.content.generation.mode == "dream_review_approved"
             assert after.content.generation.dream_run_id == run.run_id
+
+    asyncio.run(scenario())
+
+
+def test_memory_dream_revises_only_selected_entry_after_review(database: DatabaseConfig) -> None:
+    class MemoryDreamGenerator:
+        config_id = "memory-dream-test"
+
+        def __init__(self):
+            self.citation = None
+            self.correction = None
+
+        async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
+            assert value.operation == "revise_memory"
+            assert self.citation is not None and self.correction is not None
+            evidence = tuple(
+                item.evidence_id for item in value.evidence.evidence if item.kind in {"memory", "source"}
+            )
+            return GenerationResult(
+                output=DreamPlan(
+                    outcome="proposed",
+                    reason="The correction changes one current Memory entry.",
+                    intent="correct",
+                    proposal=MemoryDreamWrite(
+                        changes=(
+                            MemoryDreamEntryChange(
+                                entry_id=self.citation.entry_id,
+                                entry_version_id=self.citation.entry_version_id,
+                                kind="task_record",
+                                text="The corrected replay did create a duplicate; avoid blind retries.",
+                                reason="A later verified result contradicts the earlier record.",
+                                sources=(self.correction,),
+                            ),
+                        )
+                    ),
+                    evidence_ids=evidence,
+                ),
+                usage=InferenceUsage(requests=1),
+            )
+
+    async def scenario() -> None:
+        generator = MemoryDreamGenerator()
+        async with open_builtin_runtime(config(database), candidate_pipeline=MemoryPipeline(), dream_generator=generator) as runtime:
+            scope, _, citation = await seed(runtime)
+            correction = await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="correction", content="The replay created two records.", metadata={})
+            )
+            generator.citation = citation
+            generator.correction = correction.source_ref
+            run = await runtime.dream.for_scope(scope).create(
+                CreateDreamRunRequest(
+                    operation="revise_memory",
+                    target=citation.memory_ref,
+                    artifacts=(citation.memory_ref,),
+                    memory_citations=(citation,),
+                    sources=(correction.source_ref,),
+                    idempotency_key="correct-entry",
+                )
+            )
+            await process_pending(runtime)
+            completed = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=run.run_id))
+            assert completed.outcome == "proposed" and completed.candidate is not None
+            from powercontext.server.mapping import candidate_response
+
+            candidate = await runtime.review.for_scope(scope).get(
+                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
+            )
+            transport_proposal = candidate_response(candidate).proposal
+            from powercontext.http import MemoryDreamCandidateProposal as TransportMemoryDreamCandidateProposal
+
+            assert isinstance(transport_proposal, TransportMemoryDreamCandidateProposal)
+            assert transport_proposal.dream_run_id == run.run_id
+            before = await runtime.memory.for_scope(scope).list()
+            assert any(item.citation == citation for item in before.entries)
+            approved = await runtime.review.for_scope(scope).approve(
+                ApproveArtifactCandidateRequest(
+                    candidate_id=completed.candidate.candidate_id,
+                    expected_version=completed.candidate.version,
+                )
+            )
+            assert approved.result_artifact is not None
+            after = await runtime.memory.for_scope(scope).list()
+            replacement = next(item for item in after.entries if item.citation.entry_id == citation.entry_id)
+            assert replacement.entry.text.startswith("The corrected replay")
+            assert replacement.citation.entry_version_id != citation.entry_version_id
+            assert len(after.entries) == len(before.entries)
 
     asyncio.run(scenario())
 

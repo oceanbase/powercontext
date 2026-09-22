@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.memory.models import MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.evidence.models import (
@@ -35,7 +36,7 @@ from powercontext.builtin.evidence.models import (
 from powercontext.errors import PowerContextError
 from powercontext.sources import SourceRef
 
-DreamOperation = Literal["refine_experience", "derive_skill", "revise_profile"]
+DreamOperation = Literal["refine_experience", "derive_skill", "revise_profile", "revise_memory"]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
 DreamIntent = Literal["create", "corroborate", "refine", "correct", "derive"]
@@ -73,9 +74,15 @@ class CreateDreamRunRequest(BaseModel):
     @model_validator(mode="after")
     def validate_selection(self):
         selected = len(self.artifacts) + len(self.memory_citations)
-        if not 1 <= selected <= 20 or selected + len(self.sources) > 32:
+        selected_limit = 21 if self.operation == "revise_memory" else 20
+        if not 1 <= selected <= selected_limit or selected + len(self.sources) > 32:
             raise DreamError("evidence_limit_exceeded")
-        allowed_families = {"experience"} if self.operation != "revise_profile" else {"experience", "profile"}
+        allowed_families = {
+            "refine_experience": {"experience"},
+            "derive_skill": {"experience"},
+            "revise_profile": {"experience", "profile"},
+            "revise_memory": {"experience", "memory"},
+        }[self.operation]
         if any(ref.family not in allowed_families for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
         if any(
@@ -95,6 +102,14 @@ class CreateDreamRunRequest(BaseModel):
             self.target is None
             or self.target.family != "profile"
             or any(ref.family == "profile" and ref != self.target for ref in self.artifacts)
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_memory" and (
+            self.target is None
+            or self.target.family != "memory"
+            or not self.memory_citations
+            or any(citation.memory_ref != self.target for citation in self.memory_citations)
+            or any(ref.family == "memory" and ref != self.target for ref in self.artifacts)
         ):
             raise DreamError("invalid_dream_operation")
         return self
@@ -180,7 +195,7 @@ class DreamPlan(BaseModel):
     outcome: DreamOutcome
     reason: str = Field(min_length=1, max_length=2000)
     intent: DreamIntent | None = None
-    proposal: ExperienceContent | SkillContent | ProfileWriteContent | None = None
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamWrite | None = None
     evidence_ids: tuple[str, ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
@@ -206,6 +221,15 @@ class DreamPlan(BaseModel):
                 isinstance(self.proposal, ProfileWriteContent)
                 and self.proposal.restored_from_revision is None
                 and self.intent == "correct"
+            )
+        elif request.operation == "revise_memory":
+            selected = {(citation.entry_id, citation.entry_version_id) for citation in request.memory_citations}
+            valid = (
+                isinstance(self.proposal, MemoryDreamWrite)
+                and self.intent == "correct"
+                and all(
+                    (change.entry_id, change.entry_version_id) in selected for change in self.proposal.changes
+                )
             )
         else:
             intents = {"create"} if request.target is None else {"corroborate", "refine", "correct"}

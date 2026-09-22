@@ -348,6 +348,7 @@ class DreamOperation(StrEnum):
     REFINE_EXPERIENCE = "refine_experience"
     DERIVE_SKILL = "derive_skill"
     REVISE_PROFILE = "revise_profile"
+    REVISE_MEMORY = "revise_memory"
 
 
 class DreamStatus(StrEnum):
@@ -2023,6 +2024,7 @@ class CandidateFamily(StrEnum):
     EXPERIENCE = "experience"
     SKILL = "skill"
     PROFILE = "profile"
+    MEMORY = "memory"
 
 
 class ExternalSkillInstallationScope(StrEnum):
@@ -2545,6 +2547,27 @@ class FlushProfileResponse(BaseModel):
     processed_source_count: Annotated[StrictInt, Field(ge=0)]
     artifact: ArtifactReference | None = None
     candidate_id: StrictStr | None = None
+
+
+class MemoryDreamEntryChange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entry_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    entry_version_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    kind: Annotated[StrictStr, Field(min_length=1)]
+    text: Annotated[StrictStr, Field(min_length=1)]
+    reason: Annotated[StrictStr, Field(max_length=2000, min_length=1)]
+    sources: Annotated[list[DreamSourceReference], Field(max_length=32, min_length=1)]
+
+
+class MemoryDreamCandidateProposal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    base: ArtifactReference
+    dream_run_id: Annotated[StrictStr, Field(min_length=1)]
+    changes: Annotated[list[MemoryDreamEntryChange], Field(max_length=20, min_length=1)]
 
 
 class ArtifactCollectionItem(BaseModel):
@@ -3225,14 +3248,14 @@ class ReviseArtifactCandidateRequest(BaseModel):
     memory_citations: Annotated[
         list[MemoryCitation] | None,
         Field(
-            description="Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty only for Experience.",
+            description="Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty for supported Memory-citing Candidate families.",
             max_length=32,
         ),
     ] = None
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     expected_version: Annotated[StrictInt, Field(ge=1)]
-    proposal: ExperienceProposal | SkillProposal | ProfileWriteContent
+    proposal: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal
     source_refs: Annotated[
         list[SourceReference],
         Field(
@@ -3497,7 +3520,7 @@ class ArtifactCandidate(BaseModel):
     memory_citations: Annotated[
         list[MemoryCitation],
         Field(
-            description="Exact Memory entry provenance for Experience or reviewed Profile Dream changes. Counted toward the combined evidence bound.",
+            description="Exact Memory entry provenance for Experience, Profile Dream or Memory Dream changes. Counted toward the combined evidence bound.",
             max_length=32,
             validate_default=True,
         ),
@@ -3510,7 +3533,7 @@ class ArtifactCandidate(BaseModel):
     version: Annotated[StrictInt, Field(ge=1)]
     family: CandidateFamily
     status: CandidateStatus
-    proposal: ExperienceProposal | SkillProposal | ProfileCandidateProposal
+    proposal: ExperienceProposal | SkillProposal | ProfileCandidateProposal | MemoryDreamCandidateProposal
     source_refs: Annotated[
         list[SourceReference],
         Field(

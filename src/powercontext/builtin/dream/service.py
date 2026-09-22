@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.memory.models import MemoryDreamCandidateProposal, MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.dream.bindings import DREAM_BINDINGS, operations_for_binding
@@ -327,7 +328,12 @@ class DreamService:
             candidate = None
             if plan.outcome == "proposed":
                 if self.attest_candidate is not None:
-                    family = {"derive_skill": "skill", "refine_experience": "experience", "revise_profile": "profile"}[
+                    family = {
+                        "derive_skill": "skill",
+                        "refine_experience": "experience",
+                        "revise_profile": "profile",
+                        "revise_memory": "memory",
+                    }[
                         run.operation
                     ]
                     await self.attest_candidate(connection, record, _candidate_id(record), family)
@@ -398,6 +404,23 @@ class DreamService:
                 reason=plan.reason,
                 candidate_id=_candidate_id(record),
                 memory_citations=selected.memory_citations,
+            )
+        elif isinstance(plan.proposal, MemoryDreamWrite) and record.run.operation == "revise_memory":
+            if record.run.target is None:
+                raise DreamError("invalid_generation_output")
+            proposal = MemoryDreamCandidateProposal(
+                base=record.run.target,
+                dream_run_id=record.run.run_id,
+                changes=plan.proposal.changes,
+            )
+            candidate = await review.propose_memory_dream(
+                proposal,
+                sources=selected.sources,
+                artifacts=selected.artifacts,
+                memory_citations=selected.memory_citations,
+                target=record.run.target,
+                reason=plan.reason,
+                candidate_id=_candidate_id(record),
             )
         else:
             raise DreamError("invalid_generation_output")

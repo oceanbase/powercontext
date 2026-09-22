@@ -35,6 +35,12 @@ from powercontext.builtin.artifacts.handoff.models import (
     HandoffMemoryCitation,
     HandoffSourceCitation,
 )
+from powercontext.builtin.artifacts.memory.models import (
+    Memory,
+    MemoryDreamCandidateProposal,
+    MemoryEntryInput,
+)
+from powercontext.builtin.artifacts.memory.service import MemoryService
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.profile.review import decide_profile, revise_profile
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
@@ -68,7 +74,7 @@ from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 from powercontext.sources import SourceRef
 
 IdFactory = Callable[[str], str]
-ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal
+ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
 ReviewedCandidate: TypeAlias = ArtifactCandidate[ReviewedProposal]
@@ -89,6 +95,7 @@ class ReviewService:
         sources: GenerationSourceAccess,
         id_factory: IdFactory,
         evidence: EvidenceResolver | None = None,
+        memory: Callable[[AsyncConnection | None], MemoryService] | None = None,
         authorization_context: Callable[[], AbstractAsyncContextManager[None]] = nullcontext,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -101,6 +108,7 @@ class ReviewService:
         self._sources = sources
         self._id_factory = id_factory
         self._evidence = evidence
+        self._memory = memory
         self._authorization_context = authorization_context
         self._bound_connection = connection
 
@@ -196,6 +204,37 @@ class ReviewService:
             memory_citations=memory_citations,
         )
         return ArtifactCandidate[ProfileCandidateProposal].model_validate(candidate.model_dump(mode="python"))
+
+    async def propose_memory_dream(
+        self,
+        proposal: MemoryDreamCandidateProposal,
+        /,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        memory_citations: tuple[MemoryCitation, ...],
+        target: ArtifactRef,
+        reason: str,
+        candidate_id: str,
+    ) -> ArtifactCandidate[MemoryDreamCandidateProposal]:
+        if proposal.base != target or not memory_citations:
+            raise InvalidCandidateError("target", "Memory Dream requires exact current entries")
+        selected = {(citation.entry_id, citation.entry_version_id) for citation in memory_citations}
+        if any((change.entry_id, change.entry_version_id) not in selected for change in proposal.changes):
+            raise InvalidCandidateError("proposal", "Memory change is outside selected entries")
+        if any(source not in sources for change in proposal.changes for source in change.sources):
+            raise InvalidCandidateError("proposal", "Memory change cites an unselected Source")
+        candidate = await self._propose(
+            Memory.family,
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            memory_citations=memory_citations,
+            target=target,
+            reason=reason,
+            candidate_id=candidate_id,
+        )
+        return ArtifactCandidate[MemoryDreamCandidateProposal].model_validate(candidate.model_dump(mode="python"))
 
     async def _propose(
         self,
@@ -344,6 +383,21 @@ class ReviewService:
             if target != current.target:
                 raise InvalidCandidateError("target", "cannot change across Candidate versions")
             citations = current.memory_citations if memory_citations is None else unique_references(memory_citations)
+            if isinstance(proposal, MemoryDreamCandidateProposal):
+                previous = current.proposal
+                if (
+                    not isinstance(previous, MemoryDreamCandidateProposal)
+                    or proposal.base != current.target
+                    or proposal.dream_run_id != previous.dream_run_id
+                ):
+                    raise InvalidCandidateError("proposal", "Memory Dream origin and base are immutable")
+                selected = {(citation.entry_id, citation.entry_version_id) for citation in citations}
+                if any(
+                    (change.entry_id, change.entry_version_id) not in selected
+                    or any(source not in canonical_sources for source in change.sources)
+                    for change in proposal.changes
+                ):
+                    raise InvalidCandidateError("proposal", "Memory Dream change is outside selected evidence")
             canonical_sources = await self._validate_evidence(
                 connection,
                 canonical_sources,
@@ -406,6 +460,10 @@ class ReviewService:
 
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
+        if current.family == Memory.family:
+            return await self._approve_memory_dream(candidate_id, expected_version)
+        async with self._connection() as connection:
+            current = await self._candidates.get(connection, self._scope_id, candidate_id)
             if current.family == "profile":
                 return _reviewed_candidate(await decide_profile(self, connection, candidate_id, expected_version))
             candidate = _reviewed_candidate(
@@ -454,6 +512,68 @@ class ReviewService:
                 candidate_id,
                 expected_version,
                 artifact.as_ref(),
+            )
+        return _reviewed_candidate(approved)
+
+    async def _approve_memory_dream(  # noqa: C901 - preparation and publication have distinct transaction boundaries
+        self, candidate_id: str, expected_version: int
+    ) -> ReviewedCandidate:
+        if self._memory is None:
+            raise InvalidCandidateError("family", "Memory Dream writer is unavailable")
+        async with self._connection() as connection:
+            preview = _reviewed_candidate(await self._candidates.get(connection, self._scope_id, candidate_id))
+            if preview.version != expected_version:
+                raise CandidateConflictError(candidate_id, expected_version, preview.version)
+            if not isinstance(preview.proposal, MemoryDreamCandidateProposal) or preview.target is None:
+                raise InvalidCandidateError("family", "Memory Dream proposal required")
+            rows = await self._sources.require_for_generation(connection, self._scope_id, preview.sources)
+        source_by_ref = {(row.ref.source_type, row.ref.source_id): row.value for row in rows}
+        memory = self._memory(None)
+        base, versions = await memory.head_entries(preview.target.artifact_id)
+        if base.as_ref() != preview.target:
+            raise ArtifactTargetConflictError(preview.target, base.as_ref())
+        versions_by_id = {entry.entry_id: entry for entry in versions}
+        entries = []
+        for change in preview.proposal.changes:
+            previous = versions_by_id.get(change.entry_id)
+            if previous is None or previous.entry_version_id != change.entry_version_id:
+                raise InvalidCandidateError("proposal", "Memory entry baseline changed")
+            entries.append(
+                MemoryEntryInput(
+                    kind=change.kind,
+                    text=change.text,
+                    entry=previous,
+                    sources=tuple(source_by_ref[(ref.source_type, ref.source_id)] for ref in change.sources),
+                    reason=change.reason,
+                )
+            )
+        plan = await memory.plan_remember(
+            memory=base,
+            sources=tuple(source_by_ref.values()),
+            entries=tuple(entries),
+            mode="append",
+        )
+        if plan.commit is None:
+            raise InvalidCandidateError("proposal", "Memory Dream proposal makes no change")
+        async with self._connection() as connection:
+            current = await self._artifacts.latest(
+                connection, self._scope_id, Memory.family, preview.target.artifact_id, for_update=True
+            )
+            if current.as_ref() != preview.target:
+                raise ArtifactTargetConflictError(preview.target, current.as_ref())
+            candidate = _reviewed_candidate(
+                await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
+            )
+            if candidate != preview:
+                raise CandidateConflictError(candidate_id, expected_version, candidate.version)
+            await self._validate_evidence(
+                connection, candidate.sources, candidate.artifacts, candidate.memory_citations
+            )
+            committed = await self._memory(connection).apply(plan)
+            if committed is None:
+                raise InvalidCandidateError("proposal", "Memory Dream commit produced no Artifact")
+            approved = await self._candidates.mark_approved(
+                connection, self._scope_id, candidate_id, expected_version, committed.as_ref()
             )
         return _reviewed_candidate(approved)
 
@@ -610,6 +730,7 @@ def _validate_proposal_family(family: str, proposal: object) -> None:
         Experience.family: ExperienceContent,
         Skill.family: SkillContent,
         "profile": ProfileCandidateProposal,
+        Memory.family: MemoryDreamCandidateProposal,
     }.get(family)
     if expected is None or type(proposal) is not expected:
         raise InvalidCandidateError("family", family)

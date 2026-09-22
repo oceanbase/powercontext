@@ -4596,6 +4596,39 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["schema", "content", "generator_id", "generator_version", "created_at"],
             },
+            "MemoryDreamEntryChange": {
+                "properties": {
+                    "entry_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "entry_version_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "kind": {"type": "string", "minLength": 1},
+                    "text": {"type": "string", "minLength": 1},
+                    "reason": {"type": "string", "maxLength": 2000, "minLength": 1},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/DreamSourceReference"},
+                        "type": "array",
+                        "maxItems": 32,
+                        "minItems": 1,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["entry_id", "entry_version_id", "kind", "text", "reason", "sources"],
+            },
+            "MemoryDreamCandidateProposal": {
+                "properties": {
+                    "base": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "dream_run_id": {"type": "string", "minLength": 1},
+                    "changes": {
+                        "items": {"$ref": "#/components/schemas/MemoryDreamEntryChange"},
+                        "type": "array",
+                        "maxItems": 20,
+                        "minItems": 1,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["base", "dream_run_id", "changes"],
+            },
             "CreateProfileArtifactRequest": {
                 "properties": {
                     "family": {"type": "string", "enum": ["profile"]},
@@ -4987,7 +5020,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "required": ["principal", "receiver_identity_matches"],
                 "description": "Server-owned attestation stored separately from the immutable untrusted Receipt.",
             },
-            "DreamOperation": {"type": "string", "enum": ["refine_experience", "derive_skill", "revise_profile"]},
+            "DreamOperation": {
+                "type": "string",
+                "enum": ["refine_experience", "derive_skill", "revise_profile", "revise_memory"],
+            },
             "DreamStatus": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
             "DreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
             "DreamEvidenceKind": {
@@ -5047,14 +5083,14 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["operation", "idempotency_key"],
-                "description": "Select 1-20 exact Artifact "
-                "or Memory citations after "
+                "description": "Select exact Artifact or "
+                "Memory citations after "
                 "deduplication, with at most "
                 "32 combined references "
-                "including Sources. A Profile "
-                "revision requires its exact "
-                "current Profile target and "
-                "supporting evidence.",
+                "including Sources. Profile "
+                "and Memory revisions require "
+                "their exact current target "
+                "and supporting evidence.",
             },
             "DreamBudget": {
                 "properties": {
@@ -5214,10 +5250,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "entry "
                         "provenance "
                         "for "
-                        "Experience "
-                        "or "
-                        "reviewed "
+                        "Experience, "
                         "Profile "
+                        "Dream "
+                        "or "
+                        "Memory "
                         "Dream "
                         "changes. "
                         "Counted "
@@ -5253,6 +5290,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/ExperienceProposal"},
                             {"$ref": "#/components/schemas/SkillProposal"},
                             {"$ref": "#/components/schemas/ProfileCandidateProposal"},
+                            {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
                         ]
                     },
                     "source_refs": {
@@ -7971,9 +8009,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "empty "
                         "array. "
                         "Non-empty "
-                        "only "
                         "for "
-                        "Experience.",
+                        "supported "
+                        "Memory-citing "
+                        "Candidate "
+                        "families.",
                         "nullable": True,
                     },
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -7984,6 +8024,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/ExperienceProposal"},
                             {"$ref": "#/components/schemas/SkillProposal"},
                             {"$ref": "#/components/schemas/ProfileWriteContent"},
+                            {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
                         ]
                     },
                     "source_refs": {
@@ -8957,7 +8998,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
             },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
-            "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile"]},
+            "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile", "memory"]},
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
             "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},
             "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},
