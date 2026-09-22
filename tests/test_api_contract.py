@@ -271,6 +271,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
 
     assert set(properties) == {
         "artifact_dreaming",
+        "artifact_dreaming_operations",
         "source_types",
         "artifact_families",
         "memory_extraction",

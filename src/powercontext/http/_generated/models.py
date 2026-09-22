@@ -473,6 +473,24 @@ class ApproveArtifactCandidateRequest(BaseModel):
     expected_version: Annotated[StrictInt, Field(ge=1)]
 
 
+class OutputKind(StrEnum):
+    ARTIFACT_CANDIDATE = "artifact_candidate"
+
+
+class Effect(StrEnum):
+    REVIEW_THEN_PUBLISH = "review_then_publish"
+    REVIEW_THEN_COMMIT_WITHOUT_ACTIVATION = "review_then_commit_without_activation"
+
+
+class ArtifactDreamingOperationCapability(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: DreamOperation
+    output_kind: OutputKind
+    effect: Effect
+
+
 class FamilyCount(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2680,6 +2698,13 @@ class Capabilities(BaseModel):
     artifact_dreaming: Annotated[
         StrictBool, Field(description="Whether asynchronous Artifact Dream execution is configured.")
     ] = False
+    artifact_dreaming_operations: Annotated[
+        list[ArtifactDreamingOperationCapability],
+        Field(
+            description="Dream operations enabled by the current Runtime, including their reviewed effect.",
+            validate_default=True,
+        ),
+    ] = []
     source_types: list[StrictStr]
     artifact_families: list[StrictStr]
     memory_extraction: Annotated[StrictBool, Field(description="Whether pending Sources can be extracted into Memory.")]

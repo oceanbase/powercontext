@@ -107,6 +107,12 @@ class CommitConnectorCheckpoint(BaseModel):
     checkpoint: JsonValue | None
 
 
+class DreamOperationCapability(BaseModel):
+    operation: str
+    output_kind: Literal["artifact_candidate"] = "artifact_candidate"
+    effect: Literal["review_then_publish", "review_then_commit_without_activation"] = "review_then_publish"
+
+
 class RuntimeCapabilities(BaseModel):
     """Behavior available from the assembled Source-to-Memory Runtime."""
 
@@ -114,6 +120,7 @@ class RuntimeCapabilities(BaseModel):
     experience_generation: bool = False
     managed_skill_generation: bool = False
     artifact_dreaming: bool = False
+    artifact_dreaming_operations: tuple[DreamOperationCapability, ...] = ()
     external_skill_registry: bool = False
     memory_search_modes: tuple[MemorySearchMode, ...]
     handoff_generation: bool = False

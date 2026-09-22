@@ -5616,6 +5616,19 @@ components:
         expected_version:
           type: integer
           minimum: 1
+    ArtifactDreamingOperationCapability:
+      type: object
+      additionalProperties: false
+      required: [operation, output_kind, effect]
+      properties:
+        operation:
+          $ref: "#/components/schemas/DreamOperation"
+        output_kind:
+          type: string
+          enum: [artifact_candidate]
+        effect:
+          type: string
+          enum: [review_then_publish, review_then_commit_without_activation]
     Capabilities:
       type: object
       additionalProperties: false
@@ -5632,6 +5645,12 @@ components:
           type: boolean
           default: false
           description: Whether asynchronous Artifact Dream execution is configured.
+        artifact_dreaming_operations:
+          type: array
+          default: []
+          description: Dream operations enabled by the current Runtime, including their reviewed effect.
+          items:
+            $ref: "#/components/schemas/ArtifactDreamingOperationCapability"
         source_types:
           type: array
           items:

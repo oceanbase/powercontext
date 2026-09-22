@@ -5388,6 +5388,19 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["scope_id", "candidate_id", "expected_version"],
             },
+            "ArtifactDreamingOperationCapability": {
+                "properties": {
+                    "operation": {"$ref": "#/components/schemas/DreamOperation"},
+                    "output_kind": {"type": "string", "enum": ["artifact_candidate"]},
+                    "effect": {
+                        "type": "string",
+                        "enum": ["review_then_publish", "review_then_commit_without_activation"],
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["operation", "output_kind", "effect"],
+            },
             "Capabilities": {
                 "properties": {
                     "prompts": {
@@ -5399,6 +5412,22 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "boolean",
                         "description": "Whether asynchronous Artifact Dream execution is configured.",
                         "default": False,
+                    },
+                    "artifact_dreaming_operations": {
+                        "items": {"$ref": "#/components/schemas/ArtifactDreamingOperationCapability"},
+                        "type": "array",
+                        "description": "Dream "
+                        "operations "
+                        "enabled "
+                        "by "
+                        "the "
+                        "current "
+                        "Runtime, "
+                        "including "
+                        "their "
+                        "reviewed "
+                        "effect.",
+                        "default": [],
                     },
                     "source_types": {"items": {"type": "string"}, "type": "array"},
                     "artifact_families": {"items": {"type": "string"}, "type": "array"},
