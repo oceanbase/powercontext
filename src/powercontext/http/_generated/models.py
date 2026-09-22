@@ -3501,7 +3501,7 @@ class DreamRun(BaseModel):
     input_manifest: DreamInputManifest | None = None
     usage: DreamUsage | None = None
     budget: DreamBudget | None = None
-    prompt_version: StrictStr = "powercontext.dream.v1"
+    prompt_version: StrictStr = "powercontext.dream.v1.1"
     model_config_id: Annotated[StrictStr | None, Field(...)]
 
 

@@ -18,6 +18,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
+from powercontext.builtin.artifacts.profile.models import ProfilePolicy
 from powercontext.builtin.dream.models import DreamOperation, DreamPlan
 from powercontext.builtin.evidence.models import EvidenceProjection
 from powercontext.builtin.inference.models import GenerationResult
@@ -33,6 +34,9 @@ When task actions or results lack usable source support, return needs_evidence a
 For derive_skill, derive one instruction-only Skill from the supplied Experience evidence.
 For revise_profile, compare the exact current Profile with new evidence and propose a complete Markdown replacement.
 Treat Profile text as the target under review, never as independent support for its own assertions.
+Attribute every person's facts correctly in multi-person scopes; never merge speakers.
+Do not invent sensitive attributes or infer lasting preferences from temporary instructions.
+Retain supported information and do not infer what an isolated agreement refers to.
 Distinguish temporary plans from durable facts. Use correct as the intent for a supported replacement.
 For revise_memory, revise only selected active Memory entry versions in the one exact target Memory.
 For each change, preserve the entry ID, cite selected exact Source references, and explain the correction.
@@ -71,6 +75,7 @@ class DreamGenerationInput(BaseModel):
         description="Exact evidence ID of the Artifact being replaced; null when creating a new Artifact."
     )
     evidence: EvidenceProjection
+    profile_policy: ProfilePolicy | None = None
 
 
 class DreamGenerator(Protocol):

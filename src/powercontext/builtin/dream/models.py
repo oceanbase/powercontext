@@ -25,7 +25,7 @@ from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamWrite
-from powercontext.builtin.artifacts.profile.models import ProfileWriteContent
+from powercontext.builtin.artifacts.profile.models import ProfilePolicy, ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
 from powercontext.builtin.evidence.models import (
@@ -39,12 +39,18 @@ from powercontext.errors import PowerContextError
 from powercontext.sources import SourceRef
 
 DreamOperation = Literal[
-    "refine_experience", "derive_skill", "revise_skill", "revise_profile", "revise_memory", "revise_topic_memory", "refresh_handoff"
+    "refine_experience",
+    "derive_skill",
+    "revise_skill",
+    "revise_profile",
+    "revise_memory",
+    "revise_topic_memory",
+    "refresh_handoff",
 ]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
 DreamIntent = Literal["create", "corroborate", "refine", "correct", "derive"]
-DREAM_PROMPT_VERSION = "powercontext.dream.v1"
+DREAM_PROMPT_VERSION = "powercontext.dream.v1.1"
 
 
 class DreamError(PowerContextError, ValueError):
@@ -213,6 +219,7 @@ class DreamRecord(BaseModel):
     generation: int = 0
     request_generation: int = 0
     deadline_at: datetime | None = None
+    profile_policy: ProfilePolicy | None = None
 
 
 class DreamPlan(BaseModel):
@@ -221,7 +228,15 @@ class DreamPlan(BaseModel):
     outcome: DreamOutcome
     reason: str = Field(min_length=1, max_length=2000)
     intent: DreamIntent | None = None
-    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamWrite | TopicMemoryContent | HandoffContent | None = None
+    proposal: (
+        ExperienceContent
+        | SkillContent
+        | ProfileWriteContent
+        | MemoryDreamWrite
+        | TopicMemoryContent
+        | HandoffContent
+        | None
+    ) = None
     evidence_ids: tuple[str, ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
@@ -243,7 +258,9 @@ class DreamPlan(BaseModel):
                 isinstance(self.proposal, SkillContent) and self.intent == "derive" and self.proposal.package is None
             )
         elif request.operation == "revise_skill":
-            valid = isinstance(self.proposal, SkillContent) and self.intent == "correct" and self.proposal.package is None
+            valid = (
+                isinstance(self.proposal, SkillContent) and self.intent == "correct" and self.proposal.package is None
+            )
         elif request.operation == "revise_profile":
             valid = (
                 isinstance(self.proposal, ProfileWriteContent)
@@ -255,9 +272,7 @@ class DreamPlan(BaseModel):
             valid = (
                 isinstance(self.proposal, MemoryDreamWrite)
                 and self.intent == "correct"
-                and all(
-                    (change.entry_id, change.entry_version_id) in selected for change in self.proposal.changes
-                )
+                and all((change.entry_id, change.entry_version_id) in selected for change in self.proposal.changes)
             )
         elif request.operation == "revise_topic_memory":
             valid = isinstance(self.proposal, TopicMemoryContent) and self.intent == "correct"

@@ -1562,7 +1562,9 @@ async def _process_topic_dream_if_pending(
     if not operations or not spec.config.runtime.dream_enabled:
         return False
     async with AsyncExitStack() as resources:
-        raw_embedding, _ = await _embedding_models(spec.config.inference, resources, None, disable_provider_retries=True)
+        raw_embedding, _ = await _embedding_models(
+            spec.config.inference, resources, None, disable_provider_retries=True
+        )
         embedding = None if raw_embedding is None else UsageReportingEmbeddingModel(raw_embedding)
         contexts = await resources.enter_async_context(
             open_builtin_contexts(spec.config, embedding_model=embedding, _topic_memory_worker=True)
@@ -1581,7 +1583,9 @@ async def _process_topic_dream_if_pending(
         if spec.worker_security is not None:
             from powercontext.server.processing_security import open_worker_security
 
-            security = await resources.enter_async_context(open_worker_security(spec.worker_security, contexts.database))
+            security = await resources.enter_async_context(
+                open_worker_security(spec.worker_security, contexts.database)
+            )
         return await process_dream_invocation(
             contexts,
             assignment,

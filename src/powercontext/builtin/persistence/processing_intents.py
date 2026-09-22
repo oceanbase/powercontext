@@ -50,6 +50,7 @@ class StoredArtifactProcessingIntent(BaseModel):
     requested_generation: int
     handled_generation: int
     last_auto_scan_generation: int
+    consecutive_dream_attempts: int = 0
 
 
 class ArtifactProcessingIntentRepository:
@@ -150,6 +151,7 @@ class ArtifactProcessingIntentRepository:
         /,
         *,
         clean_generation: int | None = None,
+        dream: bool = False,
     ) -> StoredArtifactProcessingIntent:
         _require_nonnegative("generation", generation)
         current = await self.load(connection, scope_id, binding_name, for_update=True)
@@ -167,7 +169,11 @@ class ArtifactProcessingIntentRepository:
         await connection.execute(
             update(table)
             .where(table.c.scope_id == scope_id, table.c.binding_name == binding_name)
-            .values(handled_generation=max(current.handled_generation, generation), clean_generation=clean)
+            .values(
+                handled_generation=max(current.handled_generation, generation),
+                clean_generation=clean,
+                consecutive_dream_attempts=min(current.consecutive_dream_attempts + 1, 4) if dream else 0,
+            )
         )
         return cast(StoredArtifactProcessingIntent, await self.load(connection, scope_id, binding_name))
 

@@ -308,9 +308,7 @@ class EvidenceResolver:
         digest = content_digest(artifact.model_dump_json().encode())
         if isinstance(artifact, Profile):
             return (
-                EvidenceNode(
-                    evidence_id=evidence_id(ref), kind="profile", artifact=ref, digest=digest, role="derived"
-                ),
+                EvidenceNode(evidence_id=evidence_id(ref), kind="profile", artifact=ref, digest=digest, role="derived"),
                 artifact.content.content,
                 (),
             )
@@ -324,9 +322,7 @@ class EvidenceResolver:
             )
         if isinstance(artifact, Handoff):
             return (
-                EvidenceNode(
-                    evidence_id=evidence_id(ref), kind="handoff", artifact=ref, digest=digest, role="derived"
-                ),
+                EvidenceNode(evidence_id=evidence_id(ref), kind="handoff", artifact=ref, digest=digest, role="derived"),
                 artifact.content.model_dump_json(),
                 (),
             )

@@ -195,3 +195,26 @@ def test_sqlite_fence_lock_serializes_worker_commit_and_term_replacement(tmp_pat
                     assert scopes == ("commit",)
 
     asyncio.run(scenario())
+
+
+def test_dream_counter_migration_preserves_pending_work_and_is_repeatable():
+    from powercontext.builtin.persistence.dream_schema import ensure_dream_schema
+
+    async def scenario():
+        intents = ArtifactProcessingIntentRepository()
+        async with (
+            SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile,
+            profile.database.transaction() as connection,
+        ):
+            await intents.mark_dirty(connection, "migration", BINDING)
+            before = await intents.request(connection, "migration", BINDING)
+            await connection.exec_driver_sql(
+                "ALTER TABLE pc_artifact_processing_intents DROP COLUMN consecutive_dream_attempts"
+            )
+            await ensure_dream_schema(connection)
+            await ensure_dream_schema(connection)
+            restored = await intents.load(connection, "migration", BINDING)
+            assert restored is not None and restored == before
+            assert restored.consecutive_dream_attempts == 0
+
+    asyncio.run(scenario())

@@ -102,15 +102,13 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
 
 async def _decide_dream_profile(service, connection, candidate, policy, *, reason=None):
     proposal = candidate.proposal
-    if proposal.policy_version != (None if policy is None else policy.version):
-        raise BaseValueConflictError("profile_policy", (service._scope_id,))
     if reason is not None:
         return await service._candidates.reject(
             connection, service._scope_id, candidate.candidate_id, candidate.version, reason
         )
-    await service._validate_evidence(
-        connection, candidate.sources, candidate.artifacts, candidate.memory_citations
-    )
+    if proposal.policy_version != (None if policy is None else policy.version):
+        raise BaseValueConflictError("profile_policy", (service._scope_id,))
+    await service._validate_evidence(connection, candidate.sources, candidate.artifacts, candidate.memory_citations)
     current = await service._artifacts.latest(connection, service._scope_id, "profile", PROFILE_ARTIFACT_ID)
     if current.as_ref() != candidate.target:
         raise BaseValueConflictError("profile_head", (service._scope_id,))

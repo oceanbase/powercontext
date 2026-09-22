@@ -73,7 +73,7 @@ class ArtifactCandidate(BaseModel, Generic[ProposalT]):
             raise ValueError(f"Candidate evidence must not exceed {MAX_CANDIDATE_EVIDENCE} references")  # noqa: TRY003
         if self.target is not None and self.target.family != self.family:
             raise ValueError("Candidate target must belong to the proposed family")  # noqa: TRY003
-        if self.memory_citations and self.family not in {"experience", "profile", "memory", "handoff"}:
+        if self.memory_citations and self.family not in {"experience", "profile", "memory", "handoff", "topic-memory"}:
             raise ValueError("this Candidate Family does not accept Memory citations")  # noqa: TRY003
         return self
 

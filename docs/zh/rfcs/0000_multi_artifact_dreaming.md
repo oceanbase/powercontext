@@ -153,21 +153,21 @@ Dream 保留 `queued/running/succeeded/failed` 状态及 `proposed/no_change/nee
 
 Tag 不是 Artifact；C 阶段的 Catalog Change Candidate 与 Artifact Candidate 的结果类型不同。只在该阶段证明现有接口无法准确表达 ETag 与结果类型后，才增加独立的 Tag 候选接口。可信评测登记接口同样归 B1 阶段，不成为 A0/A1 前置条件。
 
-新增操作请求沿用 `operation`、`artifacts`、`memory_citations`、`sources` 和 `idempotency_key`；`target` 扩展为按 `kind` 区分的类型化值：普通制品为精确 ArtifactRef，Memory 为 Memory Ref 加目标 Entry Version 集合，Tag 为 TagTarget、expected_etag 和正文基准。普通制品目标自动进入待修订上下文，不要求调用方重复提交。目标与输入合并去重并计入统一预算；目标内容不能单独证明自身断言。
+新增操作请求复用 `operation`、`artifacts`、`memory_citations`、`sources` 和 `idempotency_key`。Artifact 操作的 `target` 保持精确 ArtifactRef，并必须同时出现在 `artifacts` 中；Memory 的目标条目及版本通过 `memory_citations` 指定，必须属于该目标 Memory。引用去重后计入统一预算；目标内容不能单独证明自身断言。Tag 的 TagTarget、expected_etag 和正文基准由 C 阶段的独立 Catalog Change 请求表达，不改变 Artifact Dream 的 target 类型。
 
 示例中的标识须替换为服务返回的真实值：
 
 ```json
 {
   "operation": "revise_memory",
-  "target": {
-    "kind": "memory_entries",
-    "memory_ref": {"family": "memory", "artifact_id": "memory", "revision": 8},
-    "entries": [{"entry_id": "E_CITY", "entry_version_id": "EV_CITY_1"}]
-  },
+  "target": {"family": "memory", "artifact_id": "memory", "revision": 8},
   "sources": [{"source_type": "content", "source_id": "S03"}],
-  "artifacts": [],
-  "memory_citations": [],
+  "artifacts": [{"family": "memory", "artifact_id": "memory", "revision": 8}],
+  "memory_citations": [{
+    "memory_ref": {"family": "memory", "artifact_id": "memory", "revision": 8},
+    "entry_id": "E_CITY",
+    "entry_version_id": "EV_CITY_1"
+  }],
   "idempotency_key": "U1-city-explicit-change-20260921"
 }
 ```
@@ -197,7 +197,7 @@ proposal 类型为 `MemoryRevisionProposal`，包含固定的 base Memory Ref，
 “信息陈旧”需要显式新证据或可验证的事件时间，不以最后访问时间、模型置信度或重复次数自动改写事实。过期计划的首期表达是保留历史时间及当前有效性说明，不增加自动删除或新的全局 TTL 契约。`forget()` 的显式授权路径保持独立。
 
 ## 5. Profile 修订契约
-沿用一个 Scope 一个 Profile 的身份与 Markdown 快照。模型输出完整 content，同时生成逐段变化理由、主体依据和证据引用。保持当前生成策略对范围、主体和允许信息的限制，排队或审核期间 Policy 改变应使候选失效并要求重新生成。
+沿用一个 Scope 一个 Profile 的身份与 Markdown 快照。模型输出完整 content，同时生成逐段变化理由、主体依据和证据引用。保持当前生成策略对范围、主体和允许信息的限制，接收请求时固定 Policy，生成输入携带该快照；排队、生成或审核期间 Policy 改变应阻止发布并要求重新生成。失效候选仍可拒绝以结束审核。
 
 新增 `ProfileDreamCandidateProposal` 和可区分的 `generation.mode=dream_review_approved`，附精确 dream_run_id 和 policy revision/digest。Dream 模式不允许 `source_window`，也不伪造 after/through。
 
@@ -274,7 +274,7 @@ A0/A1 复用 `pc_dream_runs`、`pc_artifact_candidate_heads`、`pc_artifact_cand
 
 Supervisor 保持一个 processing family 一个 canonical binding，不为 Dream 另建常驻 scheduler。Memory、Profile、Topic、Experience、Skill 复用各自资源归属；Handoff、Prompt 等尚无完整后台 Dream 能力的 Family，须补齐规范 binding、Worker 配置与能力声明后才能启用。Tag 作业路由到其 owning Artifact family binding，并在注册表区分 operation，不能为 `tag` 伪造 Family。
 
-同一 binding 内显式 Run 按固定顺序执行。为避免普通 Source 处理饥饿，新增轮转策略：最多连续处理 4 个显式 Run 后，若存在可执行的 Source 工作则执行一次 Source pass，再继续 Dream。计数持久化到调用状态，不因 Worker 重启重置。没有 Source 工作时不人为阻塞 Dream；现有 v1 Run 的语义与预算保持。
+同一 binding 内显式 Run 按固定顺序执行。为避免普通 Source 处理饥饿，新增轮转策略：最多连续处理 4 个显式 Run 后，若存在可执行的 Source 工作则执行一次 Source pass，再继续 Dream。计数通过现有调用状态表的 `consecutive_dream_attempts` 列持久化，不新增表，不因 Worker 重启重置；Source pass 完成时归零，并保留尚待处理的 Dream 请求。没有 Source 工作时不人为阻塞 Dream；现有 v1 Run 的语义与预算保持。
 
 Run 的候选落库、结果记录、租约 fence 检查、调用确认和后继调度意图在同一事务提交。Family 审核复用各自已有的投影发布契约，不统一引入异步 outbox；Topic Memory 按第 6 节在事务外准备完整投影，在批准事务内原子发布。只有既有 Family 已采用异步投影时才沿用其 processing intent，不为本次扩展新增通用索引任务表。审批等待不占 Dream Worker。查询只读取，不因 prepare_context 或 search 自动启动 Dream。
 

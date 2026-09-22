@@ -519,6 +519,7 @@ ARTIFACT_PROCESSING_INTENTS_TABLE = Table(
     Column("requested_generation", BigInteger, nullable=False, server_default="0"),
     Column("handled_generation", BigInteger, nullable=False, server_default="0"),
     Column("last_auto_scan_generation", BigInteger, nullable=False, server_default="0"),
+    Column("consecutive_dream_attempts", BigInteger, nullable=False, server_default="0"),
     CheckConstraint("pending_sequence > 0", name="ck_pc_processing_intent_sequence"),
     CheckConstraint(
         "clean_generation >= 0 AND clean_generation <= dirty_generation",

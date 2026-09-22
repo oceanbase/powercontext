@@ -60,7 +60,12 @@ from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
 ReviewedProposal: TypeAlias = (
-    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent | HandoffContent
+    ExperienceContent
+    | SkillContent
+    | ProfileCandidateProposal
+    | MemoryDreamCandidateProposal
+    | TopicMemoryContent
+    | HandoffContent
 )
 
 PREPARED_CONTEXT_SCHEMA: PreparedContextSchema = "powercontext.prepared-context.v1"
@@ -437,7 +442,14 @@ class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
 
 
 class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
-    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryContent | HandoffContent
+    proposal: (
+        ExperienceContent
+        | SkillContent
+        | ProfileWriteContent
+        | MemoryDreamCandidateProposal
+        | TopicMemoryContent
+        | HandoffContent
+    )
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
     memory_citations: tuple[MemoryCitation, ...] | None = None

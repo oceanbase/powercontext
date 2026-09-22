@@ -164,6 +164,11 @@ class DreamService:
             existing = await self.repository.find_request(connection, scope_id, principal_id, request, current=True)
             if existing is not None:
                 return existing.run
+            profile_policy = (
+                await ProfilePolicyRepository().get(connection, scope_id, for_update=True)
+                if request.operation == "revise_profile"
+                else None
+            )
             await self._check_target(connection, scope_id, principal_id, request.target)
             await resolver.resolve(
                 connection,
@@ -189,6 +194,7 @@ class DreamService:
                 request=request,
                 principal_id=principal_id,
                 request_generation=intent.requested_generation,
+                profile_policy=profile_policy,
             )
             return (await self.repository.create(connection, record)).run
 
@@ -202,7 +208,7 @@ class DreamService:
         async with self._transaction() as connection:
             return await self.repository.list(connection, scope_id, request)
 
-    async def execute(self) -> bool:
+    async def execute(self) -> bool:  # noqa: C901 - fenced admission, fair dispatch, and bounded recovery
         """Execute one accepted Run attempt within a Supervisor Scope invocation.
 
         Returning false leaves a non-Dream invocation to the Family processor.
@@ -222,6 +228,17 @@ class DreamService:
                 connection, work.scope_id, operations, through_generation=work.claimed_request_generation
             )
             if record is None:
+                return False
+            intent = await self.processing.guard(connection)
+            if (
+                intent.consecutive_dream_attempts >= 4
+                and intent.dirty_generation > intent.clean_generation
+                and work.artifact_family not in {"skill", "handoff"}
+            ):
+                # The Source pass acknowledges this invocation. Keep the queued
+                # Dream runnable even if that pass consumes all ordinary input.
+                if intent.requested_generation == work.claimed_request_generation:
+                    await self.intents.request(connection, work.scope_id, work.binding_name)
                 return False
             record = await self.repository.claim(
                 connection, record, model_config_id=None if self.generator is None else self.generator.config_id
@@ -249,11 +266,13 @@ class DreamService:
             raise RuntimeError("Dream execution requires a Supervisor invocation")  # noqa: TRY003
         work = self.processing.assignment
         current = await self.processing.guard(connection)
-        remaining = await self.repository.next_pending(connection, work.scope_id, operations_for_binding(work.binding_name))
+        remaining = await self.repository.next_pending(
+            connection, work.scope_id, operations_for_binding(work.binding_name)
+        )
         if remaining is not None and current.requested_generation == work.claimed_request_generation:
             await self.intents.request(connection, work.scope_id, work.binding_name)
         # Dream never consumes or clears the Family's ordinary Source progress.
-        await self.processing.complete(connection, remaining_work=True)
+        await self.processing.complete(connection, remaining_work=True, dream=True)
 
     async def _execute(self, record: DreamRecord) -> None:
         run = record.run
@@ -271,6 +290,9 @@ class DreamService:
                 if error.detail == "unsupported_target":
                     raise DreamError("unsupported_target") from error
                 raise
+        if run.operation == "revise_profile":
+            async with self._transaction() as connection:
+                await self._check_profile_policy(connection, record)
         resolved = await self._resolve(record)
         usage = run.usage.model_copy(update={"model_calls": run.usage.model_calls + 1})
         if usage.model_calls > run.budget.max_model_calls:
@@ -287,6 +309,7 @@ class DreamService:
                 operation=run.operation,
                 target_evidence_id=None if run.target is None else evidence_id(run.target),
                 evidence=resolved.projection,
+                profile_policy=record.profile_policy,
             )
         )
         record = record.model_copy(
@@ -336,6 +359,8 @@ class DreamService:
         async with self._transaction() as connection:
             await self.repository.lock_owned(connection, record)
             await self._authorize(run.scope_id, record.principal_id, "contribute")
+            if run.operation == "revise_profile":
+                await self._check_profile_policy(connection, record)
             resolved = await self._resolve(record, connection)
             candidate = None
             if plan.outcome == "proposed":
@@ -348,9 +373,7 @@ class DreamService:
                         "revise_memory": "memory",
                         "revise_topic_memory": "topic-memory",
                         "refresh_handoff": "handoff",
-                    }[
-                        run.operation
-                    ]
+                    }[run.operation]
                     await self.attest_candidate(connection, record, _candidate_id(record), family)
                 candidate = await self._propose(connection, record, plan, resolved)
             completed = run.model_copy(
@@ -364,6 +387,13 @@ class DreamService:
             )
             await self.repository.finish(connection, record, completed)
             await self._complete_invocation(connection)
+
+    async def _check_profile_policy(self, connection: AsyncConnection, record: DreamRecord) -> None:
+        policy = await ProfilePolicyRepository().get(connection, record.run.scope_id, for_update=True)
+        if record.profile_policy is None or policy is None:
+            raise DreamError("capability_unavailable")
+        if policy.version != record.profile_policy.version:
+            raise DreamError("policy_changed")
 
     async def _propose(  # noqa: C901 - operation-specific Candidate adapters share one atomic Run commit
         self,
@@ -401,7 +431,8 @@ class DreamService:
                 candidate_id=_candidate_id(record),
             )
         elif isinstance(plan.proposal, ProfileWriteContent) and record.run.operation == "revise_profile":
-            policy = await ProfilePolicyRepository().get(connection, record.run.scope_id, for_update=True)
+            await self._check_profile_policy(connection, record)
+            policy = record.profile_policy
             if policy is None or record.run.target is None or self.generator is None:
                 raise DreamError("capability_unavailable")
             proposal = ProfileCandidateProposal(
@@ -443,6 +474,7 @@ class DreamService:
                 raise DreamError("invalid_generation_output")
             candidate = await review.propose_topic_memory_dream(
                 plan.proposal,
+                memory_citations=selected.memory_citations,
                 sources=selected.sources,
                 artifacts=selected.artifacts,
                 target=record.run.target,

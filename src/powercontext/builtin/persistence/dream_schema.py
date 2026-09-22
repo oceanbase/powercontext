@@ -19,12 +19,20 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.schema import CreateColumn
 
-from powercontext.builtin.persistence.tables import ARTIFACT_CANDIDATE_VERSIONS_TABLE, ARTIFACTS_TABLE
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_CANDIDATE_VERSIONS_TABLE,
+    ARTIFACT_PROCESSING_INTENTS_TABLE,
+    ARTIFACTS_TABLE,
+)
 
 
 async def ensure_dream_schema(connection: AsyncConnection, /) -> None:
-    for table in (ARTIFACTS_TABLE, ARTIFACT_CANDIDATE_VERSIONS_TABLE):
-        column = table.c.memory_citations
+    for table, name in (
+        (ARTIFACTS_TABLE, "memory_citations"),
+        (ARTIFACT_CANDIDATE_VERSIONS_TABLE, "memory_citations"),
+        (ARTIFACT_PROCESSING_INTENTS_TABLE, "consecutive_dream_attempts"),
+    ):
+        column = table.c[name]
         if await _has_column(connection, table.name, column.name):
             continue
         declaration = str(CreateColumn(column).compile(dialect=connection.dialect))

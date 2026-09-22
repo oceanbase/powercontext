@@ -5486,7 +5486,7 @@ components:
         budget:
           $ref: '#/components/schemas/DreamBudget'
         prompt_version:
-          default: powercontext.dream.v1
+          default: powercontext.dream.v1.1
           type: string
         model_config_id:
           type: string

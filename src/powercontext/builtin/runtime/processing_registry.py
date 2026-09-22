@@ -78,11 +78,7 @@ def dream_operations(config: BuiltinConfig) -> tuple[DreamOperation, ...]:
     ):
         return ()
     families = processing_capabilities(config)
-    return tuple(
-        spec.operation
-        for spec in DREAM_OPERATIONS
-        if spec.family in families
-    )
+    return tuple(spec.operation for spec in DREAM_OPERATIONS if spec.family in families)
 
 
 def canonical_processing_manifest(config: BuiltinConfig) -> dict[str, Any]:

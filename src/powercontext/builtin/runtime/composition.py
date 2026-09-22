@@ -460,9 +460,7 @@ async def open_builtin_runtime(
         if dream_generator is not None and config.runtime.dream_enabled:
             registered_families = {binding.artifact_family for binding in processing_bindings}
             configured_operations = tuple(
-                spec.operation
-                for spec in DREAM_OPERATIONS
-                if spec.family in registered_families
+                spec.operation for spec in DREAM_OPERATIONS if spec.family in registered_families
             )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
         runtime = await resources.enter_async_context(

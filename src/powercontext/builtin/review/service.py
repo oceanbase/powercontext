@@ -81,7 +81,12 @@ from powercontext.sources import SourceRef
 
 IdFactory = Callable[[str], str]
 ReviewedProposal: TypeAlias = (
-    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent | HandoffContent
+    ExperienceContent
+    | SkillContent
+    | ProfileCandidateProposal
+    | MemoryDreamCandidateProposal
+    | TopicMemoryContent
+    | HandoffContent
 )
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
@@ -253,6 +258,7 @@ class ReviewService:
         proposal: TopicMemoryContent,
         /,
         *,
+        memory_citations: tuple[MemoryCitation, ...] = (),
         sources: tuple[SourceRef, ...],
         artifacts: tuple[ArtifactRef, ...],
         target: ArtifactRef,
@@ -262,6 +268,7 @@ class ReviewService:
         candidate = await self._propose(
             TopicMemory.family,
             proposal,
+            memory_citations=memory_citations,
             sources=sources,
             artifacts=artifacts,
             target=target,
@@ -407,7 +414,7 @@ class ReviewService:
             next_cursor=page.next_cursor,
         )
 
-    async def revise(
+    async def revise(  # noqa: C901 - Family-specific validation shares one versioned transaction
         self,
         candidate_id: str,
         expected_version: int,
@@ -427,6 +434,10 @@ class ReviewService:
             preview = await self._candidates.get(connection, self._scope_id, candidate_id)
             if preview.family == "profile":
                 await ProfilePolicyRepository().get(connection, self._scope_id, for_update=True)
+            if preview.family in {"memory", "topic-memory", "handoff"} and preview.target is not None:
+                await self._artifacts.latest(
+                    connection, self._scope_id, preview.family, preview.target.artifact_id, for_update=True
+                )
             current = await self._candidates.lock_pending(
                 connection,
                 self._scope_id,
@@ -672,17 +683,22 @@ class ReviewService:
             candidate = _reviewed_candidate(
                 await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
             )
-            if candidate != preview or not isinstance(current, TopicMemory) or not isinstance(
-                candidate.proposal, TopicMemoryContent
+            if (
+                candidate != preview
+                or not isinstance(current, TopicMemory)
+                or not isinstance(candidate.proposal, TopicMemoryContent)
             ):
                 raise CandidateConflictError(candidate_id, expected_version, candidate.version)
-            await self._validate_evidence(connection, candidate.sources, candidate.artifacts)
+            await self._validate_evidence(
+                connection, candidate.sources, candidate.artifacts, candidate.memory_citations
+            )
             published = await self._topic_writer.topics.publish_revision(
                 connection,
                 self._scope_id,
                 current,
                 TopicMemoryDraft(
                     content=candidate.proposal,
+                    memory_citations=candidate.memory_citations,
                     sources=candidate.sources,
                     artifacts=candidate.artifacts,
                 ),
