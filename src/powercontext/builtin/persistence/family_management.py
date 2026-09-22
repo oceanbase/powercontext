@@ -583,6 +583,8 @@ class HandoffManagementWriter:
 
         if current.artifact_id != self._handoff_artifact_id or content.generation is not None:
             raise InvalidBaseAccessRequestError("handoff", "reviewed replacement must target the local singleton")
+        if content.objective != current.content.objective:
+            raise InvalidBaseAccessRequestError("handoff", "reviewed replacement must preserve the objective")
         prepared = PreparedHandoff(scope_id=scope_id, base=current.as_ref(), content=content)
         return await self._service(scope_id, connection).commit(
             prepared,

@@ -295,6 +295,27 @@ def test_profile_dream_requires_review_and_preserves_source_cursor(
             assert after.content.generation.mode == "dream_review_approved"
             assert after.content.generation.dream_run_id == run.run_id
             assert after.lineage.memory_citations == (() if citation is None else (citation,))
+            if citation is not None:
+                await runtime.memory.for_scope(scope_id).retire(RetireMemoryEntryRequest(citation=citation))
+                correction = await runtime.dream.for_scope(scope_id).create(
+                    CreateDreamRunRequest(
+                        operation="revise_profile",
+                        target=after.as_ref(),
+                        artifacts=(after.as_ref(),),
+                        sources=(source.source_ref,),
+                        idempotency_key="correct-profile-after-retirement",
+                    )
+                )
+                await process_pending(runtime)
+                correction = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=correction.run_id))
+                assert correction.candidate is not None
+                corrected = await runtime.review.for_scope(scope_id).approve(
+                    ApproveArtifactCandidateRequest(
+                        candidate_id=correction.candidate.candidate_id,
+                        expected_version=correction.candidate.version,
+                    )
+                )
+                assert corrected.result_artifact is not None and corrected.result_artifact.revision == 3
 
     asyncio.run(scenario())
 
@@ -435,7 +456,10 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
         async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
             assert value.operation == "revise_topic_memory"
             assert any(item.kind == "topic_memory" for item in value.evidence.evidence)
-            source_id = next(item.evidence_id for item in value.evidence.evidence if item.kind == "memory")
+            source_id = next(
+                (item.evidence_id for item in value.evidence.evidence if item.kind == "memory"),
+                next(item.evidence_id for item in value.evidence.evidence if item.kind == "source"),
+            )
             return GenerationResult(
                 output=DreamPlan(
                     outcome="proposed",
@@ -520,11 +544,48 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
             assert after.topic.content.summary == "The replay can create a duplicate."
             assert after.is_current
             assert after.topic.lineage.memory_citations == (citation,)
+            # A retired historical dependency must not prevent correcting the target
+            # using independent, still-valid evidence.
+            await runtime.memory.for_scope(scope_id).retire(RetireMemoryEntryRequest(citation=citation))
+            second = await runtime.dream.for_scope(scope_id).create(
+                CreateDreamRunRequest(
+                    operation="revise_topic_memory",
+                    target=after.topic.as_ref(),
+                    artifacts=(after.topic.as_ref(),),
+                    sources=(source.source_ref,),
+                    idempotency_key="correct-after-retirement",
+                )
+            )
+            await process_pending(runtime)
+            second = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=second.run_id))
+            assert second.outcome == "proposed" and second.candidate is not None
+            candidate = await runtime.review.for_scope(scope_id).get(
+                GetArtifactCandidateRequest(candidate_id=second.candidate.candidate_id)
+            )
+            revised = await runtime.review.for_scope(scope_id).revise(
+                ReviseArtifactCandidateRequest(
+                    candidate_id=candidate.candidate_id,
+                    expected_version=candidate.version,
+                    proposal=candidate.proposal,
+                    sources=candidate.sources,
+                    artifacts=candidate.artifacts,
+                    target=candidate.target,
+                    reason="Confirmed against the independent source.",
+                )
+            )
+            corrected = await runtime.review.for_scope(scope_id).approve(
+                ApproveArtifactCandidateRequest(
+                    candidate_id=revised.candidate_id,
+                    expected_version=revised.version,
+                )
+            )
+            assert corrected.result_artifact is not None and corrected.result_artifact.revision == 3
 
     asyncio.run(scenario())
 
 
-def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig) -> None:
+@pytest.mark.parametrize("change_objective", [False, True])
+def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig, change_objective: bool) -> None:
     class HandoffDreamGenerator:
         config_id = "handoff-dream-test"
 
@@ -541,7 +602,7 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
                     reason="The new source confirms the handoff progress.",
                     intent="correct",
                     proposal=HandoffContent(
-                        objective="Finish the support request.",
+                        objective="Work on another task." if change_objective else "Finish the support request.",
                         state=(HandoffStatement(text="The replacement has been issued.", citations=(citation,)),),
                         disposition="continuable",
                         next_action=HandoffStatement(
@@ -596,11 +657,32 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
                 completed = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=run.run_id))
                 if completed.terminal:
                     break
+            if change_objective:
+                assert completed.status == "failed" and completed.candidate is None
+                assert (await handoffs.latest()).content.objective == "Finish the support request."
+                return
             assert completed.outcome == "proposed" and completed.candidate is not None, (
                 completed.status,
                 completed.error,
             )
             assert (await handoffs.latest()).revision == 1
+            from powercontext.builtin.review.errors import InvalidCandidateError
+
+            candidate = await runtime.review.for_scope(scope_id).get(
+                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
+            )
+            with pytest.raises(InvalidCandidateError, match="preserve the target objective"):
+                await runtime.review.for_scope(scope_id).revise(
+                    ReviseArtifactCandidateRequest(
+                        candidate_id=candidate.candidate_id,
+                        expected_version=candidate.version,
+                        proposal=candidate.proposal.model_copy(update={"objective": "Work on another task."}),
+                        sources=candidate.sources,
+                        artifacts=candidate.artifacts,
+                        target=candidate.target,
+                        reason="Changed task.",
+                    )
+                )
             approved = await runtime.review.for_scope(scope_id).approve(
                 ApproveArtifactCandidateRequest(
                     candidate_id=completed.candidate.candidate_id,

@@ -346,7 +346,10 @@ class ReviewService:
         candidate_id: str | None = None,
         memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ReviewedCandidate:
-        sources = await self._validate_evidence(connection, sources, artifacts, memory_citations, proposal=proposal)
+        sources = await self._validate_evidence(
+            connection, sources, artifacts, memory_citations, proposal=proposal, target=target
+        )
+        await self._validate_handoff_objective(connection, proposal, target)
         await self._validate_target(connection, family, target, artifacts)
         candidate = await self._candidates.create(
             connection,
@@ -476,7 +479,9 @@ class ReviewService:
                 canonical_artifacts,
                 citations,
                 proposal=proposal if isinstance(proposal, (ExperienceContent, SkillContent)) else None,
+                target=current.target,
             )
+            await self._validate_handoff_objective(connection, proposal, current.target)
             if reviewed.family != "profile":
                 await self._validate_target(connection, reviewed.family, target, canonical_artifacts)
             revised = await self._candidates.revise(
@@ -654,7 +659,7 @@ class ReviewService:
             if candidate != preview:
                 raise CandidateConflictError(candidate_id, expected_version, candidate.version)
             await self._validate_evidence(
-                connection, candidate.sources, candidate.artifacts, candidate.memory_citations
+                connection, candidate.sources, candidate.artifacts, candidate.memory_citations, target=candidate.target
             )
             committed = await self._memory(connection).apply(plan)
             if committed is None:
@@ -690,7 +695,7 @@ class ReviewService:
             ):
                 raise CandidateConflictError(candidate_id, expected_version, candidate.version)
             await self._validate_evidence(
-                connection, candidate.sources, candidate.artifacts, candidate.memory_citations
+                connection, candidate.sources, candidate.artifacts, candidate.memory_citations, target=candidate.target
             )
             published = await self._topic_writer.topics.publish_revision(
                 connection,
@@ -734,7 +739,7 @@ class ReviewService:
                 candidate.target,
             )
             await self._validate_evidence(
-                connection, candidate.sources, candidate.artifacts, candidate.memory_citations
+                connection, candidate.sources, candidate.artifacts, candidate.memory_citations, target=candidate.target
             )
             committed = await self._handoff_writer.commit_reviewed(
                 connection, self._scope_id, current, candidate.proposal, candidate.sources
@@ -775,8 +780,16 @@ class ReviewService:
         memory_citations: tuple[MemoryCitation, ...] = (),
         *,
         proposal: ReviewedProposal | None = None,
+        target: ArtifactRef | None = None,
     ) -> tuple[SourceRef, ...]:
-        if not sources and not memory_citations and not any(artifact.family != "prompt" for artifact in artifacts):
+        supporting_artifacts = tuple(
+            ref for ref in artifacts if ref != target or ref.family not in {"profile", "topic-memory", "handoff"}
+        )
+        if (
+            not sources
+            and not memory_citations
+            and not any(artifact.family != "prompt" for artifact in supporting_artifacts)
+        ):
             raise InvalidCandidateError("evidence", "at least one exact reference is required")
         if len(sources) + len(artifacts) + len(memory_citations) > MAX_CANDIDATE_EVIDENCE:
             raise InvalidCandidateError("evidence", f"must not exceed {MAX_CANDIDATE_EVIDENCE} exact references")
@@ -790,7 +803,7 @@ class ReviewService:
             roots = await self._evidence.validate(
                 connection,
                 sources=sources,
-                artifacts=artifacts,
+                artifacts=supporting_artifacts,
                 memory_citations=memory_citations,
             )
             sources = _unique_sources((*sources, *roots))
@@ -816,6 +829,14 @@ class ReviewService:
                 "failure records require a cited failed Task Outcome with verified exact evidence",
             )
         return sources
+
+    async def _validate_handoff_objective(
+        self, connection: AsyncConnection, proposal: object, target: ArtifactRef | None
+    ) -> None:
+        if isinstance(proposal, HandoffContent) and target is not None:
+            current = await self._artifacts.get(connection, self._scope_id, target)
+            if not isinstance(current, Handoff) or proposal.objective != current.content.objective:
+                raise InvalidCandidateError("proposal", "Handoff Dream must preserve the target objective")
 
     async def _validate_target(
         self,

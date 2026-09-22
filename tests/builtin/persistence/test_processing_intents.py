@@ -218,3 +218,22 @@ def test_dream_counter_migration_preserves_pending_work_and_is_repeatable():
             assert restored.consecutive_dream_attempts == 0
 
     asyncio.run(scenario())
+
+
+def test_runtime_upgrades_dream_counter_before_validating_processing_schema(tmp_path):
+    from powercontext.builtin.runtime.composition import open_builtin_contexts
+    from powercontext.builtin.runtime.config import BuiltinConfig
+
+    async def scenario():
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'upgrade.db'}"))
+        async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
+            await ArtifactProcessingIntentRepository().request(connection, "upgrade", BINDING)
+            await connection.exec_driver_sql(
+                "ALTER TABLE pc_artifact_processing_intents DROP COLUMN consecutive_dream_attempts"
+            )
+        async with open_builtin_contexts(config) as contexts, contexts.database.transaction() as connection:
+            intent = await ArtifactProcessingIntentRepository().load(connection, "upgrade", BINDING)
+            assert intent is not None and intent.requested_generation == 1
+            assert intent.consecutive_dream_attempts == 0
+
+    asyncio.run(scenario())
