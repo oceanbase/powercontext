@@ -42,6 +42,7 @@ from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution,
     SkillContent,
 )
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
 from powercontext.builtin.review import (
     DEFAULT_CANDIDATE_PAGE_SIZE,
     MAX_CANDIDATE_EVIDENCE,
@@ -57,7 +58,9 @@ from powercontext.sources import ConnectorBinding, SourceObservation, SourceRef
 
 PreparedContextSchema: TypeAlias = Literal["powercontext.prepared-context.v1"]
 PreparedContextStatus: TypeAlias = Literal["ready", "empty"]
-ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal
+ReviewedProposal: TypeAlias = (
+    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent
+)
 
 PREPARED_CONTEXT_SCHEMA: PreparedContextSchema = "powercontext.prepared-context.v1"
 
@@ -407,7 +410,7 @@ class ListArtifactCandidatesRequest(BaseModel):
     """Filter and page the current Review Inbox."""
 
     status: CandidateStatus = CandidateStatus.PENDING
-    family: Literal["experience", "skill", "profile", "memory"] | None = None
+    family: Literal["experience", "skill", "profile", "memory", "topic-memory"] | None = None
     cursor: str | None = None
     limit: Annotated[int, Field(ge=1, le=MAX_CANDIDATE_PAGE_SIZE)] = DEFAULT_CANDIDATE_PAGE_SIZE
 
@@ -426,7 +429,7 @@ class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
 
 
 class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
-    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamCandidateProposal
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryContent
     sources: tuple[SourceRef, ...] = ()
     artifacts: tuple[ArtifactRef, ...] = ()
     memory_citations: tuple[MemoryCitation, ...] | None = None

@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.memory.service import MemoryService
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.profile.review import decide_profile, revise_profile
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemory, TopicMemoryContent, TopicMemoryDraft
 from powercontext.builtin.evidence.models import EvidenceResolutionError, unique_references
 from powercontext.builtin.evidence.resolver import AuthorizationContext, EvidenceAuthorizer, EvidenceResolver
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
@@ -55,6 +56,7 @@ from powercontext.builtin.persistence.generation_sources import GenerationSource
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
 from powercontext.builtin.persistence.sources import StoredSource
+from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
 from powercontext.builtin.review.errors import (
     ArtifactTargetConflictError,
     CandidateConflictError,
@@ -74,7 +76,9 @@ from powercontext.errors import ArtifactNotFoundError, RevisionConflictError
 from powercontext.sources import SourceRef
 
 IdFactory = Callable[[str], str]
-ReviewedProposal: TypeAlias = ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal
+ReviewedProposal: TypeAlias = (
+    ExperienceContent | SkillContent | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryContent
+)
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
 ReviewedCandidate: TypeAlias = ArtifactCandidate[ReviewedProposal]
@@ -96,6 +100,7 @@ class ReviewService:
         id_factory: IdFactory,
         evidence: EvidenceResolver | None = None,
         memory: Callable[[AsyncConnection | None], MemoryService] | None = None,
+        topic_writer: TopicMemoryManagementWriter | None = None,
         authorization_context: Callable[[], AbstractAsyncContextManager[None]] = nullcontext,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -109,6 +114,7 @@ class ReviewService:
         self._id_factory = id_factory
         self._evidence = evidence
         self._memory = memory
+        self._topic_writer = topic_writer
         self._authorization_context = authorization_context
         self._bound_connection = connection
 
@@ -235,6 +241,28 @@ class ReviewService:
             candidate_id=candidate_id,
         )
         return ArtifactCandidate[MemoryDreamCandidateProposal].model_validate(candidate.model_dump(mode="python"))
+
+    async def propose_topic_memory_dream(
+        self,
+        proposal: TopicMemoryContent,
+        /,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        target: ArtifactRef,
+        reason: str,
+        candidate_id: str,
+    ) -> ArtifactCandidate[TopicMemoryContent]:
+        candidate = await self._propose(
+            TopicMemory.family,
+            proposal,
+            sources=sources,
+            artifacts=artifacts,
+            target=target,
+            reason=reason,
+            candidate_id=candidate_id,
+        )
+        return ArtifactCandidate[TopicMemoryContent].model_validate(candidate.model_dump(mode="python"))
 
     async def _propose(
         self,
@@ -462,6 +490,8 @@ class ReviewService:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
         if current.family == Memory.family:
             return await self._approve_memory_dream(candidate_id, expected_version)
+        if current.family == TopicMemory.family:
+            return await self._approve_topic_memory_dream(candidate_id, expected_version)
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
             if current.family == "profile":
@@ -574,6 +604,46 @@ class ReviewService:
                 raise InvalidCandidateError("proposal", "Memory Dream commit produced no Artifact")
             approved = await self._candidates.mark_approved(
                 connection, self._scope_id, candidate_id, expected_version, committed.as_ref()
+            )
+        return _reviewed_candidate(approved)
+
+    async def _approve_topic_memory_dream(self, candidate_id: str, expected_version: int) -> ReviewedCandidate:
+        if self._topic_writer is None:
+            raise InvalidCandidateError("family", "Topic Memory Dream writer is unavailable")
+        async with self._connection() as connection:
+            preview = _reviewed_candidate(await self._candidates.get(connection, self._scope_id, candidate_id))
+        if preview.version != expected_version:
+            raise CandidateConflictError(candidate_id, expected_version, preview.version)
+        if not isinstance(preview.proposal, TopicMemoryContent) or preview.target is None:
+            raise InvalidCandidateError("family", "Topic Memory Dream proposal required")
+        projection = await self._topic_writer.prepare(preview.proposal, usage_scope_id=self._scope_id)
+        async with self._connection() as connection:
+            current = await self._artifacts.latest(
+                connection, self._scope_id, TopicMemory.family, preview.target.artifact_id, for_update=True
+            )
+            if current.as_ref() != preview.target:
+                raise ArtifactTargetConflictError(preview.target, current.as_ref())
+            candidate = _reviewed_candidate(
+                await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
+            )
+            if candidate != preview or not isinstance(current, TopicMemory) or not isinstance(
+                candidate.proposal, TopicMemoryContent
+            ):
+                raise CandidateConflictError(candidate_id, expected_version, candidate.version)
+            await self._validate_evidence(connection, candidate.sources, candidate.artifacts)
+            published = await self._topic_writer.topics.publish_revision(
+                connection,
+                self._scope_id,
+                current,
+                TopicMemoryDraft(
+                    content=candidate.proposal,
+                    sources=candidate.sources,
+                    artifacts=candidate.artifacts,
+                ),
+                projection,
+            )
+            approved = await self._candidates.mark_approved(
+                connection, self._scope_id, candidate_id, expected_version, published.topic.as_ref()
             )
         return _reviewed_candidate(approved)
 
@@ -731,6 +801,7 @@ def _validate_proposal_family(family: str, proposal: object) -> None:
         Skill.family: SkillContent,
         "profile": ProfileCandidateProposal,
         Memory.family: MemoryDreamCandidateProposal,
+        TopicMemory.family: TopicMemoryContent,
     }.get(family)
     if expected is None or type(proposal) is not expected:
         raise InvalidCandidateError("family", family)

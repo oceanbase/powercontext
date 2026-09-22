@@ -115,6 +115,15 @@ class ProfileCandidateProposal(BaseModel):
     created_at: AwareDatetime
 
 
+class TopicMemoryDreamProposal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    title: Annotated[StrictStr, Field(max_length=512, min_length=1)]
+    summary: Annotated[StrictStr, Field(max_length=8000, min_length=1)]
+    detail: Annotated[StrictStr, Field(max_length=125000, min_length=1)]
+
+
 class Family(StrEnum):
     PROFILE = "profile"
 
@@ -349,6 +358,7 @@ class DreamOperation(StrEnum):
     DERIVE_SKILL = "derive_skill"
     REVISE_PROFILE = "revise_profile"
     REVISE_MEMORY = "revise_memory"
+    REVISE_TOPIC_MEMORY = "revise_topic_memory"
 
 
 class DreamStatus(StrEnum):
@@ -369,6 +379,7 @@ class DreamEvidenceKind(StrEnum):
     EXPERIENCE = "experience"
     MEMORY = "memory"
     PROFILE = "profile"
+    TOPIC_MEMORY = "topic_memory"
     UNRESOLVED = "unresolved"
 
 
@@ -2025,6 +2036,7 @@ class CandidateFamily(StrEnum):
     SKILL = "skill"
     PROFILE = "profile"
     MEMORY = "memory"
+    TOPIC_MEMORY = "topic-memory"
 
 
 class ExternalSkillInstallationScope(StrEnum):
@@ -3255,7 +3267,13 @@ class ReviseArtifactCandidateRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     candidate_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     expected_version: Annotated[StrictInt, Field(ge=1)]
-    proposal: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal
+    proposal: (
+        ExperienceProposal
+        | SkillProposal
+        | ProfileWriteContent
+        | MemoryDreamCandidateProposal
+        | TopicMemoryDreamProposal
+    )
     source_refs: Annotated[
         list[SourceReference],
         Field(
@@ -3533,7 +3551,13 @@ class ArtifactCandidate(BaseModel):
     version: Annotated[StrictInt, Field(ge=1)]
     family: CandidateFamily
     status: CandidateStatus
-    proposal: ExperienceProposal | SkillProposal | ProfileCandidateProposal | MemoryDreamCandidateProposal
+    proposal: (
+        ExperienceProposal
+        | SkillProposal
+        | ProfileCandidateProposal
+        | MemoryDreamCandidateProposal
+        | TopicMemoryDreamProposal
+    )
     source_refs: Annotated[
         list[SourceReference],
         Field(

@@ -4597,6 +4597,14 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/MemoryDreamEntryChange"
+    TopicMemoryDreamProposal:
+      type: object
+      additionalProperties: false
+      required: [title, summary, detail]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 512}
+        summary: {type: string, minLength: 1, maxLength: 8000}
+        detail: {type: string, minLength: 1, maxLength: 125000}
     CreateProfileArtifactRequest:
       type: "object"
       additionalProperties: false
@@ -5142,6 +5150,7 @@ components:
       - derive_skill
       - revise_profile
       - revise_memory
+      - revise_topic_memory
     DreamStatus:
       type: string
       enum:
@@ -5162,6 +5171,7 @@ components:
       - experience
       - memory
       - profile
+      - topic_memory
       - unresolved
     DreamEvidenceRole:
       type: string
@@ -5544,6 +5554,7 @@ components:
             - $ref: "#/components/schemas/SkillProposal"
             - $ref: "#/components/schemas/ProfileCandidateProposal"
             - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
+            - $ref: "#/components/schemas/TopicMemoryDreamProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -8752,6 +8763,7 @@ components:
             - $ref: "#/components/schemas/SkillProposal"
             - $ref: "#/components/schemas/ProfileWriteContent"
             - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
+            - $ref: "#/components/schemas/TopicMemoryDreamProposal"
         source_refs:
           type: array
           maxItems: 32
@@ -9653,7 +9665,7 @@ components:
       enum: [today, 7d, 30d]
     CandidateFamily:
       type: string
-      enum: [experience, skill, profile, memory]
+      enum: [experience, skill, profile, memory, topic-memory]
     ExternalSkillInstallationScope:
       type: string
       enum: [user, project, plugin]

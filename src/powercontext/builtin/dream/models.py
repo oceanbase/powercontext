@@ -26,6 +26,7 @@ from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
 from powercontext.builtin.evidence.models import (
     EvidenceLimits,
     EvidenceManifest,
@@ -36,7 +37,9 @@ from powercontext.builtin.evidence.models import (
 from powercontext.errors import PowerContextError
 from powercontext.sources import SourceRef
 
-DreamOperation = Literal["refine_experience", "derive_skill", "revise_profile", "revise_memory"]
+DreamOperation = Literal[
+    "refine_experience", "derive_skill", "revise_profile", "revise_memory", "revise_topic_memory"
+]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
 DreamIntent = Literal["create", "corroborate", "refine", "correct", "derive"]
@@ -82,6 +85,7 @@ class CreateDreamRunRequest(BaseModel):
             "derive_skill": {"experience"},
             "revise_profile": {"experience", "profile"},
             "revise_memory": {"experience", "memory"},
+            "revise_topic_memory": {"experience", "topic-memory"},
         }[self.operation]
         if any(ref.family not in allowed_families for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
@@ -110,6 +114,12 @@ class CreateDreamRunRequest(BaseModel):
             or not self.memory_citations
             or any(citation.memory_ref != self.target for citation in self.memory_citations)
             or any(ref.family == "memory" and ref != self.target for ref in self.artifacts)
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_topic_memory" and (
+            self.target is None
+            or self.target.family != "topic-memory"
+            or any(ref.family == "topic-memory" and ref != self.target for ref in self.artifacts)
         ):
             raise DreamError("invalid_dream_operation")
         return self
@@ -195,7 +205,7 @@ class DreamPlan(BaseModel):
     outcome: DreamOutcome
     reason: str = Field(min_length=1, max_length=2000)
     intent: DreamIntent | None = None
-    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamWrite | None = None
+    proposal: ExperienceContent | SkillContent | ProfileWriteContent | MemoryDreamWrite | TopicMemoryContent | None = None
     evidence_ids: tuple[str, ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
@@ -231,6 +241,8 @@ class DreamPlan(BaseModel):
                     (change.entry_id, change.entry_version_id) in selected for change in self.proposal.changes
                 )
             )
+        elif request.operation == "revise_topic_memory":
+            valid = isinstance(self.proposal, TopicMemoryContent) and self.intent == "correct"
         else:
             intents = {"create"} if request.target is None else {"corroborate", "refine", "correct"}
             valid = isinstance(self.proposal, ExperienceContent) and self.intent in intents

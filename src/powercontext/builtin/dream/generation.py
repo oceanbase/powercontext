@@ -37,6 +37,9 @@ Distinguish temporary plans from durable facts. Use correct as the intent for a 
 For revise_memory, revise only selected active Memory entry versions in the one exact target Memory.
 For each change, preserve the entry ID, cite selected exact Source references, and explain the correction.
 Do not add, merge, deactivate, restore, or rename entries; use correct as the intent.
+For revise_topic_memory, compare the exact current Topic with verified new evidence and propose
+complete title, summary, and detail content. Preserve confirmed results, hypotheses, ruled-out
+causes, open questions, and next steps as distinct claims. Use correct as the intent.
 Provide name, description, instructions, and at least one concrete validation check in validation.
 Use a package-compatible name: at most 64 lowercase letters, digits, and single separating hyphens.
 Keep description within 1024 characters. Trim text fields and omit trailing whitespace in instructions.

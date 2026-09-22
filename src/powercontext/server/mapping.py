@@ -51,6 +51,7 @@ from powercontext.builtin.artifacts.skill import (
     ExternalSkillResolution as RuntimeExternalSkillResolution,
 )
 from powercontext.builtin.artifacts.topic_memory import PublishedTopicMemory, TopicMemorySearchResult
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent as RuntimeTopicMemoryContent
 from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance
 from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
 from powercontext.builtin.review import ArtifactCandidatePage as RuntimeArtifactCandidatePage
@@ -277,6 +278,7 @@ from powercontext.http import (
     SubmitSourceObservationRequest,
     TaskCheck,
     TopicMemoryArtifact,
+    TopicMemoryDreamProposal,
     TopicMemoryFlushStatus,
     TopicMemoryMatchedBy,
     TopicMemoryUsedSearchMode,
@@ -1067,8 +1069,10 @@ def skill_proposal(value: SkillContent) -> SkillProposal:
 
 
 def reviewed_content(
-    value: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal,
-) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent | RuntimeMemoryDreamCandidateProposal:
+    value: ExperienceProposal | SkillProposal | ProfileWriteContent | MemoryDreamCandidateProposal | TopicMemoryDreamProposal,
+) -> ExperienceContent | SkillContent | RuntimeProfileWriteContent | RuntimeMemoryDreamCandidateProposal | RuntimeTopicMemoryContent:
+    if isinstance(value, TopicMemoryDreamProposal):
+        return RuntimeTopicMemoryContent.model_validate(value.model_dump(mode="json"))
     if isinstance(value, MemoryDreamCandidateProposal):
         return RuntimeMemoryDreamCandidateProposal.model_validate(value.model_dump(mode="json"))
     if isinstance(value, ProfileWriteContent):
@@ -1080,7 +1084,9 @@ def reviewed_content(
 
 def reviewed_proposal(
     value: object,
-) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal | MemoryDreamCandidateProposal:
+) -> ExperienceProposal | SkillProposal | ProfileCandidateProposal | MemoryDreamCandidateProposal | TopicMemoryDreamProposal:
+    if isinstance(value, RuntimeTopicMemoryContent):
+        return TopicMemoryDreamProposal.model_validate(value.model_dump(mode="json"))
     if isinstance(value, RuntimeMemoryDreamCandidateProposal):
         return MemoryDreamCandidateProposal.model_validate(value.model_dump(mode="json"))
     if isinstance(value, RuntimeProfileCandidateProposal):

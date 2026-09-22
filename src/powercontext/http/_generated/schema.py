@@ -4629,6 +4629,16 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["base", "dream_run_id", "changes"],
             },
+            "TopicMemoryDreamProposal": {
+                "properties": {
+                    "title": {"type": "string", "maxLength": 512, "minLength": 1},
+                    "summary": {"type": "string", "maxLength": 8000, "minLength": 1},
+                    "detail": {"type": "string", "maxLength": 125000, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["title", "summary", "detail"],
+            },
             "CreateProfileArtifactRequest": {
                 "properties": {
                     "family": {"type": "string", "enum": ["profile"]},
@@ -5022,13 +5032,13 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "DreamOperation": {
                 "type": "string",
-                "enum": ["refine_experience", "derive_skill", "revise_profile", "revise_memory"],
+                "enum": ["refine_experience", "derive_skill", "revise_profile", "revise_memory", "revise_topic_memory"],
             },
             "DreamStatus": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
             "DreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
             "DreamEvidenceKind": {
                 "type": "string",
-                "enum": ["source", "experience", "memory", "profile", "unresolved"],
+                "enum": ["source", "experience", "memory", "profile", "topic_memory", "unresolved"],
             },
             "DreamEvidenceRole": {
                 "type": "string",
@@ -5291,6 +5301,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/SkillProposal"},
                             {"$ref": "#/components/schemas/ProfileCandidateProposal"},
                             {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
+                            {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
                         ]
                     },
                     "source_refs": {
@@ -8025,6 +8036,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/SkillProposal"},
                             {"$ref": "#/components/schemas/ProfileWriteContent"},
                             {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
+                            {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
                         ]
                     },
                     "source_refs": {
@@ -8998,7 +9010,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "enum": ["memory", "experience", "skill", "handoff", "profile", "prompt", "topic-memory"],
             },
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
-            "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile", "memory"]},
+            "CandidateFamily": {"type": "string", "enum": ["experience", "skill", "profile", "memory", "topic-memory"]},
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
             "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},
             "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},

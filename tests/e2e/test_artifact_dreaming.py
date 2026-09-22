@@ -39,6 +39,11 @@ from powercontext.builtin.artifacts.profile.models import (
     ProfileWriteContent,
 )
 from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.topic_memory import (
+    TopicMemoryContent,
+    TopicMemoryDraft,
+    prepare_topic_memory_projection,
+)
 from powercontext.builtin.dream.generation import DreamGenerationInput
 from powercontext.builtin.dream.models import DreamError, DreamPlan
 from powercontext.builtin.evidence.models import EvidenceResolutionError
@@ -317,6 +322,85 @@ def test_memory_dream_revises_only_selected_entry_after_review(database: Databas
             assert replacement.entry.text.startswith("The corrected replay")
             assert replacement.citation.entry_version_id != citation.entry_version_id
             assert len(after.entries) == len(before.entries)
+
+    asyncio.run(scenario())
+
+
+def test_topic_memory_dream_publishes_complete_revision_after_review(database: DatabaseConfig) -> None:
+    class TopicDreamGenerator:
+        config_id = "topic-dream-test"
+
+        async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
+            assert value.operation == "revise_topic_memory"
+            assert any(item.kind == "topic_memory" for item in value.evidence.evidence)
+            source_id = next(item.evidence_id for item in value.evidence.evidence if item.kind == "source")
+            return GenerationResult(
+                output=DreamPlan(
+                    outcome="proposed",
+                    reason="Verified investigation changed the topic conclusion.",
+                    intent="correct",
+                    proposal=TopicMemoryContent(
+                        title="Retry investigation",
+                        summary="The replay can create a duplicate.",
+                        detail="# Confirmed\nA later check found two records.\n\n# Next\nRequire idempotency.",
+                    ),
+                    evidence_ids=(source_id,),
+                ),
+                usage=InferenceUsage(requests=1),
+            )
+
+    async def scenario() -> None:
+        async with open_builtin_runtime(config(database), dream_generator=TopicDreamGenerator()) as runtime:
+            assert runtime.scopes is not None
+            scope = await runtime.scopes.create(
+                ScopeDraft(title="Topic Dream", summary="Complete projection", idempotency_key="topic-dream")
+            )
+            scope_id = scope.scope_id
+            source = await runtime.sources.for_scope(scope_id).capture(
+                CaptureSource(source_id="topic-correction", content="A later replay created two records.", metadata={})
+            )
+            topics = runtime._provider.repositories.topic_memories
+            original = TopicMemoryContent(
+                title="Retry investigation",
+                summary="The replay creates one record.",
+                detail="# Confirmed\nAn earlier check found one record.",
+            )
+            async with runtime._provider.database.transaction() as connection:
+                published = await topics.publish_create(
+                    connection,
+                    scope_id,
+                    "topic-dream-target",
+                    TopicMemoryDraft(content=original, sources=(source.source_ref,)),
+                    prepare_topic_memory_projection(original),
+                )
+            run = await runtime.dream.for_scope(scope_id).create(
+                CreateDreamRunRequest(
+                    operation="revise_topic_memory",
+                    target=published.topic.as_ref(),
+                    artifacts=(published.topic.as_ref(),),
+                    sources=(source.source_ref,),
+                    idempotency_key="topic-correction",
+                )
+            )
+            await process_pending(runtime)
+            completed = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=run.run_id))
+            assert completed.outcome == "proposed" and completed.candidate is not None
+            async with runtime._provider.database.transaction() as connection:
+                before = await runtime._provider.repositories.artifacts.latest(
+                    connection, scope_id, "topic-memory", "topic-dream-target"
+                )
+            assert before.revision == 1
+            approved = await runtime.review.for_scope(scope_id).approve(
+                ApproveArtifactCandidateRequest(
+                    candidate_id=completed.candidate.candidate_id,
+                    expected_version=completed.candidate.version,
+                )
+            )
+            assert approved.result_artifact is not None and approved.result_artifact.revision == 2
+            async with runtime._provider.database.transaction() as connection:
+                after = await topics.get_exact(connection, scope_id, approved.result_artifact)
+            assert after.topic.content.summary == "The replay can create a duplicate."
+            assert after.is_current
 
     asyncio.run(scenario())
 

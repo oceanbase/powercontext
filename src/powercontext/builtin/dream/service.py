@@ -31,6 +31,7 @@ from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamCandidateProposal, MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
 from powercontext.builtin.dream.bindings import DREAM_BINDINGS, operations_for_binding
 from powercontext.builtin.dream.generation import DreamGenerationInput, DreamGenerator
 from powercontext.builtin.dream.models import (
@@ -333,6 +334,7 @@ class DreamService:
                         "refine_experience": "experience",
                         "revise_profile": "profile",
                         "revise_memory": "memory",
+                        "revise_topic_memory": "topic-memory",
                     }[
                         run.operation
                     ]
@@ -418,6 +420,17 @@ class DreamService:
                 sources=selected.sources,
                 artifacts=selected.artifacts,
                 memory_citations=selected.memory_citations,
+                target=record.run.target,
+                reason=plan.reason,
+                candidate_id=_candidate_id(record),
+            )
+        elif isinstance(plan.proposal, TopicMemoryContent) and record.run.operation == "revise_topic_memory":
+            if record.run.target is None:
+                raise DreamError("invalid_generation_output")
+            candidate = await review.propose_topic_memory_dream(
+                plan.proposal,
+                sources=selected.sources,
+                artifacts=selected.artifacts,
                 target=record.run.target,
                 reason=plan.reason,
                 candidate_id=_candidate_id(record),

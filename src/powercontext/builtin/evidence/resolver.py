@@ -29,6 +29,7 @@ from powercontext.builtin.artifacts.experience import Experience
 from powercontext.builtin.artifacts.memory import Memory, MemoryEntryVersion
 from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCitationError, MemoryEntryNotFoundError
 from powercontext.builtin.artifacts.profile.models import Profile
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemory
 from powercontext.builtin.evidence.models import (
     EVIDENCE_TRANSFORM_VERSION,
     EvidenceEdge,
@@ -310,6 +311,14 @@ class EvidenceResolver:
                     evidence_id=evidence_id(ref), kind="profile", artifact=ref, digest=digest, role="derived"
                 ),
                 artifact.content.content,
+                (),
+            )
+        if isinstance(artifact, TopicMemory):
+            return (
+                EvidenceNode(
+                    evidence_id=evidence_id(ref), kind="topic_memory", artifact=ref, digest=digest, role="derived"
+                ),
+                artifact.content.model_dump_json(),
                 (),
             )
         if ref.family == "prompt":

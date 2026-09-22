@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
+from powercontext.builtin.artifacts.topic_memory import TOPIC_MEMORY_SOURCE_WINDOW_BINDING
 from powercontext.builtin.dream.models import DreamOperation
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 
@@ -39,6 +40,7 @@ DREAM_OPERATIONS = (
     DreamOperationSpec("derive_skill", "skill", SKILL_DREAM_BINDING),
     DreamOperationSpec("revise_profile", "profile", PROFILE_SOURCE_WINDOW_BINDING),
     DreamOperationSpec("revise_memory", "memory", SOURCE_WINDOW_TRIGGER_NAME),
+    DreamOperationSpec("revise_topic_memory", "topic-memory", TOPIC_MEMORY_SOURCE_WINDOW_BINDING),
 )
 DREAM_BINDINGS = {spec.operation: spec.binding for spec in DREAM_OPERATIONS}
 

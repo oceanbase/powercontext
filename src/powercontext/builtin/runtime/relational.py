@@ -103,6 +103,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     PublishedTopicMemory,
     TopicMemory,
     TopicMemoryBrowseCursor,
+    TopicMemoryContent,
     TopicMemoryCurrentItem,
     TopicMemorySearchMode,
     TopicMemorySearchResult,
@@ -306,6 +307,7 @@ class _ScopedServices:
     source_registry: SourceDefinitionRegistry
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
+    topic_writer: TopicMemoryManagementWriter
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -391,6 +393,7 @@ class _ScopedServices:
             evidence=self.evidence(),
             connection=connection,
             memory=lambda bound: self.memory(self.sources(bound)[1], bound),
+            topic_writer=self.topic_writer,
         )
 
     def recurrence_ledger(self) -> RelationalRecurrenceLedger:
@@ -546,6 +549,7 @@ class RelationalContexts:
                 Skill.family: SkillContent,
                 Profile.family: ProfileCandidateProposal,
                 Memory.family: MemoryDreamCandidateProposal,
+                TopicMemory.family: TopicMemoryContent,
             }),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),
@@ -589,6 +593,7 @@ class RelationalContexts:
             max_concurrency=topic_memory_write_concurrency,
             usage_reporter=self.model_usage_reporter,
         )
+        self._topic_memory_writer = topic_memory_writer
         family_writers = FamilyManagementWriterRegistry((
             topic_memory_writer,
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
@@ -1407,6 +1412,7 @@ class RelationalContexts:
             generation_receipts=self._generation_receipts,
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
+            topic_writer=self._topic_memory_writer,
         )
 
 
