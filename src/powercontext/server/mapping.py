@@ -38,6 +38,7 @@ from powercontext.builtin.artifacts.memory.models import (
 )
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal as RuntimeProfileCandidateProposal
 from powercontext.builtin.artifacts.profile.models import ProfileWriteContent as RuntimeProfileWriteContent
+from powercontext.builtin.artifacts.prompt.models import PromptContent as RuntimePromptContent
 from powercontext.builtin.artifacts.skill import (
     ExternalSkillProviderScan,
     Skill,
@@ -190,6 +191,7 @@ from powercontext.http import (
     ArtifactCandidate,
     ArtifactCandidatePage,
     ArtifactReference,
+    CandidateAudit,
     CandidateFamily,
     CandidateStatus,
     CaptureContentSourceRequest,
@@ -249,6 +251,7 @@ from powercontext.http import (
     PrepareHandoffRequest,
     ProfileCandidateProposal,
     ProfileWriteContent,
+    PromptContent,
     ProposeExperienceRequest,
     ProposeSkillRequest,
     RecordTaskOutcomeRequest,
@@ -890,6 +893,7 @@ def candidate_response(value: RuntimeArtifactCandidate[Any]) -> ArtifactCandidat
         reason=value.reason,
         result_artifact=None if value.result_artifact is None else artifact_reference(value.result_artifact),
         decision_reason=value.decision_reason,
+        audit=None if value.audit is None else CandidateAudit.model_validate(value.audit.model_dump(mode="json")),
     )
 
 
@@ -1074,7 +1078,8 @@ def reviewed_content(
     | ProfileWriteContent
     | MemoryDreamCandidateProposal
     | TopicMemoryDreamProposal
-    | TransportHandoffContent,
+    | TransportHandoffContent
+    | PromptContent,
 ) -> (
     ExperienceContent
     | SkillContent
@@ -1082,7 +1087,10 @@ def reviewed_content(
     | RuntimeMemoryDreamCandidateProposal
     | RuntimeTopicMemoryContent
     | HandoffContent
+    | RuntimePromptContent
 ):
+    if isinstance(value, PromptContent):
+        return RuntimePromptContent.model_validate_json(value.model_dump_json())
     if isinstance(value, TransportHandoffContent):
         return runtime_handoff_content(value)
     if isinstance(value, TopicMemoryDreamProposal):
@@ -1105,7 +1113,10 @@ def reviewed_proposal(
     | MemoryDreamCandidateProposal
     | TopicMemoryDreamProposal
     | TransportHandoffContent
+    | PromptContent
 ):
+    if isinstance(value, RuntimePromptContent):
+        return PromptContent.model_validate_json(value.model_dump_json())
     if isinstance(value, HandoffContent):
         return handoff_content(value)
     if isinstance(value, RuntimeTopicMemoryContent):

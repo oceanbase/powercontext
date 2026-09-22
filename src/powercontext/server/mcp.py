@@ -35,6 +35,7 @@ from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
+    APPROVE_CATALOG_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     CLEAR_SCOPE_BINDING,
     COMMIT_HANDOFF,
@@ -44,6 +45,8 @@ from powercontext.http._generated.operations import (
     CREATE_WORK_CONTRACT,
     FINALIZE_HANDOFF,
     GET_ARTIFACT_CANDIDATE,
+    GET_CATALOG_CANDIDATE,
+    GET_CATALOG_CANDIDATE_HISTORY,
     GET_DREAM_RUN,
     GET_HANDOFF_REPORT,
     GET_MEMORY_ENTRY,
@@ -51,16 +54,19 @@ from powercontext.http._generated.operations import (
     GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     LIST_ARTIFACT_CANDIDATES,
+    LIST_CATALOG_CANDIDATES,
     LIST_DREAM_RUNS,
     LIST_MEMORY_ENTRIES,
     LIST_SCOPES,
     PUBLISH_ARTIFACT,
     RECORD_TASK_OUTCOME,
     REJECT_ARTIFACT_CANDIDATE,
+    REJECT_CATALOG_CANDIDATE,
     REMEMBER_MEMORY,
     RESOLVE_SCOPE_BINDING,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
+    REVISE_CATALOG_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     SEARCH_MEMORY,
     SEARCH_TOPIC_MEMORY,
@@ -101,6 +107,12 @@ Empty retrieval is a valid result. On failure identify the operation and safe re
 claim saved/restored context, or repeatedly retry. Continue ordinary work when the requested operation is unavailable.
 """
 _MCP_OPERATION_IDS = frozenset({
+    LIST_CATALOG_CANDIDATES.operation_id,
+    GET_CATALOG_CANDIDATE.operation_id,
+    GET_CATALOG_CANDIDATE_HISTORY.operation_id,
+    APPROVE_CATALOG_CANDIDATE.operation_id,
+    REJECT_CATALOG_CANDIDATE.operation_id,
+    REVISE_CATALOG_CANDIDATE.operation_id,
     CREATE_DREAM_RUN.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
@@ -136,6 +148,9 @@ _MCP_OPERATION_IDS = frozenset({
     PUBLISH_ARTIFACT.operation_id,
 })
 _MCP_READ_ONLY_OPERATION_IDS = frozenset({
+    LIST_CATALOG_CANDIDATES.operation_id,
+    GET_CATALOG_CANDIDATE.operation_id,
+    GET_CATALOG_CANDIDATE_HISTORY.operation_id,
     GET_DREAM_RUN.operation_id,
     LIST_DREAM_RUNS.operation_id,
     CONTINUE_HANDOFF.operation_id,
@@ -152,6 +167,9 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     RESOLVE_SCOPE_BINDING.operation_id,
 })
 _MCP_REVIEW_WRITE_OPERATION_IDS = frozenset({
+    APPROVE_CATALOG_CANDIDATE.operation_id,
+    REJECT_CATALOG_CANDIDATE.operation_id,
+    REVISE_CATALOG_CANDIDATE.operation_id,
     APPROVE_ARTIFACT_CANDIDATE.operation_id,
     REJECT_ARTIFACT_CANDIDATE.operation_id,
     REVISE_ARTIFACT_CANDIDATE.operation_id,
@@ -224,6 +242,7 @@ def create_mcp_server(
     client = httpx.AsyncClient(
         transport=_InternalBridgeTransport(app=server_app),
         base_url="http://fastapi",
+        headers={"X-PowerContext-Dream-Contract": "2"},
     )
     provider = OpenAPIProvider(
         openapi_spec=server_app.openapi(),

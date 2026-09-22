@@ -26,8 +26,10 @@ from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.artifacts.handoff.models import HandoffContent
 from powercontext.builtin.artifacts.memory.models import MemoryDreamWrite
 from powercontext.builtin.artifacts.profile.models import ProfilePolicy, ProfileWriteContent
+from powercontext.builtin.artifacts.prompt.models import PROMPT_KEYS, PromptContent
 from powercontext.builtin.artifacts.skill import SkillContent
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
+from powercontext.builtin.catalog_changes.models import TagChangeProposal, TagDreamTarget
 from powercontext.builtin.evidence.models import (
     EvidenceLimits,
     EvidenceManifest,
@@ -46,11 +48,13 @@ DreamOperation = Literal[
     "revise_memory",
     "revise_topic_memory",
     "refresh_handoff",
+    "revise_prompt",
+    "revise_tags",
 ]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
 DreamIntent = Literal["create", "corroborate", "refine", "correct", "derive"]
-DREAM_PROMPT_VERSION = "powercontext.dream.v1.1"
+DREAM_PROMPT_VERSION = "powercontext.dream.v1.2"
 
 
 class DreamError(PowerContextError, ValueError):
@@ -67,6 +71,7 @@ class CreateDreamRunRequest(BaseModel):
     memory_citations: tuple[MemoryCitation, ...] = ()
     sources: tuple[SourceRef, ...] = ()
     target: ArtifactRef | None = None
+    tag_target: TagDreamTarget | None = None
     idempotency_key: str = Field(min_length=1, max_length=128)
 
     @field_validator("idempotency_key")
@@ -83,6 +88,14 @@ class CreateDreamRunRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_selection(self):  # noqa: C901 - bounded validation for each registered operation
+        if self.operation == "revise_tags":
+            if self.target is not None or self.tag_target is None:
+                raise DreamError("invalid_target")
+            if not 1 <= len(self.sources) + len(self.artifacts) + len(self.memory_citations) <= 32:
+                raise DreamError("evidence_limit_exceeded")
+            return self
+        if self.tag_target is not None:
+            raise DreamError("invalid_target")
         selected = len(self.artifacts) + len(self.memory_citations)
         selected_limit = 21 if self.operation == "revise_memory" else 20
         if not 1 <= selected <= selected_limit or selected + len(self.sources) > 32:
@@ -95,6 +108,7 @@ class CreateDreamRunRequest(BaseModel):
             "revise_memory": {"experience", "memory"},
             "revise_topic_memory": {"experience", "topic-memory"},
             "refresh_handoff": {"experience", "handoff"},
+            "revise_prompt": {"experience", "prompt"},
         }[self.operation]
         if any(ref.family not in allowed_families for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
@@ -115,7 +129,7 @@ class CreateDreamRunRequest(BaseModel):
             self.target is None
             or self.target.family != "skill"
             or any(ref.family == "skill" and ref != self.target for ref in self.artifacts)
-            or not self.sources
+            or not (self.sources or self.memory_citations or any(ref != self.target for ref in self.artifacts))
         ):
             raise DreamError("invalid_dream_operation")
         if self.operation == "revise_profile" and (
@@ -144,6 +158,14 @@ class CreateDreamRunRequest(BaseModel):
             or any(ref.family == "handoff" and ref != self.target for ref in self.artifacts)
         ):
             raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_prompt" and (
+            self.target is None
+            or self.target.family != "prompt"
+            or self.target.artifact_id not in PROMPT_KEYS
+            or any(ref.family == "prompt" and ref != self.target for ref in self.artifacts)
+            or not self.sources
+        ):
+            raise DreamError("invalid_dream_operation")
         return self
 
     def digest(self) -> str:
@@ -163,6 +185,7 @@ class DreamUsage(BaseModel):
 
 
 class DreamCandidateRef(BaseModel):
+    kind: Literal["artifact", "catalog_change"] = "artifact"
     candidate_id: str
     version: int = Field(ge=1)
 
@@ -176,6 +199,7 @@ class DreamRun(BaseModel):
     status: DreamStatus = "queued"
     outcome: DreamOutcome | None = None
     target: ArtifactRef | None = None
+    tag_target: TagDreamTarget | None = None
     candidate: DreamCandidateRef | None = None
     reason: str | None = None
     error: str | None = None
@@ -188,6 +212,7 @@ class DreamRun(BaseModel):
     budget: DreamBudget = Field(default_factory=DreamBudget)
     prompt_version: str = DREAM_PROMPT_VERSION
     model_config_id: str | None = None
+    reused: bool = False
 
     @property
     def terminal(self) -> bool:
@@ -220,6 +245,7 @@ class DreamRecord(BaseModel):
     request_generation: int = 0
     deadline_at: datetime | None = None
     profile_policy: ProfilePolicy | None = None
+    proposal_fingerprint: str | None = None
 
 
 class DreamPlan(BaseModel):
@@ -235,6 +261,8 @@ class DreamPlan(BaseModel):
         | MemoryDreamWrite
         | TopicMemoryContent
         | HandoffContent
+        | PromptContent
+        | TagChangeProposal
         | None
     ) = None
     evidence_ids: tuple[str, ...] = Field(default=(), max_length=32)
@@ -250,7 +278,7 @@ class DreamPlan(BaseModel):
             raise DreamError("invalid_generation_output")
         return self
 
-    def validate_operation(self, request: CreateDreamRunRequest) -> None:
+    def validate_operation(self, request: CreateDreamRunRequest) -> None:  # noqa: C901 - explicit operation contracts
         if self.outcome != "proposed":
             return
         if request.operation == "derive_skill":
@@ -282,6 +310,12 @@ class DreamPlan(BaseModel):
                 and self.proposal.generation is None
                 and self.intent == "correct"
             )
+        elif request.operation == "revise_prompt":
+            valid = (
+                isinstance(self.proposal, PromptContent) and self.proposal.mode == "custom" and self.intent == "correct"
+            )
+        elif request.operation == "revise_tags":
+            valid = isinstance(self.proposal, TagChangeProposal) and self.intent == "correct"
         else:
             intents = {"create"} if request.target is None else {"corroborate", "refine", "correct"}
             valid = isinstance(self.proposal, ExperienceContent) and self.intent in intents

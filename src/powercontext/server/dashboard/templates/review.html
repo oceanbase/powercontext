@@ -1,0 +1,56 @@
+<div class="container-xl">
+  <h2>{{ t.review }}</h2>
+  <form method="get" action="/dashboard/review" class="row g-3 mb-4">
+    <input type="hidden" name="scope" value="{{ scope }}">
+    <div class="col-md-4"><label class="form-label" for="review-resource">{{ t.review_resource }}</label><select id="review-resource" class="form-select" name="resource_type">
+      {% for value in ['all', 'artifact', 'catalog_change'] %}<option value="{{ value }}" {% if review.kind == value %}selected{% endif %}>{{ t['review_' ~ value] }}</option>{% endfor %}
+    </select></div>
+    <div class="col-md-4"><label class="form-label" for="review-status">{{ t.review_status }}</label><select id="review-status" class="form-select" name="review_status">
+      {% for value in ['pending', 'approved', 'rejected'] %}<option value="{{ value }}" {% if review.status == value %}selected{% endif %}>{{ t['review_' ~ value] }}</option>{% endfor %}
+    </select></div>
+    <div class="col-md-4 align-self-end"><button class="btn" type="submit">{{ t.apply }}</button></div>
+  </form>
+  {% for section in review.sections %}
+  <section class="mb-4">
+    <h3>{{ t['review_' ~ section.kind] }}</h3>
+    <div class="table-responsive"><table class="table table-vcenter">
+      <thead><tr><th>{{ t.review_resource }}</th><th>{{ t.review_version }}</th><th>{{ t.review_reason }}</th><th>{{ t.review_status }}</th></tr></thead>
+      <tbody>{% for item in section.candidates %}<tr>
+        <td><a href="{{ link('review', candidate_id=item.candidate_id, candidate_kind=section.kind) }}">{{ item.family if section.kind == 'artifact' else 'Tag' }} · {{ item.candidate_id }}</a></td>
+        <td>{{ item.version }}</td><td>{{ item.reason or '' }}</td><td>{{ t['review_' ~ item.status] }}</td>
+      </tr>{% else %}<tr><td colspan="4">{{ t.review_empty }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if section.next_cursor %}<a class="btn" href="{{ link('review', **{section.kind ~ '_cursor': section.next_cursor, 'candidate_id': none}) }}">{{ t.review_next }}</a>{% endif %}
+  </section>
+  {% endfor %}
+  {% if review.selected %}{% set detail = review.selected %}{% set candidate = detail.candidate %}
+  <article class="card mb-4"><div class="card-body">
+    <h3>{{ candidate.candidate_id }} · {{ t.review_version }} {{ candidate.version }}</h3>
+    <p>{{ candidate.reason or '' }}</p>
+    {% if detail.kind == 'catalog_change' %}<p>{{ t.review_effect_tag }}</p>
+    {% elif candidate.family in ['prompt', 'skill', 'handoff'] %}<p>{{ t['review_effect_' ~ candidate.family] }}</p>{% endif %}
+    <h4>{{ t.review_diff }}</h4>
+    {% if detail.get('baseline_error') %}<p>{{ t.review_target_unavailable }}</p>{% else %}<pre class="overflow-auto">{{ detail.diff }}</pre>{% endif %}
+    <details class="mb-3"><summary>{{ t.review_content }}</summary><pre>{{ detail.proposal }}</pre></details>
+    <h4>{{ t.review_evidence }}</h4>
+    {% for evidence in detail.evidence %}<details class="mb-3"><summary><code>{{ evidence.reference }}</code></summary>
+      {% if evidence.get('error') %}<p>{{ t.review_unavailable }}</p>{% else %}<pre>{{ evidence.content }}</pre>{% endif %}
+    </details>{% endfor %}
+    {% if detail.history %}<details class="mb-3"><summary>{{ t.review_history }}</summary>{% for entry in detail.history %}<p>{{ t.review_version }} {{ entry.version }} · {{ t['review_' ~ entry.status] }} · {{ entry.decision_reason or entry.reason }}</p>{% endfor %}</details>{% endif %}
+    {% if candidate.status == 'pending' %}
+    {% set permissions = candidate.get('permissions') %}
+    <form method="post" action="/dashboard/review/decision" class="mb-3" hx-boost="false">
+      <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="candidate_kind" value="{{ detail.kind }}"><input type="hidden" name="candidate_id" value="{{ candidate.candidate_id }}"><input type="hidden" name="expected_version" value="{{ candidate.version }}">
+      {% if permissions is none or permissions.can_approve %}<button type="submit" name="action" value="approve" class="btn btn-primary">{{ t.review_approve }}</button>{% endif %}
+      {% if permissions is none or permissions.can_reject %}<label class="form-label mt-3" for="rejection-reason">{{ t.review_reject_reason }}</label><input id="rejection-reason" class="form-control mb-2" name="reason" maxlength="2000"><button type="submit" name="action" value="reject" class="btn">{{ t.review_reject }}</button>{% endif %}
+    </form>
+    {% if permissions is none or permissions.can_revise %}<details><summary>{{ t.review_edit }}</summary>
+    <form method="post" action="/dashboard/review/decision" hx-boost="false">
+      <input type="hidden" name="scope" value="{{ scope }}"><input type="hidden" name="candidate_kind" value="{{ detail.kind }}"><input type="hidden" name="candidate_id" value="{{ candidate.candidate_id }}"><input type="hidden" name="expected_version" value="{{ candidate.version }}">
+      <textarea class="form-control font-monospace my-3" rows="16" name="replacement" aria-label="{{ t.review_content }}" required>{{ detail.revision }}</textarea>
+      <button type="submit" name="action" value="revise" class="btn">{{ t.review_revise }}</button>
+    </form></details>{% endif %}
+    {% endif %}
+  </div></article>
+  {% endif %}
+</div>

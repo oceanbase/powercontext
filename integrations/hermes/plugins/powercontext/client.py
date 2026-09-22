@@ -174,6 +174,7 @@ class PowerContextClient:
         if method != "GET":
             body = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         headers = {
+            "X-PowerContext-Dream-Contract": "2",
             "Accept": "application/json",
             "User-Agent": "powercontext-hermes/0.1",
         }

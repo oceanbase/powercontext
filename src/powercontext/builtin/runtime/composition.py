@@ -59,7 +59,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
-from powercontext.builtin.dream.bindings import DREAM_OPERATIONS
+from powercontext.builtin.dream.bindings import DREAM_OPERATIONS, operation_spec
 from powercontext.builtin.dream.generation import (
     DREAM_INSTRUCTIONS,
     DreamGenerationInput,
@@ -272,6 +272,7 @@ async def open_builtin_runtime(
     dream_authorizer: DreamAuthorizer | None = None,
     dream_authorization_context: AuthorizationContext = nullcontext,
     dream_candidate_attester: CandidateAttester | None = None,
+    dream_candidate_authorizer: CandidateAttester | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
@@ -460,7 +461,9 @@ async def open_builtin_runtime(
         if dream_generator is not None and config.runtime.dream_enabled:
             registered_families = {binding.artifact_family for binding in processing_bindings}
             configured_operations = tuple(
-                spec.operation for spec in DREAM_OPERATIONS if spec.family in registered_families
+                spec.operation
+                for spec in DREAM_OPERATIONS
+                if spec.family in registered_families or (spec.family is None and registered_families)
             )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
         runtime = await resources.enter_async_context(
@@ -474,9 +477,8 @@ async def open_builtin_runtime(
                     artifact_dreaming_operations=tuple(
                         DreamOperationCapability(
                             operation=operation,
-                            effect="review_then_commit_without_activation"
-                            if operation == "refresh_handoff"
-                            else "review_then_publish",
+                            effect=operation_spec(operation).effect,
+                            output_kind=operation_spec(operation).output_kind,
                         )
                         for operation in configured_operations
                     ),
@@ -493,6 +495,7 @@ async def open_builtin_runtime(
                 scope_cache_observer=scope_cache_observer,
                 scope_ids=contexts.scope_ids,
                 review_service=contexts.review,
+                catalog_change_service=contexts.catalog_changes,
                 profiles=contexts.profiles,
                 subject_sources=contexts.subject_sources,
                 generation_service=contexts.generation,
@@ -504,6 +507,7 @@ async def open_builtin_runtime(
                     authorize=dream_authorizer,
                     authorization_context=dream_authorization_context,
                     attest_candidate=dream_candidate_attester,
+                    authorize_candidate=dream_candidate_authorizer,
                 ),
                 generation_concurrency=config.runtime.generation_concurrency,
                 experience_recall=contexts.search_experience_outcome,
@@ -606,6 +610,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
         "profile": config.runtime.profile_schedule_enabled or None,
         "skill": None,
         "handoff": None,
+        "prompt": None,
     }
     for family, schedule in automatic.items():
         if schedule is not None and family not in declared | registered:
@@ -665,7 +670,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 else None,
                 timezone=config.runtime.profile_timezone if family == "profile" else "Asia/Shanghai",
                 pending_provider=None
-                if family in {"skill", "handoff"}
+                if family in {"skill", "handoff", "prompt"}
                 else SourceProcessingPendingProvider(contexts.database, binding, family),
                 automatic_scope_filter=enabled_profile_scopes if family == "profile" else None,
             )

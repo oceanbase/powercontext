@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
@@ -42,6 +42,19 @@ class CandidateStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class CandidateAudit(BaseModel):
+    """Server-owned provenance pinned to one immutable Dream proposal version."""
+
+    origin: Literal["dream"] = "dream"
+    operation: str
+    dream_run_id: str
+    spec_version: str
+    proposal_digest: str
+    evidence_manifest_ref: str
+    validation_policy_digest: str
+    proposal_fingerprint: str | None = None
+
+
 class ArtifactCandidate(BaseModel, Generic[ProposalT]):
     """One current Candidate head with its immutable proposal version."""
 
@@ -57,6 +70,7 @@ class ArtifactCandidate(BaseModel, Generic[ProposalT]):
     reason: str | None = Field(default=None, min_length=1, max_length=MAX_CANDIDATE_REASON_LENGTH)
     result_artifact: ArtifactRef | None = None
     decision_reason: str | None = Field(default=None, min_length=1, max_length=MAX_CANDIDATE_REASON_LENGTH)
+    audit: CandidateAudit | None = None
 
     @field_validator("candidate_id", "family", "reason", "decision_reason")
     @classmethod
@@ -73,7 +87,15 @@ class ArtifactCandidate(BaseModel, Generic[ProposalT]):
             raise ValueError(f"Candidate evidence must not exceed {MAX_CANDIDATE_EVIDENCE} references")  # noqa: TRY003
         if self.target is not None and self.target.family != self.family:
             raise ValueError("Candidate target must belong to the proposed family")  # noqa: TRY003
-        if self.memory_citations and self.family not in {"experience", "profile", "memory", "handoff", "topic-memory"}:
+        if self.memory_citations and self.family not in {
+            "experience",
+            "profile",
+            "memory",
+            "handoff",
+            "topic-memory",
+            "skill",
+            "prompt",
+        }:
             raise ValueError("this Candidate Family does not accept Memory citations")  # noqa: TRY003
         return self
 

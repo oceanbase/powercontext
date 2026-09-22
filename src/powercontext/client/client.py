@@ -42,6 +42,7 @@ from powercontext.http import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
+    ApproveCatalogCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
     ArtifactCreated,
@@ -52,6 +53,9 @@ from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CatalogCandidateHistory,
+    CatalogCandidatePage,
+    CatalogChangeCandidate,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CommitConnectorCheckpointRequest,
@@ -87,6 +91,7 @@ from powercontext.http import (
     GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetCatalogCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
@@ -110,6 +115,7 @@ from powercontext.http import (
     ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
+    ListCatalogCandidatesRequest,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -147,6 +153,7 @@ from powercontext.http import (
     RecordTaskOutcomeRequest,
     RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
+    RejectCatalogCandidateRequest,
     RememberMemoryRequest,
     RemoteSkillPublication,
     RemoteSkillReceiptResponse,
@@ -161,6 +168,7 @@ from powercontext.http import (
     ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
+    ReviseCatalogCandidateRequest,
     ReviseMemoryEntryRequest,
     RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
@@ -202,6 +210,7 @@ from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
     APPROVE_ARTIFACT_CANDIDATE,
+    APPROVE_CATALOG_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     CHECK_ACCESS,
     CLEAR_SCOPE_BINDING,
@@ -232,6 +241,8 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_REVISION,
     GET_ARTIFACT_TAGS,
     GET_CAPABILITIES,
+    GET_CATALOG_CANDIDATE,
+    GET_CATALOG_CANDIDATE_HISTORY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -258,6 +269,7 @@ from powercontext.http._generated.operations import (
     LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACT_REVISIONS,
     LIST_ARTIFACTS,
+    LIST_CATALOG_CANDIDATES,
     LIST_DREAM_RUNS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
@@ -281,6 +293,7 @@ from powercontext.http._generated.operations import (
     RECORD_TASK_OUTCOME,
     REGISTER_SOURCE_DEFINITION,
     REJECT_ARTIFACT_CANDIDATE,
+    REJECT_CATALOG_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
     REPLACE_ACCESS_BINDING,
@@ -292,6 +305,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
+    REVISE_CATALOG_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
@@ -344,7 +358,9 @@ class PowerContextClient:
         transport_trusted = http_client is not None and trust_transport_security
         if not transport_trusted and not allow_insecure_http and is_plaintext_non_loopback(self._base_url):
             raise ValueError("refusing to send requests over unencrypted non-loopback HTTP")  # noqa: TRY003
-        self._headers = {"Authorization": f"Bearer {token}"} if token else None
+        self._headers = {"X-PowerContext-Dream-Contract": "2"}
+        if token:
+            self._headers["Authorization"] = f"Bearer {token}"
         self._owned_http_client: httpx.AsyncClient | None = None
         if http_client is None:
             self._owned_http_client = httpx.AsyncClient(timeout=timeout)
@@ -1120,6 +1136,36 @@ class PowerContextClient:
         """Snapshot an exact external package and propose a new managed Skill."""
 
         return await self._request(IMPORT_EXTERNAL_SKILL, request)
+
+    async def list_catalog_candidates(self, request: ListCatalogCandidatesRequest) -> CatalogCandidatePage:
+        """List catalog candidates using the exact requested version."""
+
+        return await self._request(LIST_CATALOG_CANDIDATES, request)
+
+    async def get_catalog_candidate(self, request: GetCatalogCandidateRequest) -> CatalogChangeCandidate:
+        """Get catalog candidate using the exact requested version."""
+
+        return await self._request(GET_CATALOG_CANDIDATE, request)
+
+    async def get_catalog_candidate_history(self, request: GetCatalogCandidateRequest) -> CatalogCandidateHistory:
+        """Get catalog candidate history using the exact requested version."""
+
+        return await self._request(GET_CATALOG_CANDIDATE_HISTORY, request)
+
+    async def approve_catalog_candidate(self, request: ApproveCatalogCandidateRequest) -> CatalogChangeCandidate:
+        """Approve catalog candidate using the exact requested version."""
+
+        return await self._request(APPROVE_CATALOG_CANDIDATE, request)
+
+    async def reject_catalog_candidate(self, request: RejectCatalogCandidateRequest) -> CatalogChangeCandidate:
+        """Reject catalog candidate using the exact requested version."""
+
+        return await self._request(REJECT_CATALOG_CANDIDATE, request)
+
+    async def revise_catalog_candidate(self, request: ReviseCatalogCandidateRequest) -> CatalogChangeCandidate:
+        """Revise catalog candidate using the exact requested version."""
+
+        return await self._request(REVISE_CATALOG_CANDIDATE, request)
 
     async def list_artifact_candidates(self, request: ListArtifactCandidatesRequest) -> ArtifactCandidatePage:
         """Page current Candidate heads in the Review Inbox."""

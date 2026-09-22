@@ -61,6 +61,7 @@ from powercontext.client.skill_receiver import (
 from powercontext.http import (
     AllScopeSelection,
     ApproveArtifactCandidateRequest,
+    ApproveCatalogCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
     ArtifactPage,
@@ -68,6 +69,9 @@ from powercontext.http import (
     CandidateFamily,
     CandidateStatus,
     Capabilities,
+    CatalogCandidateHistory,
+    CatalogCandidatePage,
+    CatalogChangeCandidate,
     CreateDreamRunRequest,
     CreateRemoteSkillTargetRequest,
     DreamOperation,
@@ -85,6 +89,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetCatalogCandidateRequest,
     GetExperienceRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -93,6 +98,7 @@ from powercontext.http import (
     ImportExternalSkillRequest,
     ListArtifactCandidatesRequest,
     ListArtifactsRequest,
+    ListCatalogCandidatesRequest,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -102,6 +108,7 @@ from powercontext.http import (
     PublishRemoteSkillRequest,
     ReadinessResponse,
     RejectArtifactCandidateRequest,
+    RejectCatalogCandidateRequest,
     RemoteAgentKind,
     RemoteSkillPublication,
     RemoteSkillTarget,
@@ -109,6 +116,7 @@ from powercontext.http import (
     RenameRemoteSkillTargetRequest,
     ResolveExternalSkillRequest,
     ReviseArtifactCandidateRequest,
+    ReviseCatalogCandidateRequest,
     RevokeRemoteSkillTargetRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
@@ -128,6 +136,9 @@ from powercontext.http import (
 HELP_OPTION_NAMES = ("-h", "--help")
 _ClientResponse: TypeAlias = (
     ArtifactCandidate
+    | CatalogChangeCandidate
+    | CatalogCandidatePage
+    | CatalogCandidateHistory
     | DreamRun
     | DreamRunPage
     | ArtifactCandidatePage
@@ -382,6 +393,99 @@ def reject_candidate(
         reason=reason,
     )
     asyncio.run(_execute(context, lambda client: client.reject_artifact_candidate(request)))
+
+
+@candidate_revise_app.command("json")
+def revise_candidate_json(
+    context: typer.Context,
+    request_file: Annotated[
+        Path,
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="UTF-8 JSON ReviseArtifactCandidateRequest for any supported family.",
+        ),
+    ],
+) -> None:
+    """Revise a complete proposal; the result remains pending human review."""
+    try:
+        request = ReviseArtifactCandidateRequest.model_validate_json(request_file.read_text(encoding="utf-8"))
+    except ValidationError as error:
+        _raise_invalid_request("Candidate revision", error)
+    asyncio.run(_execute(context, lambda client: client.revise_artifact_candidate(request)))
+
+
+catalog_candidate_app = typer.Typer(
+    name="catalog-candidate", help="Inspect and decide Tag metadata candidates.", no_args_is_help=True
+)
+
+
+@catalog_candidate_app.command("list")
+def list_catalog_candidates(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option()],
+    status: CandidateStatus = CandidateStatus.PENDING,
+    cursor: str | None = None,
+    limit: Annotated[int, typer.Option(min=1, max=100)] = 50,
+) -> None:
+    request = ListCatalogCandidatesRequest(scope_id=scope_id, status=status, cursor=cursor, limit=limit)
+    asyncio.run(_execute(context, lambda client: client.list_catalog_candidates(request)))
+
+
+@catalog_candidate_app.command("show")
+def show_catalog_candidate(
+    context: typer.Context, scope_id: Annotated[str, typer.Option()], candidate_id: Annotated[str, typer.Argument()]
+) -> None:
+    request = GetCatalogCandidateRequest(scope_id=scope_id, candidate_id=candidate_id)
+    asyncio.run(_execute(context, lambda client: client.get_catalog_candidate(request)))
+
+
+@catalog_candidate_app.command("history")
+def catalog_candidate_history(
+    context: typer.Context, scope_id: Annotated[str, typer.Option()], candidate_id: Annotated[str, typer.Argument()]
+) -> None:
+    request = GetCatalogCandidateRequest(scope_id=scope_id, candidate_id=candidate_id)
+    asyncio.run(_execute(context, lambda client: client.get_catalog_candidate_history(request)))
+
+
+@catalog_candidate_app.command("approve")
+def approve_catalog_candidate(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option()],
+    candidate_id: Annotated[str, typer.Argument()],
+    expected_version: Annotated[int, typer.Option(min=1)],
+) -> None:
+    request = ApproveCatalogCandidateRequest(
+        scope_id=scope_id, candidate_id=candidate_id, expected_version=expected_version
+    )
+    asyncio.run(_execute(context, lambda client: client.approve_catalog_candidate(request)))
+
+
+@catalog_candidate_app.command("reject")
+def reject_catalog_candidate(
+    context: typer.Context,
+    scope_id: Annotated[str, typer.Option()],
+    candidate_id: Annotated[str, typer.Argument()],
+    expected_version: Annotated[int, typer.Option(min=1)],
+    reason: Annotated[str, typer.Option()],
+) -> None:
+    request = RejectCatalogCandidateRequest(
+        scope_id=scope_id, candidate_id=candidate_id, expected_version=expected_version, reason=reason
+    )
+    asyncio.run(_execute(context, lambda client: client.reject_catalog_candidate(request)))
+
+
+@catalog_candidate_app.command("revise")
+def revise_catalog_candidate(
+    context: typer.Context, request_file: Annotated[Path, typer.Option(exists=True, dir_okay=False, readable=True)]
+) -> None:
+    """Append a new complete Tag-set proposal for exact-version review."""
+    try:
+        request = ReviseCatalogCandidateRequest.model_validate_json(request_file.read_text(encoding="utf-8"))
+    except ValidationError as error:
+        _raise_invalid_request("Catalog Candidate revision", error)
+    asyncio.run(_execute(context, lambda client: client.revise_catalog_candidate(request)))
 
 
 @candidate_revise_app.command("experience")
@@ -1793,6 +1897,7 @@ def register_commands(cli: typer.Typer) -> set[str]:
     cli.command()(ready)
     cli.add_typer(dream_app, name="dream")
     cli.add_typer(candidate_app, name="candidate")
+    cli.add_typer(catalog_candidate_app, name="catalog-candidate")
     cli.add_typer(experience_app, name="experience")
     cli.add_typer(skill_app, name="skill")
     cli.add_typer(external_skill_app, name="external-skill")

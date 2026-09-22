@@ -1028,6 +1028,72 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	list_catalog_candidates: {
+		method: "POST",
+		path: "/v1/catalog-change-candidates/list",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_catalog_candidate: {
+		method: "POST",
+		path: "/v1/catalog-change-candidates/get",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_catalog_candidate_history: {
+		method: "POST",
+		path: "/v1/catalog-change-candidates/history",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	revise_catalog_candidate: {
+		method: "POST",
+		path: "/v1/catalog-change-candidates/revise",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	approve_catalog_candidate: {
+		method: "POST",
+		path: "/v1/catalog-change-candidates/approve",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	reject_catalog_candidate: {
+		method: "POST",
+		path: "/v1/catalog-change-candidates/reject",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	get_stats: {
 		method: "POST",
 		path: "/v1/stats",
@@ -1633,6 +1699,7 @@ var PowerContextClient = class {
 	}
 	buildInit(spec, request, signal) {
 		const headers = {
+			"X-PowerContext-Dream-Contract": "2",
 			Accept: "application/json",
 			"User-Agent": PLUGIN_USER_AGENT,
 			...request.headers

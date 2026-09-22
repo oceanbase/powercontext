@@ -110,7 +110,7 @@ class ArtifactDraft(BaseModel, Generic[ContentT]):
     @model_validator(mode="after")
     def validate_family(self):
         _validate_reference_part("family", self.family)
-        if self.memory_citations and self.family not in {"experience", "profile", "topic-memory"}:
+        if self.memory_citations and self.family not in {"experience", "profile", "topic-memory", "skill", "prompt"}:
             raise ValueError("this Artifact family does not accept direct Memory citations")  # noqa: TRY003
         return self
 
@@ -127,7 +127,13 @@ class Artifact(BaseModel, Generic[ContentT]):
 
     @model_validator(mode="after")
     def validate_entry_lineage(self):
-        if self.lineage.memory_citations and self.family not in {"experience", "profile", "topic-memory"}:
+        if self.lineage.memory_citations and self.family not in {
+            "experience",
+            "profile",
+            "topic-memory",
+            "skill",
+            "prompt",
+        }:
             raise ValueError("this Artifact family does not accept direct Memory citations")  # noqa: TRY003
         return self
 

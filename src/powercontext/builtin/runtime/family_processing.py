@@ -28,7 +28,12 @@ from pydantic import BaseModel, Field
 from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
-from powercontext.builtin.dream.bindings import HANDOFF_DREAM_BINDING, SKILL_DREAM_BINDING, operations_for_binding
+from powercontext.builtin.dream.bindings import (
+    HANDOFF_DREAM_BINDING,
+    PROMPT_DREAM_BINDING,
+    SKILL_DREAM_BINDING,
+    operations_for_binding,
+)
 from powercontext.builtin.dream.generation import DreamGenerator
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
@@ -57,6 +62,7 @@ FAMILY_BINDINGS = {
     "profile": PROFILE_SOURCE_WINDOW_BINDING,
     "skill": SKILL_DREAM_BINDING,
     "handoff": HANDOFF_DREAM_BINDING,
+    "prompt": PROMPT_DREAM_BINDING,
 }
 logger = logging.getLogger(__name__)
 
@@ -104,6 +110,15 @@ async def _run_family_worker(
                         ("profile.generate", None, pipelines[0]),
                         ("memory.extract", None, pipelines[1]),
                         ("experience.incubate", None, pipelines[2]),
+                        ("experience.generate", None, pipelines[3]),
+                        ("skill.generate", None, pipelines[4]),
+                        ("handoff.generate", None, pipelines[5]),
+                        ("memory.rerank", None, pipelines[6]),
+                        *(
+                            (f"topic_memory.{stage}", None, object())
+                            for stage in ("probe", "global", "planner", "evolve", "temporary", "reduce", "reconcile")
+                            if config.inference.generation_model is not None
+                        ),
                     ),
                 ),
                 _topic_memory_worker=True,
@@ -196,7 +211,7 @@ async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per r
                 contexts, assignment, config=config, generator=dream_generator, security=security
             ):
                 return ArtifactProcessingWorkerCompletion()
-            if assignment.artifact_family in {"skill", "handoff"}:
+            if assignment.artifact_family in {"skill", "handoff", "prompt"}:
                 async with contexts.database.transaction() as connection:
                     await invocation.start(connection)
                     await invocation.complete(connection, remaining_work=False)

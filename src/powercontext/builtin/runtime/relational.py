@@ -73,7 +73,7 @@ from powercontext.builtin.artifacts.profile import Profile
 from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal
 from powercontext.builtin.artifacts.profile.service import RelationalProfileService
-from powercontext.builtin.artifacts.prompt import Prompt, PromptRegistry
+from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import (
     DemonstrationGenerator,
@@ -397,6 +397,7 @@ class _ScopedServices:
             memory=lambda bound: self.memory(self.sources(bound)[1], bound),
             topic_writer=self.topic_writer,
             handoff_writer=self.handoff_writer,
+            prompt_registry=self.prompts.registry,
         )
 
     def recurrence_ledger(self) -> RelationalRecurrenceLedger:
@@ -554,6 +555,7 @@ class RelationalContexts:
                 Memory.family: MemoryDreamCandidateProposal,
                 TopicMemory.family: TopicMemoryContent,
                 Handoff.family: HandoffContent,
+                Prompt.family: PromptContent,
             }),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),
@@ -708,6 +710,19 @@ class RelationalContexts:
 
         return self._services_for(scope_id).review()
 
+    def catalog_changes(self, scope_id: str, connection: AsyncConnection | None = None):
+        from powercontext.builtin.catalog_changes.service import CatalogChangeService
+
+        services = self._services_for(scope_id)
+        return CatalogChangeService(
+            database=self.database,
+            scope_id=scope_id,
+            artifacts=self.repositories.artifacts,
+            evidence=services.evidence(),
+            id_factory=services.id_factory,
+            connection=connection,
+        )
+
     def dream(
         self,
         generator: DreamGenerator | None,
@@ -717,6 +732,7 @@ class RelationalContexts:
         authorize: DreamAuthorizer | None = None,
         authorization_context: AuthorizationContext = nullcontext,
         attest_candidate: CandidateAttester | None = None,
+        authorize_candidate: CandidateAttester | None = None,
         operations: tuple[DreamOperation, ...] = (),
         processing: ScopeInvocation | None = None,
     ) -> DreamService:
@@ -731,6 +747,8 @@ class RelationalContexts:
             authorize=authorize,
             authorization_context=authorization_context,
             attest_candidate=attest_candidate,
+            authorize_candidate=authorize_candidate,
+            catalog_changes=self.catalog_changes,
             operations=operations,
             processing=processing,
         )

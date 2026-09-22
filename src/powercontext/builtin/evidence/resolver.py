@@ -30,6 +30,8 @@ from powercontext.builtin.artifacts.handoff.models import Handoff
 from powercontext.builtin.artifacts.memory import Memory, MemoryEntryVersion
 from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCitationError, MemoryEntryNotFoundError
 from powercontext.builtin.artifacts.profile.models import Profile
+from powercontext.builtin.artifacts.prompt.models import Prompt
+from powercontext.builtin.artifacts.skill import Skill
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemory
 from powercontext.builtin.evidence.models import (
     EVIDENCE_TRANSFORM_VERSION,
@@ -66,6 +68,8 @@ RootIdentityResolver = Callable[[SourceRef, Source], str | None]
 @dataclass
 class _Traversal:
     project: bool = True
+    prompt_target: ArtifactRef | None = None
+    catalog_target: ArtifactRef | None = None
     nodes: dict[str, EvidenceNode] = field(default_factory=dict)
     bodies: dict[str, str] = field(default_factory=dict)
     edges: set[tuple[str, str]] = field(default_factory=set)
@@ -189,8 +193,14 @@ class EvidenceResolver:
         lock_memory: bool = False,
         pinned: EvidenceManifest | None = None,
         project: bool = True,
+        expose_prompt_target: bool = False,
+        expose_catalog_target: bool = False,
     ) -> ResolvedEvidence:
-        traversal = _Traversal(project=project)
+        traversal = _Traversal(
+            project=project,
+            prompt_target=target if expose_prompt_target else None,
+            catalog_target=target if expose_catalog_target else None,
+        )
         refs: tuple[EvidenceReference, ...] = (*sources, *artifacts, *memory_citations)
         if lock_memory:
             # Discover immutable entry paths first; lock every owner in one order, then
@@ -202,6 +212,8 @@ class EvidenceResolver:
                 memory_citations=memory_citations,
                 target=target,
                 project=False,
+                expose_prompt_target=expose_prompt_target,
+                expose_catalog_target=expose_catalog_target,
             )
             owners = tuple(citation for node in observed.manifest.nodes for citation in node.memory_citations)
             await self._lock_memories(connection, owners)
@@ -291,7 +303,7 @@ class EvidenceResolver:
                 raise EvidenceResolutionError("evidence_limit_exceeded")
         return identity
 
-    async def _read(
+    async def _read(  # noqa: C901 - explicit typed projections for each supported evidence Family
         self,
         connection: AsyncConnection,
         ref: EvidenceReference,
@@ -306,6 +318,20 @@ class EvidenceResolver:
             return await self._read_memory(connection, ref, locked=locked)
         artifact = await self.artifacts.get(connection, self.scope_id, ref)
         digest = content_digest(artifact.model_dump_json().encode())
+        if ref == state.catalog_target:
+            return (
+                EvidenceNode(
+                    evidence_id=evidence_id(ref), kind="catalog_target", artifact=ref, digest=digest, role="target"
+                ),
+                artifact.content.model_dump_json(),
+                (),
+            )
+        if isinstance(artifact, Skill):
+            return (
+                EvidenceNode(evidence_id=evidence_id(ref), kind="skill", artifact=ref, digest=digest, role="derived"),
+                artifact.content.model_dump_json(),
+                (),
+            )
         if isinstance(artifact, Profile):
             return (
                 EvidenceNode(evidence_id=evidence_id(ref), kind="profile", artifact=ref, digest=digest, role="derived"),
@@ -327,6 +353,14 @@ class EvidenceResolver:
                 (),
             )
         if ref.family == "prompt":
+            if isinstance(artifact, Prompt) and ref == state.prompt_target:
+                return (
+                    EvidenceNode(
+                        evidence_id=evidence_id(ref), kind="prompt", artifact=ref, digest=digest, role="target"
+                    ),
+                    artifact.content.model_dump_json(),
+                    (),
+                )
             return (
                 EvidenceNode(
                     evidence_id=evidence_id(ref),

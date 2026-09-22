@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from copy import copy
+from typing import cast
 from weakref import WeakKeyDictionary
 
 from sqlalchemy import func, select
@@ -84,13 +85,13 @@ async def open_dream_runtime(config, **kwargs):
     controller = Controller()
     bindings = tuple(
         ArtifactProcessingBinding(
-            binding_name=spec.binding,
-            artifact_family=spec.family,
+            binding_name=cast(str, spec.binding),
+            artifact_family=cast(str, spec.family),
             launcher=controller,
             max_workers=4,
             worker_timeout_seconds=180,
         )
-        for spec in {item.binding: item for item in DREAM_OPERATIONS}.values()
+        for spec in {item.binding: item for item in DREAM_OPERATIONS if item.binding is not None}.values()
     )
     async with open_runtime(config, artifact_processing_bindings=bindings, **kwargs) as runtime:
         controller.runtime = runtime

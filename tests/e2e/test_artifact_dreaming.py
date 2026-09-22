@@ -698,9 +698,33 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
     asyncio.run(scenario())
 
 
-def test_skill_dream_revision_stays_unavailable_without_trusted_evaluation(database: DatabaseConfig) -> None:
+@pytest.mark.parametrize("indirect_evidence", [False, True], ids=["source", "approved-experience"])
+def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
+    database: DatabaseConfig, indirect_evidence: bool
+) -> None:
+    class SkillRevisionGenerator(Generator):
+        async def generate(self, value: DreamGenerationInput) -> GenerationResult[DreamPlan]:
+            assert value.operation == "revise_skill"
+            target = next(item for item in value.evidence.evidence if item.kind == "skill")
+            assert "Retry immediately." in target.text
+            return GenerationResult(
+                output=DreamPlan(
+                    outcome="proposed",
+                    reason="The feedback records duplicate execution.",
+                    intent="correct",
+                    proposal=SkillContent(
+                        name="receipt-check",
+                        description="Check the receipt before retrying.",
+                        instructions="Check the receipt first, then retry if needed.",
+                        validation=("No duplicate action was issued.",),
+                    ),
+                    evidence_ids=tuple(item.evidence_id for item in value.evidence.evidence if item.kind == "source"),
+                ),
+                usage=InferenceUsage(requests=1),
+            )
+
     async def scenario() -> None:
-        async with open_builtin_runtime(config(database), dream_generator=Generator()) as runtime:
+        async with open_builtin_runtime(config(database), dream_generator=SkillRevisionGenerator()) as runtime:
             assert runtime.scopes is not None
             scope = await runtime.scopes.create(
                 ScopeDraft(title="Skill Revision", summary="Package stays pending", idempotency_key="skill-revision")
@@ -736,16 +760,64 @@ def test_skill_dream_revision_stays_unavailable_without_trusted_evaluation(datab
             assert (
                 await runtime.skill.for_scope(scope.scope_id).get(GetSkillRequest(artifact=target.as_ref()))
             ).revision == 1
-            with pytest.raises(DreamError, match="capability_unavailable"):
-                await runtime.dream.for_scope(scope.scope_id).create(
-                    CreateDreamRunRequest(
-                        operation="revise_skill",
-                        target=target.as_ref(),
-                        artifacts=(target.as_ref(),),
-                        sources=(source.source_ref,),
-                        idempotency_key="skill-feedback",
+            artifacts = (target.as_ref(),)
+            sources = (source.source_ref,)
+            if indirect_evidence:
+                evidence = await runtime.experience.for_scope(scope.scope_id).propose(
+                    ProposeExperienceRequest(proposal=experience(), sources=sources)
+                )
+                evidence = await runtime.review.for_scope(scope.scope_id).approve(
+                    ApproveArtifactCandidateRequest(
+                        candidate_id=evidence.candidate_id, expected_version=evidence.version
                     )
                 )
+                assert evidence.result_artifact is not None
+                artifacts = (*artifacts, evidence.result_artifact)
+                sources = ()
+            run = await runtime.dream.for_scope(scope.scope_id).create(
+                CreateDreamRunRequest(
+                    operation="revise_skill",
+                    target=target.as_ref(),
+                    artifacts=artifacts,
+                    sources=sources,
+                    idempotency_key="skill-feedback",
+                )
+            )
+            await process_pending(runtime)
+            completed = await runtime.dream.for_scope(scope.scope_id).get(GetDreamRunRequest(run_id=run.run_id))
+            assert completed.candidate is not None, completed
+            candidate = await runtime.review.for_scope(scope.scope_id).get(
+                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
+            )
+            changed_metadata = await runtime._provider.review(scope.scope_id).prepare_skill(
+                candidate.proposal.model_copy(update={"name": "changed-name", "package": None})
+            )
+            from powercontext.builtin.review.errors import InvalidCandidateError
+
+            with pytest.raises(InvalidCandidateError, match="protected package metadata"):
+                await runtime.review.for_scope(scope.scope_id).revise(
+                    ReviseArtifactCandidateRequest(
+                        candidate_id=candidate.candidate_id,
+                        expected_version=candidate.version,
+                        proposal=changed_metadata,
+                        sources=candidate.sources,
+                        artifacts=candidate.artifacts,
+                        target=candidate.target,
+                        reason="A revision cannot rename the managed Skill.",
+                    )
+                )
+            approved = await runtime.review.for_scope(scope.scope_id).approve(
+                ApproveArtifactCandidateRequest(
+                    candidate_id=completed.candidate.candidate_id, expected_version=completed.candidate.version
+                )
+            )
+            assert approved.result_artifact is not None and approved.result_artifact.revision == 2
+            skill = await runtime.skill.for_scope(scope.scope_id).get(
+                GetSkillRequest(artifact=approved.result_artifact)
+            )
+            assert skill.content.name == "receipt-check" and skill.content.license == "MIT"
+            assert skill.content.instructions.startswith("Check the receipt first, then retry if needed.")
+            assert skill.content.package is not None and skill.content.package.file_count == 1
 
     asyncio.run(scenario())
 
@@ -2227,7 +2299,10 @@ def test_dream_requests_arriving_during_generation_survive_without_an_automatic_
                 await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=second.run_id))
             ).status == "succeeded"
             candidates = (await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates
-            assert len(candidates) == len(generator.inputs) == 2
+            assert len(candidates) == len(generator.inputs) == 1
+            reused = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=second.run_id))
+            assert reused.reused and reused.candidate is not None
+            assert reused.candidate.candidate_id == candidates[0].candidate_id
             assert all(candidate.status == "pending" for candidate in candidates)
             assert runtime._dream_service is not None
             async with runtime._dream_service.database.transaction() as connection:

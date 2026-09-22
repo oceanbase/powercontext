@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from typing import Any, TypeAlias, cast
 
@@ -45,6 +45,8 @@ from powercontext.builtin.artifacts.memory.models import (
 from powercontext.builtin.artifacts.memory.service import MemoryService
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal, ProfileWriteContent
 from powercontext.builtin.artifacts.profile.review import decide_profile, revise_profile
+from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptRegistry
+from powercontext.builtin.artifacts.prompt.models import PROMPT_KEYS
 from powercontext.builtin.artifacts.skill import Skill, SkillContent, SkillDraft, build_instruction_skill_package
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemory, TopicMemoryContent, TopicMemoryDraft
 from powercontext.builtin.evidence.models import EvidenceResolutionError, unique_references
@@ -55,7 +57,7 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.experience_index import ExperienceIndex
-from powercontext.builtin.persistence.family_management import HandoffManagementWriter
+from powercontext.builtin.persistence.family_management import HandoffManagementWriter, PromptManagementWriter
 from powercontext.builtin.persistence.generation_sources import GenerationSourceAccess
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
 from powercontext.builtin.persistence.skill_packages import SkillPackageRepository
@@ -87,6 +89,7 @@ ReviewedProposal: TypeAlias = (
     | MemoryDreamCandidateProposal
     | TopicMemoryContent
     | HandoffContent
+    | PromptContent
 )
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
@@ -111,6 +114,7 @@ class ReviewService:
         memory: Callable[[AsyncConnection | None], MemoryService] | None = None,
         topic_writer: TopicMemoryManagementWriter | None = None,
         handoff_writer: HandoffManagementWriter | None = None,
+        prompt_registry: PromptRegistry | None = None,
         authorization_context: Callable[[], AbstractAsyncContextManager[None]] = nullcontext,
         connection: AsyncConnection | None = None,
     ) -> None:
@@ -126,14 +130,20 @@ class ReviewService:
         self._memory = memory
         self._topic_writer = topic_writer
         self._handoff_writer = handoff_writer
+        self._prompt_registry = prompt_registry
         self._authorization_context = authorization_context
         self._bound_connection = connection
+        self.authorize_action: Callable[[str, str, ArtifactCandidate[Any]], Awaitable[None]] | None = None
 
     def configure_authorization(self, authorize: EvidenceAuthorizer, context: AuthorizationContext) -> None:
         if self._evidence is None:
             raise InvalidCandidateError("evidence", "Memory evidence resolution is unavailable")
         self._evidence.authorize = authorize
         self._authorization_context = context
+
+    async def _authorize_decision(self, action: str, candidate: ArtifactCandidate[Any]) -> None:
+        if self.authorize_action is not None:
+            await self.authorize_action(self._scope_id, action, candidate)
 
     @asynccontextmanager
     async def _connection(self) -> AsyncIterator[AsyncConnection]:
@@ -176,14 +186,19 @@ class ReviewService:
         target: ArtifactRef | None,
         reason: str | None,
         candidate_id: str | None = None,
+        memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ArtifactCandidate[SkillContent]:
         """Persist a human or integration supplied managed Skill proposal."""
 
         canonical_sources = _unique_sources(sources)
         canonical_artifacts = _unique_artifacts(artifacts)
+        if memory_citations and (target is None or candidate_id is None or not candidate_id.startswith("cand_dream_")):
+            raise InvalidCandidateError("memory_citations", "only Dream Skill revisions accept direct Memory evidence")
         _validate_reason(reason)
         async with self._connection() as connection:
             proposal = await self._canonical_skill_proposal(connection, proposal)
+            if target is not None and candidate_id is not None and candidate_id.startswith("cand_dream_"):
+                await self._validate_skill_revision(connection, target, proposal)
             candidate = await self._propose_with_connection(
                 connection,
                 Skill.family,
@@ -193,6 +208,7 @@ class ReviewService:
                 target=target,
                 reason=reason,
                 candidate_id=candidate_id,
+                memory_citations=unique_references(memory_citations),
             )
         return _skill_candidate(candidate)
 
@@ -347,7 +363,13 @@ class ReviewService:
         memory_citations: tuple[MemoryCitation, ...] = (),
     ) -> ReviewedCandidate:
         sources = await self._validate_evidence(
-            connection, sources, artifacts, memory_citations, proposal=proposal, target=target
+            connection,
+            sources,
+            artifacts,
+            memory_citations,
+            proposal=proposal,
+            target=target,
+            dream_skill_target=candidate_id is not None and candidate_id.startswith("cand_dream_"),
         )
         await self._validate_handoff_objective(connection, proposal, target)
         await self._validate_target(connection, family, target, artifacts)
@@ -365,9 +387,9 @@ class ReviewService:
         )
         return _reviewed_candidate(candidate)
 
-    async def get_candidate(self, candidate_id: str, /) -> ReviewedCandidate:
+    async def get_candidate(self, candidate_id: str, /, *, current: bool = False) -> ReviewedCandidate:
         async with self._connection() as connection:
-            candidate = await self._candidates.get(connection, self._scope_id, candidate_id)
+            candidate = await self._candidates.get(connection, self._scope_id, candidate_id, current=current)
         return _reviewed_candidate(candidate)
 
     async def inspect_evidence(self, candidate_id: str, expected_version: int) -> CandidateEvidenceView:
@@ -435,11 +457,25 @@ class ReviewService:
         _validate_reason(reason)
         async with self._connection() as connection:
             preview = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if preview.version != expected_version:
+                raise CandidateConflictError(candidate_id, expected_version, preview.version)
+            if preview.target != target:
+                raise InvalidCandidateError("target", "cannot change across Candidate versions")
             if preview.family == "profile":
                 await ProfilePolicyRepository().get(connection, self._scope_id, for_update=True)
-            if preview.family in {"memory", "topic-memory", "handoff"} and preview.target is not None:
+            if preview.family in {"memory", "topic-memory", "handoff", "prompt"} and preview.target is not None:
                 await self._artifacts.latest(
                     connection, self._scope_id, preview.family, preview.target.artifact_id, for_update=True
+                )
+            if preview.family in {Experience.family, Skill.family}:
+                await self._lock_generic_review_inputs(
+                    connection,
+                    preview,
+                    sources=canonical_sources,
+                    artifacts=canonical_artifacts,
+                    memory_citations=preview.memory_citations
+                    if memory_citations is None
+                    else unique_references(memory_citations),
                 )
             current = await self._candidates.lock_pending(
                 connection,
@@ -447,15 +483,29 @@ class ReviewService:
                 candidate_id,
                 expected_version,
             )
+            if current != preview:
+                raise CandidateConflictError(candidate_id, expected_version, current.version)
             reviewed = _reviewed_candidate(current)
             if reviewed.family == "profile":
                 proposal = revise_profile(current, proposal, canonical_sources, canonical_artifacts, target)
             _validate_proposal_family(reviewed.family, proposal)
             if isinstance(proposal, SkillContent):
                 proposal = await self._canonical_skill_proposal(connection, proposal)
+                if current.target is not None and current.candidate_id.startswith("cand_dream_"):
+                    await self._validate_skill_revision(connection, current.target, proposal)
+            if isinstance(proposal, PromptContent):
+                await self._validate_prompt_proposal(connection, current.target, proposal)
             if target != current.target:
                 raise InvalidCandidateError("target", "cannot change across Candidate versions")
             citations = current.memory_citations if memory_citations is None else unique_references(memory_citations)
+            if (
+                reviewed.family == Skill.family
+                and citations
+                and (current.target is None or not current.candidate_id.startswith("cand_dream_"))
+            ):
+                raise InvalidCandidateError(
+                    "memory_citations", "only Dream Skill revisions accept direct Memory evidence"
+                )
             if isinstance(proposal, MemoryDreamCandidateProposal):
                 previous = current.proposal
                 if (
@@ -480,10 +530,12 @@ class ReviewService:
                 citations,
                 proposal=proposal if isinstance(proposal, (ExperienceContent, SkillContent)) else None,
                 target=current.target,
+                dream_skill_target=current.candidate_id.startswith("cand_dream_"),
             )
             await self._validate_handoff_objective(connection, proposal, current.target)
             if reviewed.family != "profile":
                 await self._validate_target(connection, reviewed.family, target, canonical_artifacts)
+            await self._authorize_decision("revise", current.model_copy(update={"proposal": proposal}))
             revised = await self._candidates.revise(
                 connection,
                 self._scope_id,
@@ -518,6 +570,8 @@ class ReviewService:
                         reason=reason,
                     )
                 )
+            current = await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
+            await self._authorize_decision("reject", current)
             rejected = await self._candidates.reject(
                 connection,
                 self._scope_id,
@@ -537,16 +591,29 @@ class ReviewService:
 
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
+        await self._authorize_decision("approve", current)
         if current.family == Memory.family:
             return await self._approve_memory_dream(candidate_id, expected_version)
         if current.family == TopicMemory.family:
             return await self._approve_topic_memory_dream(candidate_id, expected_version)
         if current.family == Handoff.family:
             return await self._approve_handoff_dream(candidate_id, expected_version)
+        if current.family == Prompt.family:
+            return await self._approve_prompt_dream(candidate_id, expected_version)
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
             if current.family == "profile":
                 return _reviewed_candidate(await decide_profile(self, connection, candidate_id, expected_version))
+            if current.version != expected_version:
+                raise CandidateConflictError(candidate_id, expected_version, current.version)
+            _validate_approval_lineage(_reviewed_candidate(current))
+            await self._lock_generic_review_inputs(
+                connection,
+                current,
+                sources=current.sources,
+                artifacts=current.artifacts,
+                memory_citations=current.memory_citations,
+            )
             candidate = _reviewed_candidate(
                 await self._candidates.lock_pending(
                     connection,
@@ -555,6 +622,10 @@ class ReviewService:
                     expected_version,
                 )
             )
+            if candidate != current:
+                raise CandidateConflictError(candidate_id, expected_version, candidate.version)
+            await self._authorize_decision("approve", candidate)
+            await self._validate_candidate_audit(connection, candidate)
             if candidate.family == Skill.family and candidate.candidate_id.startswith("cand_dream_"):
                 run_id = candidate.candidate_id.removeprefix("cand_dream_")
                 run = await DreamRepository().get(connection, self._scope_id, run_id)
@@ -563,9 +634,11 @@ class ReviewService:
                     or run.run.candidate is None
                     or run.run.candidate.candidate_id != candidate.candidate_id
                 ):
-                    raise InvalidCandidateError("evaluation", "Dream Skill origin is invalid")
+                    raise InvalidCandidateError("origin", "Dream Skill origin is invalid")
                 if run.run.operation == "revise_skill":
-                    raise InvalidCandidateError("evaluation", "trusted_evaluation_required")
+                    if candidate.target is None or not isinstance(candidate.proposal, SkillContent):
+                        raise InvalidCandidateError("target", "Dream Skill revision requires its original target")
+                    await self._validate_skill_revision(connection, candidate.target, candidate.proposal)
             _validate_approval_lineage(candidate)
             await self._validate_evidence(
                 connection,
@@ -573,6 +646,8 @@ class ReviewService:
                 candidate.artifacts,
                 candidate.memory_citations,
                 proposal=candidate.proposal if isinstance(candidate.proposal, ExperienceContent) else None,
+                target=candidate.target,
+                dream_skill_target=candidate.candidate_id.startswith("cand_dream_"),
             )
             if isinstance(candidate.proposal, SkillContent) and candidate.proposal.package is not None:
                 await self._canonical_skill_proposal(connection, candidate.proposal)
@@ -604,6 +679,161 @@ class ReviewService:
                 candidate_id,
                 expected_version,
                 artifact.as_ref(),
+            )
+        return _reviewed_candidate(approved)
+
+    async def require_prompt_target(self, target: ArtifactRef, /) -> dict[str, object]:
+        """Expose schemas as task data, never the target's text as Dream instructions."""
+
+        async with self._connection() as connection:
+            await self._prompt_target(connection, target)
+        definition = cast(PromptRegistry, self._prompt_registry).require_customization(target.artifact_id)
+        return {
+            "key": definition.key,
+            "definition_version": definition.definition_version,
+            "input_schema": definition.input_type.model_json_schema(),
+            "output_schema": definition.output_type.model_json_schema(),
+        }
+
+    async def _lock_generic_review_inputs(
+        self,
+        connection: AsyncConnection,
+        preview: ArtifactCandidate[Any],
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        memory_citations: tuple[MemoryCitation, ...],
+    ) -> None:
+        """Match Dream reuse: target head, ordered evidence Memory heads, then Candidate."""
+
+        if preview.target is not None:
+            current = await self._artifacts.latest(
+                connection, self._scope_id, preview.family, preview.target.artifact_id, for_update=True
+            )
+            if current.as_ref() != preview.target:
+                raise ArtifactTargetConflictError(preview.target, current.as_ref())
+        await self._validate_evidence(
+            connection,
+            sources,
+            artifacts,
+            memory_citations,
+            target=preview.target,
+            dream_skill_target=preview.candidate_id.startswith("cand_dream_"),
+        )
+
+    async def _validate_candidate_audit(self, connection: AsyncConnection, candidate: ArtifactCandidate[Any]) -> None:
+        """Recheck persisted generation policy and content after acquiring the Candidate lock."""
+
+        from powercontext.builtin.dream.bindings import DREAM_SPECS
+        from powercontext.builtin.dream.provenance import validation_policy_digest
+        from powercontext.builtin.persistence.candidates import proposal_digest
+
+        audit = candidate.audit
+        if audit is None:
+            return
+        spec = DREAM_SPECS.get(audit.operation)
+        if (
+            spec is None
+            or spec.family != candidate.family
+            or spec.spec_version != audit.spec_version
+            or audit.proposal_digest != proposal_digest(candidate.proposal)
+        ):
+            raise InvalidCandidateError("audit", "Dream Candidate content or operation contract changed")
+        record = await DreamRepository().get(connection, self._scope_id, audit.dream_run_id)
+        if (
+            record.run.operation != audit.operation
+            or record.run.target != candidate.target
+            or record.run.candidate is None
+            or record.run.candidate.candidate_id != candidate.candidate_id
+            or validation_policy_digest(record) != audit.validation_policy_digest
+        ):
+            raise InvalidCandidateError("audit", "Dream Candidate policy or origin changed")
+
+    async def _prompt_target(self, connection: AsyncConnection, target: ArtifactRef | None) -> Prompt:
+        if (
+            target is None
+            or target.family != Prompt.family
+            or target.artifact_id not in PROMPT_KEYS
+            or self._prompt_registry is None
+        ):
+            raise InvalidCandidateError("target", "expected an existing customizable operational Prompt")
+        self._prompt_registry.require_customization(target.artifact_id)
+        current = await self._artifacts.get(connection, self._scope_id, target)
+        if not isinstance(current, Prompt):
+            raise InvalidCandidateError("target", "expected an exact Prompt revision")
+        return current
+
+    async def _validate_prompt_proposal(
+        self, connection: AsyncConnection, target: ArtifactRef | None, proposal: PromptContent
+    ) -> Prompt:
+        current = await self._prompt_target(connection, target)
+        if proposal.mode != "custom":
+            raise InvalidCandidateError("proposal", "Dream Prompt proposals must use custom mode")
+        cast(PromptRegistry, self._prompt_registry).validate(current.artifact_id, proposal)
+        return current
+
+    async def propose_prompt_dream(
+        self,
+        proposal: PromptContent,
+        /,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        target: ArtifactRef,
+        reason: str | None,
+        candidate_id: str,
+        memory_citations: tuple[MemoryCitation, ...] = (),
+    ) -> ArtifactCandidate[PromptContent]:
+        _validate_reason(reason)
+        async with self._connection() as connection:
+            await self._validate_prompt_proposal(connection, target, proposal)
+            candidate = await self._propose_with_connection(
+                connection,
+                Prompt.family,
+                proposal,
+                sources=_unique_sources(sources),
+                artifacts=_unique_artifacts(artifacts),
+                target=target,
+                reason=reason,
+                candidate_id=candidate_id,
+                memory_citations=unique_references(memory_citations),
+            )
+        return ArtifactCandidate[PromptContent].model_validate(candidate.model_dump(mode="python"))
+
+    async def _approve_prompt_dream(self, candidate_id: str, expected_version: int) -> ReviewedCandidate:
+        async with self._connection() as connection:
+            preview = await self._candidates.get(connection, self._scope_id, candidate_id)
+            if preview.target is None:
+                raise InvalidCandidateError("target", "Dream Prompt requires an existing target")
+            current = await self._artifacts.latest(
+                connection, self._scope_id, Prompt.family, preview.target.artifact_id, for_update=True
+            )
+            if current.as_ref() != preview.target:
+                raise ArtifactTargetConflictError(preview.target, current.as_ref())
+            candidate = _reviewed_candidate(
+                await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
+            )
+            await self._authorize_decision("approve", candidate)
+            await self._validate_candidate_audit(connection, candidate)
+            if candidate.target != preview.target or not isinstance(candidate.proposal, PromptContent):
+                raise InvalidCandidateError("proposal", "Prompt candidate changed during approval")
+            current = await self._validate_prompt_proposal(connection, candidate.target, candidate.proposal)
+            await self._validate_evidence(
+                connection, candidate.sources, candidate.artifacts, candidate.memory_citations, target=candidate.target
+            )
+            artifact = await PromptManagementWriter(
+                self._artifacts, cast(PromptRegistry, self._prompt_registry)
+            ).commit_reviewed(
+                connection,
+                self._scope_id,
+                current,
+                candidate.proposal,
+                sources=candidate.sources,
+                artifacts=candidate.artifacts,
+                memory_citations=candidate.memory_citations,
+            )
+            approved = await self._candidates.mark_approved(
+                connection, self._scope_id, candidate_id, expected_version, artifact.as_ref()
             )
         return _reviewed_candidate(approved)
 
@@ -656,6 +886,8 @@ class ReviewService:
             candidate = _reviewed_candidate(
                 await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
             )
+            await self._authorize_decision("approve", candidate)
+            await self._validate_candidate_audit(connection, candidate)
             if candidate != preview:
                 raise CandidateConflictError(candidate_id, expected_version, candidate.version)
             await self._validate_evidence(
@@ -688,6 +920,8 @@ class ReviewService:
             candidate = _reviewed_candidate(
                 await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
             )
+            await self._authorize_decision("approve", candidate)
+            await self._validate_candidate_audit(connection, candidate)
             if (
                 candidate != preview
                 or not isinstance(current, TopicMemory)
@@ -729,6 +963,8 @@ class ReviewService:
             candidate = _reviewed_candidate(
                 await self._candidates.lock_pending(connection, self._scope_id, candidate_id, expected_version)
             )
+            await self._authorize_decision("approve", candidate)
+            await self._validate_candidate_audit(connection, candidate)
             if not isinstance(current, Handoff) or not isinstance(candidate.proposal, HandoffContent):
                 raise InvalidCandidateError("family", "Handoff Dream proposal required")
             _validate_handoff_citations(
@@ -781,9 +1017,14 @@ class ReviewService:
         *,
         proposal: ReviewedProposal | None = None,
         target: ArtifactRef | None = None,
+        dream_skill_target: bool = False,
     ) -> tuple[SourceRef, ...]:
         supporting_artifacts = tuple(
-            ref for ref in artifacts if ref != target or ref.family not in {"profile", "topic-memory", "handoff"}
+            ref
+            for ref in artifacts
+            if ref != target
+            or ref.family
+            not in ({"profile", "topic-memory", "handoff", "prompt"} | ({"skill"} if dream_skill_target else set()))
         )
         if (
             not sources
@@ -893,6 +1134,19 @@ class ReviewService:
             await self._skill_packages.add(connection, self._scope_id, snapshot)
         return snapshot.as_skill_content()
 
+    async def _validate_skill_revision(
+        self, connection: AsyncConnection, target: ArtifactRef, proposal: SkillContent
+    ) -> None:
+        current = await self._instruction_skill_target(connection, target)
+        if proposal.package is None:
+            raise InvalidCandidateError("package", "Dream Skill revision requires a prepared standard package")
+        snapshot = await self._skill_packages.get(connection, self._scope_id, proposal.package)
+        if len(snapshot.entries) != 1 or snapshot.entries[0].path != "SKILL.md":
+            raise InvalidCandidateError("package", "unsupported_target")
+        for field in ("name", "license", "compatibility", "metadata", "allowed_tools"):
+            if getattr(proposal, field) != getattr(current.content, field):
+                raise InvalidCandidateError("proposal", "Dream Skill revision cannot change protected package metadata")
+
     async def require_instruction_skill_target(self, target: ArtifactRef, /) -> None:
         async with self._connection() as connection:
             await self._instruction_skill_target(connection, target)
@@ -954,6 +1208,7 @@ def _validate_proposal_family(family: str, proposal: object) -> None:
         Memory.family: MemoryDreamCandidateProposal,
         TopicMemory.family: TopicMemoryContent,
         Handoff.family: HandoffContent,
+        Prompt.family: PromptContent,
     }.get(family)
     if expected is None or type(proposal) is not expected:
         raise InvalidCandidateError("family", family)
@@ -969,19 +1224,21 @@ def _validate_handoff_citations(
     if proposal.generation is not None or target is None:
         raise InvalidCandidateError("proposal", "Dream Handoff cannot claim generated or activated content")
     statements = (*proposal.state, *((proposal.next_action,) if proposal.next_action is not None else ()))
-    for statement in statements:
-        for citation in statement.citations:
-            if isinstance(citation, HandoffSourceCitation) and citation.source_ref in sources:
-                continue
-            if (
-                isinstance(citation, HandoffArtifactCitation)
-                and citation.artifact_ref in artifacts
-                and citation.artifact_ref != target
-            ):
-                continue
-            if isinstance(citation, HandoffMemoryCitation) and citation.memory_citation in memory_citations:
-                continue
-            raise InvalidCandidateError("proposal", "Handoff claim cites evidence outside the selected inputs")
+    citations = tuple(citation for statement in statements for citation in statement.citations) + tuple(
+        omission.citation for omission in proposal.omissions if omission.citation is not None
+    )
+    for citation in citations:
+        if isinstance(citation, HandoffSourceCitation) and citation.source_ref in sources:
+            continue
+        if (
+            isinstance(citation, HandoffArtifactCitation)
+            and citation.artifact_ref in artifacts
+            and citation.artifact_ref != target
+        ):
+            continue
+        if isinstance(citation, HandoffMemoryCitation) and citation.memory_citation in memory_citations:
+            continue
+        raise InvalidCandidateError("proposal", "Handoff claim cites evidence outside the selected inputs")
 
 
 async def _has_resolved_failure_evidence(  # noqa: C901 - each citation kind has a distinct resolution boundary

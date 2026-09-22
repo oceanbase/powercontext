@@ -217,6 +217,7 @@ def create_server_app(  # noqa: C901
                     if dream_access is None
                     else dream_access.access.defer_decision_audit,
                     dream_candidate_attester=None if dream_access is None else dream_access.attest_candidate,
+                    dream_candidate_authorizer=None if dream_access is None else dream_access.authorize_candidate,
                     external_skill_provider=external_skill_provider,
                     handoff_pipeline=handoff_pipeline,
                     embedding_model=embedding_model,

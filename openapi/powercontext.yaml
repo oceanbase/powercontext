@@ -1716,6 +1716,8 @@ paths:
           maxLength: 256
           pattern: .*\S.*
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         '202':
           description: The accepted queued or running Dream.
           headers:
@@ -1815,6 +1817,8 @@ paths:
           maximum: 100
           default: 20
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         '200':
           description: The requested Dream state.
           headers:
@@ -1864,6 +1868,8 @@ paths:
           minLength: 1
           maxLength: 64
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         '200':
           description: The requested Dream state.
           headers:
@@ -2831,6 +2837,8 @@ paths:
             schema:
               $ref: "#/components/schemas/ListArtifactCandidatesRequest"
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         "200":
           description: The selected current Candidate heads.
           headers:
@@ -2868,6 +2876,8 @@ paths:
             schema:
               $ref: "#/components/schemas/GetArtifactCandidateRequest"
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         "200":
           description: The current Candidate head.
           headers:
@@ -2908,6 +2918,8 @@ paths:
             schema:
               $ref: "#/components/schemas/ApproveArtifactCandidateRequest"
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         "200":
           description: The approved Candidate and exact result Artifact.
           headers:
@@ -2950,6 +2962,8 @@ paths:
             schema:
               $ref: "#/components/schemas/RejectArtifactCandidateRequest"
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         "200":
           description: The rejected Candidate.
           headers:
@@ -2992,6 +3006,8 @@ paths:
             schema:
               $ref: "#/components/schemas/ReviseArtifactCandidateRequest"
       responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
         "200":
           description: The next pending Candidate version.
           headers:
@@ -3015,6 +3031,264 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/catalog-change-candidates/list:
+    post:
+      tags:
+      - review
+      summary: List Catalog Change Candidates
+      description: Review one Tag metadata change. Approval checks both the exact candidate
+        version and current Tag/content baseline; it never creates an Artifact revision.
+      operationId: list_catalog_candidates
+      x-powercontext-access:
+        action: scope.read
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListCatalogCandidatesRequest'
+      responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
+        '200':
+          description: Current Catalog Change Candidate state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogCandidatePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/catalog-change-candidates/get:
+    post:
+      tags:
+      - review
+      summary: Get Catalog Change Candidates
+      description: Review one Tag metadata change. Approval checks both the exact candidate
+        version and current Tag/content baseline; it never creates an Artifact revision.
+      operationId: get_catalog_candidate
+      x-powercontext-access:
+        action: scope.read
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetCatalogCandidateRequest'
+      responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
+        '200':
+          description: Current Catalog Change Candidate state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogChangeCandidate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/catalog-change-candidates/history:
+    post:
+      tags:
+      - review
+      summary: History Catalog Change Candidates
+      description: Review one Tag metadata change. Approval checks both the exact candidate
+        version and current Tag/content baseline; it never creates an Artifact revision.
+      operationId: get_catalog_candidate_history
+      x-powercontext-access:
+        action: scope.read
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetCatalogCandidateRequest'
+      responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
+        '200':
+          description: Current Catalog Change Candidate state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogCandidateHistory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/catalog-change-candidates/revise:
+    post:
+      tags:
+      - review
+      summary: Revise Catalog Change Candidates
+      description: Review one Tag metadata change. Approval checks both the exact candidate
+        version and current Tag/content baseline; it never creates an Artifact revision.
+      operationId: revise_catalog_candidate
+      x-powercontext-access:
+        action: scope.review
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviseCatalogCandidateRequest'
+      responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
+        '200':
+          description: Current Catalog Change Candidate state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogChangeCandidate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/catalog-change-candidates/approve:
+    post:
+      tags:
+      - review
+      summary: Approve Catalog Change Candidates
+      description: Review one Tag metadata change. Approval checks both the exact candidate
+        version and current Tag/content baseline; it never creates an Artifact revision.
+      operationId: approve_catalog_candidate
+      x-powercontext-access:
+        action: scope.review
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveCatalogCandidateRequest'
+      responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
+        '200':
+          description: Current Catalog Change Candidate state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogChangeCandidate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/catalog-change-candidates/reject:
+    post:
+      tags:
+      - review
+      summary: Reject Catalog Change Candidates
+      description: Review one Tag metadata change. Approval checks both the exact candidate
+        version and current Tag/content baseline; it never creates an Artifact revision.
+      operationId: reject_catalog_candidate
+      x-powercontext-access:
+        action: scope.review
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectCatalogCandidateRequest'
+      responses:
+        "426":
+          $ref: "#/components/responses/ClientUpgradeRequired"
+        '200':
+          description: Current Catalog Change Candidate state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogChangeCandidate'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /v1/stats:
     post:
       tags: [stats]
@@ -4279,6 +4553,15 @@ components:
       schema:
         type: string
   responses:
+    ClientUpgradeRequired:
+      description: >-
+        This response requires a coordinated client supporting Dream contract 2. Upgrade the Python SDK,
+        CLI or integration and send X-PowerContext-Dream-Contract: 2. Original operations and compatible
+        candidate shapes remain available without the header.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     BadRequest:
       description: The request query or pagination cursor is invalid.
       headers:
@@ -5153,6 +5436,8 @@ components:
       - revise_memory
       - revise_topic_memory
       - refresh_handoff
+      - revise_prompt
+      - revise_tags
     DreamStatus:
       type: string
       enum:
@@ -5175,6 +5460,9 @@ components:
       - profile
       - topic_memory
       - handoff
+      - skill
+      - prompt
+      - catalog_target
       - unresolved
     DreamEvidenceRole:
       type: string
@@ -5225,6 +5513,9 @@ components:
     CreateDreamRunRequest:
       additionalProperties: false
       properties:
+        tag_target:
+          $ref: '#/components/schemas/TagDreamTarget'
+          nullable: true
         operation:
           $ref: '#/components/schemas/DreamOperation'
         artifacts:
@@ -5303,6 +5594,12 @@ components:
       type: object
     DreamCandidateRef:
       properties:
+        kind:
+          type: string
+          enum:
+          - artifact
+          - catalog_change
+          default: artifact
         candidate_id:
           type: string
         version:
@@ -5440,6 +5737,12 @@ components:
       type: object
     DreamRun:
       properties:
+        tag_target:
+          $ref: '#/components/schemas/TagDreamTarget'
+          nullable: true
+        reused:
+          type: boolean
+          default: false
         scope_id:
           type: string
         run_id:
@@ -5486,7 +5789,7 @@ components:
         budget:
           $ref: '#/components/schemas/DreamBudget'
         prompt_version:
-          default: powercontext.dream.v1.1
+          default: powercontext.dream.v1.2
           type: string
         model_config_id:
           type: string
@@ -5528,6 +5831,9 @@ components:
         - result_artifact
         - decision_reason
       properties:
+        audit:
+          $ref: '#/components/schemas/CandidateAudit'
+          nullable: true
         memory_citations:
           type: array
           maxItems: 32
@@ -5559,6 +5865,7 @@ components:
             - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
             - $ref: "#/components/schemas/TopicMemoryDreamProposal"
             - $ref: "#/components/schemas/HandoffContent"
+            - $ref: "#/components/schemas/PromptContent"
         source_refs:
           type: array
           maxItems: 32
@@ -5626,10 +5933,10 @@ components:
           $ref: "#/components/schemas/DreamOperation"
         output_kind:
           type: string
-          enum: [artifact_candidate]
+          enum: [artifact_candidate, catalog_change_candidate]
         effect:
           type: string
-          enum: [review_then_publish, review_then_commit_without_activation]
+          enum: [review_then_publish, review_then_commit_without_activation, review_then_publish_configuration, review_then_replace_tags]
     Capabilities:
       type: object
       additionalProperties: false
@@ -8788,6 +9095,7 @@ components:
             - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
             - $ref: "#/components/schemas/TopicMemoryDreamProposal"
             - $ref: "#/components/schemas/HandoffContent"
+            - $ref: "#/components/schemas/PromptContent"
         source_refs:
           type: array
           maxItems: 32
@@ -9689,7 +9997,7 @@ components:
       enum: [today, 7d, 30d]
     CandidateFamily:
       type: string
-      enum: [experience, skill, profile, memory, topic-memory, handoff]
+      enum: [experience, skill, profile, memory, topic-memory, handoff, prompt]
     ExternalSkillInstallationScope:
       type: string
       enum: [user, project, plugin]
@@ -10279,3 +10587,241 @@ components:
           items:
             $ref: "#/components/schemas/AccessAuditEvent"
         next_cursor: {type: string, maxLength: 2048, nullable: true}
+
+    TagDreamTarget:
+      type: object
+      additionalProperties: false
+      required:
+      - target
+      - expected_etag
+      properties:
+        target: &id002
+          $ref: '#/components/schemas/TagTarget'
+        expected_etag: &id001
+          type: string
+          minLength: 1
+        basis_ref: &id003
+          $ref: '#/components/schemas/ArtifactReference'
+          nullable: true
+        basis_citation: &id004
+          $ref: '#/components/schemas/MemoryCitation'
+          nullable: true
+    CandidateAudit:
+      type: object
+      additionalProperties: false
+      required:
+      - origin
+      - operation
+      - dream_run_id
+      - spec_version
+      - proposal_digest
+      - evidence_manifest_ref
+      - validation_policy_digest
+      - proposal_fingerprint
+      properties:
+        origin: *id001
+        operation: *id001
+        dream_run_id: *id001
+        spec_version: *id001
+        proposal_digest: *id001
+        evidence_manifest_ref: *id001
+        validation_policy_digest: *id001
+        proposal_fingerprint:
+          type: string
+          nullable: true
+    CatalogChangeProposal:
+      type: object
+      additionalProperties: false
+      required:
+      - target
+      - expected_etag
+      - before_tags
+      - after_tags
+      properties:
+        target: *id002
+        expected_etag: *id001
+        basis_ref: *id003
+        basis_citation: *id004
+        before_tags: &id005
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          maxItems: 32
+        after_tags: *id005
+    CatalogTagResult:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - target
+      - tags
+      - tag_digest
+      - etag
+      properties:
+        scope_id: *id001
+        target:
+          $ref: '#/components/schemas/TagTarget'
+        tags: *id005
+        tag_digest: *id001
+        etag: *id001
+    CatalogChangeCandidate:
+      type: object
+      additionalProperties: false
+      required:
+      - candidate_id
+      - version
+      - status
+      - proposal
+      - reason
+      properties:
+        audit:
+          $ref: '#/components/schemas/CandidateAudit'
+          nullable: true
+        operation: {type: string, enum: [revise_tags], default: revise_tags}
+        origin: {type: string, enum: [dream, manual], default: dream}
+        candidate_id: *id001
+        version:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/CandidateStatus'
+        proposal:
+          $ref: '#/components/schemas/CatalogChangeProposal'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/DreamSourceReference'
+          default: []
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+          default: []
+        memory_citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryCitation'
+          default: []
+        reason: *id001
+        dream_run_id:
+          type: string
+          nullable: true
+        result:
+          $ref: '#/components/schemas/CatalogTagResult'
+          nullable: true
+        decision_reason:
+          type: string
+          nullable: true
+    CatalogCandidatePage:
+      type: object
+      additionalProperties: false
+      required:
+      - candidates
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogChangeCandidate'
+          default: []
+        next_cursor:
+          type: string
+          nullable: true
+    CatalogCandidateHistory:
+      type: object
+      additionalProperties: false
+      required:
+      - versions
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogChangeCandidate'
+          default: []
+    ListCatalogCandidatesRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      properties:
+        scope_id: &id006
+          type: string
+          minLength: 1
+          maxLength: 256
+        status:
+          $ref: '#/components/schemas/CandidateStatus'
+          nullable: true
+        cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+    GetCatalogCandidateRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - candidate_id
+      properties:
+        scope_id: *id006
+        candidate_id: *id001
+    ApproveCatalogCandidateRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - candidate_id
+      - expected_version
+      properties:
+        scope_id: *id006
+        candidate_id: *id001
+        expected_version: &id007
+          type: integer
+          minimum: 1
+    RejectCatalogCandidateRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - candidate_id
+      - expected_version
+      - reason
+      properties:
+        scope_id: *id006
+        candidate_id: *id001
+        expected_version: *id007
+        reason: *id001
+    ReviseCatalogCandidateRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - scope_id
+      - candidate_id
+      - expected_version
+      - after_tags
+      - reason
+      properties:
+        scope_id: *id006
+        candidate_id: *id001
+        expected_version: *id007
+        after_tags: *id005
+        reason: *id001
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/DreamSourceReference'
+          nullable: true
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
+          nullable: true
+        memory_citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryCitation'
+          nullable: true

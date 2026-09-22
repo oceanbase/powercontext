@@ -45,6 +45,7 @@ _MAX_RESPONSE_BYTES = 1_048_576
 _MAX_SOURCE_LENGTH = 200_000
 _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
+    "X-PowerContext-Dream-Contract": "2",
     "Accept": "application/json",
     "Content-Type": "application/json",
     "User-Agent": "powercontext-claude-code-plugin/0.1.2",

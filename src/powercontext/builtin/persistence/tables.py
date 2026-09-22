@@ -1070,6 +1070,7 @@ DREAM_RUNS_TABLE = Table(
     Column("principal_key", identity_string(64), nullable=False),
     Column("idempotency_key", identity_string(128), nullable=False),
     Column("request_digest", identity_string(71), nullable=False),
+    Column("proposal_fingerprint", String(71), nullable=True),
     Column("operation", identity_string(32), nullable=False),
     Column("status", identity_string(16), nullable=False),
     Column("accepted_at", BigInteger, nullable=False),
@@ -1081,6 +1082,7 @@ DREAM_RUNS_TABLE = Table(
     Index("ix_pc_dream_dispatch", "scope_id", "operation", "status", "request_generation"),
     Index("ix_pc_dream_list", "scope_id", "accepted_at", "run_id"),
     CheckConstraint("generation >= 0", name="ck_pc_dream_generation"),
+    Index("ix_pc_dream_runs_proposal_fingerprint", "scope_id", "principal_key", "proposal_fingerprint"),
 )
 
 RECEIPT_MIGRATION_REVIEW_TABLE = Table(

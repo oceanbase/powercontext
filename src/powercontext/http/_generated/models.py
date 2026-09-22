@@ -361,6 +361,8 @@ class DreamOperation(StrEnum):
     REVISE_MEMORY = "revise_memory"
     REVISE_TOPIC_MEMORY = "revise_topic_memory"
     REFRESH_HANDOFF = "refresh_handoff"
+    REVISE_PROMPT = "revise_prompt"
+    REVISE_TAGS = "revise_tags"
 
 
 class DreamStatus(StrEnum):
@@ -383,6 +385,9 @@ class DreamEvidenceKind(StrEnum):
     PROFILE = "profile"
     TOPIC_MEMORY = "topic_memory"
     HANDOFF = "handoff"
+    SKILL = "skill"
+    PROMPT = "prompt"
+    CATALOG_TARGET = "catalog_target"
     UNRESOLVED = "unresolved"
 
 
@@ -431,10 +436,16 @@ class DreamBudget(BaseModel):
     timeout_seconds: Annotated[StrictFloat, Field(ge=0.0, gt=1.0, le=120.0)] = 120
 
 
+class Kind(StrEnum):
+    ARTIFACT = "artifact"
+    CATALOG_CHANGE = "catalog_change"
+
+
 class DreamCandidateRef(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    kind: Kind = Kind.ARTIFACT
     candidate_id: StrictStr
     version: Annotated[StrictInt, Field(ge=1)]
 
@@ -476,11 +487,14 @@ class ApproveArtifactCandidateRequest(BaseModel):
 
 class OutputKind(StrEnum):
     ARTIFACT_CANDIDATE = "artifact_candidate"
+    CATALOG_CHANGE_CANDIDATE = "catalog_change_candidate"
 
 
 class Effect(StrEnum):
     REVIEW_THEN_PUBLISH = "review_then_publish"
     REVIEW_THEN_COMMIT_WITHOUT_ACTIVATION = "review_then_commit_without_activation"
+    REVIEW_THEN_PUBLISH_CONFIGURATION = "review_then_publish_configuration"
+    REVIEW_THEN_REPLACE_TAGS = "review_then_replace_tags"
 
 
 class ArtifactDreamingOperationCapability(BaseModel):
@@ -847,7 +861,7 @@ class CommitConnectorCheckpointRequest(BaseModel):
     checkpoint: Annotated[Any | None, Field(...)]
 
 
-class Kind(StrEnum):
+class Kind1(StrEnum):
     ARTIFACT = "artifact"
 
 
@@ -859,7 +873,7 @@ class HandoffArtifactCitation(BaseModel):
     artifact_ref: ArtifactReference
 
 
-class Kind1(StrEnum):
+class Kind2(StrEnum):
     MEMORY = "memory"
 
 
@@ -867,7 +881,7 @@ class Trust3(StrEnum):
     UNTRUSTED_HISTORY = "untrusted_history"
 
 
-class Kind2(StrEnum):
+class Kind3(StrEnum):
     SOURCE = "source"
 
 
@@ -2059,6 +2073,7 @@ class CandidateFamily(StrEnum):
     MEMORY = "memory"
     TOPIC_MEMORY = "topic-memory"
     HANDOFF = "handoff"
+    PROMPT = "prompt"
 
 
 class ExternalSkillInstallationScope(StrEnum):
@@ -2570,6 +2585,156 @@ class AccessAuditPage(BaseModel):
     next_cursor: Annotated[StrictStr | None, Field(max_length=2048)]
 
 
+class TagDreamTarget(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    target: TagTarget
+    expected_etag: Annotated[StrictStr, Field(min_length=1)]
+    basis_ref: ArtifactReference | None = None
+    basis_citation: MemoryCitation | None = None
+
+
+class CandidateAudit(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    origin: Annotated[StrictStr, Field(min_length=1)]
+    operation: Annotated[StrictStr, Field(min_length=1)]
+    dream_run_id: Annotated[StrictStr, Field(min_length=1)]
+    spec_version: Annotated[StrictStr, Field(min_length=1)]
+    proposal_digest: Annotated[StrictStr, Field(min_length=1)]
+    evidence_manifest_ref: Annotated[StrictStr, Field(min_length=1)]
+    validation_policy_digest: Annotated[StrictStr, Field(min_length=1)]
+    proposal_fingerprint: Annotated[StrictStr | None, Field(...)]
+
+
+class BeforeTag(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
+class AfterTag(RootModel[StrictStr]):
+    root: Annotated[StrictStr, Field(max_length=64, min_length=1)]
+
+
+class CatalogChangeProposal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    target: TagTarget
+    expected_etag: Annotated[StrictStr, Field(min_length=1)]
+    basis_ref: ArtifactReference | None = None
+    basis_citation: MemoryCitation | None = None
+    before_tags: Annotated[list[BeforeTag], Field(max_length=32)]
+    after_tags: Annotated[list[AfterTag], Field(max_length=32)]
+
+
+class CatalogTagResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(min_length=1)]
+    target: TagTarget
+    tags: Annotated[list[Tag], Field(max_length=32)]
+    tag_digest: Annotated[StrictStr, Field(min_length=1)]
+    etag: Annotated[StrictStr, Field(min_length=1)]
+
+
+class Operation(StrEnum):
+    REVISE_TAGS = "revise_tags"
+
+
+class Origin(StrEnum):
+    DREAM = "dream"
+    MANUAL = "manual"
+
+
+class CatalogChangeCandidate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    audit: CandidateAudit | None = None
+    operation: Operation = Operation.REVISE_TAGS
+    origin: Origin = Origin.DREAM
+    candidate_id: Annotated[StrictStr, Field(min_length=1)]
+    version: Annotated[StrictInt, Field(ge=1)]
+    status: CandidateStatus
+    proposal: CatalogChangeProposal
+    sources: Annotated[list[DreamSourceReference], Field(validate_default=True)] = []
+    artifacts: Annotated[list[ArtifactReference], Field(validate_default=True)] = []
+    memory_citations: Annotated[list[MemoryCitation], Field(validate_default=True)] = []
+    reason: Annotated[StrictStr, Field(min_length=1)]
+    dream_run_id: StrictStr | None = None
+    result: CatalogTagResult | None = None
+    decision_reason: StrictStr | None = None
+
+
+class CatalogCandidatePage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    candidates: list[CatalogChangeCandidate]
+    next_cursor: StrictStr | None = None
+
+
+class CatalogCandidateHistory(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    versions: list[CatalogChangeCandidate]
+
+
+class ListCatalogCandidatesRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    status: CandidateStatus | None = None
+    cursor: StrictStr | None = None
+    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+
+
+class GetCatalogCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    candidate_id: Annotated[StrictStr, Field(min_length=1)]
+
+
+class ApproveCatalogCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    candidate_id: Annotated[StrictStr, Field(min_length=1)]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+
+
+class RejectCatalogCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    candidate_id: Annotated[StrictStr, Field(min_length=1)]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    reason: Annotated[StrictStr, Field(min_length=1)]
+
+
+class ReviseCatalogCandidateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
+    candidate_id: Annotated[StrictStr, Field(min_length=1)]
+    expected_version: Annotated[StrictInt, Field(ge=1)]
+    after_tags: Annotated[list[AfterTag], Field(max_length=32)]
+    reason: Annotated[StrictStr, Field(min_length=1)]
+    sources: list[DreamSourceReference] | None = None
+    artifacts: list[ArtifactReference] | None = None
+    memory_citations: list[MemoryCitation] | None = None
+
+
 class FlushProfileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2668,6 +2833,7 @@ class CreateDreamRunRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    tag_target: TagDreamTarget | None = None
     operation: DreamOperation
     artifacts: Annotated[list[ArtifactReference], Field(validate_default=True)] = []
     memory_citations: Annotated[list[MemoryCitation], Field(validate_default=True)] = []
@@ -3485,6 +3651,8 @@ class DreamRun(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    tag_target: TagDreamTarget | None = None
+    reused: StrictBool = False
     scope_id: StrictStr
     run_id: StrictStr
     operation: DreamOperation
@@ -3501,7 +3669,7 @@ class DreamRun(BaseModel):
     input_manifest: DreamInputManifest | None = None
     usage: DreamUsage | None = None
     budget: DreamBudget | None = None
-    prompt_version: StrictStr = "powercontext.dream.v1.1"
+    prompt_version: StrictStr = "powercontext.dream.v1.2"
     model_config_id: Annotated[StrictStr | None, Field(...)]
 
 
@@ -3845,6 +4013,7 @@ class ReviseArtifactCandidateRequest(BaseModel):
         | MemoryDreamCandidateProposal
         | TopicMemoryDreamProposal
         | HandoffContent
+        | PromptContent
     )
     source_refs: Annotated[
         list[SourceReference],
@@ -3891,6 +4060,7 @@ class ArtifactCandidate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    audit: CandidateAudit | None = None
     memory_citations: Annotated[
         list[MemoryCitation],
         Field(
@@ -3914,6 +4084,7 @@ class ArtifactCandidate(BaseModel):
         | MemoryDreamCandidateProposal
         | TopicMemoryDreamProposal
         | HandoffContent
+        | PromptContent
     )
     source_refs: Annotated[
         list[SourceReference],

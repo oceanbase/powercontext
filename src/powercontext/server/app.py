@@ -388,6 +388,7 @@ from powercontext.http import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
+    ApproveCatalogCandidateRequest,
     ArtifactAccessResource,
     ArtifactCandidate,
     ArtifactCandidatePage,
@@ -403,6 +404,9 @@ from powercontext.http import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CatalogCandidateHistory,
+    CatalogCandidatePage,
+    CatalogChangeCandidate,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CommitConnectorCheckpointRequest,
@@ -440,6 +444,7 @@ from powercontext.http import (
     GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetCatalogCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
@@ -461,6 +466,7 @@ from powercontext.http import (
     ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
+    ListCatalogCandidatesRequest,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -500,6 +506,7 @@ from powercontext.http import (
     RecordTaskOutcomeRequest,
     RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
+    RejectCatalogCandidateRequest,
     RememberMemoryRequest,
     RemoteSkillAction,
     RemoteSkillPublication,
@@ -516,6 +523,7 @@ from powercontext.http import (
     ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
+    ReviseCatalogCandidateRequest,
     ReviseMemoryEntryRequest,
     RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
@@ -636,6 +644,7 @@ from powercontext.http._generated.operations import (
     API_TITLE,
     API_VERSION,
     APPROVE_ARTIFACT_CANDIDATE,
+    APPROVE_CATALOG_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     CHECK_ACCESS,
     CLEAR_SCOPE_BINDING,
@@ -666,6 +675,8 @@ from powercontext.http._generated.operations import (
     GET_ARTIFACT_REVISION,
     GET_ARTIFACT_TAGS,
     GET_CAPABILITIES,
+    GET_CATALOG_CANDIDATE,
+    GET_CATALOG_CANDIDATE_HISTORY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -692,6 +703,7 @@ from powercontext.http._generated.operations import (
     LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACT_REVISIONS,
     LIST_ARTIFACTS,
+    LIST_CATALOG_CANDIDATES,
     LIST_DREAM_RUNS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
@@ -716,6 +728,7 @@ from powercontext.http._generated.operations import (
     RECORD_TASK_OUTCOME,
     REGISTER_SOURCE_DEFINITION,
     REJECT_ARTIFACT_CANDIDATE,
+    REJECT_CATALOG_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
     REPLACE_ACCESS_BINDING,
@@ -727,6 +740,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
     REVISE_ARTIFACT_CANDIDATE,
+    REVISE_CATALOG_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
@@ -791,6 +805,12 @@ from powercontext.server.context import (
     reset_request_id,
 )
 from powercontext.server.dream_access import DreamAccess, principal_identity
+from powercontext.server.dream_compatibility import (
+    LEGACY_DREAM_OPERATIONS,
+    negotiate_dream_contract,
+    require_candidate_contract,
+    require_extended_dream,
+)
 from powercontext.server.tracing import request_id_from_span
 from powercontext.sources import ConnectorBinding as RuntimeConnectorBinding
 from powercontext.sources import SourceDefinitionManifest as RuntimeSourceDefinitionManifest
@@ -1208,6 +1228,7 @@ class ServerApplication(Protocol):
     profiles: Any
     subject_sources: Any
 
+    catalog_changes: Any
     dream: DreamApplication
     scopes: ScopeApplication | None
     publications: ArtifactPublicationApplication | None
@@ -1286,6 +1307,8 @@ def create_app(
         search_modes=[],
         context_versions=[],
     )
+
+    app.middleware("http")(negotiate_dream_contract)
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -1447,6 +1470,12 @@ def create_app(
     _add_route(app, LIST_EXTERNAL_SKILLS, list_external_skills)
     _add_route(app, RESOLVE_EXTERNAL_SKILL, resolve_external_skill)
     _add_route(app, IMPORT_EXTERNAL_SKILL, import_external_skill)
+    _add_route(app, LIST_CATALOG_CANDIDATES, list_catalog_candidates)
+    _add_route(app, GET_CATALOG_CANDIDATE, get_catalog_candidate)
+    _add_route(app, GET_CATALOG_CANDIDATE_HISTORY, get_catalog_candidate_history)
+    _add_route(app, APPROVE_CATALOG_CANDIDATE, approve_catalog_candidate)
+    _add_route(app, REJECT_CATALOG_CANDIDATE, reject_catalog_candidate)
+    _add_route(app, REVISE_CATALOG_CANDIDATE, revise_catalog_candidate)
     _add_route(app, LIST_ARTIFACT_CANDIDATES, list_artifact_candidates)
     _add_route(app, GET_ARTIFACT_CANDIDATE, get_artifact_candidate)
     _add_route(app, APPROVE_ARTIFACT_CANDIDATE, approve_artifact_candidate)
@@ -3134,6 +3163,8 @@ async def create_dream_run(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> DreamRun:
+    if request.operation.value not in LEGACY_DREAM_OPERATIONS:
+        require_extended_dream(http_request)
     result = await application.dream.for_scope(scope_id, principal_id=_dream_principal(http_request)).create(
         RuntimeCreateDreamRunRequest.model_validate_json(request.model_dump_json(exclude_unset=True)),
     )
@@ -3882,6 +3913,7 @@ async def import_external_skill(
 async def _candidate_response(
     request: Request, scope_id: str, candidate: RuntimeArtifactCandidate[Any]
 ) -> ArtifactCandidate:
+    require_candidate_contract(request, candidate)
     response = mapping.candidate_response(candidate)
     access = access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode)
     if access is None:
@@ -3907,6 +3939,114 @@ async def _candidate_response(
         can_reject=pending and decision.allowed,
     )
     return response
+
+
+def _catalog_response(candidate: Any) -> CatalogChangeCandidate:
+    payload = candidate.model_dump(mode="json")
+    if candidate.result is not None:
+        payload["result"]["etag"] = candidate.result.etag
+    return CatalogChangeCandidate.model_validate(payload)
+
+
+async def _require_catalog_target_write(request: Request, scope_id: str, candidate: Any) -> None:
+    access = access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode)
+    if access is None:
+        return
+    target = candidate.proposal.target
+    payload = {"scope_id": scope_id, **target.model_dump(mode="json")}
+    checks = (
+        _path_memory_entry_write_access(payload, access.deployment_id)
+        if target.type == "memory_entry"
+        else _path_artifact_tags_write_access(payload, access.deployment_id)
+    )
+    await access.require_all(_require_principal(), checks, context=_access_audit_context("review_catalog_change"))
+
+
+async def list_catalog_candidates(
+    request: ListCatalogCandidatesRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> CatalogCandidatePage:
+    require_extended_dream(http_request)
+    page = await application.catalog_changes.for_scope(request.scope_id).list(
+        status=None if request.status is None else request.status.value, cursor=request.cursor, limit=request.limit
+    )
+    return CatalogCandidatePage(
+        candidates=[_catalog_response(item) for item in page.candidates], next_cursor=page.next_cursor
+    )
+
+
+async def get_catalog_candidate(
+    request: GetCatalogCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> CatalogChangeCandidate:
+    require_extended_dream(http_request)
+    return _catalog_response(await application.catalog_changes.for_scope(request.scope_id).get(request.candidate_id))
+
+
+async def get_catalog_candidate_history(
+    request: GetCatalogCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> CatalogCandidateHistory:
+    require_extended_dream(http_request)
+    versions = await application.catalog_changes.for_scope(request.scope_id).history(request.candidate_id)
+    return CatalogCandidateHistory(versions=[_catalog_response(item) for item in versions])
+
+
+async def approve_catalog_candidate(
+    request: ApproveCatalogCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> CatalogChangeCandidate:
+    require_extended_dream(http_request)
+    service = application.catalog_changes.for_scope(request.scope_id)
+    candidate = await service.get(request.candidate_id)
+    await _require_catalog_target_write(http_request, request.scope_id, candidate)
+    return _catalog_response(await service.approve(request.candidate_id, request.expected_version))
+
+
+async def reject_catalog_candidate(
+    request: RejectCatalogCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> CatalogChangeCandidate:
+    require_extended_dream(http_request)
+    return _catalog_response(
+        await application.catalog_changes.for_scope(request.scope_id).reject(
+            request.candidate_id, request.expected_version, request.reason
+        )
+    )
+
+
+async def revise_catalog_candidate(
+    request: ReviseCatalogCandidateRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+    http_request: Request,
+) -> CatalogChangeCandidate:
+    require_extended_dream(http_request)
+    service = application.catalog_changes.for_scope(request.scope_id)
+    candidate = await service.get(request.candidate_id)
+    await _require_catalog_target_write(http_request, request.scope_id, candidate)
+    from powercontext.sources import SourceRef
+
+    result = await service.revise(
+        request.candidate_id,
+        request.expected_version,
+        after_tags=tuple(tag.root for tag in request.after_tags),
+        reason=request.reason,
+        sources=None
+        if request.sources is None
+        else tuple(SourceRef(source_type=item.source_type, source_id=item.source_id) for item in request.sources),
+        artifacts=None
+        if request.artifacts is None
+        else tuple(mapping.runtime_artifact_reference(item) for item in request.artifacts),
+        memory_citations=None
+        if request.memory_citations is None
+        else tuple(mapping.runtime_citation(item) for item in request.memory_citations),
+    )
+    return _catalog_response(result)
 
 
 async def list_artifact_candidates(
@@ -3938,6 +4078,9 @@ async def approve_artifact_candidate(
     http_request: Request,
 ) -> ArtifactCandidate:
     review = application.review.for_scope(request.scope_id)
+    current = await review.get(RuntimeGetArtifactCandidateRequest(candidate_id=request.candidate_id))
+    require_candidate_contract(http_request, current)
+    await _require_candidate_target_write(http_request, request.scope_id, current)
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
@@ -3974,6 +4117,10 @@ async def reject_artifact_candidate(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> ArtifactCandidate:
+    current = await application.review.for_scope(request.scope_id).get(
+        RuntimeGetArtifactCandidateRequest(candidate_id=request.candidate_id)
+    )
+    require_candidate_contract(http_request, current)
     result = await application.review.for_scope(request.scope_id).reject(mapping.reject_candidate_request(request))
     return await _candidate_response(http_request, request.scope_id, result)
 
@@ -3983,6 +4130,11 @@ async def revise_artifact_candidate(
     application: Annotated[ServerApplication, Depends(_require_application)],
     http_request: Request,
 ) -> ArtifactCandidate:
+    current = await application.review.for_scope(request.scope_id).get(
+        RuntimeGetArtifactCandidateRequest(candidate_id=request.candidate_id)
+    )
+    require_candidate_contract(http_request, current)
+    await _require_candidate_target_write(http_request, request.scope_id, current)
     access = access_control_for_mode(
         http_request.app.state.access_control,
         mode=http_request.app.state.access_mode,
@@ -3997,12 +4149,34 @@ async def revise_artifact_candidate(
     return await _candidate_response(http_request, request.scope_id, result)
 
 
+async def _require_candidate_target_write(
+    request: Request, scope_id: str, candidate: RuntimeArtifactCandidate[Any]
+) -> None:
+    access = access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode)
+    if access is None or candidate.target is None:
+        return
+    if candidate.family in {"prompt", "topic-memory"}:
+        checks = ((AccessAction.SCOPE_ADMIN, ResourceRef.scope(scope_id)),)
+    elif candidate.family == "memory":
+        checks = _base_memory_write_access({
+            "scope_id": scope_id,
+            "artifact_id": candidate.target.artifact_id,
+            "content": {"entries": [{"entry_id": item.entry_id} for item in candidate.proposal.changes]},
+        })
+    else:
+        return
+    await access.require_all(_require_principal(), checks, context=_access_audit_context("review_candidate_target"))
+
+
 async def _require_candidate_artifact_owner(
     request: Request,
     scope_id: str,
     candidate: ReviewedCandidate,
 ) -> None:
     if candidate.status.value != "approved" or candidate.result_artifact is None:
+        return
+    if candidate.result_artifact.family in {"memory", "prompt", "topic-memory"}:
+        # These results name aggregate or Scope-owned revisions, not separately owned content.
         return
     access = access_control_for_mode(request.app.state.access_control, mode=request.app.state.access_mode)
     if access is None:
@@ -5134,11 +5308,14 @@ def _set_error_headers(response: Response, error: Exception) -> None:
 
 
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
+    if isinstance(error, DreamError) and error.code == "client_upgrade_required":
+        return 426, error.code, "Upgrade to a client supporting Dream contract 2.", {"required_dream_contract": 2}
     access_error = _map_access_error(error)
     if access_error is not None:
         return access_error
     if isinstance(error, (DreamError, EvidenceResolutionError)):
         statuses = {
+            "client_upgrade_required": 426,
             "idempotency_conflict": 409,
             "artifact_conflict": 409,
             "dream_not_found": 404,

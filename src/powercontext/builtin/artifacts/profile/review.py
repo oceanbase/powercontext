@@ -40,6 +40,7 @@ async def decide_profile(service, connection, candidate_id, expected_version, *,
     policies = ProfilePolicyRepository()
     policy = await policies.get(connection, service._scope_id, for_update=True)
     candidate = await service._candidates.lock_pending(connection, service._scope_id, candidate_id, expected_version)
+    await service._authorize_decision("approve" if reason is None else "reject", candidate)
     proposal = candidate.proposal
     if not isinstance(proposal, ProfileCandidateProposal):
         raise InvalidCandidateError("family", "profile required")
@@ -106,6 +107,7 @@ async def _decide_dream_profile(service, connection, candidate, policy, *, reaso
         return await service._candidates.reject(
             connection, service._scope_id, candidate.candidate_id, candidate.version, reason
         )
+    await service._validate_candidate_audit(connection, candidate)
     if proposal.policy_version != (None if policy is None else policy.version):
         raise BaseValueConflictError("profile_policy", (service._scope_id,))
     await service._validate_evidence(

@@ -19,6 +19,7 @@ from powercontext.http._generated.models import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
     ApproveArtifactCandidateRequest,
+    ApproveCatalogCandidateRequest,
     ArtifactCandidate,
     ArtifactCandidatePage,
     ArtifactCreated,
@@ -31,6 +32,9 @@ from powercontext.http._generated.models import (
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
+    CatalogCandidateHistory,
+    CatalogCandidatePage,
+    CatalogChangeCandidate,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CommitConnectorCheckpointRequest,
@@ -65,6 +69,7 @@ from powercontext.http._generated.models import (
     GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
     GetArtifactCandidateRequest,
+    GetCatalogCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
@@ -88,6 +93,7 @@ from powercontext.http._generated.models import (
     ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
+    ListCatalogCandidatesRequest,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -126,6 +132,7 @@ from powercontext.http._generated.models import (
     RecordTaskOutcomeRequest,
     RegisterSourceDefinitionRequest,
     RejectArtifactCandidateRequest,
+    RejectCatalogCandidateRequest,
     RememberMemoryRequest,
     RemoteSkillPublication,
     RemoteSkillReceiptResponse,
@@ -141,6 +148,7 @@ from powercontext.http._generated.models import (
     ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
     ReviseArtifactCandidateRequest,
+    ReviseCatalogCandidateRequest,
     ReviseMemoryEntryRequest,
     RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
@@ -1374,6 +1382,7 @@ LIST_DREAM_RUNS = Operation[ListDreamRunsRequest, DreamRunPage](
     tags=("dream",),
     scope_mode="none",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The requested Dream state.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1402,6 +1411,7 @@ CREATE_DREAM_RUN = Operation[CreateDreamRunRequest, DreamRun](
     tags=("dream",),
     scope_mode="none",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         202: {
             "description": "The accepted queued or running Dream.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1438,6 +1448,7 @@ GET_DREAM_RUN = Operation[None, DreamRun](
     tags=("dream",),
     scope_mode="none",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The requested Dream state.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2128,6 +2139,7 @@ LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCand
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The selected current Candidate heads.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2154,6 +2166,7 @@ GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidat
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The current Candidate head.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2181,6 +2194,7 @@ APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, Artifact
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The approved Candidate and exact result Artifact.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2209,6 +2223,7 @@ REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCa
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The rejected Candidate.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2237,6 +2252,7 @@ REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCa
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The next pending Candidate version.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2245,6 +2261,162 @@ REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCa
         409: {"$ref": "#/components/responses/Conflict"},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+LIST_CATALOG_CANDIDATES = Operation[ListCatalogCandidatesRequest, CatalogCandidatePage](
+    method="POST",
+    path="/v1/catalog-change-candidates/list",
+    operation_id="list_catalog_candidates",
+    request_type=ListCatalogCandidatesRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CatalogCandidatePage,
+    success_status=200,
+    summary="List Catalog Change Candidates",
+    tags=("review",),
+    scope_mode="current",
+    responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
+        200: {"description": "Current Catalog Change Candidate state."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_CATALOG_CANDIDATE = Operation[GetCatalogCandidateRequest, CatalogChangeCandidate](
+    method="POST",
+    path="/v1/catalog-change-candidates/get",
+    operation_id="get_catalog_candidate",
+    request_type=GetCatalogCandidateRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CatalogChangeCandidate,
+    success_status=200,
+    summary="Get Catalog Change Candidates",
+    tags=("review",),
+    scope_mode="current",
+    responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
+        200: {"description": "Current Catalog Change Candidate state."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_CATALOG_CANDIDATE_HISTORY = Operation[GetCatalogCandidateRequest, CatalogCandidateHistory](
+    method="POST",
+    path="/v1/catalog-change-candidates/history",
+    operation_id="get_catalog_candidate_history",
+    request_type=GetCatalogCandidateRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CatalogCandidateHistory,
+    success_status=200,
+    summary="History Catalog Change Candidates",
+    tags=("review",),
+    scope_mode="current",
+    responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
+        200: {"description": "Current Catalog Change Candidate state."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+REVISE_CATALOG_CANDIDATE = Operation[ReviseCatalogCandidateRequest, CatalogChangeCandidate](
+    method="POST",
+    path="/v1/catalog-change-candidates/revise",
+    operation_id="revise_catalog_candidate",
+    request_type=ReviseCatalogCandidateRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CatalogChangeCandidate,
+    success_status=200,
+    summary="Revise Catalog Change Candidates",
+    tags=("review",),
+    scope_mode="current",
+    responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
+        200: {"description": "Current Catalog Change Candidate state."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+APPROVE_CATALOG_CANDIDATE = Operation[ApproveCatalogCandidateRequest, CatalogChangeCandidate](
+    method="POST",
+    path="/v1/catalog-change-candidates/approve",
+    operation_id="approve_catalog_candidate",
+    request_type=ApproveCatalogCandidateRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CatalogChangeCandidate,
+    success_status=200,
+    summary="Approve Catalog Change Candidates",
+    tags=("review",),
+    scope_mode="current",
+    responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
+        200: {"description": "Current Catalog Change Candidate state."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+REJECT_CATALOG_CANDIDATE = Operation[RejectCatalogCandidateRequest, CatalogChangeCandidate](
+    method="POST",
+    path="/v1/catalog-change-candidates/reject",
+    operation_id="reject_catalog_candidate",
+    request_type=RejectCatalogCandidateRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CatalogChangeCandidate,
+    success_status=200,
+    summary="Reject Catalog Change Candidates",
+    tags=("review",),
+    scope_mode="current",
+    responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
+        200: {"description": "Current Catalog Change Candidate state."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
         422: {"$ref": "#/components/responses/InvalidRequest"},
         503: {"$ref": "#/components/responses/Unavailable"},
         500: {"$ref": "#/components/responses/InternalError"},

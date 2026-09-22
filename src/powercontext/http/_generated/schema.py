@@ -1764,6 +1764,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     }
                 ],
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "202": {
                         "description": "The accepted queued or running Dream.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1831,6 +1832,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                 ],
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The requested Dream state.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1868,6 +1870,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     },
                 ],
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The requested Dream state.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2856,6 +2859,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The selected current Candidate heads.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2900,6 +2904,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The current Candidate head.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2949,6 +2954,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The approved Candidate and exact result Artifact.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2996,6 +3002,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The rejected Candidate.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -3044,6 +3051,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "required": True,
                 },
                 "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
                     "200": {
                         "description": "The next pending Candidate version.",
                         "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -3053,6 +3061,259 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "409": {"$ref": "#/components/responses/Conflict"},
                     "401": {"$ref": "#/components/responses/Unauthorized"},
                     "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.review",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/catalog-change-candidates/list": {
+            "post": {
+                "tags": ["review"],
+                "summary": "List Catalog Change Candidates",
+                "description": "Review one Tag metadata "
+                "change. Approval checks "
+                "both the exact "
+                "candidate version and "
+                "current Tag/content "
+                "baseline; it never "
+                "creates an Artifact "
+                "revision.",
+                "operationId": "list_catalog_candidates",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ListCatalogCandidatesRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
+                    "200": {
+                        "description": "Current Catalog Change Candidate state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/CatalogCandidatePage"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/catalog-change-candidates/get": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Get Catalog Change Candidates",
+                "description": "Review one Tag metadata "
+                "change. Approval checks "
+                "both the exact candidate "
+                "version and current "
+                "Tag/content baseline; it "
+                "never creates an "
+                "Artifact revision.",
+                "operationId": "get_catalog_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetCatalogCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
+                    "200": {
+                        "description": "Current Catalog Change Candidate state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/CatalogChangeCandidate"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/catalog-change-candidates/history": {
+            "post": {
+                "tags": ["review"],
+                "summary": "History Catalog Change Candidates",
+                "description": "Review one Tag "
+                "metadata change. "
+                "Approval checks both "
+                "the exact candidate "
+                "version and current "
+                "Tag/content "
+                "baseline; it never "
+                "creates an Artifact "
+                "revision.",
+                "operationId": "get_catalog_candidate_history",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetCatalogCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
+                    "200": {
+                        "description": "Current Catalog Change Candidate state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/CatalogCandidateHistory"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/catalog-change-candidates/revise": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Revise Catalog Change Candidates",
+                "description": "Review one Tag "
+                "metadata change. "
+                "Approval checks both "
+                "the exact candidate "
+                "version and current "
+                "Tag/content baseline; "
+                "it never creates an "
+                "Artifact revision.",
+                "operationId": "revise_catalog_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ReviseCatalogCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
+                    "200": {
+                        "description": "Current Catalog Change Candidate state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/CatalogChangeCandidate"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.review",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/catalog-change-candidates/approve": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Approve Catalog Change Candidates",
+                "description": "Review one Tag "
+                "metadata change. "
+                "Approval checks both "
+                "the exact candidate "
+                "version and current "
+                "Tag/content "
+                "baseline; it never "
+                "creates an Artifact "
+                "revision.",
+                "operationId": "approve_catalog_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/ApproveCatalogCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
+                    "200": {
+                        "description": "Current Catalog Change Candidate state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/CatalogChangeCandidate"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.review",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
+        "/v1/catalog-change-candidates/reject": {
+            "post": {
+                "tags": ["review"],
+                "summary": "Reject Catalog Change Candidates",
+                "description": "Review one Tag "
+                "metadata change. "
+                "Approval checks both "
+                "the exact candidate "
+                "version and current "
+                "Tag/content baseline; "
+                "it never creates an "
+                "Artifact revision.",
+                "operationId": "reject_catalog_candidate",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/RejectCatalogCandidateRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "426": {"$ref": "#/components/responses/ClientUpgradeRequired"},
+                    "200": {
+                        "description": "Current Catalog Change Candidate state.",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/CatalogChangeCandidate"}}
+                        },
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
                     "422": {"$ref": "#/components/responses/InvalidRequest"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
@@ -5040,13 +5301,26 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "revise_memory",
                     "revise_topic_memory",
                     "refresh_handoff",
+                    "revise_prompt",
+                    "revise_tags",
                 ],
             },
             "DreamStatus": {"type": "string", "enum": ["queued", "running", "succeeded", "failed"]},
             "DreamOutcome": {"type": "string", "enum": ["proposed", "no_change", "needs_evidence"]},
             "DreamEvidenceKind": {
                 "type": "string",
-                "enum": ["source", "experience", "memory", "profile", "topic_memory", "handoff", "unresolved"],
+                "enum": [
+                    "source",
+                    "experience",
+                    "memory",
+                    "profile",
+                    "topic_memory",
+                    "handoff",
+                    "skill",
+                    "prompt",
+                    "catalog_target",
+                    "unresolved",
+                ],
             },
             "DreamEvidenceRole": {
                 "type": "string",
@@ -5074,6 +5348,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "CreateDreamRunRequest": {
                 "properties": {
+                    "tag_target": {"$ref": "#/components/schemas/TagDreamTarget", "nullable": True},
                     "operation": {"$ref": "#/components/schemas/DreamOperation"},
                     "artifacts": {
                         "items": {"$ref": "#/components/schemas/ArtifactReference"},
@@ -5131,7 +5406,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
             },
             "DreamCandidateRef": {
-                "properties": {"candidate_id": {"type": "string"}, "version": {"type": "integer", "minimum": 1.0}},
+                "properties": {
+                    "kind": {"type": "string", "enum": ["artifact", "catalog_change"], "default": "artifact"},
+                    "candidate_id": {"type": "string"},
+                    "version": {"type": "integer", "minimum": 1.0},
+                },
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["candidate_id", "version"],
@@ -5225,6 +5504,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "DreamRun": {
                 "properties": {
+                    "tag_target": {"$ref": "#/components/schemas/TagDreamTarget", "nullable": True},
+                    "reused": {"type": "boolean", "default": False},
                     "scope_id": {"type": "string"},
                     "run_id": {"type": "string"},
                     "operation": {"$ref": "#/components/schemas/DreamOperation"},
@@ -5241,7 +5522,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "input_manifest": {"$ref": "#/components/schemas/DreamInputManifest", "nullable": True},
                     "usage": {"$ref": "#/components/schemas/DreamUsage"},
                     "budget": {"$ref": "#/components/schemas/DreamBudget"},
-                    "prompt_version": {"type": "string", "default": "powercontext.dream.v1.1"},
+                    "prompt_version": {"type": "string", "default": "powercontext.dream.v1.2"},
                     "model_config_id": {"type": "string", "nullable": True},
                 },
                 "additionalProperties": False,
@@ -5259,6 +5540,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ArtifactCandidate": {
                 "properties": {
+                    "audit": {"$ref": "#/components/schemas/CandidateAudit", "nullable": True},
                     "memory_citations": {
                         "items": {"$ref": "#/components/schemas/MemoryCitation"},
                         "type": "array",
@@ -5311,6 +5593,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
                             {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
                             {"$ref": "#/components/schemas/HandoffContent"},
+                            {"$ref": "#/components/schemas/PromptContent"},
                         ]
                     },
                     "source_refs": {
@@ -5392,10 +5675,15 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "ArtifactDreamingOperationCapability": {
                 "properties": {
                     "operation": {"$ref": "#/components/schemas/DreamOperation"},
-                    "output_kind": {"type": "string", "enum": ["artifact_candidate"]},
+                    "output_kind": {"type": "string", "enum": ["artifact_candidate", "catalog_change_candidate"]},
                     "effect": {
                         "type": "string",
-                        "enum": ["review_then_publish", "review_then_commit_without_activation"],
+                        "enum": [
+                            "review_then_publish",
+                            "review_then_commit_without_activation",
+                            "review_then_publish_configuration",
+                            "review_then_replace_tags",
+                        ],
                     },
                 },
                 "additionalProperties": False,
@@ -8076,6 +8364,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                             {"$ref": "#/components/schemas/MemoryDreamCandidateProposal"},
                             {"$ref": "#/components/schemas/TopicMemoryDreamProposal"},
                             {"$ref": "#/components/schemas/HandoffContent"},
+                            {"$ref": "#/components/schemas/PromptContent"},
                         ]
                     },
                     "source_refs": {
@@ -9051,7 +9340,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "StatsPeriod": {"type": "string", "enum": ["today", "7d", "30d"]},
             "CandidateFamily": {
                 "type": "string",
-                "enum": ["experience", "skill", "profile", "memory", "topic-memory", "handoff"],
+                "enum": ["experience", "skill", "profile", "memory", "topic-memory", "handoff", "prompt"],
             },
             "ExternalSkillInstallationScope": {"type": "string", "enum": ["user", "project", "plugin"]},
             "ExternalSkillResolutionStatus": {"type": "string", "enum": ["available", "unavailable"]},
@@ -9601,8 +9890,224 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["items", "next_cursor"],
             },
+            "TagDreamTarget": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "expected_etag": {"type": "string", "minLength": 1},
+                    "basis_ref": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "basis_citation": {"$ref": "#/components/schemas/MemoryCitation", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "expected_etag"],
+            },
+            "CandidateAudit": {
+                "properties": {
+                    "origin": {"type": "string", "minLength": 1},
+                    "operation": {"type": "string", "minLength": 1},
+                    "dream_run_id": {"type": "string", "minLength": 1},
+                    "spec_version": {"type": "string", "minLength": 1},
+                    "proposal_digest": {"type": "string", "minLength": 1},
+                    "evidence_manifest_ref": {"type": "string", "minLength": 1},
+                    "validation_policy_digest": {"type": "string", "minLength": 1},
+                    "proposal_fingerprint": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "origin",
+                    "operation",
+                    "dream_run_id",
+                    "spec_version",
+                    "proposal_digest",
+                    "evidence_manifest_ref",
+                    "validation_policy_digest",
+                    "proposal_fingerprint",
+                ],
+            },
+            "CatalogChangeProposal": {
+                "properties": {
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "expected_etag": {"type": "string", "minLength": 1},
+                    "basis_ref": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "basis_citation": {"$ref": "#/components/schemas/MemoryCitation", "nullable": True},
+                    "before_tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "after_tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["target", "expected_etag", "before_tags", "after_tags"],
+            },
+            "CatalogTagResult": {
+                "properties": {
+                    "scope_id": {"type": "string", "minLength": 1},
+                    "target": {"$ref": "#/components/schemas/TagTarget"},
+                    "tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "tag_digest": {"type": "string", "minLength": 1},
+                    "etag": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "target", "tags", "tag_digest", "etag"],
+            },
+            "CatalogChangeCandidate": {
+                "properties": {
+                    "audit": {"$ref": "#/components/schemas/CandidateAudit", "nullable": True},
+                    "operation": {"type": "string", "enum": ["revise_tags"], "default": "revise_tags"},
+                    "origin": {"type": "string", "enum": ["dream", "manual"], "default": "dream"},
+                    "candidate_id": {"type": "string", "minLength": 1},
+                    "version": {"type": "integer", "minimum": 1.0},
+                    "status": {"$ref": "#/components/schemas/CandidateStatus"},
+                    "proposal": {"$ref": "#/components/schemas/CatalogChangeProposal"},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/DreamSourceReference"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "artifacts": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "reason": {"type": "string", "minLength": 1},
+                    "dream_run_id": {"type": "string", "nullable": True},
+                    "result": {"$ref": "#/components/schemas/CatalogTagResult", "nullable": True},
+                    "decision_reason": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["candidate_id", "version", "status", "proposal", "reason"],
+            },
+            "CatalogCandidatePage": {
+                "properties": {
+                    "candidates": {
+                        "items": {"$ref": "#/components/schemas/CatalogChangeCandidate"},
+                        "type": "array",
+                        "default": [],
+                    },
+                    "next_cursor": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["candidates"],
+            },
+            "CatalogCandidateHistory": {
+                "properties": {
+                    "versions": {
+                        "items": {"$ref": "#/components/schemas/CatalogChangeCandidate"},
+                        "type": "array",
+                        "default": [],
+                    }
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["versions"],
+            },
+            "ListCatalogCandidatesRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "status": {"$ref": "#/components/schemas/CandidateStatus", "nullable": True},
+                    "cursor": {"type": "string", "nullable": True},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "GetCatalogCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "candidate_id": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "candidate_id"],
+            },
+            "ApproveCatalogCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "candidate_id": {"type": "string", "minLength": 1},
+                    "expected_version": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "candidate_id", "expected_version"],
+            },
+            "RejectCatalogCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "candidate_id": {"type": "string", "minLength": 1},
+                    "expected_version": {"type": "integer", "minimum": 1.0},
+                    "reason": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "candidate_id", "expected_version", "reason"],
+            },
+            "ReviseCatalogCandidateRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1},
+                    "candidate_id": {"type": "string", "minLength": 1},
+                    "expected_version": {"type": "integer", "minimum": 1.0},
+                    "after_tags": {
+                        "items": {"type": "string", "maxLength": 64, "minLength": 1},
+                        "type": "array",
+                        "maxItems": 32,
+                    },
+                    "reason": {"type": "string", "minLength": 1},
+                    "sources": {
+                        "items": {"$ref": "#/components/schemas/DreamSourceReference"},
+                        "type": "array",
+                        "nullable": True,
+                    },
+                    "artifacts": {
+                        "items": {"$ref": "#/components/schemas/ArtifactReference"},
+                        "type": "array",
+                        "nullable": True,
+                    },
+                    "memory_citations": {
+                        "items": {"$ref": "#/components/schemas/MemoryCitation"},
+                        "type": "array",
+                        "nullable": True,
+                    },
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "candidate_id", "expected_version", "after_tags", "reason"],
+            },
         },
         "responses": {
+            "ClientUpgradeRequired": {
+                "description": "This response requires a "
+                "coordinated client "
+                "supporting Dream contract "
+                "2. Upgrade the Python SDK, "
+                "CLI or integration and "
+                "send "
+                "X-PowerContext-Dream-Contract: "
+                "2. Original operations and "
+                "compatible candidate "
+                "shapes remain available "
+                "without the header.",
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+            },
             "BadRequest": {
                 "description": "The request query or pagination cursor is invalid.",
                 "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},

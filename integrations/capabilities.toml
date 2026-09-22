@@ -137,6 +137,24 @@ non_profile_reason = "Candidate decision authority is outside this capability co
 [[toolsets.tools]]
 id = "revise_artifact_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "list_catalog_candidates"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "get_catalog_candidate"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "get_catalog_candidate_history"
+capabilities = ["candidate_review"]
+[[toolsets.tools]]
+id = "approve_catalog_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "reject_catalog_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "revise_catalog_candidate"
+non_profile_reason = "Candidate decision authority is outside this capability contract."
 
 [[toolsets]]
 id = "prompt-hooks"

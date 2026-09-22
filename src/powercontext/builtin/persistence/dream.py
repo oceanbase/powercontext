@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from powercontext.builtin.dream.bindings import binding_for_request
 from powercontext.builtin.dream.models import (
     CreateDreamRunRequest,
     DreamError,
@@ -91,6 +92,7 @@ class DreamRepository:
                 principal_key=content_digest(record.principal_id.encode())[7:],
                 idempotency_key=record.request.idempotency_key,
                 request_digest=record.request.digest(),
+                proposal_fingerprint=record.proposal_fingerprint,
                 operation=run.operation,
                 status=run.status,
                 accepted_at=ticks(run.accepted_at),
@@ -100,6 +102,23 @@ class DreamRepository:
             )
         )
         return record
+
+    async def matching_proposals(self, connection: AsyncConnection, record: DreamRecord) -> tuple[DreamRecord, ...]:
+        """Read earlier results for this principal without transferring ownership."""
+        if record.proposal_fingerprint is None:
+            return ()
+        rows = await connection.scalars(
+            select(RUNS.c.payload)
+            .where(
+                RUNS.c.scope_id == record.run.scope_id,
+                RUNS.c.principal_key == content_digest(record.principal_id.encode())[7:],
+                RUNS.c.proposal_fingerprint == record.proposal_fingerprint,
+                RUNS.c.status == "succeeded",
+                RUNS.c.run_id != record.run.run_id,
+            )
+            .order_by(RUNS.c.accepted_at.desc(), RUNS.c.run_id.desc())
+        )
+        return tuple(_decode(row) for row in rows)
 
     async def get(
         self,
@@ -171,6 +190,7 @@ class DreamRepository:
         operation: str | tuple[str, ...],
         *,
         through_generation: int | None = None,
+        binding: str | None = None,
     ) -> DreamRecord | None:
         operations = (operation,) if isinstance(operation, str) else operation
         if not operations:
@@ -182,10 +202,14 @@ class DreamRepository:
         )
         if through_generation is not None:
             statement = statement.where(RUNS.c.request_generation <= through_generation)
-        payload = await connection.scalar(
-            statement.order_by(RUNS.c.request_generation, RUNS.c.accepted_at, RUNS.c.run_id).limit(1)
-        )
-        return None if payload is None else _decode(payload)
+        # A Tag operation can belong to any existing Family binding. Pending
+        # admission is bounded per Scope; filter the exact owner before claiming.
+        rows = await connection.scalars(statement.order_by(RUNS.c.accepted_at, RUNS.c.run_id))
+        for payload in rows:
+            record = _decode(payload)
+            if binding is None or binding_for_request(record.request) == binding:
+                return record
+        return None
 
     async def claim(
         self,
@@ -254,6 +278,7 @@ class DreamRepository:
                 status=record.run.status,
                 generation=record.generation,
                 request_generation=record.request_generation,
+                proposal_fingerprint=record.proposal_fingerprint,
                 payload=_payload(record),
             )
         )

@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, f
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
-from powercontext.artifacts import Artifact, ArtifactLineage
+from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.handoff import Handoff, HandoffContent, HandoffService, PreparedHandoff
 from powercontext.builtin.artifacts.memory import (
@@ -264,6 +264,36 @@ class PromptManagementWriter(_RepositoryFamilyWriter):
         validated = cast(PromptContent, content)
         self._registry.validate(current.artifact_id, validated)
         return cast(Prompt, await self._revise_artifact(connection, scope_id, current, validated, direct_source))
+
+    async def commit_reviewed(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        current: Prompt,
+        content: PromptContent,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        memory_citations: tuple[MemoryCitation, ...],
+    ) -> Prompt:
+        """Publish a reviewed configuration using the normal Prompt validation and Artifact CAS."""
+
+        self._registry.validate(current.artifact_id, content)
+        return cast(
+            Prompt,
+            await self._artifacts.revise(
+                connection,
+                scope_id,
+                current,
+                RepositoryArtifactDraft(
+                    family=self.family,
+                    content=content,
+                    sources=sources,
+                    artifacts=artifacts,
+                    memory_citations=memory_citations,
+                ),
+            ),
+        )
 
 
 class ExperienceManagementWriter(_RepositoryFamilyWriter):
