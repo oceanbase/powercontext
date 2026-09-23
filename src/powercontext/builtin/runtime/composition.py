@@ -780,6 +780,11 @@ async def open_builtin_contexts(
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
+                if connection.dialect.name == "sqlite":
+                    # Reserve SQLite's single-writer slot before startup schema
+                    # reads, so concurrent Runtime openings cannot both establish
+                    # a read snapshot and then fail while upgrading it to a write.
+                    await connection.exec_driver_sql("BEGIN IMMEDIATE")
                 await ensure_dream_schema(connection)
                 await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
