@@ -39,21 +39,21 @@ def memory_channel_hits(
     memories: tuple[ArtifactRef, ...],
     /,
 ) -> tuple[MemoryChannelHit, ...]:
-    requested = {(memory.artifact_id, memory.revision) for memory in memories}
+    # The backend validates requested heads before and after the search, so a row
+    # belongs to the ref requested for its artifact. Reading the revision from the
+    # row would require re-stamping every projection row on each revision; the
+    # requested ref is the authority the caller already checked.
+    requested = {memory.artifact_id: memory for memory in memories}
     return tuple(
         MemoryChannelHit(
-            memory_ref=ArtifactRef(
-                family="memory",
-                artifact_id=str(row["memory_artifact_id"]),
-                revision=int(row["head_revision"]),
-            ),
+            memory_ref=requested[str(row["memory_artifact_id"])],
             entry_id=str(row["entry_id"]),
             entry_version_id=str(row["entry_version_id"]),
             text=str(row["text"]),
             distance=None if row.get("distance") is None else float(row["distance"]),
         )
         for row in rows
-        if (str(row["memory_artifact_id"]), int(row["head_revision"])) in requested
+        if str(row["memory_artifact_id"]) in requested
     )
 
 
@@ -66,6 +66,24 @@ class MemoryIndex(Protocol):
     async def initialize(self, connection: AsyncConnection, /) -> None: ...
 
     async def replace(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None: ...
+
+    async def delete(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        entry_ids: tuple[str, ...],
+        /,
+    ) -> None: ...
+
+    async def upsert(
         self,
         connection: AsyncConnection,
         scope_id: str,
@@ -110,6 +128,26 @@ class NoMemoryIndex:
         pass
 
     async def replace(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memory_ref: ArtifactRef,
+        _projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
+        pass
+
+    async def delete(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memory_ref: ArtifactRef,
+        _entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        pass
+
+    async def upsert(
         self,
         _connection: AsyncConnection,
         _scope_id: str,
@@ -179,6 +217,28 @@ class CompositeMemoryIndex:
     ) -> None:
         for index in self.indexes:
             await index.replace(connection, scope_id, memory_ref, projections)
+
+    async def delete(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        for index in self.indexes:
+            await index.delete(connection, scope_id, memory_ref, entry_ids)
+
+    async def upsert(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
+        for index in self.indexes:
+            await index.upsert(connection, scope_id, memory_ref, projections)
 
     async def search(
         self,

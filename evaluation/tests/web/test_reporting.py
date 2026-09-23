@@ -206,6 +206,20 @@ def test_rejects_run_outside_root_and_symlink_escape(tmp_path: Path) -> None:
         load_report(escaped, runs_root)
 
 
+def test_accepts_evidence_for_the_scopes_each_arm_registered(tmp_path: Path) -> None:
+    runs_root = tmp_path / "runs"
+    run_dir = _write_run(runs_root)
+    for arm in ("off", "on"):
+        evidence = _evidence(run_dir.name, arm)
+        evidence.update({"scope_id": f"scp_{arm}", "scope_key": f"eval:{run_dir.name}:{arm}"})
+        (run_dir / "arms" / arm / "powercontext" / "treatment.json").write_text(json.dumps(evidence))
+
+    response = load_report(run_dir, runs_root)
+
+    assert response.evidence.off is not None and response.evidence.off.scope_id == "scp_off"
+    assert response.evidence.on is not None and response.evidence.on.scope_key == f"eval:{run_dir.name}:on"
+
+
 @pytest.mark.parametrize(
     ("arm", "update"),
     [
@@ -223,6 +237,10 @@ def test_rejects_run_outside_root_and_symlink_escape(tmp_path: Path) -> None:
         ("on", {"plugin_installed": False}),
         ("on", {"server_ready": False}),
         ("on", {"scope_id": "eval:run-123:off"}),
+        ("on", {"scope_id": "scp_on", "scope_key": "eval:run-123:off"}),
+        ("on", {"scope_id": "scp_on", "scope_key": "eval:other:on"}),
+        # An empty key is malformed, not evidence recorded before arms registered their own Scope.
+        ("on", {"scope_key": ""}),
     ],
 )
 def test_rejects_incoherent_treatment_evidence(tmp_path: Path, arm: str, update: dict[str, object]) -> None:

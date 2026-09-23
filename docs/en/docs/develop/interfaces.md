@@ -257,18 +257,23 @@ readable on the configured host and its fingerprint still matches. It never inst
 different version.
 
 Discovery does not enter Review. An explicit `import_external_skill` request with the exact identity and fingerprint
-captures a bounded `SKILL.md` snapshot as Source evidence and asks the configured model for a new managed Skill
-Candidate. `mode=import` and `mode=fork` record the caller's intent; both create a new managed identity only after
-Review approval and leave the external registration unchanged. Package scripts and assets are not copied into the
-managed Artifact.
+captures the validated whole package and records Source evidence for that snapshot. With `mode=import`, the Runtime
+proposes the captured package directly, preserving its file paths and bytes, including scripts and resources, without
+calling a generation model. With `mode=fork`, a configured generator uses the snapshot as evidence for a new managed
+Skill proposal and may return `no_op` without a Candidate. Capturing the original package does not guarantee that the
+generated proposal retains its scripts or resources.
+
+When either mode returns a Candidate, it remains pending until Review approval creates a new managed Skill identity.
+Neither mode edits the original external package. Later changes that alter the package fingerprint make the old
+fingerprint unavailable for resolution or import; they do not replace an already approved managed Revision.
 
 ## Authority and gates
 
 | Surface | Content authority | Model gate | Review gate | Current availability |
 | --- | --- | --- | --- | --- |
-| External Agent-native Skill | Original package | No for scan/list/resolve; yes for import/fork | No for discovery; yes after import/fork | Host-local Registry and exact resolve |
+| External Agent-native Skill | Original package | No for scan/list/resolve/import; yes for fork | No for discovery; yes for import/fork Candidates | Host-local Registry and exact resolve |
 | Experience | Exact approved Artifact Revision | Yes for generate/evolve; no for typed `propose` | Yes | Exact read and approved-head FTS recall in PreparedContext |
-| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/import/fork; no for typed `propose` | Yes | Exact read and explicit Agent projection |
+| Managed Skill | Exact approved Artifact Revision | Yes for generate/evolve/fork; no for import or typed `propose` | Yes | Exact read and explicit Agent projection |
 | Agent projection | Its source managed Skill Revision | No | No additional review | Rebuildable Codex or Claude Code host-local copy |
 
 ## Core SDK

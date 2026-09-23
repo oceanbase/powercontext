@@ -27,18 +27,9 @@ from contextlib import suppress
 from hashlib import sha256
 from pathlib import Path
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, cast
 from urllib.error import HTTPError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
-
-if TYPE_CHECKING:
-    from typing_extensions import override
-else:
-    _MethodT = TypeVar("_MethodT")
-
-    def override(method: _MethodT, /) -> _MethodT:
-        return method
-
+from urllib.request import Request
 
 _HOOKS_ROOT = Path(__file__).resolve().parent
 _PLUGIN_ROOT = _HOOKS_ROOT.parent
@@ -51,9 +42,9 @@ import prepared_context as _prepared_context  # noqa: E402
 from workbuddy_settings import WorkBuddyPluginSettings  # noqa: E402
 
 if (_HOOKS_ROOT / "powercontext_scope_binding.py").is_file():
-    from powercontext_scope_binding import resolve_scope_id
+    from powercontext_scope_binding import bind_response_deadline, open_bounded, resolve_scope_id
 else:
-    from workspace_scope import resolve_scope_id
+    from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id
 
 _MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
 _InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
@@ -70,7 +61,6 @@ _REQUEST_HEADERS = {
 
 
 class _Response(Protocol):
-    fp: object
     status: int
 
     def __enter__(self) -> _Response: ...
@@ -78,25 +68,6 @@ class _Response(Protocol):
     def __exit__(self, *args: object) -> object: ...
 
     def read(self, amount: int = -1) -> bytes: ...
-
-
-class _RejectRedirects(HTTPRedirectHandler):
-    """Leave every 3xx response to urllib's default HTTP error handler."""
-
-    @override
-    def redirect_request(
-        self,
-        req: Request,
-        fp: object,
-        code: int,
-        msg: str,
-        headers: object,
-        newurl: str,
-    ) -> Request | None:
-        return None
-
-
-_URL_OPENER = build_opener(_RejectRedirects)
 
 
 class _HttpStatusError(RuntimeError):
@@ -301,7 +272,7 @@ def _post_json(
     request_timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
     request_deadline = min(deadline, monotonic() + request_timeout)
     try:
-        with _URL_OPENER.open(request, timeout=request_timeout) as response:
+        with open_bounded(request, timeout=request_timeout) as response:
             if expected_status is not None and response.status != expected_status:
                 raise _HttpStatusError(response.status)
             result = json.loads(_read_response(response, deadline=request_deadline))
@@ -326,6 +297,7 @@ def _request_headers(settings: WorkBuddyPluginSettings) -> dict[str, str]:
 def _read_response(response: _Response, *, deadline: float) -> bytes:
     """Read one response under a wall-clock deadline and a hard size bound."""
 
+    bind_response_deadline(response, deadline)
     content = bytearray()
     while True:
         _set_response_timeout(response, _remaining_time(deadline))
@@ -345,10 +317,10 @@ def _remaining_time(deadline: float) -> float:
     return remaining
 
 
-def _set_response_timeout(response: _Response, timeout: float) -> None:
+def _set_response_timeout(response: object, timeout: float) -> None:
     """Tighten urllib's socket timeout before each bounded read."""
 
-    raw = getattr(response.fp, "raw", None)
+    raw = getattr(getattr(response, "fp", None), "raw", None)
     sock = getattr(raw, "_sock", None)
     settimeout = getattr(sock, "settimeout", None)
     if settimeout is not None:

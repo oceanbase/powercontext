@@ -124,6 +124,164 @@ and (once approved) becomes installable.
 No. Skills live in the PowerContext store as Artifacts. To make one usable by an Agent, the application (or a
 Remote Skill Receiver) must explicitly download and install it to the Agent's working directory.
 
+## Middleware, tools, and MCP
+
+**Q: I see "Middleware" everywhere in the tutorials. What is it?**
+
+Middleware adds behavior around an Agent's model or tool calls. PowerContext's LangChain adapter,
+`PowerContextMiddleware`, uses LangChain's public middleware API to prepare bounded context from the latest
+non-empty user message before a model call. When recall returns content, it adds an untrusted historical
+context block to that model request, without replacing the Agent's core loop.
+
+**Q: When should I use Middleware vs MCP tools?**
+
+First distinguish automatic recall from explicit tool calls; then choose how to connect those tools:
+
+| Integration | Behavior and connection |
+| --- | --- |
+| **LangChain Middleware** | Requests context over HTTP before eligible model calls, without waiting for the model to request a search. |
+| **LangGraph tools** | `powercontext_tools()` supplies native LangChain tools for explicit Memory operations through the Python HTTP Client. No MCP connection is involved. |
+| **MCP tools** | A configured MCP client discovers and invokes the Server's exposed tools. The host application can call them directly or offer them to a model. |
+
+For example, Middleware can supply the CSV project's amount constraints, while an explicit tool saves a new
+user-confirmed rule. Tool-driven Memory access does not require MCP; MCP is a protocol, not a rule about who
+triggers an operation. See [LangChain](../integrations/langchain.md), [LangGraph](../integrations/langgraph.md),
+and [Choose an interface](../develop/interfaces.md) for setup and available operations.
+
+**Q: Does integrating PowerContext require rewriting my Agent?**
+
+Not for the supported LangChain integration. Keep your model and application tools, install the adapter, and
+configure its connection to a running PowerContext Server. The following wiring example assumes `model` and
+`application_tools` already exist, `server_url` is the Server's HTTP base URL, `scope_id` identifies an existing
+Scope you may access, `token` is a bare bearer token or `None` for an unauthenticated Server, and `question` is
+the current user input. Both examples assume HTTPS for a remote Server or HTTP at a loopback address.
+Where access control is enforced, the caller also needs permission to resolve the Scope and perform the
+requested Memory operations; see [Scopes and access](../workflows/scopes-and-access.md).
+The Agent calls use the async API:
+
+```python
+from langchain.agents import create_agent
+from powercontext_langchain import PowerContextMiddleware, PowerContextScope
+
+agent = create_agent(
+    model,
+    tools=application_tools,
+    middleware=[PowerContextMiddleware()],
+    context_schema=PowerContextScope,
+)
+
+result = await agent.ainvoke(
+    {"messages": [{"role": "user", "content": question}]},
+    context=PowerContextScope(scope_id=scope_id, base_url=server_url, token=token),
+)
+```
+
+This Scope object configures the LangChain middleware, not the separate LangGraph tools. Fields left as
+`None` fall back to the middleware's settings; omit its token setting when using an unauthenticated Server.
+
+**Q: Does Middleware injection pollute my conversation history?**
+
+The injected context block changes only the current model request; the middleware does not append it to Agent
+state or a checkpointer. Later model calls can request context again using the latest user message. Ordinary
+conversation and tool messages remain subject to the application's history policy, and information repeated
+in an assistant's answer can remain in that history. Optional completed-turn Source capture is a separate,
+default-off feature; see the [LangChain recall and capture lifecycle](../integrations/langchain.md).
+
+**Q: What is MCP, and when does it matter?**
+
+MCP (Model Context Protocol) standardizes how compatible clients discover and call tools exposed by a Server.
+Use PowerContext's MCP endpoint when your host supports MCP and you want that tool interface. The host still
+needs the connection, authentication, and Scope configuration appropriate to the exposed operations.
+`powercontext_tools()` is not an MCP client: its Memory tools call HTTP endpoints such as
+`/v1/memory/remember`, and work with MCP disabled. The MCP tool catalog is a separate, curated interface rather
+than the complete HTTP API; see [Choose an interface](../develop/interfaces.md).
+
+**Q: Can I combine Middleware with explicit Memory tools?**
+
+Yes, but their configurations must agree. The following example combines **LangChain Middleware and
+HTTP-backed LangGraph tools**, not MCP tools. Each package defines its own `PowerContextScope` class; the
+LangGraph tools do not recognize a LangChain Scope object and instead fall back to `POWERCONTEXT_LANGGRAPH_*`.
+Passing `PowerContextScope(scope_id=...)` from the LangChain package therefore does not configure tool writes.
+
+For a single-Scope application process, set both integrations' connection, Scope, and token settings from the
+same values before starting the Agent. This example uses the `model`, `server_url`, `scope_id`, `token`, and
+`question` described above and deliberately passes neither package's Scope object:
+
+```python
+import os
+
+from langchain.agents import create_agent
+from powercontext_langchain import PowerContextMiddleware
+from powercontext_langgraph import powercontext_tools
+
+connection = {"BASE_URL": server_url, "SCOPE_ID": scope_id, "TOKEN": token}
+for prefix in ("POWERCONTEXT_LANGCHAIN", "POWERCONTEXT_LANGGRAPH"):
+    for key, value in connection.items():
+        name = f"{prefix}_{key}"
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+agent = create_agent(
+    model,
+    tools=powercontext_tools(),
+    middleware=[PowerContextMiddleware()],
+)
+
+result = await agent.ainvoke(
+    {"messages": [{"role": "user", "content": question}]},
+)
+```
+
+Obtain credentials from your application's secret configuration, not a hard-coded token. Environment settings
+are process-wide: configure them once at startup, not per request in a concurrent multi-Scope application.
+Do not assume a later LangChain Scope override also redirects the tools. Verify both the recalled Scope and
+the stored entry's Scope. See [LangChain connection and Scope settings](../integrations/langchain.md#configure-connection-and-scope)
+and [LangGraph connection settings](../integrations/langgraph.md#configure-the-connection).
+
+## Importing and forking external Skills
+
+**Q: I already have a Skill package. Should I import it or fork it?**
+
+Suppose the team has a CSV amount-checking package with `SKILL.md`, a check script, and reference notes.
+Choose the mode according to whether you want to preserve that package or propose different instructions:
+
+| Mode | Use it when | What happens |
+| --- | --- | --- |
+| **`import`** | You want to bring the existing package under management without rewriting its files. | The Runtime proposes the captured, validated package directly, preserving its file paths and bytes. No generation model is required. |
+| **`fork`** | You want project-specific instructions based on the external package. | A configured generator uses the captured package as evidence for a new proposal. The generated package is not guaranteed to retain the original scripts or resources. |
+
+Neither mode edits the external package. A returned Candidate is pending until Review approval creates a new
+managed Skill Artifact; fork can also return `no_op` without a Candidate. Here, fork means generating a Skill
+proposal, not making a GitHub repository fork. See [External Agent-native Skills](../develop/interfaces.md#external-agent-native-skills)
+for the interface and [Install Skills in Agents](../workflows/configure-agent-skill-targets.md) for target setup.
+
+**Q: If I edit the external files after importing, does the managed Skill update automatically?**
+
+No. The external registration identifies a scanned package using its fingerprint; an approved managed Skill
+Revision preserves the imported snapshot. Changing a script or reference file can change that fingerprint,
+even if `SKILL.md` is untouched. Resolving the old fingerprint then reports `unavailable`, and importing it is
+rejected rather than silently selecting the changed package. Rescan and explicitly select the new fingerprint
+to import the new content; this does not automatically replace the previously approved Skill.
+
+An unavailable external registration does not mean that the approved managed Revision was deleted. You can
+still read or download that exact Revision. In the CSV example, adding a non-finite-value rule to the external
+reference notes does not add it to the already imported copy.
+
+**Q: A fork returned a Candidate. Can it replace the original package now?**
+
+Not on that evidence alone. Capturing Source evidence from the original package does not mean its scripts and resources
+are included in the generated proposal. Inspect the proposed package, including whether commands in its
+instructions refer to files that are actually present. In the CSV example, adding an instruction to check
+non-finite values does not prove that the check script was retained, updated, or run.
+
+Package validation and matching digests establish structure and content identity, not correct behavior on
+your inputs. Review the proposal and validate the intended task in an authorized, isolated workspace before
+relying on it. Approval, export or installation, and execution remain separate steps; see
+[Review Candidates](../workflows/review-candidates.md) and
+[Experience and Skill lifecycle](../workflows/experience-and-skill-lifecycle.md).
+
 ## Still stuck?
 
 - For the underlying model, see [Core concepts](./core-concepts.md).

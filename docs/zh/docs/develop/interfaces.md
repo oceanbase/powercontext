@@ -236,17 +236,20 @@ Codex 可以发现 `.agents/skills/<name>/SKILL.md` 下的代码库级导出。A
 安装 package，也不会回退到其他版本。
 
 Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精确 identity 与 fingerprint 后，Runtime
-才会把有界 `SKILL.md` 快照采集为 Source evidence，并让已配置模型提出新的 managed Skill Candidate。
-`mode=import` 与 `mode=fork` 记录调用方意图；两者都必须经 Review 批准后才产生新的 managed identity，且不会
-修改 external registration。package 中的脚本和 assets 不会复制进 managed Artifact。
+会捕获经过校验的完整包，并为该快照记录 Source 证据。`mode=import` 直接根据捕获的包提出候选，保留文件路径和字节内容，
+包括脚本和资源，不调用生成模型。`mode=fork` 则由配置好的生成器以快照为依据提出新的 managed Skill 建议，也可能返回
+`no_op` 而不产生 Candidate。捕获了完整原包，不代表生成的提案一定保留其中的脚本或资源。
+
+两种模式返回的 Candidate 都要先保持 pending，经过 Review 批准后才创建新的 managed Skill identity。两者都不修改
+外部原包。后续修改若改变了包的 fingerprint，旧 fingerprint 将无法用于解析或导入，但不会替换已经批准的 managed Revision。
 
 ## Authority 与门禁
 
 | Surface | 内容权威 | 模型门禁 | Review 门禁 | 当前可用方式 |
 | --- | --- | --- | --- | --- |
-| 外部 Agent-native Skill | 原始 package | scan/list/resolve 不需要；import/fork 需要 | discovery 不需要；import/fork 后需要 | host-local Registry 和 exact resolve |
+| 外部 Agent-native Skill | 原始 package | scan/list/resolve/import 不需要；fork 需要 | discovery 不需要；import/fork 的 Candidate 需要 | host-local Registry 和 exact resolve |
 | Experience | 精确 approved Artifact Revision | generate/evolve 需要；类型化 `propose` 不需要 | 需要 | exact read 与 PreparedContext approved-head FTS recall |
-| managed Skill | 精确 approved Artifact Revision | generate/evolve/import/fork 需要；类型化 `propose` 不需要 | 需要 | exact read 与显式 Agent projection |
+| managed Skill | 精确 approved Artifact Revision | generate/evolve/fork 需要；import 与类型化 `propose` 不需要 | 需要 | exact read 与显式 Agent projection |
 | Agent projection | 对应的 managed Skill Revision | 不需要 | 不增加额外 Review | 可重建的 Codex 或 Claude Code host-local copy |
 
 ## Core SDK

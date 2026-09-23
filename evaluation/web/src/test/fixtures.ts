@@ -115,6 +115,7 @@ export const report: ReportResponse = {
       plugin_installed: true,
       plugin_version: "0.1.0",
       scope_id: "eval:run-123:off",
+      scope_key: null,
       server_ready: true,
     },
     on: {
@@ -125,6 +126,7 @@ export const report: ReportResponse = {
       plugin_installed: true,
       plugin_version: "0.1.0",
       scope_id: "eval:run-123:on",
+      scope_key: null,
       server_ready: true,
     },
   },

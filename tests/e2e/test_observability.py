@@ -241,6 +241,26 @@ class _VectorMemoryIndex:
     ) -> None:
         pass
 
+    async def delete(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memory_ref: ArtifactRef,
+        _entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        pass
+
+    async def upsert(
+        self,
+        _connection: AsyncConnection,
+        _scope_id: str,
+        _memory_ref: ArtifactRef,
+        _projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
+        pass
+
     async def search(
         self,
         _connection: AsyncConnection,

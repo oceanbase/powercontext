@@ -28,6 +28,12 @@ class Arm(StrEnum):
     ON = "on"
 
 
+def arm_scope_key(run_id: str, arm: Arm) -> str:
+    """Return the key that identifies the Scope registered for one run arm."""
+
+    return f"eval:{run_id}:{arm.value}"
+
+
 class TreatmentMode(StrEnum):
     """The exact treatment arms executed for one evaluation task."""
 

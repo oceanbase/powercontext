@@ -67,7 +67,7 @@ from powercontext_eval.codex import (
     is_safe_codex_model,
 )
 from powercontext_eval.errors import CommandError, CommandFailed, CommandTimedOut, PowerContextEvalError
-from powercontext_eval.models import Arm
+from powercontext_eval.models import Arm, arm_scope_key
 from powercontext_eval.process import CommandResult, ProcessRunner
 from powercontext_eval.tokensflow import (
     DrainDeadline,
@@ -141,6 +141,27 @@ if code == 0 and (not isinstance(payload, dict) or payload.get("status") != "rea
     code = 11
 sys.exit(code)
 """.strip()
+# The Server generates Scope IDs and rejects an explicit Scope that does not exist,
+# so each arm registers its own Scope and hands the returned ID to Codex.
+_SCOPE_CREATION_SCRIPT = """
+import json
+import sys
+from urllib.request import Request, urlopen
+
+body = {
+    "title": "Evaluation arm",
+    "summary": "Isolated Scope for one evaluation arm.",
+    "idempotency_key": sys.argv[1],
+}
+request = Request(
+    "http://127.0.0.1:8000/v1/scopes",
+    data=json.dumps(body).encode("utf-8"),
+    headers={"Accept": "application/json", "Content-Type": "application/json"},
+    method="POST",
+)
+with urlopen(request, timeout=10) as response:
+    print(json.dumps({"scope_id": json.load(response)["scope_id"]}))
+""".strip()
 LOOPBACK_NO_PROXY = "127.0.0.1,localhost,::1"
 _TOKENSFLOW_RETRY_ATTEMPTS = 10
 _PLUGIN_RELATIVE = Path("integrations/codex/plugins/powercontext")
@@ -212,6 +233,7 @@ class ReadinessFailureReason(StrEnum):
     SERVER_NOT_READY = "server_not_ready"
     MALFORMED_RESPONSE = "malformed_response"
     PROBE_FAILED = "probe_failed"
+    SCOPE_NOT_CREATED = "scope_not_created"
 
 
 _READINESS_FAILURE_SUMMARIES = MappingProxyType(
@@ -220,6 +242,7 @@ _READINESS_FAILURE_SUMMARIES = MappingProxyType(
         ReadinessFailureReason.SERVER_NOT_READY: "PowerContext Server remained not ready before the deadline.",
         ReadinessFailureReason.MALFORMED_RESPONSE: "PowerContext Server returned malformed readiness evidence.",
         ReadinessFailureReason.PROBE_FAILED: "PowerContext readiness probe failed.",
+        ReadinessFailureReason.SCOPE_NOT_CREATED: "PowerContext Server did not create the arm Scope.",
     }
 )
 
@@ -394,6 +417,9 @@ class TreatmentEvidence:
     prompt_sources: int
     mcp_requests: int
     scope_id: str
+    # Identifies the run and arm that registered ``scope_id``; absent in evidence
+    # recorded before arms registered their own Scope.
+    scope_key: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.plugin_installed) is not bool or type(self.server_ready) is not bool:
@@ -409,7 +435,7 @@ class TreatmentEvidence:
             or self.mcp_requests < 0
         ):
             raise ValueError("Treatment counters must be non-negative integers")
-        if not self.scope_id:
+        if not self.scope_id or self.scope_key == "":
             raise ValueError("Treatment scope must not be empty")
 
     def as_dict(self) -> dict[str, object]:
@@ -422,6 +448,7 @@ class TreatmentEvidence:
             "prompt_sources": self.prompt_sources,
             "mcp_requests": self.mcp_requests,
             "scope_id": self.scope_id,
+            "scope_key": self.scope_key,
         }
 
     @classmethod
@@ -440,19 +467,20 @@ def validate_treatment(
     run_id: str,
     evidence: TreatmentEvidence,
     *,
+    expected_scope_id: str,
     expected_plugin_version: str,
     expected_checkout_sha: str,
 ) -> None:
     """Fail closed unless the exact expected treatment is proven."""
 
-    expected_scope = f"eval:{run_id}:{arm.value}"
     common = (
         evidence.plugin_installed
         and evidence.plugin_id == PLUGIN_ID
         and evidence.plugin_version == expected_plugin_version
         and evidence.plugin_checkout_sha == expected_checkout_sha
         and evidence.server_ready
-        and evidence.scope_id == expected_scope
+        and evidence.scope_id == expected_scope_id
+        and evidence.scope_key == arm_scope_key(run_id, arm)
     )
     activity = (
         evidence.prompt_sources >= 1 if arm is Arm.ON else evidence.prompt_sources == 0 and evidence.mcp_requests == 0
@@ -1102,6 +1130,7 @@ class DockerSut:
             container_started = True
             self._verify_codex_version(container, paths, store)
             self._readiness(container, paths, store)
+            scope_id = self._create_scope(config, arm, container, paths)
             plugin = self._plugin_list(container, paths)
             if config.tokensflow_enabled:
                 self._attach_tokensflow_egress(config, container, paths)
@@ -1143,7 +1172,7 @@ class DockerSut:
                 env={
                     **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
                     "POWERCONTEXT_HOME": "/runtime/pc-home",
-                    "POWERCONTEXT_CODEX_SCOPE_ID": f"eval:{config.run_id}:{arm.value}",
+                    "POWERCONTEXT_CODEX_SCOPE_ID": scope_id,
                     "POWERCONTEXT_EVAL_TRACE_PATH": "/runtime/pc-home/evaluation-injections.jsonl",
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
@@ -1186,13 +1215,14 @@ class DockerSut:
                 "context/powercontext-injections.jsonl",
                 required=False,
             )
-            evidence = self._evidence(config, arm, container, paths, plugin)
+            evidence = self._evidence(config, arm, container, paths, plugin, scope_id)
             if plugin != (PLUGIN_ID, source_provenance.plugin_version):
                 raise InvalidTreatment("Isolated Codex home does not contain the exact expected plugin")
             validate_treatment(
                 arm,
                 config.run_id,
                 evidence,
+                expected_scope_id=scope_id,
                 expected_plugin_version=source_provenance.plugin_version,
                 expected_checkout_sha=config.plugin_checkout_sha,
             )
@@ -2401,7 +2431,6 @@ class DockerSut:
         tokensflow_environment: Mapping[str, str],
         tokensflow_command_secrets: Sequence[str],
     ) -> None:
-        scope = f"eval:{config.run_id}:{arm.value}"
         tokensflow_mounts: tuple[str, ...] = ()
         tokensflow_container_environment: dict[str, str] = {}
         executable_path = (
@@ -2469,7 +2498,6 @@ class DockerSut:
                 {
                     **runtime_proxy_environment(relay_url, config.extra_no_proxy_hosts),
                     "POWERCONTEXT_HOME": "/runtime/pc-home",
-                    "POWERCONTEXT_CODEX_SCOPE_ID": scope,
                     "UV_PROJECT_ENVIRONMENT": "/runtime/plugin-env",
                     "UV_CACHE_DIR": "/runtime/uv-cache",
                     "UV_PYTHON_INSTALL_DIR": _CONTAINER_UV_PYTHON_INSTALL_DIR,
@@ -2565,6 +2593,30 @@ class DockerSut:
         )
         raise ReadinessFailure(last_reason)
 
+    def _create_scope(self, config: SutConfig, arm: Arm, container: str, paths: ArmPaths) -> str:
+        try:
+            result = self._docker.run(
+                (
+                    "docker",
+                    "exec",
+                    container,
+                    "/runtime/pc-env/bin/python",
+                    "-c",
+                    _SCOPE_CREATION_SCRIPT,
+                    arm_scope_key(config.run_id, arm),
+                    "create-scope",
+                ),
+                cwd=paths.runtime,
+                timeout=30,
+            )
+            scope_id = json.loads(result.stdout)["scope_id"]
+            if not isinstance(scope_id, str) or not scope_id.strip():
+                raise TypeError
+        except (CommandError, json.JSONDecodeError, KeyError, TypeError) as error:
+            # Like readiness, a Scope that the Server did not create is a retryable setup failure.
+            raise ReadinessFailure(ReadinessFailureReason.SCOPE_NOT_CREATED) from error
+        return scope_id
+
     def _verify_codex_version(self, container: str, paths: ArmPaths, store: ArtifactStore) -> None:
         with docker_pressure.heavy_operation():
             result = self._docker.run(
@@ -2626,8 +2678,8 @@ class DockerSut:
         container: str,
         paths: ArmPaths,
         plugin: tuple[str, str],
+        scope: str,
     ) -> TreatmentEvidence:
-        scope = f"eval:{config.run_id}:{arm.value}"
         query = (
             "import json,sqlite3,sys;"
             "db=sqlite3.connect('/runtime/pc-home/powercontext.db');"
@@ -2671,6 +2723,7 @@ class DockerSut:
             prompt_sources=prompt_sources,
             mcp_requests=mcp_requests,
             scope_id=scope,
+            scope_key=arm_scope_key(config.run_id, arm),
         )
 
 

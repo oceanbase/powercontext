@@ -30,7 +30,7 @@ from pydantic import ValidationError
 
 from powercontext_eval.artifacts import ArmState
 from powercontext_eval.benchmarks.swebench_pro.adapter import DATASET_REVISION, HARNESS_COMMIT, SweBenchProInstance
-from powercontext_eval.models import Arm, TreatmentMode
+from powercontext_eval.models import Arm, TreatmentMode, arm_scope_key
 from powercontext_eval.report import ArmReport, ReportBundle, TestGroupReport
 from powercontext_eval.web.baselines import (
     BaselineComparison,
@@ -249,7 +249,8 @@ def _validate_evidence(
             and item.plugin_version == configured_plugin_version
             and item.plugin_installed
             and item.server_ready
-            and item.scope_id == f"eval:{run_id}:{arm.value}"
+            # Evidence recorded before arms registered their own Scope carries the key as its Scope ID.
+            and (item.scope_key if item.scope_key is not None else item.scope_id) == arm_scope_key(run_id, arm)
         )
         activity = (
             item.prompt_sources == 0 and item.mcp_requests == 0

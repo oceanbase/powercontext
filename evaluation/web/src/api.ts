@@ -323,6 +323,7 @@ const treatmentEvidenceSchema = z.strictObject({
   plugin_installed: z.boolean(),
   plugin_version: z.string(),
   scope_id: z.string(),
+  scope_key: z.string().min(1).nullable(),
   server_ready: z.boolean(),
 });
 const goldValidationAuditSchema = z.strictObject({

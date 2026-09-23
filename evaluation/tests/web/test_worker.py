@@ -1050,6 +1050,22 @@ def test_plugin_inspection_failures_are_retryable_with_a_stable_subcode(
     assert failed.retryable is True
 
 
+def test_arm_scope_the_server_did_not_create_is_a_retryable_readiness_failure(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    store = _store(config)
+    task = _create(store)
+
+    def runner(config: Any, *, on_phase: Any) -> MinimalRunResult:
+        raise ReadinessFailure(ReadinessFailureReason.SCOPE_NOT_CREATED)
+
+    assert EvaluationWorker(config, store, runner=runner, clock=lambda: NOW).run_once() is True
+    failed = store.get(task.task_id)
+    assert failed.failure_code is FailureCode.READINESS
+    assert failed.failure_summary == "PowerContext Server did not create the arm Scope."
+    assert failed.retry_disposition is RetryDisposition.RETRY
+    assert failed.retryable is True
+
+
 def test_unknown_failure_never_persists_exception_text(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,

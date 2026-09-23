@@ -12,23 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-[project]
-name = "powercontext-langgraph"
-version = "0.0.1"
-description = "LangGraph integration for PowerContext durable memory."
-license = "Apache-2.0"
-license-files = ["LICENSE"]
-requires-python = ">=3.11,<4.0"
-dependencies = [
-    "powercontext[client]",
-    "langgraph>=1.2,<2",
-    "langchain-core>=1,<2",
-    "pydantic-settings>=2.7,<3",
-]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/powercontext_langgraph"]
+"""Tests for the PowerContext WorkBuddy plugin."""

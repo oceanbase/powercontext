@@ -1036,6 +1036,34 @@ def test_runtime_server_returns_canonical_memory_error_details(tmp_path: Path, t
     assert [response.json()["error"] for response in responses] == [expected_error, expected_error]
 
 
+@pytest.mark.parametrize(
+    ("text", "normalized"),
+    [
+        ("a" * 8_192, "a" * 8_192),
+        ("🧠" * 2_048, "🧠" * 2_048),
+        (" " + "a" * 8_192 + " ", "a" * 8_192),
+        ("e\u0301" * 4_096, "é" * 4_096),
+    ],
+    ids=["ascii-limit", "emoji-limit", "trimmed-limit", "nfc-limit"],
+)
+def test_runtime_server_accepts_normalized_memory_byte_limit(tmp_path: Path, text: str, normalized: str) -> None:
+    app = create_server_app(settings=_server_settings(tmp_path / "runtime.db"))
+
+    with TestClient(app) as transport:
+        scope = transport.get("/v1/scopes/default")
+        scope.raise_for_status()
+        payload = {"scope_id": scope.json()["scope_id"], "kind": "decision", "text": text}
+        remembered = transport.post("/v1/memory/remember", json=payload)
+        remembered.raise_for_status()
+        assert remembered.json()["entry"]["text"] == normalized
+        revised = transport.post(
+            "/v1/memory/entries/revise",
+            json={**payload, "citation": remembered.json()["entry"]["citation"]},
+        )
+        revised.raise_for_status()
+        assert revised.json()["entry"]["text"] == normalized
+
+
 def test_runtime_server_keeps_unstructured_memory_errors_private(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

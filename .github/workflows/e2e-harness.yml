@@ -35,6 +35,13 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
 
+      # A lock that reuses cleanly can still describe an unsatisfiable graph, so `uv lock --locked`
+      # does not catch a dependency declaration that the project version can never satisfy. This job
+      # checks out with tags because the root version is derived from them, which is what makes that
+      # class of failure visible.
+      - name: Verify dependencies resolve from scratch
+        run: uv lock --upgrade --dry-run
+
       - name: Validate harness and Compose definitions
         run: |
           make harness-sync

@@ -181,6 +181,10 @@ class MemoryService:
         self._source_resolver = source_resolver
         self._artifact_resolver = artifact_resolver
         self._id_factory = _default_id if id_factory is None else id_factory
+        # One entry, describing the projections of the most recently written Memory
+        # revision. Revisions are immutable, so a hit is always valid for that exact
+        # reference; a rebuilt or externally advanced Memory simply misses.
+        self._previous_projection_cache: tuple[ArtifactRef, dict[str, MemoryProjection]] | None = None
 
     async def get(self, memory: Memory, /) -> Memory:
         """Return the canonical exact Memory Revision matching ``memory``."""
@@ -274,12 +278,16 @@ class MemoryService:
         async with binding:
             base = await self._canonical_base(memory)
             evidence = await self._canonical_operation_evidence(sources, artifacts)
-            current_entries = () if base is None else await self._validated_entries(base)
+            # Only extraction compares against every current entry; append plans carry
+            # no current entry set and load one lazily if a candidate revises an entry.
+            current_entries = (
+                await self._validated_entries(base) if base is not None and selected_mode == "extract" else None
+            )
             candidates = await self._candidates(
                 selected_mode,
                 tuple(entries),
                 evidence,
-                current_entries,
+                () if current_entries is None else current_entries,
                 active_version_ids=(
                     frozenset()
                     if base is None
@@ -310,6 +318,7 @@ class MemoryService:
             committed = await unit_of_work.commit(plan.commit)
         if plan.result != committed:
             raise InvalidMemoryCitationError("memory-mismatch")
+        self._cache_projections(committed, plan.commit.projections)
         return committed
 
     async def forget(
@@ -653,6 +662,7 @@ class MemoryService:
     async def rebuild_projections(self, embedding_model: EmbeddingModel | None = None, /) -> None:
         """Rebuild current-head search projections from authoritative Memory revisions."""
 
+        self._previous_projection_cache = None
         await self._backend.rebuild_projections(embedding_model)
 
     async def validate_citation(self, citation: MemoryCitation) -> MemoryEntryVersion:
@@ -867,7 +877,9 @@ class MemoryService:
             projections=projections,
         )
         async with self._backend.begin() as unit_of_work:
-            return await unit_of_work.commit(commit)
+            committed = await unit_of_work.commit(commit)
+        self._cache_projections(committed, commit.projections)
+        return committed
 
     async def _validate_anchor(
         self,
@@ -910,45 +922,44 @@ class MemoryService:
         for item in manifest_entries:
             if item.state != "active":
                 continue
+            replayed = previous.get(item.entry_version_id)
+            if replayed is not None and item.entry_version_id not in changed_version_ids:
+                # Entry versions are immutable, so the projection recorded for this
+                # version id is exactly what this revision carries; re-deriving it
+                # would re-analyze every unchanged entry on every write.
+                prepared.append(replayed)
+                continue
             version = versions_by_entry[item.entry_id]
             if version.entry_version_id != item.entry_version_id:
                 raise InvalidMemoryCitationError("projection-version")
-            searchable_text = analyze_text(version.text)
-            reused = self._reused_projection(previous.get(version.entry_version_id), version, searchable_text)
-            if reused is not None and version.entry_version_id not in changed_version_ids:
-                prepared.append(reused)
-                continue
-            prepared.append(MemoryProjection(entry_version=version, searchable_text=searchable_text))
+            prepared.append(MemoryProjection(entry_version=version, searchable_text=analyze_text(version.text)))
             embed_indices.append(len(prepared) - 1)
         return await self._attach_embeddings(tuple(prepared), embed_indices)
 
     async def _previous_projections(self, base: Memory | None) -> dict[str, MemoryProjection]:
         if base is None:
             return {}
-        return {
+        reference = base.as_ref()
+        cached = self._previous_projection_cache
+        if cached is not None and cached[0] == reference:
+            active = {item.entry_version_id for item in base.content.manifest.entries if item.state == "active"}
+            if active <= cached[1].keys():
+                return cached[1]
+            # A commit whose outer transaction rolled back leaves this cache behind
+            # while the stored revision never advanced; another writer can then reuse
+            # the same reference with a different entry set, so a cached revision
+            # missing an active version belongs to no stored revision.
+        projections = {
             projection.entry_version.entry_version_id: projection
-            for projection in await self._backend.projections(base.as_ref())
+            for projection in await self._backend.projections(reference)
         }
+        self._previous_projection_cache = (reference, projections)
+        return projections
 
-    def _reused_projection(
-        self,
-        previous: MemoryProjection | None,
-        version: MemoryEntryVersion,
-        searchable_text: str,
-    ) -> MemoryProjection | None:
-        if previous is None:
-            return None
-        if (
-            previous.entry_version.entry_version_id != version.entry_version_id
-            or previous.entry_version.entry_content_hash != version.entry_content_hash
-            or previous.searchable_text != searchable_text
-        ):
-            return None
-        return previous.model_copy(
-            update={
-                "entry_version": version,
-                "searchable_text": searchable_text,
-            }
+    def _cache_projections(self, committed: Memory, projections: tuple[MemoryProjection, ...]) -> None:
+        self._previous_projection_cache = (
+            committed.as_ref(),
+            {projection.entry_version.entry_version_id: projection for projection in projections},
         )
 
     async def _attach_embeddings(
@@ -1106,27 +1117,26 @@ class MemoryService:
         base: Memory | None,
         candidates: tuple[MemoryEntryInput, ...],
         evidence: _OperationEvidence,
-        current_entries: tuple[MemoryEntryVersion, ...],
+        current_entries: tuple[MemoryEntryVersion, ...] | None,
     ) -> MemoryCommit | None:
         memory_id = base.artifact_id if base is not None else self._new_id("memory")
         next_revision = 1 if base is None else base.revision + 1
         manifest = {} if base is None else {entry.entry_id: entry for entry in base.content.manifest.entries}
-        current_by_entry = {entry.entry_id: entry for entry in current_entries}
+        current_by_entry = {} if current_entries is None else {entry.entry_id: entry for entry in current_entries}
         new_versions: list[MemoryEntryVersion] = []
         changes: list[MemoryChange] = []
         targeted: set[str] = set()
-        new_content: set[bytes] = {
-            self._material_from_version(version).content_bytes
-            for version in current_entries
-            if manifest[version.entry_id].state == "active"
-        }
+        # The manifest records each active entry's validated content hash, so exact
+        # duplicate detection compares hashes; rebuilding every body here would cost
+        # one material per entry to answer the same question.
+        new_content: set[str] = {item.entry_content_hash for item in manifest.values() if item.state == "active"}
 
         for candidate in candidates:
             if candidate.entry is None:
                 material = await self._material_from_candidate(candidate, evidence.sources, evidence.artifacts)
-                if material.content_bytes in new_content:
+                if material.content_hash in new_content:
                     continue
-                new_content.add(material.content_bytes)
+                new_content.add(material.content_hash)
                 entry_id = self._new_id("entry")
                 if entry_id in manifest:
                     raise _InvalidMemoryOperationError("id-collision")
@@ -1151,7 +1161,7 @@ class MemoryService:
                 )
                 continue
 
-            entry_id, previous = self._claim_revision_target(candidate, current_by_entry, targeted)
+            entry_id, previous = await self._claim_revision_target(candidate, base, current_by_entry, targeted)
             item = manifest.get(entry_id)
             if item is None:
                 raise MemoryEntryNotFoundError(entry_id)
@@ -1218,9 +1228,10 @@ class MemoryService:
             projections=projections,
         )
 
-    @staticmethod
-    def _claim_revision_target(
+    async def _claim_revision_target(
+        self,
         candidate: MemoryEntryInput,
+        base: Memory | None,
         current_by_entry: dict[str, MemoryEntryVersion],
         targeted: set[str],
     ) -> tuple[str, MemoryEntryVersion]:
@@ -1230,12 +1241,17 @@ class MemoryService:
         entry_id = validate_identifier(entry.entry_id)
         if entry_id in targeted:
             raise _InvalidMemoryOperationError("duplicate-target")
-        targeted.add(entry_id)
         previous = current_by_entry.get(entry_id)
+        if previous is None and base is not None:
+            # A revise needs the exact version it targets; the common append path
+            # never loads the current entry set at all.
+            current_by_entry.update({value.entry_id: value for value in await self._validated_entries(base)})
+            previous = current_by_entry.get(entry_id)
         if previous is None:
             raise MemoryEntryNotFoundError(entry_id)
         if entry != previous:
             raise InvalidMemoryCitationError("entry-mismatch")
+        targeted.add(entry_id)
         return entry_id, previous
 
     async def _material_from_candidate(

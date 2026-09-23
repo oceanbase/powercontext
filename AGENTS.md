@@ -17,48 +17,49 @@
 
 ## Agent Skills
 
-Use an available skill only when it matches the current task, and read its `SKILL.md` before applying it. Recommended
-skills are pinned in `skills-lock.json`; contributors can install them before a new Codex session with
-`make skills-install`.
+Use an available skill only when it matches the current task, and read its `SKILL.md` before applying it. Recommended skills are pinned in `skills-lock.json`; contributors can install them before a new Codex session with `make skills-install`.
 
 ## Coding Style & Naming Conventions
 
 Target Python 3.11+. Use PEP 8 naming: modules and functions in `snake_case`, classes in `PascalCase`, constants in `UPPER_SNAKE_CASE`. Ruff enforces formatting and linting with a 120-character line length; run `uv run prek run -a` before committing if you do not use the installed hooks. Keep comments focused on non-obvious intent rather than restating code.
 
+## Design and Implementation
+
+- Start from the current contract and relevant RFC. Change public APIs only as required by the task and avoid unrelated refactors. Do not weaken behavior tests to accommodate an implementation shortcut.
+- Keep domain rules in the runtime or Artifact service that owns them. Transport and host adapters should translate their inputs and outputs without inventing different domain behavior.
+- Extract helpers for cohesive responsibilities, such as an invariant, algorithm, protocol encoding, or state transition. Share code when callers have the same contract and failure semantics. Similar syntax or a few repeated lines is not enough; avoid forwarding helpers and intermediate types that only scatter an operation across files.
+- Keep operation-specific validation, request construction, and error handling near their owning boundary. Do not add unrelated branches to a shared helper just to reuse it.
+- Make identity and state transitions explicit. Keep retries, persisted state, and recovery consistent with the promised idempotency and delivery behavior. A successful write must remain usable through its supported read path.
+- Choose compatibility deliberately. Unsupported formats may be rejected clearly before acceptance or writes; supported formats must work through serialization, persistence, readback, and reuse. Define the handling of existing records and version conflicts. Keep documentation and compatibility claims consistent with that choice.
+- Keep authoritative records distinct from derived projections. Rebuilding derived state must preserve exact identities and historical evidence rather than silently assigning today's interpretation to old data.
+- Account for work and storage costs at the expected scale. Identify whole-collection scans or rewrites on incremental operations, and measure their impact before claiming a performance improvement or acceptable cost.
+
+Use [REVIEW.md](REVIEW.md) when reviewing changes.
+
 ## Generated API Contract
 
-`openapi/powercontext.yaml` is the source of truth for the HTTP API contract. The Python sources in
-`src/powercontext/http/_generated/` are checked in; do not edit them by hand. After changing the contract, run
-`make api-generate` and `make contract-test`.
+`openapi/powercontext.yaml` is the source of truth for the HTTP API contract. The Python sources in `src/powercontext/http/_generated/` are checked in; do not edit them by hand. After changing the contract, run `make api-generate` and `make contract-test`.
 
 ## Testing Guidelines
 
-Use `pytest`; name test files `test_*.py` and test functions `test_*`. Tests must protect observable behavior or a
-specific regression; complexity alone is not a reason to add one:
+Use `pytest`; name test files `test_*.py` and test functions `test_*`. Tests must protect observable behavior or a specific regression; complexity alone is not a reason to add one:
 
 - Put focused behavior tests in `tests/` and assert through public interfaces.
 - Put cross-component acceptance scenarios in `tests/e2e/`; they should remain valid across internal rewrites.
-- Add a regression test when fixing a defect that is likely to recur. Reproduce the failure and preserve the
-  externally observable behavior that was previously wrong.
-- Do not freeze implementation details such as import graphs, module ownership, dependency lists, buffer sizes,
-  private call order, or call counts unless they express an external budget or idempotency guarantee.
-- Do not exhaustively mock and test internal errors that an abstraction deliberately normalizes. Cover an internal
-  error separately only when it produces distinct observable behavior.
-- Do not test a straightforward script solely to increase coverage. If its correctness is evident from reading it
-  end to end and it has no meaningful external behavior or known regression, extra tests add noise rather than
-  confidence.
+- Add a regression test when fixing a defect that is likely to recur. Reproduce the failure and preserve the externally observable behavior that was previously wrong.
+- Do not freeze implementation details such as import graphs, module ownership, dependency lists, buffer sizes, private call order, or call counts unless they express an external budget or idempotency guarantee.
+- Do not exhaustively mock and test internal errors that an abstraction deliberately normalizes. Cover an internal error separately only when it produces distinct observable behavior.
+- Do not test a straightforward script solely to increase coverage. If its correctness is evident from reading it end to end and it has no meaningful external behavior or known regression, extra tests add noise rather than confidence.
 
-Include doctests when public examples are useful. For changes that affect supported Python versions, prefer `tox`
-before opening a PR. Tests may use plain `assert`; Ruff allows `S101` under `tests/`.
+Include doctests when public examples are useful. For changes that affect supported Python versions, prefer `tox` before opening a PR. Tests may use plain `assert`; Ruff allows `S101` under `tests/`.
+
+Run focused checks first and expand based on affected behavior. For claims about an external backend or host, distinguish actual execution from mocks, emulators, and direct hook invocation. Simulated inputs verify local handling; they do not establish that a real service produces those inputs or that a host supports the complete workflow.
 
 ## Deliverables
 
-Write page metadata and content as literal UTF-8 text. Use Chinese characters directly instead of Unicode escape
-sequences. Preserve non-ASCII text when serializing documentation metadata to JSON.
+Write page metadata and content as literal UTF-8 text. Use Chinese characters directly instead of Unicode escape sequences. Preserve non-ASCII text when serializing documentation metadata to JSON.
 
-Write deliverables as self-contained, final-state artifacts. Incorporate requested feedback directly into the
-artifact. Do not refer to drafts, versions, review rounds, prior wording, superseded decisions, or the editing
-process unless the user explicitly requests a changelog, history, or decision record.
+Write deliverables as self-contained, final-state artifacts. Incorporate requested feedback directly into the artifact. Do not refer to drafts, versions, review rounds, prior wording, superseded decisions, or the editing process unless the user explicitly requests a changelog, history, or decision record.
 
 ## Commit & Pull Request Guidelines
 

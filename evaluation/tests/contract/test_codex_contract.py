@@ -326,23 +326,21 @@ def evidence(**changes: object) -> TreatmentEvidence:
         "server_ready": True,
         "prompt_sources": 1,
         "mcp_requests": 1,
-        "scope_id": "eval:run-1:on",
+        "scope_id": "scp_on",
+        "scope_key": "eval:run-1:on",
     }
     values.update(changes)
     return TreatmentEvidence(**values)  # type: ignore[arg-type]
 
 
+OFF_EVIDENCE = {"prompt_sources": 0, "mcp_requests": 0, "scope_id": "scp_off", "scope_key": "eval:run-1:off"}
+
+
 def test_treatment_evidence_accepts_valid_on_and_off() -> None:
     expected = {"expected_plugin_version": "0.1.0", "expected_checkout_sha": "a" * 40}
-    assert validate_treatment(Arm.ON, "run-1", evidence(), **expected) is None
+    assert validate_treatment(Arm.ON, "run-1", evidence(), expected_scope_id="scp_on", **expected) is None
     assert (
-        validate_treatment(
-            Arm.OFF,
-            "run-1",
-            evidence(prompt_sources=0, mcp_requests=0, scope_id="eval:run-1:off"),
-            **expected,
-        )
-        is None
+        validate_treatment(Arm.OFF, "run-1", evidence(**OFF_EVIDENCE), expected_scope_id="scp_off", **expected) is None
     )
 
 
@@ -355,9 +353,12 @@ def test_treatment_evidence_accepts_valid_on_and_off() -> None:
         (Arm.ON, {"plugin_checkout_sha": "b" * 40}),
         (Arm.ON, {"server_ready": False}),
         (Arm.ON, {"prompt_sources": 0}),
-        (Arm.ON, {"scope_id": "eval:other:on"}),
-        (Arm.OFF, {"prompt_sources": 1, "scope_id": "eval:run-1:off"}),
-        (Arm.OFF, {"mcp_requests": 1, "prompt_sources": 0, "scope_id": "eval:run-1:off"}),
+        (Arm.ON, {"scope_id": "scp_other"}),
+        (Arm.ON, {"scope_key": "eval:other:on"}),
+        # Evidence for a Scope the arm did not register, such as the bare key, is rejected.
+        (Arm.ON, {"scope_id": "eval:run-1:on", "scope_key": None}),
+        (Arm.OFF, {**OFF_EVIDENCE, "prompt_sources": 1}),
+        (Arm.OFF, {**OFF_EVIDENCE, "mcp_requests": 1}),
     ],
 )
 def test_treatment_evidence_rejects_mismatch(arm: Arm, changes: dict[str, object]) -> None:
@@ -366,6 +367,7 @@ def test_treatment_evidence_rejects_mismatch(arm: Arm, changes: dict[str, object
             arm,
             "run-1",
             evidence(**changes),
+            expected_scope_id=f"scp_{arm.value}",
             expected_plugin_version="0.1.0",
             expected_checkout_sha="a" * 40,
         )
@@ -494,9 +496,12 @@ class TranscriptDocker:
             )
         if any(part.endswith("/codex") for part in argv) and "--version" in argv:
             return command_result("codex-cli 0.145.0\n")
+        if "create-scope" in argv:
+            key = argv[argv.index("create-scope") - 1]
+            return command_result(json.dumps({"scope_id": f"scp_fixture_{key.rsplit(':', 1)[-1]}"}))
         if "evidence" in argv:
             scope = argv[argv.index("evidence") - 1]
-            return command_result(json.dumps({"prompt_sources": 0 if scope.endswith(":off") else 1}))
+            return command_result(json.dumps({"prompt_sources": 0 if scope.endswith("_off") else 1}))
         if any(part.endswith("/codex") or part == "codex" for part in argv) and "exec" in argv:
             result = command_result(
                 '{"type":"agent_message","message":"done"}\n'
@@ -522,6 +527,20 @@ class TranscriptDocker:
                 )
             return result
         return command_result("")
+
+
+def codex_scope_ids(commands: Sequence[tuple[str, ...]]) -> list[str]:
+    return [
+        part.removeprefix("POWERCONTEXT_CODEX_SCOPE_ID=")
+        for command in commands
+        if command[:2] == ("docker", "exec")
+        for part in command
+        if part.startswith("POWERCONTEXT_CODEX_SCOPE_ID=")
+    ]
+
+
+def created_scope_keys(commands: Sequence[tuple[str, ...]]) -> list[str]:
+    return [command[command.index("create-scope") - 1] for command in commands if "create-scope" in command]
 
 
 class FakeRelay:
@@ -980,7 +999,7 @@ def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(t
     assert not any(argument.startswith(f"type=bind,src={Path.home()},") for argument in run)
     assert f"type=bind,src={paths.tokensflow_home},dst=/root" in joined
     assert not any(part.startswith(("HOME=", "CODEX_HOME=")) for part in run)
-    assert "POWERCONTEXT_CODEX_SCOPE_ID=eval:run-1:on" in joined
+    assert not any(part.startswith("POWERCONTEXT_CODEX_SCOPE_ID=") for part in run)
     mounts = [run[index + 1] for index, value in enumerate(run) if value in {"--mount", "-v"}]
     assert all(
         any(
@@ -1022,7 +1041,7 @@ def test_sut_transcript_has_hardening_mount_allowlist_shared_network_and_scope(t
     assert source_provenance["plugin_version"] == "0.2.0"
     assert len(source_provenance["plugin_manifest_sha256"]) == 64
     evidence_command = next(command for command in transcript if "evidence" in command)
-    assert "eval:run-1:on" in evidence_command
+    assert "scp_fixture_on" in evidence_command
     assert any("pc_sources" in part for part in evidence_command)
     prewarm_index = next(
         index
@@ -2615,14 +2634,61 @@ def test_distinct_run_ids_derive_distinct_runtime_network_and_scope(tmp_path: Pa
             ArtifactStore(paths.result_root),
         )
         run = next(command for command in docker.commands if command[:3] == ("docker", "run", "-d"))
-        evidence_command = next(command for command in docker.commands if "evidence" in command)
         runtimes.append(paths.runtime)
         networks.append(run[run.index("--network") + 1])
-        scopes.append(evidence_command[evidence_command.index("evidence") - 1])
+        scopes.extend(created_scope_keys(docker.commands))
 
     assert runtimes[0] != runtimes[1]
     assert networks == ["powercontext-eval-parallel-run-a", "powercontext-eval-parallel-run-b"]
     assert scopes == ["eval:parallel-run-a:on", "eval:parallel-run-b:on"]
+
+
+def test_codex_runs_in_the_scope_the_server_created_for_the_arm(tmp_path: Path) -> None:
+    paths = make_paths(tmp_path)
+    config = sut_config(tmp_path)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = TranscriptDocker()
+
+    DockerSut(docker, relay_factory=FakeRelay).run_arm(
+        config, Arm.ON, paths, b"prompt", ArtifactStore(paths.result_root)
+    )
+
+    creation = next(index for index, command in enumerate(docker.commands) if "create-scope" in command)
+    codex_exec = next(
+        index
+        for index, command in enumerate(docker.commands)
+        if any(part.startswith("POWERCONTEXT_CODEX_SCOPE_ID=") for part in command)
+    )
+    assert creation < codex_exec
+    assert created_scope_keys(docker.commands) == ["eval:run-1:on"]
+    assert codex_scope_ids(docker.commands) == ["scp_fixture_on"]
+    treatment = json.loads((paths.result_root / "powercontext/treatment.json").read_text())
+    assert treatment["scope_id"] == "scp_fixture_on"
+    assert treatment["scope_key"] == "eval:run-1:on"
+
+
+def test_arm_fails_retryably_before_codex_when_the_scope_cannot_be_created(tmp_path: Path) -> None:
+    class ScopeCreationFailureDocker(TranscriptDocker):
+        def run(self, argv: tuple[str, ...], **kwargs: object) -> CommandResult:
+            if "create-scope" in argv:
+                self.commands.append(argv)
+                raise CommandFailed("scope rejected", command_result("", returncode=1))
+            return super().run(argv, **kwargs)
+
+    paths = make_paths(tmp_path)
+    config = sut_config(tmp_path)
+    config.codex_binary.write_text("binary")
+    config.uv_binary.write_text("binary")
+    docker = ScopeCreationFailureDocker()
+
+    with pytest.raises(ReadinessFailure) as captured:
+        DockerSut(docker, relay_factory=FakeRelay).run_arm(
+            config, Arm.ON, paths, b"prompt", ArtifactStore(paths.result_root)
+        )
+
+    assert captured.value.reason is ReadinessFailureReason.SCOPE_NOT_CREATED
+    assert codex_scope_ids(docker.commands) == []
 
 
 def test_sut_uses_timestamp_recorder_and_retains_private_context_traces(tmp_path: Path) -> None:
@@ -2698,12 +2764,8 @@ def test_pair_reuses_one_relay_and_network_and_runs_off_then_on(tmp_path: Path) 
     assert sum(command[:3] == ("docker", "network", "rm") for command in docker.commands) == 1
     assert relay.events == [("start", "172.29.0.1"), ("stop", "exact")]
     task_runs = [command for command in docker.commands if command[:3] == ("docker", "run", "-d")]
-    assert [
-        next(value for value in command if value.startswith("POWERCONTEXT_CODEX_SCOPE_ID=")) for command in task_runs
-    ] == [
-        "POWERCONTEXT_CODEX_SCOPE_ID=eval:run-1:off",
-        "POWERCONTEXT_CODEX_SCOPE_ID=eval:run-1:on",
-    ]
+    assert created_scope_keys(docker.commands) == ["eval:run-1:off", "eval:run-1:on"]
+    assert codex_scope_ids(docker.commands) == ["scp_fixture_off", "scp_fixture_on"]
     proxy_values = [next(value for value in command if value.startswith("HTTPS_PROXY=")) for command in task_runs]
     assert proxy_values == ["HTTPS_PROXY=http://172.29.0.1:17890"] * 2
 
