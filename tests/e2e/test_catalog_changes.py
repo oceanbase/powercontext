@@ -518,9 +518,7 @@ def test_tag_dream_new_independent_evidence_does_not_reuse_old_candidate(databas
             )
             target = ArtifactTagTarget(family="experience", artifact_id=created.artifact_id)
             original = await runtime.records.for_scope(scope).get_tags(target)
-            tagged = await runtime.records.for_scope(scope).replace_tags(
-                target, ("old",), expected_etag=original.etag
-            )
+            tagged = await runtime.records.for_scope(scope).replace_tags(target, ("old",), expected_etag=original.etag)
             source = await runtime.sources.for_scope(scope).capture(
                 CaptureSource(source_id="root", content="Verified tagging evidence", metadata={})
             )

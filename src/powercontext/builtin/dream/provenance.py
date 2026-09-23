@@ -15,12 +15,13 @@
 """Content-free proposal identity and immutable reviewer provenance."""
 
 import json
+from collections.abc import Mapping
 
 from pydantic import BaseModel
 
 from powercontext.builtin.dream.bindings import DREAM_OPERATIONS
 from powercontext.builtin.dream.models import DREAM_PROMPT_VERSION, DreamRecord
-from powercontext.builtin.evidence.models import ResolvedEvidence, content_digest
+from powercontext.builtin.evidence.models import EvidenceNode, ResolvedEvidence, content_digest
 from powercontext.builtin.persistence.candidates import proposal_digest
 from powercontext.builtin.review.models import CandidateAudit
 
@@ -76,7 +77,7 @@ def _digest(value: object) -> str:
     return content_digest(json.dumps(value, sort_keys=True, ensure_ascii=False).encode())
 
 
-def _reaches_root(node_id: str, nodes: dict[str, object], evidence: ResolvedEvidence) -> bool:
+def _reaches_root(node_id: str, nodes: Mapping[str, EvidenceNode], evidence: ResolvedEvidence) -> bool:
     """Return whether a manifest node has a root Source in its lineage."""
 
     upstream: dict[str, list[str]] = {}
@@ -92,7 +93,7 @@ def _reaches_root(node_id: str, nodes: dict[str, object], evidence: ResolvedEvid
         node = nodes.get(current)
         if node is None:
             continue
-        if getattr(node, "role", None) == "root":
+        if node.role == "root":
             return True
         pending.extend(upstream.get(current, ()))
     return False
