@@ -520,9 +520,8 @@ class ArtifactProcessingSupervisor:
         self._stop.set()
         self._wake.set()
         if self._task is not None:
-            self._task.cancel()
             with suppress(asyncio.CancelledError):
-                await self._task
+                await _complete_cleanup(self._task)
             self._task = None
         if self._unreaped:
             raise _WorkerTerminationError(self._unreaped[0])
