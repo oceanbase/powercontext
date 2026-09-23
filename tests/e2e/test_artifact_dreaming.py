@@ -2325,13 +2325,24 @@ def test_dream_requests_arriving_during_generation_survive_without_an_automatic_
     asyncio.run(scenario())
 
 
-def test_rfc_memory_example_matches_native_and_http_request_contract():
-    import json
-
+def test_memory_dream_example_matches_native_and_http_request_contract():
     from powercontext.http import CreateDreamRunRequest as HttpRequest
 
-    document = (Path(__file__).parents[2] / "docs/zh/rfcs/0000_multi_artifact_dreaming.md").read_text()
-    example = json.loads(document.split("```json\n", 1)[1].split("```", 1)[0])
+    # Keep the wire example self-contained: the RFC lives in a separate PR.
+    example = {
+        "operation": "revise_memory",
+        "target": {"family": "memory", "artifact_id": "memory", "revision": 8},
+        "sources": [{"source_type": "content", "source_id": "S03"}],
+        "artifacts": [{"family": "memory", "artifact_id": "memory", "revision": 8}],
+        "memory_citations": [
+            {
+                "memory_ref": {"family": "memory", "artifact_id": "memory", "revision": 8},
+                "entry_id": "E_CITY",
+                "entry_version_id": "EV_CITY_1",
+            }
+        ],
+        "idempotency_key": "U1-city-explicit-change-20260921",
+    }
     native = CreateDreamRunRequest.model_validate(example)
     transport = HttpRequest.model_validate(example)
     assert native.target is not None and native.target in native.artifacts
