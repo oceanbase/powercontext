@@ -36,10 +36,18 @@ def validation_policy_digest(record: DreamRecord) -> str:
 
 
 def proposal_fingerprint(record: DreamRecord, evidence: ResolvedEvidence) -> str:
-    roots = sorted((node.evidence_id, node.digest) for node in evidence.manifest.nodes if node.role == "root")
-    # Evidence without a resolvable root must retain its exact independent identity.
-    if not roots:
-        roots = sorted((node.evidence_id, node.digest) for node in evidence.manifest.nodes if node.role != "target")
+    nodes = {node.evidence_id: node for node in evidence.manifest.nodes}
+    roots = sorted((node.evidence_id, node.digest) for node in nodes.values() if node.role == "root")
+    # Keep root-backed derived artifacts deduplicated by their root Source, but
+    # retain every independent node that cannot be traced to one. This matters
+    # when rooted and rootless evidence are supplied together: adding the latter
+    # must invalidate reuse of a proposal built from the former alone.
+    independent = sorted(
+        (node.evidence_id, node.digest)
+        for node in nodes.values()
+        if node.role != "target" and node.role != "root" and not _reaches_root(node.evidence_id, nodes, evidence)
+    )
+    roots = sorted({*roots, *independent})
     request = record.request
     return _digest({
         "operation": request.operation,
@@ -66,3 +74,25 @@ def candidate_audit(record: DreamRecord, proposal: BaseModel) -> CandidateAudit:
 
 def _digest(value: object) -> str:
     return content_digest(json.dumps(value, sort_keys=True, ensure_ascii=False).encode())
+
+
+def _reaches_root(node_id: str, nodes: dict[str, object], evidence: ResolvedEvidence) -> bool:
+    """Return whether a manifest node has a root Source in its lineage."""
+
+    upstream: dict[str, list[str]] = {}
+    for edge in evidence.manifest.edges:
+        upstream.setdefault(edge.derived_id, []).append(edge.upstream_id)
+    pending = [node_id]
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        node = nodes.get(current)
+        if node is None:
+            continue
+        if getattr(node, "role", None) == "root":
+            return True
+        pending.extend(upstream.get(current, ()))
+    return False

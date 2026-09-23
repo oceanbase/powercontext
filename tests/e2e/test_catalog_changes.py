@@ -461,6 +461,115 @@ def test_tag_dream_uses_exact_body_and_reuses_pending_candidates(database, decis
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("decision", ["pending", "rejected"])
+def test_tag_dream_new_independent_evidence_does_not_reuse_old_candidate(database, decision):
+    """A rootless support Artifact changes Dream identity alongside a rooted Source."""
+
+    from powercontext.artifacts import ArtifactRef
+    from powercontext.builtin.artifacts.skill import SkillContent, SkillDraft
+    from powercontext.builtin.catalog_changes.models import TagChangeProposal, TagDreamTarget
+    from powercontext.builtin.dream.generation import DreamGenerationInput
+    from powercontext.builtin.dream.models import CreateDreamRunRequest, DreamPlan, GetDreamRunRequest
+    from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
+    from powercontext.builtin.records import ArtifactWrite
+    from powercontext.builtin.runtime import CaptureSource
+    from tests.e2e.dream_support import open_dream_runtime, process_pending
+
+    class Generator:
+        config_id = "catalog-dream-independent-evidence-test"
+
+        def __init__(self) -> None:
+            self.inputs: list[DreamGenerationInput] = []
+
+        async def generate(self, value: DreamGenerationInput):
+            self.inputs.append(value)
+            assert value.operation == "revise_tags"
+            return GenerationResult(
+                output=DreamPlan(
+                    outcome="proposed",
+                    reason="The supplied evidence supports the classification.",
+                    intent="correct",
+                    proposal=TagChangeProposal(after_tags=("reviewed",)),
+                    evidence_ids=tuple(
+                        item.evidence_id for item in value.evidence.evidence if item.kind in {"source", "skill"}
+                    ),
+                ),
+                usage=InferenceUsage(requests=1),
+            )
+
+    async def scenario():
+        generator = Generator()
+        async with open_dream_runtime(BuiltinConfig(database=database), dream_generator=generator) as runtime:
+            scope = (
+                await runtime.scopes.create(
+                    ScopeDraft(title="Tag Dream evidence", summary="Independent support", idempotency_key="dream")
+                )
+            ).scope_id
+            created = await runtime.records.for_scope(scope).create_artifact(
+                "experience",
+                ArtifactWrite(
+                    content={
+                        "situation": "Tagging target",
+                        "action": "Verify",
+                        "outcome": "Evidence supports the label",
+                        "lesson": "Use all independent evidence",
+                    }
+                ),
+            )
+            target = ArtifactTagTarget(family="experience", artifact_id=created.artifact_id)
+            original = await runtime.records.for_scope(scope).get_tags(target)
+            tagged = await runtime.records.for_scope(scope).replace_tags(
+                target, ("old",), expected_etag=original.etag
+            )
+            source = await runtime.sources.for_scope(scope).capture(
+                CaptureSource(source_id="root", content="Verified tagging evidence", metadata={})
+            )
+            async with runtime._provider.database.transaction() as connection:
+                independent = await runtime._provider.repositories.artifacts.create(
+                    connection,
+                    scope,
+                    "independent-skill",
+                    SkillDraft(
+                        content=SkillContent(
+                            name="independent-support",
+                            description="Independent support evidence",
+                            instructions="Use the verified support.",
+                            validation=("Check the supporting evidence.",),
+                        )
+                    ),
+                )
+            basis = ArtifactRef(family="experience", artifact_id=created.artifact_id, revision=created.revision)
+            request = CreateDreamRunRequest(
+                operation="revise_tags",
+                tag_target=TagDreamTarget(
+                    target=target,
+                    expected_etag=tagged.etag,
+                    basis_ref=basis,
+                ),
+                sources=(source.source_ref,),
+                idempotency_key="root-only",
+            )
+            first = await runtime.dream.for_scope(scope).create(request)
+            await process_pending(runtime)
+            first = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=first.run_id))
+            assert first.outcome == "proposed" and first.candidate is not None
+            if decision == "rejected":
+                await runtime.catalog_changes.for_scope(scope).reject(
+                    first.candidate.candidate_id, first.candidate.version, "Keep the original labels"
+                )
+            second = await runtime.dream.for_scope(scope).create(
+                request.model_copy(update={"artifacts": (independent.as_ref(),), "idempotency_key": "with-skill"})
+            )
+            await process_pending(runtime)
+            second = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=second.run_id))
+            assert second.outcome == "proposed" and second.candidate is not None
+            assert not second.reused and second.candidate != first.candidate
+            assert len(generator.inputs) == 2
+            assert any(item.kind == "skill" for item in generator.inputs[1].evidence.evidence)
+
+    asyncio.run(scenario())
+
+
 def test_tag_dreams_for_different_families_share_their_existing_workers(database):
     from powercontext.artifacts import ArtifactRef
     from powercontext.builtin.catalog_changes.models import TagChangeProposal, TagDreamTarget
