@@ -80,4 +80,6 @@ powercontext catalog-candidate revise --request-file tag-revision.json
 powercontext catalog-candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
 ```
 
+标签候选保留选中的支持制品引用，并在批准时重新检查其访问权限。旧版 Tag 操作契约生成的待审候选可能缺少证据，因此不能批准；请拒绝旧候选，使用当前正文基准、ETag 和新的幂等键重新生成。已生效的标签不受影响。
+
 统一收件箱支持制品与标签候选筛选，两类资源分别分页，显示完整提案、证据、差异和决定历史。候选版本过期、目标变化、证据撤销或 ETag 变化时，候选保持 pending 并返回冲突；重新检查当前状态后再决定。`no_change` 和 `needs_evidence` 不创建候选。模型提案与人工批准均不等于后续任务质量已经提升。

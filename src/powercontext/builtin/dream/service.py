@@ -402,7 +402,9 @@ class DreamService:
 
     async def _resolve(self, record: DreamRecord, connection: AsyncConnection | None = None) -> ResolvedEvidence:
         request = record.request
-        async with self.database.connection(connection) as bound:
+        # Tag basis inspection acquires a write lock even during generation.
+        # Flush access audit writes after this transaction, including standalone resolution.
+        async with self.authorization_context(), self.database.connection(connection) as bound:
             await self._check_target(bound, record.run.scope_id, record.principal_id, request.target)
             await self._authorize_memory_changes(record.run.scope_id, record.principal_id, request)
             if request.tag_target is not None:
@@ -477,6 +479,7 @@ class DreamService:
             plan.evidence_ids,
             skill=record.run.operation == "derive_skill",
             target=_resolve_references(record.request)[2],
+            catalog=record.run.operation == "revise_tags",
         )
         if isinstance(plan.proposal, TagChangeProposal) and record.request.tag_target is not None:
             service = self._catalog(record.run.scope_id, connection)
@@ -793,6 +796,7 @@ def _supported_plan(record: DreamRecord, plan: DreamPlan, resolved: ResolvedEvid
             plan.evidence_ids,
             skill=record.run.operation == "derive_skill",
             target=_resolve_references(record.request)[2],
+            catalog=record.run.operation == "revise_tags",
         )
     except EvidenceResolutionError as error:
         if error.code != "needs_evidence":

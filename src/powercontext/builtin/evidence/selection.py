@@ -36,6 +36,7 @@ def select_evidence(
     *,
     skill: bool,
     target: ArtifactRef | None,
+    catalog: bool = False,
 ) -> SelectedEvidence:
     nodes = {node.evidence_id: node for node in manifest.nodes}
     for node_id in used:
@@ -55,10 +56,11 @@ def select_evidence(
         for key, node in nodes.items()
         if key in dependencies and node.role == "root" and node.source is not None
     )
+    artifact_kinds = {"experience", "skill", "profile", "topic_memory", "handoff"} if catalog else {"experience"}
     artifacts = tuple(
         node.artifact
         for key, node in nodes.items()
-        if key in chosen and node.kind == "experience" and node.artifact is not None
+        if key in chosen and node.kind in artifact_kinds and node.artifact is not None
     )
     citations = (
         ()

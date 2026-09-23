@@ -62,10 +62,11 @@ def _resource(scope_id: str, ref: EvidenceReference | None) -> ResourceRef:
             artifact_id=ref.memory_ref.artifact_id,
             selector=MemoryEntrySelector(entry_id=ref.entry_id),
         )
-    if isinstance(ref, ArtifactRef) and ref.family != "memory":
+    if isinstance(ref, ArtifactRef) and ref.family not in {"memory", "topic-memory"}:
         return ResourceRef.artifact(scope_id, family=ref.family, artifact_id=ref.artifact_id)
     # Sources belong to the Scope. A bare Memory revision is unresolved metadata,
-    # never authority to expand all of its entries.
+    # never authority to expand all of its entries. Topic Memory reads are also
+    # Scope-owned; Topics have no Artifact sharing profile or owner.
     return ResourceRef.scope(scope_id)
 
 

@@ -81,4 +81,6 @@ powercontext catalog-candidate revise --request-file tag-revision.json
 powercontext catalog-candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
 ```
 
+Tag candidates preserve the selected supporting Artifact references and recheck their access at approval. Pending candidates created under the older Tag operation contract cannot be approved because their evidence may be incomplete. Reject them and generate a new run using the current content baseline, ETag, and a new idempotency key. Already applied tags are unaffected.
+
 The unified Dashboard filters Artifact and Catalog Change resources and shows their independent paginated sections. A stale version, changed target, revoked evidence, or changed Tag ETag leaves the candidate pending with a conflict. Inspect current state before submitting another decision. `no_change` and `needs_evidence` create no candidate. Neither a model proposal nor approval proves improvement on later tasks.
