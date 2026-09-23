@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -36,7 +37,7 @@ describe('secret detection', () => {
 describe('Pi native tool invocation', () => {
   it('uses the resolved scope and refuses secret-bearing writes', async () => {
     let body: string | undefined
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async (url, init) => {
@@ -78,7 +79,7 @@ describe('Pi native tool invocation', () => {
 
   it('limits observation requests to the derived Scope', async () => {
     const bodies: unknown[] = []
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async (_url, init) => {

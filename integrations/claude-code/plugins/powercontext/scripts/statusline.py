@@ -24,9 +24,10 @@ import sys
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from time import monotonic
-from typing import Any, Protocol
+from typing import Any
 from urllib.error import HTTPError
-from urllib.request import Request
+
+from powercontext.client.integration.native import scope_request as _request_stats
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
@@ -34,15 +35,14 @@ sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
-from scope_binding_errors import (  # noqa: E402
+from workspace_scope import resolve_scope_id  # noqa: E402
+
+from powercontext.client.integration.native import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
 )
-from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
 
-_MAX_RESPONSE_BYTES = 1024 * 1024
-_USER_AGENT = "powercontext-claude-code-statusline/0.1.0"
 _GREEN = "\033[32m"
 _RED = "\033[31m"
 _MUTED = "\033[90m"
@@ -53,10 +53,6 @@ _FAILURE_LINES = {
     "server_unavailable": "PC offline · run powercontext doctor",
     "invalid_response": "PC invalid response",
 }
-
-
-class _ReadableResponse(Protocol):
-    def read(self, amount: int = -1) -> bytes: ...
 
 
 def compact_tokens(value: int) -> str:
@@ -139,63 +135,15 @@ def _colored_savings(reduction: int | None, suffix: str) -> str:
     return f"{color}{savings_phrase(reduction, suffix)}{_RESET}"
 
 
-def _remaining_time(deadline: float) -> float:
-    remaining = deadline - monotonic()
-    if remaining <= 0:
-        raise TimeoutError
-    return remaining
-
-
-def _set_response_timeout(response: object, timeout: float) -> None:
-    """Tighten urllib's socket timeout before each bounded read."""
-
-    raw = getattr(getattr(response, "fp", None), "raw", None)
-    sock = getattr(raw, "_sock", None)
-    settimeout = getattr(sock, "settimeout", None)
-    if settimeout is not None:
-        settimeout(timeout)
-
-
-def _read_response(response: _ReadableResponse, *, deadline: float) -> bytes:
-    """Read one response under a wall-clock deadline and a hard size bound."""
-
-    bind_response_deadline(response, deadline)
-    content = bytearray()
-    while True:
-        _set_response_timeout(response, _remaining_time(deadline))
-        chunk = response.read(1)
-        if not chunk:
-            return bytes(content)
-        content.extend(chunk)
-        if len(content) > _MAX_RESPONSE_BYTES:
-            raise ValueError("PowerContext statistics response is too large")  # noqa: TRY003
-
-
 def _load_stats(settings: ClaudeCodePluginSettings, scope_id: str, period: str, *, deadline: float) -> object:
-    """Load one statistics window under the absolute HTTP budget deadline."""
-
-    request_deadline = min(deadline, monotonic() + settings.request_timeout_seconds)
-    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": _USER_AGENT}
-    if settings.authorization:
-        headers["Authorization"] = settings.authorization
-    request = Request(  # noqa: S310 - settings validation enforces the transport policy.
-        f"{settings.server_url}/v1/stats",
-        data=json.dumps(
-            {
-                "selection": {"mode": "exact", "scope_ids": [scope_id]},
-                "period": period,
-            },
-            separators=(",", ":"),
-        ).encode(),
-        headers=headers,
-        method="POST",
+    result = _request_stats(
+        "/v1/stats",
+        {"selection": {"mode": "exact", "scope_ids": [scope_id]}, "period": period},
+        settings=settings,
+        deadline=deadline,
     )
-    with open_bounded(request, timeout=_remaining_time(request_deadline)) as response:
-        result = json.loads(_read_response(response, deadline=request_deadline))
-    # A valid window always carries the required totals; rejecting a 200 without
-    # them keeps a protocol mismatch from rendering as an honest "no data".
-    if not isinstance(result, dict) or token_reduction(result) is None:
-        raise ValueError("PowerContext statistics response is missing required totals")  # noqa: TRY003
+    if token_reduction(result) is None:
+        raise TypeError
     return result
 
 

@@ -19,11 +19,11 @@ from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import Mock
 
+import powercontext_integrations.hermes as hermes_cli
+from powercontext_integrations.system import SetupError, doctor_app, setup_app
 from typer.testing import CliRunner
 
-import powercontext.cli.hermes as hermes_cli
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import SetupError, doctor_app, setup_app
 
 
 def _write_plugin(root: Path) -> Path:

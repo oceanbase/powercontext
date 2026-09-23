@@ -31,7 +31,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelResponse, TextPart, ThinkingPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 
-from powercontext.client import TransportError
+from powercontext.client import TransportError, UnknownOutcomeError
 from powercontext.client.capture import render_capture_event
 from tests.pydantic_ai_adapter.fakes import RecordingClient, prepared_response
 
@@ -363,3 +363,31 @@ def test_flush_failure_does_not_change_model_result(
     failures = [record for record in caplog.records if "capture flush failed open" in record.getMessage()]
     assert failures
     assert all(record.exc_info is not None for record in failures)
+
+
+def test_final_callback_does_not_replay_an_unknown_checkpoint(monkeypatch) -> None:
+    RecordingClient.reset()
+    RecordingClient.prepare_result = prepared_response(None)
+    RecordingClient.flush_error = UnknownOutcomeError("/v1/memory/flush")
+    monkeypatch.setattr(toolset_module, "PowerContextClient", RecordingClient)
+
+    async def respond(_messages, _info):
+        return ModelResponse(parts=[TextPart("done")])
+
+    async def scenario():
+        agent = Agent(
+            FunctionModel(respond),
+            capabilities=[
+                PowerContext(
+                    settings=PowerContextSettings(capture_events=True, capture_checkpoint_every=1),
+                    scope_id="project:unknown",
+                )
+            ],
+        )
+        return (await agent.run("continue")).output
+
+    assert asyncio.run(scenario()) == "done"
+    client = RecordingClient.instances[0]
+    assert len(client.capture_requests) == 2
+    # Each new Source permits one attempt. after_run cannot replay the second write.
+    assert len(client.flush_requests) == 2

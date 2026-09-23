@@ -38,9 +38,8 @@ from powercontext.builtin.runtime.processing_registry import (
     RECOMMENDED_PROFILE_CRON,
     RECOMMENDED_PROFILE_TIMEZONE,
 )
-from powercontext.cli.config_wizard_agents import AGENT_SPEC_BY_ID, AGENT_SPECS, AgentSpec, preferred_agent
+from powercontext.cli.config_wizard_agents import AgentSpec, agent_specs, preferred_agent
 from powercontext.cli.config_wizard_document import read_sqlite_summary, update_document
-from powercontext.cli.config_wizard_installation import installation_source
 from powercontext.cli.config_wizard_models import collect_models
 from powercontext.cli.config_wizard_seekdb import (
     SeekDBInstallTask,
@@ -49,6 +48,7 @@ from powercontext.cli.config_wizard_seekdb import (
 )
 from powercontext.cli.config_wizard_ui import WizardUI, choose_language
 from powercontext.cli.env_file import EnvironmentFileError, parse_environment
+from powercontext.cli.integration_source import resolve_source
 from powercontext.client.settings import normalize_server_url
 from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
 
@@ -841,6 +841,10 @@ def _advanced(state: Wizard) -> None:
     state.patch({f"{SERVER}LOGGING_LEVEL": level})
 
 
+def _agent_spec_by_id() -> dict[str, AgentSpec]:
+    return {spec.identifier: spec for spec in agent_specs()}
+
+
 def _agents(state: Wizard) -> None:
     ui = state.ui
     ui.section("7. Agent connection files", "7. Agent 连接文件")
@@ -850,7 +854,7 @@ def _agents(state: Wizard) -> None:
         token = state.values.get(f"{SERVER}AUTH_TOKEN", state.values.get(f"{CLIENT}API_TOKEN", ""))
         if token:
             state.client[f"{CLIENT}API_TOKEN"] = token
-    remaining = list(AGENT_SPECS)
+    remaining = list(agent_specs())
     while remaining:
         choices = [(agent.identifier, agent.en, agent.zh) for agent in remaining]
         choices.append(("none", "Finish Agent configuration", "结束 Agent 配置"))
@@ -868,7 +872,7 @@ def _agents(state: Wizard) -> None:
             ):
                 continue
             break
-        agent = AGENT_SPEC_BY_ID[selected]
+        agent = _agent_spec_by_id()[selected]
         _configure_agent(state, agent)
         remaining.remove(agent)
         state.agents = (*state.agents, selected)
@@ -971,25 +975,27 @@ def _agent_fields(state: Wizard, agent: AgentSpec, address: str, *, capture: boo
     state.agent_addresses[agent.identifier] = address
     prefix = agent.environment_prefix
     if prefix is None:
-        settings: dict[str, object] = {agent.server_setting or "endpoint": address, agent.capture_setting: capture}
-        if scope:
+        settings: dict[str, object] = {agent.server_setting or "endpoint": address}
+        if agent.capture_setting:
+            settings[agent.capture_setting] = capture
+        if scope and agent.scope_setting:
             settings[agent.scope_setting] = scope
-        if "profile" in state.features:
+        if "profile" in state.features and agent.context_assembly_setting:
             settings[agent.context_assembly_setting] = _context_assembly(state)
         state.agent_settings[agent.identifier] = settings
         return
     if server_name := agent.environment_name(agent.server_setting):
         state.client[server_name] = address
     capture_name = agent.environment_name(agent.capture_setting)
-    if capture_name is None:
-        message = f"missing capture environment name for {agent.identifier}"
-        raise RuntimeError(message)
-    state.client[capture_name] = str(capture).lower()
+    if capture_name:
+        state.client[capture_name] = str(capture).lower()
     if scope and (scope_name := agent.environment_name(agent.scope_setting)):
         state.client[scope_name] = scope
     token = state.client.get(f"{CLIENT}API_TOKEN")
     if token and (authorization_name := agent.environment_name(agent.authorization_setting)):
-        state.client[authorization_name] = f"Bearer {token}"
+        state.client[authorization_name] = (
+            f"Bearer {token}" if agent.authorization_setting == "AUTHORIZATION" else token
+        )
     if "profile" in state.features and (assembly_name := agent.environment_name(agent.context_assembly_setting)):
         state.client[assembly_name] = json.dumps(_context_assembly(state))
 
@@ -1006,7 +1012,7 @@ def _context_assembly(state: Wizard) -> dict[str, object]:
 def _client_updates(state: Wizard) -> dict[str, str | None]:
     updates: dict[str, str | None] = {f"{CLIENT}API_TOKEN": None}
     for agent in state.agents:
-        spec = AGENT_SPEC_BY_ID[agent]
+        spec = _agent_spec_by_id()[agent]
         for setting in (spec.scope_setting, spec.authorization_setting, spec.context_assembly_setting):
             if name := spec.environment_name(setting):
                 updates[name] = None
@@ -1378,7 +1384,7 @@ def _alternate_client_check_steps(state: Wizard) -> list[str]:
     ]
     for agent, address in state.agent_addresses.items():
         lines += [
-            f"### {AGENT_SPEC_BY_ID[agent].en}",
+            f"### {_agent_spec_by_id()[agent].en}",
             "",
             "```bash",
             f"POWERCONTEXT_CLIENT_SERVER_URL={shlex.quote(address)} powercontext ready",
@@ -1418,7 +1424,7 @@ def _profile_policy_steps(state: Wizard) -> list[str]:
             "",
         ]
     for identifier in state.agents or (None,):
-        spec = AGENT_SPEC_BY_ID[identifier] if identifier else None
+        spec = _agent_spec_by_id()[identifier] if identifier else None
         scope_name = spec.environment_name(spec.scope_setting) if spec else None
         bound = scope_name and (scope_name in state.client or identifier in state.planned_scopes)
         if not bound:
@@ -1497,11 +1503,11 @@ def _profile_policy_script(address: str, scope_name: str, authorization_name: st
 def _agent_installation_steps(state: Wizard) -> list[str]:
     if not state.agents:
         return []
-    source = installation_source(Path(__file__))
+    source = resolve_source(fetch=False)
     lines = [
         state.ui.text(
-            "Install the plugin from the same source as this PowerContext installation:",
-            "从当前 PowerContext 安装使用的相同来源安装插件：",
+            "Install the plugin from the selected integration source:",
+            "从选定的集成源码安装插件：",
         )
         if source is not None
         else state.ui.text(
@@ -1514,13 +1520,11 @@ def _agent_installation_steps(state: Wizard) -> list[str]:
         "```bash",
     ]
     for agent in state.agents:
-        spec = AGENT_SPEC_BY_ID[agent]
+        spec = _agent_spec_by_id()[agent]
         if source is None:
             lines.append(f"powercontext setup {agent} --help")
             continue
-        command = f"powercontext setup {agent} --source {shlex.quote(source.source)}"
-        if source.ref:
-            command += f" --ref {shlex.quote(source.ref)}"
+        command = f"powercontext setup {agent} --source {shlex.quote(str(source))}"
         if spec.setup_server_url:
             command += f" --server-url {shlex.quote(state.agent_addresses[agent])}"
         lines += [command, f"powercontext doctor {agent}"]
@@ -1545,7 +1549,7 @@ def _scope_creation_steps(state: Wizard) -> list[str]:
         "",
     ]
     for agent, title in state.planned_scopes.items():
-        spec = AGENT_SPEC_BY_ID[agent]
+        spec = _agent_spec_by_id()[agent]
         address = state.agent_addresses[agent]
         payload = json.dumps(
             {

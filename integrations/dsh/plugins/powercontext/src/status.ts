@@ -15,7 +15,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { operationFailure } from './doctor.ts'
+import { operationFailure } from './diagnostics.ts'
 import { sessionCwd } from './scope.ts'
 import { type BodyFailureDetails, InvalidResponseError, RequestNotSentError, ResponseReadError, ServerResponseError, TransportError,
   writeFailureConfirmation } from './errors.ts'

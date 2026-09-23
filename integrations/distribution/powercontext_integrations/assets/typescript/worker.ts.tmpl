@@ -1,0 +1,213 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* All domain operations use the installed client worker. */
+
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ClientOptions, ClientSuccess, JsonObject } from './client.{{extension}}'
+import { InvalidResponseError, RequestNotSentError, RequestTimeoutError, ResponseReadError, ServerResponseError, UnavailableError, UnknownOutcomeError } from './errors.{{extension}}'
+import { OPERATIONS, type OperationId } from './operations.generated.{{extension}}'
+import { WRITE_OPERATIONS } from './writes.generated.{{extension}}'
+
+const WRITES = new Set(WRITE_OPERATIONS)
+const MAX_BYTES = 1_048_576
+const MAX_PENDING = 16
+
+interface Pending {
+  operation: string
+  observed?: { statusCode: number; requestId?: string }
+  resolve: (result: ClientSuccess) => void
+  reject: (error: Error) => void
+  cleanup: () => void
+}
+
+export function workerCommand(): { command: string; args: string[] } {
+  return { command: 'powercontext-hook', args: [] }
+}
+
+export class WorkerClient {
+  private readonly options: ClientOptions & { startupTimeoutMs?: number }
+  private child?: ChildProcessWithoutNullStreams
+  private pending = new Map<string, Pending>()
+  private buffer = Buffer.alloc(0)
+  private sequence = 0
+  private readonly worker: { command: string; args: string[] }
+
+  constructor(options: ClientOptions & { startupTimeoutMs?: number }, worker = workerCommand()) {
+    this.options = options
+    this.worker = worker
+  }
+
+  async request(operation: string, payload?: JsonObject, signal?: AbortSignal,
+    timeoutMs = this.options.requestTimeoutMs, readinessResponse = false): Promise<ClientSuccess> {
+    const path = OPERATIONS[operation as OperationId].path
+    if (signal?.aborted) throw new RequestTimeoutError(path)
+    if (this.pending.size >= MAX_PENDING) throw new UnavailableError(path)
+    const totalTimeoutMs = this.child ? timeoutMs : Math.max(timeoutMs, this.options.startupTimeoutMs ?? 4000)
+    const id = String(++this.sequence)
+    const frame = JSON.stringify({
+      protocol: 1, id, operation, arguments: payload ?? {}, readiness_response: readinessResponse, observe_headers: true,
+      connection: {
+        base_url: this.options.baseUrl,
+        authorization: this.options.authorization ?? null,
+        allow_insecure_http: this.options.allowInsecureHttp ?? false,
+        request_timeout: timeoutMs / 1000,
+      },
+      deadline: (Date.now() + totalTimeoutMs) / 1000,
+    }) + '\n'
+    if (Buffer.byteLength(frame) > MAX_BYTES) throw new InvalidResponseError(path)
+    return new Promise<ClientSuccess>((resolveRequest, reject) => {
+      const abort = () => this.fail(new RequestTimeoutError(path, new DOMException('Operation stopped', signal?.aborted && signal.reason?.name !== 'TimeoutError' ? 'AbortError' : 'TimeoutError')))
+      const timer = setTimeout(abort, totalTimeoutMs)
+      const cleanup = () => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', abort)
+      }
+      this.pending.set(id, { operation, resolve: resolveRequest, reject, cleanup })
+      signal?.addEventListener('abort', abort, { once: true })
+      try {
+        const child = this.start()
+        this.reference(child, true)
+        child.stdin.write(frame, (error) => { if (error) this.fail(new UnavailableError(path)) })
+      } catch {
+        this.fail(new UnavailableError(path))
+      }
+    })
+  }
+
+  close(): void {
+    this.fail(new UnavailableError('/worker'))
+  }
+
+  private reference(child: ChildProcessWithoutNullStreams, active: boolean): void {
+    const method = active ? 'ref' : 'unref'
+    child[method]()
+    for (const stream of [child.stdin, child.stdout, child.stderr]) {
+      const handle = stream as unknown as { ref?: () => void; unref?: () => void }
+      handle[method]?.()
+    }
+  }
+
+  private start(): ChildProcessWithoutNullStreams {
+    if (this.child) return this.child
+    const { command, args } = this.worker
+    const child = spawn(command, args, {
+      stdio: ['pipe', 'pipe', 'pipe'], shell: false, detached: process.platform !== 'win32',
+    })
+    this.child = child
+    child.stdout.on('data', (data: Buffer) => {
+      if (this.child !== child) return
+      this.buffer = Buffer.concat([this.buffer, data])
+      let end: number
+      while ((end = this.buffer.indexOf('\n')) !== -1) {
+        if (end > MAX_BYTES) { this.fail(new InvalidResponseError('/worker')); return }
+        const line = this.buffer.subarray(0, end)
+        this.buffer = this.buffer.subarray(end + 1)
+        this.receive(line)
+      }
+      if (this.buffer.length > MAX_BYTES) this.fail(new InvalidResponseError('/worker'))
+    })
+    // Drain stderr without forwarding package-manager output or accidental payloads.
+    child.stderr.resume()
+    child.on('error', () => { if (this.child === child) this.fail(child.pid ? new UnavailableError('/worker') : new RequestNotSentError('/worker')) })
+    child.stdin.on('error', () => { if (this.child === child) this.fail(new UnavailableError('/worker')) })
+    child.on('exit', () => { if (this.child === child) this.fail(new UnavailableError('/worker')) })
+    return child
+  }
+
+  private receive(line: Buffer): void {
+    try {
+      const result = JSON.parse(line.toString('utf8')) as {
+        protocol: number; id: string; outcome: string; error?: string;
+        event?: string; body_error?: string; value?: unknown; status_code?: number; code?: string; kind?: 'json' | 'text' | 'bytes'; request_id?: string; etag?: string
+      }
+      if (result.protocol === 1 && this.pending.has(result.id) && result.event === 'response_headers'
+        && Number.isInteger(result.status_code)) {
+        this.pending.get(result.id)!.observed = { statusCode: result.status_code!, requestId: result.request_id }
+        return
+      }
+      if (result.protocol !== 1 || !this.pending.has(result.id)
+        || !['ok', 'empty', 'failed', 'unknown'].includes(result.outcome)) {
+        throw new Error('Invalid worker response')
+      }
+      if (['ok', 'empty'].includes(result.outcome) && (!('value' in result)
+        || !['json', 'text', 'bytes'].includes(result.kind ?? '')
+        || (result.kind !== 'json' && typeof result.value !== 'string'))) {
+        throw new Error('Invalid worker value')
+      }
+      const pending = this.pending.get(result.id)!
+      this.pending.delete(result.id)
+      pending.cleanup()
+      if (this.pending.size === 0 && this.child) this.reference(this.child, false)
+      const path = OPERATIONS[pending.operation as OperationId].path
+      if (result.outcome === 'ok' || result.outcome === 'empty') {
+        const metadata = { status: result.status_code ?? 200, requestId: result.request_id, etag: result.etag }
+        if (result.kind === 'bytes' && typeof result.value === 'string') {
+          pending.resolve({ kind: 'bytes', value: Buffer.from(result.value, 'base64'), ...metadata })
+        } else if (result.kind === 'text' && typeof result.value === 'string') {
+          pending.resolve({ kind: 'text', value: result.value, ...metadata })
+        } else {
+          pending.resolve({ kind: 'json', value: result.value, ...metadata })
+        }
+      } else if (result.body_error && result.status_code) {
+        const failure = result.body_error === 'response_too_large'
+          ? new InvalidResponseError(path, result.request_id, result.status_code, 'response_too_large')
+          : new ResponseReadError(path, new DOMException('Response body failed', result.body_error === 'request_timeout' ? 'TimeoutError' : 'NetworkError'), result.status_code, result.request_id)
+        pending.reject(Object.assign(failure, { outcome: result.outcome }))
+      } else if (result.outcome === 'unknown' && result.status_code) {
+        pending.reject(Object.assign(new ServerResponseError({ statusCode: result.status_code, code: result.code, path, requestId: result.request_id }), { outcome: 'unknown' }))
+      } else if (result.outcome === 'unknown') {
+        pending.reject(new UnknownOutcomeError(path, result.error === 'deadline' ? new DOMException('Deadline exceeded', 'TimeoutError') : undefined))
+      } else if (result.error === 'server' && result.status_code) {
+        pending.reject(new ServerResponseError({ statusCode: result.status_code, code: result.code, path, requestId: result.request_id }))
+      } else if (result.error === 'invalid_response' || result.error === 'invalid_request') {
+        pending.reject(new InvalidResponseError(path, result.request_id, result.status_code))
+      } else if (result.error === 'deadline') {
+        pending.reject(new RequestTimeoutError(path, new DOMException('Deadline exceeded', 'TimeoutError')))
+      } else {
+        pending.reject(new UnavailableError(path))
+      }
+    } catch {
+      this.fail(new InvalidResponseError('/worker'))
+    }
+  }
+
+  private fail(error: Error): void {
+    const child = this.child
+    this.child = undefined
+    this.buffer = Buffer.alloc(0)
+    if (child?.pid) {
+      try {
+        if (process.platform === 'win32') child.kill('SIGKILL')
+        else process.kill(-child.pid, 'SIGKILL')
+      } catch {
+        // The process may already have exited.
+      }
+    }
+    for (const pending of this.pending.values()) {
+      pending.cleanup()
+      const path = OPERATIONS[pending.operation as OperationId].path
+      const failure = pending.observed
+        ? new ResponseReadError(path, error.cause, pending.observed.statusCode, pending.observed.requestId)
+        : WRITES.has(pending.operation) && !(error instanceof RequestNotSentError) ? new UnknownOutcomeError(path, error.cause) : error
+      if (!(error instanceof RequestNotSentError) && WRITES.has(pending.operation) && ![401, 403].includes(pending.observed?.statusCode ?? 0)) {
+        Object.assign(failure, { outcome: 'unknown' })
+      }
+      pending.reject(failure)
+    }
+    this.pending.clear()
+  }
+}

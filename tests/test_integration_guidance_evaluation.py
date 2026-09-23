@@ -259,28 +259,10 @@ def test_handoff_does_not_pass_on_invalid_arguments_or_foreign_scope(payload: di
     assert result["error"]
 
 
-@pytest.mark.parametrize("fault", [None, "invented_source", "changed_draft", "only_capture"])
-def test_native_handoff_preserves_evidence_through_finalization(fault: str | None) -> None:
-    fixture = HandoffFixture()
-    capture = {"source_id": "aurora", "content": "README complete. Review the examples."}
-    source = fixture.respond("pc_capture_source", capture)["data"]["source"]
-    activate = {"objective": "Document Aurora", "boundary_source": source}
-    draft = fixture.respond("pc_handoff_activate", activate)["data"]["draft"]
-    prepared = fixture.respond("pc_handoff_finalize", {"draft": draft})["data"]
-    if fault == "invented_source":
-        activate = {**activate, "boundary_source": {**source, "source_id": "invented"}}
-    if fault == "changed_draft":
-        draft = {**draft, "objective": "Different task"}
-    responses = [
-        call("pc_capture_source", capture),
-        call("pc_handoff_activate", activate),
-        call("pc_handoff_finalize", {"draft": draft}),
-        {"content": json.dumps(prepared)},
-    ]
-    if fault == "only_capture":
-        responses = [responses[0], {"content": "Handoff ready."}]
-    result = asyncio.run(run_scenario(Model(responses), handoff_catalog(), "handoff", 0, "unloaded"))
-    assert result["routing_passed"] is (fault is None)
+@pytest.mark.parametrize("operation", ["pc_capture_source", "pc_handoff_activate", "pc_handoff_finalize"])
+def test_temporary_handoff_does_not_start_with_a_staged_operation(operation: str) -> None:
+    result = asyncio.run(run_scenario(Model([call(operation, {})]), handoff_catalog(), "handoff", 0, "unloaded"))
+    assert not result["routing_passed"]
 
 
 def test_memory_selection_cannot_pass_with_missing_required_arguments() -> None:
@@ -344,26 +326,16 @@ def test_native_adapter_handoff_uses_real_request_mapping_and_response_envelopes
     async def scenario() -> None:
         session, fixture = NativeHandoffSession(host), HandoffFixture()
         try:
-            capture = await session.call(
-                "pc_capture_source", {"source_id": "aurora", "content": "README complete"}, fixture
+            result = await session.call(
+                "pc_handoff_current", {**handoff_payload(), "scope_id": "foreign-scope"}, fixture
             )
-            source = capture["data"]["source"]
-            draft = await session.call(
-                "pc_handoff_prepare",
-                {
-                    "objective": "Document Aurora",
-                    "evidence": [{"kind": "source", "source_ref": source}],
-                    "boundary_source": json.dumps(source),
-                    "scope_id": "foreign-scope",
-                },
-                fixture,
-            )
-            request = session.requests[-1]["payload"]
+            assert len(session.requests) == 1
+            request = session.requests[0]["payload"]
             assert request["scope_id"] == "fixture-scope"
-            assert "boundary_source" not in request
-            prepared = await session.call("pc_handoff_finalize", {"draft": draft["data"]}, fixture)
-            assert fixture.carrier_returned(json.dumps(prepared["data"]))
-            assert prepared["data"]["schema"] == "powercontext.prepared-handoff.v1"
+            assert request["source_id"] == handoff_payload()["source_id"]
+            prepared = result["data"]["handoff"]
+            assert fixture.carrier_returned(json.dumps(prepared))
+            assert prepared["schema"] == "powercontext.prepared-handoff.v1"
         finally:
             await session.close()
 
@@ -403,7 +375,7 @@ def test_openclaw_handoff_adapter_preserves_generated_source_identity() -> None:
 
 
 @pytest.mark.parametrize("field", ["state", "next_action"])
-def test_handoff_claim_error_identifies_field_without_accepting_a_source(field: str) -> None:
+def test_handoff_claim_error_identifies_invalid_evidence(field: str) -> None:
     fixture = HandoffFixture()
     payload = handoff_payload()
     claim = payload["handoff"]["state"][0] if field == "state" else payload["handoff"]["next_action"]
@@ -411,7 +383,6 @@ def test_handoff_claim_error_identifies_field_without_accepting_a_source(field: 
     path = r"handoff.state\[0\]" if field == "state" else r"handoff.next_action"
     with pytest.raises(ValueError, match=path + r"\.basis/evidence"):
         fixture.respond("handoff_current_work", payload)
-    assert fixture.source is None
 
 
 @pytest.mark.parametrize("operation, case", [("remember_memory", "save"), ("search_memory", "search")])

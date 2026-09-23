@@ -15,12 +15,30 @@
  */
 import { TuiPlugin } from "@opencode-ai/plugin/tui";
 
+//#region src/management.d.ts
+interface ManagementReport extends Record<string, unknown> {
+  ok: boolean;
+  status: string;
+  checks: Record<string, unknown>;
+}
+//#endregion
 //#region src/client.d.ts
 type JsonObject = Record<string, unknown>;
-type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 type ClientSuccess = {
   kind: 'json';
   value: unknown;
+  status: number;
+  requestId: string | undefined;
+  etag?: string;
+} | {
+  kind: 'text';
+  value: string;
+  status: number;
+  requestId: string | undefined;
+  etag?: string;
+} | {
+  kind: 'bytes';
+  value: Uint8Array;
   status: number;
   requestId: string | undefined;
   etag?: string;
@@ -30,15 +48,21 @@ interface ClientOptions {
   allowInsecureHttp?: boolean;
   authorization?: string;
   requestTimeoutMs: number;
-  fetch?: FetchFn;
+  startupTimeoutMs?: number;
+  worker?: {
+    command: string;
+    args: string[];
+  };
 }
 declare class PowerContextClient {
-  private readonly options;
-  private readonly fetchImpl;
+  protected readonly options: ClientOptions;
+  private readonly worker;
   constructor(options: ClientOptions);
-  request(id: string, payload?: JsonObject, signal?: AbortSignal): Promise<ClientSuccess>;
-  private url;
-  private init;
+  request(id: string, payload?: JsonObject, signal?: AbortSignal, options?: {
+    readinessResponse?: boolean;
+  } | number): Promise<ClientSuccess>;
+  doctor(signal?: AbortSignal): Promise<ManagementReport>;
+  close(): void;
 }
 //#endregion
 //#region src/config.d.ts

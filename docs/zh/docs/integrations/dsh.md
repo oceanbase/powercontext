@@ -6,6 +6,8 @@ description: 安装 PowerContext DeepSeek Harness 插件并控制其本地行为
 
 # DeepSeek Harness
 
+先安装 PowerContext client，并确保宿主进程的 PATH 包含 `powercontext-hook`。全部领域操作通过共享的已安装客户端执行，Hook 不再安装 Python 环境或运行时依赖。`powercontext setup` 会检查此前提，`powercontext doctor` 会报告其状态；分发工具要求本地存在 `uvx` 和 `npx`。
+
 `community`
 
 ## 安装匹配的 Server 和插件
@@ -36,7 +38,7 @@ powercontext setup dsh --source ./powercontext-dsh-dev
 `setup dsh --source oceanbase/powercontext --ref master` 会直接复用有效缓存 checkout，不会 fetch；
 重复运行不代表更新了移动分支。只有残缺 checkout 会被替换。
 
-`setup dsh` 调用 `dsh plugin --profile web add`，不会启动 Server。安装完成后重启 DSH。
+`setup dsh` 调用 `dsh plugin --profile web add --workspace-root`，不会启动 Server。安装完成后重启 DSH。
 
 ## 启动 Server 和宿主
 
@@ -69,38 +71,13 @@ Server 使用其他监听地址时同步修改 URL。鉴权使用 `POWERCONTEXT_
 
 ## 诊断运行中的配置
 
-在出现问题的 DSH 会话内运行 `/pc doctor`。报告显示配置来源，分别检查 liveness、readiness、运行能力、
-路由声明、当前 Scope 和只读 prepare 操作。Scope 失败不会遮蔽健康检查。
-端点摘要仅显示 origin、配置来源和是否存在路径前缀，不打印凭据、前缀正文、查询参数或 fragment。
+在出现问题的 DSH 会话中运行 `/pc doctor`。命令将当前连接交给已安装的 Python 客户端，执行公共的存活、
+就绪和上下文 schema 检查。检查共用一个截止时间，不解析 Scope，不执行 prepare、capture 或 flush。
+Readiness 保留已识别的依赖状态，包括 HTTP 503 的结果；输出不包含 Server 私有错误文字。存活失败时跳过其余检查。
 
-失败项提供操作名、稳定 code、可用的 HTTP status/request ID 和具体恢复操作。
-协议错误还提供 `protocol_issue`，指出 JSON、状态码或 PreparedContext 字段违反的具体规则。
-Readiness 保留已识别的依赖状态，包括 HTTP 503 的检查结果，不透传 Server 原始错误文字和召回内容。
-`ok: true` 表示这些只读检查通过，并不代表已经采集或处理了数据。
-
-| 结果 | 含义和处理方式 |
-| --- | --- |
-| `invalid_endpoint` | 修正实际使用的 HTTP(S) base URL，移除 userinfo、query 和 fragment，凭据改用 Authorization。 |
-| `connection_refused` / `dns_lookup_failed` | 分别检查监听地址是否启动、配置的主机名能否解析。 |
-| `request_timeout` | 检查指定操作的 Server 延迟、依赖和实际请求超时设置。 |
-| `connection_failed` | 传输失败且未提供更具体原因；检查端点、代理、网络和 Server 日志。 |
-| `authentication_failed` / `authorization_failed` | 分别检查宿主凭据、当前主体对该操作和 Scope 的权限。 |
-| `not_ready` / `degraded` | 检查报告指出的依赖，例如 `database` 或 `inference.generation`，按该项恢复提示处理。 |
-| `required_route_missing` | 指定操作返回无业务码的 404；检查代理路由、base path 和版本匹配，404 本身不能确定是版本问题。 |
-| `required_route_undeclared` | Server 的 OpenAPI 文档缺少列出的操作声明。 |
-| `contract_unavailable` | 无法核对路由声明；通过同一 base path 提供 `/openapi.json`，或单独核对部署的契约。 |
-| `scope_not_found` / `unscoped` | 检查显式 Scope 覆盖、workspace binding 和 Server 默认 Scope；Doctor 不修改它们。 |
-| `invalid_response` | 响应未通过协议校验，即使 HTTP status 是 200。 |
-| `extraction_disabled` / prepare `empty` | 正常的受限能力或空结果，不能据此判断 hook 或 Server 故障。 |
-
-路由检查读取 Server 已有的 `/openapi.json`，区分“声明支持”和“实际探测通过”。
-Doctor 不执行 capture、remember、flush、binding 修改或注入。契约不可读时标为未检查；
-Scope 不可用时跳过 prepare 并说明原因。实际写入与处理由下方显式验收负责。
-
-独立 CLI 的 `powercontext doctor dsh` 仅检查 Web profile 注册，并明确报告没有观察到运行中宿主的配置，
-没有执行 Server 检查。退出成功只表示注册检查通过。
-`powercontext doctor` 使用自己的 `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`；
-对齐 URL 后可复用它的 service/health 诊断，但不能认为它观察到了 DSH 的覆盖配置。
+`powercontext doctor dsh` 检查客户端前提、Web profile 注册和可识别的连接配置；加上 `--server` 执行同一套 Server 检查。
+DSH 存在运行时配置覆盖时，使用会话内命令。`powercontext doctor` 检查 `--server-url` 或
+`POWERCONTEXT_CLIENT_SERVER_URL` 指定的端点。
 
 ## 查看最近一次自动执行
 
@@ -151,7 +128,7 @@ flush 或修改绑定。Doctor 探测和手动操作也不会覆盖自动执行�
 
 这是会写入测试证据的显式验收。完成上述匹配安装和提取配置后：
 
-1. 运行 `/pc doctor`，确认健康、Scope 和 prepare 检查通过，自动提取已启用。
+1. 运行 `/pc doctor`，确认 Server 健康，再用 `/pc capabilities` 查看提取能力，用 `/pc` 查看 Scope 观测结果。
 2. 发送一个独特的项目事实，例如：“The aurora deployment color is violet-cedar-1457.”
 3. 分别核实 Source 接收和处理。等待已配置的 Scheduler，或显式运行 `/pc flush`。
    按[Memory 闭环 API 检查](../get-started/configure-models.md)确认处理游标达到 Source position，
@@ -184,7 +161,7 @@ Scope 解析失败时，具名工具和依赖 Scope 的 `/pc` 命令会返回受
 
 在 DeepSeek Harness 内：
 
-- `/pc doctor` 独立检查健康、能力、路由和 Scope；Scope 解析失败时保留其他层的结果，并跳过 prepare。
+- `/pc doctor` 调用公共 Python 健康与上下文 schema 检查，不解析 Scope。
 - `/pc capabilities` 直接查询 Server 能力，无需解析 Scope。
 - 未知子命令或缺少参数时，在本地返回用法说明，不访问 Server。
 - 裸 `/pc` 显示已解析的 Scope 和 Server origin。解析失败时返回错误，但仍显示 `scope=unresolved`、受控错误信息

@@ -32,6 +32,7 @@ function createRuntime(): PluginRuntime {
     allowInsecureHttp: config.allowInsecureHttp,
     authorization: config.authorization,
     requestTimeoutMs: config.requestTimeoutMs,
+    startupTimeoutMs: config.httpBudgetMs,
   })
   const emitDiagnostic = createDiagnosticEmitter(diagnosticWriter(config.diagnostics))
   const diagnostic = (event: string, error: unknown) => {
@@ -42,8 +43,8 @@ function createRuntime(): PluginRuntime {
   return {
     client,
     config,
-    resolveScope(cwd) {
-      return resolveScopeId(client, cwd, config.scopeId)
+    resolveScope(cwd, signal) {
+      return resolveScopeId(client, cwd, config.scopeId, signal)
     },
     recordCapture: (scopeId, position) => flusher.record(scopeId, position),
     flushPending: (signal) => flusher.flush(signal),
@@ -92,6 +93,10 @@ export default function powercontextPi(pi: ExtensionAPI): void {
   })
 
   pi.on('session_shutdown', async (_event, ctx) => {
-    await runtime?.flushPending?.(ctx.signal)
+    try {
+      await runtime?.flushPending?.(ctx.signal)
+    } finally {
+      if (runtime?.client instanceof PowerContextClient) runtime.client.close()
+    }
   })
 }

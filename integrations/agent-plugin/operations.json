@@ -1,0 +1,16 @@
+[
+  "search_memory",
+  "remember_memory",
+  "list_memory_entries",
+  "get_memory_entry",
+  "revise_memory_entry",
+  "retire_memory_entry",
+  "create_work_contract",
+  "handoff_current_work",
+  "acknowledge_handoff",
+  "record_task_outcome",
+  "commit_handoff",
+  "continue_handoff",
+  "list_artifact_candidates",
+  "get_artifact_candidate"
+]

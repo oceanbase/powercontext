@@ -19,7 +19,9 @@ import {
   definePluginEntry,
   type OpenClawConfig,
   type OpenClawPluginToolContext,
+  type AnyAgentTool,
 } from "openclaw/plugin-sdk/plugin-entry";
+import { STANDARD_TOOLS } from "./src/tools.generated.js";
 import { resolvePowerContextConfig } from "./src/config.js";
 import { buildMemoryGuidance } from "./src/guidance.js";
 import { createPowerContextClient } from "./src/http.js";
@@ -29,6 +31,7 @@ import { createPowerContextMemoryRuntime } from "./src/runtime.js";
 import { PowerContextMemoryManager } from "./src/manager.js";
 import { registerPowerContextCommand } from "./src/command.js";
 import {
+  createStandardTool,
   createMemoryRetireTool,
   createMemoryGetTool,
   createMemoryReviseTool,
@@ -116,50 +119,26 @@ export default definePluginEntry({
       }),
     });
 
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createMemorySearchTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_MEMORY_SEARCH_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createMemoryGetTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_MEMORY_GET_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createMemoryStoreTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_MEMORY_STORE_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createMemoryReviseTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_MEMORY_REVISE_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createMemoryRetireTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_MEMORY_RETIRE_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createWorkContractTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_WORK_CONTRACT_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createHandoffCurrentWorkTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_HANDOFF_CURRENT_WORK_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createHandoffCommitTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_HANDOFF_COMMIT_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createHandoffContinueTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_HANDOFF_CONTINUE_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createHandoffAcknowledgeTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_HANDOFF_ACKNOWLEDGE_TOOL],
-    });
-    api.registerTool((ctx) =>
-      getConfig().endpoint ? createTaskOutcomeTool(ctx, dependencies) : null, {
-      names: [POWERCONTEXT_TASK_OUTCOME_TOOL],
-    });
+    const nativeTools = new Map<string, (ctx: OpenClawPluginToolContext, deps: typeof dependencies) => AnyAgentTool | null>([
+      [POWERCONTEXT_MEMORY_SEARCH_TOOL, createMemorySearchTool],
+      [POWERCONTEXT_MEMORY_GET_TOOL, createMemoryGetTool],
+      [POWERCONTEXT_MEMORY_STORE_TOOL, createMemoryStoreTool],
+      [POWERCONTEXT_MEMORY_REVISE_TOOL, createMemoryReviseTool],
+      [POWERCONTEXT_MEMORY_RETIRE_TOOL, createMemoryRetireTool],
+      [POWERCONTEXT_WORK_CONTRACT_TOOL, createWorkContractTool],
+      [POWERCONTEXT_HANDOFF_CURRENT_WORK_TOOL, createHandoffCurrentWorkTool],
+      [POWERCONTEXT_HANDOFF_COMMIT_TOOL, createHandoffCommitTool],
+      [POWERCONTEXT_HANDOFF_CONTINUE_TOOL, createHandoffContinueTool],
+      [POWERCONTEXT_HANDOFF_ACKNOWLEDGE_TOOL, createHandoffAcknowledgeTool],
+      [POWERCONTEXT_TASK_OUTCOME_TOOL, createTaskOutcomeTool],
+    ]);
+    for (const definition of STANDARD_TOOLS) {
+      api.registerTool(ctx => {
+        if (!getConfig().endpoint) return null;
+        const native = nativeTools.get(definition.name);
+        return native ? native(ctx, dependencies) : createStandardTool(definition, ctx, dependencies);
+      }, { names: [definition.name] });
+    }
 
     registerPowerContextLifecycle(api, dependencies);
     api.registerService({

@@ -6,6 +6,8 @@ description: Install the PowerContext OpenCode plugin and control its local beha
 
 # OpenCode
 
+Install the PowerContext client first and expose `powercontext-hook` on the host process PATH. All domain operations use the shared installed client; hooks do not install Python environments or runtime dependencies. `powercontext setup` checks this prerequisite and `powercontext doctor` reports it. Local `uvx` and `npx` are required for distribution tooling.
+
 `community`
 
 ## Install or refresh the plugin

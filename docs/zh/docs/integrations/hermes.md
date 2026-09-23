@@ -6,6 +6,8 @@ description: 安装 Hermes MemoryProvider 和独立 slash-command 插件，并�
 
 # Hermes
 
+先安装 PowerContext client，并确保宿主进程的 PATH 包含 `powercontext-hook`。全部领域操作通过共享的已安装客户端执行，Hook 不再安装 Python 环境或运行时依赖。`powercontext setup` 会检查此前提，`powercontext doctor` 会报告其状态；分发工具要求本地存在 `uvx` 和 `npx`。
+
 `community`
 
 该集成包含标准 Hermes `MemoryProvider` 和独立 slash-command 插件。Hermes 继续负责对话和 Memory 生命周期，

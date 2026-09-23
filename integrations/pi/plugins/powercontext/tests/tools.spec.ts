@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -15,6 +16,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+
+// These tests exercise native host behavior; worker.spec.ts covers the real Python boundary.
 import { validateToolArguments, type Tool, type ToolCall } from '@earendil-works/pi-ai'
 import type { TSchema } from 'typebox'
 import { Value } from 'typebox/value'
@@ -25,7 +28,7 @@ import type { PluginRuntime } from '../src/recall.ts'
 
 function createRuntime(fetch: FetchFn): PluginRuntime {
   return {
-    client: new PowerContextClient({
+    client: new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch,
@@ -197,7 +200,7 @@ describe('Pi native tool surface', () => {
     const registered: Array<Record<string, unknown>> = []
     registerTools({ registerTool: (tool: Record<string, unknown>) => registered.push(tool) } as never, createRuntime(vi.fn()))
     const tool = registeredTool<Record<string, unknown>>(registered, 'pc_memory_changes') as unknown as Tool
-    const call = (since_revision: unknown): ToolCall => ({
+    const call = (since_revision: number | null): ToolCall => ({
       type: 'toolCall', id: 'call-validation', name: 'pc_memory_changes', arguments: { since_revision },
     })
 

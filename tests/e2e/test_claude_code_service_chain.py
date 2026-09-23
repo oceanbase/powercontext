@@ -119,7 +119,9 @@ def test_claude_sessions_and_codex_share_one_project_memory(
             authorization=AUTHORIZATION if authentication_enabled else None,
             scope_id=scope_id,
         )
-        assert captured.stdout == ""
+        assert json.loads(captured.stdout)["hookSpecificOutput"]["additionalContext"] == (
+            f"PowerContext Scope: {json.dumps(scope_id)}. Use this exact scope_id for PowerContext tools.\n"
+        )
         assert AUTH_TOKEN not in captured.stderr
 
         recalled_by_claude = _run_claude_hook(

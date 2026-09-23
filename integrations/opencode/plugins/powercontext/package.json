@@ -25,7 +25,8 @@
     "lib/index.d.ts",
     "lib/tui.js",
     "lib/tui.d.ts",
-    "skills/powercontext-project-context"
+    "skills/powercontext-project-context",
+    "tools.generated.json"
   ],
   "scripts": {
     "build": "tsdown",

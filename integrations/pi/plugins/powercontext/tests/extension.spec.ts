@@ -15,6 +15,8 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// These tests exercise native host behavior; worker.spec.ts covers the real Python boundary.
 import powercontextPi from '../extensions/powercontext.ts'
 import { GUIDANCE } from '../src/guidance.ts'
 
@@ -309,7 +311,7 @@ describe('PowerContext Pi extension', () => {
     expect(JSON.parse(String(flush?.[1]?.body))).toEqual({ scope_id: 'project:demo' })
   })
 
-  it('retries an immediate flush after a transient failure', async () => {
+  it('does not replay a flush after an unconfirmed server failure', async () => {
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '4')
     let flushAttempts = 0
@@ -345,10 +347,10 @@ describe('PowerContext Pi extension', () => {
       },
     })
 
-    expect(flushAttempts).toBe(2)
+    expect(flushAttempts).toBe(1)
   })
 
-  it('retains a captured position for compaction after immediate flush retries fail', async () => {
+  it('does not replay an unknown immediate flush during compaction', async () => {
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_ON_CAPTURE', 'true')
     vi.stubEnv('POWERCONTEXT_PI_FLUSH_MAX_CALLS', '1')
     let flushAttempts = 0
@@ -388,7 +390,7 @@ describe('PowerContext Pi extension', () => {
 
     await handlers.get('session_before_compact')?.({}, context)
 
-    expect(flushAttempts).toBe(2)
+    expect(flushAttempts).toBe(1)
   })
 
   it('does not persist a prompt when capture is disabled', async () => {
@@ -517,4 +519,12 @@ describe('PowerContext Pi extension', () => {
 
     expect(fetch.mock.calls.some(([url]) => url === 'http://127.0.0.1:8000/v1/sources/content')).toBe(false)
   })
+})
+
+vi.mock('../src/client.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client.ts')>()
+  const { createClientDouble } = await import('../../../../shared/testing/client.ts')
+  const errors = await import('../src/errors.ts')
+  const { OPERATIONS } = await import('../src/operations.generated.ts')
+  return { ...actual, PowerContextClient: createClientDouble(actual.PowerContextClient, errors, OPERATIONS) }
 })

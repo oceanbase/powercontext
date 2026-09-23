@@ -6,6 +6,8 @@ description: 为 OpenClaw 安装 PowerContext memory 插件，并控制召回、
 
 # OpenClaw
 
+先安装 PowerContext client，并确保宿主进程的 PATH 包含 `powercontext-hook`。全部领域操作通过共享的已安装客户端执行，Hook 不再安装 Python 环境或运行时依赖。`powercontext setup` 会检查此前提，`powercontext doctor` 会报告其状态；分发工具要求本地存在 `uvx` 和 `npx`。
+
 `community`
 
 ## 安装或刷新插件

@@ -23,7 +23,8 @@
     "lib/invariant.js",
     "lib/index.d.ts",
     "lib/invariant.d.ts",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "tools.generated.json"
   ],
   "dsh": {
     "bundle": {

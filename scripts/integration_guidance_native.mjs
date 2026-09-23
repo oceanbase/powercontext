@@ -16,7 +16,10 @@
 
 // Execute registered adapters against a controlled transport, without contacting a Server.
 import { createInterface } from 'node:readline'
-import { OPERATIONS } from '../integrations/dsh/plugins/powercontext/src/operations.generated.ts'
+import childProcess from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { syncBuiltinESMExports } from 'node:module'
+import { PassThrough } from 'node:stream'
 
 const lines = createInterface({ input: process.stdin, terminal: false })[Symbol.asyncIterator]()
 const send = value => process.stdout.write(JSON.stringify(value) + '\n')
@@ -29,11 +32,33 @@ const host = process.argv[2]
 const scope = 'fixture-scope'
 const signal = new AbortController().signal
 const request = async (operation, payload) => {
+  if (operation === 'resolve_scope_binding') return { kind: 'json', status: 200, value: { scope_id: scope } }
   send({ kind: 'request', operation, payload })
   const reply = await receive()
-  if (reply.kind !== 'response') throw new Error('Expected a controlled HTTP response')
-  return { kind: 'json', status: OPERATIONS[operation].successStatuses[0], requestId: undefined, value: reply.value }
+  if (reply.kind !== 'response') throw new Error('Expected a controlled client response')
+  return { kind: 'json', status: 200, requestId: undefined, value: reply.value }
 }
+// Keep native registration and request mapping, controlling only the installed worker boundary.
+childProcess.spawn = command => {
+  if (command !== 'powercontext-hook') throw new Error(`Unexpected evaluation process: ${command}`)
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    ref() {}, unref() {},
+  })
+  createInterface({ input: child.stdin }).on('line', async line => {
+    const frame = JSON.parse(line)
+    try {
+      const result = await request(frame.operation, frame.arguments)
+      child.stdout.write(JSON.stringify({
+        protocol: 1, id: frame.id, outcome: 'ok', kind: result.kind, value: result.value, status_code: result.status,
+      }) + '\n')
+    } catch (error) {
+      child.emit('error', error)
+    }
+  })
+  return child
+}
+syncBuiltinESMExports()
 let execute
 if (host === 'dsh') {
   const { registerTools } = await import('../integrations/dsh/plugins/powercontext/src/tools.ts')
@@ -65,15 +90,6 @@ if (host === 'dsh') {
   delete process.env.POWERCONTEXT_OPENCODE_ACTIVATION_PROBE_NONCE
   process.env.POWERCONTEXT_OPENCODE_SCOPE_ID = scope
   process.env.POWERCONTEXT_OPENCODE_BASE_URL = 'http://127.0.0.1:1'
-  const { OPERATIONS } = await import('../integrations/opencode/plugins/powercontext/src/operations.generated.ts')
-  globalThis.fetch = async (url, init) => {
-    const path = new URL(url).pathname
-    if (path.endsWith('/scope-bindings/resolve')) return Response.json({ scope_id: scope })
-    const operation = Object.entries(OPERATIONS).find(([, spec]) => spec.path === path && spec.method === init.method)?.[0]
-    if (!operation) throw new Error(`Unexpected evaluation HTTP request: ${init.method} ${path}`)
-    const result = await request(operation, JSON.parse(init.body))
-    return Response.json(result.value, { status: result.status })
-  }
   const { PowerContextPlugin } = await import('../integrations/opencode/plugins/powercontext/src/index.ts')
   const hooks = await PowerContextPlugin({ directory: process.cwd(), client: {
     session: { get: async () => ({ data: { directory: process.cwd() } }) }, app: { log: async () => ({}) },
@@ -85,14 +101,6 @@ if (host === 'dsh') {
     }))
   }
 } else if (host === 'openclaw') {
-  globalThis.fetch = async (url, init) => {
-    const path = new URL(url).pathname
-    if (path.endsWith('/scope-bindings/resolve')) return Response.json({ scope_id: scope })
-    const operation = Object.entries(OPERATIONS).find(([, spec]) => spec.path === path && spec.method === init.method)?.[0]
-    if (!operation) throw new Error(`Unexpected evaluation HTTP request: ${init.method} ${path}`)
-    const result = await request(operation, JSON.parse(init.body))
-    return Response.json(result.value, { status: result.status })
-  }
   const { default: plugin } = await import('../integrations/openclaw/plugins/memory-powercontext/dist/index.js')
   const tools = []
   const context = { agentId: 'main', sessionKey: 'agent:main:telegram:direct:fixture' }

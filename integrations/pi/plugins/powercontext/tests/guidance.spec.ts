@@ -15,8 +15,10 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
+
+// These tests exercise native host behavior; worker.spec.ts covers the real Python boundary.
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { Value } from 'typebox/value'
 import type { TSchema } from 'typebox'
 import powercontextPi from '../extensions/powercontext.ts'
@@ -35,7 +37,11 @@ it('routes only to the registered Pi tools without requiring a Skill load', () =
     disposition: 'complete', next_action: null, omissions: [], generation: null }
   expect(Value.Check(finalize.parameters as TSchema, { draft })).toBe(true)
   expect(Value.Check(finalize.parameters as TSchema, { draft: { ok: true, data: draft } })).toBe(false)
-  for (const name of (GUIDANCE + tools.map(tool => tool.description).join('\n')).match(/\bpc_[a-z_]+\b/g) ?? []) {
+  const skillRoot = new URL('../skills/powercontext-project-context/', import.meta.url)
+  const router = readFileSync(new URL('SKILL.md', skillRoot), 'utf8')
+  const references = [...router.matchAll(/\]\((references\/[^)]+)\)/g)]
+    .map(match => readFileSync(new URL(match[1], skillRoot), 'utf8'))
+  for (const name of (GUIDANCE + router + references.join('\n') + tools.map(tool => tool.description).join('\n')).match(/\bpc_[a-z_]+\b/g) ?? []) {
     expect(names.has(name), `unavailable tool referenced in Pi guidance: ${name}`).toBe(true)
   }
   const output = process.env.POWERCONTEXT_GUIDANCE_EXPORT

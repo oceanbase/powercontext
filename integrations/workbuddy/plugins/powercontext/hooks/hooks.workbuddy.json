@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
+            "command": "powercontext-hook --script \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
             "timeout": 30,
             "statusMessage": "Syncing PowerContext"
           }

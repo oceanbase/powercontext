@@ -33,8 +33,17 @@ it('exposes guidance through the actual system transform and resolves its tool n
     disposition: 'complete', next_action: null, omissions: [], generation: null }
   expect(parameters.safeParse({ draft }).success).toBe(true)
   expect(parameters.safeParse({ draft: { ok: true, data: draft } }).success).toBe(false)
+  const current = tool.schema.object(tools.find(tool => tool.name === 'pc_handoff_current')!.args)
+  const handoff = { schema: 'powercontext.current-work-handoff.v1', trust: 'untrusted_input', objective: 'Continue work',
+    state: [{ text: 'Implementation inspected', basis: 'declared', evidence: [] }], disposition: 'continuable', next_action: null, omissions: [] }
+  expect(current.safeParse({ source_id: 'boundary-1', handoff }).success).toBe(true)
+  expect(current.safeParse({ source_id: 'boundary-1', handoff: { ...handoff, next_action: [] } }).success).toBe(false)
   expect(output.system.length).toBeGreaterThan(0)
-  for (const name of (output.system.join('\n') + tools.map(tool => tool.description).join('\n')).match(/\bpc_[a-z_]+\b/g) ?? []) {
+  const skillRoot = new URL('../skills/powercontext-project-context/', import.meta.url)
+  const router = readFileSync(new URL('SKILL.md', skillRoot), 'utf8')
+  const references = [...router.matchAll(/\]\((references\/[^)]+)\)/g)]
+    .map(match => readFileSync(new URL(match[1]!, skillRoot), 'utf8'))
+  for (const name of (output.system.join('\n') + router + references.join('\n') + tools.map(tool => tool.description).join('\n')).match(/\bpc_[a-z_]+\b/g) ?? []) {
     expect(names.has(name), `unavailable tool referenced in OpenCode guidance: ${name}`).toBe(true)
   }
   const directory = process.env.POWERCONTEXT_GUIDANCE_EXPORT

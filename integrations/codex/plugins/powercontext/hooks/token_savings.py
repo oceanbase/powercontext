@@ -23,40 +23,32 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.error import HTTPError
-from urllib.request import Request
+
+from powercontext.client.integration.diagnostics import should_emit as _should_emit_diagnostic
+from powercontext.client.integration.native import (
+    HttpStatusError as _HttpStatusError,
+)
+from powercontext.client.integration.native import (
+    UnavailableError as _ServerUnavailableError,
+)
+from powercontext.client.integration.native import request_json as _request_stats
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from hooks.recall import (  # noqa: E402
-    _decode_error_code,
-    _HttpStatusError,
-    _read_response,
-    _remaining_time,
-    _ServerUnavailableError,
-)
 from scope_binding import (  # noqa: E402
     ScopeBindingRejectedError,
     ScopeBindingStatusError,
     ScopeBindingUnavailableError,
-    open_bounded,
     resolve_scope_id,
 )
 from settings import CodexPluginSettings  # noqa: E402
 
 _COMPONENT = "powercontext.codex.token_savings"
-_USER_AGENT = "powercontext-codex-token-savings/0.3.0"
-_REQUEST_HEADERS = {
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "User-Agent": _USER_AGENT,
-}
 # The Stop entry has a 10-second host deadline (hooks.json). Keep
-# the internal HTTP budget below it so uv/Python start-up and the bounded output
+# the internal HTTP budget below it so client start-up and the bounded output
 # fit inside the host limit instead of being killed mid-request.
 _HOST_TIMEOUT_SECONDS = 10.0
 _STARTUP_AND_OUTPUT_MARGIN_SECONDS = 2.0
@@ -130,33 +122,13 @@ def format_message(today: object, month: object) -> str:
 
 
 def _load_stats(settings: CodexPluginSettings, scope_id: str, period: str, *, deadline: float) -> object:
-    """Load one statistics window under the absolute HTTP budget deadline."""
-
-    request_deadline = min(deadline, monotonic() + settings.request_timeout_seconds)
-    headers = dict(_REQUEST_HEADERS)
-    if settings.authorization is not None:
-        headers["Authorization"] = settings.authorization.get_secret_value()
-    request = Request(  # noqa: S310 - settings validation enforces the transport policy.
-        f"{settings.server_url}/v1/stats",
-        data=json.dumps(
-            {
-                "selection": {"mode": "exact", "scope_ids": [scope_id]},
-                "period": period,
-            },
-            separators=(",", ":"),
-        ).encode(),
-        headers=headers,
-        method="POST",
+    result = _request_stats(
+        "/v1/stats",
+        {"selection": {"mode": "exact", "scope_ids": [scope_id]}, "period": period},
+        settings=settings,
+        deadline=deadline,
     )
-    try:
-        with open_bounded(request, timeout=_remaining_time(request_deadline)) as response:
-            result = json.loads(_read_response(response, deadline=request_deadline, chunk_bytes=1))
-    except HTTPError as error:
-        code = _decode_error_code(_read_response(error, deadline=request_deadline, chunk_bytes=1))
-        raise _HttpStatusError(error.code, "/v1/stats", code) from error
-    except (TimeoutError, OSError) as error:
-        raise _ServerUnavailableError from error
-    if not isinstance(result, dict) or token_reduction(result) is None:
+    if token_reduction(result) is None:
         raise TypeError
     return result
 
@@ -230,7 +202,7 @@ def _append_event(
     if outcome in emitted:
         return
     emitted.add(outcome)
-    if not _should_emit_diagnostic(outcome):
+    if not _should_emit_diagnostic("codex", outcome):
         return
     event: dict[str, object] = {"component": _COMPONENT, "event": "status", "outcome": outcome}
     event.update(fields)

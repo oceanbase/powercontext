@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Native adapter execution with controlled HTTP replies; never contact a Server."""
+"""Native adapter execution with controlled client replies; never contact a Server."""
 
 from __future__ import annotations
 

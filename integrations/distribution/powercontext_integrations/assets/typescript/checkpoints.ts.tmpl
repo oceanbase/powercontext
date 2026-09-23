@@ -1,0 +1,70 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* Checkpoints with unknown outcomes require a new confirmed Source position. */
+
+import type { PowerContextClient } from './client.{{extension}}'
+import { RequestNotSentError, writeFailureConfirmation } from './errors.{{extension}}'
+
+export function sourcePosition(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const position = (value as { position?: unknown }).position
+  return typeof position === 'number' && Number.isSafeInteger(position) && position > 0 ? position : undefined
+}
+
+export class Checkpoints {
+  private readonly unknown = new Map<string, number>()
+
+  allows(scopeId: string, position: number): boolean {
+    return position > (this.unknown.get(scopeId) ?? -1)
+  }
+
+  async run<T>(scopeId: string, position: number, operation: () => Promise<T>): Promise<T | undefined> {
+    if (!this.allows(scopeId, position)) return undefined
+    try {
+      return await operation()
+    } catch (error) {
+      if ((error as { outcome?: string } | undefined)?.outcome === 'unknown'
+        || writeFailureConfirmation(error) === 'unconfirmed') {
+        this.unknown.set(scopeId, Math.max(position, this.unknown.get(scopeId) ?? -1))
+      }
+      throw error
+    }
+  }
+}
+
+const checkpoints = new WeakMap<PowerContextClient, Checkpoints>()
+
+export async function flushThrough(
+  client: PowerContextClient, scopeId: string, position: number,
+  maxCalls: number, signal?: AbortSignal,
+): Promise<boolean> {
+  let state = checkpoints.get(client)
+  if (!state) { state = new Checkpoints(); checkpoints.set(client, state) }
+  return await state.run(scopeId, position, async () => {
+    let previous = -1
+    for (let attempt = 0; attempt < maxCalls; attempt += 1) {
+      if (signal?.aborted) throw new RequestNotSentError('/v1/memory/flush', signal.reason)
+      const result = await client.request('flush_memory', { scope_id: scopeId }, signal)
+      const cursor = (result.value as { current_cursor?: number } | undefined)?.current_cursor
+      if (typeof cursor !== 'number' || !Number.isSafeInteger(cursor) || cursor < 0) return false
+      if (cursor >= position) return true
+      if (cursor <= previous) return false
+      previous = cursor
+    }
+    return false
+  }) ?? false
+}

@@ -6,6 +6,8 @@ description: 安装 PowerContext Claude Code 插件，并配置召回、提示�
 
 # Claude Code
 
+先安装 PowerContext 客户端，并确保宿主的 PATH 中可以找到 `powercontext-hook`。Setup 会在修改集成前检查该可执行文件。更新后，重新执行 setup 并重启宿主。
+
 `community`
 
 ## 检查前置条件
@@ -93,7 +95,7 @@ scope 按以下顺序解析：
 使用随附 resolver 将 checkout 绑定到一个已知 Scope：
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
+powercontext-hook --script "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" -- \
   --cwd "$PWD" --bind-scope "SCOPE_ID"
 ```
 
@@ -105,10 +107,9 @@ resolver 只把 workspace 路径哈希用作外部 binding key，不会根据 Gi
 随附的 MCP Server 暴露已有的 PowerContext 操作。Claude 可以搜索和列出 Memory；只有用户明确要求持久化变更时，
 才创建、修订或废弃 Memory entry。
 
-转交任务时，随附 Skill 会引导 Claude 用 `handoff_current_work` 准备当前工作，并在“交接”等明确命令下把返回的
-`handoff` 原样传给 `commit_handoff`。接收方用 `continue_handoff` 读取 exact Revision，核验后通过
-`acknowledge_handoff` 回执；完成任务时用 `record_task_outcome` 关联该回执。Prepared Handoff 仍是临时载体，
-exact Revision 才是跨 Agent 的持久交接点。
+生成的 Skill 使用共享的 [Memory 和 Handoff](../workflows/memory-and-handoff.md) 工作流。
+收到交接请求后，`handoff_current_work` 返回完整的临时载体。只有明确要求持久里程碑时才调用 `commit_handoff`；
+接收方核验选定的临时或已提交 Handoff 后，才能确认接收或执行。
 
 自动召回不依赖 Claude 是否决定调用 MCP。反过来，MCP Memory 写入也不能替代 prompt 采集：启用采集后，Hook
 会把每条 prompt 保存为普通 Source 证据，之后是否从 Source 生成 Memory 由 Server 决定。
@@ -209,8 +210,8 @@ claude plugin marketplace remove powercontext
 | `POWERCONTEXT_CLAUDE_AUTHORIZATION` | 未设置 | Hook 与 MCP 请求使用的完整 `Bearer <token>` header |
 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | 把用户 prompt 采集为普通 Source 证据 |
 | `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
-| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `4` | 召回、采集和可选 flush 共用的 Hook HTTP 时间预算 |
+| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `3` | Hook 单次请求超时 |
+| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `6` | 召回、采集和可选 flush 共用的 Hook HTTP 时间预算 |
 | `POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS` | `4` | 每个 prompt 最多执行的 flush 次数；有效值为 1 到 16 |
 
 `powercontext setup claude-code` 会把 `server_url` 和 `capture_prompts` 保存为非敏感的 Claude Code 插件

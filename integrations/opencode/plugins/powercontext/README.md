@@ -1,5 +1,8 @@
 # PowerContext for OpenCode
 
+Install the PowerContext client separately and expose `powercontext-hook` on the host PATH. Domain operations use the shared client, with bounded responses, deadlines, and explicit unknown write outcomes. Hooks do not install runtime dependencies.
+
+
 This package is a thin OpenCode 1.x plugin for a running PowerContext Server. It does not embed storage or start the
 Server.
 

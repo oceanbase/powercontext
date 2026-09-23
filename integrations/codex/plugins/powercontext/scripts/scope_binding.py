@@ -17,109 +17,32 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
-import threading
-from collections.abc import Mapping
 from hashlib import sha256
 from pathlib import Path
 from shutil import which
 from time import monotonic
-from typing import Any, Protocol
-from urllib.error import HTTPError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from typing_extensions import override
+from powercontext.client.integration.native import (
+    ScopeBindingError,
+    ScopeBindingUnavailableError,
+)
+from powercontext.client.integration.native import (
+    ScopeBindingRejectedError as ScopeBindingRejectedError,
+)
+from powercontext.client.integration.native import (
+    ScopeBindingStatusError as ScopeBindingStatusError,
+)
+from powercontext.client.integration.native import (
+    scope_request as _post_json,
+)
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from settings import CodexPluginSettings  # noqa: E402
-
-_MAX_RESPONSE_BYTES = 1_048_576
-_REQUEST_HEADERS = {
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.3.0",
-}
-
-
-class ScopeBindingError(RuntimeError):
-    """Raised when the integration cannot establish one current Scope."""
-
-
-class ScopeBindingUnavailableError(ScopeBindingError):
-    """Transport failure, timeout, or exhausted budget."""
-
-
-class ScopeBindingRejectedError(ScopeBindingError):
-    """The Server rejected the credential."""
-
-
-class ScopeBindingStatusError(ScopeBindingError):
-    """A non-successful HTTP status outside the fixed classifications."""
-
-    def __init__(self, status: int, path: str) -> None:
-        self.status = status
-        self.path = path
-        super().__init__(f"PowerContext returned HTTP {status}")
-
-
-class _Response(Protocol):
-    fp: object
-    status: int
-
-    def __enter__(self) -> _Response: ...
-
-    def __exit__(self, *args: object) -> object: ...
-
-    def read(self, amount: int = -1) -> bytes: ...
-
-
-class _RejectRedirects(HTTPRedirectHandler):
-    @override
-    def redirect_request(
-        self,
-        req: Request,
-        fp: object,
-        code: int,
-        msg: str,
-        headers: object,
-        newurl: str,
-    ) -> Request | None:
-        return None
-
-
-_URL_OPENER = build_opener(_RejectRedirects)
-
-
-def open_bounded(request: Request, *, timeout: float) -> Any:
-    """Open one request under a hard wall-clock bound, response headers included.
-
-    urllib applies its timeout to each individual socket read, so a server that
-    trickles headers can outlive the caller's deadline. Running the open in a
-    daemon worker and abandoning it on expiry keeps hooks inside their budget.
-    """
-
-    outcome: list[Any] = []
-
-    def _open() -> None:
-        try:
-            outcome.append(_URL_OPENER.open(request, timeout=timeout))
-        except BaseException as error:
-            outcome.append(error)
-
-    worker = threading.Thread(target=_open, name="powercontext-http", daemon=True)
-    worker.start()
-    worker.join(timeout)
-    if worker.is_alive():
-        raise TimeoutError
-    result = outcome[0] if outcome else TimeoutError()
-    if isinstance(result, BaseException):
-        raise result
-    return result
 
 
 def resolve_scope_id(
@@ -181,123 +104,11 @@ def workspace_binding_key(cwd: str, *, deadline: float | None = None) -> dict[st
     return {"integration": "codex", "kind": "workspace", "external_id": external_id}
 
 
-def _post_json(
-    path: str,
-    payload: Mapping[str, object],
-    *,
-    settings: CodexPluginSettings,
-    deadline: float,
-    method: str = "POST",
-) -> Mapping[str, object]:
-    remaining = _remaining_time(deadline)
-    request_deadline = min(deadline, monotonic() + settings.request_timeout_seconds)
-    headers = dict(_REQUEST_HEADERS)
-    if settings.authorization is not None:
-        headers["Authorization"] = settings.authorization.get_secret_value()
-    request = Request(  # noqa: S310 - settings validates the configured transport.
-        f"{settings.server_url}{path}",
-        data=json.dumps(payload, separators=(",", ":")).encode(),
-        headers=headers,
-        method=method,
-    )
-    try:
-        with open_bounded(request, timeout=min(settings.request_timeout_seconds, remaining)) as response:
-            if response.status < 200 or response.status >= 300:
-                raise ScopeBindingStatusError(response.status, path)
-            raw = _read_bounded(response, deadline=request_deadline)
-    except HTTPError as error:
-        if error.code == 401:
-            raise ScopeBindingRejectedError from error
-        if error.code == 503:
-            raise ScopeBindingUnavailableError from error
-        raise ScopeBindingStatusError(error.code, path) from error
-    except (OSError, TimeoutError) as error:
-        raise ScopeBindingUnavailableError from error
-    try:
-        value: Any = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ScopeBindingError from error
-    if not isinstance(value, dict):
-        raise ScopeBindingError
-    return value
-
-
 def _remaining_time(deadline: float) -> float:
     remaining = deadline - monotonic()
     if remaining <= 0:
         raise ScopeBindingUnavailableError
     return remaining
-
-
-class _DeadlineSocket:
-    """Enforce one absolute deadline on every response socket read.
-
-    ``http.client`` can consume many socket reads inside a single ``read`` call
-    while it parses chunk framing, so tightening the socket timeout once per
-    bounded read cannot stop a server that trickles chunk extensions. Recomputing
-    the timeout before every receive keeps the caller's absolute deadline,
-    framing included.
-    """
-
-    def __init__(self, sock: Any, deadline: float) -> None:
-        self._sock = sock
-        self._deadline = deadline
-
-    def _remaining_time(self) -> float:
-        remaining = self._deadline - monotonic()
-        if remaining <= 0:
-            raise TimeoutError
-        return remaining
-
-    def recv(self, *args: Any) -> Any:
-        self._sock.settimeout(self._remaining_time())
-        return self._sock.recv(*args)
-
-    def recv_into(self, *args: Any) -> Any:
-        self._sock.settimeout(self._remaining_time())
-        return self._sock.recv_into(*args)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._sock, name)
-
-
-def bind_response_deadline(response: object, deadline: float) -> None:
-    """Keep every socket read of one open response inside the absolute deadline."""
-
-    if isinstance(response, HTTPError):
-        response = response.fp
-    raw: Any = getattr(getattr(response, "fp", None), "raw", None)
-    if raw is None:
-        return
-    sock = getattr(raw, "_sock", None)
-    if sock is None or isinstance(sock, _DeadlineSocket) or not hasattr(sock, "recv_into"):
-        return
-    raw._sock = _DeadlineSocket(sock, deadline)
-
-
-def _set_response_timeout(response: object, timeout: float) -> None:
-    """Tighten urllib's socket timeout before each bounded read."""
-
-    raw = getattr(getattr(response, "fp", None), "raw", None)
-    sock = getattr(raw, "_sock", None)
-    settimeout = getattr(sock, "settimeout", None)
-    if settimeout is not None:
-        settimeout(timeout)
-
-
-def _read_bounded(response: _Response, *, deadline: float) -> bytes:
-    bind_response_deadline(response, deadline)
-    chunks: list[bytes] = []
-    size = 0
-    while True:
-        _set_response_timeout(response, _remaining_time(deadline))
-        chunk = response.read(1)
-        if not chunk:
-            return b"".join(chunks)
-        size += len(chunk)
-        if size > _MAX_RESPONSE_BYTES:
-            raise ScopeBindingError
-        chunks.append(chunk)
 
 
 def _git_timeout(deadline: float | None) -> float:

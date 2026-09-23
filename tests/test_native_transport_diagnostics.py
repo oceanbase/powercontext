@@ -40,7 +40,7 @@ def _write(path: Path, data: object) -> Path:
 
 
 def _resolve(host: str) -> tuple[str, bool]:
-    from powercontext.cli.native_transport import resolve_host_transport
+    from powercontext_integrations.native_transport import resolve_host_transport
 
     return resolve_host_transport(host)
 
@@ -241,7 +241,7 @@ def test_openclaw_without_an_endpoint_is_unconfigured_instead_of_loopback():
     "contents", ["# default profile\n[]\n", "- id: powercontext\n  config:\n    baseUrl: http://old.example\n"]
 )
 def test_dsh_setup_preflight_accepts_inert_defaults_and_requires_manual_custom_configuration(tmp_path, contents):
-    from powercontext.cli.native_transport import validate_dsh_setup_transport
+    from powercontext_integrations.native_transport import validate_dsh_setup_transport
 
     path = tmp_path / "DSH_HOME/profiles/web/cordis.patch.yml"
     path.parent.mkdir(parents=True)

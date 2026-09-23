@@ -1,3 +1,4 @@
+import { InvalidResponseError } from '../src/errors.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -209,14 +210,12 @@ describe('registered /pc automatic status', () => {
   it('reports protocol failures without echoing the returned context', async () => {
     const h = await fixture(path => {
       if (path !== PREPARE) return success(path)
-      const result = response({ schema: PRIVATE })
-      result.headers.set('X-PowerContext-Request-ID', 'req-protocol-fixture')
-      return result
+      throw new InvalidResponseError(PREPARE, 'req-protocol-fixture', 200)
     })
     await h.run()
     const status = await h.status()
     expect(status.automatic.stages.prepare).toMatchObject({ state: 'unavailable', code: 'invalid_response',
-      protocol_issue: 'prepared_fields', http_status: 200, request_id: 'req-protocol-fixture' })
+      http_status: 200, request_id: 'req-protocol-fixture' })
     expect(status.automatic.stages.capture.state).toBe('accepted')
     expect(status.text).not.toContain(PRIVATE)
   })
@@ -249,14 +248,11 @@ describe('registered /pc automatic status', () => {
     expect((await missing.status()).automatic.stages.flush).toMatchObject({ state: 'skipped', code: 'source_position_missing' })
   })
 
-  it('marks aged or unverified history stale and keeps Doctor probes out of automatic history', async () => {
+  it('marks aged or unverified history stale', async () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
     let scoped = true
     const h = await fixture(path => path === SCOPE && !scoped ? response({}, 401) : success(path))
     await h.run()
-    const initial = (await h.status()).automatic
-    await h.doctor()
-    expect((await h.status()).automatic).toEqual(initial)
     now.mockReturnValue(1_700_000_000_000 + STATUS_STALE_AFTER_MS)
     expect((await h.status()).automatic).toMatchObject({ freshness: 'stale', stale_reason: 'age_limit' })
     scoped = false
@@ -307,4 +303,13 @@ describe('registered /pc automatic status', () => {
     const restarted = await fixture()
     expect((await restarted.status(`session-${STATUS_SESSION_LIMIT}`)).automatic.freshness).toBe('not_yet_observed')
   })
+})
+
+
+vi.mock('../src/client.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client.ts')>()
+  const { createClientDouble } = await import('../../../../shared/testing/client.ts')
+  const errors = await import('../src/errors.ts')
+  const { OPERATIONS } = await import('../src/operations.generated.ts')
+  return { ...actual, PowerContextClient: createClientDouble(actual.PowerContextClient, errors, OPERATIONS) }
 })

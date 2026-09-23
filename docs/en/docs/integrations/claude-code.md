@@ -6,6 +6,8 @@ description: Install the PowerContext Claude Code plugin and configure recall, p
 
 # Claude Code
 
+Install the PowerContext client and expose `powercontext-hook` on the host's PATH. Setup checks this executable before changing the integration. After updating, rerun setup and restart the host.
+
 `community`
 
 ## Check prerequisites
@@ -99,7 +101,7 @@ Scope resolution uses this order:
 Bind a known Scope to the checkout with the bundled resolver:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" \
+powercontext-hook --script "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_scope.py" -- \
   --cwd "$PWD" --bind-scope "SCOPE_ID"
 ```
 
@@ -111,11 +113,10 @@ remote or directory. Set an explicit Scope only when that separation or sharing 
 The bundled MCP Server exposes the existing PowerContext operations. Claude can search and list Memory, and can
 create, revise, or retire an entry when the user explicitly asks to persist a change.
 
-For a task transfer, the bundled Skill guides Claude to prepare current work with `handoff_current_work` and, for an
-explicit imperative such as “handoff this work,” pass the returned `handoff` unchanged to `commit_handoff`. The
-receiver uses `continue_handoff` with the exact Revision, verifies it, and records an `acknowledge_handoff` receipt;
-completed work uses `record_task_outcome` with that receipt. A Prepared Handoff is temporary, while an exact Revision
-is the durable cross-agent transfer point.
+The generated Skill uses the shared [Memory and Handoff](../workflows/memory-and-handoff.md) workflow.
+For a requested transfer, `handoff_current_work` returns the complete temporary carrier. A durable milestone
+requires explicit intent before `commit_handoff`; the receiver verifies the selected prepared or committed Handoff
+before acknowledgement or execution.
 
 Automatic recall does not depend on Claude deciding to call MCP. Conversely, MCP Memory writes do not replace prompt
 capture: the Hook stores each enabled prompt as ordinary Source evidence, and the Server decides whether later Source
@@ -224,8 +225,8 @@ run with `--keep-data`.
 | `POWERCONTEXT_CLAUDE_AUTHORIZATION` | unset | Complete `Bearer <token>` header for Hook and MCP requests |
 | `POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS` | `true` | Capture user prompts as ordinary Source evidence |
 | `POWERCONTEXT_CLAUDE_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request Hook timeout |
-| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `4` | Shared Hook HTTP budget for recall, capture, and optional flush |
+| `POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request Hook timeout |
+| `POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS` | `6` | Shared Hook HTTP budget for recall, capture, and optional flush |
 | `POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt; valid values are 1 through 16 |
 
 `powercontext setup claude-code` stores `server_url` and `capture_prompts` as non-sensitive Claude Code plugin

@@ -18,22 +18,19 @@ import json
 import os
 import shlex
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
+import powercontext_integrations.workbuddy as workbuddy_cli
 import pytest
+from powercontext_integrations.system import doctor_app, setup_app
 from typer.testing import CliRunner
 
-import powercontext.cli.workbuddy as workbuddy_cli
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import doctor_app, setup_app
 
 _HOOK_MODULES = (
     "workbuddy_powercontext_hook.py",
     "workbuddy_settings.py",
-    "powercontext_client_config.py",
-    "prepared_context.py",
 )
 
 
@@ -43,30 +40,6 @@ def _write_plugin(root: Path) -> Path:
     hooks.mkdir(parents=True)
     for name in _HOOK_MODULES:
         (hooks / name).write_text(f"# {name}\n", encoding="utf-8")
-    scripts = plugin / "scripts"
-    scripts.mkdir()
-    (scripts / "__init__.py").write_text('"""PowerContext helper scripts."""\n', encoding="utf-8")
-    (scripts / "workspace_scope.py").write_text(
-        "import json\n\n"
-        "def resolve_scope_id(*_args, **_kwargs) -> str:\n"
-        "    return 'scope'\n\n"
-        "if __name__ == '__main__':\n"
-        "    print(json.dumps({'scope_id': 'scope'}))\n",
-        encoding="utf-8",
-    )
-    cache = scripts / "__pycache__"
-    cache.mkdir()
-    (cache / "scope_binding.cpython-312.pyc").write_bytes(b"\x00")
-    skill = plugin / "skills" / "powercontext-project-context"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text(
-        '${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
-        encoding="utf-8",
-    )
-    (skill / "references").mkdir()
-    (skill / "references" / "scope-memory.md").write_text(
-        (skill / "SKILL.md").read_text(encoding="utf-8"), encoding="utf-8"
-    )
     return plugin
 
 
@@ -80,7 +53,7 @@ def _powercontext_hook(settings: dict[str, Any]) -> dict[str, Any]:
 
 
 def _expected_hook_command(hooks_dir: Path) -> str:
-    return f"{_shell_argument(Path(sys.executable).as_posix())} {_shell_argument(hooks_dir / 'workbuddy_powercontext_hook.py')}"
+    return f"powercontext-hook --script {_shell_argument(hooks_dir / 'workbuddy_powercontext_hook.py')}"
 
 
 def _shell_argument(value: str | Path) -> str:
@@ -119,31 +92,13 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
 
     skill_markdown = home / "skills" / "powercontext-project-context" / "SKILL.md"
     assert skill_markdown.is_file()
-    skill_content = skill_markdown.read_text(encoding="utf-8")
-    assert "${POWERCONTEXT_SCOPE_BINDING_SCRIPT}" not in skill_content
-    assert "${POWERCONTEXT_PYTHON}" not in skill_content
-    assert (hooks_dir / "powercontext_scope_binding.py").as_posix() in skill_content
-    assert Path(sys.executable).as_posix() in skill_content
-    assert (skill_markdown.parent / "references" / "scope-memory.md").read_text(encoding="utf-8") == skill_content
+    skill_content = (skill_markdown.parent / "references" / "scope-memory.md").read_text(encoding="utf-8")
+    assert "resolve_scope_binding" in skill_content
     assert json.loads((skill_markdown.parent / ".powercontext.json").read_text(encoding="utf-8")) == {
         "schema": 1,
         "owner": "powercontext",
         "integration": "workbuddy",
     }
-
-    project = tmp_path / "project root"
-    project.mkdir()
-    scope_command = next(line for line in skill_content.splitlines() if "--cwd" in line)
-    scope_command = scope_command.replace('"$PWD"', _shell_argument(project))
-    completed = subprocess.run(  # noqa: S602 - the installed shell command is the behavior under test.
-        scope_command,
-        shell=True,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout) == {"scope_id": "scope"}
 
     settings = json.loads((home / "settings.json").read_text(encoding="utf-8"))
     hook = _powercontext_hook(settings)
@@ -329,17 +284,17 @@ def test_setup_workbuddy_refreshes_an_owned_skill(tmp_path: Path, monkeypatch) -
     assert first.exit_code == 0
 
     (plugin / "skills" / "powercontext-project-context" / "SKILL.md").write_text(
-        'updated\n${POWERCONTEXT_PYTHON} ${POWERCONTEXT_SCOPE_BINDING_SCRIPT} --cwd "$PWD"\n',
+        "stale generated Skill\n",
         encoding="utf-8",
     )
     refreshed = CliRunner().invoke(create_cli([setup_app]), ["setup", "workbuddy", "--source", str(checkout)])
 
     assert refreshed.exit_code == 0
-    assert (
-        (home / "skills" / "powercontext-project-context" / "SKILL.md")
-        .read_text(encoding="utf-8")
-        .startswith("updated\n")
-    )
+    from powercontext_integrations.resources import render_resources
+
+    assert (home / "skills" / "powercontext-project-context" / "SKILL.md").read_bytes() == render_resources(
+        "workbuddy"
+    )["skills/powercontext-project-context/SKILL.md"]
 
 
 def test_setup_workbuddy_stops_before_writes_when_settings_snapshot_is_unreadable(tmp_path: Path, monkeypatch) -> None:
@@ -441,6 +396,7 @@ def test_doctor_workbuddy_reports_failures_before_install(tmp_path: Path, monkey
     assert payload["status"] == "failed"
     assert {name: check["status"] for name, check in payload["checks"].items()} == {
         "hooks": "failed",
+        "client": "ok",
         "settings": "failed",
         "mcp": "failed",
         "skill": "failed",
@@ -468,6 +424,7 @@ def test_doctor_workbuddy_reports_ok_after_install(tmp_path: Path, monkeypatch) 
     assert payload["status"] == "ok"
     assert {name: check["status"] for name, check in payload["checks"].items()} == {
         "hooks": "ok",
+        "client": "ok",
         "settings": "ok",
         "mcp": "ok",
         "skill": "ok",

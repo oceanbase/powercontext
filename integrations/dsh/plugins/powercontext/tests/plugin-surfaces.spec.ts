@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -22,12 +23,11 @@ import { requireService } from '../src/dsh-service.ts'
 import { inject } from '../src/index.ts'
 import type { PluginRuntime } from '../src/invoke.ts'
 import { GUIDANCE, registerGuidance, registerSkill } from '../src/skill.ts'
-import { PROJECT_CONTEXT_SKILL } from '../src/skill-body.ts'
 
 function runtime(): PluginRuntime {
   const config = resolveConfig({ baseUrl: 'http://127.0.0.1:8000' })
   return {
-    client: new PowerContextClient({ baseUrl: config.baseUrl, requestTimeoutMs: 1000, fetch: async () => new Response('{}') }),
+    client: new MockClient({ baseUrl: config.baseUrl, requestTimeoutMs: 1000, fetch: async () => new Response('{}') }),
     config,
     resolveScope: async () => 'project:demo',
     log: () => undefined,
@@ -84,7 +84,7 @@ describe('registerSkill', () => {
     expect(registered).toEqual(expect.arrayContaining([expect.objectContaining({
       name: 'powercontext-project-context',
       source: 'runtime',
-      content: PROJECT_CONTEXT_SKILL,
+      content: GUIDANCE,
     })]))
   })
 })

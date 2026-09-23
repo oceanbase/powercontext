@@ -420,3 +420,12 @@ describe('PowerContextPlugin', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+
+vi.mock('../src/client.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client.ts')>()
+  const { createClientDouble } = await import('../../../../shared/testing/client.ts')
+  const errors = await import('../src/errors.ts')
+  const { OPERATIONS } = await import('../src/operations.generated.ts')
+  return { ...actual, PowerContextClient: createClientDouble(actual.PowerContextClient, errors, OPERATIONS) }
+})

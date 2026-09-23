@@ -1,0 +1,41 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema_version = 1
+label = "Claude Code"
+order = 2
+target = "claude-code"
+kind = "agent_host"
+language = "python"
+source = "integrations/claude-code/plugins/powercontext"
+hook_file = "hooks/hooks.json"
+root_variable = "CLAUDE_PLUGIN_ROOT"
+command_style = "argv"
+
+[[hooks]]
+event = "UserPromptSubmit"
+handler = "hooks/user_prompt_submit.py"
+operations = ["prepare_context","capture_content_source","flush_memory"]
+effects = ["context","diagnostic"]
+failure = "continue"
+
+[setup]
+module = "claude_code"
+options = ["server_url", "capture_prompts", "allow_insecure_http"]
+verifies = true
+executable = "claude"
+
+[setup.settings]
+environment_prefix = "POWERCONTEXT_CLAUDE"
+server_setting = "SERVER_URL"

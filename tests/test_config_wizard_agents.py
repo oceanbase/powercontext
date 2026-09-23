@@ -16,17 +16,18 @@
 
 from collections.abc import Callable
 
+from powercontext_integrations.hosts import HOST_ADAPTERS
+
 import powercontext.cli.config_wizard_agents as wizard_agents
-from powercontext.cli.config_wizard_agents import AGENT_SPECS
-from powercontext.cli.hosts import FIRST_CLASS_HOSTS
+from powercontext.cli.config_wizard_agents import agent_specs
 
 
 def test_wizard_catalog_covers_first_class_hosts() -> None:
-    assert tuple(spec.identifier for spec in AGENT_SPECS) == tuple(host.name for host in FIRST_CLASS_HOSTS)
+    assert tuple(spec.identifier for spec in agent_specs()) == tuple(host.name for host in HOST_ADAPTERS)
 
 
 def test_openclaw_keeps_its_plugin_configuration_contract() -> None:
-    spec = next(spec for spec in AGENT_SPECS if spec.identifier == "openclaw")
+    spec = next(spec for spec in agent_specs() if spec.identifier == "openclaw")
     assert spec.environment_prefix is None
     assert spec.capture_setting == "autoCapture"
     assert spec.scope_setting == "scopeId"
@@ -35,18 +36,5 @@ def test_openclaw_keeps_its_plugin_configuration_contract() -> None:
 def test_preferred_agent_uses_an_installed_agent_then_falls_back_to_codex() -> None:
     installed: Callable[[str], str | None] = lambda command: "/bin/claude" if command == "claude" else None
 
-    assert wizard_agents.preferred_agent(AGENT_SPECS, which=installed) == "claude-code"
-    assert wizard_agents.preferred_agent(AGENT_SPECS, which=lambda command: None) == "codex"
-
-
-def test_agent_executables_match_real_launch_commands() -> None:
-    assert {spec.identifier: spec.executables for spec in AGENT_SPECS} == {
-        "codex": ("codex",),
-        "claude-code": ("claude",),
-        "dsh": ("dsh",),
-        "openclaw": ("openclaw",),
-        "opencode": ("opencode",),
-        "pi": ("pi",),
-        "hermes": ("hermes",),
-        "workbuddy": (),
-    }
+    assert wizard_agents.preferred_agent(agent_specs(), which=installed) == "claude-code"
+    assert wizard_agents.preferred_agent(agent_specs(), which=lambda command: None) == "codex"

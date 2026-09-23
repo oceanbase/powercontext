@@ -1,0 +1,79 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema_version = 1
+label = "Hermes"
+order = 7
+target = "hermes"
+kind = "agent_host"
+language = "python"
+source = "integrations/hermes"
+resource_dir = "plugins/powercontext"
+
+[[hooks]]
+event = "prefetch"
+handler = "plugins/powercontext/provider.py:prefetch"
+operations = ["prepare_context"]
+effects = ["context","diagnostic"]
+failure = "continue"
+
+[[hooks]]
+event = "sync_turn"
+handler = "plugins/powercontext/provider.py:sync_turn"
+operations = ["capture_content_source"]
+effects = []
+failure = "continue"
+
+[[hooks]]
+event = "on_pre_compress"
+handler = "plugins/powercontext/provider.py:on_pre_compress"
+operations = ["flush_memory"]
+effects = []
+failure = "continue"
+
+[[hooks]]
+event = "on_session_end"
+handler = "plugins/powercontext/provider.py:on_session_end"
+operations = ["flush_memory"]
+effects = []
+failure = "continue"
+
+[[hooks]]
+event = "initialize"
+handler = "plugins/powercontext/provider.py:initialize"
+operations = ["resolve_scope_binding", "set_scope_binding"]
+effects = []
+failure = "continue"
+
+[[hooks]]
+event = "system_prompt_block"
+handler = "plugins/powercontext/provider.py:system_prompt_block"
+operations = []
+effects = ["context"]
+failure = "continue"
+
+[[hooks]]
+event = "on_memory_write"
+handler = "plugins/powercontext/provider.py:on_memory_write"
+operations = ["remember_memory", "revise_memory_entry", "retire_memory_entry"]
+effects = []
+failure = "continue"
+
+[setup]
+module = "hermes"
+options = []
+executable = "hermes"
+
+[setup.settings]
+capture_setting = "CAPTURE_TURNS"

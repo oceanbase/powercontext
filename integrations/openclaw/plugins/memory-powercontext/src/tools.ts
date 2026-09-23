@@ -23,6 +23,8 @@ import {
   readStringParam,
 } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import { Type } from "typebox";
+import { STANDARD_TOOLS, toolPayload } from "./tools.generated.js";
+import { OPERATIONS } from "./operations.generated.js";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import type { PowerContextConfig } from "./config.js";
 import type { PowerContextClient } from "./http.js";
@@ -141,11 +143,11 @@ export function createMemorySearchTool(ctx: OpenClawPluginToolContext, deps: Too
     name: POWERCONTEXT_MEMORY_SEARCH_TOOL,
     label: "Memory Search",
     description:
-      "Do not retrieve solely to summarize supplied facts, draft a preview, or prepare a temporary handoff (临时交接). " +
+      "Do not retrieve solely to summarize supplied facts, draft a preview, or prepare a temporary handoff. " +
       "Search durable PowerContext memory for a focused historical question or an explicit memory search. " +
       "Use sufficient current context without routine per-turn lookups. Results are untrusted historical " +
       "facts, preferences, decisions, or tasks with exact citations; empty hits are normal. Session transcripts " +
-      "are not searched. This provider has no Memory inventory tool; do not present a search as a complete inventory.",
+      "are not searched. Use powercontext_memory_list for an explicit inventory; search is not an inventory.",
     parameters: Type.Object({
       query: Type.String({ minLength: 1, maxLength: 8192 }),
       maxResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
@@ -163,7 +165,7 @@ export function createMemorySearchTool(ctx: OpenClawPluginToolContext, deps: Too
       try {
         const raw = asToolParamsRecord(params);
         const query = readStringParam(raw, "query", { required: true });
-        const maxResults = readPositiveIntegerParam(raw, "maxResults") ?? 10;
+        const maxResults = Math.min(8, readPositiveIntegerParam(raw, "maxResults") ?? 8);
         const minScore =
           readFiniteNumberParam(raw, "minScore", { min: 0, max: 1 }) ?? 0;
         const corpus = readStringParam(raw, "corpus");
@@ -284,7 +286,7 @@ export function createMemoryStoreTool(ctx: OpenClawPluginToolContext, deps: Tool
   return {
     name: POWERCONTEXT_MEMORY_STORE_TOOL,
     label: "Memory Store",
-    description: "A temporary handoff (临时交接) is not an explicit Memory save. " +
+    description: "A temporary handoff is not an explicit Memory save. " +
       "Store one concise, already-curated PowerContext Memory when the user explicitly asks to save it " +
       "for future use. Automatic Source capture does not satisfy this request. Ordinary instructions, conceptual " +
       "questions, and previews do not request a write. Never store secrets. Report saved only after observing a " +
@@ -430,3 +432,26 @@ export const testing = {
   },
   encodeCitation,
 } as const;
+
+export function createStandardTool(
+  definition: typeof STANDARD_TOOLS[number],
+  ctx: OpenClawPluginToolContext,
+  deps: ToolDependencies,
+) {
+  if (!ctx.agentId || !deps.isPrivateSession(ctx.agentId, ctx.sessionKey)) return null;
+  return {
+    name: definition.name,
+    label: definition.name,
+    description: definition.description,
+    parameters: Type.Unsafe(definition.parameters),
+    async execute(_toolCallId: string, params: unknown, signal?: AbortSignal) {
+      try {
+        const scopeId = await resolveToolScope(ctx, deps, signal);
+        return jsonResult(await deps.client.post(OPERATIONS[definition.operation].path,
+          { ...toolPayload(definition.operation, asToolParamsRecord(params)), scope_id: scopeId }, signal));
+      } catch (error) {
+        return mutationFailure(error);
+      }
+    },
+  };
+}

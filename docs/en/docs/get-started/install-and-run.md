@@ -32,8 +32,7 @@ uv tool install --force "powercontext[cli,server]==1.1.0"
 powercontext setup codex --ref powercontext-v1.1.0
 ```
 
-Check the [capability matrix](../integrations/capabilities.md) for host support and maintenance status.
-Capabilities marked `experimental` remain experimental in this release.
+Inspect the [integration catalog](../integrations/capabilities.md) and the installed host diagnostics.
 
 ## Install the application
 

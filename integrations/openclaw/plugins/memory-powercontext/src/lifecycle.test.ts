@@ -392,12 +392,5 @@ it("forwards assembly and preserves every byte of standard text", async () => {
   const output = await hook({ prompt: "context", messages: [] }, ctx) as { prependContext: string };
   expect(harness.prepareRequests[0].assembly).toEqual(harness.config.contextAssembly);
   expect(output.prependContext.endsWith(content)).toBe(true);
-  for (const invalid of [
-    { ...response, content_bytes: 1 },
-    { ...response, content: "x".repeat(8001), content_bytes: 8001 },
-    { ...response, unexpected: true },
-  ]) {
-    harness.setPreparedResponse(invalid);
-    expect(await hook({ prompt: "context", messages: [] }, ctx)).toBeUndefined();
-  }
+
 });

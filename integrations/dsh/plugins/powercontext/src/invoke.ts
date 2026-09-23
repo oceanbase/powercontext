@@ -29,6 +29,7 @@ import {
   UnknownOperationError,
 } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
+import { WRITE_OPERATIONS as MUTATING_OPERATIONS } from './writes.generated.ts'
 import { containsSecret } from './secrets.ts'
 
 export interface ToolResult extends BodyFailureDetails {
@@ -41,11 +42,7 @@ export interface ToolResult extends BodyFailureDetails {
   data?: unknown
 }
 
-const WRITE_OPS = new Set<OperationId>([
-  'remember_memory',
-  'capture_content_source',
-  'revise_memory_entry',
-])
+const WRITE_OPS = new Set<string>(MUTATING_OPERATIONS)
 
 export function toolResultSchema(): Record<string, unknown> {
   return {

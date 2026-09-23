@@ -15,8 +15,8 @@
 """PowerContext Memory Provider for Hermes Agent.
 
 This directory can be copied to the Hermes provider plugin directory. It intentionally
-uses only the Python standard library for HTTP, so the provider does not add a
-runtime dependency to Hermes.
+uses the Python standard library to invoke the separately installed PowerContext
+client worker, so Hermes does not need a second SDK environment.
 """
 
 from __future__ import annotations

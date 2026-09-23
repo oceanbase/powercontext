@@ -18,14 +18,15 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from powercontext_integrations.hosts import HOST_NAMES
+from powercontext_integrations.system import setup_app
 from typer.testing import CliRunner
 
 from powercontext.cli.app import create_cli
-from powercontext.cli.hosts import HOST_NAMES
-from powercontext.cli.system import setup_app
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +51,8 @@ def test_every_setup_rejects_remote_http_without_consent_before_install(host):
 @pytest.mark.parametrize("host", ["codex", "claude-code", "dsh", "openclaw", "opencode", "pi", "hermes", "workbuddy"])
 def test_discovered_local_port_persists_for_every_agent(host, tmp_path):
     """A new Agent session keeps the selected local listener, not the default port."""
-    from powercontext.cli.transport import prepare_setup_transport, save_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport, save_setup_transport
+
     from powercontext.client.transport_policy import resolve_client_transport
 
     (tmp_path / ".env").write_text("POWERCONTEXT_SERVER_HTTP_PORT=18000\n")
@@ -63,7 +65,7 @@ def test_discovered_local_port_persists_for_every_agent(host, tmp_path):
 
 def test_explicit_remote_endpoint_overrides_file_and_local_port(tmp_path):
     """An explicit choice supersedes stale file settings without modifying that file."""
-    from powercontext.cli.transport import prepare_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport
 
     path = tmp_path / ".env"
     content = "POWERCONTEXT_CLIENT_SERVER_URL=https://old.example/proxy\nPOWERCONTEXT_SERVER_HTTP_PORT=18000\n"
@@ -77,7 +79,7 @@ def test_explicit_remote_endpoint_overrides_file_and_local_port(tmp_path):
 
 def test_conflicting_file_and_process_endpoints_require_choice(tmp_path, monkeypatch):
     """Ambiguous endpoints fail with remediation and without disclosing tokens."""
-    from powercontext.cli.transport import prepare_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport
 
     (tmp_path / ".env").write_text("POWERCONTEXT_CLIENT_SERVER_URL=https://one.example\nSECRET=private-value\n")
     monkeypatch.setenv("POWERCONTEXT_PI_BASE_URL", "https://two.example")
@@ -91,7 +93,7 @@ def test_conflicting_file_and_process_endpoints_require_choice(tmp_path, monkeyp
 
 def test_explicit_claude_endpoint_rejects_conflicting_runtime_plugin_option(monkeypatch):
     """Do not install credentials for a URL that Claude's runtime option overrides."""
-    from powercontext.cli.transport import prepare_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport
 
     monkeypatch.setenv("CLAUDE_PLUGIN_OPTION_SERVER_URL", "https://old.example")
     with pytest.raises(RuntimeError, match="Unset CLAUDE_PLUGIN_OPTION_SERVER_URL"):
@@ -104,7 +106,7 @@ def test_explicit_claude_endpoint_rejects_conflicting_runtime_plugin_option(monk
 
 def test_saved_native_remote_endpoint_is_not_replaced_by_local_port(tmp_path, monkeypatch):
     """Local deployment settings never replace an existing proxy endpoint."""
-    from powercontext.cli.transport import prepare_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport
 
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     path = tmp_path / "powercontext/config.json"
@@ -116,7 +118,8 @@ def test_saved_native_remote_endpoint_is_not_replaced_by_local_port(tmp_path, mo
 
 def test_explicit_environment_file_selects_installer_endpoint(tmp_path, monkeypatch):
     """The setup group loads --env-file safely before handing one URL to installers."""
-    import powercontext.cli.pi as pi
+    import powercontext_integrations.pi as pi
+
     from powercontext.cli.system import Diagnostic, DiagnosticStatus
 
     path = tmp_path / "chosen.env"
@@ -137,8 +140,11 @@ def test_setup_supports_cli_installation_without_server_dependencies(tmp_path):
             sys.executable,
             "-c",
             "import sys; sys.modules['sqlalchemy'] = None; "
-            "from powercontext.cli.transport import prepare_setup_transport; "
-            "assert prepare_setup_transport('pi').server_url == 'http://127.0.0.1:18000'",
+            "from pathlib import Path; "
+            "from powercontext.cli.integration_source import load_rules; "
+            "transport = load_rules(Path(sys.argv[1]), 'transport'); "
+            "assert transport.prepare_setup_transport('pi').server_url == 'http://127.0.0.1:18000'",
+            str(Path(__file__).resolve().parents[1]),
         ],
         cwd=tmp_path,
         env=dict(os.environ),
@@ -152,13 +158,13 @@ def test_setup_supports_cli_installation_without_server_dependencies(tmp_path):
 @pytest.mark.parametrize("content", [None, b"SECRET='private-value", b"\xff"])
 def test_invalid_explicit_environment_file_fails_before_installation(tmp_path, monkeypatch, content):
     """Missing or malformed explicit files fail safely without installing an Agent."""
-    from powercontext.cli import hosts
+    from powercontext_integrations import pi
 
     path = tmp_path / "invalid.env"
     if content is not None:
         path.write_bytes(content)
     installer = Mock(side_effect=AssertionError("Invalid configuration must not install an Agent"))
-    monkeypatch.setattr(hosts, "install_host", installer)
+    monkeypatch.setattr(pi, "install_pi_plugin", installer)
     result = CliRunner().invoke(create_cli([setup_app]), ["setup", "--env-file", str(path), "pi", "--json"])
 
     assert result.exit_code == 1, result.output
@@ -173,34 +179,34 @@ def test_invalid_explicit_environment_file_fails_before_installation(tmp_path, m
 @pytest.mark.parametrize("endpoint", ["http://127.0.0.1:18000", "https://proxy.example/prefix"])
 def test_all_setup_routes_persist_adapter_endpoint(host, bulk, endpoint, tmp_path, monkeypatch):
     """Both CLI routes apply identical policy and preserve unrelated user preferences."""
-    import importlib
-
-    from powercontext.cli import hosts, system
-    from powercontext.cli.transport import client_config_file
+    from powercontext_integrations import codex
+    from powercontext_integrations.host import HostAdapter, host_adapter
+    from powercontext_integrations.transport import client_config_file
 
     path = client_config_file()
     path.write_text(json.dumps({"version": 1, "hosts": {host: {"custom": "keep"}, "other": {"custom": True}}}))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     (tmp_path / ".env").write_text("POWERCONTEXT_SERVER_HTTP_PORT=18000\n")
 
-    def install(name, **options):
+    def install(**options):
         """Stand in for an external Agent installer and check its effective endpoint."""
-        assert name == host
-        assert options["server_url"] == endpoint
-        return system.CodexSetupResult("marketplace", "plugin", "1.0", "data")
+        if "server_url" in host_adapter(host).setup_options:
+            assert options["server_url"] == endpoint
+        return codex.CodexSetupResult("marketplace", "plugin", "1.0", "data")
 
-    monkeypatch.setattr(hosts, "install_host", install)
-    monkeypatch.setattr(hosts, "verify_host", lambda _host: None)
-    if host not in {"claude-code", "openclaw"}:
-        module = system if host == "codex" else importlib.import_module(f"powercontext.cli.{host}")
-        monkeypatch.setattr(module, f"run_{host}_diagnostics", lambda: {})
+    monkeypatch.setattr(
+        HostAdapter, "callback", lambda self, prefix, suffix: install if prefix == "install" else lambda **_: {}
+    )
     arguments = ["setup", "select", "--host", host, "--json"] if bulk else ["setup", host, "--json"]
     if endpoint.startswith("https:"):
         arguments.extend(["--server-url", endpoint])
     result = CliRunner().invoke(create_cli([setup_app]), arguments)
     assert result.exit_code == 0, result.output
     saved = json.loads(path.read_text())["hosts"]
-    assert saved[host] == {"custom": "keep", "server_url": endpoint, "allow_insecure_http": False}
+    assert saved[host]["custom"] == "keep"
+    assert saved[host]["server_url"] == endpoint
+    assert saved[host]["allow_insecure_http"] is False
+    assert saved[host]["installation"] == {"source": "oceanbase/powercontext", "ref": "master"}
     assert saved["other"] == {"custom": True}
     if host == "hermes":
         native = json.loads((tmp_path / "hermes/powercontext/config.json").read_text())
@@ -209,7 +215,7 @@ def test_all_setup_routes_persist_adapter_endpoint(host, bulk, endpoint, tmp_pat
 
 @pytest.mark.parametrize("explicit", [False, True], ids=["discovered", "explicit"])
 def test_equivalent_endpoint_spellings_do_not_conflict(tmp_path, monkeypatch, explicit):
-    from powercontext.cli.transport import prepare_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport
 
     (tmp_path / ".env").write_text("POWERCONTEXT_CLIENT_SERVER_URL=https://proxy.example/prefix/mcp/\n")
     monkeypatch.setenv("POWERCONTEXT_PI_BASE_URL", "https://proxy.example:443/prefix/")
@@ -237,7 +243,8 @@ def test_equivalent_endpoint_spellings_do_not_conflict(tmp_path, monkeypatch, ex
     ids=["file-yes", "file-no", "process-no", "process-yes", "explicit-no", "explicit-yes"],
 )
 def test_setup_consent_precedence(tmp_path, monkeypatch, file_consent, process_consent, explicit_consent, allowed):
-    from powercontext.cli.transport import prepare_setup_transport, save_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport, save_setup_transport
+
     from powercontext.client.transport_policy import resolve_client_transport
 
     monkeypatch.delenv("POWERCONTEXT_PI_ALLOW_INSECURE_HTTP", raising=False)
@@ -262,14 +269,14 @@ def test_setup_consent_precedence(tmp_path, monkeypatch, file_consent, process_c
 
 @pytest.mark.parametrize("bulk", [False, True], ids=["individual", "selected"])
 def test_failed_setup_env_file_does_not_install_or_leak_into_next_invocation(tmp_path, monkeypatch, bulk):
-    from powercontext.cli import hosts
-    from powercontext.cli.transport import resolve_setup_endpoint
+    from powercontext_integrations import pi
+    from powercontext_integrations.transport import resolve_setup_endpoint
 
     chosen = tmp_path / "chosen.env"
     chosen.write_text("POWERCONTEXT_CLIENT_SERVER_URL=http://192.0.2.10\n")
     (tmp_path / ".env").write_text("POWERCONTEXT_SERVER_HTTP_PORT=18000\n")
     installer = Mock(side_effect=AssertionError("Rejected configuration must not install an Agent"))
-    monkeypatch.setattr(hosts, "install_host", installer)
+    monkeypatch.setattr(pi, "install_pi_plugin", installer)
     command = ["select", "--host", "pi"] if bulk else ["pi"]
     result = CliRunner().invoke(create_cli([setup_app]), ["setup", "--env-file", str(chosen), *command, "--json"])
 
@@ -281,7 +288,7 @@ def test_failed_setup_env_file_does_not_install_or_leak_into_next_invocation(tmp
 
 
 def test_json_setup_never_prompts_even_with_tty(monkeypatch):
-    from powercontext.cli import transport
+    from powercontext_integrations import transport
 
     monkeypatch.setattr(transport.sys.stdin, "isatty", lambda: True)
     confirm = Mock(side_effect=AssertionError("JSON setup must not prompt"))
@@ -291,7 +298,7 @@ def test_json_setup_never_prompts_even_with_tty(monkeypatch):
 
 
 def test_interactive_consent_is_default_no_and_not_saved_until_completed(monkeypatch):
-    from powercontext.cli import transport
+    from powercontext_integrations import transport
 
     monkeypatch.setattr(transport.sys.stdin, "isatty", lambda: True)
     confirm = Mock(return_value=False)
@@ -311,7 +318,7 @@ def test_interactive_consent_is_default_no_and_not_saved_until_completed(monkeyp
 
 
 def test_saved_consent_does_not_follow_changed_url(monkeypatch):
-    from powercontext.cli import transport
+    from powercontext_integrations import transport
 
     settings = transport.prepare_setup_transport("pi", server_url="http://192.0.2.10", allow_insecure_http=True)
     transport.save_setup_transport(settings)
@@ -321,7 +328,7 @@ def test_saved_consent_does_not_follow_changed_url(monkeypatch):
 
 
 def test_setup_saves_only_nonsecret_fields_and_preserves_other_hosts(monkeypatch):
-    from powercontext.cli import transport
+    from powercontext_integrations import transport
 
     monkeypatch.setenv("POWERCONTEXT_CLIENT_AUTHORIZATION", "Bearer test-secret")
     for host in ("pi", "dsh"):
@@ -332,7 +339,7 @@ def test_setup_saves_only_nonsecret_fields_and_preserves_other_hosts(monkeypatch
 
 
 def test_explicit_no_does_not_prompt_to_override_refusal(monkeypatch):
-    from powercontext.cli import transport
+    from powercontext_integrations import transport
 
     monkeypatch.setattr(transport.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(transport.typer, "confirm", Mock(side_effect=AssertionError("explicit no")))
@@ -341,7 +348,7 @@ def test_explicit_no_does_not_prompt_to_override_refusal(monkeypatch):
 
 
 def test_environment_false_does_not_prompt_to_override_refusal(monkeypatch):
-    from powercontext.cli import transport
+    from powercontext_integrations import transport
 
     monkeypatch.setenv("POWERCONTEXT_PI_ALLOW_INSECURE_HTTP", "false")
     monkeypatch.setattr(transport.sys.stdin, "isatty", lambda: True)
@@ -351,7 +358,7 @@ def test_environment_false_does_not_prompt_to_override_refusal(monkeypatch):
 
 
 def test_hermes_setup_synchronizes_native_endpoint_and_preserves_preferences(tmp_path, monkeypatch):
-    from powercontext.cli.transport import SetupTransport, save_setup_transport
+    from powercontext_integrations.transport import SetupTransport, save_setup_transport
 
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     path = tmp_path / "powercontext/config.json"
@@ -367,8 +374,8 @@ def test_hermes_setup_synchronizes_native_endpoint_and_preserves_preferences(tmp
 
 @pytest.mark.parametrize("failed_file", ["shared", "native"])
 def test_failed_persistence_restores_native_settings(tmp_path, monkeypatch, failed_file):
-    import powercontext.cli.system as system
-    from powercontext.cli.transport import SetupTransport, client_config_file, save_setup_transport
+    import powercontext_integrations.native as system
+    from powercontext_integrations.transport import SetupTransport, client_config_file, save_setup_transport
 
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     native = tmp_path / "powercontext/config.json"
@@ -390,7 +397,7 @@ def test_failed_persistence_restores_native_settings(tmp_path, monkeypatch, fail
 
 
 def test_codex_setup_updates_native_mcp_endpoint_without_touching_headers(tmp_path, monkeypatch):
-    from powercontext.cli.system import _configure_codex_endpoint
+    from powercontext_integrations.codex import _configure_codex_endpoint
 
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
     path = tmp_path / "plugins/cache/powercontext/powercontext/0.1.0/.mcp.json"
@@ -412,7 +419,7 @@ def test_codex_setup_updates_native_mcp_endpoint_without_touching_headers(tmp_pa
 
 
 def test_workbuddy_setup_aligns_mcp_with_selected_endpoint(tmp_path):
-    from powercontext.cli.workbuddy import _merge_workbuddy_mcp
+    from powercontext_integrations.workbuddy import _merge_workbuddy_mcp
 
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {"other": {"url": "https://other.test"}}}))
@@ -423,7 +430,7 @@ def test_workbuddy_setup_aligns_mcp_with_selected_endpoint(tmp_path):
 
 
 def test_doctor_reports_insecure_opt_in_as_degraded():
-    from powercontext.cli.transport import prepare_setup_transport, save_setup_transport, transport_diagnostic
+    from powercontext_integrations.transport import prepare_setup_transport, save_setup_transport, transport_diagnostic
 
     save_setup_transport(prepare_setup_transport("pi", server_url="http://192.0.2.10", allow_insecure_http=True))
     diagnostic = transport_diagnostic("pi")
@@ -431,22 +438,8 @@ def test_doctor_reports_insecure_opt_in_as_degraded():
     assert "unencrypted" in diagnostic.detail
 
 
-def test_doctor_connects_only_after_explicit_opt_in(monkeypatch):
-    import powercontext.cli.system as system
-
-    probe = Mock(return_value=system.Diagnostic(status=system.DiagnosticStatus.OK, detail="reachable"))
-    monkeypatch.setattr(system, "_server_liveness_diagnostic", probe)
-    monkeypatch.setattr(system, "_server_readiness_diagnostic", probe)
-    diagnostics = system.run_diagnostics(server_url="http://192.0.2.10")
-    assert diagnostics["server_liveness"].status == "failed"
-    probe.assert_not_called()
-    diagnostics = system.run_diagnostics(server_url="http://192.0.2.10", allow_insecure_http=True)
-    assert diagnostics["server_liveness"].ok
-    assert diagnostics["transport"].status == "degraded"
-
-
 def test_doctor_reads_openclaw_native_endpoint_and_binds_consent(tmp_path, monkeypatch):
-    from powercontext.cli.transport import transport_diagnostic
+    from powercontext_integrations.transport import transport_diagnostic
 
     path = tmp_path / "openclaw.json"
     monkeypatch.setenv("OPENCLAW_CONFIG_PATH", str(path))
@@ -465,7 +458,7 @@ def test_doctor_reads_openclaw_native_endpoint_and_binds_consent(tmp_path, monke
 
 
 def test_doctor_does_not_claim_safety_for_unreadable_native_configuration(tmp_path, monkeypatch):
-    from powercontext.cli.transport import transport_diagnostic
+    from powercontext_integrations.transport import transport_diagnostic
 
     path = tmp_path / "openclaw.json"
     monkeypatch.setenv("OPENCLAW_CONFIG_PATH", str(path))
@@ -474,7 +467,7 @@ def test_doctor_does_not_claim_safety_for_unreadable_native_configuration(tmp_pa
 
 
 def test_dsh_setup_checks_the_web_profile_even_with_another_runtime_profile(tmp_path, monkeypatch):
-    from powercontext.cli.transport import prepare_setup_transport
+    from powercontext_integrations.transport import prepare_setup_transport
 
     monkeypatch.setenv("DSH_HOME", str(tmp_path))
     monkeypatch.setenv("DSH_PROFILE", "custom")

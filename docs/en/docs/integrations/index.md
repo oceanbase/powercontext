@@ -17,55 +17,46 @@ Choose the integration mechanism, then the host or framework:
 
 ## Agent Hosts
 
-The 8 Agent Hosts use `official` for PowerContext project maintenance and `community` for community contributions.
-`official` does not imply endorsement by a host vendor.
-
-| Agent Host | Stewardship | Integration |
-| --- | --- | --- |
-| [Codex](codex.md) | `official` | Prompt Hook + MCP + Skill |
-| [Claude Code](claude-code.md) | `community` | Prompt Hook + MCP + Skill |
-| [DeepSeek Harness](dsh.md) | `community` | HTTP plugin + pc_* + /pc |
-| [Hermes](hermes.md) | `community` | MemoryProvider + /pc |
-| [OpenClaw](openclaw.md) | `community` | Memory plugin + lifecycle hooks |
-| [OpenCode](opencode.md) | `community` | HTTP plugin + pc_* |
-| [Pi Coding Agent](pi.md) | `community` | Extension + pc_* + /pc |
-| [WorkBuddy](workbuddy.md) | `community` | Prompt Hook + MCP + Skill |
+Installation guides: [Codex](codex.md), [Claude Code](claude-code.md), [DSH](dsh.md), [Hermes](hermes.md),
+[OpenClaw](openclaw.md), [OpenCode](opencode.md), [Pi](pi.md), and [WorkBuddy](workbuddy.md).
+MiniMax uses the generated native package described in [plugin distribution](../../development/plugin-distribution.md).
 
 Each integration connects to a separately running Server. Follow its guide in the table for installation, connection settings, authentication, and diagnostics.
 
 For remote endpoints, see [Connect to a remote Server](../operate/connect-remote-server.md): PowerContext clients
 allow loopback HTTP by default and require explicit consent for non-loopback HTTP. Host-native MCP policies remain separate.
 
+Setup and host doctor load shared Python rules from the selected integration source without an extra package install.
+See [source selection and updates](../../development/plugin-distribution.md#develop-and-distribute).
 To select multiple hosts interactively, run:
 
 ```bash
 powercontext setup select
 ```
 
-Use the same ref as the Server. The selector lists hosts in the CLI catalog; consult each Agent guide for its supported installation path.
+Choose a compatible integration source/ref. The selector lists targets from the selected source; consult each Agent guide for its supported installation path.
 
 ## Python Agent frameworks
 
-All 3 adapters are `community`. Install them in the application environment; do not use
-`powercontext setup <host>`:
+All 3 adapters are `community`. Use the shared Python setup with an application interpreter:
 
-| Framework | Integration | Current availability |
-| --- | --- | --- |
-| [Pydantic AI](pydantic-ai.md) | Toolset for Memory read/write and context | `experimental` |
-| [LangChain](langchain.md) | Middleware for context and optional Source capture | `master_only` |
-| [LangGraph](langgraph.md) | Recall hook and Memory tools | `master_only` |
+```bash
+powercontext setup langchain --python /app/.venv/bin/python
+powercontext doctor langchain --server
+```
+
+The same setup and doctor flow covers Bub, OpenDAL, MiniMax, and the portable Agent Plugin.
+See [plugin distribution](../../development/plugin-distribution.md) for installation locations and generated resources.
+
+Use the [Pydantic AI](pydantic-ai.md), [LangChain](langchain.md), or [LangGraph](langgraph.md) adapter.
 
 ## Evaluation integrations
 
 [Bub is for evaluation only](evaluation.md). It is not part of the Agent Host or Python Agent framework support lists.
 
-## Capabilities and availability
+## Integration catalog
 
-The [capability matrix](capabilities.md) is generated from `integrations/capabilities.toml`.
-The current capability sets for all 8 hosts and Bub are marked `master_only`; Pydantic AI is `experimental`.
-`released` means available from a specified release tag, `master_only` means implemented but unreleased, and
-`experimental` carries no stability guarantee. These labels are separate from stewardship and the
-Minimal / Recommended / Full capability profiles.
+Inspect the [build-derived catalog](capabilities.md) for native bindings. Check installed state with
+`powercontext doctor integrations --json`; inspect the host's current tool catalog for permissions.
 
-Use the same release tag or commit for the Server and integration. Check [installation requirements](../get-started/install-and-run.md):
-Windows support is `experimental`, and does not imply that every host or optional backend supports Windows.
+Keep the integration source compatible with the client and Server contracts. See [installation requirements](../get-started/install-and-run.md).

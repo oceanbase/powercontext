@@ -6,6 +6,8 @@ description: 安装 PowerContext 原生 Pi package，并控制召回、采集和
 
 # Pi Coding Agent
 
+先安装 PowerContext 客户端，并确保宿主的 PATH 中可以找到 `powercontext-hook`。Setup 会在修改集成前检查该可执行文件。更新后，重新执行 setup 并重启宿主。
+
 `community`
 
 ## 安装或刷新 package

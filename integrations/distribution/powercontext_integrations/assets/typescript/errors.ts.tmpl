@@ -1,0 +1,181 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+export const REQUEST_ID_HEADER = 'X-PowerContext-Request-ID'
+export const MAX_RESPONSE_BYTES = 1_048_576
+export const MAX_CONTEXT_BYTES = 32_768
+export const MAX_SOURCE_LENGTH = 200_000
+export const PLUGIN_NAME = '{{package_name}}'
+export const PLUGIN_VERSION = '{{package_version}}'
+export const PLUGIN_USER_AGENT = `${PLUGIN_NAME}/${PLUGIN_VERSION}`
+
+export function safeRequestId(value: string | undefined): string | undefined {
+  return value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value) ? value : undefined
+}
+
+export class ClientError extends Error {
+  readonly requestId: string | undefined
+
+  constructor(message: string, requestId?: string) {
+    super(message)
+    this.name = new.target.name
+    this.requestId = safeRequestId(requestId)
+  }
+}
+
+export class TransportError extends ClientError {
+  readonly path: string
+
+  constructor(path: string, cause?: unknown, requestId?: string) {
+    super(`request to ${path} failed`, requestId)
+    this.path = path
+    this.cause = cause
+  }
+}
+
+export class UnavailableError extends TransportError {}
+
+export class RequestNotSentError extends TransportError {}
+
+export class RequestTimeoutError extends TransportError {}
+
+export class UnknownOutcomeError extends UnavailableError {
+  readonly outcome = 'unknown'
+}
+
+/** Headers were received, but the response body could not be read to completion. */
+export class ResponseReadError extends TransportError {
+  readonly statusCode: number
+
+  constructor(path: string, cause: unknown, statusCode: number, requestId?: string) {
+    super(path, cause, requestId)
+    this.statusCode = statusCode
+  }
+}
+
+export interface BodyFailureDetails {
+  failure_phase?: 'response_body'
+  response_body_error?: 'request_timeout' | 'cancelled' | 'connection_failed' | 'response_too_large'
+}
+
+export const RESPONSE_ISSUES = {
+  invalid_json: 'The response body is not valid JSON.',
+  redirect: 'The operation returned a redirect; the client does not follow redirects.',
+  response_too_large: 'The response body exceeds the 1 MiB client limit.',
+  unexpected_body: 'This status requires an empty response body.',
+  prepared_object: 'PreparedContext must be a JSON object.',
+  prepared_fields: 'PreparedContext must contain exactly schema, status, content and content_bytes.',
+  prepared_schema: 'PreparedContext.schema must be powercontext.prepared-context.v1.',
+  prepared_size: 'PreparedContext.content_bytes must be a non-negative integer.',
+  prepared_empty: 'An empty PreparedContext must have null content and content_bytes equal to zero.',
+  prepared_content: 'A ready PreparedContext must contain non-empty text.',
+  prepared_bytes: 'PreparedContext.content_bytes must match the UTF-8 content size and stay within the requested budget.',
+  liveness: 'Liveness requires HTTP 200 and a JSON object with status equal to ok.',
+  readiness: 'Readiness requires status ready/degraded with HTTP 200, or not_ready with HTTP 503, and a checks object of string values.',
+  capabilities: 'Capabilities requires HTTP 200, boolean memory_extraction/handoff_generation, and string arrays for source_types/artifact_families/search_modes/context_versions.',
+  openapi: 'API discovery requires HTTP 200, an OpenAPI 3.x version and a paths object.',
+  prepare_status: 'PreparedContext requires HTTP 200.',
+} as const
+
+export class InvalidResponseError extends ClientError {
+  readonly path: string
+  readonly statusCode: number | undefined
+  readonly issue: keyof typeof RESPONSE_ISSUES | undefined
+
+  constructor(path: string, requestId?: string, statusCode?: number, issue?: keyof typeof RESPONSE_ISSUES) {
+    super(`response from ${path} violated the API schema`, requestId)
+    this.path = path
+    this.statusCode = statusCode
+    this.issue = issue
+  }
+}
+
+export class UnknownOperationError extends ClientError {
+  readonly operationId: string
+
+  constructor(operationId: string) {
+    super(`unknown PowerContext operation: ${operationId}`)
+    this.operationId = operationId
+  }
+}
+
+export class SecretRejectedError extends ClientError {
+  constructor() {
+    super('refused to send secret-like content to PowerContext')
+  }
+}
+
+export class ServerResponseError extends ClientError {
+  readonly statusCode: number
+  readonly path: string
+  readonly code: unknown
+  readonly serverMessage: string | undefined
+
+  constructor(options: {
+    statusCode: number
+    path?: string
+    requestId?: string
+    code?: unknown
+    message?: string
+  }) {
+    const suffix = typeof options.code === 'string' ? ` (${options.code})` : ''
+    super(`PowerContext Server returned HTTP ${options.statusCode}${suffix}`, options.requestId)
+    this.statusCode = options.statusCode
+    this.path = options.path ?? ''
+    this.code = options.code
+    this.serverMessage = options.message
+  }
+}
+
+export function observedResponse(error: unknown): { statusCode: number; requestId?: string } | undefined {
+  if ((error instanceof ServerResponseError || error instanceof ResponseReadError || error instanceof InvalidResponseError)
+    && error.statusCode !== undefined) {
+    return { statusCode: error.statusCode, ...(error.requestId ? { requestId: error.requestId } : {}) }
+  }
+  return undefined
+}
+
+export function bodyFailureDetails(error: unknown): BodyFailureDetails {
+  if (error instanceof InvalidResponseError && error.issue === 'response_too_large') {
+    return { failure_phase: 'response_body', response_body_error: 'response_too_large' }
+  }
+  if (!(error instanceof ResponseReadError)) return {}
+  const name = error.cause instanceof Error ? error.cause.name : undefined
+  return { failure_phase: 'response_body', response_body_error: name === 'TimeoutError' ? 'request_timeout'
+    : name === 'AbortError' ? 'cancelled' : 'connection_failed' }
+}
+
+export function authenticationRejection(error: unknown): ServerResponseError | undefined {
+  const response = observedResponse(error)
+  return response && [401, 403].includes(response.statusCode) ? new ServerResponseError(response) : undefined
+}
+
+export function writeFailureConfirmation(error: unknown): 'rejected' | 'unconfirmed' | undefined {
+  if (error instanceof RequestNotSentError) return undefined
+  // Authentication/authorization refusal establishes rejection of this request, not a rollback of earlier work.
+  if (authenticationRejection(error)) return 'rejected'
+  if (error instanceof TransportError && !(error instanceof ResponseReadError)) {
+    const cause = error.cause instanceof Error ? error.cause as Error & { code?: string; cause?: { code?: string } } : undefined
+    const code = cause?.cause?.code ?? cause?.code
+    if (code && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'CERT_HAS_EXPIRED',
+      'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'].includes(code)) return undefined
+  }
+  // Other HTTP errors, including 5xx, do not establish that a write had no effect.
+  if (error instanceof TransportError || error instanceof ServerResponseError || error instanceof InvalidResponseError) {
+    return 'unconfirmed'
+  }
+  return undefined
+}

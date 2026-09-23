@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 import stat
@@ -24,29 +23,16 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from powercontext_client_config import parse_boolean, resolve_allow_insecure_http
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from typing_extensions import override
 
+from powercontext.client.integration.config import parse_boolean, resolve_allow_insecure_http
+from powercontext.transport import is_loopback_host as _is_loopback_host
+
 _MCP_CONFIGURATION_PATH = Path(__file__).with_name(".mcp.json")
-# Kept in lockstep with powercontext.transport.LOOPBACK_HOSTS; the plugin ships
-# isolated and cannot import powercontext, so tests pin the two copies together.
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _AUTHORIZATION_ENVIRONMENT = {"Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"}
-
-
-def _is_loopback_host(host: str) -> bool:
-    """Mirror ``powercontext.transport.is_loopback_host`` for the isolated plugin."""
-
-    normalized = host.strip().lower()
-    if normalized in _LOOPBACK_HOSTS:
-        return True
-    try:
-        return ipaddress.ip_address(normalized).is_loopback
-    except ValueError:
-        return False
 
 
 class _McpEndpoint(BaseModel):

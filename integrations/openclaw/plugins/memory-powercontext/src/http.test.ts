@@ -96,3 +96,11 @@ describe("PowerContext HTTP errors", () => {
     });
   });
 });
+
+vi.mock('./client.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./client.js')>()
+  const { createClientDouble } = await import('../../../../shared/testing/client.js')
+  const errors = await import('./errors.js')
+  const { OPERATIONS } = await import('./operations.generated.js')
+  return { ...actual, PowerContextClient: createClientDouble(actual.PowerContextClient, errors, OPERATIONS) }
+})

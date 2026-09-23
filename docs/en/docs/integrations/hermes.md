@@ -6,6 +6,8 @@ description: Install the Hermes MemoryProvider and slash-command companion, then
 
 # Hermes
 
+Install the PowerContext client first and expose `powercontext-hook` on the host process PATH. All domain operations use the shared installed client; hooks do not install Python environments or runtime dependencies. `powercontext setup` checks this prerequisite and `powercontext doctor` reports it. Local `uvx` and `npx` are required for distribution tooling.
+
 `community`
 
 The integration contains a standard Hermes `MemoryProvider` and a standalone slash-command plugin. Hermes remains

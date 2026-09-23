@@ -1,5 +1,8 @@
 # OpenClaw integration
 
+Install the PowerContext client separately and expose `powercontext-hook` on the host PATH. Domain operations use the shared client, with bounded responses, deadlines, and explicit unknown write outcomes. Hooks do not install runtime dependencies.
+
+
 `community`
 
 `plugins/memory-powercontext` contains the PowerContext memory plugin for
@@ -163,5 +166,5 @@ uv run pytest tests/test_openclaw_cli.py
 
 The package includes `powercontext-project-context`, discovered through the plugin manifest's `skills` directory.
 Its English/Chinese description routes Memory and work-transfer requests to local reference files. Read details only
-when needed; ordinary coding requires no Skill detour. The Skill does not enable unavailable tools, Memory inventory,
-candidate Review, or writes outside the host's private-session and permission boundaries.
+when needed; ordinary coding requires no Skill detour. Memory inventory and candidate inspection use the shared toolkit. The Skill does not grant writes or
+review decisions outside the host's private-session and permission boundaries.

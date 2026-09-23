@@ -68,7 +68,7 @@ def test_scope_resolver_uses_server_binding_and_fixes_new_session(
     )
 
 
-def test_open_bounded_enforces_the_deadline_while_headers_trickle(scope_module: ModuleType) -> None:
+def test_scope_request_enforces_the_deadline_while_headers_trickle(scope_module: ModuleType) -> None:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen()
@@ -88,11 +88,18 @@ def test_open_bounded_enforces_the_deadline_while_headers_trickle(scope_module: 
 
     worker = threading.Thread(target=trickle, daemon=True)
     worker.start()
-    request = scope_module.Request(f"http://127.0.0.1:{port}/v1/stats", data=b"{}", method="POST")
+    from types import SimpleNamespace
+
+    settings = SimpleNamespace(server_url=f"http://127.0.0.1:{port}", authorization=None, request_timeout_seconds=1.0)
     try:
         started = time.monotonic()
-        with pytest.raises(TimeoutError):
-            scope_module.open_bounded(request, timeout=0.3)
+        with pytest.raises(scope_module.ScopeBindingUnavailableError):
+            scope_module._post_json(
+                "/v1/scope-bindings/resolve",
+                {"explicit_scope_id": "project:test"},
+                settings=settings,
+                deadline=started + 0.3,
+            )
         elapsed = time.monotonic() - started
     finally:
         listener.close()
@@ -294,9 +301,6 @@ def test_plugin_reports_token_savings_from_a_bounded_stop_hook() -> None:
     hook = configuration["hooks"]["Stop"][0]["hooks"][0]
     assert hook == {
         "type": "command",
-        "command": (
-            'uv run --frozen --quiet --project "${PLUGIN_ROOT}" python "${PLUGIN_ROOT}/hooks/token_savings.py"'
-        ),
+        "command": ('powercontext-hook "--script" "${PLUGIN_ROOT}/hooks/token_savings.py"'),
         "timeout": 10,
-        "statusMessage": "Loading PowerContext token savings",
     }

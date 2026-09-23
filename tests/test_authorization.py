@@ -21,8 +21,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-
-from powercontext.cli.authorization import (
+from powercontext_integrations.authorization import (
     AuthorizationResolution,
     clear_stored_authorization,
     configure_codex_desktop_authorization,
@@ -217,7 +216,7 @@ def test_credential_path_uses_host_owned_roots(monkeypatch: pytest.MonkeyPatch, 
 
 
 def test_codex_desktop_authorization_uses_the_windows_user_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    import powercontext.cli.authorization as authorization
+    import powercontext_integrations.authorization as authorization
 
     write = Mock()
     monkeypatch.setattr(authorization.sys, "platform", "win32")
@@ -234,7 +233,7 @@ def test_codex_desktop_authorization_uses_the_windows_user_environment(monkeypat
 
 
 def test_codex_desktop_authorization_is_windows_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    import powercontext.cli.authorization as authorization
+    import powercontext_integrations.authorization as authorization
 
     monkeypatch.setattr(authorization.sys, "platform", "linux")
 

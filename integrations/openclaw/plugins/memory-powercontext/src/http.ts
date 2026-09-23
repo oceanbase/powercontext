@@ -16,115 +16,75 @@
 
 
 import type { PowerContextConfig } from "./config.js";
-import { normalizeServerUrl } from "./transport.js";
+import { PowerContextClient as SharedClient, type JsonObject } from "./client.js";
+import { OPERATIONS } from "./operations.generated.js";
+import { InvalidResponseError, ServerResponseError, UnknownOutcomeError } from "./errors.js";
 
 export class PowerContextRequestError extends Error {
-  readonly status?: number;
-  readonly path: string;
-  readonly code?: string;
-
-  constructor(path: string, message: string, status?: number, code?: string) {
-    super(message);
-    this.name = "PowerContextRequestError";
-    this.path = path;
-    this.status = status;
-    this.code = code;
-  }
+  constructor(
+    readonly path: string,
+    message: string,
+    readonly status?: number,
+    readonly code?: string,
+    readonly outcome?: "unknown",
+  ) { super(message); this.name = "PowerContextRequestError"; }
 }
 
 export type PowerContextClient = ReturnType<typeof createPowerContextClient>;
 
+function operationForPath(method: string, path: string): { id: string; arguments: JsonObject } {
+  const url = new URL(path, "http://powercontext.local");
+  const parts = url.pathname.split("/");
+  for (const [id, spec] of Object.entries(OPERATIONS)) {
+    const pattern = spec.path.split("/");
+    if (spec.method !== method || pattern.length !== parts.length) continue;
+    const arguments_: JsonObject = Object.fromEntries(url.searchParams);
+    const matches = pattern.every((part, index) => {
+      if (part.startsWith("{") && part.endsWith("}")) {
+        arguments_[part.slice(1, -1)] = decodeURIComponent(parts[index]!);
+        return true;
+      }
+      return part === parts[index];
+    });
+    if (matches) return { id, arguments: arguments_ };
+  }
+  throw new PowerContextRequestError(path, "Unknown PowerContext operation");
+}
+
 export function createPowerContextClient(getConfig: () => PowerContextConfig) {
-  async function request<T>(
-    method: "GET" | "POST",
-    path: string,
-    body?: Record<string, unknown>,
-    signal?: AbortSignal,
-  ): Promise<T> {
+  let client: SharedClient | undefined;
+  let connection: string | undefined;
+  async function request<T>(method: string, path: string, body?: JsonObject, signal?: AbortSignal): Promise<T> {
     const config = getConfig();
-    if (!config.endpoint) {
-      throw new PowerContextRequestError(path, "PowerContext endpoint is not configured");
-    }
-    const endpoint = normalizeServerUrl(config.endpoint, config.allowInsecureHttp);
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted) {
-      controller.abort();
-    }
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, config.timeoutMs);
+    if (!config.endpoint) throw new PowerContextRequestError(path, "PowerContext endpoint is not configured");
+    const token = process.env[config.tokenEnv];
+    const settings = {
+      baseUrl: config.endpoint,
+      allowInsecureHttp: config.allowInsecureHttp,
+      authorization: token ? `Bearer ${token}` : undefined,
+      requestTimeoutMs: config.timeoutMs,
+    };
     try {
-      const token = process.env[config.tokenEnv];
-      const headers: Record<string, string> = { "content-type": "application/json" };
-      if (token) {
-        headers.authorization = `Bearer ${token}`;
+      const key = JSON.stringify(settings);
+      if (!client || key !== connection) {
+        client?.close();
+        client = new SharedClient(settings);
+        connection = key;
       }
-      let response: Response;
-      try {
-        response = await fetch(`${endpoint}${path}`, {
-          method,
-          redirect: "manual",
-          headers,
-          ...(body ? { body: JSON.stringify(body) } : {}),
-          signal: controller.signal,
-        });
-      } catch (error) {
-        const reason = timedOut
-          ? `request timed out after ${config.timeoutMs}ms`
-          : signal?.aborted
-            ? "request aborted"
-            : String(error);
-        throw new PowerContextRequestError(path, reason);
-      }
-      const raw = await response.text();
-      let payload: unknown = {};
-      if (raw.trim()) {
-        try {
-          payload = JSON.parse(raw);
-        } catch {
-          payload = { raw };
-        }
-      }
-      if (!response.ok) {
-        const record = typeof payload === "object" && payload !== null ? payload : undefined;
-        const error =
-          record && "error" in record && typeof record.error === "object" && record.error !== null
-            ? record.error
-            : undefined;
-        const detail =
-          error && "message" in error && typeof error.message === "string"
-            ? error.message
-            : record && "detail" in record && typeof record.detail === "string"
-              ? record.detail
-              : `HTTP ${response.status}`;
-        const code =
-          error && "code" in error && typeof error.code === "string"
-            ? error.code
-            : undefined;
-        throw new PowerContextRequestError(path, detail, response.status, code);
-      }
-      return payload as T;
+      const operation = operationForPath(method, path);
+      const result = await client.request(operation.id, { ...operation.arguments, ...body }, signal);
+      return result.value as T;
     } catch (error) {
-      if (error instanceof PowerContextRequestError) {
-        throw error;
-      }
-      throw new PowerContextRequestError(path, String(error));
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
+      if (error instanceof PowerContextRequestError) throw error;
+      const status = error instanceof ServerResponseError || error instanceof InvalidResponseError ? error.statusCode : undefined;
+      const code = error instanceof ServerResponseError && typeof error.code === "string" ? error.code : undefined;
+      throw new PowerContextRequestError(path, error instanceof Error ? error.message : "PowerContext request failed",
+        status, code, error instanceof UnknownOutcomeError || (error as { outcome?: string })?.outcome === "unknown" ? "unknown" : undefined);
     }
   }
-
   return {
-    get<T>(path: string, signal?: AbortSignal) {
-      return request<T>("GET", path, undefined, signal);
-    },
-    post<T>(path: string, body: Record<string, unknown>, signal?: AbortSignal) {
-      return request<T>("POST", path, body, signal);
-    },
+    get<T>(path: string, signal?: AbortSignal) { return request<T>("GET", path, undefined, signal); },
+    post<T>(path: string, body: JsonObject, signal?: AbortSignal) { return request<T>("POST", path, body, signal); },
+    close() { client?.close(); },
   };
 }

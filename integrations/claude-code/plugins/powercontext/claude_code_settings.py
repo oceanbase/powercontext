@@ -16,33 +16,17 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 
-from powercontext_client_config import load_client_settings, parse_boolean, resolve_allow_insecure_http
+from powercontext.client.integration.config import load_client_settings, parse_boolean, resolve_allow_insecure_http
+from powercontext.client.integration.config import normalize_server_url as _http_base_url
 
-# Kept in lockstep with powercontext.transport.LOOPBACK_HOSTS; the plugin ships
-# isolated and cannot import powercontext.
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
-
-
-def _is_loopback_host(host: str) -> bool:
-    """Mirror ``powercontext.transport.is_loopback_host`` for the isolated plugin."""
-
-    normalized = host.strip().lower()
-    if normalized in _LOOPBACK_HOSTS:
-        return True
-    try:
-        return ipaddress.ip_address(normalized).is_loopback
-    except ValueError:
-        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,33 +201,6 @@ def _stored_authorization(*, server_url: str, root: Path) -> str | None:
         return _authorization_header(authorization)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
-
-
-def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
-    normalized = value.strip().rstrip("/")
-    parsed = urlsplit(normalized)
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("PowerContext Server URL must not contain credentials")  # noqa: TRY003
-    if parsed.hostname is None or parsed.scheme not in {"http", "https"}:
-        raise ValueError("PowerContext Server URL must use HTTP or HTTPS")  # noqa: TRY003
-    if parsed.query or parsed.fragment:
-        raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
-    scheme = parsed.scheme.lower()
-    host = parsed.hostname.lower()
-    try:
-        port = parsed.port
-    except ValueError:
-        raise ValueError("PowerContext Server URL must use a valid port") from None  # noqa: TRY003
-    if scheme == "http" and not _is_loopback_host(host) and not allow_insecure_http:
-        raise ValueError("unencrypted PowerContext URLs must be loopback addresses")  # noqa: TRY003
-    if port is None or (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
-        netloc = f"[{host}]" if ":" in host else host
-    else:
-        netloc = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
-    path = parsed.path.rstrip("/")
-    if path.endswith("/mcp"):
-        path = path.removesuffix("/mcp")
-    return urlunsplit((scheme, netloc, path, "", "")).rstrip("/")
 
 
 __all__ = ["ClaudeCodePluginSettings"]

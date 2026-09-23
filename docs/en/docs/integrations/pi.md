@@ -6,6 +6,8 @@ description: Install the native PowerContext package for Pi and control recall, 
 
 # Pi Coding Agent
 
+Install the PowerContext client and expose `powercontext-hook` on the host's PATH. Setup checks this executable before changing the integration. After updating, rerun setup and restart the host.
+
 `community`
 
 ## Install or refresh the package

@@ -6,6 +6,8 @@ description: Install the PowerContext DeepSeek Harness plugin and control its lo
 
 # DeepSeek Harness
 
+Install the PowerContext client first and expose `powercontext-hook` on the host process PATH. All domain operations use the shared installed client; hooks do not install Python environments or runtime dependencies. `powercontext setup` checks this prerequisite and `powercontext doctor` reports it. Local `uvx` and `npx` are required for distribution tooling.
+
 `community`
 
 ## Install matching Server and plugin versions
@@ -36,7 +38,7 @@ commands. A local source must contain the checked-in built `lib/index.js`.
 `setup dsh --source oceanbase/powercontext --ref master` reuses a valid cached checkout without fetching:
 repeating that command does not update a moving branch. A broken checkout is replaced.
 
-`setup dsh` calls `dsh plugin --profile web add`; it does not start the Server. Restart DSH after installation.
+`setup dsh` calls `dsh plugin --profile web add --workspace-root`; it does not start the Server. Restart DSH after installation.
 
 ## Start the Server and the host
 
@@ -70,39 +72,14 @@ present in the process launching DSH; changing another terminal's environment do
 
 ## Diagnose the running configuration
 
-Run `/pc doctor` inside the affected DSH session. Its report identifies configuration provenance and checks
-liveness, readiness, capabilities, declared routes, the current Scope, and a read-only prepare operation independently.
-A Scope failure leaves health results available. The endpoint summary shows only its origin, configuration source
-and whether a path prefix exists; credentials, prefix text, query strings and fragments are not printed.
+Run `/pc doctor` inside the affected DSH session. The command passes the running connection to the installed
+Python client's shared diagnostics: liveness, readiness, and the required context schema. Checks use one deadline
+and perform no Scope resolution, prepare, capture, or flush. Readiness preserves recognized dependency statuses,
+including HTTP 503; private Server messages are omitted. A failed liveness probe skips the remaining checks.
 
-Each failed check identifies the operation, a stable code, HTTP status/request ID when available, and a recovery
-action. Protocol errors also include `protocol_issue`, identifying the violated JSON, status or PreparedContext field rule.
-Readiness retains recognized dependency statuses, including a 503 response. It never forwards raw Server
-messages or recalled content. `ok: true` means these read-only checks passed, not that capture or processing occurred.
-
-| Check/result | Meaning and next action |
-| --- | --- |
-| `invalid_endpoint` | Correct the effective HTTP(S) base URL; remove userinfo, query and fragment. Use Authorization for credentials. |
-| `connection_refused` / `dns_lookup_failed` | Check the configured listener or hostname respectively. |
-| `request_timeout` | Inspect the named operation's Server latency/dependencies and the effective request timeout. |
-| `connection_failed` | Transport failed without a more specific reason; check the endpoint, proxy, network and Server logs. |
-| `authentication_failed` / `authorization_failed` | Check the host credential or the principal's operation/Scope permissions respectively. |
-| `not_ready` / `degraded` | Inspect the reported dependency, such as `database` or `inference.generation`; use its recovery action. |
-| `required_route_missing` | The named operation returned untyped 404. Inspect its proxy route/base path and matching versions; 404 alone does not prove a version mismatch. |
-| `required_route_undeclared` | The Server OpenAPI document lacks the listed operation declarations. |
-| `contract_unavailable` | Declarations are unchecked; expose `/openapi.json` through the same base path or verify the contract separately. |
-| `scope_not_found` / `unscoped` | Check the explicit Scope override, workspace binding, and Server default. Doctor does not alter them. |
-| `invalid_response` | The response fails protocol checks, even if HTTP status was 200. |
-| `extraction_disabled` / prepare `empty` | Valid limited capability/empty result; neither proves a hook or Server failure. |
-
-The route check reads the Server's existing `/openapi.json` and distinguishes declarations from live probes.
-Doctor never executes capture, remember, flush, binding changes or injection. A missing contract is unchecked, and
-a missing Scope skips prepare with an explicit reason. Write/processing verification belongs to acceptance below.
-
-Standalone `powercontext doctor dsh` checks Web-profile registration only and reports that the running host
-configuration and Server checks were not observed. Exit success means registration checks passed.
-`powercontext doctor` uses its own `--server-url` / `POWERCONTEXT_CLIENT_SERVER_URL`; use it for the existing
-service/health diagnostics after aligning that URL, without assuming it observes DSH overrides.
+`powercontext doctor dsh` checks client prerequisites, Web-profile registration, and discoverable transport settings.
+Add `--server` for the same Server checks. Use the in-session command when DSH has runtime configuration overrides.
+`powercontext doctor` checks the endpoint selected by `--server-url` or `POWERCONTEXT_CLIENT_SERVER_URL`.
 
 ## Inspect the last automatic attempt
 
@@ -157,7 +134,7 @@ overwrite the automatic record.
 
 This explicit check writes test evidence. With the matching installation and extraction configuration above:
 
-1. Run `/pc doctor`. Confirm health, Scope and prepare checks pass and extraction is enabled.
+1. Run `/pc doctor`. Confirm Server health, then use `/pc capabilities` to inspect extraction support and `/pc` to inspect Scope observations.
 2. Send a distinctive project fact, for example: “The aurora deployment color is violet-cedar-1457.”
 3. Verify Source acceptance separately from processing. Wait for the configured Scheduler, or explicitly run
    `/pc flush`. Using the [Memory-loop API checks](../get-started/configure-models.md), verify the processed cursor reaches
@@ -192,7 +169,7 @@ per-request timeout also apply to Scope resolution.
 
 Inside DeepSeek Harness:
 
-- `/pc doctor` checks health, capabilities, routes and Scope independently; a Scope failure preserves other results and skips prepare.
+- `/pc doctor` runs the shared Python health and context-schema checks without resolving Scope.
 - `/pc capabilities` queries the Server capabilities without resolving a Scope.
 - Unknown subcommands and missing arguments return local usage help without contacting the Server.
 - Bare `/pc` shows the resolved Scope and Server origin. If resolution fails, it returns an error while still showing

@@ -45,7 +45,7 @@ function responseDiagnostic(event: string, outcome: string, error: ServerRespons
     event,
     outcome,
     http_status: error.statusCode,
-    ...(error.code ? { error_code: error.code } : {}),
+    ...(typeof error.code === 'string' ? { error_code: error.code } : {}),
   }
 }
 

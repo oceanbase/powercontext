@@ -305,6 +305,10 @@ function showResult(api: TuiPluginApi, result: PcCommandResult): void {
 async function runCommand(api: TuiPluginApi, runtime: PcCommandRuntime, rawInput: string): Promise<void> {
   api.ui.dialog.clear()
   try {
+    if (rawInput.trim().split(/\s+/)[0] === 'doctor') {
+      showResult(api, await handlePcCommand(rawInput, runtime, undefined, api.lifecycle.signal))
+      return
+    }
     const cwd = currentDirectory(api)
     if (!cwd && !runtime.config.scopeId) {
       showResult(api, { kind: 'error', text: 'PowerContext could not resolve the current OpenCode project directory.' })

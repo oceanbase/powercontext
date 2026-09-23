@@ -20,8 +20,6 @@ import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from powercontext.cli.hosts import FIRST_CLASS_HOSTS
-
 
 @dataclass(frozen=True, slots=True)
 class AgentSpec:
@@ -33,9 +31,9 @@ class AgentSpec:
     environment_prefix: str | None
     server_setting: str | None
     authorization_setting: str | None
-    capture_setting: str
-    scope_setting: str
-    context_assembly_setting: str
+    capture_setting: str | None
+    scope_setting: str | None
+    context_assembly_setting: str | None
     setup_server_url: bool = False
     executables: tuple[str, ...] = ()
 
@@ -46,108 +44,12 @@ class AgentSpec:
         return f"{self.environment_prefix}_{setting}"
 
 
-_HOST_METADATA = {
-    "codex": AgentSpec(
-        "codex",
-        "Codex",
-        "Codex",
-        "POWERCONTEXT_CODEX",
-        None,
-        "AUTHORIZATION",
-        "CAPTURE_PROMPTS",
-        "SCOPE_ID",
-        "CONTEXT_ASSEMBLY",
-        executables=("codex",),
-    ),
-    "claude-code": AgentSpec(
-        "claude-code",
-        "Claude Code",
-        "Claude Code",
-        "POWERCONTEXT_CLAUDE",
-        "SERVER_URL",
-        "AUTHORIZATION",
-        "CAPTURE_PROMPTS",
-        "SCOPE_ID",
-        "CONTEXT_ASSEMBLY",
-        setup_server_url=True,
-        executables=("claude",),
-    ),
-    "dsh": AgentSpec(
-        "dsh",
-        "DeepSeek Harness",
-        "DeepSeek Harness",
-        "POWERCONTEXT_DSH",
-        "BASE_URL",
-        "AUTHORIZATION",
-        "CAPTURE_PROMPTS",
-        "SCOPE_ID",
-        "CONTEXT_ASSEMBLY",
-        executables=("dsh",),
-    ),
-    "openclaw": AgentSpec(
-        "openclaw",
-        "OpenClaw",
-        "OpenClaw",
-        None,
-        "endpoint",
-        None,
-        "autoCapture",
-        "scopeId",
-        "contextAssembly",
-        setup_server_url=True,
-        executables=("openclaw",),
-    ),
-    "opencode": AgentSpec(
-        "opencode",
-        "OpenCode",
-        "OpenCode",
-        "POWERCONTEXT_OPENCODE",
-        "BASE_URL",
-        "AUTHORIZATION",
-        "CAPTURE_PROMPTS",
-        "SCOPE_ID",
-        "CONTEXT_ASSEMBLY",
-        executables=("opencode",),
-    ),
-    "pi": AgentSpec(
-        "pi",
-        "Pi",
-        "Pi",
-        "POWERCONTEXT_PI",
-        "BASE_URL",
-        "AUTHORIZATION",
-        "CAPTURE_PROMPTS",
-        "SCOPE_ID",
-        "CONTEXT_ASSEMBLY",
-        executables=("pi",),
-    ),
-    "hermes": AgentSpec(
-        "hermes",
-        "Hermes",
-        "Hermes",
-        "POWERCONTEXT_HERMES",
-        "BASE_URL",
-        "AUTHORIZATION",
-        "CAPTURE_TURNS",
-        "SCOPE_ID",
-        "CONTEXT_ASSEMBLY",
-        executables=("hermes",),
-    ),
-    "workbuddy": AgentSpec(
-        "workbuddy",
-        "WorkBuddy",
-        "WorkBuddy",
-        "POWERCONTEXT_WORKBUDDY",
-        "SERVER_URL",
-        "AUTHORIZATION",
-        "CAPTURE_PROMPTS",
-        "SCOPE_ID",
-        "CONTEXT_ASSEMBLY",
-    ),
-}
+def agent_specs() -> tuple[AgentSpec, ...]:
+    """Read host choices from the same source used by setup and doctor."""
+    from powercontext.cli.integration_source import load_rules, resolve_source
 
-AGENT_SPECS: tuple[AgentSpec, ...] = tuple(_HOST_METADATA[host.name] for host in FIRST_CLASS_HOSTS)
-AGENT_SPEC_BY_ID = {spec.identifier: spec for spec in AGENT_SPECS}
+    root = resolve_source(fetch=True)
+    return load_rules(root, "agents").agent_specs() if root else ()
 
 
 def preferred_agent(agents: Sequence[AgentSpec], which: Callable[[str], str | None] = shutil.which) -> str:
@@ -160,4 +62,4 @@ def preferred_agent(agents: Sequence[AgentSpec], which: Callable[[str], str | No
     return agents[0].identifier
 
 
-__all__ = ["AGENT_SPECS", "AGENT_SPEC_BY_ID", "AgentSpec", "preferred_agent"]
+__all__ = ["AgentSpec", "agent_specs", "preferred_agent"]

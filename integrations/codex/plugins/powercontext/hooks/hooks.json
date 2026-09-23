@@ -1,28 +1,26 @@
 {
-  "description": "Recall relevant memory and capture the current Codex prompt as a Source.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --frozen --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/session_binding.py\"",
             "timeout": 10,
-            "statusMessage": "Binding PowerContext"
+            "command": "powercontext-hook \"--script\" \"${PLUGIN_ROOT}/hooks/session_binding.py\""
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "mcp__powercontext__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --frozen --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/bind_tools.py\"",
-            "timeout": 10
+            "timeout": 10,
+            "command": "powercontext-hook \"--script\" \"${PLUGIN_ROOT}/hooks/bind_tools.py\""
           }
-        ]
+        ],
+        "matcher": "mcp__powercontext__.*"
       }
     ],
     "UserPromptSubmit": [
@@ -30,9 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --frozen --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/recall.py\"",
             "timeout": 10,
-            "statusMessage": "Syncing PowerContext"
+            "command": "powercontext-hook \"--script\" \"${PLUGIN_ROOT}/hooks/recall.py\""
           }
         ]
       }
@@ -42,9 +39,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --frozen --quiet --project \"${PLUGIN_ROOT}\" python \"${PLUGIN_ROOT}/hooks/token_savings.py\"",
             "timeout": 10,
-            "statusMessage": "Loading PowerContext token savings"
+            "command": "powercontext-hook \"--script\" \"${PLUGIN_ROOT}/hooks/token_savings.py\""
           }
         ]
       }

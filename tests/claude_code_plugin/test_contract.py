@@ -60,8 +60,8 @@ def test_hook_uses_exec_form_and_does_not_capture_stop() -> None:
 
     assert set(configuration["hooks"]) == {"UserPromptSubmit"}
     hook = configuration["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-    assert hook["command"] == "python3"
-    assert hook["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"]
+    assert hook["command"] == "powercontext-hook"
+    assert hook["args"] == ["--script", "${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.py"]
 
 
 def test_mcp_uses_claude_top_level_server_map_and_environment_header() -> None:
@@ -87,7 +87,7 @@ def test_scope_resolver_and_workspace_binding_use_the_server(
         return {"scope_id": "scp_00000000000000000000000000"}
 
     monkeypatch.setattr(scope_module, "_request_json", request)
-    settings = scope_module.ClaudeCodePluginSettings(scope_id="scp_00000000000000000000000000")
+    settings = scope_module.PluginSettings(scope_id="scp_00000000000000000000000000")
 
     resolved = scope_module.resolve_scope_id(
         str(tmp_path),

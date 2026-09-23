@@ -35,6 +35,7 @@ from pydantic_settings import SettingsConfigDict
 
 from powercontext.client import InvalidResponseError, PowerContextClient, ServerResponseError, TransportError
 from powercontext.client.capture import render_capture_event
+from powercontext.client.checkpoints import Checkpoints
 from powercontext.client.transport_policy import ClientTransportSettings
 from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest
 
@@ -132,6 +133,7 @@ class PowerContextPlugin:
         self._framework = framework
         self._scope_lock = asyncio.Lock()
         self._capture_lock = asyncio.Lock()
+        self._checkpoints = Checkpoints()
 
     @hookimpl
     def load_state(self, message: Any, session_id: str) -> TurnState:
@@ -172,6 +174,10 @@ class PowerContextPlugin:
         if scope_id is None:
             return None
 
+        if any(_contains_context_marker(message) for message in request.messages):
+            return None
+
+        prepared_content = await self._prepare_context(query, scope_id, state)
         capture_state = state[STATE_KEY]
         if self.settings.capture_events and query and not capture_state["prompt_captured"]:
             capture_state["prompt_captured"] = True
@@ -182,10 +188,6 @@ class PowerContextPlugin:
                 state=state,
             )
 
-        if any(_contains_context_marker(message) for message in request.messages):
-            return None
-
-        prepared_content = await self._prepare_context(query, scope_id, state)
         if not prepared_content:
             return None
 
@@ -372,8 +374,11 @@ class PowerContextPlugin:
             return
 
         try:
-            async with self._client() as client:
-                response = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
+            with self._checkpoints.attempt(scope_id, target_position) as allowed:
+                if not allowed:
+                    return
+                async with self._client() as client:
+                    response = await client.flush_memory(FlushMemoryRequest(scope_id=scope_id))
         except CLIENT_ERRORS as exc:
             self._write_capture_record(
                 event="checkpoint",

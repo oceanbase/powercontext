@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -333,7 +334,7 @@ describe('runRecallPreStep fail-open', () => {
     const log = vi.fn()
 
     await runRecallPreStep(input({
-      client: new PowerContextClient({
+      client: new MockClient({
         baseUrl: config.baseUrl,
         requestTimeoutMs: config.requestTimeoutMs,
         fetch,
@@ -366,7 +367,7 @@ describe('runRecallPreStep fail-open', () => {
     const log = vi.fn()
 
     await runRecallPreStep(input({
-      client: new PowerContextClient({
+      client: new MockClient({
         baseUrl: config.baseUrl,
         requestTimeoutMs: config.requestTimeoutMs,
         fetch,
@@ -401,7 +402,7 @@ describe('runRecallPreStep fail-open', () => {
     const log = vi.fn()
 
     await runRecallPreStep(input({
-      client: new PowerContextClient({
+      client: new MockClient({
         baseUrl: config.baseUrl,
         requestTimeoutMs: config.requestTimeoutMs,
         fetch,

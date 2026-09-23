@@ -492,7 +492,7 @@ Source definitions/observations/checkpoints do not provide connector management.
 not speculative start/retry controls. Accepted jobs, credentials and checkpoints belong to Server/connector workers;
 incomplete crawls do not imply deletion. Desktop exit cannot cancel accepted durable work.
 
-Show release-specific `integrations/capabilities.toml`, installer records and `doctor integrations --json` as distinct
+Show integration-source `integrations/distribution/powercontext_integrations/assets/targets/`, installer records and `doctor integrations --json` as distinct
 facts: declared support, installed ownership/version, observed loading/connectivity/Scope/capture/recall, enrollment
 only when actually provided. Metadata is not a live target registry. Host installation is opt-in; adapters own merging
 and repair. Rust cannot rewrite all detected configurations or infer health by counting files/tools.

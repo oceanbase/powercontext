@@ -1,9 +1,0 @@
-{
-  "powercontext": {
-    "type": "http",
-    "url": "${user_config.server_url}/mcp",
-    "headers": {
-      "Authorization": "${POWERCONTEXT_CLAUDE_AUTHORIZATION:-}"
-    }
-  }
-}

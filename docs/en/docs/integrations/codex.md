@@ -6,6 +6,8 @@ description: Install the PowerContext Codex plugin and control its local behavio
 
 # Codex
 
+Install the PowerContext client and expose `powercontext-hook` on the host's PATH. Setup checks this executable before changing the integration. After updating, rerun setup and restart the host.
+
 `official`
 
 ## Install or refresh the plugin
@@ -43,15 +45,9 @@ In a Codex session with the plugin installed and the PowerContext Server availab
 handoff this work
 ```
 
-The `powercontext-project-context` Skill treats that imperative as explicit authorization to create one durable Handoff milestone.
-Codex inspects the current conversation and repository, assembles the objective, branch and worktree state, changed
-files, observed checks, blockers, omissions, and next action, then calls `handoff_current_work` followed by
-`commit_handoff` in the current Session Scope. After a successful commit, Codex reports the exact Handoff Revision; the
-user does not need to fill in the Handoff content or confirm the commit again.
-
-`交接`, `交接当前工作`, and `commit a handoff` use the same behavior. To inspect the proposed content without writing,
-ask to `preview the handoff without committing`; the Skill renders the proposed fields in chat and calls no write
-tool. Discussing Handoff design or asking how it works does not authorize a write.
+The generated Skill follows the Agent Plugin baseline: inspect current facts, call `handoff_current_work`, and
+return the complete temporary carrier. `commit_handoff` requires an explicit durable milestone request.
+A preview uses current facts without a write. See [Memory and Handoff](../workflows/memory-and-handoff.md).
 
 At Session start, Codex resolves Scope in this order: an explicit `POWERCONTEXT_CODEX_SCOPE_ID`, an existing Session
 binding, a host-managed workspace binding, and the Server's default Scope. The selected Scope is fixed to the Session.
@@ -223,8 +219,8 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` runtime override; setup saves it for subsequent Hook and native MCP connections |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Shared hook HTTP budget |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Shared hook HTTP budget |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
 
 Hooks allow loopback HTTP by default; remote HTTP requires explicit consent, and HTTPS certificate validation stays

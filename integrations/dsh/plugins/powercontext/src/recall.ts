@@ -20,7 +20,7 @@ import type { ResolvedConfig } from './config.ts'
 import { captureUserPrompt } from './capture.ts'
 import { logSafely, reportFailure } from './diagnostics.ts'
 import { InvalidResponseError, TransportError } from './errors.ts'
-import { validatePreparedContext } from './prepared-context.ts'
+import type { PreparedContext } from './client.ts'
 import { sessionCwd } from './scope.ts'
 import { cancellationReason, type RuntimeStatus, type StatusAttempt, type SkipReason } from './status.ts'
 
@@ -97,11 +97,7 @@ async function recallContent(input: RecallInput, query: string, scopeId: string,
     }, input.signal)
     response = result
     if (input.signal?.aborted) throw new TransportError('', input.signal.reason)
-    const prepared = validatePreparedContext(
-      result.kind === 'json' ? result.value : undefined,
-      '/v1/context/prepare',
-      input.config.maxBytes,
-    )
+    const prepared = result.value as PreparedContext
     if (prepared.status === 'empty') {
       observation?.record('prepare', { state: 'empty', http_status: result.status, content_bytes: 0 })
       logSafely(input.log, { event: 'context_prepare', outcome: 'empty', http_status: 200, context_status: 'empty', content_bytes: 0 })

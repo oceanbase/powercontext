@@ -10,18 +10,16 @@ description: 安装 PowerContext WorkBuddy hooks 并控制其本地行为。
 
 ## 前置条件
 
-- 已安装并可运行的 PowerContext。从与下方插件相同的 `master` revision 安装 CLI 和本地 Server：
-  `uv tool install --force "powercontext[cli,server] @ git+https://github.com/oceanbase/powercontext.git@master"`。
-  然后执行 `powercontext server run` 启动 Server。
+- 运行中的 PowerContext Server；本地可使用 `powercontext server run` 启动。
+- 已安装 PowerContext client 和 CLI，且 `PATH` 中存在 `uvx` 与 `npx`。
 - 支持用户级 hooks、MCP 和 Skills 的 WorkBuddy 桌面应用。
-- 用于执行 hook 进程的 Python 3.11 或更新版本，且已加入 `PATH`。
-- 本仓库中的插件目录：`integrations/workbuddy/plugins/powercontext`。
+- WorkBuddy 的 `PATH` 中可以找到已安装客户端提供的 `powercontext-hook`。
 
 该集成不会自行启动或内嵌 Server；它只通过 HTTP 与运行中的 PowerContext Server 通信。
 
 ## 使用 PowerContext CLI 安装
 
-WorkBuddy 不在 `setup select` 或 `doctor integrations` 的宿主目录中，使用本页的独立安装和诊断命令。
+WorkBuddy 支持 `setup select` 和 `doctor integrations`，也可以使用下方的独立安装和诊断命令。
 
 CLI 可以从本地 checkout 或 GitHub 源一键安装 hooks、MCP Server 和 Skill：
 
@@ -29,7 +27,7 @@ CLI 可以从本地 checkout 或 GitHub 源一键安装 hooks、MCP Server 和 S
 powercontext setup workbuddy
 ```
 
-对于本地 checkout，把 `--source` 指向仓库根目录或插件目录：
+对于本地 checkout，把 `--source` 指向仓库根目录：
 
 ```bash
 powercontext setup workbuddy --source /path/to/powercontext
@@ -37,8 +35,8 @@ powercontext setup workbuddy --source /path/to/powercontext
 
 安装器会把 hook 驱动和 scope resolver 写入 `~/.workbuddy/hooks`，把 `UserPromptSubmit` hook 合并进
 `~/.workbuddy/settings.json`，在 `~/.workbuddy/mcp.json` 中注册 `powercontext` server，并把
-`powercontext-project-context` Skill 安装到 `~/.workbuddy/skills`。既有设置和其他 MCP server 会被保留，Skill 中的
-命令占位符也会被自动解析。
+`powercontext-project-context` Skill 安装到 `~/.workbuddy/skills`。既有设置和其他 MCP server 会被保留。Skill 和 MCP 资源从 Agent Plugin 基准生成，
+宿主规则从选定仓库源码加载，无需独立安装管理包。
 
 使用以下命令验证安装：
 
@@ -52,99 +50,6 @@ powercontext doctor workbuddy
 powercontext server run
 ```
 
-## 手动安装（备选）
-
-你也可以手动安装插件。示例使用 `~/.workbuddy/hooks` 作为 WorkBuddy hooks 目录；请替换为你的实际路径，并在下文所有出现
-`<WORKBUDDY_HOOKS_DIR>` 的地方使用同一个值。
-
-### 1. 复制插件文件
-
-```bash
-PLUGIN=integrations/workbuddy/plugins/powercontext
-WORKBUDDY_HOOKS_DIR="${WORKBUDDY_HOOKS_DIR:-$HOME/.workbuddy/hooks}"
-
-mkdir -p "$WORKBUDDY_HOOKS_DIR"
-cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
-   "$PLUGIN"/hooks/workbuddy_settings.py \
-   "$PLUGIN"/hooks/prepared_context.py \
-   "$WORKBUDDY_HOOKS_DIR"/
-cp "$PLUGIN/scripts/workspace_scope.py" \
-   "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
-```
-
-### 2. 注册 Hook
-
-将下面的 `hooks` 配置合并进 `~/.workbuddy/settings.json`。把 `<POWERCONTEXT_PYTHON>` 替换为能 import
-PowerContext 的 Python executable，把 `<WORKBUDDY_HOOKS_DIR>` 替换为 hooks 目录的绝对路径；命令字符串不支持环境变量展开。
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
-            "timeout": 30,
-            "statusMessage": "Syncing PowerContext"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### 3. 注册 MCP Server
-
-将下面的 `mcpServers` 配置合并进 `~/.workbuddy/mcp.json`：
-
-```json
-{
-  "mcpServers": {
-    "powercontext": {
-      "type": "http",
-      "url": "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp",
-      "headers": {
-        "Authorization": "${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}"
-      },
-      "description": "PowerContext agent memory & handoff MCP server (local service on port 8000)"
-    }
-  }
-}
-```
-
-### 4. 安装 Skill
-
-```bash
-mkdir -p ~/.workbuddy/skills
-cp -R integrations/workbuddy/plugins/powercontext/skills/powercontext-project-context \
-  ~/.workbuddy/skills/
-cat > ~/.workbuddy/skills/powercontext-project-context/.powercontext.json <<'EOF'
-{"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
-EOF
-```
-
-然后把 `~/.workbuddy/skills/powercontext-project-context/SKILL.md` 中的 `${POWERCONTEXT_PYTHON}` 替换为 shell-safe
-的 Python executable 参数，把 `${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` 替换为 shell-safe 的完整
-`<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py` 路径。
-
-### 5. 启动 Server、重启 WorkBuddy 并验证
-
-```bash
-powercontext server run
-```
-
-重启 WorkBuddy，使其发现新的 hook、MCP Server 和 Skill。发送任意提示词，hook 运行时会显示
-`Syncing PowerContext` 状态消息。使用以下命令验证安装：
-
-```bash
-powercontext doctor
-```
-
-当 Server 可达时，MCP 工具（`search_memory` 和 Handoff 工具）会出现在 WorkBuddy 会话中。
-
 ## 理解自动恢复、Memory 和 Handoff
 
 集成通过两条路径访问同一个 Server：
@@ -153,12 +58,12 @@ powercontext doctor
   独立地把提示词采集为 Source 证据；
 - MCP 为 WorkBuddy 提供读取和维护 Memory 的显式工具，以及明确的 Handoff 工作流。
 
-`powercontext-project-context` Skill 把两条路径连接起来。诸如 `交接`、`交接当前工作` 或 `handoff this work`
-这样的指令会被视为创建持久交接里程碑的明确授权。Skill 会检查当前对话和仓库，调用
-`handoff_current_work`，然后通过 `commit_handoff` 立即提交返回的 `handoff`。预览或设计类请求保持只读。
+生成的 `powercontext-project-context` Skill 遵循 Agent Plugin 基准。收到交接请求后，检查当前事实、调用
+`handoff_current_work` 并返回完整的临时载体。只有明确要求持久里程碑时才调用 `commit_handoff`。
+预览或设计类请求保持只读。
 
 WorkBuddy 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它
-严格校验 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为
+严格校验 `powercontext.prepared-context.v1`，并将返回内容和已解析 Scope 一起注入，供显式 MCP 调用复用。Runtime 负责把 Memory 内容标记为
 不可信历史、保留精确 citation，并完成最终选择与渲染。自动注入的内容和 Handoff 都是历史信息；
 WorkBuddy 在据此行动前仍应与当前代码、用户要求和系统指令核对。
 
@@ -196,8 +101,8 @@ export POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE=true
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | 显式的服务端 Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | 是否把用户提示词采集为 Source（默认 `true`） |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | 是否等待采集的 Source 被处理（仅测试，默认 `false`） |
-| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | 单次 HTTP 请求超时（默认 `1.0`） |
-| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | 单个提示词共享的墙钟预算（默认 `4.0`） |
+| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | 单次 HTTP 请求超时（默认 `3.0`） |
+| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | 单个提示词共享的墙钟预算（默认 `6.0`） |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | 最大 flush 调用次数（默认 `4`） |
 
 Hook 会校验其 PowerContext MCP URL，并通过去掉末尾 `/mcp` 路径段推导 HTTP API 基地址。MCP URL
@@ -214,8 +119,8 @@ Server 按以下顺序为 WorkBuddy 解析 Scope：
 3. 持久 workspace binding；
 4. Server 的默认 Scope。
 
-同一工作区后续开启的新 WorkBuddy 会话会复用同一个 Scope。`powercontext-project-context` Skill 的 `--bind-scope` 操作会在
-PowerContext 中持久化 workspace binding。插件只把 workspace 路径哈希用作外部 binding key，不会据此生成 Scope ID。
+同一工作区后续开启的新 WorkBuddy 会话会复用同一个 Scope。显式修改绑定时使用 Server 的 Scope 绑定操作。
+工作区路径仅被哈希为外部绑定键，插件不会从路径派生 Scope ID。
 
 ## 连接启用鉴权的本地 Server
 
@@ -267,6 +172,6 @@ query、scope、prepared content、citation、response body 或 authorization va
 
 1. 从 `~/.workbuddy/settings.json` 删除 `UserPromptSubmit` 中的 PowerContext 条目。
 2. 从 `~/.workbuddy/mcp.json` 删除 `powercontext` 条目。
-3. 从 `<WORKBUDDY_HOOKS_DIR>` 删除 hook 文件和 scope resolver。
+3. 从 `~/.workbuddy/hooks` 删除 hook 文件和 scope resolver。
 4. 删除 `~/.workbuddy/skills/powercontext-project-context`。
 5. 可选：停止 Server 并删除其本地数据目录。

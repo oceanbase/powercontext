@@ -16,7 +16,6 @@
 
 import type { JsonObject } from './client.ts'
 import { requireService } from './dsh-service.ts'
-import { diagnoseServer } from './doctor.ts'
 import { invokeOperation, reportDirectFailure, type PluginRuntime, type ToolResult } from './invoke.ts'
 import { UNSCOPED_MESSAGE } from './scope.ts'
 import { RuntimeStatus } from './status.ts'
@@ -115,7 +114,7 @@ export async function handlePcCommand(
     }
   }
   if (command === 'doctor') {
-    const report = await diagnoseServer(runtime, cwd, signal)
+    const report = await runtime.client.doctor(signal)
     return { kind: report.ok ? 'success' : 'error', text: JSON.stringify(report, null, 2) }
   }
   if (command === 'search') {

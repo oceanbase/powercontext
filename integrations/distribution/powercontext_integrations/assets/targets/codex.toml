@@ -1,0 +1,61 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema_version = 1
+label = "Codex"
+order = 1
+target = "codex"
+kind = "agent_host"
+language = "python"
+source = "integrations/codex/plugins/powercontext"
+hook_file = "hooks/hooks.json"
+root_variable = "PLUGIN_ROOT"
+command_style = "shell"
+
+[[hooks]]
+event = "SessionStart"
+handler = "hooks/session_binding.py"
+operations = ["resolve_scope_binding","set_scope_binding"]
+effects = []
+failure = "continue"
+
+[[hooks]]
+event = "PreToolUse"
+handler = "hooks/bind_tools.py"
+operations = ["resolve_scope_binding"]
+effects = ["input_patch"]
+failure = "reject"
+matcher = "mcp__powercontext__.*"
+
+[[hooks]]
+event = "UserPromptSubmit"
+handler = "hooks/recall.py"
+operations = ["prepare_context","capture_content_source","flush_memory"]
+effects = ["context","diagnostic"]
+failure = "continue"
+
+[[hooks]]
+event = "Stop"
+handler = "hooks/token_savings.py"
+operations = ["get_stats"]
+effects = ["diagnostic"]
+failure = "continue"
+
+[setup]
+module = "codex"
+options = ["server_url"]
+executable = "codex"
+
+[setup.settings]
+server_setting = ""

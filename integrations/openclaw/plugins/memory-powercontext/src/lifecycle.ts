@@ -1,3 +1,4 @@
+import { Checkpoints, sourcePosition } from "./checkpoints.js";
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -28,7 +29,7 @@ import {
 import type { PowerContextClient } from "./http.js";
 import { createDiagnosticEmitter, failureEvent } from "./diagnostics.js";
 import { resolvePowerContextScope } from "./scope.js";
-import { isPowerContextCapabilities, isPreparedContext } from "./types.js";
+import { isPowerContextCapabilities, type PreparedContext } from "./types.js";
 
 type LifecycleDependencies = {
   client: PowerContextClient;
@@ -51,6 +52,8 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       ...extra,
     });
   };
+  const checkpoints = new Checkpoints();
+  const captured = new Map<string, number>();
   const sessionScopes = new Map<string, Set<string>>();
   const readAgentId = (agentId: string | undefined): string | undefined => {
     const value = agentId?.trim();
@@ -115,7 +118,7 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
       content,
     });
     const scopeId = resolvedScopeId ?? await resolveScope(params);
-    await deps.client.post("/v1/sources/content", {
+    const result = await deps.client.post<{ position?: number }>("/v1/sources/content", {
       scope_id: scopeId,
       source_id: sourceId,
       content,
@@ -127,10 +130,13 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         privacy_class: "private",
       },
     });
+    const position = sourcePosition(result);
+    if (position !== undefined) captured.set(scopeId, Math.max(position, captured.get(scopeId) ?? 0));
   };
 
   const flush = async (scopeId: string) => {
-    await deps.client.post("/v1/memory/flush", { scope_id: scopeId });
+    const position = captured.get(scopeId) ?? 0;
+    await checkpoints.run(scopeId, position, () => deps.client.post("/v1/memory/flush", { scope_id: scopeId }));
   };
   const canExtractMemory = async () => {
     const capabilities = await deps.client.get<unknown>("/v1/capabilities");
@@ -168,15 +174,12 @@ export function registerPowerContextLifecycle(api: OpenClawPluginApi, deps: Life
         sessionKey: ctx.sessionKey,
         activeProjectKeys: ctx.activeProjectKeys,
       });
-      const prepared = await deps.client.post<unknown>("/v1/context/prepare", {
+      const prepared = await deps.client.post<PreparedContext>("/v1/context/prepare", {
         scope_id: scopeId,
         query: truncateUtf8(query, 8192),
         max_bytes: config.prepareMaxBytes,
         ...(config.contextAssembly !== undefined ? { assembly: config.contextAssembly } : {}),
       });
-      if (!isPreparedContext(prepared, config.contextAssembly !== undefined ? config.prepareMaxBytes : undefined)) {
-        throw new Error("PowerContext returned an invalid PreparedContext payload");
-      }
       if (prepared.status !== "ready" || !prepared.content) {
         return undefined;
       }

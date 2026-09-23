@@ -4,6 +4,9 @@ This plugin adds automatic project-context recall, ordinary user-prompt Source
 capture, explicit Memory operations, inspectable Handoffs, and a scoped token-savings
 status line to Claude Code.
 
+Hooks, scope helpers, and the status line use the installed client through
+`powercontext-hook --script`. Make that executable available on Claude Code's PATH.
+
 `powercontext setup claude-code` configures Claude Code's native `statusLine.command`
 when that setting is empty or already belongs to PowerContext. It preserves an
 unrelated custom status line. The display refreshes every 30 seconds and reports

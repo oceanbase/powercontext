@@ -430,7 +430,7 @@ D6 投递使用单独的有界消费者。只持久化不透明游标和去重/�
 Source 定义/观察/checkpoint 不提供连接器管理。D8 前只展示已支持事实，不提供猜测的启动/重试按钮。已接收
 任务、凭据和 checkpoint 属于 Server/连接器 worker；不完整抓取不代表删除，桌面退出不能取消已接收持久工作。
 
-分别展示版本化 `integrations/capabilities.toml`、安装记录和 `doctor integrations --json`：声明能力、
+分别展示版本化 `integrations/distribution/powercontext_integrations/assets/targets/`、安装记录和 `doctor integrations --json`：声明能力、
 已安装归属/版本、观察到的加载/连接/Scope/capture/recall，仅在真实提供时显示注册。元数据不是实时目标注册表。
 宿主安装由用户选择，适配器负责合并/修复。Rust 不重写所有检测到的配置，也不通过文件/工具数量推断健康。
 

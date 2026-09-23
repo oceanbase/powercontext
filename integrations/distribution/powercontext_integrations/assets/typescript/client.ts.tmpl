@@ -1,0 +1,91 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { UnknownOperationError } from './errors.{{extension}}'
+import { OPERATIONS } from './operations.generated.{{extension}}'
+import { normalizeServerUrl } from './transport.{{extension}}'
+import { callManagement } from './management.{{extension}}'
+import { WorkerClient } from './worker.{{extension}}'
+
+export type JsonObject = Record<string, unknown>
+export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
+export type PreparedContext = {
+  schema: 'powercontext.prepared-context.v1'
+  status: 'ready' | 'empty'
+  content: string | null
+  content_bytes: number
+}
+export type ClientSuccess =
+  | { kind: 'json'; value: unknown; status: number; requestId: string | undefined; etag?: string }
+  | { kind: 'text'; value: string; status: number; requestId: string | undefined; etag?: string }
+  | { kind: 'bytes'; value: Uint8Array; status: number; requestId: string | undefined; etag?: string }
+
+export interface ClientOptions {
+  baseUrl: string
+  allowInsecureHttp?: boolean
+  authorization?: string
+  requestTimeoutMs: number
+  startupTimeoutMs?: number
+  worker?: { command: string; args: string[] }
+}
+
+export function combineSignals(signals: readonly AbortSignal[]): AbortSignal {
+  const present = signals.filter(Boolean)
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any(present)
+  const controller = new AbortController()
+  for (const signal of present) {
+    if (signal.aborted) {
+      controller.abort(signal.reason)
+      break
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
+  }
+  return controller.signal
+}
+
+export function createTimeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms)
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), ms)
+  return controller.signal
+}
+
+{{client_class}} {
+  protected readonly options: ClientOptions
+  private readonly worker: WorkerClient
+
+  constructor(options: ClientOptions) {
+    this.options = { ...options, baseUrl: normalizeServerUrl(options.baseUrl, options.allowInsecureHttp) }
+    this.worker = new WorkerClient(this.options, options.worker)
+  }
+
+  async request(
+    id: string, payload?: JsonObject, signal?: AbortSignal,
+    options: { readinessResponse?: boolean } | number = {},
+  ): Promise<ClientSuccess> {
+    if (!Object.hasOwn(OPERATIONS, id)) throw new UnknownOperationError(id)
+    return this.worker.request(id, payload, signal,
+      typeof options === 'number' ? options : this.options.requestTimeoutMs,
+      typeof options === 'object' && options.readinessResponse === true)
+  }
+
+  doctor(signal?: AbortSignal) { return callManagement(this.options, signal) }
+
+  close(): void { this.worker.close() }
+
+}
+
+{{discovery}}

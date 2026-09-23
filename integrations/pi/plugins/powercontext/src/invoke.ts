@@ -18,10 +18,12 @@ import type { JsonObject, PowerContextClient } from './client.ts'
 import {
   SecretRejectedError,
   RequestTimeoutError,
+  TransportError,
   ServerResponseError,
   UnknownOperationError,
 } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
+import { WRITE_OPERATIONS as MUTATING_OPERATIONS } from './writes.generated.ts'
 import { containsSecret } from './secrets.ts'
 
 export interface ToolResult {
@@ -72,24 +74,7 @@ export async function confirmDurableWrite(
   }
 }
 
-const WRITE_OPERATIONS = new Set<OperationId>([
-  'remember_memory',
-  'capture_content_source',
-  'revise_memory_entry',
-  'retire_memory_entry',
-  'activate_handoff',
-  'commit_handoff',
-  'create_work_contract',
-  'handoff_current_work',
-  'acknowledge_handoff',
-  'record_task_outcome',
-  'generate_experience',
-  'generate_skill',
-  'approve_artifact_candidate',
-  'reject_artifact_candidate',
-  'revise_artifact_candidate',
-  'import_external_skill',
-])
+const WRITE_OPERATIONS = new Set<string>(MUTATING_OPERATIONS)
 
 function mapServerError(error: ServerResponseError): ToolResult {
   if (error.statusCode === 401) {
@@ -113,7 +98,7 @@ function mapServerError(error: ServerResponseError): ToolResult {
   if (error.statusCode === 409) {
     return {
       ok: false,
-      code: error.code ?? 'conflict',
+      code: typeof error.code === 'string' ? error.code : 'conflict',
       message: error.serverMessage ?? 'citation conflict; refresh and retry once.',
       status: 409,
       request_id: error.requestId,
@@ -122,7 +107,7 @@ function mapServerError(error: ServerResponseError): ToolResult {
   if (error.statusCode === 422) {
     return {
       ok: false,
-      code: error.code ?? 'invalid_request',
+      code: typeof error.code === 'string' ? error.code : 'invalid_request',
       message: error.serverMessage ?? 'PowerContext rejected the request.',
       status: 422,
       request_id: error.requestId,
@@ -130,7 +115,7 @@ function mapServerError(error: ServerResponseError): ToolResult {
   }
   return {
     ok: false,
-    code: error.code ?? 'unavailable',
+    code: typeof error.code === 'string' ? error.code : 'unavailable',
     message: 'PowerContext is unavailable, continue the task.',
     status: error.statusCode,
     request_id: error.requestId,
@@ -182,7 +167,7 @@ export async function invokeOperation(
   try {
     return encodeSuccess(await client.request(id, body, signal, timeoutMs))
   } catch (error) {
-    if ((id === 'generate_experience' || id === 'generate_skill') && error instanceof RequestTimeoutError) {
+    if ((id === 'generate_experience' || id === 'generate_skill') && (error instanceof RequestTimeoutError || (error instanceof TransportError && error.cause instanceof Error && error.cause.name === 'TimeoutError'))) {
       return {
         ok: false,
         code: 'unknown_write_outcome',

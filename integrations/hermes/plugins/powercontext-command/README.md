@@ -1,5 +1,8 @@
 # PowerContext Hermes Command Companion
 
+Install the PowerContext client separately and expose `powercontext-hook` on the host PATH. Domain operations use the shared client, with bounded responses, deadlines, and explicit unknown write outcomes. Hooks do not install runtime dependencies.
+
+
 This standalone Hermes plugin registers `/pc` and `/powercontext` during normal
 plugin discovery, before Hermes creates its first Agent. It forwards either
 command to the PowerContext Memory Provider for the current interactive Agent

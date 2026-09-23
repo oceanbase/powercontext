@@ -71,12 +71,8 @@ export async function handlePcCommand(
   }
   if (command === 'doctor') {
     try {
-      const scopeId = await runtime.resolveScope(context.cwd)
-      const [live, ready] = await Promise.all([
-        invokeOperation(runtime.client, 'get_liveness', {}, scopeId, context.signal),
-        invokeOperation(runtime.client, 'get_readiness', {}, scopeId, context.signal),
-      ])
-      report(context, format({ ok: live.ok && ready.ok, live, ready }), !live.ok || !ready.ok)
+      const result = await runtime.client.doctor(context.signal)
+      report(context, format(result), !result.ok)
     } catch {
       report(context, format(unavailableResult()), true)
     }

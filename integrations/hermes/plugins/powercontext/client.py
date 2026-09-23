@@ -12,73 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Small, dependency-free PowerContext HTTP client for the Hermes plugin."""
+"""Hermes method names backed by the installed PowerContext client worker."""
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable
-from http.client import HTTPResponse
-from typing import TYPE_CHECKING, Any, TypeVar
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+import time
+from typing import Any
 
 from .powercontext_client_config import normalize_server_url, resolve_allow_insecure_http
-
-if TYPE_CHECKING:
-    from typing_extensions import override
-else:
-    _MethodT = TypeVar("_MethodT")
-
-    def override(method: _MethodT, /) -> _MethodT:
-        return method
-
-
-MAX_RESPONSE_BYTES = 1_048_576
-
-
-# Keep this table aligned with the public PowerContext operation identifiers.
-# The Hermes provider uses ``request_operation`` for less frequently used
-# operations so adding an API operation does not require another bespoke
-# transport wrapper in the plugin.
-_OPERATION_SPECS: dict[str, tuple[str, str]] = {
-    "prepare_context": ("POST", "/v1/context/prepare"),
-    "capture_content_source": ("POST", "/v1/sources/content"),
-    "create_work_contract": ("POST", "/v1/work/contracts/create"),
-    "handoff_current_work": ("POST", "/v1/work/handoffs/prepare-current"),
-    "acknowledge_handoff": ("POST", "/v1/work/handoffs/acknowledge"),
-    "record_task_outcome": ("POST", "/v1/work/outcomes/record"),
-    "activate_handoff": ("POST", "/v1/handoff/activate"),
-    "prepare_handoff": ("POST", "/v1/handoff/prepare"),
-    "finalize_handoff": ("POST", "/v1/handoff/finalize"),
-    "commit_handoff": ("POST", "/v1/handoff/commit"),
-    "continue_handoff": ("POST", "/v1/handoff/continue"),
-    "flush_memory": ("POST", "/v1/memory/flush"),
-    "remember_memory": ("POST", "/v1/memory/remember"),
-    "search_memory": ("POST", "/v1/memory/search"),
-    "list_memory_entries": ("POST", "/v1/memory/entries/list"),
-    "get_memory_entry": ("POST", "/v1/memory/entries/get"),
-    "revise_memory_entry": ("POST", "/v1/memory/entries/revise"),
-    "retire_memory_entry": ("POST", "/v1/memory/entries/retire"),
-    "list_memory_changes": ("POST", "/v1/memory/changes"),
-    "propose_experience": ("POST", "/v1/experience/propose"),
-    "generate_experience": ("POST", "/v1/experience/generate"),
-    "get_experience": ("POST", "/v1/experience/get"),
-    "propose_skill": ("POST", "/v1/skill/propose"),
-    "generate_skill": ("POST", "/v1/skill/generate"),
-    "get_skill": ("POST", "/v1/skill/get"),
-    "scan_external_skills": ("POST", "/v1/external-skills/scan"),
-    "list_external_skills": ("POST", "/v1/external-skills/list"),
-    "resolve_external_skill": ("POST", "/v1/external-skills/resolve"),
-    "import_external_skill": ("POST", "/v1/external-skills/import"),
-    "list_artifact_candidates": ("POST", "/v1/artifact-candidates/list"),
-    "get_artifact_candidate": ("POST", "/v1/artifact-candidates/get"),
-    "approve_artifact_candidate": ("POST", "/v1/artifact-candidates/approve"),
-    "reject_artifact_candidate": ("POST", "/v1/artifact-candidates/reject"),
-    "revise_artifact_candidate": ("POST", "/v1/artifact-candidates/revise"),
-    "get_stats": ("GET", "/v1/stats"),
-}
+from .runtime_operations import OPERATION_PATHS
+from .worker import WorkerError, execute_worker
 
 
 class PowerContextError(RuntimeError):
@@ -112,35 +55,12 @@ class PowerContextInvalidResponseError(PowerContextError):
     """A successful HTTP response that violates the PowerContext response contract."""
 
 
-class _NoRedirectHandler(HTTPRedirectHandler):
-    @override
-    def redirect_request(self, req: Request, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Request | None:
-        return None
-
-
-Transport = Callable[[Request, float], HTTPResponse]
-
-
-def _decode_error(raw: bytes) -> tuple[str | None, str | None]:
-    try:
-        decoded = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None, None
-    if not isinstance(decoded, dict):
-        return None, None
-    error = decoded.get("error")
-    if not isinstance(error, dict):
-        return None, None
-    code = error.get("code")
-    message = error.get("message")
-    return (
-        code if isinstance(code, str) else None,
-        message if isinstance(message, str) else None,
-    )
+class PowerContextUnknownOutcomeError(PowerContextTransportError):
+    outcome = "unknown"
 
 
 class PowerContextClient:
-    """HTTP facade for the PowerContext operations used by Hermes."""
+    """Hermes facade for the shared installed-client operation contract."""
 
     def __init__(
         self,
@@ -149,7 +69,7 @@ class PowerContextClient:
         authorization: str | None = None,
         allow_insecure_http: bool | None = None,
         timeout: float = 5.0,
-        transport: Transport | None = None,
+        executor=execute_worker,
     ) -> None:
         self.allow_insecure_http = resolve_allow_insecure_http(
             base_url,
@@ -160,88 +80,51 @@ class PowerContextClient:
         self.base_url = normalize_server_url(base_url, allow_insecure_http=self.allow_insecure_http)
         self.authorization = authorization.strip() if authorization else None
         self.timeout = timeout
-        self._opener = build_opener(_NoRedirectHandler())
-        self._transport = transport
-
-    def _request(  # noqa: C901
-        self,
-        path: str,
-        payload: dict[str, Any] | None = None,
-        *,
-        method: str = "POST",
-    ) -> dict[str, Any]:
-        body = None
-        if method != "GET":
-            body = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": "powercontext-hermes/0.1",
-        }
-        if method != "GET":
-            headers["Content-Type"] = "application/json"
-        if self.authorization:
-            headers["Authorization"] = self.authorization
-        url = f"{self.base_url}{path}"
-        if method == "GET" and payload:
-            query = urlencode({key: value for key, value in payload.items() if value is not None})
-            if query:
-                url = f"{url}?{query}"
-        request = Request(url, data=body, headers=headers, method=method)  # noqa: S310
-
-        try:
-            if self._transport is not None:
-                response = self._transport(request, self.timeout)
-                status = int(getattr(response, "status", 200))
-                raw = response.read(MAX_RESPONSE_BYTES + 1)
-            else:
-                with self._opener.open(request, timeout=self.timeout) as response:
-                    status = int(getattr(response, "status", 200))
-                    raw = response.read(MAX_RESPONSE_BYTES + 1)
-        except HTTPError as error:
-            try:
-                error_body = error.read(MAX_RESPONSE_BYTES + 1)
-            except (OSError, TimeoutError):
-                error_body = b""
-            code, message = _decode_error(error_body)
-            raise PowerContextHTTPError(
-                error.code,
-                path=path,
-                code=code,
-                message=message,
-            ) from error
-        except (OSError, TimeoutError, URLError) as error:
-            raise PowerContextTransportError("PowerContext request failed") from error  # noqa: TRY003
-
-        if len(raw) > MAX_RESPONSE_BYTES:
-            raise PowerContextInvalidResponseError("PowerContext response exceeded the size limit")  # noqa: TRY003
-        if status < 200 or status >= 300:
-            code, message = _decode_error(raw)
-            raise PowerContextHTTPError(status, path=path, code=code, message=message)
-        try:
-            decoded = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise PowerContextInvalidResponseError("PowerContext returned invalid JSON") from error  # noqa: TRY003
-        if not isinstance(decoded, dict):
-            raise PowerContextInvalidResponseError("PowerContext returned a non-object response")  # noqa: TRY003
-        return decoded
+        self._executor = executor
 
     def request_operation(self, operation: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Call a public PowerContext operation by its stable identifier."""
+        """Invoke the installed client's operation directly."""
 
         try:
-            method, path = _OPERATION_SPECS[operation]
+            path = OPERATION_PATHS[operation]
         except KeyError as error:
-            raise ValueError(f"unsupported PowerContext operation: {operation}") from error  # noqa: TRY003
-        return self._request(path, payload, method=method)
+            message = f"unsupported PowerContext operation: {operation}"
+            raise ValueError(message) from error
+        try:
+            value = self._executor(
+                operation,
+                payload or {},
+                {
+                    "base_url": self.base_url,
+                    "authorization": self.authorization,
+                    "allow_insecure_http": self.allow_insecure_http,
+                    "request_timeout": self.timeout,
+                },
+                time.time() + self.timeout,
+            )
+        except WorkerError as error:
+            result = error.result
+            if result.get("outcome") == "unknown":
+                raise PowerContextUnknownOutcomeError("PowerContext write outcome is unknown") from error  # noqa: TRY003
+            if result.get("error") == "server" or result.get("status_code") in {401, 403}:
+                raise PowerContextHTTPError(
+                    result.get("status_code", 500), path=path, code=result.get("code"), message=result.get("message")
+                ) from error
+            if result.get("error") in {"invalid_request", "invalid_response"}:
+                raise PowerContextInvalidResponseError("PowerContext returned an invalid response") from error  # noqa: TRY003
+            raise PowerContextTransportError("PowerContext request failed") from error  # noqa: TRY003
+        if not isinstance(value, dict):
+            raise PowerContextInvalidResponseError("PowerContext returned a non-object response")  # noqa: TRY003
+        return value
 
     def get_liveness(self) -> dict[str, Any]:
-        return self._request("/health/live", method="GET")
+        return self.request_operation("get_liveness")
 
     def get_readiness(self) -> dict[str, Any]:
-        return self._request("/health/ready", method="GET")
+        return self.request_operation("get_readiness")
 
     def get_capabilities(self) -> dict[str, Any]:
-        return self._request("/v1/capabilities", method="GET")
+        return self.request_operation("get_capabilities")
 
     def resolve_scope_binding(
         self,
@@ -249,20 +132,15 @@ class PowerContextClient:
         explicit_scope_id: str | None,
         binding_keys: list[dict[str, str]],
     ) -> dict[str, Any]:
-        return self._request(
-            "/v1/scope-bindings/resolve",
-            {"explicit_scope_id": explicit_scope_id, "binding_keys": binding_keys},
+        return self.request_operation(
+            "resolve_scope_binding", {"explicit_scope_id": explicit_scope_id, "binding_keys": binding_keys}
         )
 
     def set_scope_binding(self, key: dict[str, str], scope_id: str) -> dict[str, Any]:
-        return self._request(
-            "/v1/scope-bindings",
-            {"key": key, "scope_id": scope_id},
-            method="PUT",
-        )
+        return self.request_operation("set_scope_binding", {"key": key, "scope_id": scope_id})
 
     def clear_scope_binding(self, key: dict[str, str]) -> dict[str, Any]:
-        return self._request("/v1/scope-bindings/clear", {"key": key})
+        return self.request_operation("clear_scope_binding", {"key": key})
 
     def prepare_context(
         self,
@@ -272,8 +150,8 @@ class PowerContextClient:
         max_bytes: int,
         assembly: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return self._request(
-            "/v1/context/prepare",
+        return self.request_operation(
+            "prepare_context",
             {
                 "scope_id": scope_id,
                 "query": query,
@@ -283,9 +161,8 @@ class PowerContextClient:
         )
 
     def search_memory(self, scope_id: str, query: str, *, limit: int, mode: str) -> dict[str, Any]:
-        return self._request(
-            "/v1/memory/search",
-            {"scope_id": scope_id, "query": query, "limit": limit, "mode": mode},
+        return self.request_operation(
+            "search_memory", {"scope_id": scope_id, "query": query, "limit": limit, "mode": mode}
         )
 
     def remember_memory(
@@ -302,10 +179,10 @@ class PowerContextClient:
             payload["reason"] = reason
         if expected_revision is not None:
             payload["expected_revision"] = expected_revision
-        return self._request("/v1/memory/remember", payload)
+        return self.request_operation("remember_memory", payload)
 
     def get_memory_entry(self, scope_id: str, citation: dict[str, Any]) -> dict[str, Any]:
-        return self._request("/v1/memory/entries/get", {"scope_id": scope_id, "citation": citation})
+        return self.request_operation("get_memory_entry", {"scope_id": scope_id, "citation": citation})
 
     def retire_memory_entry(
         self,
@@ -317,7 +194,7 @@ class PowerContextClient:
         payload: dict[str, Any] = {"scope_id": scope_id, "citation": citation}
         if reason:
             payload["reason"] = reason
-        return self._request("/v1/memory/entries/retire", payload)
+        return self.request_operation("retire_memory_entry", payload)
 
     def capture_content(
         self,
@@ -327,10 +204,10 @@ class PowerContextClient:
         content: str,
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
-        return self._request(
-            "/v1/sources/content",
+        return self.request_operation(
+            "capture_content_source",
             {"scope_id": scope_id, "source_id": source_id, "content": content, "metadata": metadata},
         )
 
     def flush_memory(self, scope_id: str) -> dict[str, Any]:
-        return self._request("/v1/memory/flush", {"scope_id": scope_id})
+        return self.request_operation("flush_memory", {"scope_id": scope_id})

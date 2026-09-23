@@ -25,10 +25,10 @@ import time
 from pathlib import Path
 
 import pytest
+from powercontext_integrations.system import SetupError, doctor_app, setup_app
 from typer.testing import CliRunner
 
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import SetupError, doctor_app, setup_app
 
 
 def _write_plugin(root: Path, *, built: bool = True) -> Path:
@@ -181,7 +181,7 @@ def test_process_exit_assertion_rejects_a_live_windows_process(tmp_path: Path) -
 
 
 def test_setup_opencode_installs_plugin_and_owned_skill(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     checkout = tmp_path / "checkout"
     plugin = _write_plugin(checkout)
@@ -225,7 +225,7 @@ def test_setup_opencode_installs_plugin_and_owned_skill(tmp_path: Path, monkeypa
 
 
 def _patch_opencode_runtime(tmp_path: Path, monkeypatch, plugin: Path, config: Path) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
     monkeypatch.setattr(opencode_cli, "which", lambda _name: "/usr/bin/opencode")
@@ -240,7 +240,7 @@ def _patch_opencode_runtime(tmp_path: Path, monkeypatch, plugin: Path, config: P
 
 
 def test_setup_opencode_appends_tui_plugin_to_jsonc_config_with_comments(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     checkout = tmp_path / "checkout"
     plugin = _write_plugin(checkout)
@@ -375,7 +375,7 @@ def test_setup_opencode_keeps_previous_install_when_tui_config_is_invalid(tmp_pa
 
 
 def test_remote_checkout_cache_is_scoped_by_source_and_resolved_commit(short_tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     commits = iter(["a" * 40, "b" * 40, "a" * 40])
 
@@ -401,7 +401,7 @@ def test_remote_checkout_cache_is_scoped_by_source_and_resolved_commit(short_tmp
 
 
 def test_remote_checkout_refresh_failure_keeps_previous_commit(short_tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     attempts = 0
 
@@ -409,7 +409,7 @@ def test_remote_checkout_refresh_failure_keeps_previous_commit(short_tmp_path: P
         nonlocal attempts
         attempts += 1
         if attempts == 2:
-            raise SetupError.git_clone_failed()
+            raise SetupError("failed to clone the GitHub source")  # noqa: TRY003
         _write_plugin(target)
 
     monkeypatch.setenv("POWERCONTEXT_HOME", str(short_tmp_path))
@@ -425,7 +425,7 @@ def test_remote_checkout_refresh_failure_keeps_previous_commit(short_tmp_path: P
 
 
 def test_opencode_skill_refresh_replaces_only_an_owned_installation(tmp_path: Path) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     first = tmp_path / "first"
     second = tmp_path / "second"
@@ -443,7 +443,7 @@ def test_opencode_skill_refresh_replaces_only_an_owned_installation(tmp_path: Pa
 
 
 def test_interrupted_plugin_install_recovers_on_retry(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     source = tmp_path / "index.js"
     source.write_text("export default {}\n", encoding="utf-8")
@@ -479,7 +479,7 @@ def test_interrupted_plugin_install_recovers_on_retry(tmp_path: Path, monkeypatc
 
 
 def test_setup_opencode_refuses_unowned_skill(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     checkout = tmp_path / "checkout"
     plugin = _write_plugin(checkout)
@@ -501,7 +501,7 @@ def test_setup_opencode_refuses_unowned_skill(tmp_path: Path, monkeypatch) -> No
 
 
 def test_activation_probe_uses_headless_server_without_model(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     plugin = _write_plugin(tmp_path / "checkout")
     config = tmp_path / "config"
@@ -529,7 +529,7 @@ def test_activation_probe_uses_headless_server_without_model(tmp_path: Path, mon
 
 
 def test_run_opencode_probe_executes_request_waits_for_nonce_and_stops_process(tmp_path: Path) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     command, env, marker, pid_path = _write_probe_server(tmp_path, "success")
 
@@ -540,7 +540,7 @@ def test_run_opencode_probe_executes_request_waits_for_nonce_and_stops_process(t
 
 
 def test_run_opencode_probe_handles_process_exit_and_stops_process(tmp_path: Path) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     command, env, marker, pid_path = _write_probe_server(tmp_path, "exit")
 
@@ -551,7 +551,7 @@ def test_run_opencode_probe_handles_process_exit_and_stops_process(tmp_path: Pat
 
 
 def test_run_opencode_probe_times_out_and_stops_process(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     command, env, _marker, pid_path = _write_probe_server(tmp_path, "timeout")
     # Give the Python child time to publish its PID before testing timeout cleanup.
@@ -564,7 +564,7 @@ def test_run_opencode_probe_times_out_and_stops_process(tmp_path: Path, monkeypa
 
 
 def test_setup_opencode_requires_built_bundle(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     checkout = tmp_path / "checkout"
     plugin = _write_plugin(checkout, built=False)
@@ -579,7 +579,7 @@ def test_setup_opencode_requires_built_bundle(tmp_path: Path, monkeypatch) -> No
 
 
 def test_setup_opencode_rejects_unsupported_version(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     checkout = tmp_path / "checkout"
     _write_plugin(checkout)
@@ -594,7 +594,7 @@ def test_setup_opencode_rejects_unsupported_version(tmp_path: Path, monkeypatch)
 
 
 def test_doctor_opencode_reports_plugin_when_another_plugin_writes_to_stdout(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     plugin = _write_plugin(tmp_path / "checkout")
     config = tmp_path / "config"
@@ -628,7 +628,7 @@ def test_doctor_opencode_reports_plugin_when_another_plugin_writes_to_stdout(tmp
 
 
 def test_doctor_opencode_rejects_configured_but_inactive_plugin(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     plugin = _write_plugin(tmp_path / "checkout with spaces")
     config = tmp_path / "config"
@@ -673,7 +673,7 @@ def test_doctor_opencode_rejects_configured_but_inactive_plugin(tmp_path: Path, 
     ],
 )
 def test_configured_plugin_converts_windows_file_uris(uri: str, url_path: str, expected: str, monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     def convert(path: str) -> str:
         assert path == url_path
@@ -689,7 +689,7 @@ def test_configured_plugin_converts_windows_file_uris(uri: str, url_path: str, e
 
 
 def test_configured_plugin_keeps_package_spec_out_of_file_uri_conversion(monkeypatch) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     spec = "@example/powercontext-opencode"
 
@@ -707,7 +707,7 @@ def test_configured_plugin_keeps_package_spec_out_of_file_uri_conversion(monkeyp
 
 
 def test_tui_entry_path_decodes_file_uri(tmp_path: Path) -> None:
-    import powercontext.cli.opencode as opencode_cli
+    import powercontext_integrations.opencode as opencode_cli
 
     target = tmp_path / "PowerContext Plugin"
     target.mkdir()

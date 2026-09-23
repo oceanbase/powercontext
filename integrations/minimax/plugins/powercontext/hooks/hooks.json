@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "powercontext-hook \"--script\" \"${MINIMAX_PLUGIN_ROOT}/hooks/recall.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

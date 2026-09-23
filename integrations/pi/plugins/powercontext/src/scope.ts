@@ -32,11 +32,12 @@ export async function resolveScopeId(
   client: PowerContextClient,
   cwd: string,
   configuredScopeId?: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const response = await client.request('resolve_scope_binding', {
     explicit_scope_id: configuredScopeId,
     binding_keys: [workspaceBindingKey(cwd)],
-  })
+  }, signal)
   const value = response.value
   const scopeId = value && typeof value === 'object' ? (value as { scope_id?: unknown }).scope_id : undefined
   if (typeof scopeId !== 'string' || !scopeId.trim()) throw new Error('PowerContext returned an invalid Scope')

@@ -23,6 +23,7 @@ from powercontext.client.errors import (
     TransportError,
     UnauthorizedResponseError,
     UnavailableResponseError,
+    UnknownOutcomeError,
 )
 from powercontext.client.ingestion import RemoteConnectorWorker
 from powercontext.client.skill_receiver import (
@@ -55,5 +56,6 @@ __all__ = [
     "TransportError",
     "UnauthorizedResponseError",
     "UnavailableResponseError",
+    "UnknownOutcomeError",
     "require_remote_skill_server_url",
 ]

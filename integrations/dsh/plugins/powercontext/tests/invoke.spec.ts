@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -18,10 +19,6 @@ import { describe, expect, it } from 'vitest'
 import { invokeOperation } from '../src/invoke.ts'
 import { PowerContextClient } from '../src/client.ts'
 import { containsSecret } from '../src/secrets.ts'
-import { PROJECT_CONTEXT_SKILL } from '../src/skill-body.ts'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 describe('secrets', () => {
   it('rejects token-like markers', () => {
@@ -35,7 +32,7 @@ describe('secrets', () => {
 describe('invokeOperation', () => {
   it('injects scope_id for scoped operations and skips health', async () => {
     const seen: Array<{ id: string; url: string; body: string | undefined }> = []
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async (url, init) => {
@@ -52,7 +49,7 @@ describe('invokeOperation', () => {
 
   it('overwrites a caller-supplied scope_id with the resolved workspace scope', async () => {
     let body: string | undefined
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async (_url, init) => {
@@ -74,7 +71,7 @@ describe('invokeOperation', () => {
 
   it('limits observation selections to the resolved workspace scope', async () => {
     const bodies: unknown[] = []
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async (_url, init) => {
@@ -100,7 +97,7 @@ describe('invokeOperation', () => {
 
   it('preserves explicit Scope control requests', async () => {
     let body: string | undefined
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async (_url, init) => {
@@ -118,7 +115,7 @@ describe('invokeOperation', () => {
   })
 
   it('returns unavailable instead of throwing when the server is down', async () => {
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async () => {
@@ -133,7 +130,7 @@ describe('invokeOperation', () => {
   })
 
   it('refuses secret-like remember payloads', async () => {
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch: async () => new Response('{}', { status: 200 }),
@@ -142,12 +139,5 @@ describe('invokeOperation', () => {
       ok: false,
       code: 'secret_rejected',
     })
-  })
-})
-
-describe('skill body', () => {
-  it('stays aligned with the markdown source', () => {
-    const markdown = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'skill-body.md'), 'utf8')
-    expect(PROJECT_CONTEXT_SKILL.replaceAll('\r\n', '\n').trim()).toBe(markdown.replaceAll('\r\n', '\n').trim())
   })
 })

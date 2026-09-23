@@ -1,29 +1,34 @@
 # MiniMax integration
 
+The source package and evaluation distribution use the same native MiniMax hook registration.
+Use `powercontext setup minimax` to install, or `make agent-distributions` to produce a standalone package. Building requires local `uvx` and `npx`;
+execution requires the installed client with `powercontext-hook` on PATH.
+`UserPromptSubmit` resolves the server Scope and contributes bounded
+historical context; it does not automatically capture prompts. See
+the [distribution contract](../../docs/en/development/plugin-distribution.md).
+
 [`plugins/powercontext`](plugins/powercontext) contains the PowerContext plugin for MiniMax Code. See the [package README](plugins/powercontext/README.md) for server setup, usage, and troubleshooting.
 
 ## Load locally
 
-From the repository root, copy the package into a separate MiniMax data directory:
+Use the shared Python installer from the repository root:
 
 ```bash
-test_root="$(mktemp -d)"
-mkdir -p "$test_root/plugins"
-cp -R integrations/minimax/plugins/powercontext "$test_root/plugins/powercontext"
-MINIMAX_DATA_DIR="$test_root" mcode plugin list --marketplace local --json
+powercontext setup minimax --source .
+powercontext doctor minimax --server
 ```
 
-The listing should show `powercontext` enabled with one Skill and one MCP server. The separate data directory needs its own account or model configuration for model calls.
-
-This command exercises MiniMax Code's native manifest loader. Inspect the listing: an invalid package can be omitted even when the command exits successfully. Loading checks package discovery and references; it does not verify MCP connectivity or model calls.
-
-MiniMax's public [`validate.mjs`](https://github.com/MiniMax-AI/MiniMax-Code-Plugins/blob/main/scripts/validate.mjs) checks portable Agent Plugins with a root `plugin.json`. It does not validate this package's native `.minimax-plugin/plugin.json` format.
-
-For regular use, copy the package to `plugins/powercontext` under your MiniMax data directory. The default is `~/.minimax`; `MINIMAX_DATA_DIR` overrides it. Preserve any existing user configuration when updating the package.
+Setup generates MCP and Skill resources, installs the native package, and verifies discovery with
+`mcode plugin list --marketplace local --json`. `MINIMAX_DATA_DIR` selects a separate data directory; the default
+is `~/.minimax`. Existing private MCP overrides remain effective for both the prompt hook and diagnostics.
+The same commands accept `--destination` for an explicit plugin directory; MiniMax must discover that directory.
 
 ## Maintain the package
 
-Edit files directly in `plugins/powercontext`. The manifest is `.minimax-plugin/plugin.json`; it references the MCP configuration, Skill, and icon within the package. Keep the Skill's supporting files under its `references/` directory and update the manifest version when releasing changed content.
+Edit native adapters in `plugins/powercontext` and shared resources in `integrations/distribution/powercontext_integrations/assets/`.
+The manifest is `.minimax-plugin/plugin.json`; it references the generated MCP configuration, Skill, hook document, and icon.
+Edit hook bindings in `integrations/distribution/powercontext_integrations/assets/targets/minimax.toml`, then run
+`make agent-resources` to regenerate the native hook configuration. Keep the Skill's supporting files under its `references/` directory and update the manifest version when releasing changed content.
 
 ## GitHub source
 

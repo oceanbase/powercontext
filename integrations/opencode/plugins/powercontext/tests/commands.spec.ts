@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -24,7 +25,7 @@ function runtime(fetchImpl: typeof fetch = async () => Response.json({ ok: true 
   const config = resolveConfig({ POWERCONTEXT_OPENCODE_SCOPE_ID: 'project:test' })
   return {
     config,
-    client: new PowerContextClient({
+    client: new MockClient({
       baseUrl: config.baseUrl,
       requestTimeoutMs: config.requestTimeoutMs,
       fetch: fetchImpl,
@@ -42,14 +43,13 @@ describe('handlePcCommand', () => {
     })
   })
 
-  it('runs model-free Server diagnostics', async () => {
-    const fetchImpl = vi.fn(async () => Response.json({ status: 'ok' }))
-    const result = await handlePcCommand('doctor', runtime(fetchImpl), 'project:test')
-
-    expect(result.kind).toBe('success')
-    expect(fetchImpl).toHaveBeenCalledTimes(2)
-    expect(result.text).toContain('"live"')
-    expect(result.text).toContain('"ready"')
+  it('displays shared Python diagnostics without resolving Scope', async () => {
+    const host = runtime()
+    const report = { ok: true, status: 'ok', checks: { liveness: { status: 'ok' } } }
+    const doctor = vi.spyOn(host.client, 'doctor').mockResolvedValue(report)
+    const result = await handlePcCommand('doctor', host, undefined)
+    expect(doctor).toHaveBeenCalledWith(undefined)
+    expect(result).toEqual({ kind: 'success', text: JSON.stringify(report, null, 2) })
   })
 
   it('keeps DSH review command argument validation', async () => {

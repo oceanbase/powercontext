@@ -43,16 +43,23 @@ from integration_guidance_skills import SkillReadingModel, with_skill_resources
 ROUTES = {
     "search": {"pc_search", "search_memory", "powercontext_search_memory", "powercontext_memory_search"},
     "save": {"pc_remember", "remember_memory", "powercontext_remember", "powercontext_memory_store"},
-    "inventory": {"pc_memory_list", "list_memory_entries", "powercontext_list_memory_entries"},
+    "inventory": {
+        "pc_memory_list",
+        "list_memory_entries",
+        "powercontext_list_memory_entries",
+        "powercontext_memory_list",
+    },
     "handoff": {
-        "pc_capture_source",
-        "capture_content_source",
-        "powercontext_capture_source",
         "handoff_current_work",
         "powercontext_handoff_current_work",
         "pc_handoff_current",
     },
-    "review": {"pc_review_list", "list_artifact_candidates", "powercontext_list_artifact_candidates"},
+    "review": {
+        "pc_review_list",
+        "list_artifact_candidates",
+        "powercontext_list_artifact_candidates",
+        "powercontext_review_list",
+    },
 }
 CASES = {
     "ordinary": (

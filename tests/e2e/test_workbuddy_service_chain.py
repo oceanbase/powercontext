@@ -30,12 +30,12 @@ import uvicorn
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from httpx import Client as HttpClient
+from powercontext_integrations.workbuddy import install_workbuddy_plugin
 from pydantic import SecretStr
 from pydantic_ai.models.test import TestModel
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import InferenceConfig
-from powercontext.cli.workbuddy import install_workbuddy_plugin
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
@@ -107,7 +107,7 @@ def test_workbuddy_hook_and_mcp_share_one_service_configuration(
             prompt_id="prompt-1",
         )
         captured_context = json.loads(captured.stdout)["hookSpecificOutput"]["additionalContext"]
-        assert captured_context == ""
+        assert captured_context.startswith(f"PowerContext Scope: {json.dumps(scope_id)}.")
         assert AUTH_TOKEN not in captured.stderr
 
         recalled = _run_hook(

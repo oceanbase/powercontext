@@ -98,7 +98,7 @@ class FakeClient:
 
     def capture_content(self, scope_id, *, source_id, content, metadata):
         self.calls.append(("capture_content", (scope_id, source_id, content), {"metadata": metadata}))
-        return {}
+        return {"position": sum(call[0] == "capture_content" for call in self.calls)}
 
     def flush_memory(self, scope_id):
         self.calls.append(("flush_memory", (scope_id,), {}))
@@ -752,11 +752,11 @@ def test_memory_write_skips_replace_and_remove_without_old_text(provider_and_cli
 def test_memory_tools_map_to_powercontext_operations(provider_and_client):
     provider, client = provider_and_client
     citation_args = {
-        "family": "memory",
-        "artifact_id": "memory-1",
-        "revision": 1,
-        "entry_id": "entry-1",
-        "entry_version_id": "entry-version-1",
+        "citation": {
+            "memory_ref": {"family": "memory", "artifact_id": "memory-1", "revision": 1},
+            "entry_id": "entry-1",
+            "entry_version_id": "entry-version-1",
+        }
     }
 
     search = json.loads(provider.handle_tool_call("powercontext_search_memory", {"query": "deployment"}))
@@ -824,7 +824,10 @@ def test_extended_slash_commands_dispatch_json_operations(provider_and_client):
     assert result["payload"]["scope_id"] == "scp_00000000000000000000000000"
     assert result["payload"]["objective"] == "finish integration"
     assert stats["operation"] == "get_stats"
-    assert stats["payload"] == {"period": "7d", "scope_id": "scp_00000000000000000000000000"}
+    assert stats["payload"] == {
+        "period": "7d",
+        "selection": {"mode": "exact", "scope_ids": ["scp_00000000000000000000000000"]},
+    }
     assert "/pc scope" in help_text
     assert [call[0] for call in client.calls] == ["request_operation", "request_operation"]
 
@@ -1203,104 +1206,66 @@ def test_cli_registers_provider_commands(hermes_modules):
     assert callable(args.func)
 
 
-def test_http_client_dispatches_operation_paths_and_get_query(hermes_modules):
-    provider_module, _cli_module = hermes_modules
+def test_client_dispatches_canonical_operation_with_scope_selection(hermes_modules):
+    provider_module, _ = hermes_modules
     requests = []
 
-    class Response:
-        status = 200
+    def executor(operation, arguments, connection, deadline):
+        requests.append((operation, arguments, connection))
+        return {"ok": True}
 
-        def read(self, _limit):
-            return b'{"ok":true}'
-
-    def transport(request, _timeout):
-        requests.append(request)
-        return Response()
-
-    client = provider_module.PowerContextClient(
-        "http://powercontext.test:8000",
-        transport=transport,
-        allow_insecure_http=True,
-    )
-    result = client.request_operation("get_stats", {"scope_id": "hermes:test", "period": "7d"})
-
-    assert result == {"ok": True}
-    assert requests[0].full_url == "http://powercontext.test:8000/v1/stats?scope_id=hermes%3Atest&period=7d"
-    assert requests[0].method == "GET"
+    client = provider_module.PowerContextClient("http://127.0.0.1:8000", executor=executor)
+    payload = {"selection": {"mode": "exact", "scope_ids": ["hermes:test"]}, "period": "7d"}
+    assert client.request_operation("get_stats", payload) == {"ok": True}
+    assert requests[0][:2] == ("get_stats", payload)
 
 
-def test_http_client_classifies_malformed_success_response_separately(hermes_modules):
-    provider_module, _cli_module = hermes_modules
-    from plugins.powercontext.client import PowerContextInvalidResponseError  # ty: ignore[unresolved-import]
-
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return b"not-json"
-
-    client = provider_module.PowerContextClient(
-        "http://powercontext.test:8000",
-        allow_insecure_http=True,
-        transport=lambda _request, _timeout: Response(),
-    )
-
-    with pytest.raises(PowerContextInvalidResponseError, match="invalid JSON"):
-        client.get_liveness()
-
-
-def test_http_client_preserves_domain_error_details(hermes_modules):
-    provider_module, _cli_module = hermes_modules
+@pytest.mark.parametrize(
+    ("result", "error_name"),
+    [
+        ({"outcome": "failed", "error": "invalid_response"}, "PowerContextInvalidResponseError"),
+        ({"outcome": "unknown", "error": "deadline"}, "PowerContextUnknownOutcomeError"),
+    ],
+)
+def test_client_preserves_worker_outcomes(hermes_modules, result, error_name):
+    provider_module, _ = hermes_modules
     client_module = importlib.import_module("plugins.powercontext.client")
 
-    class Response:
-        status = 404
+    def executor(*_args):
+        raise client_module.WorkerError(result)
 
-        def read(self, _limit):
-            return b'{"error":{"code":"memory_not_found","message":"entry missing"}}'
+    client = provider_module.PowerContextClient("http://127.0.0.1:8000", executor=executor)
+    with pytest.raises(getattr(client_module, error_name)):
+        client.flush_memory("project:test")
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_client_preserves_access_and_domain_errors(hermes_modules, status):
+    provider_module, _ = hermes_modules
+    client_module = importlib.import_module("plugins.powercontext.client")
+
+    def executor(operation, arguments, connection, deadline):
+        assert connection["authorization"] == "Bearer integration-token"
+        assert operation == "get_memory_entry"
+        raise client_module.WorkerError({
+            "outcome": "failed",
+            "error": "server",
+            "status_code": status,
+            "code": "access_denied" if status == 403 else "memory_not_found",
+            "message": "Entry unavailable",
+        })
 
     client = provider_module.PowerContextClient(
-        "http://powercontext.test:8000",
-        allow_insecure_http=True,
-        transport=lambda _request, _timeout: Response(),
+        "http://127.0.0.1:8000",
+        authorization="Bearer integration-token",
+        executor=executor,
     )
-
     with pytest.raises(client_module.PowerContextHTTPError) as caught:
         client.get_memory_entry("project:test", {"entry_id": "missing"})
-
-    assert caught.value.status == 404
+    assert caught.value.status == status
     assert caught.value.path == "/v1/memory/entries/get"
-    assert caught.value.code == "memory_not_found"
-    assert caught.value.server_message == "entry missing"
-
-
-def test_http_client_forwards_authorization_and_preserves_access_denial(hermes_modules):
-    provider_module, _cli_module = hermes_modules
-    client_module = importlib.import_module("plugins.powercontext.client")
-
-    class Response:
-        status = 403
-
-        def read(self, _limit):
-            return b'{"error":{"code":"access_denied","message":"scope access denied"}}'
-
-    def transport(request, _timeout):
-        assert request.get_header("Authorization") == "Bearer integration-token"
-        return Response()
-
-    client = provider_module.PowerContextClient(
-        "http://powercontext.test:8000",
-        allow_insecure_http=True,
-        authorization="Bearer integration-token",
-        transport=transport,
-    )
-
-    with pytest.raises(client_module.PowerContextHTTPError) as caught:
-        client.get_memory_entry("project:test", {"entry_id": "forbidden"})
-
-    assert caught.value.status == 403
-    assert caught.value.code == "access_denied"
-    assert caught.value.server_message == "scope access denied"
+    assert caught.value.code == ("access_denied" if status == 403 else "memory_not_found")
+    assert caught.value.server_message == "Entry unavailable"
 
 
 def test_guidance_references_available_provider_tools_without_a_skill(hermes_modules) -> None:
@@ -1312,6 +1277,75 @@ def test_guidance_references_available_provider_tools_without_a_skill(hermes_mod
     references = set(re.findall(r"\bpowercontext_[a-z_]+\b", guidance))
     assert references <= names
     assert references
+
+
+def test_native_worker_uses_the_installed_client_for_stats(hermes_modules):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from tests.helpers.plugin_contract import stats
+
+    plugin, _ = hermes_modules
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, body))
+            encoded = json.dumps(stats(42)).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = plugin.PowerContextClient(f"http://127.0.0.1:{server.server_port}")
+        arguments = {"selection": {"mode": "exact", "scope_ids": ["project:test"]}}
+        result = client.request_operation("get_stats", arguments)
+        assert result["recall"]["totals"]["token_reduction"] == 42
+        assert requests == [("/v1/stats", arguments)]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
+@pytest.mark.parametrize("capture_event", ["turn", "pre_compress"])
+def test_session_end_does_not_replay_unknown_flushes(hermes_modules, tmp_path, capture_event):
+    plugin, _ = hermes_modules
+    client_module = importlib.import_module("plugins.powercontext.client")
+
+    class Client(FakeClient):
+        def flush_memory(self, scope_id):
+            super().flush_memory(scope_id)
+            raise client_module.PowerContextUnknownOutcomeError
+
+    client = Client()
+    provider = plugin.PowerContextMemoryProvider({}, client_factory=lambda *_args, **_kwargs: client)
+    provider.initialize("session-checkpoint", hermes_home=str(tmp_path))
+    provider.on_session_end([])
+    provider.on_session_end([])
+    assert sum(call[0] == "flush_memory" for call in client.calls) == 1
+    if capture_event == "turn":
+        provider.sync_turn("Next task", "Done", session_id="session-checkpoint")
+    else:
+        provider._config["capture_pre_compress"] = True
+        provider.on_pre_compress([{"role": "user", "content": "Next task"}])
+    provider.on_session_end([])
+    assert sum(call[0] == "flush_memory" for call in client.calls) == 2
+
+
+def test_pre_compress_does_not_flush_without_a_confirmed_source(provider_and_client, monkeypatch):
+    provider, client = provider_and_client
+    provider._config["capture_pre_compress"] = True
+    monkeypatch.setattr(client, "capture_content", lambda *args, **kwargs: {})
+    provider.on_pre_compress([{"role": "user", "content": "Unconfirmed source"}])
+    assert not any(call[0] == "flush_memory" for call in client.calls)
 
 
 @pytest.mark.parametrize("saved_in_native_config", [True, False])
@@ -1331,7 +1365,7 @@ def test_provider_uses_endpoint_bound_persisted_transport_consent(
         requests.append((client.base_url, path))
         return {"scope_id": "scp_00000000000000000000000000"}
 
-    monkeypatch.setattr(provider_module.PowerContextClient, "_request", request)
+    monkeypatch.setattr(provider_module.PowerContextClient, "request_operation", request)
     config = {"flush_on_session_end": False}
     if saved_in_native_config:
         config.update({"base_url": url, "allow_insecure_http": True})
@@ -1372,7 +1406,7 @@ def test_provider_endpoint_changes_clear_old_native_consent(hermes_modules, monk
     )
     monkeypatch.setattr(
         provider_module.PowerContextClient,
-        "_request",
+        "request_operation",
         lambda *_args, **_kwargs: {"scope_id": "scp_00000000000000000000000000"},
     )
     provider = provider_module.PowerContextMemoryProvider({} if change_in_setup else {"base_url": "http://new.example"})
@@ -1445,22 +1479,16 @@ def test_text_assembly_preserves_content_and_refreshes_prefetch_options(provider
     assert observed[-1]["max_bytes"] == 1024
 
 
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"content_bytes": 1},
-        {"schema": "wrong"},
-        {"status": "empty"},
-        {"extra": True},
-        {"content": "x" * 8001, "content_bytes": 8001},
-    ],
-)
-def test_text_assembly_rejects_malformed_or_oversized_responses(provider_and_client, monkeypatch, change):
+def test_recall_survives_a_core_response_rejection(provider_and_client, hermes_modules, monkeypatch):
     provider, client = provider_and_client
     monkeypatch.setenv("POWERCONTEXT_HERMES_CONTEXT_ASSEMBLY", "{}")
-    response = {"schema": "powercontext.prepared-context.v1", "status": "ready", "content": "ok", "content_bytes": 2}
-    response.update(change)
-    monkeypatch.setattr(client, "prepare_context", lambda *args, **kwargs: response)
+
+    def reject(*args, **kwargs):
+        client_module = importlib.import_module("plugins.powercontext.client")
+        message = "Invalid PreparedContext"
+        raise client_module.PowerContextInvalidResponseError(message)
+
+    monkeypatch.setattr(client, "prepare_context", reject)
     assert provider.prefetch("query") == ""
 
 

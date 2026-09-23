@@ -84,21 +84,10 @@ async function handleReview(
   return { kind: 'error', text: 'Usage: /pc review [approve|reject] ...' }
 }
 
-async function handleDoctor(
-  runtime: PcCommandRuntime,
-  scopeId: string,
-  signal?: AbortSignal,
-): Promise<PcCommandResult> {
-  const live = await invokeOperation(runtime.client, 'get_liveness', {}, scopeId, signal)
-  const ready = await invokeOperation(runtime.client, 'get_readiness', {}, scopeId, signal)
-  const ok = live.ok && ready.ok
-  return { kind: ok ? 'success' : 'error', text: formatResult({ ok, data: { live, ready } }) }
-}
-
 export async function handlePcCommand(
   rawInput: string,
   runtime: PcCommandRuntime,
-  scopeId: string,
+  scopeId: string | undefined,
   signal?: AbortSignal,
 ): Promise<PcCommandResult> {
   const tokens = rawInput.trim().split(/\s+/).filter(Boolean)
@@ -109,7 +98,11 @@ export async function handlePcCommand(
       text: `scope=${scopeId}\nbaseUrl=${runtime.config.baseUrl}\nUse /pc doctor to check Server readiness.`,
     }
   }
-  if (command === 'doctor') return handleDoctor(runtime, scopeId, signal)
+  if (command === 'doctor') {
+    const report = await runtime.client.doctor(signal)
+    return { kind: report.ok ? 'success' : 'error', text: JSON.stringify(report, null, 2) }
+  }
+  if (!scopeId) return { kind: 'error', text: 'A Scope is required for this command.' }
   if (command === 'search') {
     const query = tokens.slice(1).join(' ')
     if (!query) return { kind: 'error', text: 'Usage: /pc search <query>' }

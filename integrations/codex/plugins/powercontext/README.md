@@ -25,18 +25,10 @@ The numbers come from the recall-token estimator and are a per-call compression
 proxy, not provider-verified or billable savings. Positive reductions use
 `saved`; negative reductions use `cost`.
 
-The `powercontext-project-context` skill uses four high-level work operations instead of
-assembling the low-level Handoff lifecycle manually: `create_work_contract`,
-`handoff_current_work`, `acknowledge_handoff`, and `record_task_outcome`.
-When the user says `交接`, `交接当前工作`, `handoff this work`, or an equivalent
-imperative, the Skill inspects the current conversation and repository, calls
-`handoff_current_work`, and immediately commits the returned `handoff` member
-through the artifact-level `commit_handoff` operation. The imperative itself
-is the explicit authorization
-for that durable milestone; preview or design requests remain read-only.
-Acknowledgements and historical authorization notes never grant Codex new
-execution authority, and the prompt hook does not infer completion from Stop or
-SessionEnd.
+The generated `powercontext-project-context` Skill follows the Agent Plugin baseline. `handoff_current_work`
+returns the complete temporary carrier for a requested transfer; `commit_handoff` requires an explicit durable
+milestone request. Preview requests remain read-only. Acknowledgements never grant new execution authority,
+and prompt hooks do not infer task completion from Stop or SessionEnd.
 
 Managed Skills use a separate, explicit handoff. Set `POWERCONTEXT_SCOPE_ID` to the existing Scope ID that owns the
 approved Revision. A reviewer approves the exact
@@ -63,8 +55,8 @@ Start a local server before using the integration:
 powercontext server run
 ```
 
-The hook runtime is declared by the plugin's `pyproject.toml` and launched with
-`uv`; this keeps its `pydantic-settings` dependency isolated and reproducible.
+Hooks run through the installed client's `powercontext-hook --script` command.
+Make `powercontext-hook` available on Codex's PATH before installing the plugin.
 The hook uses a small synchronous standard-library HTTP adapter because Codex
 executes it as a short-lived process. It does not expose that adapter as an SDK.
 `SessionStart` fixes a durable binding from an explicit plugin Scope, an
@@ -136,7 +128,7 @@ Review Inbox. It never approves an Experience, creates or installs a managed
 Skill, or grants Codex execution authority.
 
 All hook configuration uses the `POWERCONTEXT_CODEX_` prefix. The default
-request timeout is one second, the shared HTTP budget is four seconds, and a
+request timeout is three seconds, the shared HTTP budget is six seconds, and a
 flush performs at most four calls. These can be tuned with
 `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS`,
 `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS`, and

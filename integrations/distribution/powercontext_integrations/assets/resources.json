@@ -1,0 +1,105 @@
+{
+  "agent-plugin": {
+    "skills": {},
+    "mcp": {
+      "file": "mcp.json"
+    }
+  },
+  "claude-code": {
+    "skills": {},
+    "mcp": {
+      "file": ".mcp.json",
+      "wrapped": false,
+      "server": {
+        "url": "${user_config.server_url}/mcp",
+        "headers": {
+          "Authorization": "${POWERCONTEXT_CLAUDE_AUTHORIZATION:-}"
+        },
+        "type": "http"
+      },
+      "metadata": {}
+    },
+    "scope_settings": {
+      "module": "claude_code_settings",
+      "class": "ClaudeCodePluginSettings"
+    }
+  },
+  "codex": {
+    "skills": {
+      "agent_metadata": true
+    },
+    "mcp": {
+      "file": ".mcp.json",
+      "path": "/mcp/",
+      "server": {
+        "required": false,
+        "env_http_headers": {
+          "Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"
+        },
+        "type": "http"
+      },
+      "metadata": {}
+    }
+  },
+  "hermes": {
+    "skills": {
+      "tools": "hermes"
+    },
+    "runtime": "python"
+  },
+  "minimax": {
+    "skills": {},
+    "mcp": {
+      "file": "powercontext.mcp.json",
+      "metadata": {
+        "schemaVersion": 1
+      }
+    }
+  },
+  "openclaw": {
+    "skills": {
+      "tools": "openclaw"
+    },
+    "runtime": "typescript"
+  },
+  "opencode": {
+    "skills": {
+      "tools": "pc"
+    },
+    "runtime": "typescript"
+  },
+  "pi": {
+    "skills": {
+      "tools": "pc",
+      "agent_metadata": true
+    },
+    "runtime": "typescript"
+  },
+  "workbuddy": {
+    "skills": {},
+    "mcp": {
+      "file": ".mcp.json",
+      "server": {
+        "url": "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp",
+        "headers": {
+          "Authorization": "${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}"
+        },
+        "description": "PowerContext agent memory & handoff MCP server (local service on port 8000)",
+        "disabled": false,
+        "type": "http"
+      },
+      "metadata": {}
+    },
+    "scope_settings": {
+      "module": "workbuddy_settings",
+      "class": "WorkBuddyPluginSettings"
+    }
+  },
+  "dsh": {
+    "skills": {
+      "tools": "pc",
+      "runtime_skills": true
+    },
+    "runtime": "typescript"
+  }
+}

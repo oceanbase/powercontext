@@ -1,0 +1,43 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema_version = 1
+label = "LangChain"
+order = 11
+target = "langchain"
+kind = "framework_adapter"
+language = "python"
+source = "integrations/langchain"
+
+[[hooks]]
+event = "wrap_model_call"
+handler = "src/powercontext_langchain/middleware.py:wrap_model_call"
+operations = ["prepare_context"]
+effects = ["context"]
+failure = "continue"
+
+[[hooks]]
+event = "after_agent"
+handler = "src/powercontext_langchain/middleware.py:after_agent"
+operations = ["capture_content_source"]
+effects = []
+failure = "continue"
+
+[setup]
+options = ["python"]
+package = "powercontext-langchain"
+
+[setup.settings]
+authorization_setting = "TOKEN"
+capture_setting = ""

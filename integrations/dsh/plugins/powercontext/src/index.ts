@@ -69,6 +69,7 @@ function createRuntime(ctx: Context, config: PluginConfig): PluginRuntime {
     allowInsecureHttp: resolved.allowInsecureHttp,
     authorization: resolved.authorization,
     requestTimeoutMs: resolved.requestTimeoutMs,
+    startupTimeoutMs: resolved.timeoutMs,
   })
   const emitDiagnostic = createDiagnosticEmitter((line) => ctx.logger.warn(line))
   return {

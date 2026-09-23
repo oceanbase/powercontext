@@ -41,7 +41,7 @@ describe('agent tool surface', () => {
     )
 
     const names = registered.map((tool) => tool.name)
-    expect(names).toEqual([
+    expect(new Set(names)).toEqual(new Set([
       'pc_search',
       'pc_remember',
       'pc_memory_list',
@@ -50,6 +50,10 @@ describe('agent tool surface', () => {
       'pc_memory_retire',
       'pc_prepare_context',
       'pc_capture_source',
+      'pc_work_contract',
+      'pc_handoff_current',
+      'pc_handoff_acknowledge',
+      'pc_task_outcome',
       'pc_handoff_activate',
       'pc_handoff_prepare',
       'pc_handoff_finalize',
@@ -61,7 +65,7 @@ describe('agent tool surface', () => {
       'pc_skill_get',
       'pc_review_list',
       'pc_review_get',
-    ])
+    ]))
     expect(names).not.toContain('pc_call')
     expect(names).not.toContain('purge_handoff_report_activities')
     expect(names).not.toContain('detach_handoff_report_workspace')
@@ -94,6 +98,7 @@ describe('agent tool surface', () => {
       reason: 'PowerContext tool "pc_remember" changes durable project context.',
     })
     expect(next).not.toHaveBeenCalled()
+    await expect(preExecute?.({ name: 'pc_handoff_current' }, next)).resolves.toMatchObject({ kind: 'ask' })
     await expect(preExecute?.({ name: 'pc_search' }, next)).resolves.toEqual({ kind: 'allow' })
     expect(next).toHaveBeenCalledOnce()
   })
@@ -125,5 +130,20 @@ describe('agent tool surface', () => {
       ok: false,
       code: 'unscoped',
     })
+  })
+
+  it('transfers current work through one Scope-bound operation without separate capture', async () => {
+    const tools: Array<{ name: string; execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown> }> = []
+    const prepared = { schema: 'powercontext.prepared-handoff.v1', scope_id: 'scp_fixture', base: null, content: {} }
+    const request = vi.fn(async () => ({ value: { handoff: prepared }, statusCode: 202 }))
+    registerTools({ tools: { register: tool => tools.push(tool as never) }, on: () => undefined }, {
+      client: { request }, config: { maxBytes: 8000 }, resolveScope: async () => 'scp_fixture', log: () => undefined,
+    } as unknown as PluginRuntime, definition => definition)
+    const handoff = { schema: 'powercontext.current-work-handoff.v1', trust: 'untrusted_input', objective: 'Continue work',
+      state: [{ text: 'Implementation inspected', basis: 'declared', evidence: [] }], disposition: 'continuable', next_action: null, omissions: [] }
+    const signal = AbortSignal.timeout(1000)
+    const result = await tools.find(tool => tool.name === 'pc_handoff_current')!.execute({ source_id: 'boundary-1', handoff }, { signal })
+    expect(result).toMatchObject({ ok: true, data: { handoff: prepared } })
+    expect(request.mock.calls).toEqual([['handoff_current_work', { scope_id: 'scp_fixture', source_id: 'boundary-1', handoff }, signal]])
   })
 })

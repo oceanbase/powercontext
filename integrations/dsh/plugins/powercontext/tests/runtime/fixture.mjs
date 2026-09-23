@@ -180,8 +180,13 @@ export async function environment({ realModel } = {}) {
     mkdirSync(workspace)
     // Copy the distributable files, not TypeScript source or development peers.
     const installed = join(dshHome, 'profiles/sdk/node_modules/powercontext-dsh')
-    mkdirSync(installed, { recursive: true })
-    for (const entry of ['lib', 'package.json', 'cordis.patch.yml']) cpSync(join(options.plugin ?? pluginRoot, entry), join(installed, entry), { recursive: true })
+    const source = options.plugin ?? pluginRoot
+    const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+    for (const entry of ['package.json', ...manifest.files]) {
+      const destination = join(installed, entry)
+      mkdirSync(dirname(destination), { recursive: true })
+      cpSync(join(source, entry), destination, { recursive: true })
+    }
     const patch = join(dshHome, 'test.patch.json')
     const commandAddress = join(dshHome, 'command-address.txt')
     const commandObserver = join(dshHome, 'command-observer.mjs')

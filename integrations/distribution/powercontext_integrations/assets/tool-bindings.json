@@ -1,0 +1,70 @@
+{
+  "mcp": {
+    "prefix": ""
+  },
+  "pc": {
+    "aliases": {
+      "search_memory": "pc_search",
+      "remember_memory": "pc_remember",
+      "list_memory_entries": "pc_memory_list",
+      "get_memory_entry": "pc_memory_get",
+      "revise_memory_entry": "pc_memory_revise",
+      "retire_memory_entry": "pc_memory_retire",
+      "prepare_context": "pc_prepare_context",
+      "capture_content_source": "pc_capture_source",
+      "prepare_handoff": "pc_handoff_prepare",
+      "activate_handoff": "pc_handoff_activate",
+      "finalize_handoff": "pc_handoff_finalize",
+      "commit_handoff": "pc_handoff_commit",
+      "continue_handoff": "pc_handoff_continue",
+      "handoff_current_work": "pc_handoff_current",
+      "create_work_contract": "pc_work_contract",
+      "acknowledge_handoff": "pc_handoff_acknowledge",
+      "record_task_outcome": "pc_task_outcome",
+      "list_artifact_candidates": "pc_review_list",
+      "get_artifact_candidate": "pc_review_get",
+      "approve_artifact_candidate": "pc_review_approve",
+      "reject_artifact_candidate": "pc_review_reject",
+      "revise_artifact_candidate": "pc_review_revise",
+      "get_experience": "pc_experience_get",
+      "get_skill": "pc_skill_get",
+      "generate_experience": "pc_experience_generate",
+      "generate_skill": "pc_skill_generate",
+      "search_topic_memory": "pc_topic_search",
+      "get_topic_memory": "pc_topic_get",
+      "scan_external_skills": "pc_external_scan",
+      "list_external_skills": "pc_external_list",
+      "resolve_external_skill": "pc_external_resolve",
+      "import_external_skill": "pc_external_import",
+      "list_memory_changes": "pc_memory_changes",
+      "get_stats": "pc_stats"
+    }
+  },
+  "hermes": {
+    "prefix": "powercontext_",
+    "aliases": {
+      "remember_memory": "powercontext_remember",
+      "get_memory_entry": "powercontext_get_memory",
+      "retire_memory_entry": "powercontext_retire_memory",
+      "capture_content_source": "powercontext_capture_source"
+    }
+  },
+  "openclaw": {
+    "aliases": {
+      "search_memory": "powercontext_memory_search",
+      "get_memory_entry": "powercontext_memory_get",
+      "remember_memory": "powercontext_memory_store",
+      "revise_memory_entry": "powercontext_memory_revise",
+      "retire_memory_entry": "powercontext_memory_retire",
+      "handoff_current_work": "powercontext_handoff_current_work",
+      "commit_handoff": "powercontext_handoff_commit",
+      "continue_handoff": "powercontext_handoff_continue",
+      "acknowledge_handoff": "powercontext_handoff_acknowledge",
+      "create_work_contract": "powercontext_work_contract_create",
+      "record_task_outcome": "powercontext_task_outcome",
+      "list_memory_entries": "powercontext_memory_list",
+      "list_artifact_candidates": "powercontext_review_list",
+      "get_artifact_candidate": "powercontext_review_get"
+    }
+  }
+}

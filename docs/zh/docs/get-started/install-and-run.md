@@ -30,8 +30,7 @@ uv tool install --force "powercontext[cli,server]==1.1.0"
 powercontext setup codex --ref powercontext-v1.1.0
 ```
 
-宿主支持范围和维护状态见[能力矩阵](../integrations/capabilities.md)。
-标为 `experimental` 的能力在此正式版本中仍属于试验性能力。
+集成配置与已安装状态见[集成目录](../integrations/capabilities.md)。
 
 ## 安装应用
 

@@ -6,6 +6,8 @@ description: 安装 PowerContext Codex 插件并控制其本地行为。
 
 # Codex
 
+先安装 PowerContext 客户端，并确保宿主的 PATH 中可以找到 `powercontext-hook`。Setup 会在修改集成前检查该可执行文件。更新后，重新执行 setup 并重启宿主。
+
 `official`
 
 ## 安装或刷新插件
@@ -40,17 +42,12 @@ powercontext doctor codex
 在已经安装插件且 PowerContext Server 可用的 Codex 会话中，直接输入：
 
 ```text
-交接
+handoff this work
 ```
 
-`powercontext-project-context` Skill 会把这句话视为创建持久交接里程碑的明确授权。Codex 在同一轮中检查当前对话和仓库，整理目标、
-分支与工作区状态、改动文件、已执行检查、阻塞项、缺失项和下一步，然后在当前 Session Scope 中依次调用
-`handoff_current_work` 和 `commit_handoff`。提交成功后，Codex 返回 exact Handoff Revision；用户不需要再填写交接
-内容或重复确认提交。
-
-`交接当前工作`、`把当前工作交接出去` 和 `handoff this work` 使用相同行为。若只想检查内容而不写入，请明确说
-`预览交接，不要提交`；Skill 此时只在对话中渲染建议内容，不调用写工具。讨论 Handoff 设计或询问 Handoff
-如何工作也不会触发持久化。
+生成的 Skill 遵循 Agent Plugin 基准：检查当前事实，调用 `handoff_current_work`，返回完整的临时载体。
+只有明确要求持久里程碑时才调用 `commit_handoff`。预览直接使用当前事实，不执行写入。
+概念边界见[Memory 和 Handoff](../workflows/memory-and-handoff.md)。
 
 Session 启动时，Codex 按以下顺序解析 Scope：显式的 `POWERCONTEXT_CODEX_SCOPE_ID`、已有 Session binding、
 host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会固定到当前 Session。仓库和目录身份只用于查找
@@ -58,7 +55,7 @@ binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采�
 工具，Agent 输入不能把读写重定向到其他 Scope。Session 切换工作边界时，应由 host 创建或绑定另一个 Scope。
 
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
-`powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
+`powercontext.prepared-context.v1`，并将返回内容和已解析 Scope 一起注入。Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的
 内容和 Handoff 都是历史信息；Codex 在据此行动前仍应与当前代码、用户要求和系统指令核对。
 
@@ -208,8 +205,8 @@ MCP 显示 connected 也不等于 Source 已采集。
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | 完整 `Bearer <token>` 运行时覆盖；setup 保存后供后续 Hook 和原生 MCP 连接使用 |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Hook 共享 HTTP 时间预算 |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Hook 单次请求超时 |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Hook 共享 HTTP 时间预算 |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | 每个提示词最多执行的 flush 次数 |
 
 Hook 默认允许环回 HTTP，远程 HTTP 需要显式同意，HTTPS 证书校验仍然启用。setup 会保存同意并更新已安装插件的

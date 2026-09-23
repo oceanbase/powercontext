@@ -21,7 +21,7 @@ import { apply } from '../src/index.ts'
 import { PowerContextClient } from '../src/client.ts'
 import type { CommandResult } from '../src/commands.ts'
 import type { PreStepDecision } from '../src/recall.ts'
-import { operationFailure } from '../src/doctor.ts'
+import { operationFailure } from '../src/diagnostics.ts'
 import { toToolResult } from '../src/invoke.ts'
 
 vi.mock('../src/peers.ts', () => ({ loadPeer: async (name: string) => name === '@deepseek-ai/dsh-llm'
@@ -59,9 +59,9 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
     const path = new URL(req.url!, 'http://localhost').pathname
     requests.push(path)
     if (path === target) { respond(res, ++occurrence); return }
-    json(res, path === '/v1/scope-bindings/resolve' ? { scope_id: 'review-scope' }
+    json(res, path === '/v1/scope-bindings/resolve' ? { scope_id: 'review-scope', title: 'Review', summary: 'Review context', context_references: [], external_references: [], version: 1 }
       : path === PREPARE ? { schema: 'powercontext.prepared-context.v1', status: 'ready', content: 'fixture', content_bytes: 7 }
-      : path === CAPTURE ? { position: 2 } : path === FLUSH ? { current_cursor: 2 } : { status: 'ok' }, path === CAPTURE ? 202 : 200)
+      : path === CAPTURE ? { status: 'accepted', source: { name: 'content', source_id: 'fixture' }, position: 2 } : path === FLUSH ? flushResponse(2) : { status: 'ok' }, path === CAPTURE ? 202 : 200)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   cleanup.push(async () => {
@@ -71,7 +71,6 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Expected local HTTP address')
   const baseUrl = `http://127.0.0.1:${address.port}`
-  await fetch(baseUrl + '/warmup')
   type Hook = (payload: unknown, next: () => Promise<PreStepDecision>) => Promise<PreStepDecision>
   type Command = (invocation: unknown) => Promise<CommandResult>
   let hook!: Hook
@@ -83,7 +82,8 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
     on: (name: string, listener: Hook) => { if (name === 'agent/pre-step') hook = listener },
     logger: { debug: () => {}, warn: (line: string) => logs.push(JSON.parse(line)) },
   } as unknown as Context, { baseUrl, authorization: 'Bearer http-fixture', timeoutMs: 10000,
-    requestTimeoutMs: 250, flushOnCapture: true, flushMaxCalls: 3 })
+    // The worker's request budget also covers Python HTTP client initialization.
+    requestTimeoutMs: 1000, flushOnCapture: true, flushMaxCalls: 3 })
   const agent = { session: { header: { id: 'http-review', cwd: '/review-workspace' } } }
   const run = (signal = new AbortController().signal) => hook({ agent, signal, turn: 1,
     messages: [{ content: [{ type: 'text', text: 'fixture prompt' }], source: { kind: 'user' } }],
@@ -91,7 +91,7 @@ async function fixture(target: string, respond: (res: ServerResponse, occurrence
   const command = (rawInput = '') => pc({ agent, rawInput, signal: new AbortController().signal })
   const status = async () => JSON.parse((await command()).text.split('\nautomatic=')[1])
   return { run, status, command, requests, logs, baseUrl,
-    client: new PowerContextClient({ baseUrl, requestTimeoutMs: 250 }) }
+    client: new PowerContextClient({ baseUrl, requestTimeoutMs: 1000 }) }
 }
 
 afterEach(async () => {
@@ -176,7 +176,7 @@ describe('registered /pc with real HTTP response failures', () => {
 
   it('preserves prior capture and processing when a later flush request is rejected', async () => {
     const h = await fixture(FLUSH, (res, occurrence) => occurrence === 1
-      ? json(res, { current_cursor: 1 }) : fault(401)(res))
+      ? json(res, flushResponse(1)) : fault(401)(res))
     await h.run()
     const status = await h.status()
     expect(status.stages.capture.state).toBe('accepted')
@@ -194,13 +194,10 @@ describe('registered /pc with real HTTP response failures', () => {
 
   it.each([401, 202])('preserves HTTP %s through cancellation with a private reason', async httpStatus => {
     const controller = new AbortController()
-    const nativeFetch = globalThis.fetch
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args) => {
-      const response = await nativeFetch(...args)
-      if (new URL(String(args[0])).pathname === CAPTURE) controller.abort(new Error(PRIVATE))
-      return response
+    const h = await fixture(CAPTURE, (response) => {
+      fault(httpStatus, 'stall')(response)
+      setTimeout(() => controller.abort(new Error(PRIVATE)), 75)
     })
-    const h = await fixture(CAPTURE, fault(httpStatus, 'stall'))
     await h.run(controller.signal)
     const status = await h.status()
     expect(status.stages.capture).toMatchObject({ code: httpStatus === 401 ? 'authentication_failed' : 'cancelled', http_status: httpStatus,
@@ -208,15 +205,17 @@ describe('registered /pc with real HTTP response failures', () => {
     expect(JSON.stringify(status)).not.toContain(PRIVATE)
   })
 
-  it('keeps body failure evidence for direct tools and Doctor API discovery', async () => {
+  it('keeps body failure evidence for direct tools and API discovery', async () => {
     const h = await fixture('/openapi.json', fault(401, 'stall'))
     const error = await h.client.readOpenApi().catch(error => error)
     expect(toToolResult(error)).toMatchObject({ ok: false, code: 'authentication_failed', status: 401,
       request_id: REQUEST_ID, response_body_error: 'request_timeout' })
     expect(operationFailure('openapi_document', error)).toMatchObject({ code: 'authentication_failed',
       http_status: 401, request_id: REQUEST_ID, response_body_error: 'request_timeout' })
-    const report = JSON.parse((await h.command('doctor')).text)
-    expect(report.checks.routes).toMatchObject({ code: 'authentication_failed', http_status: 401,
-      request_id: REQUEST_ID, response_body_error: 'request_timeout' })
+
   })
 })
+
+function flushResponse(cursor: number) {
+  return { status: 'processed', previous_cursor: 0, current_cursor: cursor, high_watermark: 2, processed_source_count: cursor, memory: null }
+}

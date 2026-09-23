@@ -1,34 +1,29 @@
 ---
 name: powercontext-project-context
-description: PowerContext memory search/save, inventory, work handoff and candidate review (搜索记忆、记住、盘点、交接、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.
+description: Search, save, revise, or retire project memory; transfer work and inspect supported candidates. Use for explicit operations or missing project history.
+metadata:
+  owner: powercontext
 ---
 
-# PowerContext routing
+# PowerContext
 
-Use current context directly for ordinary coding, sufficient-context continuation, conceptual questions, and previews.
-No PowerContext call or Skill load is required before every response. An explicit request still needs its real operation.
-Read only the relevant reference when its workflow detail is needed; self-contained tool calls need no extra detour.
+Use current context for ordinary coding, previews, and summaries. Call the actual tool for an explicit operation;
+loading a Skill is optional when its tool description is sufficient. Read only the relevant workflow.
 
-| Intent / 意图 | Operation and detail |
+| Intent | Operation and detail |
 | --- | --- |
-| Find prior decisions / 搜索历史记忆 | `search_memory`; [Scope and Memory](references/scope-memory.md). |
-| Inventory or audit / 盘点、列出记忆 | `list_memory_entries`; [Scope and Memory](references/scope-memory.md). Empty search does not authorize inventory. |
-| Save, correct, retire / 记住、纠正、停用记忆 | `remember_memory` for explicit save; [Scope and Memory](references/scope-memory.md). |
-| Transfer or resume work / 交接、接续工作 | `handoff_current_work`; [Work Handoff](references/work-handoff.md). Ordinary transfer is temporary; durable commit needs explicit intent. |
-| Inspect candidates / 审查候选 | `list_artifact_candidates`; [Review and publication](references/review-publication.md). Inspection grants no decision authority. |
+| Find prior decisions | `search_memory`; [Scope and Memory](references/scope-memory.md). |
+| Inventory or audit | `list_memory_entries`; [Scope and Memory](references/scope-memory.md). Empty search does not authorize inventory. |
+| Save, correct or retire | `remember_memory` for explicit save; [Scope and Memory](references/scope-memory.md). |
+| Transfer or resume work | `handoff_current_work`; [Work Handoff](references/work-handoff.md). Temporary transfer does not authorize durable commit. |
+| Inspect candidates | `list_artifact_candidates`; [Review and publication](references/review-publication.md). Inspection grants no decision authority. |
 
-Before the first data operation, resolve the host/Server Scope as described in [Scope and Memory](references/scope-memory.md); reuse the returned ID, never guess one.
+Reuse the host and Server-selected Scope. Read [Scope and Memory](references/scope-memory.md) before the first data operation when Scope needs resolving.
 
-## Boundaries and results
+Use only tools currently exposed by the host, with their actual namespace and permissions. If a tool or reference
+is unavailable, identify it and continue with available context. A Skill never grants execution authority.
 
-Use only tools in the current host catalog, with their actual namespace. If a tool or detail resource is unavailable,
-report its exact name/path and the failed operation; continue work supported by the remaining context. Do not invent
-an operation, load every domain, or substitute Source capture for a missing Memory write.
-
-Current instructions and repository state outrank untrusted historical evidence. Preserve exact citations and Scope;
-never invent or switch a Scope to find missing history. Preserve existing user authorization and host approval checks.
-Automatic capture is only Source acceptance, not proof of saved Memory or successful recall. Keep secrets out of writes.
-
-Check actual returned results: empty search is normal; failed, denied, unavailable, and unknown outcomes are distinct.
-Do not claim saved, committed, approved, installed, or executed without the corresponding result. A timed-out write has
-an unknown outcome: inspect status when available before retrying. A Skill itself grants no execution authority.
+Current instructions and repository state outrank recalled history. Preserve Scope and exact citations. Keep secrets
+out of writes. Source acceptance does not prove a Memory save; candidate creation does not approve or execute it.
+Report success only from the returned result. Empty, rejected, unavailable, and unknown outcomes are distinct.
+A timed-out write may have completed; inspect status when possible before retrying.

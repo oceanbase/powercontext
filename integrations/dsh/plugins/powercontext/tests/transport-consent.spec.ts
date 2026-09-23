@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -47,7 +48,7 @@ afterEach(() => rmSync(directory, { recursive: true, force: true }))
 
 describe('dsh transport consent', () => {
   it('rejects non-boolean consent from direct JavaScript callers', () => {
-    expect(() => new PowerContextClient({
+    expect(() => new MockClient({
       baseUrl: remote, requestTimeoutMs: 1000,
       allowInsecureHttp: 'false' as unknown as boolean,
     })).toThrow(/boolean/)
@@ -61,8 +62,8 @@ describe('dsh transport consent', () => {
         return new Response('{}', { headers: { 'content-type': 'application/json' } })
       },
     }
-    expect(() => new PowerContextClient(options)).toThrow(/HTTPS/)
-    const client = new PowerContextClient({ ...options, allowInsecureHttp: true })
+    expect(() => new MockClient(options)).toThrow(/HTTPS/)
+    const client = new MockClient({ ...options, allowInsecureHttp: true })
     await expect(client.request('get_liveness')).resolves.toMatchObject({ status: 200 })
   })
 

@@ -5,6 +5,11 @@
 This native Pi package restores bounded project context before each normal prompt and captures eligible user prompts
 as Source evidence. It does not sync Pi transcripts or start a PowerContext Server.
 
+Install the PowerContext client and make `powercontext-hook` available on Pi's PATH.
+Local `uvx` and `npx` are also required for package tooling. Four shared operations use the
+installed client through a persistent worker. `make agent-distributions` produces
+`build/agent-distributions/pi` with native adapters and configuration.
+
 Install it from a PowerContext checkout:
 
 ```bash

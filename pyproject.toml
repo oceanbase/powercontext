@@ -90,13 +90,14 @@ cli = [
 
 [project.scripts]
 powercontext = "powercontext.cli.app:main"
+powercontext-hook = "powercontext.client.integration.bridge:main"
 
 [project.entry-points."powercontext.cli"]
 config = "powercontext.cli.config:app"
 doctor = "powercontext.cli.system:doctor_app"
 service = "powercontext.service.cli:app"
 server = "powercontext.server.cli:app"
-setup = "powercontext.cli.system:setup_app"
+setup = "powercontext.cli.integrations:setup_app"
 
 [project.urls]
 Homepage = "https://github.com/oceanbase/powercontext"
@@ -156,6 +157,7 @@ python = "./.venv"
 python-version = "3.11"
 extra-paths = [
     "./scripts",
+    "./integrations/distribution",
     "./integrations/claude-code/plugins/powercontext",
     "./integrations/claude-code/plugins/powercontext/scripts",
     "./integrations/codex/plugins/powercontext",
@@ -197,7 +199,7 @@ missing-override-decorator = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["integrations/pydantic-ai/src", "scripts"]
+pythonpath = ["integrations/distribution", "integrations/pydantic-ai/src", "scripts"]
 markers = [
     "native_service: mutates a disposable matching-platform current-user service manager",
     "real_e2e: uses real Codex, external model providers, and the configured database",
@@ -257,6 +259,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"integrations/distribution/powercontext_integrations/{host,system,hosts,codex,claude_code,native,dsh,hermes,pi,opencode,openclaw,workbuddy,packages,minimax}.py" = ["TRY003"]
+"src/powercontext/cli/{system,git_source,integration_source}.py" = ["TRY003"]
 "examples/jupyter/*.ipynb" = ["S101", "RUF001", "TRY003"]
 "examples/jupyter/_tutorial.py" = ["RUF001"]
 "tests/**/*.py" = ["S101", "S603"]

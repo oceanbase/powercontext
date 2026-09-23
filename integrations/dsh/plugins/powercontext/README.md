@@ -1,5 +1,8 @@
 # PowerContext for DeepSeek Harness
 
+Install the PowerContext client separately and expose `powercontext-hook` on the host PATH. Domain operations use the shared client, with bounded responses, deadlines, and explicit unknown write outcomes. Hooks do not install runtime dependencies.
+
+
 This plugin is a thin DeepSeek Harness integration for a running PowerContext Server. It does not embed storage or start the Server.
 
 Install the released Server and plugin together:
@@ -9,7 +12,7 @@ uv tool install --force "powercontext[cli,server]==1.1.0"
 powercontext setup dsh --source oceanbase/powercontext --ref powercontext-v1.1.0
 ```
 
-`setup dsh` calls `dsh plugin --profile web add`. The plugin talks HTTP only. It does not use MCP.
+`setup dsh` calls `dsh plugin --profile web add --workspace-root`. The plugin talks HTTP only. It does not use MCP.
 For development, install the CLI/Server and this built plugin from the same checkout and record its commit:
 
 ```bash
@@ -23,7 +26,7 @@ reuses the cached checkout without fetching; update a local checkout and reinsta
 Use [the DSH setup guide](../../../../docs/en/docs/integrations/dsh.md) for generation/processing configuration.
 Run `powercontext server run --env-file powercontext.env` in one terminal, then set
 `POWERCONTEXT_DSH_BASE_URL` in another terminal and run `dsh web`. Restart DSH after changing installation or environment.
-Release 1.1.0 includes direct-operation Scope failure handling and the layered Doctor and snapshot behavior below.
+Release 1.1.0 includes direct-operation Scope failure handling and the shared Python Doctor and snapshot behavior below.
 
 Before each model step it:
 
@@ -32,18 +35,16 @@ Before each model step it:
 
 Named `pc_*` tools expose the agent-safe Memory, handoff, experience, skill, and read-only review operations. DSH requests one-time user approval before named mutations run. Review mutations remain explicit human `/pc review` commands; destructive and administrative OpenAPI operations are not model tools.
 
-`/pc doctor` checks the running plugin configuration, health, capabilities, declared routes, current Scope and
-read-only prepare independently. Failures identify the operation, a specific code, available HTTP status/request ID,
-safe dependency statuses and recovery actions. The endpoint summary omits credentials and path text. A successful
-report does not prove capture or processing: write routes are declared by OpenAPI but never executed by Doctor.
-Standalone `powercontext doctor dsh` verifies Web-profile registration and explicitly cannot observe the running
-host's overrides. A healthy Server with extraction disabled may return valid empty recall.
+`/pc doctor` forwards the running connection to the installed Python client's shared liveness, readiness, and
+context-schema checks. The report preserves dependency failures without exposing private response text.
+`powercontext doctor dsh` verifies native registration and prerequisites; add `--server` to check the discoverable
+endpoint. Use `/pc` for local automatic-path observations and `/pc capabilities` for extraction support.
 
 The operations table in `src/operations.generated.ts` is generated from the repository `openapi/powercontext.yaml`. From the PowerContext root:
 
 ```bash
-make js-api-generate
-make js-api-generate-check
+make agent-resources
+make agent-resources
 ```
 
 The plugin resolves an explicit Scope, a durable workspace binding, or the Server default. Environment overrides use

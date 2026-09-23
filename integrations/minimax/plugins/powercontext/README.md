@@ -71,18 +71,19 @@ The bundled connection uses a local server without authentication. If your deplo
 }
 ```
 
-Replace the URL and token with your deployment values. Use `http://127.0.0.1:8000/mcp` for a protected server on the same machine. MiniMax Code 0.2.7 gives the enabled user-configured `powercontext` server precedence over the plugin's connection; the Skill remains available. Restart MiniMax Code after changing the configuration.
+Replace the URL and token with your deployment values. Use `http://127.0.0.1:8000/mcp` for a protected server on the same machine. MiniMax Code gives the enabled user-configured `powercontext` server precedence over the plugin's connection; the Skill remains available. Restart MiniMax Code after changing the configuration.
 
 Keep this file private and out of version control; on Linux and macOS, restrict its permissions to `600`. Do not put the token in the plugin's `powercontext.mcp.json` or `plugin.json`. Enter the token value directly in the private configuration; a `${TOKEN}` placeholder will not load it from the environment.
 
 For server-side setup, see [Enable authentication](https://powercontext.oceanbase.io/en/docs/operate/deploy-server/#enable-authentication). The PowerContext server token authenticates MCP requests; model provider credentials belong in the server's model configuration.
 
-This package contains a Skill and native MCP configuration, with no local
-PowerContext HTTP client. MiniMax Code owns the MCP connection and its HTTP/TLS
-policy; `POWERCONTEXT_CLIENT_ALLOW_INSECURE_HTTP` and PowerContext's saved client
-settings do not control that native transport. Configure any remote endpoint
-in MiniMax Code's private MCP configuration. Prefer HTTPS: HTTP transmits
-content and authorization headers without encryption.
+The Skill and MCP connection use MiniMax's native transport. The plugin
+also includes a prompt hook that calls the installed client through
+`powercontext-hook --script`. Make that executable available on MiniMax's PATH.
+It follows the named `powercontext` endpoint and Authorization header in the private MCP
+configuration above. A remote plaintext endpoint requires the hook's separate explicit
+`POWERCONTEXT_MINIMAX_ALLOW_INSECURE_HTTP=true` setting. Native MCP transport remains
+controlled by MiniMax. The hook contributes historical context without automatically capturing prompts.
 
 ## Your data
 

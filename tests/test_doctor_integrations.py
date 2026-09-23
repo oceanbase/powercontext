@@ -17,17 +17,20 @@ from __future__ import annotations
 import json
 from unittest.mock import Mock
 
+import powercontext_integrations.claude_code as claude_cli
+import powercontext_integrations.codex as codex_cli
+import powercontext_integrations.dsh as dsh_cli
+import powercontext_integrations.hermes as hermes_cli
+import powercontext_integrations.openclaw as openclaw_cli
+import powercontext_integrations.opencode as opencode_cli
+import powercontext_integrations.pi as pi_cli
+import powercontext_integrations.workbuddy as workbuddy_cli
+import pytest
+from powercontext_integrations.host import HOST_ADAPTERS
+from powercontext_integrations.system import Diagnostic, DiagnosticStatus, doctor_app
 from typer.testing import CliRunner
 
-import powercontext.cli.dsh as dsh_cli
-import powercontext.cli.hermes as hermes_cli
-import powercontext.cli.openclaw as openclaw_cli
-import powercontext.cli.opencode as opencode_cli
-import powercontext.cli.pi as pi_cli
-import powercontext.cli.system as system_cli
-import powercontext.cli.workbuddy as workbuddy_cli
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import Diagnostic, DiagnosticStatus, doctor_app
 
 FIRST_CLASS_HOSTS = ("codex", "claude-code", "dsh", "openclaw", "opencode", "pi", "hermes", "workbuddy")
 CLI_KEYS = {
@@ -116,14 +119,23 @@ def _failed_skill_opencode() -> dict[str, Diagnostic]:
 def _patch_diagnostics(monkeypatch, **replacements: Mock) -> dict[str, Mock]:
     probes = {host: Mock(name=f"run_{host}_diagnostics", return_value=_missing(host)) for host in FIRST_CLASS_HOSTS}
     probes.update(replacements)
-    monkeypatch.setattr(system_cli, "run_codex_diagnostics", probes["codex"])
-    monkeypatch.setattr(system_cli, "run_claude_code_diagnostics", probes["claude-code"])
+    monkeypatch.setattr(codex_cli, "run_codex_diagnostics", probes["codex"])
+    monkeypatch.setattr(claude_cli, "run_claude_code_diagnostics", probes["claude-code"])
     monkeypatch.setattr(dsh_cli, "run_dsh_diagnostics", probes["dsh"])
     monkeypatch.setattr(openclaw_cli, "run_openclaw_diagnostics", probes["openclaw"])
     monkeypatch.setattr(opencode_cli, "run_opencode_diagnostics", probes["opencode"])
     monkeypatch.setattr(pi_cli, "run_pi_diagnostics", probes["pi"])
     monkeypatch.setattr(hermes_cli, "run_hermes_diagnostics", probes["hermes"])
     monkeypatch.setattr(workbuddy_cli, "run_workbuddy_diagnostics", probes["workbuddy"])
+    import powercontext_integrations.minimax as minimax
+    import powercontext_integrations.packages as packages
+
+    absent = {
+        "environment": Diagnostic(DiagnosticStatus.FAILED, "Application is not installed or is not on PATH"),
+        "plugin": Diagnostic(DiagnosticStatus.SKIPPED, "Application is unavailable."),
+    }
+    monkeypatch.setattr(minimax, "run_minimax_diagnostics", lambda **kwargs: absent.copy())
+    monkeypatch.setattr(packages, "run_package_diagnostics", lambda *args, **kwargs: absent.copy())
     return probes
 
 
@@ -134,7 +146,7 @@ def test_doctor_integrations_json_includes_every_first_class_host(monkeypatch) -
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
-    assert list(payload["hosts"]) == list(FIRST_CLASS_HOSTS)
+    assert list(payload["hosts"]) == [host.name for host in HOST_ADAPTERS]
     for host in FIRST_CLASS_HOSTS:
         assert payload["hosts"][host]["presence"] == "missing"
         assert CLI_KEYS[host] in payload["hosts"][host]
@@ -227,8 +239,7 @@ def test_default_doctor_does_not_scan_first_class_hosts(monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(
-        system_cli,
-        "run_diagnostics",
+        "powercontext.cli.system.run_diagnostics",
         lambda **_kwargs: {
             "package": Diagnostic(status=DiagnosticStatus.OK, detail="powercontext 0.0.1"),
             "server_liveness": Diagnostic(status=DiagnosticStatus.OK, detail="http://127.0.0.1:8000 status=ok"),
@@ -245,10 +256,11 @@ def test_default_doctor_does_not_scan_first_class_hosts(monkeypatch) -> None:
         probe.assert_not_called()
 
 
-def test_doctor_codex_still_fails_when_the_cli_is_missing(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: None)
-
-    result = _invoke(["doctor", "codex"])
-
+@pytest.mark.parametrize("host", FIRST_CLASS_HOSTS)
+def test_host_doctor_reports_native_failure_and_shared_client_status(monkeypatch, host) -> None:
+    _patch_diagnostics(monkeypatch)
+    result = _invoke(["doctor", host, "--json"])
     assert result.exit_code == 1
-    assert "Codex CLI is not installed or is not on PATH" in result.output
+    checks = json.loads(result.output)["checks"]
+    assert checks["client"]["status"] in {"ok", "failed"}
+    assert any(check["status"] == "failed" for key, check in checks.items() if key != "client")

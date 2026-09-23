@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { resolvePowerContextConfig } from "./config.js";
 import { PowerContextRequestError, type PowerContextClient } from "./http.js";
 import {
+  createStandardTool,
   createMemoryGetTool,
   createMemoryRetireTool,
   createMemoryReviseTool,
@@ -31,9 +32,36 @@ import {
   POWERCONTEXT_MEMORY_SEARCH_TOOL,
   POWERCONTEXT_MEMORY_STORE_TOOL,
 } from "./tools.js";
+import { STANDARD_TOOLS } from "./tools.generated.js";
 import { encodeCitation } from "./types.js";
 
 describe("PowerContext tools", () => {
+  it("keeps inventory and candidate reads private and bound to the trusted Scope", async () => {
+    const requests: { path: string; body: unknown }[] = [];
+    const client = {
+      async post(path: string, body: unknown) {
+        requests.push({ path, body });
+        return path === "/v1/scope-bindings/resolve" ? { scope_id: "scp_resolved" } : { items: [] };
+      },
+    } as unknown as PowerContextClient;
+    const context = { agentId: "main", sessionKey: "agent:main:telegram:direct:user-1" } as OpenClawPluginToolContext;
+    const deps = {
+      client,
+      getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "https://powercontext.test" }),
+      isPrivateSession: () => true,
+    };
+    for (const operation of ["list_memory_entries", "list_artifact_candidates", "get_artifact_candidate"]) {
+      const definition = STANDARD_TOOLS.find(tool => tool.operation === operation)!;
+      expect(createStandardTool(definition, context, { ...deps, isPrivateSession: () => false })).toBeNull();
+      const tool = createStandardTool(definition, context, deps)!;
+      const result = await tool.execute("call-1", { scope_id: "untrusted", candidate_id: "candidate-1" });
+      expect(result.details).toEqual({ items: [] });
+      expect(requests.at(-1)?.body).toMatchObject({ scope_id: "scp_resolved" });
+    }
+    expect(requests.filter(request => request.path !== "/v1/scope-bindings/resolve").map(request => request.path))
+      .toEqual(["/v1/memory/entries/list", "/v1/artifact-candidates/list", "/v1/artifact-candidates/get"]);
+  });
+
   it("uses PowerContext-prefixed names for search and read tools", () => {
     const client = {} as unknown as PowerContextClient;
     const context = {

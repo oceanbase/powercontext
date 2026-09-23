@@ -20,10 +20,10 @@ from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import Mock
 
 import pytest
+from powercontext_integrations.system import SetupError, doctor_app, setup_app
 from typer.testing import CliRunner
 
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import SetupError, doctor_app, setup_app
 
 
 def _write_plugin(root: Path, *, built: bool = True) -> Path:
@@ -37,7 +37,7 @@ def _write_plugin(root: Path, *, built: bool = True) -> Path:
 
 
 def test_dsh_executable_prefers_the_windows_cmd_shim(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     cmd = tmp_path / "dsh.cmd"
     cmd.write_text("@echo off\n", encoding="utf-8")
@@ -48,7 +48,7 @@ def test_dsh_executable_prefers_the_windows_cmd_shim(tmp_path: Path, monkeypatch
 
 
 def test_setup_dsh_rejects_plugin_without_bundle(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     checkout = tmp_path / "powercontext"
     _write_plugin(checkout, built=False)
@@ -65,7 +65,7 @@ def test_setup_dsh_rejects_plugin_without_bundle(tmp_path: Path, monkeypatch) ->
 
 
 def test_setup_dsh_rejects_a_ref_that_escapes_the_checkout_root(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
 
@@ -74,7 +74,7 @@ def test_setup_dsh_rejects_a_ref_that_escapes_the_checkout_root(tmp_path: Path, 
 
 
 def test_setup_dsh_does_not_echo_source_credentials(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     marker = "redacted-value"
     source = f"https://{marker}@github.com/oceanbase/powercontext"
@@ -87,7 +87,7 @@ def test_setup_dsh_does_not_echo_source_credentials(tmp_path: Path, monkeypatch)
 
 
 def test_setup_dsh_clones_a_github_url_and_replaces_a_broken_checkout(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     home = tmp_path / "data"
     monkeypatch.setenv("POWERCONTEXT_HOME", str(home))
@@ -117,7 +117,7 @@ def test_setup_dsh_clones_a_github_url_and_replaces_a_broken_checkout(tmp_path: 
 
 
 def test_doctor_dsh_requires_the_plugin_id_field(monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args: "name: powercontext-dsh\n")
@@ -129,7 +129,7 @@ def test_doctor_dsh_requires_the_plugin_id_field(monkeypatch) -> None:
 
 
 def test_doctor_dsh_reports_an_installed_plugin(monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     monkeypatch.setattr(
@@ -152,7 +152,7 @@ def test_doctor_dsh_reports_an_installed_plugin(monkeypatch) -> None:
 
 
 def test_doctor_dsh_does_not_expose_host_config_or_claim_to_check_its_server(monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     marker = "private-dsh-config-marker"
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
@@ -170,7 +170,7 @@ def test_doctor_dsh_does_not_expose_host_config_or_claim_to_check_its_server(mon
 
 
 def test_doctor_dsh_redacts_config_dump_failures(monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     monkeypatch.setattr(
@@ -186,7 +186,7 @@ def test_doctor_dsh_redacts_config_dump_failures(monkeypatch) -> None:
 
 @pytest.mark.parametrize("timeout", [False, True])
 def test_doctor_dsh_identifies_config_dump_exit_and_timeout(monkeypatch, timeout: bool) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     if timeout:

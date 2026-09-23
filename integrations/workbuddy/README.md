@@ -16,13 +16,11 @@ The integration has three capability layers:
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives WorkBuddy explicit
   Memory and work-continuity tools (`search_memory`, `list_memory_entries`,
   `handoff_current_work`, `commit_handoff`, and so on);
-- the `powercontext-project-context` Skill turns an imperative such as `交接`,
-  `交接当前工作`, or `handoff this work` into one durable, committed Handoff,
-  and restores project memory for continued work.
+- the generated `powercontext-project-context` Skill shares Memory and current-work Handoff procedures
+  with the Agent Plugin baseline. A transfer is temporary unless a durable milestone is explicitly requested.
 
-The hooks driver is pure Python 3.11+ standard library and needs no extra
-dependencies. WorkBuddy support ships with a `powercontext setup workbuddy`
-CLI installer; the manual steps below remain available as a fallback.
+The hooks driver runs through the installed client's `powercontext-hook` executable. WorkBuddy support ships with a `powercontext setup workbuddy`
+CLI installer, using the shared Python setup and resource generator.
 
 ## Install with the PowerContext CLI
 
@@ -33,8 +31,7 @@ source in one step:
 powercontext setup workbuddy --source oceanbase/powercontext --ref master
 ```
 
-For a local checkout, point `--source` at the repository root or the plugin
-directory:
+For a local checkout, point `--source` at the repository root:
 
 ```bash
 powercontext setup workbuddy --source /path/to/powercontext
@@ -45,138 +42,18 @@ resolver into `~/.workbuddy/hooks`, merges the `UserPromptSubmit` hook into
 `~/.workbuddy/settings.json`, registers the `powercontext` server in
 `~/.workbuddy/mcp.json`, and installs the `powercontext-project-context` Skill under
 `~/.workbuddy/skills`. Existing settings and other MCP servers are preserved,
-and the Skill's command placeholders are resolved automatically.
+and the shared Skill is generated from the Agent Plugin baseline.
 Verify the result with `powercontext doctor workbuddy`.
 
-<details>
-<summary>Manual installation (alternative)</summary>
-
-### Manual installation
-
-These steps copy the plugin into the WorkBuddy user directory, register the
-hook and the MCP server, install the Skill, and verify the integration.
-
-#### 1. Copy the plugin files
-
-WorkBuddy loads hook commands from its user-level hooks directory. Copy the
-hook driver, its settings modules, and the scope resolver there. This guide
-uses `~/.workbuddy/hooks` as the hooks directory; replace it with your own
-location and use the same value wherever `<WORKBUDDY_HOOKS_DIR>` appears below.
-Use the Python executable that can import PowerContext wherever
-`<POWERCONTEXT_PYTHON>` appears below.
-
-```bash
-PLUGIN=integrations/workbuddy/plugins/powercontext
-WORKBUDDY_HOOKS_DIR="${WORKBUDDY_HOOKS_DIR:-$HOME/.workbuddy/hooks}"
-
-mkdir -p "$WORKBUDDY_HOOKS_DIR"
-cp "$PLUGIN"/hooks/workbuddy_powercontext_hook.py \
-   "$PLUGIN"/hooks/workbuddy_settings.py \
-   "$PLUGIN"/hooks/powercontext_client_config.py \
-   "$PLUGIN"/hooks/prepared_context.py \
-   "$WORKBUDDY_HOOKS_DIR"/
-cp "$PLUGIN/scripts/workspace_scope.py" \
-   "$WORKBUDDY_HOOKS_DIR/powercontext_scope_binding.py"
-```
-
-The resulting layout is:
-
-```text
-<WORKBUDDY_HOOKS_DIR>/
-  workbuddy_powercontext_hook.py
-  workbuddy_settings.py
-  powercontext_client_config.py
-  prepared_context.py
-  powercontext_scope_binding.py
-```
-
-#### 2. Register the hook
-
-Merge the following `hooks` block into `~/.workbuddy/settings.json`. Replace
-`<POWERCONTEXT_PYTHON>` with the Python executable that can import PowerContext,
-and `<WORKBUDDY_HOOKS_DIR>` with the absolute path of your hooks directory (for
-example `/Users/<you>/.workbuddy/hooks`). The command string cannot expand
-environment variables, so literal paths are required here.
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
-            "timeout": 30,
-            "statusMessage": "Syncing PowerContext"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-A complete sample is included at
-`plugins/powercontext/hooks/hooks.workbuddy.json`.
-
-#### 3. Register the MCP server
-
-Merge the following `mcpServers` entry into `~/.workbuddy/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "powercontext": {
-      "type": "http",
-      "url": "${POWERCONTEXT_WORKBUDDY_SERVER_URL:-http://127.0.0.1:8000}/mcp",
-      "headers": {
-        "Authorization": "${POWERCONTEXT_WORKBUDDY_AUTHORIZATION:-}"
-      },
-      "description": "PowerContext agent memory & handoff MCP server (local service on port 8000)"
-    }
-  }
-}
-```
-
-#### 4. Install the Skill
-
-Copy the `powercontext-project-context` Skill into the WorkBuddy skills directory:
-
-```bash
-mkdir -p ~/.workbuddy/skills
-cp -R integrations/workbuddy/plugins/powercontext/skills/powercontext-project-context \
-  ~/.workbuddy/skills/
-cat > ~/.workbuddy/skills/powercontext-project-context/.powercontext.json <<'EOF'
-{"schema": 1, "owner": "powercontext", "integration": "workbuddy"}
-EOF
-```
-
-Then open `~/.workbuddy/skills/powercontext-project-context/SKILL.md`. Replace
-`${POWERCONTEXT_PYTHON}` with a shell-safe Python executable argument and
-`${POWERCONTEXT_SCOPE_BINDING_SCRIPT}` with a shell-safe complete path to
-`<WORKBUDDY_HOOKS_DIR>/powercontext_scope_binding.py`.
-
-#### 5. Start the Server, restart WorkBuddy, and verify
-
-Keep the PowerContext Server running in one terminal:
+Start the Server, restart WorkBuddy, and verify the installed connection:
 
 ```bash
 powercontext server run
+powercontext doctor workbuddy --server
 ```
 
-Restart WorkBuddy so it picks up the new hook, MCP server, and Skill. Send any
-prompt; the hook reports `Syncing PowerContext` while it runs. To verify the
-recall contract directly, inspect the Server logs or run:
+The [development guide](../../docs/en/development/plugin-distribution.md) describes generation and native loading.
 
-```bash
-powercontext doctor
-```
-
-The MCP tools (`search_memory` and the Handoff tools) become available in the
-WorkBuddy session when the Server is reachable.
-
-</details>
 
 ## Configuration
 
@@ -191,8 +68,8 @@ override the defaults; restart WorkBuddy after changing them.
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | Flush until the captured Source is processed (testing only, default `false`) |
-| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `1.0`) |
-| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `4.0`) |
+| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `3.0`) |
+| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `6.0`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | Maximum flush calls (default `4`) |
 
 The hook selects its URL from `POWERCONTEXT_WORKBUDDY_SERVER_URL`,

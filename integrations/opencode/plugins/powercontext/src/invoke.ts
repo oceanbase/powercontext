@@ -17,6 +17,7 @@
 import type { JsonObject, PowerContextClient } from './client.ts'
 import { InvalidResponseError, ServerResponseError, UnknownOperationError } from './errors.ts'
 import { OPERATIONS, type OperationId } from './operations.generated.ts'
+import { WRITE_OPERATIONS as MUTATING_OPERATIONS } from './writes.generated.ts'
 import { containsSecret } from './secrets.ts'
 
 export interface ToolResult {
@@ -28,16 +29,7 @@ export interface ToolResult {
   data?: unknown
 }
 
-const WRITE_OPERATIONS = new Set<OperationId>([
-  'remember_memory',
-  'capture_content_source',
-  'revise_memory_entry',
-  'retire_memory_entry',
-  'activate_handoff',
-  'commit_handoff',
-  'generate_experience',
-  'generate_skill',
-])
+const WRITE_OPERATIONS = new Set<string>(MUTATING_OPERATIONS)
 
 export function operationMutates(id: OperationId): boolean {
   return WRITE_OPERATIONS.has(id)
@@ -57,7 +49,7 @@ function errorResult(error: unknown): ToolResult {
     if (error.statusCode === 409) {
       return {
         ok: false,
-        code: error.code ?? 'conflict',
+        code: typeof error.code === 'string' ? error.code : 'conflict',
         message: error.serverMessage ?? 'Citation conflict; refresh and retry once.',
         status: 409,
         request_id: error.requestId,
@@ -65,7 +57,7 @@ function errorResult(error: unknown): ToolResult {
     }
     return {
       ok: false,
-      code: error.code ?? (error.statusCode === 404 ? 'not_found' : 'invalid_request'),
+      code: typeof error.code === 'string' ? error.code : (error.statusCode === 404 ? 'not_found' : 'invalid_request'),
       message: error.serverMessage ?? `PowerContext returned HTTP ${error.statusCode}.`,
       status: error.statusCode,
       request_id: error.requestId,

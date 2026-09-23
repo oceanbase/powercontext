@@ -17,12 +17,12 @@
 import { captureUserPrompt } from './capture.ts'
 import { combineSignals, createTimeoutSignal, type PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
-import { validatePreparedContext } from './prepared-context.ts'
+import type { PreparedContext } from './client.ts'
 
 export interface PluginRuntime {
   client: PowerContextClient
   config: ResolvedConfig
-  resolveScope: (cwd: string) => Promise<string>
+  resolveScope: (cwd: string, signal?: AbortSignal) => Promise<string>
   recordCapture?: (scopeId: string, position: number) => void
   flushPending?: (signal?: AbortSignal) => Promise<void>
   diagnostic?: (event: string, error: unknown) => void
@@ -60,9 +60,13 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
   const prompt = input.prompt.trim()
   if (!prompt) return undefined
 
+  const signals = [createTimeoutSignal(input.runtime.config.httpBudgetMs)]
+  if (input.signal) signals.push(input.signal)
+  const signal = combineSignals(signals)
+
   let scopeId: string
   try {
-    scopeId = await input.runtime.resolveScope(input.cwd)
+    scopeId = await input.runtime.resolveScope(input.cwd, signal)
   } catch (error) {
     try {
       input.runtime.diagnostic?.('context_prepare', error)
@@ -73,9 +77,6 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
   }
 
   try {
-    const signals = [createTimeoutSignal(input.runtime.config.httpBudgetMs)]
-    if (input.signal) signals.push(input.signal)
-    const signal = combineSignals(signals)
     let content: string | undefined
     try {
       const response = await input.runtime.client.request('prepare_context', {
@@ -84,10 +85,7 @@ export async function recallBeforeAgentStart(input: BeforeAgentStartInput): Prom
         max_bytes: input.runtime.config.maxBytes,
         ...(input.runtime.config.contextAssembly === undefined ? {} : { assembly: input.runtime.config.contextAssembly }),
       }, signal)
-      const prepared = validatePreparedContext(
-        response.kind === 'json' ? response.value : undefined,
-        input.runtime.config.maxBytes,
-      )
+      const prepared = response.value as PreparedContext
       content = prepared.status === 'ready' && typeof prepared.content === 'string' ? prepared.content : undefined
     } catch (error) {
       // Recall is an optional augmentation and must not block Pi.

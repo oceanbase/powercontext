@@ -28,9 +28,23 @@ class ClientError(PowerContextError):
 class TransportError(ClientError):
     """Raised when no valid HTTP response was received."""
 
+    outcome = "failed"
+    status_code: int | None = None
+    body_error: str | None = None
+
     def __init__(self, path: str) -> None:
         self.path = path
         super().__init__(f"request to {path} failed")
+
+
+class ResponseReadError(TransportError):
+    """Response headers arrived, but its body was not acknowledged completely."""
+
+    def __init__(self, path: str, *, status_code: int, request_id: str | None, body_error: str) -> None:
+        super().__init__(path)
+        self.status_code = status_code
+        self.request_id = request_id
+        self.body_error = body_error
 
 
 class InvalidResponseError(ClientError):
@@ -42,8 +56,16 @@ class InvalidResponseError(ClientError):
         super().__init__(f"response from {path} violated the API schema")
 
 
+class UnknownOutcomeError(TransportError):
+    """A submitted mutation has no valid acknowledgement; never replay it automatically."""
+
+    outcome = "unknown"
+
+
 class ServerResponseError(ClientError):
     """Raised when the Server returns a non-success status."""
+
+    outcome: str = "failed"
 
     def __init__(
         self,
@@ -107,5 +129,6 @@ __all__ = (
     "TransportError",
     "UnauthorizedResponseError",
     "UnavailableResponseError",
+    "UnknownOutcomeError",
     "server_response_error",
 )

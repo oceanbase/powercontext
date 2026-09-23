@@ -13,13 +13,13 @@ The plugin is a client of the running Server:
   independent Source evidence;
 - a ten-second-bounded `Stop` hook reports scoped recall-token estimates after each completed turn;
 - Codex uses Streamable HTTP MCP for explicit Memory reads and writes;
-- saying `交接`, `交接当前工作`, or `handoff this work` triggers the `powercontext-project-context` Skill to inspect current facts,
-  prepare the current work, and commit the returned Handoff in one turn;
+- the generated `powercontext-project-context` Skill uses the Agent Plugin baseline for Memory and temporary work
+  transfer; committing a durable Handoff requires explicit milestone intent;
 - Server or transport failures do not block normal Codex work.
 
 Automatic recall calls `POST /v1/context/prepare` once per prompt. The Runtime selects and renders untrusted history
 with exact citations under the requested total byte budget. The Hook validates `PreparedContext` and injects its
-content unchanged; it never performs a second selection or falls back to the old raw search-result renderer. Error
+content alongside the resolved Scope; it never performs a second selection or falls back to the old raw search-result renderer. Error
 outcomes are returned as content-free diagnostic JSON in the top-level `systemMessage` on stdout; when context is
 also available, the same response includes `hookSpecificOutput`.
 

@@ -1,0 +1,51 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { readFileSync } from 'node:fs'
+import type { OperationId } from './operations.generated.{{extension}}'
+import type { JsonObject } from './client.{{extension}}'
+{{zod_import}}
+
+type ToolDefinition = {
+  name: string
+  operation: OperationId
+  description: string
+  summary: string
+  parameters: { type: 'object'; properties: Record<string, any>; required: string[]; [key: string]: any }
+  mutates: boolean
+}
+const { definitions: DEFINITIONS, tools: TOOL_DATA } = JSON.parse(
+  readFileSync(new URL('../tools.generated.json', import.meta.url), 'utf8'),
+) as { definitions: Record<string, any>; tools: ToolDefinition[] }
+
+function resolveSchema(value: any): any {
+  if (Array.isArray(value)) return value.map(resolveSchema)
+  if (!value || typeof value !== 'object') return value
+  const { $ref, ...fields } = value
+  const resolved = Object.fromEntries(Object.entries(fields).map(([name, field]) => [name, resolveSchema(field)]))
+  return $ref ? { ...resolveSchema(DEFINITIONS[$ref.split('/').pop()]), ...resolved } : resolved
+}
+
+export const STANDARD_TOOLS = TOOL_DATA.map(tool => ({ ...tool, parameters: resolveSchema(tool.parameters) as ToolDefinition['parameters'] }))
+
+export function toolPayload(operation: OperationId, args: JsonObject): JsonObject {
+  if (operation === 'search_memory') return { ...args, limit: Math.min(8, Math.max(1, Number(args.limit ?? 8))), mode: args.mode ?? 'auto' }
+  if (operation === 'list_memory_entries') return { ...args, include_inactive: args.include_inactive ?? false }
+  if (operation === 'list_artifact_candidates') return { ...args, status: args.status ?? 'pending', ...(args.limit === undefined ? {} : { limit: Math.min(100, Math.max(1, Number(args.limit))) }) }
+  return args
+}
+
+{{zod_adapter}}

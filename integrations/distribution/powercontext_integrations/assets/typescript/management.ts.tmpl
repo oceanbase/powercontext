@@ -1,0 +1,44 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { execFile } from 'node:child_process'
+import type { ClientOptions } from './client.{{extension}}'
+
+export interface ManagementReport extends Record<string, unknown> { ok: boolean; status: string; checks: Record<string, unknown> }
+
+export function callManagement(config: ClientOptions, signal?: AbortSignal): Promise<ManagementReport> {
+  return new Promise((resolve) => {
+    const child = execFile('powercontext-hook', ['--doctor'], {
+      signal, timeout: Math.max(config.requestTimeoutMs * 3, 10000) + 1000, maxBuffer: 1_048_576,
+    }, (error, stdout) => {
+      try {
+        const report = JSON.parse(stdout) as ManagementReport
+        if (typeof report.ok !== 'boolean' || !report.checks) throw new Error('Invalid diagnostic result')
+        resolve(report)
+      } catch {
+        resolve({ ok: false, status: 'failed', checks: { client: { status: 'failed',
+          detail: error ? 'PowerContext Python diagnostics are unavailable.' : 'Invalid diagnostic result',
+        } } })
+      }
+    })
+    child.stdin?.on('error', () => {})
+    child.stdin?.end(JSON.stringify({
+      connection: { base_url: config.baseUrl, authorization: config.authorization ?? null,
+        allow_insecure_http: config.allowInsecureHttp ?? false, request_timeout: config.requestTimeoutMs / 1000 },
+      deadline: (Date.now() + Math.max(config.requestTimeoutMs * 3, 10000)) / 1000,
+    }) + '\n')
+  })
+}

@@ -14,24 +14,16 @@
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 import sys
 import time
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
+from powercontext.client.integration import diagnostics
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _load_diagnostics(name: str, path: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _lock_holder_code() -> str:
@@ -70,23 +62,8 @@ with path.open("a+b") as lock_file:
 """
 
 
-@pytest.mark.parametrize(
-    ("name", "relative_path"),
-    [
-        ("codex", "integrations/codex/plugins/powercontext/hooks/diagnostics.py"),
-        ("claude_code", "integrations/claude-code/plugins/powercontext/hooks/diagnostics.py"),
-    ],
-)
-def test_diagnostic_lock_contention_is_bounded(
-    name: str,
-    relative_path: str,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    diagnostics = _load_diagnostics(
-        f"powercontext_{name}_diagnostics_contention",
-        REPOSITORY_ROOT / relative_path,
-    )
+def test_diagnostic_lock_contention_is_bounded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    name = "codex"
     state_path = tmp_path / f"{name}-diagnostics.json"
     lock_path = state_path.with_name(f"{state_path.name}.lock")
     monkeypatch.setenv("POWERCONTEXT_DIAGNOSTIC_STATE_FILE", str(state_path))
@@ -102,7 +79,7 @@ def test_diagnostic_lock_contention_is_bounded(
         assert holder.stdout is not None
         assert holder.stdout.readline().strip() == "ready"
         started = time.monotonic()
-        assert diagnostics.should_emit("server_unavailable") is True
+        assert diagnostics.should_emit(name, "server_unavailable") is True
         elapsed = time.monotonic() - started
         assert elapsed < 1.0
     finally:

@@ -31,22 +31,10 @@ from typing import Any
 
 import pytest
 
+from tests.helpers.plugin_contract import scope as _scope
+from tests.helpers.plugin_contract import stats as _stats
+
 PLUGIN_ROOT = Path(__file__).resolve().parents[2] / "integrations" / "codex" / "plugins" / "powercontext"
-
-
-def _stats(reduction: int) -> dict[str, object]:
-    return {
-        "recall": {
-            "totals": {
-                "preparations": 5,
-                "ready_preparations": 4,
-                "comparable_preparations": 3,
-                "baseline_tokens": 3_000,
-                "recalled_tokens": 1_800,
-                "token_reduction": reduction,
-            }
-        }
-    }
 
 
 @contextmanager
@@ -127,7 +115,7 @@ def test_stop_reports_savings_from_the_contract_stats_endpoint(
             body = json.loads(self.rfile.read(length))
             requests.append({"path": self.path, "body": body})
             if self.path == "/v1/scope-bindings/resolve":
-                self._respond({"scope_id": "project:test"})
+                self._respond(_scope())
                 return
             assert self.path == "/v1/stats"
             self._respond(_stats(1_200 if body["period"] == "today" else -250))
@@ -184,7 +172,7 @@ def test_http_401_reports_authentication_failed_without_request_details(
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             if self.path == "/v1/scope-bindings/resolve":
-                body = json.dumps({"scope_id": "project:test"}).encode()
+                body = json.dumps(_scope()).encode()
                 self.send_response(200)
             else:
                 body = json.dumps({
@@ -221,10 +209,10 @@ def test_http_503_reports_server_unavailable_with_status(
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             if self.path == "/v1/scope-bindings/resolve":
-                body = json.dumps({"scope_id": "project:test"}).encode()
+                body = json.dumps(_scope()).encode()
                 status = 200
             else:
-                body = json.dumps({"error": {"code": "overloaded"}}).encode()
+                body = json.dumps({"error": {"code": "overloaded", "message": "Busy", "details": None}}).encode()
                 status = 503
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -259,10 +247,7 @@ def test_malformed_stats_response_reports_invalid_response(
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
-            if self.path == "/v1/scope-bindings/resolve":
-                body = json.dumps({"scope_id": "project:test"}).encode()
-            else:
-                body = b"not-json"
+            body = json.dumps(_scope()).encode() if self.path == "/v1/scope-bindings/resolve" else b"not-json"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -304,7 +289,7 @@ def _stats_handler(payload: object) -> type[BaseHTTPRequestHandler]:
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             if self.path == "/v1/scope-bindings/resolve":
-                self._respond(json.dumps({"scope_id": "project:test"}).encode())
+                self._respond(json.dumps(_scope()).encode())
                 return
             assert self.path == "/v1/stats"
             self._respond(json.dumps(payload).encode())
@@ -368,7 +353,7 @@ def test_two_stat_windows_share_one_absolute_budget(
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
-                body = json.dumps({"scope_id": "project:test"}).encode()
+                body = json.dumps(_scope()).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -423,7 +408,7 @@ def test_chunked_drip_respects_the_absolute_budget(
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
-                payload = json.dumps({"scope_id": "project:test"}).encode()
+                payload = json.dumps(_scope()).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))
@@ -481,7 +466,7 @@ def test_chunked_http_error_body_respects_the_absolute_budget(
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
-                payload = json.dumps({"scope_id": "project:test"}).encode()
+                payload = json.dumps(_scope()).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))

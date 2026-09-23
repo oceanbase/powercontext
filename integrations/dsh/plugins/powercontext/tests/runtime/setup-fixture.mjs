@@ -35,6 +35,7 @@ export async function installIntoCleanHome(home) {
   const env = {
     ...process.env, CI: 'true', DSH_HOME: join(home, 'installed-dsh'),
     POWERCONTEXT_HOME: join(home, 'installed-powercontext'),
+    POWERCONTEXT_CLIENT_CONFIG_FILE: join(home, 'client-settings.json'),
     PATH: bin + delimiter + process.env.PATH, DSH_TELEMETRY_DISABLED: '1',
   }
   const cli = async args => (await promisify(execFile)(windows ? 'uv.exe' : 'uv',

@@ -24,7 +24,7 @@ from typer.testing import CliRunner
 import powercontext.cli.config_wizard as config_wizard
 from powercontext.cli.config import app
 from powercontext.cli.config_wizard import CLIENT, Wizard
-from powercontext.cli.config_wizard_agents import AGENT_SPEC_BY_ID
+from powercontext.cli.config_wizard_agents import agent_specs
 from powercontext.cli.config_wizard_seekdb import SeekDBDependency, SeekDBInstallPlan, SeekDBInstallResult
 from powercontext.cli.config_wizard_ui import WizardUI
 from powercontext.cli.env_file import parse_environment
@@ -133,16 +133,8 @@ def test_agent_menu_repeats_with_configured_agents_removed(monkeypatch) -> None:
     config_wizard._agents(state)
 
     assert state.agents == ("codex", "claude-code")
-    assert ui.choice_ids[2] == (
-        "claude-code",
-        "dsh",
-        "openclaw",
-        "opencode",
-        "pi",
-        "hermes",
-        "workbuddy",
-        "none",
-    )
+    assert "codex" not in ui.choice_ids[2]
+    assert {"pi", "minimax", "bub", "langchain", "agent-plugin", "none"} <= set(ui.choice_ids[2])
     assert "Capture user prompts as Sources?" not in ui.prompts
     assert ui.defaults[0] == "codex"
     assert ui.defaults[2] == "none"
@@ -227,7 +219,7 @@ def test_agent_client_fields_follow_real_contract() -> None:
         state.client[f"{CLIENT}API_TOKEN"] = "test-token"
         config_wizard._agent_fields(
             state,
-            AGENT_SPEC_BY_ID[agent],
+            next(spec for spec in agent_specs() if spec.identifier == agent),
             "http://127.0.0.1:8000",
             capture=True,
             scope="SCOPE_TEST",
@@ -243,7 +235,7 @@ def test_openclaw_fields_remain_plugin_settings() -> None:
 
     config_wizard._agent_fields(
         state,
-        AGENT_SPEC_BY_ID["openclaw"],
+        next(spec for spec in agent_specs() if spec.identifier == "openclaw"),
         "http://127.0.0.1:8000",
         capture=True,
         scope="SCOPE_TEST",

@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -21,7 +22,7 @@ import type { PluginRuntime } from '../src/recall.ts'
 
 function runtime(fetch: typeof globalThis.fetch, resolveScope = async () => 'scope:demo'): PluginRuntime {
   return {
-    client: new PowerContextClient({
+    client: new MockClient({
       baseUrl: 'http://127.0.0.1:8000',
       requestTimeoutMs: 1000,
       fetch,
@@ -71,18 +72,13 @@ describe('/pc command', () => {
     await handlePcCommand('search prior decision', runtime(fetch), context)
     await handlePcCommand('flush', runtime(fetch), context)
     await handlePcCommand('stats', runtime(fetch), context)
-    await handlePcCommand('doctor', runtime(fetch), context)
 
     const search = requests.find(({ url }) => url.pathname === '/v1/memory/search')
     const flush = requests.find(({ url }) => url.pathname === '/v1/memory/flush')
     const stats = requests.find(({ url }) => url.pathname === '/v1/stats')
-    const live = requests.find(({ url }) => url.pathname === '/health/live')
-    const ready = requests.find(({ url }) => url.pathname === '/health/ready')
     expect(search?.body).toEqual({ query: 'prior decision', limit: 8, mode: 'auto', scope_id: 'scope:demo' })
     expect(flush?.body).toEqual({ scope_id: 'scope:demo' })
     expect(stats?.body).toEqual({ selection: { mode: 'exact', scope_ids: ['scope:demo'] } })
-    expect(live).toBeDefined()
-    expect(ready).toBeDefined()
     expect(notifications.some(({ message }) => JSON.parse(message).ok === true)).toBe(true)
     expect(notifications.every(({ level }) => level === 'info')).toBe(true)
   })
@@ -132,25 +128,21 @@ describe('/pc command', () => {
     }])
   })
 
-  it('reports an unavailable /pc doctor instead of throwing when scope resolution fails', async () => {
-    const notifications: Array<{ message: string; level: 'info' | 'error' }> = []
-    const context = {
-      cwd: '/workspace/repo',
-      hasUI: true,
-      ui: {
-        confirm: async () => true,
-        notify: (message: string, level: 'info' | 'error') => notifications.push({ message, level }),
-      },
-    }
-    const unavailableScope = async () => {
-      throw new Error('scope unavailable')
-    }
-
-    await expect(handlePcCommand('doctor', runtime(fetch, unavailableScope), context)).resolves.toBeUndefined()
-
-    expect(notifications).toEqual([{
-      message: JSON.stringify({ ok: false, code: 'unavailable', message: 'PowerContext is unavailable, continue the task.' }, null, 2),
-      level: 'error',
-    }])
+  it('displays shared Python diagnostics even when Scope resolution is unavailable', async () => {
+    const notify = vi.fn()
+    const host = runtime(fetch, async () => { throw new Error('scope unavailable') })
+    const report = { ok: false, status: 'failed', checks: { readiness: { status: 'failed' } } }
+    const doctor = vi.spyOn(host.client, 'doctor').mockResolvedValue(report)
+    await handlePcCommand('doctor', host, { cwd: '/workspace', hasUI: true, ui: { notify, confirm: async () => true } })
+    expect(doctor).toHaveBeenCalledWith(undefined)
+    expect(notify).toHaveBeenCalledWith(JSON.stringify(report, null, 2), 'error')
   })
+})
+
+vi.mock('../src/client.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client.ts')>()
+  const { createClientDouble } = await import('../../../../shared/testing/client.ts')
+  const errors = await import('../src/errors.ts')
+  const { OPERATIONS } = await import('../src/operations.generated.ts')
+  return { ...actual, PowerContextClient: createClientDouble(actual.PowerContextClient, errors, OPERATIONS) }
 })

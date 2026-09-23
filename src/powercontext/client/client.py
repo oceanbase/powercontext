@@ -23,9 +23,10 @@ from typing import Any, Self, TypeVar, cast
 from urllib.parse import quote
 
 import httpx
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from powercontext.client.errors import InvalidResponseError, TransportError, server_response_error
+from powercontext.client.errors import InvalidResponseError, TransportError, UnknownOutcomeError, server_response_error
+from powercontext.client.operations import OPERATIONS, WRITE_OPERATIONS
 from powercontext.client.tags import ArtifactTagSetResponse
 from powercontext.client.tracing import ClientSpan
 from powercontext.client.transport_policy import resolve_client_transport
@@ -369,6 +370,40 @@ class PowerContextClient:
         if self._owned_http_client is not None:
             await self._owned_http_client.aclose()
 
+    async def request_operation(
+        self,
+        operation_id: str,
+        arguments: Mapping[str, Any] | None = None,
+        *,
+        metadata: dict[str, Any] | None = None,
+        readiness_response: bool = False,
+    ) -> Any:
+        """Invoke a generated operation through the same validation and transport as typed methods."""
+
+        operation = OPERATIONS[operation_id]
+        payload = dict(arguments or {})
+        path_parameters = {name: payload.pop(name) for name in operation.path_parameters}
+        headers = {}
+        for name in ("If-Match", "If-None-Match"):
+            value = payload.pop(name, payload.pop(name.lower().replace("-", "_"), None))
+            if value is not None:
+                headers[name] = str(value)
+        request = TypeAdapter(operation.request_type).validate_python(payload) if operation.request_type else None
+        if operation_id == "get_handoff_report" and isinstance(request, GetHandoffReportRequest):
+            if request.download:
+                return await self._request_handoff_report_content(request, metadata=metadata)
+            if request.format.value == "markdown":
+                return (await self._request_handoff_report_content(request, metadata=metadata)).decode("utf-8")
+        return await self._request(
+            operation,
+            request,
+            path_parameters=path_parameters,
+            query_parameters=payload if operation.request_type is None else None,
+            extra_headers=headers,
+            metadata=metadata,
+            readiness_response=readiness_response,
+        )
+
     async def get_liveness(self) -> HealthResponse:
         """Read process liveness."""
 
@@ -493,7 +528,12 @@ class PowerContextClient:
         prepared = request.model_copy(update={"download": True})
         return await self._request_handoff_report_content(prepared)
 
-    async def _request_handoff_report_content(self, request: GetHandoffReportRequest) -> bytes:
+    async def _request_handoff_report_content(
+        self,
+        request: GetHandoffReportRequest,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> bytes:
         payload = TypeAdapter(GET_HANDOFF_REPORT.request_type).dump_python(
             request,
             mode="json",
@@ -512,7 +552,7 @@ class PowerContextClient:
         except asyncio.CancelledError as error:
             span.finish("cancelled", error=error)
             raise
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, TimeoutError) as exc:
             span.finish("failure", error=exc)
             raise TransportError(GET_HANDOFF_REPORT.path) from exc
         except BaseException as error:
@@ -522,6 +562,12 @@ class PowerContextClient:
             "success" if response.status_code == GET_HANDOFF_REPORT.success_status else "failure",
             status_code=response.status_code,
         )
+        if metadata is not None:
+            metadata.update(
+                status_code=response.status_code,
+                request_id=response.headers.get(REQUEST_ID_HEADER),
+                etag=response.headers.get("ETag"),
+            )
         if response.status_code != GET_HANDOFF_REPORT.success_status:
             error = _decode_error(response.content)
             raise server_response_error(
@@ -1155,6 +1201,8 @@ class PowerContextClient:
         query_parameters: Mapping[str, Any] | None = None,
         extra_headers: Mapping[str, str] | None = None,
         response_headers: dict[str, str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        readiness_response: bool = False,
     ) -> _ResponseT:
         path, json_payload, request_query = _prepare_request(
             operation,
@@ -1179,40 +1227,81 @@ class PowerContextClient:
         except asyncio.CancelledError as error:
             span.finish("cancelled", error=error)
             raise
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, TimeoutError, InvalidResponseError, TransportError) as exc:
             span.finish("failure", error=exc)
-            raise TransportError(path) from exc
+            failure = _request_failure(operation, path, exc)
+            if failure is exc:
+                raise
+            raise failure from exc
         except BaseException as error:
             span.finish("failure", error=error)
             raise
         declared_not_modified = response.status_code == 304 and 304 in operation.responses
         declared_success = 200 <= response.status_code < 300 and response.status_code in operation.responses
-        succeeded = declared_success or declared_not_modified
+        succeeded = (
+            declared_success
+            or declared_not_modified
+            or (readiness_response and operation.operation_id == "get_readiness" and response.status_code == 503)
+        )
         span.finish("success" if succeeded else "failure", status_code=response.status_code)
 
         request_id = response.headers.get(REQUEST_ID_HEADER)
+        if metadata is not None:
+            metadata.update(status_code=response.status_code, request_id=request_id, etag=response.headers.get("ETag"))
         if response_headers is not None:
             response_headers.update(response.headers)
         if not succeeded:
             error = _decode_error(response.content)
-            raise server_response_error(
+            failure = server_response_error(
                 status_code=response.status_code,
                 request_id=request_id,
                 code=None if error is None else error.error.code,
                 message=None if error is None else error.error.message,
                 details=None if error is None else error.error.details,
             )
+            if operation.operation_id in WRITE_OPERATIONS and response.status_code >= 500:
+                failure.outcome = "unknown"
+            raise failure
 
-        if response.status_code in {204, 304} or operation.response_type is None:
-            return cast(_ResponseT, None)
+        return _response_value(operation, response, request)
+
+
+def _request_failure(operation: Operation[Any, Any], path: str, error: Exception) -> Exception:
+    if isinstance(error, TransportError):
+        if operation.operation_id in WRITE_OPERATIONS and error.status_code not in {401, 403}:
+            error.outcome = "unknown"
+        return error
+    if operation.operation_id in WRITE_OPERATIONS:
+        return UnknownOutcomeError(path)
+    if isinstance(error, InvalidResponseError):
+        return error
+    return TransportError(path)
+
+
+def _response_value(
+    operation: Operation[_RequestT, _ResponseT], response: httpx.Response, request: _RequestT | None
+) -> _ResponseT:
+    request_id = response.headers.get(REQUEST_ID_HEADER)
+    if response.status_code in {204, 304} or operation.response_type is None:
+        return cast(_ResponseT, None)
+
+    try:
+        result = TypeAdapter(operation.response_type).validate_json(response.content)
+    except ValidationError as exc:
+        if operation.operation_id in WRITE_OPERATIONS:
+            raise UnknownOutcomeError(operation.path) from exc
+        raise InvalidResponseError(
+            operation.path,
+            request_id=request_id,
+        ) from exc
+    if operation is PREPARE_CONTEXT and isinstance(request, PrepareContextRequest) and isinstance(result, BaseModel):
+        from powercontext.client.prepared_context import InvalidPreparedContextResponse, validate_prepared_context
 
         try:
-            return TypeAdapter(operation.response_type).validate_json(response.content)
-        except ValidationError as exc:
-            raise InvalidResponseError(
-                path,
-                request_id=request_id,
-            ) from exc
+            validate_prepared_context(result.model_dump(mode="json", by_alias=True), max_bytes=request.max_bytes)
+        except InvalidPreparedContextResponse as exc:
+            raise InvalidResponseError(operation.path, request_id=request_id) from exc
+    return result
 
 
 def _prepare_request(

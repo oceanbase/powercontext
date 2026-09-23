@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { authenticationRejection, bodyFailureDetails, InvalidResponseError, ResponseReadError, ServerResponseError, TransportError } from './errors.ts'
+import { authenticationRejection, bodyFailureDetails, type BodyFailureDetails, RESPONSE_ISSUES, InvalidResponseError, ResponseReadError, ServerResponseError, TransportError } from './errors.ts'
 
 export interface DiagnosticEvent {
   event: string
@@ -155,4 +155,111 @@ export function createDiagnosticEmitter(
     }
     return write(JSON.stringify(normalized))
   }
+}
+
+export interface OperationFailure extends BodyFailureDetails {
+  state: 'ok' | 'failed' | 'degraded' | 'skipped'
+  code: string
+  operation: string
+  message: string
+  recovery?: string
+  http_status?: number
+  request_id?: string
+  protocol_issue?: keyof typeof RESPONSE_ISSUES
+  dependencies?: Record<string, string>
+  operations?: string[]
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function check(operation: string, code: string, message: string, recovery?: string,
+  state: OperationFailure['state'] = 'failed'): OperationFailure {
+  return { state, code, operation, message, ...(recovery ? { recovery } : {}) }
+}
+
+function requestId(value: string | undefined): { request_id?: string } {
+  return value && /^[a-zA-Z0-9._:-]{1,128}$/.test(value) ? { request_id: value } : {}
+}
+
+function transportFailure(error: unknown): [string, string, string] {
+  const cause = error instanceof TransportError ? error.cause : error
+  if (cause instanceof Error && cause.name === 'TimeoutError') {
+    return ['request_timeout', 'The request exceeded its deadline.',
+      'Check the effective requestTimeoutMs and the running Server latency; inspect the failing dependency before increasing the timeout.']
+  }
+  if (cause instanceof Error && cause.name === 'AbortError') {
+    return ['cancelled', 'The request was cancelled.', 'Run /pc doctor again when the current cancellation has completed.']
+  }
+  const detail = record(cause) && record(cause.cause) ? cause.cause : cause
+  const code = record(detail) ? detail.code : undefined
+  if (code === 'ECONNREFUSED') return ['connection_refused', 'The configured endpoint refused the connection.',
+    'Start the intended Server and verify its listening host and port against the running plugin configuration.']
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return ['dns_lookup_failed', 'The configured endpoint hostname could not be resolved.',
+    'Check the hostname in POWERCONTEXT_DSH_BASE_URL or the plugin baseUrl and the host DNS configuration.']
+  if (typeof code === 'string' && ['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'].includes(code)) {
+    return ['tls_verification_failed', 'TLS certificate verification failed.',
+      'Correct the Server certificate chain, trust configuration or hostname; do not disable certificate verification.']
+  }
+  return ['connection_failed', 'The HTTP transport failed before a usable response was received.',
+    'Check the effective endpoint host/port, proxy, network and Server service logs. The transport did not identify a narrower cause.']
+}
+
+export function operationFailure(operation: string, error: unknown): OperationFailure {
+  const rejection = authenticationRejection(error)
+  if (rejection && !(error instanceof ServerResponseError)) {
+    const result = operationFailure(operation, rejection)
+    const body = bodyFailureDetails(error)
+    return { ...result, ...body,
+      message: result.message + (body.response_body_error ? ` Reading the response body also failed (${body.response_body_error}).` : ''),
+      ...(error instanceof InvalidResponseError && error.issue ? { protocol_issue: error.issue } : {}) }
+  }
+  if (error instanceof ResponseReadError) {
+    const body = bodyFailureDetails(error)
+    const code = error.statusCode === 404 ? 'unclassified_not_found'
+      : error.statusCode === 503 ? 'service_unavailable'
+      : error.statusCode >= 400 ? 'http_error' : body.response_body_error!
+    return { ...check(operation, code,
+      `Received HTTP ${error.statusCode}, but reading the response body failed (${body.response_body_error}).`
+        + (error.statusCode === 404 ? ' The unread error body cannot distinguish a missing resource from a missing route.' : ''),
+      'Use this operation, HTTP status and request ID in Server logs; check Server/proxy response-body delivery. The operation result was not validated.'),
+      http_status: error.statusCode, ...requestId(error.requestId), ...body }
+  }
+  if (error instanceof ServerResponseError) {
+    const code = publicErrorCode(error.code)
+    let result: OperationFailure
+    if (error.statusCode === 401) result = check(operation, 'authentication_failed', 'The Server rejected authentication for this operation.',
+      'Set POWERCONTEXT_DSH_AUTHORIZATION to the intended Server credential and restart the DSH process so it receives the override.')
+    else if (error.statusCode === 403) result = check(operation, 'authorization_failed', 'The authenticated principal is not allowed to perform this operation.',
+      'Check the principal permissions for this operation and selected Scope on the running Server.')
+    else if (error.statusCode === 404 && error.code === undefined) result = check(operation, 'required_route_missing', 'The required operation returned HTTP 404 without a domain error code.',
+      'Check this operation in the Server API and proxy route table, the plugin base-path setting, and the installed Server/plugin refs. A 404 alone cannot identify which configuration is wrong.')
+    else if (error.statusCode === 404 && code === 'scope_not_found') result = check(operation, code, 'The Server could not find the requested Scope.',
+      'Check POWERCONTEXT_DSH_SCOPE_ID first, then the session workspace binding and Server default Scope. Select an existing Scope explicitly; Doctor does not change bindings.')
+    else if (error.statusCode === 404) result = code
+      ? check(operation, code, 'The Server returned a recognized domain-level HTTP 404 for this operation.',
+        'Inspect the selected resource and Scope in the Server. This domain response does not establish a missing HTTP route.')
+      : check(operation, 'unclassified_not_found', 'The operation returned HTTP 404 with an unrecognized error code.',
+        'Use the operation and request ID in the Server logs. This response cannot distinguish a missing resource from a missing route; inspect the contract check separately.')
+    else if (error.statusCode === 503) result = check(operation, code ?? 'service_unavailable', 'The Server returned HTTP 503 for this operation.',
+      'Inspect the separate readiness dependency results and the running Server logs for this operation.')
+    else result = check(operation, code ?? 'http_error', 'The Server returned an HTTP error for this operation.',
+      'Use this operation, HTTP status and request ID to locate the request in the Server logs.')
+    return { ...result, http_status: error.statusCode, ...requestId(error.requestId) }
+  }
+  if (error instanceof InvalidResponseError) return {
+    ...check(operation, 'invalid_response', error.issue ? RESPONSE_ISSUES[error.issue] : 'The response does not satisfy this operation protocol.',
+      'Verify the effective endpoint and proxy target serve PowerContext, and use matching Server/plugin refs. Inspect Server logs using the request ID.'),
+    ...requestId(error.requestId),
+    ...(error.issue ? { protocol_issue: error.issue } : {}),
+    ...(error.statusCode === undefined ? {} : { http_status: error.statusCode }),
+    ...bodyFailureDetails(error),
+  }
+  if (error instanceof TransportError || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))) {
+    const [code, message, recovery] = transportFailure(error)
+    return check(operation, code, message, recovery)
+  }
+  return check(operation, 'diagnostic_error', 'A local operation failed before its result could be validated.',
+    'Inspect the DSH plugin logs for this operation and report the installed plugin commit. No Server root cause was established.')
 }

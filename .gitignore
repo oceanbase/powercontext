@@ -263,3 +263,31 @@ integrations/pi/plugins/powercontext/*.tgz
 
 # Local acceptance databases and redacted run artifacts
 .artifacts/
+
+# Materialized by shared templates during development, distribution, and setup.
+/integrations/*/plugins/*/.mcp.json
+/integrations/minimax/plugins/powercontext/powercontext.mcp.json
+/integrations/dsh/plugins/powercontext/src/domain-skills.ts
+/integrations/*/plugins/*/src/tools.generated.ts
+/integrations/claude-code/plugins/powercontext/scripts/workspace_scope.py
+/integrations/workbuddy/plugins/powercontext/scripts/workspace_scope.py
+/integrations/*/plugins/*/skills/powercontext-project-context/
+/integrations/*/plugins/*/src/client.ts
+/integrations/*/plugins/*/src/worker.ts
+/integrations/*/plugins/*/src/errors.ts
+/integrations/*/plugins/*/src/checkpoints.ts
+/integrations/*/plugins/*/src/operations.generated.ts
+/integrations/*/plugins/*/src/writes.generated.ts
+/integrations/hermes/plugins/powercontext/powercontext_client_config.py
+/integrations/hermes/plugins/powercontext/checkpoints.py
+/integrations/hermes/plugins/powercontext/runtime_operations.py
+
+integrations/*/plugins/*/src/management.ts
+
+/integrations/*/plugins/*/src/guidance.ts
+
+/integrations/*/plugins/*/hooks/scope_context.py
+
+/integrations/*/plugins/*/tools.generated.json
+
+/integrations/hermes/plugins/powercontext/standard_tools.py

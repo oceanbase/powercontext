@@ -41,7 +41,7 @@ it('exposes independently available guidance whose tool references resolve in th
   }
   registerSkill(ctx)
   expect(skills.some(skill => skill.name === 'powercontext-project-context')).toBe(true)
-  for (const name of ['powercontext-memory', 'powercontext-handoff', 'powercontext-review']) {
+  for (const name of ['powercontext-project-context', 'powercontext-memory', 'powercontext-handoff', 'powercontext-review']) {
     const skill = skills.find(item => item.name === name)
     expect(skill, `router points to unavailable runtime Skill: ${name}`).toBeDefined()
     for (const tool of skill!.content.match(/\bpc_[a-z_]+\b/g) ?? []) expect(names.has(tool), tool).toBe(true)

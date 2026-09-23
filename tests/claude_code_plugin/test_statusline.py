@@ -27,20 +27,8 @@ from typing import Any
 
 import pytest
 
-
-def _stats(reduction: int) -> dict[str, object]:
-    return {
-        "recall": {
-            "totals": {
-                "preparations": 5,
-                "ready_preparations": 4,
-                "comparable_preparations": 3,
-                "baseline_tokens": 3_000,
-                "recalled_tokens": 1_800,
-                "token_reduction": reduction,
-            }
-        }
-    }
+from tests.helpers.plugin_contract import scope as _scope
+from tests.helpers.plugin_contract import stats as _stats
 
 
 @contextmanager
@@ -78,7 +66,7 @@ def test_render_uses_claude_workspace_and_both_periods(
             body = json.loads(self.rfile.read(length))
             requests.append({"path": self.path, "body": body})
             if self.path == "/v1/scope-bindings/resolve":
-                self._respond({"scope_id": "project:test"})
+                self._respond(_scope())
                 return
             assert self.path == "/v1/stats"
             self._respond(_stats(1_200 if body["period"] == "today" else -250))
@@ -128,7 +116,7 @@ def test_render_aborts_a_slow_drip_at_the_absolute_budget(
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
-                payload = json.dumps({"scope_id": "project:test"}).encode()
+                payload = json.dumps(_scope()).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))
@@ -185,7 +173,7 @@ def test_render_aborts_a_slow_chunked_response_at_the_absolute_budget(
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length))
             if self.path == "/v1/scope-bindings/resolve":
-                payload = json.dumps({"scope_id": "project:test"}).encode()
+                payload = json.dumps(_scope()).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))
@@ -316,7 +304,7 @@ def _stats_handler(payload: object) -> type[BaseHTTPRequestHandler]:
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             if self.path == "/v1/scope-bindings/resolve":
-                self._respond(json.dumps({"scope_id": "project:test"}).encode())
+                self._respond(json.dumps(_scope()).encode())
                 return
             assert self.path == "/v1/stats"
             self._respond(json.dumps(payload).encode())
@@ -394,7 +382,7 @@ def test_render_classifies_stats_http_failures(
             length = int(self.headers.get("Content-Length", "0"))
             self.rfile.read(length)
             if self.path == "/v1/scope-bindings/resolve":
-                self._respond(200, {"scope_id": "project:test"})
+                self._respond(200, _scope())
                 return
             assert self.path == "/v1/stats"
             self._respond(status, {"error": {"code": "failure"}})
@@ -512,7 +500,7 @@ def _authorization_recorder() -> tuple[list[tuple[str, str | None]], type[BaseHT
             self.rfile.read(length)
             received.append((self.path, self.headers.get("Authorization")))
             if self.path == "/v1/scope-bindings/resolve":
-                self._respond({"scope_id": "project:test"})
+                self._respond(_scope())
                 return
             self._respond(_stats(0))
 

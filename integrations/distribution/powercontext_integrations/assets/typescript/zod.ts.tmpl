@@ -1,0 +1,46 @@
+/*
+ * Copyright (c) 2026 OceanBase.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+const z = tool.schema
+
+function zodSchema(schema: any): any {
+  if (schema.$ref) return z.lazy(() => zodSchema(DEFINITIONS[schema.$ref.split('/').pop()]))
+  if (schema.anyOf) return z.union(schema.anyOf.map(zodSchema))
+  if ('const' in schema) return z.literal(schema.const)
+  if (schema.enum) return z.union(schema.enum.map((value: any) => z.literal(value)))
+  let result: any
+  if (schema.type === 'object') {
+    result = z.object(Object.fromEntries(Object.entries(schema.properties ?? {}).map(([name, value]) => {
+      const field = zodSchema(value)
+      return [name, schema.required?.includes(name) ? field : field.optional()]
+    })))
+    result = schema.additionalProperties === false ? result.strict() : result.passthrough()
+  } else if (schema.type === 'array') {
+    result = z.array(zodSchema(schema.items))
+  } else {
+    result = ({ string: z.string(), integer: z.number().int(), number: z.number(), boolean: z.boolean(), null: z.null() } as Record<string, any>)[schema.type] ?? z.unknown()
+  }
+  for (const [key, method] of Object.entries({ minLength: 'min', maxLength: 'max', minimum: 'min', maximum: 'max', minItems: 'min', maxItems: 'max' })) {
+    if (key in schema) result = result[method](schema[key])
+  }
+  if (schema.pattern) result = result.regex(new RegExp(schema.pattern))
+  if (schema.description) result = result.describe(schema.description)
+  return result
+}
+
+export const STANDARD_TOOL_ARGS: Record<string, Record<string, any>> = Object.fromEntries(
+  TOOL_DATA.map(definition => [definition.operation, zodSchema(definition.parameters).shape]),
+)

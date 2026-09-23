@@ -28,7 +28,6 @@ PLUGIN_ROOT = CLAUDE_CODE_ROOT / "plugins" / "powercontext"
 _PLUGIN_MODULE_NAMES = (
     "claude_code_settings",
     "hooks",
-    "hooks.prepared_context",
     "scripts",
     "scripts.workspace_scope",
     "workspace_scope",

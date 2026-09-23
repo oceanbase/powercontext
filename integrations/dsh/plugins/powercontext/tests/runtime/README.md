@@ -1,5 +1,8 @@
 # DSH runtime acceptance
 
+Install the PowerContext client separately and expose `powercontext-hook` on the host PATH. Domain operations use the shared client, with bounded responses, deadlines, and explicit unknown write outcomes. Hooks do not install runtime dependencies.
+
+
 The [2026-09-04 acceptance record](acceptance/2026-09-04.md) includes build identity, automated results,
 actual Web checks, a snapshot screenshot, and the outstanding live-model authentication blocker.
 
@@ -41,7 +44,7 @@ exporter with warning level enabled before these records appear in a terminal.
 The scenarios cover:
 
 - automatic Source capture, Server processing into Memory, fresh-session recall, model input, and durable snapshot metadata;
-- clean CLI installation, standalone observation limits, and in-host Doctor configuration/route/authentication checks;
+- clean CLI installation, standalone observation limits, and in-host Python Doctor checks using the running connection;
 - Source idempotency, no duplicate snapshot injection, and matching section/content text;
 - Scope business and route failures, authentication failure, unavailable Server, continued conversation, and a real named tool result;
 - independent prepare/capture/flush failure, recovery, host restart, and configured Scope isolation.

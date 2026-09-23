@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -189,7 +190,7 @@ describe('PowerContextTuiPlugin', () => {
     const { resolveConfig } = await import('../src/config.ts')
     const runtime = {
       config: resolveConfig(),
-      client: new PowerContextClient({ baseUrl: 'http://127.0.0.1:9', requestTimeoutMs: 1_000 }),
+      client: new MockClient({ baseUrl: 'http://127.0.0.1:9', requestTimeoutMs: 1_000 }),
     }
 
     const state = await loadStatuslineStatus(runtime as any, 'session-1', '/tmp/project')
@@ -267,7 +268,7 @@ describe('PowerContextTuiPlugin', () => {
       [500, 'PC invalid response'],
     ]
     for (const [status, label] of cases) {
-      const client = new PowerContextClient({
+      const client = new MockClient({
         baseUrl: 'http://127.0.0.1:9',
         requestTimeoutMs: 1_000,
         fetch: async (url: string) => (url.endsWith('/v1/scope-bindings/resolve')
@@ -285,7 +286,7 @@ describe('PowerContextTuiPlugin', () => {
 
   it('rejects a malformed stats payload instead of rendering no data', async () => {
     const { PowerContextClient } = await import('../src/client.ts')
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:9',
       requestTimeoutMs: 1_000,
       fetch: async (url: string) => (url.endsWith('/v1/scope-bindings/resolve')
@@ -302,7 +303,7 @@ describe('PowerContextTuiPlugin', () => {
 
   it('keeps a legitimate zero-statistics window online', async () => {
     const { PowerContextClient } = await import('../src/client.ts')
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:9',
       requestTimeoutMs: 1_000,
       fetch: async (url: string) => (url.endsWith('/v1/scope-bindings/resolve')
@@ -319,7 +320,7 @@ describe('PowerContextTuiPlugin', () => {
 
   it('classifies a malformed non-JSON stats response as an invalid response', async () => {
     const { PowerContextClient } = await import('../src/client.ts')
-    const client = new PowerContextClient({
+    const client = new MockClient({
       baseUrl: 'http://127.0.0.1:9',
       requestTimeoutMs: 1_000,
       fetch: async (url: string) => (url.endsWith('/v1/scope-bindings/resolve')
@@ -414,4 +415,13 @@ describe('PowerContextTuiPlugin', () => {
 
     expect(resolveCount).toBe(before)
   })
+})
+
+
+vi.mock('../src/client.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client.ts')>()
+  const { createClientDouble } = await import('../../../../shared/testing/client.ts')
+  const errors = await import('../src/errors.ts')
+  const { OPERATIONS } = await import('../src/operations.generated.ts')
+  return { ...actual, PowerContextClient: createClientDouble(actual.PowerContextClient, errors, OPERATIONS) }
 })

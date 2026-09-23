@@ -882,7 +882,7 @@ sequenceDiagram
 ### 6.4 `make api-generate` 可执行性结论
 
 - `make api-generate` → `uv run python scripts/generate_api.py`。脚本只 import 本地已安装的 Python 包（`yaml`、`datamodel_code_generator`、`fastapi.openapi.models`、`ruff` 格式化器），**全程本地执行，不访问网络，不需要 npm / node / pnpm / Docker**。
-- `make contract-test` = `api-generate-check` + `js-api-generate-check`（`scripts/generate_js_operations.py`，同样是纯 Python）+ `pytest tests/test_api_contract.py tests/test_js_operations.py`，**同样离线**。
+- `make contract-test` = `api-generate-check` + `agent-resources`（`scripts/build_agent_distributions.py`，同样是纯 Python）+ `pytest tests/test_api_contract.py`，**同样离线**。
 - 唯一外部前提：`uv run` 需要一个已同步的本地 venv。**在 T05 标注：若环境未 sync，先跑 `make install`（该步首次执行需要联网）**；之后 `make api-generate` 与 `make contract-test` 均可离线重复执行。
 - `make js-test`（pnpm，需网络）**不在** `contract-test` 链上，本轮不需要。
 

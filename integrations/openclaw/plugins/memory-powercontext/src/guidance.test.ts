@@ -17,10 +17,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { STANDARD_TOOLS } from "./tools.generated.js";
 import { buildMemoryGuidance } from "./guidance.js";
 import { resolvePowerContextConfig } from "./config.js";
 import {
-  createMemorySearchTool, createMemoryGetTool, createMemoryStoreTool,
+  createStandardTool, createMemorySearchTool, createMemoryGetTool, createMemoryStoreTool,
   createMemoryReviseTool, createMemoryRetireTool,
 } from "./tools.js";
 import {
@@ -34,16 +35,26 @@ it("mentions only currently available tools, including a write-only catalog", ()
     getConfig: () => resolvePowerContextConfig(undefined, { endpoint: "http://powercontext.test" }),
   };
   const context = { agentId: "main", sessionKey: "agent:main:telegram:direct:fixture" };
-  const tools = [createMemorySearchTool, createMemoryGetTool, createMemoryStoreTool,
+  const tools: Array<{ name: string; description: string; parameters: unknown }> = [createMemorySearchTool, createMemoryGetTool, createMemoryStoreTool,
     createMemoryReviseTool, createMemoryRetireTool, createWorkContractTool, createHandoffCurrentWorkTool,
     createHandoffCommitTool, createHandoffContinueTool, createHandoffAcknowledgeTool, createTaskOutcomeTool,
   ].map(create => create(context, deps)!);
+  const nativeNames = new Set(tools.map(tool => tool.name));
+  tools.push(...STANDARD_TOOLS.filter(tool => !nativeNames.has(tool.name)).map(tool => createStandardTool(tool, context, deps)!));
   expect(buildMemoryGuidance(new Set(), "off")).toEqual([]);
   for (const visible of [tools, ...tools.map(tool => [tool])]) {
     const names = new Set(visible.map(tool => tool.name));
     const guidance = buildMemoryGuidance(names, "off").join("\n");
     const references = new Set(guidance.match(/\bpowercontext_[a-z_]+\b/g));
     expect(references).toEqual(names);
+  }
+  const skillRoot = new URL("../skills/powercontext-project-context/", import.meta.url);
+  const router = readFileSync(new URL("SKILL.md", skillRoot), "utf8");
+  const workflows = [...router.matchAll(/\]\((references\/[^)]+)\)/g)]
+    .map(match => readFileSync(new URL(match[1], skillRoot), "utf8"));
+  const names = new Set(tools.map(tool => tool.name));
+  for (const name of (router + workflows.join("\n")).match(/\bpowercontext_[a-z_]+\b/g) ?? []) {
+    expect(names.has(name), `unavailable tool referenced in OpenClaw Skill: ${name}`).toBe(true);
   }
   const output = process.env.POWERCONTEXT_GUIDANCE_EXPORT;
   const readTools = tools.filter(tool => tool.name !== "powercontext_memory_store");

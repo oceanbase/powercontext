@@ -16,14 +16,9 @@
 
 import { combineSignals, createTimeoutSignal, type PowerContextClient } from './client.ts'
 import type { ResolvedConfig } from './config.ts'
+import { flushThrough } from './checkpoints.ts'
 
 const CLOSING_BUDGET_MS = 1000
-
-function currentCursor(value: unknown): number | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const cursor = (value as { current_cursor?: unknown }).current_cursor
-  return typeof cursor === 'number' && Number.isInteger(cursor) && cursor >= 0 ? cursor : undefined
-}
 
 export interface PendingSourceFlusher {
   record(scopeId: string, position: number): void
@@ -46,22 +41,11 @@ export function createPendingSourceFlusher(
     if (signal) signals.push(signal)
     const combined = combineSignals(signals)
     for (const [scopeId, position] of pending) {
-      for (let attempt = 0; attempt < config.flushMaxCalls; attempt += 1) {
-        try {
-          const result = await client.request('flush_memory', { scope_id: scopeId }, combined)
-          const cursor = currentCursor(result.value)
-          if (cursor !== undefined && cursor >= position) {
-            if (pending.get(scopeId) === position) pending.delete(scopeId)
-            break
-          }
-        } catch (error) {
-          try {
-            onFailure?.('flush_memory', error)
-          } catch {
-            // Diagnostics are best effort and must not affect shutdown.
-          }
-          break
-        }
+      try {
+        const reached = await flushThrough(client, scopeId, position, config.flushMaxCalls, combined)
+        if (reached && pending.get(scopeId) === position) pending.delete(scopeId)
+      } catch (error) {
+        try { onFailure?.('flush_memory', error) } catch { /* Diagnostics cannot affect shutdown. */ }
       }
     }
   }

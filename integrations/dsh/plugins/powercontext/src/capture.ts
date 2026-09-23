@@ -1,3 +1,4 @@
+import { flushThrough, sourcePosition } from './checkpoints.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -40,30 +41,7 @@ export function buildSourceId(scopeId: string, sessionId: string, turnId: string
   return `dsh-user-prompt:${createHash('sha256').update(identity).digest('hex')}`
 }
 
-async function flushThrough(
-  client: PowerContextClient,
-  config: ResolvedConfig,
-  scopeId: string,
-  position: number,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  for (let i = 0; i < config.flushMaxCalls; i += 1) {
-    if (signal?.aborted) throw new RequestNotSentError('', signal.reason)
-    const result = await client.request('flush_memory', { scope_id: scopeId }, signal)
-    const cursor = result.kind === 'json' && result.value && typeof result.value === 'object'
-      ? (result.value as { current_cursor?: unknown }).current_cursor
-      : undefined
-    if (typeof cursor === 'number' && cursor >= position) return true
-  }
-  return false
-}
 
-function sourcePosition(value: unknown): number | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const position = (value as { position?: unknown }).position
-  if (typeof position !== 'number' || !Number.isInteger(position) || position < 1) return undefined
-  return position
-}
 
 export async function captureUserPrompt(input: CaptureInput): Promise<void> {
   const observation = input.observation
@@ -117,7 +95,7 @@ export async function captureUserPrompt(input: CaptureInput): Promise<void> {
     }
     observation?.record('flush', { state: 'running' })
     try {
-      const reached = await flushThrough(input.client, input.config, input.scopeId, position, input.signal)
+      const reached = await flushThrough(input.client, input.scopeId, position, input.config.flushMaxCalls, input.signal)
       observation?.record('flush', reached
         ? { state: 'completed', code: 'cursor_reached', message: 'The processing cursor reached this Source position; Memory production is not verified.' }
         : { state: 'incomplete', code: 'flush_budget_exhausted', message: 'The bounded flush calls ended without observing the cursor reach this Source position.' })

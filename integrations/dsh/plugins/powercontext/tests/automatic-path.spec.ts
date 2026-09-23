@@ -1,3 +1,4 @@
+import { InvalidResponseError } from '../src/errors.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -249,8 +250,7 @@ describe('registered automatic path', () => {
 
   it.each([
     () => new Response('{'),
-    () => response({ schema: 'wrong' }),
-    () => response({ schema: 'powercontext.prepared-context.v1', status: 'ready', content: TEXT, content_bytes: 1 }),
+    () => { throw new InvalidResponseError(PREPARE) },
   ])('rejects invalid prepared content while preserving capture', async (invalid) => {
     const h = await fixture((path) => path === PREPARE ? invalid() : successfulRequest(path))
     expect(await h.run()).toEqual({ kind: 'enter', messages: [userMessage] })
@@ -269,4 +269,13 @@ describe('registered automatic path', () => {
     await h.run()
     expect(h.diagnostics()).toHaveLength(2)
   })
+})
+
+
+vi.mock('../src/client.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/client.ts')>()
+  const { createClientDouble } = await import('../../../../shared/testing/client.ts')
+  const errors = await import('../src/errors.ts')
+  const { OPERATIONS } = await import('../src/operations.generated.ts')
+  return { ...actual, PowerContextClient: createClientDouble(actual.PowerContextClient, errors, OPERATIONS) }
 })

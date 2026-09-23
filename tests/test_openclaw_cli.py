@@ -21,13 +21,14 @@ from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import Mock
 
+import powercontext_integrations.openclaw as openclaw_cli
+import powercontext_integrations.system as system_cli
 import pytest
+from powercontext_integrations.openclaw import OpenClawSetupResult
+from powercontext_integrations.system import DiagnosticStatus, SetupError, doctor_app, setup_app
 from typer.testing import CliRunner
 
-import powercontext.cli.openclaw as openclaw_cli
-import powercontext.cli.system as system_cli
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import DiagnosticStatus, OpenClawSetupResult, SetupError, doctor_app, setup_app
 
 
 def _write_openclaw_plugin(root: Path) -> Path:
@@ -190,7 +191,7 @@ if "build" in sys.argv:
 
 
 def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pytest.MonkeyPatch) -> None:
-    import powercontext.cli.openclaw as openclaw_module
+    import powercontext_integrations.openclaw as openclaw_module
 
     install = Mock(
         return_value=OpenClawSetupResult(
@@ -228,7 +229,7 @@ def test_setup_openclaw_exposes_source_ref_and_runtime_options(monkeypatch: pyte
 
 
 def test_setup_openclaw_defaults_to_the_server_default_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    import powercontext.cli.openclaw as openclaw_module
+    import powercontext_integrations.openclaw as openclaw_module
 
     def install(**kwargs: str) -> OpenClawSetupResult:
         return OpenClawSetupResult(
@@ -357,7 +358,7 @@ def test_run_openclaw_diagnostics_rejects_inactive_plugin(
 
 def test_run_openclaw_diagnostics_reports_missing_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     def missing_executable() -> str:
-        raise SetupError.openclaw_unavailable()
+        raise SetupError.unavailable("OpenClaw CLI")  # noqa: TRY003
 
     monkeypatch.setattr(openclaw_cli, "openclaw_executable", missing_executable)
 

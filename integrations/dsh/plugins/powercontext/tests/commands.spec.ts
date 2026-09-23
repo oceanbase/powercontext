@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -24,7 +25,7 @@ import { buildSourceId } from '../src/capture.ts'
 function runtime(fetchImpl: typeof fetch): PluginRuntime {
   const config = resolveConfig({ baseUrl: 'http://127.0.0.1:8000' })
   return {
-    client: new PowerContextClient({ baseUrl: config.baseUrl, requestTimeoutMs: 1000, fetch: fetchImpl }),
+    client: new MockClient({ baseUrl: config.baseUrl, requestTimeoutMs: 1000, fetch: fetchImpl }),
     config,
     resolveScope: async () => 'project:demo',
     log: () => undefined,

@@ -1,0 +1,63 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+schema_version = 1
+label = "OpenClaw"
+order = 4
+target = "openclaw"
+kind = "agent_host"
+language = "typescript"
+source = "integrations/openclaw/plugins/memory-powercontext"
+
+[[hooks]]
+event = "before_prompt_build"
+handler = "src/lifecycle.ts:before_prompt_build"
+operations = ["resolve_scope_binding", "prepare_context"]
+effects = ["context"]
+failure = "continue"
+
+[[hooks]]
+event = "agent_end"
+handler = "src/lifecycle.ts:agent_end"
+operations = ["resolve_scope_binding", "capture_content_source"]
+effects = []
+failure = "continue"
+
+[[hooks]]
+event = "before_compaction"
+handler = "src/lifecycle.ts:before_compaction"
+operations = ["capture_content_source", "get_capabilities", "flush_memory"]
+effects = []
+failure = "continue"
+
+[[hooks]]
+event = "session_end"
+handler = "src/lifecycle.ts:session_end"
+operations = ["get_capabilities", "flush_memory"]
+effects = []
+failure = "continue"
+
+[setup]
+module = "openclaw"
+options = ["server_url", "allow_insecure_http"]
+verifies = true
+executable = "openclaw"
+
+[setup.settings]
+environment_prefix = ""
+server_setting = "endpoint"
+authorization_setting = ""
+capture_setting = "autoCapture"
+scope_setting = "scopeId"
+context_assembly_setting = "contextAssembly"

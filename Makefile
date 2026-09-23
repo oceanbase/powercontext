@@ -15,15 +15,11 @@ notebooks: ## Open the PowerContext feature tutorials and complete team workflow
 	@uv run --locked --group notebooks jupyter lab --notebook-dir=examples/jupyter
 
 .PHONY: notebooks-test
-notebooks-test: ## Execute provider-free tutorials in fresh kernels; use ARGS for models, HTTP, and browser.
+notebooks-test: agent-resources ## Execute provider-free tutorials in fresh kernels; use ARGS for models, HTTP, and browser.
 	@uv run --locked --group notebooks python examples/jupyter/run.py $(ARGS)
 
 .PHONY: check
-check: workflow-actions-check integration-manifest-check ## Run code quality tools.
-
-.PHONY: workflow-actions-check
-workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
-	@uv run python scripts/check_workflow_actions.py .github/workflows .github/actions
+check: agent-resources workflow-actions-check ## Run code quality tools.
 	@echo "🚀 Checking lock file consistency with 'pyproject.toml'"
 	@uv lock --locked
 	@echo "🚀 Linting code: Running prek"
@@ -33,21 +29,25 @@ workflow-actions-check: ## Verify third-party GitHub Actions use immutable commi
 	@echo "🚀 Static type checking: Running ty for the Pydantic AI integration"
 	@uv run ty check integrations/pydantic-ai/src
 
+.PHONY: workflow-actions-check
+workflow-actions-check: ## Verify third-party GitHub Actions use immutable commit pins.
+	@uv run python scripts/check_workflow_actions.py .github/workflows .github/actions
+
 .PHONY: test
-test: ## Test the code with pytest
+test: agent-resources ## Test the code with pytest
 	@echo "🚀 Testing code: Running pytest"
 	@uv run python -m pytest --doctest-modules
 
 .PHONY: unit-test
-unit-test: ## Run tests that do not cross the Server boundary end to end.
+unit-test: agent-resources ## Run tests that do not cross the Server boundary end to end.
 	@uv run python -m pytest --doctest-modules --ignore=tests/e2e
 
 .PHONY: e2e-test
-e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
+e2e-test: agent-resources ## Run CLI to Client SDK to Server end-to-end tests.
 	@uv run python -m pytest tests/e2e
 
 .PHONY: real-e2e-test
-real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE defaults to all.
+real-e2e-test: agent-resources ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE defaults to all.
 	@uv run python -m pytest -s tests/e2e/real_experience_skill --run-real-e2e \
 		--real-e2e-mode="$${REAL_E2E_MODE:-all}" \
 		--real-codex-timeout="$${REAL_CODEX_TIMEOUT:-600}" \
@@ -71,7 +71,7 @@ OPENDAL_TEST_RUN = uv run --isolated --no-project --python 3.12 \
 	--with pytest --with ruff --with ty
 
 .PHONY: opendal-test
-opendal-test: ## Validate the standalone OpenDAL Connector against this checkout.
+opendal-test: agent-resources ## Validate the standalone OpenDAL Connector against this checkout.
 	@$(OPENDAL_TEST_RUN) ruff check --no-fix integrations/opendal
 	@$(OPENDAL_TEST_RUN) ruff format --check integrations/opendal
 	@$(OPENDAL_TEST_RUN) ty check --python .venv --python-version 3.12 \
@@ -112,8 +112,8 @@ harness-compose-down: ## Stop the selected isolated harness environment and remo
 	@e2e/bub/run.sh down
 
 .PHONY: contract-test
-contract-test: api-generate-check js-api-generate-check ## Verify generated API code and contract bindings.
-	@uv run python -m pytest tests/test_api_contract.py tests/test_js_operations.py
+contract-test: api-generate-check ## Verify generated API code and contract bindings.
+	@uv run python -m pytest tests/test_api_contract.py
 
 .PHONY: api-generate
 api-generate: ## Generate API models and operations from OpenAPI.
@@ -123,57 +123,48 @@ api-generate: ## Generate API models and operations from OpenAPI.
 api-generate-check: ## Verify generated API code is current.
 	@uv run python scripts/generate_api.py --check
 
-.PHONY: js-api-generate
-js-api-generate: ## Generate JavaScript integration operation tables from OpenAPI.
-	@uv run python scripts/generate_js_operations.py
-
-.PHONY: js-api-generate-check
-js-api-generate-check: ## Verify generated JS operations are current.
-	@uv run python scripts/generate_js_operations.py --check
-
 .PHONY: js-test
-js-test: ## Install, build, and test the DeepSeek Harness plugin.
-	@pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
-	@pnpm --dir integrations/dsh/plugins/powercontext test
-	@pnpm --dir integrations/dsh/plugins/powercontext build
+js-test: agent-resources ## Install, build, and test the DeepSeek Harness plugin.
+	@uv run pnpm --dir integrations/dsh/plugins/powercontext install --frozen-lockfile --config.auto-install-peers=false
+	@uv run pnpm --dir integrations/dsh/plugins/powercontext build
 	@git diff --exit-code -- \
-		integrations/dsh/plugins/powercontext/src/operations.generated.ts \
 		integrations/dsh/plugins/powercontext/lib
-	@pnpm --dir integrations/dsh/plugins/powercontext test
-	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e
+	@uv run pnpm --dir integrations/dsh/plugins/powercontext test
+	@uv run pnpm --dir integrations/dsh/plugins/powercontext test:e2e
 
 .PHONY: dsh-runtime-test
-dsh-runtime-test: ## Test the built plugin in the pinned real DSH runtime with a local model fixture.
-	@pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
-	@pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
+dsh-runtime-test: agent-resources ## Test the built plugin in the pinned real DSH runtime with a local model fixture.
+	@uv run pnpm --dir integrations/dsh/plugins/powercontext/tests/runtime install --frozen-lockfile
+	@uv run pnpm --dir integrations/dsh/plugins/powercontext test:e2e:runtime
 
 .PHONY: openclaw-plugin-build
-openclaw-plugin-build: ## Build the external OpenClaw memory plugin.
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext build
+openclaw-plugin-build: agent-resources ## Build the external OpenClaw memory plugin.
+	@uv run pnpm --dir integrations/openclaw/plugins/memory-powercontext build
 
 .PHONY: openclaw-plugin-test
-openclaw-plugin-test: ## Install, test, type-check, and build with a Node runtime supported by the OpenClaw SDK.
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext test
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
+openclaw-plugin-test: agent-resources ## Install, test, type-check, and build with a Node runtime supported by the OpenClaw SDK.
+	@uv run pnpm --dir integrations/openclaw/plugins/memory-powercontext install --frozen-lockfile
+	@uv run pnpm --dir integrations/openclaw/plugins/memory-powercontext test
+	@uv run pnpm --dir integrations/openclaw/plugins/memory-powercontext run typecheck
+	@uv run pnpm --dir integrations/openclaw/plugins/memory-powercontext run build
 
 .PHONY: openclaw-plugin-pack
-openclaw-plugin-pack: ## Build and pack the external OpenClaw memory plugin.
-	@pnpm --dir integrations/openclaw/plugins/memory-powercontext pack:local
+openclaw-plugin-pack: agent-resources ## Build and pack the external OpenClaw memory plugin.
+	@uv run pnpm --dir integrations/openclaw/plugins/memory-powercontext pack:local
 
 .PHONY: opencode-test
-opencode-test: ## Install, test, type-check, and build the OpenCode plugin.
-	@pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
-	@pnpm --dir integrations/opencode/plugins/powercontext test
-	@pnpm --dir integrations/opencode/plugins/powercontext run typecheck
-	@pnpm --dir integrations/opencode/plugins/powercontext run build
+opencode-test: agent-resources ## Install, test, type-check, and build the OpenCode plugin.
+	@uv run pnpm --dir integrations/opencode/plugins/powercontext install --frozen-lockfile
+	@uv run pnpm --dir integrations/opencode/plugins/powercontext test
+	@uv run pnpm --dir integrations/opencode/plugins/powercontext run typecheck
+	@uv run pnpm --dir integrations/opencode/plugins/powercontext run build
 
 .PHONY: pi-test
-pi-test: ## Install and test the Pi package.
-	@pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
-	@pnpm --dir integrations/pi/plugins/powercontext test
-	@pnpm --dir integrations/pi/plugins/powercontext run typecheck
+pi-test: agent-resources ## Install and test the Pi package.
+	@uv sync --locked
+	@uv run pnpm --dir integrations/pi/plugins/powercontext install --frozen-lockfile
+	@uv run pnpm --dir integrations/pi/plugins/powercontext test
+	@uv run pnpm --dir integrations/pi/plugins/powercontext run typecheck
 
 .PHONY: build
 build: clean-build ## Build wheel file
@@ -207,25 +198,15 @@ docs-test: docs-install ## Lint and build the static website.
 	@cd website && CI=true pnpm test
 	@cd website && CI=true pnpm build
 
-.PHONY: integration-manifest-docs
-integration-manifest-docs: ## Generate the checked-in integration capability matrix pages.
-	@uv run python scripts/generate_integration_manifest_docs.py
-
-.PHONY: integration-manifest-docs-check
-integration-manifest-docs-check: ## Verify the integration capability matrix pages are current.
-	@uv run python scripts/generate_integration_manifest_docs.py --check
-
-.PHONY: integration-manifest-check
-integration-manifest-check: integration-manifest-docs-check ## Verify the complete integration capability contract.
-	@uv run python -m pytest tests/test_integration_manifest.py
-
-.PHONY: docs
-docs: docs-install ## Build and serve the website locally.
-	@cd website && pnpm dev -- $(ARGS)
-
 .PHONY: help
 help:
 	@uv run python -c "import re; \
 	[[print(f'\033[36m{m[0]:<20}\033[0m {m[1]}') for m in re.findall(r'^([a-zA-Z0-9_-]+):.*?## (.*)$$', open(makefile).read(), re.M)] for makefile in ('$(MAKEFILE_LIST)').strip().split()]"
 
 .DEFAULT_GOAL := help
+.PHONY: agent-resources agent-distributions
+agent-resources: ## Render shared templates for repository development.
+	@uv run python scripts/build_agent_distributions.py --in-place
+
+agent-distributions: agent-resources ## Assemble standalone plugins from templates and native adapters.
+	@uv run python scripts/build_agent_distributions.py

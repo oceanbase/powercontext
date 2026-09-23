@@ -15,20 +15,22 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
-from email.message import Message
-from io import BytesIO, StringIO
+from io import StringIO
 from pathlib import Path
 from unittest.mock import Mock
-from urllib.error import HTTPError
 
+import powercontext_integrations.authorization as authorization_cli
+import powercontext_integrations.claude_code as claude_cli
+import powercontext_integrations.codex as codex_cli
+import powercontext_integrations.system as system_cli
 import pytest
+from powercontext_integrations.system import Diagnostic, DiagnosticStatus, doctor_app, setup_app
 from typer.testing import CliRunner
 
-import powercontext.cli.authorization as authorization_cli
-import powercontext.cli.system as system_cli
+import powercontext.cli.system as common_system
 from powercontext.cli.app import create_cli
-from powercontext.cli.system import Diagnostic, DiagnosticStatus, doctor_app, setup_app
 from powercontext.paths import default_scheduler_path
 from powercontext.server.settings import ServerSettings
 from powercontext.service.model import (
@@ -41,7 +43,7 @@ from powercontext.service.model import (
     SupportState,
 )
 
-_probe_codex_mcp_status = system_cli._probe_codex_mcp_status
+_probe_codex_mcp_status = codex_cli._probe_codex_mcp_status
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +61,7 @@ def isolated_codex_plugin_cache(tmp_path, monkeypatch):
             json.dumps({"mcpServers": {"powercontext": {"type": "http", "url": "http://127.0.0.1:8000/mcp"}}})
         )
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_mcp_list",
         lambda: [
             {
@@ -75,7 +77,7 @@ def isolated_codex_plugin_cache(tmp_path, monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_probe_codex_mcp_status",
         lambda **_kwargs: {"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}},
     )
@@ -102,7 +104,7 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
 ) -> None:
     data_dir = tmp_path / "data"
     monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     run_codex = Mock(
         side_effect=[
             {"marketplaceName": "powercontext", "alreadyAdded": False},
@@ -119,7 +121,7 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
             },
         ]
     )
-    monkeypatch.setattr(system_cli, "_run_codex_json", run_codex)
+    monkeypatch.setattr(codex_cli, "_run_codex_json", run_codex)
 
     result = CliRunner().invoke(
         create_cli([setup_app]),
@@ -160,9 +162,9 @@ def test_setup_codex_installs_from_a_remote_ref_and_prepares_storage(
 
 
 def test_codex_diagnostics_verify_native_mcp_tools_without_process_authorization(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -177,7 +179,7 @@ def test_codex_diagnostics_verify_native_mcp_tools_without_process_authorization
     )
     monkeypatch.delenv("POWERCONTEXT_CODEX_AUTHORIZATION", raising=False)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["mcp_configuration"].status is DiagnosticStatus.OK
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
@@ -186,9 +188,9 @@ def test_codex_diagnostics_verify_native_mcp_tools_without_process_authorization
 
 
 def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -201,9 +203,9 @@ def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypat
             ]
         },
     )
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", lambda **_kwargs: {"name": "powercontext", "tools": {}})
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", lambda **_kwargs: {"name": "powercontext", "tools": {}})
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["mcp_tools"].status is DiagnosticStatus.FAILED
     assert "remember_memory, search_memory" in diagnostics["mcp_tools"].detail
@@ -211,9 +213,9 @@ def test_codex_diagnostics_fail_when_required_native_tools_are_missing(monkeypat
 
 
 def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -227,7 +229,7 @@ def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(m
         },
     )
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_mcp_list",
         lambda: [
             {
@@ -238,9 +240,9 @@ def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(m
         ],
     )
     probe = Mock()
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["mcp_configuration"].status is DiagnosticStatus.FAILED
     assert "reinstall the current plugin" in diagnostics["mcp_configuration"].detail
@@ -249,9 +251,9 @@ def test_codex_diagnostics_reject_native_mcp_without_authorization_environment(m
 
 
 def test_codex_diagnostics_reject_url_mismatched_stored_authorization(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -271,9 +273,9 @@ def test_codex_diagnostics_reject_url_mismatched_stored_authorization(tmp_path: 
         value="Bearer saved-token",
     )
     probe = Mock()
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
     assert "url_mismatch" in diagnostics["authorization"].detail
@@ -314,8 +316,8 @@ def test_codex_app_server_probe_clears_process_authorization(monkeypatch) -> Non
 
     popen = Mock(return_value=Process())
     monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer process-token")
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
-    monkeypatch.setattr(system_cli.subprocess, "Popen", popen)
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli.subprocess, "Popen", popen)
 
     status = _probe_codex_mcp_status()
 
@@ -354,8 +356,8 @@ def test_codex_app_server_probe_uses_resolved_authorization(monkeypatch) -> None
             return 0
 
     popen = Mock(return_value=Process())
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
-    monkeypatch.setattr(system_cli.subprocess, "Popen", popen)
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli.subprocess, "Popen", popen)
 
     _probe_codex_mcp_status(authorization="Bearer resolved-token")
 
@@ -369,11 +371,11 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     monkeypatch.setenv("POWERCONTEXT_CLIENT_API_TOKEN", "setup-token")
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     configure_desktop = Mock(return_value=True)
     monkeypatch.setattr(authorization_cli, "configure_codex_desktop_authorization", configure_desktop)
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         Mock(
             side_effect=[
@@ -383,7 +385,7 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
         ),
     )
 
-    result = system_cli.install_codex_plugin(source="oceanbase/powercontext", ref="master")
+    result = codex_cli.install_codex_plugin(source="oceanbase/powercontext", ref="master")
 
     assert result.authorization_state == "configured"
     assert (
@@ -399,9 +401,9 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
 
 
 def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -422,9 +424,9 @@ def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Pat
     )
     monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer saved-token")
     probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert "Windows user authorization" in diagnostics["authorization"].detail
@@ -439,9 +441,9 @@ def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Pat
 def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_credential(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -461,9 +463,9 @@ def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_creden
     )
     monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
     probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert diagnostics["authorization"].checks == {
@@ -480,9 +482,9 @@ def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_creden
 
 
 def test_codex_diagnostics_reject_bare_process_token_without_repairing_it(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -507,9 +509,9 @@ def test_codex_diagnostics_reject_bare_process_token_without_repairing_it(tmp_pa
         lambda: "Bearer replacement-token",
     )
     probe = Mock()
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
     assert diagnostics["authorization"].checks == {
@@ -524,9 +526,9 @@ def test_codex_diagnostics_reject_bare_process_token_without_repairing_it(tmp_pa
 
 
 def test_codex_diagnostics_probe_lowercase_bearer_header_without_rewriting_it(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -551,9 +553,9 @@ def test_codex_diagnostics_probe_lowercase_bearer_header_without_rewriting_it(tm
         lambda: "Bearer replacement-token",
     )
     probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert diagnostics["authorization"].checks == {
@@ -568,9 +570,9 @@ def test_codex_diagnostics_probe_lowercase_bearer_header_without_rewriting_it(tm
 def test_codex_diagnostics_do_not_replace_process_authorization_with_windows_user_value(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -591,9 +593,9 @@ def test_codex_diagnostics_do_not_replace_process_authorization_with_windows_use
     monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
     monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer old-token")
     probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert diagnostics["authorization"].checks == {
@@ -608,9 +610,9 @@ def test_codex_diagnostics_do_not_replace_process_authorization_with_windows_use
 def test_codex_diagnostics_report_matching_desktop_override_separately_from_stale_storage(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -631,9 +633,9 @@ def test_codex_diagnostics_report_matching_desktop_override_separately_from_stal
     monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer replacement-token")
     monkeypatch.setattr(authorization_cli, "read_codex_desktop_authorization", lambda: "Bearer replacement-token")
     probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.OK
     assert diagnostics["authorization"].checks == {
@@ -648,9 +650,9 @@ def test_codex_diagnostics_report_matching_desktop_override_separately_from_stal
 def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_storage(
     tmp_path: Path, monkeypatch, process_override: bool
 ) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -658,9 +660,9 @@ def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_
             ]
         },
     )
-    servers = system_cli._run_codex_mcp_list()
+    servers = codex_cli._run_codex_mcp_list()
     servers[0]["transport"]["http_headers_helper"] = "<redacted>"
-    monkeypatch.setattr(system_cli, "_run_codex_mcp_list", lambda: servers)
+    monkeypatch.setattr(codex_cli, "_run_codex_mcp_list", lambda: servers)
     authorization_cli.write_stored_authorization(
         tmp_path / "codex/powercontext/credentials.json",
         server_url="http://127.0.0.1:8000",
@@ -669,9 +671,9 @@ def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_
     if process_override:
         monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer override-test-token")
     probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].ok
     assert diagnostics["mcp_tools"].ok
@@ -687,9 +689,9 @@ def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_
 
 
 def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
-        system_cli,
+        codex_cli,
         "_run_codex_json",
         lambda *_args: {
             "installed": [
@@ -709,9 +711,9 @@ def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp
         value="Bearer saved-token",
     )
     probe = Mock()
-    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+    monkeypatch.setattr(codex_cli, "_probe_codex_mcp_status", probe)
 
-    diagnostics = system_cli.run_codex_diagnostics()
+    diagnostics = codex_cli.run_codex_diagnostics()
 
     assert diagnostics["authorization"].status is DiagnosticStatus.FAILED
     assert "not available to the Codex host" in diagnostics["authorization"].detail
@@ -726,7 +728,7 @@ def test_setup_codex_uses_an_absolute_local_marketplace_without_a_ref(
     marketplace = tmp_path / "marketplace"
     marketplace.mkdir()
     monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
     run_codex = Mock(
         side_effect=[
             {"marketplaceName": "powercontext-local"},
@@ -743,7 +745,7 @@ def test_setup_codex_uses_an_absolute_local_marketplace_without_a_ref(
             },
         ]
     )
-    monkeypatch.setattr(system_cli, "_run_codex_json", run_codex)
+    monkeypatch.setattr(codex_cli, "_run_codex_json", run_codex)
 
     result = CliRunner().invoke(
         create_cli([setup_app]),
@@ -766,7 +768,7 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
 ) -> None:
     config_dir = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda name: "/usr/bin/claude" if name == "claude" else None)
+    monkeypatch.setattr(claude_cli, "which", lambda name: "/usr/bin/claude" if name == "claude" else None)
     run_claude_json = Mock(
         side_effect=[
             [],
@@ -782,8 +784,8 @@ def test_setup_claude_code_reports_mutations_then_installs_and_verifies(
         ]
     )
     run_claude = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude_json", run_claude_json)
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude_json", run_claude_json)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
 
     result = CliRunner().invoke(
         create_cli([setup_app]),
@@ -856,11 +858,11 @@ def test_setup_claude_code_refreshes_the_marketplace_and_plugin_before_installin
 ) -> None:
     config_dir = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda name: "/usr/bin/claude" if name == "claude" else None)
+    monkeypatch.setattr(claude_cli, "which", lambda name: "/usr/bin/claude" if name == "claude" else None)
     installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.1", "enabled": True}]
     refreshed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.2", "enabled": True}]
     monkeypatch.setattr(
-        system_cli,
+        claude_cli,
         "_run_claude_json",
         Mock(
             side_effect=[
@@ -871,9 +873,9 @@ def test_setup_claude_code_refreshes_the_marketplace_and_plugin_before_installin
         ),
     )
     run_claude = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
 
-    result = system_cli.install_claude_code_plugin(
+    result = claude_cli.install_claude_code_plugin(
         source="oceanbase/powercontext",
         ref="master",
         server_url="http://127.0.0.1:9000",
@@ -894,11 +896,11 @@ def test_setup_claude_code_ignores_a_project_scoped_plugin_when_updating_user_sc
 ) -> None:
     config_dir = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
     project_plugin = {"id": "powercontext@powercontext", "scope": "project", "version": "0.1.1", "enabled": True}
     user_plugin = {"id": "powercontext@powercontext", "scope": "user", "version": "0.1.2", "enabled": True}
     monkeypatch.setattr(
-        system_cli,
+        claude_cli,
         "_run_claude_json",
         Mock(
             side_effect=[
@@ -909,9 +911,9 @@ def test_setup_claude_code_ignores_a_project_scoped_plugin_when_updating_user_sc
         ),
     )
     run_claude = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
 
-    result = system_cli.install_claude_code_plugin(
+    result = claude_cli.install_claude_code_plugin(
         source="oceanbase/powercontext",
         ref="master",
         server_url="http://127.0.0.1:9000",
@@ -926,13 +928,13 @@ def test_setup_claude_code_ignores_a_project_scoped_plugin_when_updating_user_sc
 
 
 def test_setup_claude_code_rolls_back_only_new_objects_after_verification_failure(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
-    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], [], []]))
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "_run_claude_json", Mock(side_effect=[[], [], []]))
     run_claude = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
 
     with pytest.raises(system_cli.SetupError):
-        system_cli.install_claude_code_plugin(
+        claude_cli.install_claude_code_plugin(
             source="https://github.com/oceanbase/powercontext.git",
             ref="tested-ref",
             server_url="http://127.0.0.1:8000",
@@ -967,9 +969,9 @@ def test_setup_claude_code_preserves_preexisting_objects_on_failure(tmp_path: Pa
     settings_file.write_text(json.dumps(previous_settings), encoding="utf-8")
     installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(
-        system_cli,
+        claude_cli,
         "_run_claude_json",
         Mock(
             side_effect=[
@@ -980,10 +982,10 @@ def test_setup_claude_code_preserves_preexisting_objects_on_failure(tmp_path: Pa
         ),
     )
     run_claude = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
 
     with pytest.raises(system_cli.SetupError):
-        system_cli.install_claude_code_plugin(
+        claude_cli.install_claude_code_plugin(
             source="oceanbase/powercontext",
             ref="master",
             server_url="http://127.0.0.1:8000",
@@ -1015,9 +1017,9 @@ def test_setup_claude_code_restores_a_preexisting_disabled_plugin_after_failure(
     settings_file.write_text(json.dumps(previous_settings), encoding="utf-8")
     disabled = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": False}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(
-        system_cli,
+        claude_cli,
         "_run_claude_json",
         Mock(
             side_effect=[
@@ -1042,10 +1044,10 @@ def test_setup_claude_code_restores_a_preexisting_disabled_plugin_after_failure(
             settings_file.write_text(json.dumps(changed), encoding="utf-8")
 
     run_claude_mock = Mock(side_effect=run_claude)
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude_mock)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude_mock)
 
     with pytest.raises(system_cli.SetupError):
-        system_cli.install_claude_code_plugin(
+        claude_cli.install_claude_code_plugin(
             source="oceanbase/powercontext",
             ref="master",
             server_url="http://127.0.0.1:8000",
@@ -1072,14 +1074,14 @@ def test_setup_claude_code_rejects_a_conflicting_existing_marketplace_before_mut
     existing_marketplace: dict[str, object],
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
     run_claude_json = Mock(return_value=[existing_marketplace])
     run_claude = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude_json", run_claude_json)
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude_json", run_claude_json)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
 
     with pytest.raises(system_cli.SetupError, match="marketplace remove powercontext"):
-        system_cli.install_claude_code_plugin(
+        claude_cli.install_claude_code_plugin(
             source="oceanbase/powercontext",
             ref="tested-ref",
             server_url="http://127.0.0.1:8000",
@@ -1102,11 +1104,11 @@ def test_setup_claude_code_rejects_a_conflicting_existing_marketplace_before_mut
     ],
 )
 def test_claude_marketplace_remote_ref_syntax(source: str, ref: str, expected: str) -> None:
-    assert system_cli._normalize_claude_marketplace_source(source, ref=ref) == expected
+    assert claude_cli._normalize_claude_marketplace_source(source, ref=ref) == expected
 
 
 def test_claude_marketplace_accepts_json_that_omits_the_configured_ref() -> None:
-    assert system_cli._claude_marketplace_matches(
+    assert claude_cli._claude_marketplace_matches(
         {"source": "github", "repo": "oceanbase/powercontext"},
         "oceanbase/powercontext@master",
     )
@@ -1115,9 +1117,9 @@ def test_claude_marketplace_accepts_json_that_omits_the_configured_ref() -> None
 def test_setup_claude_code_normalizes_an_mcp_url_before_installing(tmp_path: Path, monkeypatch) -> None:
     config_dir = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
     monkeypatch.setattr(
-        system_cli,
+        claude_cli,
         "_run_claude_json",
         Mock(
             side_effect=[
@@ -1128,9 +1130,9 @@ def test_setup_claude_code_normalizes_an_mcp_url_before_installing(tmp_path: Pat
         ),
     )
     run_claude = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
 
-    system_cli.install_claude_code_plugin(
+    claude_cli.install_claude_code_plugin(
         source="oceanbase/powercontext",
         ref="master",
         server_url="https://memory.example/api/mcp/",
@@ -1152,11 +1154,11 @@ def test_setup_claude_code_preserves_an_unrelated_statusline(tmp_path: Path, mon
     settings_file.write_text(json.dumps({"statusLine": custom_statusline}), encoding="utf-8")
     installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
-    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
-    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(claude_cli, "_run_claude", Mock())
 
-    system_cli.install_claude_code_plugin(
+    claude_cli.install_claude_code_plugin(
         source="oceanbase/powercontext",
         ref="master",
         server_url="http://127.0.0.1:8000",
@@ -1178,11 +1180,11 @@ def test_setup_claude_code_preserves_a_command_that_merely_mentions_powercontext
     settings_file.write_text(json.dumps({"statusLine": custom_statusline}), encoding="utf-8")
     installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
-    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
-    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(claude_cli, "_run_claude", Mock())
 
-    system_cli.install_claude_code_plugin(
+    claude_cli.install_claude_code_plugin(
         source="oceanbase/powercontext",
         ref="master",
         server_url="http://127.0.0.1:8000",
@@ -1206,11 +1208,11 @@ def test_setup_claude_code_refreshes_an_existing_powercontext_statusline(tmp_pat
     )
     installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
-    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
-    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(claude_cli, "_run_claude", Mock())
 
-    system_cli.install_claude_code_plugin(
+    claude_cli.install_claude_code_plugin(
         source="oceanbase/powercontext",
         ref="master",
         server_url="http://127.0.0.1:9000",
@@ -1218,6 +1220,8 @@ def test_setup_claude_code_refreshes_an_existing_powercontext_statusline(tmp_pat
     )
 
     statusline = json.loads(settings_file.read_text(encoding="utf-8"))["statusLine"]
+    assert shlex.split(statusline["command"])[:2] == ["powercontext-hook", "--script"]
+    assert " -- --server-url " in statusline["command"]
     assert statusline["command"] != previous_command
     assert "0.0.9" not in statusline["command"]
     assert "scripts/statusline.py" in statusline["command"]
@@ -1242,11 +1246,11 @@ def test_setup_claude_code_preserves_unrelated_settings_when_updating_options(tm
     )
     installed = [{"id": "powercontext@powercontext", "scope": "user", "version": "0.1.0", "enabled": True}]
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
-    monkeypatch.setattr(system_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
-    monkeypatch.setattr(system_cli, "_run_claude", Mock())
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "_run_claude_json", Mock(side_effect=[[], installed, installed]))
+    monkeypatch.setattr(claude_cli, "_run_claude", Mock())
 
-    system_cli.install_claude_code_plugin(
+    claude_cli.install_claude_code_plugin(
         source="oceanbase/powercontext",
         ref="master",
         server_url="http://127.0.0.1:8000",
@@ -1280,14 +1284,14 @@ def test_setup_claude_code_rejects_unsafe_server_urls_before_cli_writes(
     monkeypatch,
     server_url: str,
 ) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
     run_claude = Mock()
     run_claude_json = Mock()
-    monkeypatch.setattr(system_cli, "_run_claude", run_claude)
-    monkeypatch.setattr(system_cli, "_run_claude_json", run_claude_json)
+    monkeypatch.setattr(claude_cli, "_run_claude", run_claude)
+    monkeypatch.setattr(claude_cli, "_run_claude_json", run_claude_json)
 
     with pytest.raises(system_cli.SetupError):
-        system_cli.install_claude_code_plugin(
+        claude_cli.install_claude_code_plugin(
             source="oceanbase/powercontext",
             ref="master",
             server_url=server_url,
@@ -1300,7 +1304,7 @@ def test_setup_claude_code_rejects_unsafe_server_urls_before_cli_writes(
 
 def test_doctor_reports_each_check_and_exits_nonzero_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
-        system_cli,
+        common_system,
         "run_diagnostics",
         lambda **_kwargs: {
             "package": Diagnostic(status=DiagnosticStatus.OK, detail="powercontext 0.0.1"),
@@ -1363,7 +1367,7 @@ def test_doctor_mismatched_local_endpoint_skips_service_query_and_probe(monkeypa
 
     monkeypatch.setattr("powercontext.service.controller.ServiceController", Controller)
 
-    assert system_cli._local_service_diagnostics("http://127.0.0.1:9000") == {}
+    assert common_system._local_service_diagnostics("http://127.0.0.1:9000") == {}
 
 
 @pytest.mark.parametrize(
@@ -1390,7 +1394,7 @@ def test_doctor_matching_loopback_endpoint_includes_service_diagnostics(
 
     monkeypatch.setattr("powercontext.service.controller.ServiceController", Controller)
 
-    diagnostics = system_cli._local_service_diagnostics(target)
+    diagnostics = common_system._local_service_diagnostics(target)
 
     assert calls == ["registration", "manager"]
     assert diagnostics["service_registration"].status is DiagnosticStatus.OK
@@ -1404,231 +1408,7 @@ def test_doctor_remote_endpoint_skips_local_registration(monkeypatch: pytest.Mon
         Mock(side_effect=AssertionError("remote endpoint must not inspect the local service")),
     )
 
-    assert system_cli._local_service_diagnostics(target) == {}
-
-
-class _Response(BytesIO):
-    def __init__(self, status: int, payload: object) -> None:
-        super().__init__(json.dumps(payload).encode())
-        self._status = status
-
-    def getcode(self) -> int:
-        return self._status
-
-
-def test_default_doctor_checks_server_without_inspecting_codex(monkeypatch) -> None:
-    _mock_optional_personal_service(monkeypatch)
-    monkeypatch.setattr(
-        system_cli,
-        "run_codex_diagnostics",
-        Mock(side_effect=AssertionError("default doctor must not inspect Codex")),
-    )
-    monkeypatch.setattr(
-        system_cli,
-        "urlopen",
-        Mock(
-            side_effect=[
-                _Response(200, {"status": "ok"}),
-                _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
-            ]
-        ),
-    )
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "--json"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["ok"] is True
-    assert payload["status"] == "ok"
-    assert list(payload["checks"]) == [
-        "package",
-        "service_support",
-        "service_registration",
-        "server_liveness",
-        "server_readiness",
-    ]
-
-
-def test_default_doctor_uses_client_server_url_from_environment(monkeypatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://127.0.0.1:8888/")
-    urlopen = Mock(
-        side_effect=[
-            _Response(200, {"status": "ok"}),
-            _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
-        ]
-    )
-    monkeypatch.setattr(system_cli, "urlopen", urlopen)
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
-
-    assert result.exit_code == 0
-    assert "server liveness: ok - http://127.0.0.1:8888 status=ok" in result.output
-    assert "server readiness: ok - http://127.0.0.1:8888 status=ready" in result.output
-    assert [call.args[0].full_url for call in urlopen.call_args_list] == [
-        "http://127.0.0.1:8888/health/live",
-        "http://127.0.0.1:8888/health/ready",
-    ]
-
-    # Explicit CLI argument should override the environment variable.
-    urlopen.reset_mock()
-    urlopen.side_effect = [
-        _Response(200, {"status": "ok"}),
-        _Response(200, {"status": "ready", "checks": {"runtime": "ready", "database": "ready"}}),
-    ]
-    override = CliRunner().invoke(
-        create_cli([doctor_app]),
-        ["doctor", "--server-url", "http://127.0.0.1:9999"],
-    )
-
-    assert override.exit_code == 0
-    assert "server liveness: ok - http://127.0.0.1:9999 status=ok" in override.output
-    assert "server readiness: ok - http://127.0.0.1:9999 status=ready" in override.output
-    assert [call.args[0].full_url for call in urlopen.call_args_list] == [
-        "http://127.0.0.1:9999/health/live",
-        "http://127.0.0.1:9999/health/ready",
-    ]
-
-
-def test_default_doctor_rejects_non_loopback_plaintext_environment_url_without_request(monkeypatch) -> None:
-    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "http://memory.example")
-    urlopen = Mock()
-    monkeypatch.setattr(system_cli, "urlopen", urlopen)
-    monkeypatch.setattr(
-        system_cli,
-        "_local_service_diagnostics",
-        Mock(side_effect=AssertionError("invalid URL must not inspect the local service")),
-    )
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
-
-    assert result.exit_code == 1
-    assert "Unencrypted PowerContext Server URLs must be loopback addresses" in result.output
-    urlopen.assert_not_called()
-
-
-def test_default_doctor_skips_readiness_when_liveness_is_unreachable(monkeypatch) -> None:
-    _mock_optional_personal_service(monkeypatch)
-    urlopen = Mock(side_effect=OSError("connection refused"))
-    monkeypatch.setattr(system_cli, "urlopen", urlopen)
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
-
-    assert result.exit_code == 1
-    assert "server liveness: failed - cannot reach http://127.0.0.1:8000" in result.output
-    assert "server readiness: skipped - not checked because Server liveness failed" in result.output
-    assert urlopen.call_count == 1
-
-
-def test_default_doctor_preserves_not_ready_checks_in_human_and_json_output(monkeypatch) -> None:
-    _mock_optional_personal_service(monkeypatch)
-
-    def responses() -> list[object]:
-        readiness = HTTPError(
-            "http://127.0.0.1:8000/health/ready",
-            503,
-            "Service Unavailable",
-            hdrs=Message(),
-            fp=_Response(
-                503,
-                {
-                    "status": "not_ready",
-                    "checks": {
-                        "runtime": "ready",
-                        "database": "unavailable",
-                    },
-                },
-            ),
-        )
-        return [_Response(200, {"status": "ok"}), readiness]
-
-    monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
-    human = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
-    monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
-    machine = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "--json"])
-
-    assert human.exit_code == 1
-    assert "server readiness: failed - http://127.0.0.1:8000 status=not_ready" in human.output
-    assert "  database: unavailable" in human.output
-    assert machine.exit_code == 1
-    assert json.loads(machine.output)["status"] == "failed"
-    assert json.loads(machine.output)["checks"]["server_readiness"] == {
-        "ok": False,
-        "status": "failed",
-        "detail": "http://127.0.0.1:8000 status=not_ready",
-        "checks": {
-            "runtime": "ready",
-            "database": "unavailable",
-        },
-    }
-
-
-def test_default_doctor_preserves_degraded_checks_in_human_and_json_output(monkeypatch) -> None:
-    _mock_optional_personal_service(monkeypatch)
-    monkeypatch.setattr(system_cli, "version", lambda _package: "0.0.2")
-
-    def responses() -> list[_Response]:
-        return [
-            _Response(200, {"status": "ok"}),
-            _Response(
-                200,
-                {
-                    "status": "degraded",
-                    "checks": {
-                        "runtime": "ready",
-                        "database": "ready",
-                        "inference.embedding": "misconfigured",
-                    },
-                },
-            ),
-            _Response(200, {"status": "ok"}),
-            _Response(200, [{"scope_id": "default", "display_name": "Default", "summary": ""}]),
-        ]
-
-    monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
-    human = CliRunner().invoke(create_cli([doctor_app]), ["doctor"])
-    monkeypatch.setattr(system_cli, "urlopen", Mock(side_effect=responses()))
-    machine = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "--json"])
-
-    assert human.exit_code == 1
-    assert "server readiness: degraded - http://127.0.0.1:8000 status=degraded" in human.output
-    assert "  inference.embedding: misconfigured" in human.output
-    assert machine.exit_code == 1
-    assert json.loads(machine.output) == {
-        "ok": False,
-        "status": "degraded",
-        "checks": {
-            "package": {
-                "ok": True,
-                "status": "ok",
-                "detail": "powercontext 0.0.2",
-            },
-            "service_support": {
-                "ok": True,
-                "status": "ok",
-                "detail": "native personal service adapter is supported",
-            },
-            "service_registration": {
-                "ok": True,
-                "status": "ok",
-                "detail": "not_installed (optional)",
-            },
-            "server_liveness": {
-                "ok": True,
-                "status": "ok",
-                "detail": "http://127.0.0.1:8000 status=ok",
-            },
-            "server_readiness": {
-                "ok": False,
-                "status": "degraded",
-                "detail": "http://127.0.0.1:8000 status=degraded",
-                "checks": {
-                    "runtime": "ready",
-                    "database": "ready",
-                    "inference.embedding": "misconfigured",
-                },
-            },
-        },
-    }
+    assert common_system._local_service_diagnostics(target) == {}
 
 
 def _mock_optional_personal_service(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1648,33 +1428,9 @@ def _mock_optional_personal_service(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_doctor_codex_reports_missing_cli_and_skipped_plugin(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: None)
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "codex", "--json"])
-
-    assert result.exit_code == 1
-    assert json.loads(result.output) == {
-        "ok": False,
-        "status": "failed",
-        "checks": {
-            "codex": {
-                "ok": False,
-                "status": "failed",
-                "detail": "Codex CLI is not installed or is not on PATH",
-            },
-            "plugin": {
-                "ok": False,
-                "status": "skipped",
-                "detail": "not checked because Codex CLI is unavailable",
-            },
-        },
-    }
-
-
 def test_doctor_codex_requires_an_enabled_powercontext_plugin(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
-    monkeypatch.setattr(system_cli, "_run_codex_json", lambda *_args: {"installed": []})
+    monkeypatch.setattr(codex_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_cli, "_run_codex_json", lambda *_args: {"installed": []})
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "codex"])
 
@@ -1683,33 +1439,9 @@ def test_doctor_codex_requires_an_enabled_powercontext_plugin(monkeypatch) -> No
     assert "plugin: failed - PowerContext plugin is not installed" in result.output
 
 
-def test_doctor_claude_code_reports_missing_cli_and_skipped_plugin(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: None)
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "claude-code", "--json"])
-
-    assert result.exit_code == 1
-    assert json.loads(result.output) == {
-        "ok": False,
-        "status": "failed",
-        "checks": {
-            "claude_code": {
-                "ok": False,
-                "status": "failed",
-                "detail": "Claude Code CLI is not installed or is not on PATH",
-            },
-            "plugin": {
-                "ok": False,
-                "status": "skipped",
-                "detail": "not checked because Claude Code CLI is unavailable",
-            },
-        },
-    }
-
-
 def test_doctor_claude_code_requires_an_enabled_powercontext_plugin(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/claude")
-    monkeypatch.setattr(system_cli, "_run_claude_json", lambda *_args: [])
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_cli, "_run_claude_json", lambda *_args: [])
 
     result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "claude-code"])
 
@@ -1719,18 +1451,18 @@ def test_doctor_claude_code_requires_an_enabled_powercontext_plugin(monkeypatch)
 
 
 def test_claude_runner_uses_the_resolved_executable(monkeypatch) -> None:
-    monkeypatch.setattr(system_cli, "which", lambda _name: "/resolved/bin/claude")
-    run = Mock(return_value=system_cli.subprocess.CompletedProcess([], 0, stdout="[]", stderr=""))
-    monkeypatch.setattr(system_cli.subprocess, "run", run)
+    monkeypatch.setattr(claude_cli, "which", lambda _name: "/resolved/bin/claude")
+    run = Mock(return_value=claude_cli.subprocess.CompletedProcess([], 0, stdout="[]", stderr=""))
+    monkeypatch.setattr(claude_cli.subprocess, "run", run)
 
-    assert system_cli._run_claude_json("plugin", "list") == []
+    assert claude_cli._run_claude_json("plugin", "list") == []
     assert run.call_args.args[0] == ["/resolved/bin/claude", "plugin", "list", "--json"]
     assert run.call_args.kwargs["encoding"] == "utf-8"
     assert run.call_args.kwargs["errors"] == "replace"
 
 
 def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     checkout = tmp_path / "powercontext"
     plugin = checkout / "integrations" / "dsh" / "plugins" / "powercontext"
@@ -1760,12 +1492,13 @@ def test_setup_dsh_adds_plugin_from_a_local_checkout(tmp_path: Path, monkeypatch
         "--profile",
         "web",
         "add",
+        "--workspace-root",
         str(plugin),
     )
 
 
 def test_setup_dsh_fails_when_dsh_cli_is_missing(tmp_path: Path, monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: None)
 
@@ -1778,34 +1511,8 @@ def test_setup_dsh_fails_when_dsh_cli_is_missing(tmp_path: Path, monkeypatch) ->
     assert "DeepSeek Harness CLI is not installed" in result.output
 
 
-def test_doctor_dsh_reports_missing_cli_and_skipped_plugin(monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
-
-    monkeypatch.setattr(dsh_cli, "which", lambda _name: None)
-
-    result = CliRunner().invoke(create_cli([doctor_app]), ["doctor", "dsh", "--json"])
-
-    assert result.exit_code == 1
-    assert json.loads(result.output) == {
-        "ok": False,
-        "status": "failed",
-        "checks": {
-            "dsh": {
-                "ok": False,
-                "status": "failed",
-                "detail": "DeepSeek Harness CLI is not installed or is not on PATH",
-            },
-            "plugin": {
-                "ok": False,
-                "status": "skipped",
-                "detail": "not checked because DeepSeek Harness CLI is unavailable",
-            },
-        },
-    }
-
-
 def test_doctor_dsh_requires_the_installed_plugin(monkeypatch) -> None:
-    import powercontext.cli.dsh as dsh_cli
+    import powercontext_integrations.dsh as dsh_cli
 
     monkeypatch.setattr(dsh_cli, "which", lambda _name: "/usr/bin/dsh")
     monkeypatch.setattr(dsh_cli, "_run_dsh", lambda *_args: "id: other-plugin\n")

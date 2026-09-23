@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { PowerContextClient, type FetchFn, type JsonObject } from '../../src/client.ts'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { PowerContextClient, type JsonObject } from '../../src/client.ts'
 import { registerCommands } from '../../src/commands.ts'
 import { resolveConfig } from '../../src/config.ts'
 import type { PluginRuntime } from '../../src/invoke.ts'
@@ -27,7 +27,7 @@ import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
 let scopeId = ''
 const TEXT = 'Optional session cwd must not invent a harness working directory.'
 
-type RecordedCall = { path: string; body: JsonObject | undefined }
+type RecordedCall = { operation: string; body: JsonObject | undefined }
 
 type PcHandler = (invocation: {
   rawInput: string
@@ -44,35 +44,23 @@ function sessionWithoutCwd() {
   return { session: { header: { id: 'session-unscoped', cwd: undefined } } }
 }
 
-function parseBody(body: BodyInit | null | undefined): JsonObject | undefined {
-  if (typeof body !== 'string') return undefined
-  try {
-    const value = JSON.parse(body) as unknown
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? value as JsonObject
-      : undefined
-  } catch {
-    return undefined
+class RecordingClient extends PowerContextClient {
+  readonly calls: RecordedCall[] = []
+
+  override async request(...args: Parameters<PowerContextClient['request']>) {
+    const [operation, body] = args
+    this.calls.push({ operation, body })
+    return super.request(...args)
   }
 }
 
-function trackingFetch(): { fetchImpl: FetchFn; calls: RecordedCall[] } {
-  const calls: RecordedCall[] = []
-  const fetchImpl: FetchFn = async (input, init) => {
-    calls.push({
-      path: new URL(input).pathname,
-      body: parseBody(init.body),
-    })
-    return fetch(input, init)
-  }
-  return { fetchImpl, calls }
-}
+const clients: RecordingClient[] = []
+afterEach(() => { for (const client of clients.splice(0)) client.close() })
 
 function createPluginRuntime(
   baseUrl: string,
   scopeId: string | undefined,
-  fetchImpl: FetchFn,
-): { runtime: PluginRuntime; events: Record<string, unknown>[] } {
+): { runtime: PluginRuntime; events: Record<string, unknown>[]; calls: RecordedCall[] } {
   const events: Record<string, unknown>[] = []
   const config = resolveConfig({
     baseUrl,
@@ -81,11 +69,11 @@ function createPluginRuntime(
     timeoutMs: 8000,
     capturePrompts: true,
   }, {})
-  const client = new PowerContextClient({
-        baseUrl: config.baseUrl,
-        requestTimeoutMs: config.requestTimeoutMs,
-        fetch: fetchImpl,
-      })
+  const client = new RecordingClient({
+    baseUrl: config.baseUrl,
+    requestTimeoutMs: config.requestTimeoutMs,
+  })
+  clients.push(client)
   return {
     runtime: {
       client,
@@ -96,6 +84,7 @@ function createPluginRuntime(
       },
     },
     events,
+    calls: client.calls,
   }
 }
 
@@ -163,8 +152,7 @@ describe('plugin runtime with header.cwd === undefined', () => {
   })
 
   it('uses the Server default without treating the process directory as a Scope', async () => {
-    const { fetchImpl, calls } = trackingFetch()
-    const { runtime, events } = createPluginRuntime(server.baseUrl, undefined, fetchImpl)
+    const { runtime, events, calls } = createPluginRuntime(server.baseUrl, undefined)
     const command = pcHandler(runtime)
     const search = toolNamed(runtime, 'pc_search')
 
@@ -184,13 +172,12 @@ describe('plugin runtime with header.cwd === undefined', () => {
     expect(pc.kind).toBe('success')
     expect(tool).toMatchObject({ ok: true })
     expect(await runtime.resolveScope(undefined)).toMatch(/^scp_/)
-    expect(calls.some((call) => call.path === '/v1/scope-bindings/resolve')).toBe(true)
+    expect(calls.some((call) => call.operation === 'resolve_scope_binding')).toBe(true)
     expect(calls.every((call) => !String(call.body?.scope_id ?? '').startsWith('local:'))).toBe(true)
   })
 
   it('uses configured scopeId against a live Server and omits a fabricated cwd', async () => {
-    const { fetchImpl, calls } = trackingFetch()
-    const { runtime } = createPluginRuntime(server.baseUrl, scopeId, fetchImpl)
+    const { runtime, calls } = createPluginRuntime(server.baseUrl, scopeId)
     const command = pcHandler(runtime)
     const search = toolNamed(runtime, 'pc_search')
 
@@ -211,7 +198,7 @@ describe('plugin runtime with header.cwd === undefined', () => {
     const recalled = await recallWithoutCwd(runtime, 'optional cwd harness working directory')
     expect(recalled.kind).toBe('enter')
 
-    const capture = calls.find((call) => call.path === '/v1/sources/content')
+    const capture = calls.find((call) => call.operation === 'capture_content_source')
     expect(capture?.body).toMatchObject({
       scope_id: scopeId,
       metadata: { origin: 'dsh', event: 'user_prompt_submit', session_id: 'session-unscoped' },
@@ -221,8 +208,7 @@ describe('plugin runtime with header.cwd === undefined', () => {
   })
 
   it('keeps diagnostics usable when an explicit Scope does not exist', async () => {
-    const { fetchImpl, calls } = trackingFetch()
-    const { runtime } = createPluginRuntime(server.baseUrl, 'scp_00000000000000000000000000', fetchImpl)
+    const { runtime, calls } = createPluginRuntime(server.baseUrl, 'scp_00000000000000000000000000')
     const command = pcHandler(runtime)
     const invocation = () => ({ signal: AbortSignal.timeout(5000), agent: sessionWithoutCwd() })
 
@@ -236,14 +222,12 @@ describe('plugin runtime with header.cwd === undefined', () => {
     expect(status.kind).toBe('error')
     expect(status.text).toContain('scope=unresolved')
     const doctor = await command({ ...invocation(), rawInput: 'doctor' })
-    expect(doctor.kind).toBe('error')
+    expect(doctor.kind).toBe('success')
     expect(JSON.parse(doctor.text).checks).toMatchObject({
-      liveness: { state: 'ok' }, readiness: { state: 'ok' },
-      scope: { state: 'failed', code: 'scope_not_found' },
-      prepare: { state: 'skipped', code: 'scope_unavailable' },
+      liveness: { status: 'ok' }, readiness: { status: 'ok' }, capabilities: { status: 'ok' },
     })
     expect((await command({ ...invocation(), rawInput: 'capabilities' })).kind).toBe('success')
-    expect(calls.some(call => call.path === '/v1/context/prepare')).toBe(false)
-    expect(calls.some(call => call.path === '/v1/sources/content')).toBe(false)
+    expect(calls.some(call => call.operation === 'prepare_context')).toBe(false)
+    expect(calls.some(call => call.operation === 'capture_content_source')).toBe(false)
   })
 })

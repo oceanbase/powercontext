@@ -3,6 +3,10 @@
 This directory contains a portable Agent Plugin package for agents that support
 Agent Plugin skills and MCP configuration.
 
+It is also the source baseline for native integrations. Edit Skills and MCP here; shared generation projects them
+into host formats and connects native hooks to the installed Core Hook. The [development guide](../../../docs/en/development/plugin-distribution.md)
+describes the toolkit, setup, and distribution flow.
+
 The package is a client of a running PowerContext Server. It does not embed
 storage, start the Server, add MCP tools, or implement Runtime or Memory
 behavior. Compatible agents load the skill instructions from `skills/` and map

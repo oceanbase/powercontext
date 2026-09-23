@@ -1,0 +1,38 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Read the generated baseline toolkit in the host's native schema format."""
+
+import json
+from pathlib import Path
+
+_DATA = json.loads(Path(__file__).with_name("tools.generated.json").read_text(encoding="utf-8"))
+
+
+def _resolve_schema(value):
+    if isinstance(value, list):
+        return [_resolve_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    fields = {key: _resolve_schema(item) for key, item in value.items() if key != "$ref"}
+    if "$ref" in value:
+        return _resolve_schema(_DATA["definitions"][value["$ref"].rsplit("/", 1)[1]]) | fields
+    return fields
+
+
+def get_standard_tool_schemas():
+    return [
+        {"name": tool["name"], "description": tool["description"], "parameters": _resolve_schema(tool["parameters"])}
+        for tool in _DATA["tools"]
+    ]

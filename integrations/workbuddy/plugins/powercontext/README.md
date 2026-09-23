@@ -9,8 +9,8 @@ The integration uses each public surface for the job it fits:
   independently captures the current prompt with `POST /v1/sources/content`;
 - Streamable HTTP MCP at `http://127.0.0.1:8000/mcp` gives WorkBuddy the
   curated Memory and work-continuity tools;
-- the `powercontext-project-context` Skill turns an imperative such as `交接`,
-  `交接当前工作`, or `handoff this work` into one durable, committed Handoff.
+- the generated `powercontext-project-context` Skill uses the Agent Plugin baseline for Memory
+  and temporary work transfer. Durable Handoff commits require explicit milestone intent.
 
 Automatic recall and prompt capture run on `UserPromptSubmit`. The hook never
 reads the WorkBuddy transcript or captures WorkBuddy's final response. Prompt

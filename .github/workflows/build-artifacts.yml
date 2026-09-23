@@ -60,8 +60,10 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
 
-      - name: Verify locked dependencies
-        run: uv lock --locked
+      - name: Resolve locked dependencies and render plugin resources
+        run: |
+          uv lock --locked
+          uv run --locked python scripts/build_agent_distributions.py --in-place
 
       - name: Resolve artifact metadata
         id: metadata
@@ -115,16 +117,6 @@ jobs:
             --format requirements-txt \
             --output-file build/artifact-input/requirements.lock
 
-          uv export \
-            --project integrations/codex/plugins/powercontext \
-            --locked \
-            --no-dev \
-            --no-emit-project \
-            --no-header \
-            --no-annotate \
-            --format requirements-txt \
-            --output-file build/artifact-input/plugin-requirements.lock
-
       - name: Download Linux x86_64 dependency wheels
         run: |
           python -m pip download \
@@ -132,12 +124,6 @@ jobs:
             --only-binary=:all: \
             --dest build/artifact-input/wheelhouse \
             --requirement build/artifact-input/requirements.lock
-
-          python -m pip download \
-            --require-hashes \
-            --only-binary=:all: \
-            --dest build/artifact-input/plugin-wheelhouse \
-            --requirement build/artifact-input/plugin-requirements.lock
 
       - name: Assemble customer bundle
         id: bundle
@@ -155,10 +141,12 @@ jobs:
 
           cp build/artifact-input/distributions/* "$bundle_root/distributions/"
           cp -R build/artifact-input/wheelhouse "$bundle_root/wheelhouse"
-          cp -R build/artifact-input/plugin-wheelhouse "$bundle_root/plugin-wheelhouse"
           cp build/artifact-input/requirements.lock "$bundle_root/requirements.lock"
-          cp build/artifact-input/plugin-requirements.lock "$bundle_root/plugin-requirements.lock"
-          cp -R integrations/codex "$bundle_root/integrations"
+          git archive HEAD \
+            .agents/plugins/marketplace.json \
+            integrations/agent-plugin \
+            integrations/distribution \
+            integrations/codex | tar -x -C "$bundle_root"
           cp openapi/powercontext.yaml "$bundle_root/openapi/powercontext.yaml"
           cp LICENSE README.md "$bundle_root/"
 
@@ -170,7 +158,7 @@ jobs:
           python_version = os.environ["PYTHON_VERSION"]
           install_guide = rf"""# Install the PowerContext Offline Bundle
 
-          Target: Linux x86_64 with Python {python_version}. Python and the Codex CLI are not included.
+          Target: Linux x86_64 with Python {python_version}. Python, the Codex CLI, uvx, and npx must already be installed.
 
           ## 1. Verify
 
@@ -196,6 +184,8 @@ jobs:
             --no-index \
             --no-deps \
             distributions/powercontext-*.whl
+          export PATH="$(pwd)/.venv/bin:$PATH"
+          powercontext-hook --help
           .venv/bin/powercontext --help
           .venv/bin/powercontext server --help
           ```
@@ -203,10 +193,10 @@ jobs:
           ## 3. Install the Codex plugin
 
           ```bash
-          .venv/bin/powercontext setup codex --source "$(pwd)/integrations"
+          .venv/bin/powercontext setup codex --source "$(pwd)"
           ```
 
-          Start a new Codex session after installation. Plugin dependencies are bundled under `vendor/`.
+          Start Codex with this virtual environment on PATH so hooks can find `powercontext-hook`.
 
           ## 4. Start and verify
 
@@ -238,60 +228,6 @@ jobs:
           """
           (root / "docs/INSTALL.md").write_text(install_guide)
           (root / "powercontext.env.example").write_text(environment_example)
-          PY
-
-          plugin_root="$bundle_root/integrations/plugins/powercontext"
-          python -m pip install \
-            --no-index \
-            --find-links "$bundle_root/plugin-wheelhouse" \
-            --require-hashes \
-            --requirement "$bundle_root/plugin-requirements.lock" \
-            --target "$plugin_root/vendor"
-
-          PLUGIN_ROOT="$plugin_root" python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          root = Path(os.environ["PLUGIN_ROOT"])
-          python_executable = f"python{os.environ['PYTHON_VERSION']}"
-          plugin_root = "$" + "{PLUGIN_ROOT}"
-          hooks_path = root / "hooks/hooks.json"
-          hooks = json.loads(hooks_path.read_text())
-          hook_scripts = {
-              "SessionStart": "session_binding.py",
-              "PreToolUse": "bind_tools.py",
-              "UserPromptSubmit": "recall.py",
-              "Stop": "token_savings.py",
-          }
-          for event, script in hook_scripts.items():
-              hook = hooks["hooks"][event][0]["hooks"][0]
-              expected = (
-                  f'uv run --frozen --quiet --project "{plugin_root}" '
-                  f'python "{plugin_root}/hooks/{script}"'
-              )
-              if hook["command"] != expected:
-                  raise SystemExit(f"unexpected Codex {event} command")
-              hook["command"] = (
-                  'PYTHONPATH="${PLUGIN_ROOT}/vendor" '
-                  + python_executable
-                  + f' "{plugin_root}/hooks/{script}"'
-              )
-          hooks_path.write_text(json.dumps(hooks, indent=2) + "\n")
-
-          readme_path = root / "README.md"
-          readme = readme_path.read_text()
-          expected_readme = (
-              "The hook runtime is declared by the plugin's `pyproject.toml` and launched with\n"
-              "`uv`; this keeps its `pydantic-settings` dependency isolated and reproducible."
-          )
-          replacement_readme = (
-              "This customer artifact vendors the hook's locked Python dependencies under `vendor/`;\n"
-              f"the hook therefore starts with `{python_executable}` without accessing a package index."
-          )
-          if readme.count(expected_readme) != 1:
-              raise SystemExit("unexpected plugin runtime documentation")
-          readme_path.write_text(readme.replace(expected_readme, replacement_readme))
           PY
 
           find "$bundle_root" -type d -name __pycache__ -prune -exec rm -rf {} +
@@ -335,7 +271,7 @@ jobs:
                   "operating_system": "Linux",
                   "architecture": "x86_64",
                   "default_database": "SQLite",
-                  "codex_plugin_runtime": "vendored",
+                  "codex_plugin_runtime": "installed-client",
               },
           }
           (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -382,11 +318,9 @@ jobs:
           build/cli-smoke-venv/bin/powercontext skill remote-sync --help
 
           plugin_root="$BUNDLE_ROOT/integrations/plugins/powercontext"
-          (
-            cd "$plugin_root"
-            PYTHONPATH="$plugin_root/vendor" \
-              "python${PYTHON_VERSION}" -m compileall -q hooks scripts
-          )
+          build/smoke-venv/bin/python -m compileall -q "$plugin_root/hooks" "$plugin_root/scripts"
+          build/smoke-venv/bin/powercontext-hook \
+            --script "$plugin_root/hooks/recall.py" <<<'{}'
 
       - name: Create compressed artifact
         env:

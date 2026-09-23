@@ -39,6 +39,7 @@ from typing_extensions import override
 
 from powercontext.client import ClientError
 from powercontext.client.capture import render_capture_event
+from powercontext.client.checkpoints import Checkpoints
 from powercontext.http import CaptureContentSourceRequest, FlushMemoryRequest, PrepareContextRequest
 from powercontext_pydantic_ai.scope import ScopeId
 from powercontext_pydantic_ai.settings import PowerContextSettings
@@ -87,6 +88,7 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             _auth_reporter=self._auth_reporter,
         )
         self._state = _state
+        self._checkpoints = Checkpoints()
 
     @classmethod
     @override
@@ -119,12 +121,6 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
     ) -> ModelRequestContext:
         state = self._require_state()
         query = _latest_user_text(request_context.messages)
-        if self.settings.capture_events and not state.prompt_captured:
-            prompt_text = _content_text(ctx.prompt) or query
-            if prompt_text:
-                state.prompt_captured = True
-                await self._capture_event(ctx, "user_prompt", {"text": prompt_text})
-
         if state.context_injected or _has_current_run_context(request_context.messages, ctx.run_id):
             state.context_injected = True
             return request_context
@@ -137,6 +133,12 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
             return request_context
 
         prepared_content = await self._prepare_context(query)
+        if self.settings.capture_events and not state.prompt_captured:
+            prompt_text = _content_text(ctx.prompt) or query
+            if prompt_text:
+                state.prompt_captured = True
+                await self._capture_event(ctx, "user_prompt", {"text": prompt_text})
+
         if not prepared_content:
             return request_context
 
@@ -298,20 +300,27 @@ class PowerContext(AbstractCapability[AgentDepsT], Generic[AgentDepsT]):
         if target_position <= state.flushed_position:
             return
         try:
-            async with asyncio.timeout(self.settings.timeout):
-                while state.flushed_position < target_position:
-                    previous_position = state.flushed_position
-                    response = await self._toolset._require_client().flush_memory(FlushMemoryRequest(scope_id=scope_id))
-                    state.flushed_position = max(state.flushed_position, response.current_cursor)
-                    if state.flushed_position <= previous_position:
-                        logger.debug(
-                            "PowerContext %s capture flush stopped before target: "
-                            "cursor=%d target=%d reason=no cursor progress",
-                            "final" if final else "checkpoint",
-                            state.flushed_position,
-                            target_position,
+            with self._checkpoints.attempt(scope_id, target_position) as allowed:
+                if not allowed:
+                    return
+                async with asyncio.timeout(self.settings.timeout):
+                    while state.flushed_position < target_position:
+                        previous_position = state.flushed_position
+                        response = await self._toolset._require_client().flush_memory(
+                            FlushMemoryRequest(scope_id=scope_id)
                         )
-                        return
+                        state.flushed_position = max(state.flushed_position, response.current_cursor)
+                        if state.flushed_position <= previous_position:
+                            logger.debug(
+                                "PowerContext %s capture flush stopped before target: "
+                                "cursor=%d target=%d reason=no cursor progress",
+                                "final" if final else "checkpoint",
+                                state.flushed_position,
+                                target_position,
+                            )
+                            return
+        except asyncio.CancelledError:
+            raise
         except ClientError as exc:
             self._auth_reporter.report(exc, "capture flush")
             logger.debug(

@@ -5,7 +5,7 @@
   "pages": [
     "core-protocol",
     "memory-layer",
-    "plugin-contract",
+    "plugin-distribution",
     "pydantic-ai-inference",
     "remote-access-implementation",
     "dashboard",

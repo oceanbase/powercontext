@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from powercontext.cli.system import SetupError
+from powercontext.cli.errors import SetupError
 
 _GITHUB_HOST = "github.com"
 
@@ -67,9 +67,9 @@ def clone_github_source(source: str, ref: str, target: Path) -> None:
             timeout=120,
         )
     except (OSError, subprocess.SubprocessError) as error:
-        raise SetupError.git_clone_failed() from error
+        raise SetupError("failed to clone the GitHub source") from error
     if completed.returncode != 0:
-        raise SetupError.git_clone_failed()
+        raise SetupError("failed to clone the GitHub source")
 
 
 def _repository_path(value: str) -> str:

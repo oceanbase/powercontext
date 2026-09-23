@@ -1,13 +1,16 @@
 # PowerContext Hermes Memory Provider
 
+Install the PowerContext client separately and expose `powercontext-hook` on the host PATH. Domain operations use the shared client, with bounded responses, deadlines, and explicit unknown write outcomes. Hooks do not install runtime dependencies.
+
+
 This plugin implements Hermes' `MemoryProvider` interface using the PowerContext
 HTTP API. See [`integrations/hermes/README.md`](../../README.md) for setup,
 configuration, scope isolation, and runtime behavior.
 
 Requires Hermes Agent v0.20.4 or newer.
 
-The plugin deliberately uses only the Python standard library for HTTP, so it
-can be copied into Hermes without adding an HTTP client dependency. Its
+The plugin uses a standard-library adapter to the separately installed client worker,
+so Hermes does not need another SDK environment. Its
 provider configuration is read from `$HERMES_HOME/powercontext/config.json`.
 
 To install or refresh the provider from the matching PowerContext `master` revision:

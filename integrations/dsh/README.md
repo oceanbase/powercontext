@@ -1,5 +1,8 @@
 # DeepSeek Harness integration
 
+Install the PowerContext client separately and expose `powercontext-hook` on the host PATH. Domain operations use the shared client, with bounded responses, deadlines, and explicit unknown write outcomes. Hooks do not install runtime dependencies.
+
+
 `community`
 
 `plugins/powercontext` contains the PowerContext plugin for DeepSeek Harness.
@@ -31,7 +34,7 @@ For a Server using optional local bearer authentication, set `POWERCONTEXT_DSH_A
 Run the model-free call-through checks from a repository checkout:
 
 ```bash
-make js-api-generate-check
+make agent-resources
 make js-test
-uv run python -m pytest tests/e2e/test_dsh_http_chain.py tests/test_js_operations.py tests/test_system_cli.py tests/test_dsh_cli.py -k dsh
+uv run python -m pytest tests/e2e/test_dsh_http_chain.py tests/test_system_cli.py tests/test_dsh_cli.py -k dsh
 ```

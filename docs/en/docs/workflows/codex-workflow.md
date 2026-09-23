@@ -237,19 +237,18 @@ Ask the second Codex session to make one small, inspectable change to the exampl
 
 Confirm that Codex reports a modified `README.md` and a passing `git diff --check`. Then enter this one line:
 
-> Handoff this work.
+> Commit this work as a durable PowerContext Handoff milestone.
 
-`Handoff this work` is explicit authorization to create one durable Handoff milestone. In the same turn, the
+This request explicitly authorizes a durable milestone. An ordinary handoff request produces a temporary carrier. The
 PowerContext `powercontext-project-context` Skill:
 
-1. selects or confirms the current Workstream and scope;
+1. reuses the host and Server-selected Scope;
 2. inspects the objective, branch, worktree, changed files, and observed checks;
 3. assembles blockers, omissions, and the next action;
 4. prepares the Handoff;
 5. commits it and returns an exact Revision.
 
-If more than one Workstream exists, Codex first presents a picker. Select the actual project instead of allowing the
-agent to guess silently.
+Resolve an explicitly requested independent Scope before transferring work across that boundary.
 
 **Success criteria:** Codex explicitly says that the Handoff was committed and returns its scope, disposition, next
 action, and exact Handoff Revision. A preview or Prepared Handoff without an exact committed Revision is not a durable

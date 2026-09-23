@@ -20,15 +20,13 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 from dataclasses import dataclass
-from urllib.parse import urlsplit, urlunsplit
 
-from powercontext_client_config import load_client_settings, resolve_allow_insecure_http
+from powercontext.client.integration.config import load_client_settings, resolve_allow_insecure_http
+from powercontext.client.integration.config import normalize_server_url as _http_base_url
 
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
@@ -163,27 +161,6 @@ def _authorization_header(value: str | None) -> str | None:
     ):
         raise ValueError("WorkBuddy authorization must be a valid Bearer header")  # noqa: TRY003
     return normalized
-
-
-def _http_base_url(value: str, *, allow_insecure_http: bool = False) -> str:
-    normalized = value.strip().rstrip("/")
-    parsed = urlsplit(normalized)
-    if parsed.username is not None or parsed.password is not None:
-        raise ValueError("PowerContext Server URL must not contain credentials")  # noqa: TRY003
-    if parsed.hostname is None or parsed.scheme not in {"http", "https"}:
-        raise ValueError("PowerContext Server URL must use HTTP or HTTPS")  # noqa: TRY003
-    if parsed.query or parsed.fragment:
-        raise ValueError("PowerContext Server URL must not contain a query or fragment")  # noqa: TRY003
-    try:
-        loopback = ipaddress.ip_address(parsed.hostname).is_loopback
-    except ValueError:
-        loopback = parsed.hostname.lower() in _LOOPBACK_HOSTS
-    if parsed.scheme == "http" and not loopback and not allow_insecure_http:
-        raise ValueError("unencrypted PowerContext URLs must be loopback addresses")  # noqa: TRY003
-    path = parsed.path.rstrip("/")
-    if path.endswith("/mcp"):
-        path = path.removesuffix("/mcp")
-    return urlunsplit((parsed.scheme, parsed.netloc, path, "", "")).rstrip("/")
 
 
 __all__ = ["WorkBuddyPluginSettings"]

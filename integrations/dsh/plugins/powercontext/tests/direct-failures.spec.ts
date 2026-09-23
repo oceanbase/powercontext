@@ -1,3 +1,4 @@
+import { MockClient } from './client.fixture.ts'
 /*
  * Copyright (c) 2026 OceanBase.
  *
@@ -30,7 +31,7 @@ function fixture(fetchImpl: FetchFn, baseUrl = 'http://127.0.0.1:8000', requestT
   const calls: Array<{ path: string; body: Record<string, unknown> }> = []
   const events: Record<string, unknown>[] = []
   const config = resolveConfig({ baseUrl, requestTimeoutMs }, {})
-  const client = new PowerContextClient({
+  const client = new MockClient({
     baseUrl: config.baseUrl,
     requestTimeoutMs: config.requestTimeoutMs,
     fetch: async (url, init) => {
@@ -220,31 +221,6 @@ describe.each(['tool', 'command'] as const)('registered %s failure boundary', en
 })
 
 describe('registered /pc command routing', () => {
-  it('checks health and capabilities without a working Scope endpoint', async () => {
-    const h = fixture(async url => new URL(url).pathname === RESOLVE_PATH
-      ? Response.json({ detail: 'Not Found' }, { status: 404 })
-      : Response.json(new URL(url).pathname === '/health/live' ? { status: 'ok' } : { status: 'ready', checks: {} }))
-    const doctor = await h.command('doctor')
-    expect(doctor.kind).toBe('error')
-    expect(JSON.parse(doctor.text).checks).toMatchObject({
-      liveness: { state: 'ok' }, readiness: { state: 'ok' },
-      scope: { code: 'required_route_missing' },
-    })
-    expect((await h.command('capabilities')).kind).toBe('success')
-    expect(h.calls.some(call => call.path === '/v1/capabilities')).toBe(true)
-  })
-
-  it('keeps both Doctor results when one health endpoint fails', async () => {
-    const h = fixture(async url => new URL(url).pathname === '/health/ready'
-      ? Response.json({ status: 'not_ready', checks: { runtime: 'not_ready' } }, { status: 503 })
-      : Response.json({ status: 'ok' }))
-    const result = await h.command('doctor')
-    expect(result.kind).toBe('error')
-    expect(JSON.parse(result.text).checks).toMatchObject({
-      liveness: { state: 'ok' }, readiness: { state: 'failed', code: 'not_ready' },
-    })
-  })
-
   it.each(['unknown', 'search', 'remember', 'review approve only-id', 'review reject id 1', 'skills'])(
     'validates "%s" without resolving Scope', async rawInput => {
       const h = fixture(async () => { throw new TypeError('Server unavailable') })

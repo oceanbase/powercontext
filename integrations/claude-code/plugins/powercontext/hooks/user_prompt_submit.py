@@ -13,523 +13,61 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Recall memory and capture the current Claude Code prompt without blocking Claude."""
+"""Map claude-code prompt events to the installed client's shared hook."""
 
 from __future__ import annotations
 
-import json
 import sys
-from collections.abc import Mapping
-from contextlib import suppress
-from hashlib import sha256
 from pathlib import Path
-from time import monotonic
-from typing import Any, Protocol, cast
-from urllib.error import HTTPError
-from urllib.request import Request
+
+from powercontext.client.integration import prompt as prompt_operations
+from powercontext.client.integration.diagnostics import Events
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-_SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
-sys.path.insert(0, str(_SCRIPTS_ROOT))
+sys.path.insert(0, str(_PLUGIN_ROOT / "hooks"))
+sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
-from hooks import prepared_context as _prepared_context  # noqa: E402
-from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
-from workspace_scope import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
-
-_MAX_CONTEXT_BYTES = _prepared_context.MAX_CONTEXT_BYTES
-_InvalidResponseError = _prepared_context.InvalidPreparedContextResponse
-_validate_prepared_context = _prepared_context.validate_prepared_context
-_MAX_RESPONSE_BYTES = 1_048_576
-_MAX_SOURCE_LENGTH = 200_000
-_READ_CHUNK_BYTES = 65_536
-_REQUEST_HEADERS = {
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "User-Agent": "powercontext-claude-code-plugin/0.1.2",
-}
-_FAILURE_OUTCOMES = frozenset({"authentication_failed", "version_mismatch", "server_unavailable", "invalid_response"})
-
-
-class _ReadableResponse(Protocol):
-    def read(self, n: int = -1) -> bytes: ...
-
-
-class _Response(_ReadableResponse, Protocol):
-    status: int
-
-    def __enter__(self) -> _Response: ...
-
-    def __exit__(self, *args: object) -> object: ...
-
-
-class _HttpStatusError(RuntimeError):
-    def __init__(self, status: int, path: str = "/v1/context/prepare", code: str | None = None) -> None:
-        self.status = status
-        self.path = path
-        self.code = code
-        super().__init__(f"PowerContext returned HTTP {status}")
-
-
-class _ServerUnavailableError(RuntimeError):
-    pass
-
-
-_COMPATIBILITY_OR_AVAILABILITY_PATHS = frozenset({
-    "/health/live",
-    "/health/ready",
-    "/v1/capabilities",
-    "/v1/context/prepare",
-})
-_AUTOMATIC_OPERATION_PATHS = {
-    "context_prepare": "/v1/context/prepare",
-    "capture_source": "/v1/sources/content",
-    "flush_memory": "/v1/memory/flush",
-}
-
-
-def _http_failure_outcome(error: _HttpStatusError, *, operation: str) -> str | None:
-    if error.status == 401:
-        return "authentication_failed"
-    if error.status == 404 and error.path in _COMPATIBILITY_OR_AVAILABILITY_PATHS and error.code is None:
-        return "version_mismatch"
-    if error.status == 503:
-        return "server_unavailable"
-    if error.status in {404, 409, 422}:
-        return "invalid_response" if _AUTOMATIC_OPERATION_PATHS.get(operation) == error.path else None
-    return "invalid_response"
-
-
-def _decode_error_code(raw: bytes) -> str | None:
-    try:
-        decoded = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    if not isinstance(decoded, dict):
-        return None
-    error = decoded.get("error")
-    if not isinstance(error, dict):
-        return None
-    code = error.get("code")
-    return code if isinstance(code, str) else None
+from scope_context import scope_context  # noqa: E402
+from workspace_scope import resolve_scope_id  # noqa: E402
 
 
 def main(settings: ClaudeCodePluginSettings | None = None) -> int:
-    """Process one Claude Code hook payload and fail open."""
+    """Run one native event without blocking the host on an integration failure."""
 
     try:
         settings = ClaudeCodePluginSettings.from_environment() if settings is None else settings
-        stdin = sys.stdin
-        if hasattr(stdin, "buffer"):
-            payload = cast(dict[str, Any], json.loads(stdin.buffer.read().decode("utf-8")))
-        else:
-            payload = cast(dict[str, Any], json.load(stdin))
-        if not _is_user_prompt_submit(payload.get("hook_event_name")):
+        payload = prompt_operations.read_payload()
+        if not prompt_operations.is_prompt_event(payload.get("hook_event_name")):
             return 0
-        emitted_diagnostics: set[str] = set()
-        diagnostic_events: list[dict[str, object]] = []
-        prompt = _prompt(payload)
-        cwd = payload.get("cwd")
-        if prompt is None or not prompt.strip() or not isinstance(cwd, str):
-            _emit_context_event("skipped", diagnostic_events=diagnostic_events)
-            _write_hook_output(diagnostic_events=diagnostic_events)
+        events = Events("claude-code")
+        query, cwd = payload.get("prompt"), payload.get("cwd")
+        if not isinstance(query, str):
+            query = payload.get("user_prompt")
+        if not isinstance(query, str) or not query.strip() or not isinstance(cwd, str):
+            events.emit("skipped")
+            events.write(include_empty=False)
             return 0
-
-        http_deadline = monotonic() + settings.http_budget_seconds
-        scope_id = resolve_scope_id(
+        deadline = prompt_operations.deadline(settings)
+        session_id = prompt_operations.identifier(payload, "session_id")
+        scope_id = resolve_scope_id(cwd, session_id=session_id, settings=settings, deadline=deadline)
+        context = prompt_operations.run(
+            "claude-code",
+            query,
             cwd,
-            session_id=_payload_identifier(payload, "session_id"),
+            scope_id,
+            session_id,
+            prompt_operations.identifier(payload, "prompt_id", "request_id"),
+            event_id_field="prompt_id",
             settings=settings,
-            deadline=http_deadline,
+            deadline=deadline,
+            events=events,
         )
-        context = None
-        with suppress(Exception):
-            context = _recall_context(
-                prompt,
-                scope_id,
-                settings=settings,
-                deadline=http_deadline,
-                emitted_diagnostics=emitted_diagnostics,
-                diagnostic_events=diagnostic_events,
-            )
-
-        if settings.capture_prompts and len(prompt) <= _MAX_SOURCE_LENGTH:
-            try:
-                captured = _capture_prompt(
-                    payload,
-                    prompt=prompt,
-                    cwd=cwd,
-                    scope_id=scope_id,
-                    settings=settings,
-                    deadline=http_deadline,
-                )
-                position = _source_position(captured)
-            except Exception as error:
-                _emit_failure_event(
-                    "capture_source",
-                    error,
-                    emitted_diagnostics=emitted_diagnostics,
-                    diagnostic_events=diagnostic_events,
-                )
-            else:
-                if settings.flush_on_capture:
-                    try:
-                        _flush_through(
-                            scope_id,
-                            position,
-                            settings=settings,
-                            deadline=http_deadline,
-                        )
-                    except Exception as error:
-                        _emit_failure_event(
-                            "flush_memory",
-                            error,
-                            emitted_diagnostics=emitted_diagnostics,
-                            diagnostic_events=diagnostic_events,
-                        )
-
-        _write_hook_output(context=context, diagnostic_events=diagnostic_events)
+        events.write(scope_context(context, scope_id), include_empty=False)
     except Exception:
         return 0
     return 0
-
-
-def _prompt(payload: Mapping[str, object]) -> str | None:
-    prompt = payload.get("prompt")
-    if isinstance(prompt, str):
-        return prompt
-    fallback = payload.get("user_prompt")
-    return fallback if isinstance(fallback, str) else None
-
-
-def _prepare_context(
-    query: str,
-    scope_id: str,
-    *,
-    settings: ClaudeCodePluginSettings,
-    deadline: float,
-) -> Mapping[str, object]:
-    return _post_json(
-        "/v1/context/prepare",
-        {
-            "scope_id": scope_id,
-            "query": query,
-            "max_bytes": _MAX_CONTEXT_BYTES,
-            **({"assembly": settings.context_assembly} if settings.context_assembly is not None else {}),
-        },
-        settings=settings,
-        deadline=deadline,
-        expected_status=200,
-    )
-
-
-def _capture_prompt(
-    payload: Mapping[str, object],
-    *,
-    prompt: str,
-    cwd: str,
-    scope_id: str,
-    settings: ClaudeCodePluginSettings,
-    deadline: float,
-) -> Mapping[str, object]:
-    session_id = _payload_identifier(payload, "session_id")
-    prompt_id = _payload_identifier(payload, "prompt_id", "request_id")
-    identity = "\0".join((scope_id, session_id or "", prompt_id or "", prompt))
-    source_id = f"claude-code-user-prompt:{sha256(identity.encode()).hexdigest()}"
-    metadata = {
-        "origin": "claude-code",
-        "event": "user_prompt_submit",
-        "cwd": cwd,
-    }
-    if session_id is not None:
-        metadata["session_id"] = session_id
-    if prompt_id is not None:
-        metadata["prompt_id"] = prompt_id
-    return _post_json(
-        "/v1/sources/content",
-        {
-            "scope_id": scope_id,
-            "source_id": source_id,
-            "content": prompt,
-            "metadata": metadata,
-        },
-        settings=settings,
-        deadline=deadline,
-    )
-
-
-def _flush_through(
-    scope_id: str,
-    position: int,
-    *,
-    settings: ClaudeCodePluginSettings,
-    deadline: float,
-) -> None:
-    for _ in range(settings.flush_max_calls):
-        result = _post_json(
-            "/v1/memory/flush",
-            {"scope_id": scope_id},
-            settings=settings,
-            deadline=deadline,
-        )
-        cursor = result.get("current_cursor")
-        if isinstance(cursor, int) and not isinstance(cursor, bool) and cursor >= position:
-            return
-    raise RuntimeError
-
-
-def _source_position(response: Mapping[str, object]) -> int:
-    position = response.get("position")
-    if not isinstance(position, int) or isinstance(position, bool) or position < 1:
-        raise TypeError
-    return position
-
-
-def _payload_identifier(payload: Mapping[str, object], *names: str) -> str | None:
-    for name in names:
-        value = payload.get(name)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
-
-
-def _is_user_prompt_submit(value: object) -> bool:
-    return isinstance(value, str) and value.replace("_", "").lower() == "userpromptsubmit"
-
-
-def _post_json(
-    path: str,
-    payload: Mapping[str, object],
-    *,
-    settings: ClaudeCodePluginSettings,
-    deadline: float,
-    expected_status: int | None = None,
-) -> Mapping[str, object]:
-    request = Request(  # noqa: S310 - settings validation enforces the transport policy.
-        f"{settings.server_url}{path}",
-        data=json.dumps(payload, separators=(",", ":")).encode(),
-        headers=_request_headers(settings),
-        method="POST",
-    )
-    request_deadline = deadline
-    try:
-        request_timeout = min(settings.request_timeout_seconds, _remaining_time(deadline))
-        request_deadline = min(deadline, monotonic() + request_timeout)
-        with open_bounded(request, timeout=request_timeout) as response:
-            if expected_status is not None and response.status != expected_status:
-                code = _decode_error_code(_read_response(response, deadline=request_deadline))
-                raise _HttpStatusError(response.status, path, code)
-            result = json.loads(_read_response(response, deadline=request_deadline))
-    except HTTPError as error:
-        try:
-            error_body = _read_response(error, deadline=request_deadline, chunk_bytes=1)
-        except TimeoutError as timeout:
-            raise _ServerUnavailableError from timeout
-        except OSError:
-            error_body = b""
-        raise _HttpStatusError(error.code, path, _decode_error_code(error_body)) from error
-    except TimeoutError as error:
-        raise _ServerUnavailableError from error
-    except OSError as error:
-        raise _ServerUnavailableError from error
-    except ValueError as error:
-        raise _InvalidResponseError from error
-    if not isinstance(result, dict):
-        raise _InvalidResponseError
-    return cast(dict[str, object], result)
-
-
-def _request_headers(settings: ClaudeCodePluginSettings) -> dict[str, str]:
-    headers = dict(_REQUEST_HEADERS)
-    if settings.authorization is not None:
-        headers["Authorization"] = settings.authorization
-    return headers
-
-
-def _read_response(
-    response: _ReadableResponse,
-    *,
-    deadline: float,
-    chunk_bytes: int = _READ_CHUNK_BYTES,
-) -> bytes:
-    """Read one response under a wall-clock deadline and a hard size bound."""
-
-    bind_response_deadline(response, deadline)
-    content = bytearray()
-    while True:
-        _set_response_timeout(response, _remaining_time(deadline))
-        remaining_bytes = _MAX_RESPONSE_BYTES + 1 - len(content)
-        chunk = response.read(min(chunk_bytes, remaining_bytes))
-        if not chunk:
-            return bytes(content)
-        content.extend(chunk)
-        if len(content) > _MAX_RESPONSE_BYTES:
-            raise ValueError("PowerContext response exceeds the hook limit")  # noqa: TRY003
-
-
-def _remaining_time(deadline: float) -> float:
-    remaining = deadline - monotonic()
-    if remaining <= 0:
-        raise TimeoutError
-    return remaining
-
-
-def _set_response_timeout(response: object, timeout: float) -> None:
-    """Tighten urllib's socket timeout before each bounded read."""
-
-    raw = getattr(getattr(response, "fp", None), "raw", None)
-    sock = getattr(raw, "_sock", None)
-    settimeout = getattr(sock, "settimeout", None)
-    if settimeout is not None:
-        settimeout(timeout)
-
-
-def _recall_context(
-    query: str,
-    scope_id: str,
-    *,
-    settings: ClaudeCodePluginSettings,
-    deadline: float,
-    emitted_diagnostics: set[str] | None = None,
-    diagnostic_events: list[dict[str, object]] | None = None,
-) -> str | None:
-    try:
-        prepared = _validate_prepared_context(_prepare_context(query, scope_id, settings=settings, deadline=deadline))
-    except _HttpStatusError as error:
-        outcome = _http_failure_outcome(error, operation="context_prepare")
-        if outcome is not None:
-            _emit_context_event(
-                outcome,
-                http_status=error.status,
-                error_code=error.code,
-                recovery="powercontext doctor" if outcome == "server_unavailable" else None,
-                emitted_diagnostics=emitted_diagnostics,
-                diagnostic_events=diagnostic_events,
-            )
-        return None
-    except (_ServerUnavailableError, TimeoutError):
-        _emit_context_event(
-            "server_unavailable",
-            recovery="powercontext doctor",
-            emitted_diagnostics=emitted_diagnostics,
-            diagnostic_events=diagnostic_events,
-        )
-        return None
-    except _InvalidResponseError:
-        _emit_context_event(
-            "invalid_response",
-            emitted_diagnostics=emitted_diagnostics,
-            diagnostic_events=diagnostic_events,
-        )
-        return None
-
-    status = cast(str, prepared["status"])
-    content_bytes = cast(int, prepared["content_bytes"])
-    if status == "empty":
-        _emit_context_event(
-            "empty",
-            http_status=200,
-            context_status=status,
-            content_bytes=content_bytes,
-            diagnostic_events=diagnostic_events,
-        )
-        return None
-    return cast(str, prepared["content"])
-
-
-def _emit_context_event(
-    outcome: str,
-    *,
-    event_name: str = "context_prepare",
-    http_status: int | None = None,
-    error_code: str | None = None,
-    context_status: str | None = None,
-    content_bytes: int | None = None,
-    recovery: str | None = None,
-    emitted_diagnostics: set[str] | None = None,
-    diagnostic_events: list[dict[str, object]] | None = None,
-) -> None:
-    if emitted_diagnostics is not None and outcome in _FAILURE_OUTCOMES:
-        key = outcome
-        if key in emitted_diagnostics:
-            return
-        emitted_diagnostics.add(key)
-        if not _should_emit_diagnostic(outcome):
-            return
-    event: dict[str, object] = {
-        "component": "powercontext.claude_code.recall",
-        "event": event_name,
-        "outcome": outcome,
-    }
-    if http_status is not None:
-        event["http_status"] = http_status
-    if error_code is not None:
-        event["error_code"] = error_code
-    if context_status is not None:
-        event["context_status"] = context_status
-    if content_bytes is not None:
-        event["content_bytes"] = content_bytes
-    if recovery is not None:
-        event["recovery"] = recovery
-    if diagnostic_events is None or outcome not in _FAILURE_OUTCOMES:
-        sys.stderr.write(json.dumps(event, separators=(",", ":")) + "\n")
-    else:
-        diagnostic_events.append(event)
-
-
-def _emit_failure_event(
-    event_name: str,
-    error: BaseException,
-    *,
-    emitted_diagnostics: set[str],
-    diagnostic_events: list[dict[str, object]] | None = None,
-) -> None:
-    if isinstance(error, _HttpStatusError):
-        outcome = _http_failure_outcome(error, operation=event_name)
-        if outcome is not None:
-            _emit_context_event(
-                outcome,
-                event_name=event_name,
-                http_status=error.status,
-                error_code=error.code,
-                recovery="powercontext doctor" if outcome == "server_unavailable" else None,
-                emitted_diagnostics=emitted_diagnostics,
-                diagnostic_events=diagnostic_events,
-            )
-    elif isinstance(error, (_ServerUnavailableError, TimeoutError)):
-        _emit_context_event(
-            "server_unavailable",
-            event_name=event_name,
-            recovery="powercontext doctor",
-            emitted_diagnostics=emitted_diagnostics,
-            diagnostic_events=diagnostic_events,
-        )
-    else:
-        _emit_context_event(
-            "invalid_response",
-            event_name=event_name,
-            emitted_diagnostics=emitted_diagnostics,
-            diagnostic_events=diagnostic_events,
-        )
-
-
-def _write_hook_output(
-    *,
-    context: str | None = None,
-    diagnostic_events: list[dict[str, object]],
-) -> None:
-    output: dict[str, object] = {}
-    if diagnostic_events:
-        output["systemMessage"] = "\n".join(json.dumps(event, separators=(",", ":")) for event in diagnostic_events)
-    if context:
-        output["hookSpecificOutput"] = {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": context,
-        }
-    if output:
-        json.dump(output, sys.stdout, separators=(",", ":"))
-        sys.stdout.write("\n")
 
 
 if __name__ == "__main__":

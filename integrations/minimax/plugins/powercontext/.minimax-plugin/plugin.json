@@ -18,5 +18,8 @@
   ],
   "skills": [
     "skills/powercontext-project-context/SKILL.md"
+  ],
+  "hooks": [
+    "hooks/hooks.json"
   ]
 }

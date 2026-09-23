@@ -294,7 +294,8 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
             authorization=AUTHORIZATION if authentication_enabled else None,
             scope_id=scope_id,
         )
-        assert first.stdout == ""
+        scope_context = f"PowerContext Scope: {json.dumps(scope_id)}. Use this exact scope_id for PowerContext tools.\n"
+        assert json.loads(first.stdout)["hookSpecificOutput"]["additionalContext"] == scope_context
         assert AUTH_TOKEN not in first.stderr
 
         recalled = _run_hook(
@@ -385,7 +386,7 @@ def test_codex_hook_http_sdk_and_mcp_share_one_composed_context(
             authorization=AUTHORIZATION if authentication_enabled else None,
             scope_id=scope_id,
         )
-        assert excluded.stdout == ""
+        assert json.loads(excluded.stdout)["hookSpecificOutput"]["additionalContext"] == scope_context
         assert AUTH_TOKEN not in excluded.stderr
     finally:
         server.should_exit = True

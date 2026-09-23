@@ -19,7 +19,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { PowerContextClient } from '../../src/client.ts'
 import * as plugin from '../../src/index.ts'
 import { GUIDANCE } from '../../src/skill.ts'
-import { PROJECT_CONTEXT_SKILL } from '../../src/skill-body.ts'
 import { startPowerContextServer } from '../../scripts/e2e-server.mjs'
 
 vi.mock('../../src/peers.ts', () => ({
@@ -304,7 +303,7 @@ describe('plugin HTTP call-through without a model', () => {
       expect(harness.registrations.commands.map(item => item.name)).toEqual(['pc'])
       expect(harness.registrations.skills).toEqual(expect.arrayContaining([expect.objectContaining({
         name: 'powercontext-project-context',
-        content: PROJECT_CONTEXT_SKILL,
+        content: GUIDANCE,
       })]))
       expect(harness.registrations.sections).toEqual([expect.objectContaining({
         name: 'tool:powercontext',
