@@ -141,11 +141,15 @@ class CatalogChangeService:
         basis = candidate.proposal.basis_citation
         if basis is not None and basis not in citations:
             citations = (*citations, basis)
+        supporting_artifacts = tuple(ref for ref in candidate.artifacts if ref != candidate.proposal.basis_ref)
+        supporting_citations = tuple(citation for citation in citations if citation != basis)
+        if not candidate.sources and not supporting_artifacts and not supporting_citations:
+            raise InvalidCandidateError("evidence", "Tag changes require evidence beyond the content basis")
         await self._evidence.validate(
             connection,
             sources=candidate.sources,
-            artifacts=tuple(ref for ref in candidate.artifacts if ref != candidate.proposal.basis_ref),
-            memory_citations=citations,
+            artifacts=supporting_artifacts,
+            memory_citations=supporting_citations,
         )
         await self._basis(connection, candidate.proposal)
 

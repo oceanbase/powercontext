@@ -31,7 +31,11 @@ from powercontext.builtin.catalog_changes.models import CatalogChangeProposal
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import ARTIFACTS_TABLE
-from powercontext.builtin.review.errors import ArtifactTargetConflictError, CandidateConflictError
+from powercontext.builtin.review.errors import (
+    ArtifactTargetConflictError,
+    CandidateConflictError,
+    InvalidCandidateError,
+)
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.builtin.sources import ContentCapture
@@ -129,6 +133,27 @@ def test_catalog_review_is_versioned_and_never_creates_an_artifact(database):
         async with open_builtin_contexts(BuiltinConfig(database=database)) as contexts:
             restored = await contexts.catalog_changes(scope).get(identifier)
             assert restored == approved
+
+    asyncio.run(scenario())
+
+
+def test_catalog_revision_requires_support_beyond_content_basis(database):
+    async def scenario():
+        async with seed(database) as (contexts, scope, source, artifact):
+            service = contexts.catalog_changes(scope)
+            candidate = await service.propose(
+                await proposal(contexts, scope, artifact), sources=(source,), reason="Verified correction"
+            )
+            with pytest.raises(InvalidCandidateError, match="beyond the content basis"):
+                await service.revise(
+                    candidate.candidate_id,
+                    candidate.version,
+                    after_tags=("unsupported",),
+                    reason="Remove all supporting evidence",
+                    sources=(),
+                    artifacts=(artifact.as_ref(),),
+                    memory_citations=(),
+                )
 
     asyncio.run(scenario())
 

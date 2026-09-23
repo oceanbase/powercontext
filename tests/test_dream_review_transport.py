@@ -202,6 +202,25 @@ def test_legacy_original_dream_retains_decodable_envelope():
         assert old.json()["candidate"] == {"candidate_id": "candidate-1", "version": 1}
 
 
+def test_legacy_dream_with_extended_evidence_requires_upgrade():
+    app = FastAPI()
+    app.middleware("http")(negotiate_dream_contract)
+
+    @app.get("/v1/scopes/example/dream/run-1")
+    async def run():
+        return {
+            "run_id": "run-1",
+            "operation": "refine_experience",
+            "accepted_at": "2026-09-22T00:00:00Z",
+            "input_manifest": {"nodes": [{"kind": "skill"}]},
+        }
+
+    with TestClient(app) as client:
+        response = client.get("/v1/scopes/example/dream/run-1")
+        assert response.status_code == 426
+        assert response.json()["error"]["code"] == "client_upgrade_required"
+
+
 def test_review_dashboard_exposes_evidence_and_requires_same_origin_decisions(dashboard):
     scope = create_scope(dashboard, "Review inbox")["scope_id"]
     source = dashboard.post(

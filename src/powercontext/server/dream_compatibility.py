@@ -82,6 +82,11 @@ def _legacy_candidate(result: dict[str, Any]) -> None:
 def _legacy_run(result: dict[str, Any]) -> None:
     if result["operation"] not in LEGACY_DREAM_OPERATIONS:
         raise DreamError("client_upgrade_required")
+    manifest = result.get("input_manifest")
+    if isinstance(manifest, dict):
+        supported_kinds = {"source", "experience", "memory", "unresolved"}
+        if any(node.get("kind") not in supported_kinds for node in manifest.get("nodes", ()) if isinstance(node, dict)):
+            raise DreamError("client_upgrade_required")
     result.pop("tag_target", None)
     result.pop("reused", None)
     if result.get("candidate"):
