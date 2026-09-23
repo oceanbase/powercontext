@@ -66,6 +66,7 @@ from powercontext.builtin.persistence.topic_memory_management import TopicMemory
 from powercontext.builtin.review.errors import (
     ArtifactTargetConflictError,
     CandidateConflictError,
+    CandidateTerminalError,
     InvalidCandidateError,
 )
 from powercontext.builtin.review.models import (
@@ -581,7 +582,23 @@ class ReviewService:
             )
         return _reviewed_candidate(rejected)
 
-    async def approve(  # noqa: C901 - each Family keeps its own transactional publication boundary
+    async def approve(self, candidate_id: str, expected_version: int, /) -> ReviewedCandidate:
+        """Publish once and return the stored result for overlapping approval retries."""
+
+        try:
+            return await self._approve(candidate_id, expected_version)
+        except (ArtifactTargetConflictError, CandidateTerminalError):
+            # Another instance can publish after our pending read. Leave the failed
+            # publication transaction before reading the terminal decision; never
+            # invert the target-before-Candidate order in the pending write path.
+            async with self._connection() as connection:
+                current = await self._candidates.get(connection, self._scope_id, candidate_id, current=True)
+                await self._authorize_decision("approve", current)
+                if current.status is CandidateStatus.APPROVED and current.version == expected_version:
+                    return _reviewed_candidate(current)
+            raise
+
+    async def _approve(  # noqa: C901 - each Family keeps its own transactional publication boundary
         self,
         candidate_id: str,
         expected_version: int,

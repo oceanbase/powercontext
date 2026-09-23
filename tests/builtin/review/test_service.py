@@ -440,10 +440,10 @@ def test_experience_candidate_revise_approve_and_retrieval_gate() -> None:
             assert isolated_context.status == "empty"
             assert pending.candidates == ()
             assert approved_page.candidates == (approved,)
-            with pytest.raises(CandidateTerminalError):
-                await runtime.review.for_scope(scope_id).approve(
-                    ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=2)
-                )
+            replay = await runtime.review.for_scope(scope_id).approve(
+                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=2)
+            )
+            assert replay == approved
 
     asyncio.run(scenario())
 

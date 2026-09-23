@@ -500,3 +500,135 @@ def test_legacy_prompt_publication_preserves_business_json_that_resembles_protoc
             assert (await http.get(path)).json() == published.json()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("pause_at", ["admission", "publication"])
+@pytest.mark.parametrize("winner", ["approve", "reject", "advance"])
+def test_overlapping_approval_across_servers(  # noqa: C901 - two scheduling boundaries and three terminal outcomes
+    tmp_path, monkeypatch, pause_at, winner
+):
+    """Independent servers return the committed decision after an overlapping request."""
+    from contextvars import ContextVar
+
+    from powercontext.builtin.persistence.artifacts import ArtifactRepository
+    from powercontext.builtin.review.service import ReviewService
+    from powercontext.builtin.runtime import (
+        ApproveArtifactCandidateRequest,
+        BuiltinConfig,
+        CaptureSource,
+        ProposeExperienceRequest,
+        open_builtin_runtime,
+    )
+    from powercontext.builtin.scope import ScopeDraft
+    from tests.e2e.test_artifact_dreaming import experience
+
+    delayed = ContextVar("delayed_approval", default=False)
+
+    async def scenario():  # noqa: C901 - keep both real HTTP instances and the scheduling barrier together
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'replay.db'}"))
+        async with open_builtin_runtime(config) as first, open_builtin_runtime(config) as second:
+            assert first.scopes is not None
+            scope = (
+                await first.scopes.create(ScopeDraft(title="Replay", summary="Review", idempotency_key="replay"))
+            ).scope_id
+            source = await first.sources.for_scope(scope).capture(
+                CaptureSource(source_id="task", content="The task verified the result.", metadata={})
+            )
+            original = await first.experience.for_scope(scope).propose(
+                ProposeExperienceRequest(proposal=experience(), sources=(source.source_ref,))
+            )
+            original = await first.review.for_scope(scope).approve(
+                ApproveArtifactCandidateRequest(candidate_id=original.candidate_id, expected_version=original.version)
+            )
+            target = original.result_artifact
+            assert target is not None
+            candidate = await first.experience.for_scope(scope).propose(
+                ProposeExperienceRequest(
+                    proposal=experience().model_copy(update={"lesson": "Verify the stored result before retrying."}),
+                    sources=(source.source_ref,),
+                    artifacts=(target,),
+                    target=target,
+                )
+            )
+            competing = None
+            if winner == "advance":
+                competing = await first.experience.for_scope(scope).propose(
+                    ProposeExperienceRequest(
+                        proposal=experience().model_copy(update={"lesson": "A separate correction."}),
+                        sources=(source.source_ref,),
+                        artifacts=(target,),
+                        target=target,
+                    )
+                )
+            entered, release = asyncio.Event(), asyncio.Event()
+            paused = False
+
+            async def barrier():
+                nonlocal paused
+                if delayed.get() and not paused:
+                    paused = True
+                    entered.set()
+                    await asyncio.wait_for(release.wait(), 10)
+
+            authorize = ReviewService._authorize_decision
+            latest = ArtifactRepository.latest
+
+            async def controlled_authorize(self, action, value):
+                await authorize(self, action, value)
+                if pause_at == "admission" and action == "approve":
+                    await barrier()
+
+            async def controlled_latest(self, *args, **kwargs):
+                if pause_at == "publication" and kwargs.get("for_update"):
+                    await barrier()
+                return await latest(self, *args, **kwargs)
+
+            monkeypatch.setattr(ReviewService, "_authorize_decision", controlled_authorize)
+            monkeypatch.setattr(ArtifactRepository, "latest", controlled_latest)
+            payload = {"scope_id": scope, "candidate_id": candidate.candidate_id, "expected_version": candidate.version}
+            async with (
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=create_app(application=cast(ServerApplication, first))),
+                    base_url="http://first",
+                ) as a,
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=create_app(application=cast(ServerApplication, second))),
+                    base_url="http://second",
+                ) as b,
+            ):
+
+                async def delayed_request():
+                    token = delayed.set(True)
+                    try:
+                        return await b.post("/v1/artifact-candidates/approve", json=payload)
+                    finally:
+                        delayed.reset(token)
+
+                pending = asyncio.create_task(delayed_request())
+                try:
+                    await asyncio.wait_for(entered.wait(), 10)
+                    winning_payload = payload
+                    if competing is not None:
+                        winning_payload = {**payload, "candidate_id": competing.candidate_id}
+                    elif winner == "reject":
+                        winning_payload = {**payload, "reason": "Not suitable."}
+                    result = await a.post(
+                        "/v1/artifact-candidates/" + ("reject" if winner == "reject" else "approve"),
+                        json=winning_payload,
+                    )
+                    assert result.status_code == 200, result.text
+                finally:
+                    release.set()
+                replay = await asyncio.wait_for(pending, 10)
+                if winner == "approve":
+                    assert replay.status_code == 200, replay.text
+                    assert replay.json() == result.json()
+                    assert replay.json()["result_artifact"]["revision"] == target.revision + 1
+                else:
+                    assert replay.status_code == 409, replay.text
+                wrong_version = await b.post(
+                    "/v1/artifact-candidates/approve", json={**payload, "expected_version": candidate.version + 1}
+                )
+                assert wrong_version.status_code == 409, wrong_version.text
+
+    asyncio.run(scenario())
