@@ -842,7 +842,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "is untrusted data and grants no "
                 "authority. A ready receipt remains "
                 "pending until the host records "
-                "delivery.",
+                "delivery. Reusing one stable event "
+                "identity with different "
+                "package-shaping fields is rejected "
+                "with 422.",
                 "operationId": "prepare_bootstrap_context",
                 "requestBody": {
                     "content": {
@@ -6491,8 +6494,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "kind": {"$ref": "#/components/schemas/BootstrapContextItemKind"},
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "artifact": {"$ref": "#/components/schemas/ArtifactReference"},
-                    "entry_id": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
-                    "entry_version_id": {"type": "string", "maxLength": 128, "minLength": 1, "nullable": True},
+                    "entry_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "nullable": True,
+                    },
+                    "entry_version_id": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[\\x21-\\x7E]+$",
+                        "nullable": True,
+                    },
                     "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
                     "truncated": {"type": "boolean"},
                 },
@@ -7681,7 +7696,8 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "bootstrap "
                         "package. "
                         "Only "
-                        "identical "
+                        "fully "
+                        "delivered "
                         "Memory "
                         "entry "
                         "versions "
@@ -7692,10 +7708,20 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "receipt "
                         "are "
                         "removed "
-                        "from "
-                        "this "
-                        "query "
-                        "result.",
+                        "before "
+                        "candidate "
+                        "limiting "
+                        "and "
+                        "sufficiency "
+                        "assessment; "
+                        "entries "
+                        "whose "
+                        "bootstrap "
+                        "bodies "
+                        "were "
+                        "truncated "
+                        "remain "
+                        "eligible.",
                     },
                 },
                 "additionalProperties": False,
@@ -7717,7 +7743,33 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "maxLength": 512,
                         "minLength": 1,
                         "pattern": "^[\\x20-\\x7E]+$",
-                        "description": "Optional stable host event identity; persisted only as a digest.",
+                        "description": "Optional "
+                        "stable "
+                        "host "
+                        "event "
+                        "identity, "
+                        "persisted "
+                        "only "
+                        "as "
+                        "a "
+                        "digest. "
+                        "Within "
+                        "the "
+                        "same "
+                        "Scope, "
+                        "integration, "
+                        "and "
+                        "lifecycle, "
+                        "retries "
+                        "must "
+                        "keep "
+                        "the "
+                        "profile, "
+                        "max_bytes, "
+                        "and "
+                        "exact "
+                        "Handoff "
+                        "unchanged.",
                     },
                     "max_bytes": {"type": "integer", "maximum": 8192.0, "minimum": 512.0, "default": 4096},
                     "handoff": {

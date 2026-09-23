@@ -104,8 +104,10 @@ export POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF='{"artifact_id":"HANDOFF_ID","revis
 
 Use the Memory-entry tag API to add `bootstrap-context` only to reviewed decisions, constraints, objectives, verified
 state, or repository guidance. The plugin stores a content-free receipt under `${CLAUDE_PLUGIN_DATA}`; successful
-delivery lets the first ordinary query suppress only the exact Memory versions already injected. Revised versions remain
-eligible. Preparation, validation, and receipt failures fail open and inject nothing.
+delivery lets the first ordinary query suppress only fully delivered exact Memory entry versions. Entries truncated
+during bootstrap and revised versions remain eligible. Preparation, validation, and receipt failures fail open and
+inject nothing. Failures before a new lifecycle package is established, including invalid configuration, also clear
+any stale saved receipt.
 
 The Source pipeline may later extract Memory when a generation model is configured. Prompt capture does not call
 `remember_memory`, and the Hook never labels an ordinary prompt as `task-outcome`.

@@ -35,7 +35,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from bootstrap_state import load_receipt  # noqa: E402
+from bootstrap_state import clear_receipt, load_receipt  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
 from scope_binding import bind_response_deadline, open_bounded, resolve_scope_id  # noqa: E402
@@ -50,7 +50,7 @@ _READ_CHUNK_BYTES = 65_536
 _REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
-    "User-Agent": "powercontext-codex-plugin/0.2.0",
+    "User-Agent": "powercontext-codex-plugin/0.3.0",
 }
 _FAILURE_OUTCOMES = frozenset({"authentication_failed", "version_mismatch", "server_unavailable", "invalid_response"})
 
@@ -147,6 +147,7 @@ def main(settings: CodexPluginSettings | None = None) -> int:
             deadline=http_deadline,
         )
         bootstrap_receipt_id = load_receipt(session_id, scope_id)
+        clear_receipt(session_id)
         context = _recall_context(
             prompt,
             scope_id,

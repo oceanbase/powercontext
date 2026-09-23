@@ -81,8 +81,10 @@ Bootstrap context is disabled by default. Set
 explicitly tagged `bootstrap-context`; use
 `POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` for the 512–8192-byte budget and
 `POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` for one exact committed Handoff identity.
-The first ordinary recall carries the successful receipt so exact delivered
-Memory versions are not repeated.
+The first ordinary recall carries the successful receipt so fully delivered
+exact Memory entry versions are not repeated; truncated entries remain eligible.
+Invalid configuration or another failure before a new package is established
+clears any stale saved receipt and injects nothing.
 
 Set `POWERCONTEXT_CODEX_SCOPE_ID` only when the host must explicitly bind every
 request to one known Scope.

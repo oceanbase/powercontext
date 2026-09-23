@@ -22,7 +22,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
@@ -931,6 +931,15 @@ class ScopedContextApplication:
         # Expansion rounds read it so a repeat search does not re-embed; round 0 fills it.
         reuse: dict[str, MemoryQueryEmbedding] = {}
         topic_reuse: dict[str, MemoryQueryEmbedding] = {}
+        injected_memory_keys: frozenset[tuple[object, ...]] = frozenset()
+        if request.bootstrap_receipt_id is not None and self._runtime._bootstrap_receipts is not None:
+            receipts = self._runtime._bootstrap_receipts
+            cutoff = self._runtime._clock().astimezone(UTC) - _BOOTSTRAP_RECEIPT_RETENTION
+            await receipts.delete_before(cutoff)
+            injected_memory_keys = await receipts.injected_memory_keys(
+                self.scope_id,
+                request.bootstrap_receipt_id,
+            )
 
         round_zero = await self._recall_round(
             request,
@@ -940,6 +949,7 @@ class ScopedContextApplication:
             admission=None,
             reuse=reuse,
             topic_reuse=topic_reuse,
+            excluded_memory=injected_memory_keys,
         )
         memory_candidates = list(round_zero.memory)
         experience_candidates = list(round_zero.experience)
@@ -974,22 +984,8 @@ class ScopedContextApplication:
                 reuse=reuse,
                 topic_reuse=topic_reuse,
                 round_zero=round_zero,
+                excluded_memory=injected_memory_keys,
             )
-        if request.bootstrap_receipt_id is not None and self._runtime._bootstrap_receipts is not None:
-            injected = await self._runtime._bootstrap_receipts.injected_memory_keys(
-                self.scope_id,
-                request.bootstrap_receipt_id,
-            )
-            if injected:
-                memory_candidates = [
-                    replace(
-                        candidates,
-                        hits=tuple(
-                            hit for hit in candidates.hits if _memory_identity(candidates.scope_id, hit) not in injected
-                        ),
-                    )
-                    for candidates in memory_candidates
-                ]
         with self._runtime._stage(
             "context.build",
             attributes={
@@ -1053,6 +1049,7 @@ class ScopedContextApplication:
         reuse: dict[str, MemoryQueryEmbedding],
         topic_reuse: dict[str, MemoryQueryEmbedding],
         round_zero: _RecallRoundOutcome,
+        excluded_memory: frozenset[tuple[object, ...]],
     ) -> tuple[
         list[PreparedMemoryCandidates],
         list[PreparedExperienceCandidates],
@@ -1120,6 +1117,7 @@ class ScopedContextApplication:
                     admission=plan.admission,
                     reuse=reuse,
                     topic_reuse=topic_reuse,
+                    excluded_memory=excluded_memory,
                 )
                 for group in issued.memory:
                     _ensure_memory_head_stable(
@@ -1269,6 +1267,7 @@ class ScopedContextApplication:
         admission: AdmissionFloor | None,
         reuse: dict[str, MemoryQueryEmbedding],
         topic_reuse: dict[str, MemoryQueryEmbedding],
+        excluded_memory: frozenset[tuple[object, ...]],
     ) -> _RecallRoundOutcome:
         memory_candidates: list[PreparedMemoryCandidates] = []
         experience_candidates: list[PreparedExperienceCandidates] = []
@@ -1284,7 +1283,18 @@ class ScopedContextApplication:
                 admission=admission,
                 reuse=reuse.get(scope_id),
             )
-            memory_candidates.append(outcome.memory)
+            memory_candidates.append(
+                replace(
+                    outcome.memory,
+                    hits=tuple(
+                        hit
+                        for hit in outcome.memory.hits
+                        if _bootstrap_memory_identity(outcome.memory.scope_id, hit) not in excluded_memory
+                    ),
+                )
+                if excluded_memory
+                else outcome.memory
+            )
             experience_candidates.append(outcome.experience)
             if outcome.memory_query_embedding is not None:
                 reuse[scope_id] = outcome.memory_query_embedding
@@ -1622,6 +1632,12 @@ def _memory_identity(scope_id: str, hit: MemoryHit) -> tuple[str, str, int, str,
     return (scope_id, hit.memory_ref.artifact_id, hit.memory_ref.revision, hit.entry_id, hit.entry_version_id)
 
 
+def _bootstrap_memory_identity(scope_id: str, hit: MemoryHit) -> tuple[str, str, str, str]:
+    """Identify exact entry content without coupling it to unrelated Memory revisions."""
+
+    return (scope_id, hit.memory_ref.artifact_id, hit.entry_id, hit.entry_version_id)
+
+
 def _experience_identity(scope_id: str, hit: ExperienceSearchHit) -> tuple[str, str, int]:
     return (scope_id, hit.artifact_ref.artifact_id, hit.artifact_ref.revision)
 
@@ -1650,17 +1666,15 @@ _BOOTSTRAP_TAG = "bootstrap-context"
 _BOOTSTRAP_MEMORY_LIMIT = 6
 _BOOTSTRAP_CONTEXT_REFERENCE_LIMIT = 8
 _BOOTSTRAP_TAG_SCAN_LIMIT = 32
-_SECRET_MEMORY_KINDS = (
+_BOOTSTRAP_RECEIPT_RETENTION = timedelta(days=30)
+_SECRET_MEMORY_KIND_MARKERS = (
     "secret",
     "credential",
     "password",
     "token",
-    "api key",
-    "api-key",
     "apikey",
-    "access key",
-    "private key",
-    "private-key",
+    "accesskey",
+    "privatekey",
 )
 
 
@@ -1682,41 +1696,24 @@ class ScopedBootstrapApplication:
         async with self._runtime._scope_operation(self.scope_id) as scope:
             scope_ids = (self.scope_id, *scope.context_references[:_BOOTSTRAP_CONTEXT_REFERENCE_LIMIT])
             event_key = _bootstrap_event_key(self.scope_id, request)
+            await self._delete_expired_receipts(request, event_key, repository)
             if not request.enabled:
                 return await self._disabled_result(request, event_key, repository, authorize_scopes)
-            if event_key is not None:
-                existing = await repository.by_event(event_key)
-                if existing is not None:
-                    if authorize_scopes is not None:
-                        stored_scope_ids = tuple(
-                            dict.fromkeys((*scope_ids, *(item.scope_id for item in existing.items)))
-                        )
-                        await authorize_scopes(stored_scope_ids)
-                    return await self._existing_result(existing)
+            existing = await self._existing_event_result(
+                request,
+                event_key,
+                scope_ids,
+                repository,
+                authorize_scopes,
+            )
+            if existing is not None:
+                return existing
             if authorize_scopes is not None:
                 await authorize_scopes(scope_ids)
             candidates = await self._select_candidates(request, scope_ids)
             build = build_bootstrap_context(candidates, request.max_bytes)
             if build.content is None:
-                stored, created = await repository.create(
-                    self._stored_receipt(
-                        request,
-                        event_key=event_key,
-                        state="skipped",
-                        reason="no_eligible_context",
-                        truncated=build.truncated,
-                    )
-                )
-                if not created:
-                    return await self._existing_result(stored)
-                return BootstrapContext(
-                    status="empty",
-                    reason="no_eligible_context",
-                    content=None,
-                    content_bytes=0,
-                    truncated=build.truncated,
-                    receipt=_delivery_receipt(stored),
-                )
+                return await self._empty_result(request, event_key, build, repository)
 
             stored, created = await repository.create(
                 self._stored_receipt(
@@ -1729,8 +1726,68 @@ class ScopedBootstrapApplication:
                 )
             )
             if not created:
+                self._require_matching_request(stored, request)
                 return await self._existing_result(stored)
-            return _ready_bootstrap(stored, build.content, build)
+            return _ready_bootstrap(stored, build.content)
+
+    async def _delete_expired_receipts(
+        self,
+        request: BootstrapContextRequest,
+        event_key: str | None,
+        repository: BootstrapReceiptRepository,
+    ) -> None:
+        if request.enabled or event_key is not None:
+            cutoff = self._runtime._clock().astimezone(UTC) - _BOOTSTRAP_RECEIPT_RETENTION
+            await repository.delete_before(cutoff)
+
+    async def _existing_event_result(
+        self,
+        request: BootstrapContextRequest,
+        event_key: str | None,
+        scope_ids: tuple[str, ...],
+        repository: BootstrapReceiptRepository,
+        authorize_scopes: Callable[[tuple[str, ...]], Awaitable[None]] | None,
+    ) -> BootstrapContext | None:
+        if event_key is None:
+            return None
+        existing = await repository.by_event(event_key)
+        if existing is None:
+            return None
+        self._require_matching_request(existing, request)
+        if authorize_scopes is not None:
+            stored_scope_ids = tuple(dict.fromkeys((*scope_ids, *(item.scope_id for item in existing.items))))
+            await authorize_scopes(stored_scope_ids)
+        return await self._existing_result(existing)
+
+    async def _empty_result(
+        self,
+        request: BootstrapContextRequest,
+        event_key: str | None,
+        build: BootstrapBuild,
+        repository: BootstrapReceiptRepository,
+    ) -> BootstrapContext:
+        candidate = self._stored_receipt(
+            request,
+            event_key=event_key,
+            state="skipped",
+            reason="no_eligible_context",
+            truncated=build.truncated,
+        )
+        if event_key is None:
+            stored = candidate
+        else:
+            stored, created = await repository.create(candidate)
+            if not created:
+                self._require_matching_request(stored, request)
+                return await self._existing_result(stored)
+        return BootstrapContext(
+            status="empty",
+            reason="no_eligible_context",
+            content=None,
+            content_bytes=0,
+            truncated=build.truncated,
+            receipt=_delivery_receipt(stored),
+        )
 
     async def _disabled_result(
         self,
@@ -1743,9 +1800,11 @@ class ScopedBootstrapApplication:
             await authorize_scopes((self.scope_id,))
         stored = await repository.by_event(event_key) if event_key is not None else None
         if stored is None:
-            stored, _ = await repository.create(
-                self._stored_receipt(request, event_key=event_key, state="skipped", reason="disabled")
-            )
+            candidate = self._stored_receipt(request, event_key=event_key, state="skipped", reason="disabled")
+            if event_key is None:
+                stored = candidate
+            else:
+                stored, _ = await repository.create(candidate)
         if stored.state == "pending":
             stored, _ = await repository.record_delivery(self.scope_id, stored.receipt_id, "skipped")
             if stored is None:
@@ -1847,8 +1906,12 @@ class ScopedBootstrapApplication:
                 extra={"event": "context.bootstrap.reconstruct_failed", "outcome": "failure", "unit": "context"},
             )
             failed, _ = await self._repository().record_delivery(self.scope_id, stored.receipt_id, "failed")
-            return self._terminal_result(failed or stored, reason="preparation_failed")
-        return _ready_bootstrap(stored, content, build)
+            terminal = failed or stored
+            if terminal.state == "pending":
+                raise InvalidRuntimeRequestError("bootstrap-receipt") from error
+            reason: BootstrapSkipReason = "preparation_failed" if terminal.state == "failed" else "already_delivered"
+            return self._terminal_result(terminal, reason=reason)
+        return _ready_bootstrap(stored, content)
 
     async def _candidate_from_item(self, item: BootstrapContextItem) -> BootstrapCandidate:
         records = self._runtime._records()
@@ -1893,6 +1956,7 @@ class ScopedBootstrapApplication:
             receipt_id=f"bcr_{uuid4().hex}",
             scope_id=self.scope_id,
             event_key=event_key,
+            request_digest=_bootstrap_request_digest(request),
             integration=request.integration,
             lifecycle=request.lifecycle,
             profile=request.profile,
@@ -1903,7 +1967,13 @@ class ScopedBootstrapApplication:
             content_bytes=len(encoded),
             truncated=truncated,
             items=items,
+            created_at=self._runtime._clock(),
         )
+
+    @staticmethod
+    def _require_matching_request(stored: StoredBootstrapReceipt, request: BootstrapContextRequest) -> None:
+        if stored.request_digest != _bootstrap_request_digest(request):
+            raise InvalidRuntimeRequestError("bootstrap-event-request-mismatch")
 
     def _terminal_result(self, stored: StoredBootstrapReceipt, *, reason: BootstrapSkipReason) -> BootstrapContext:
         return BootstrapContext(
@@ -1940,8 +2010,20 @@ def _bootstrap_event_key(scope_id: str, request: BootstrapContextRequest) -> str
 
 
 def _secret_memory_kind(kind: str) -> bool:
-    normalized = " ".join(kind.casefold().replace("_", " ").split())
-    return any(marker in normalized for marker in _SECRET_MEMORY_KINDS)
+    compact = "".join(character for character in kind.casefold() if character.isalnum())
+    return any(marker in compact for marker in _SECRET_MEMORY_KIND_MARKERS)
+
+
+def _bootstrap_request_digest(request: BootstrapContextRequest) -> str:
+    payload = {
+        "handoff": None if request.handoff is None else request.handoff.model_dump(mode="json", by_alias=True),
+        "integration": request.integration,
+        "lifecycle": request.lifecycle,
+        "max_bytes": request.max_bytes,
+        "profile": request.profile,
+    }
+    encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode()
+    return "sha256:" + sha256(encoded).hexdigest()
 
 
 def _package_digest(content: str) -> str:
@@ -1958,7 +2040,6 @@ def _require_reconstructed_bootstrap(
         or build.items != stored.items
         or len(content.encode("utf-8")) != stored.content_bytes
         or _package_digest(content) != stored.package_digest
-        or build.truncated != stored.truncated
     ):
         raise ValueError("bootstrap receipt cannot be reconstructed")  # noqa: TRY003
     return content
@@ -1968,15 +2049,15 @@ def _delivery_receipt(stored: StoredBootstrapReceipt) -> BootstrapDeliveryReceip
     return BootstrapDeliveryReceipt(receipt_id=stored.receipt_id, state=stored.state)
 
 
-def _ready_bootstrap(stored: StoredBootstrapReceipt, content: str, build: BootstrapBuild) -> BootstrapContext:
+def _ready_bootstrap(stored: StoredBootstrapReceipt, content: str) -> BootstrapContext:
     return BootstrapContext(
         status="ready",
         profile=stored.profile,
         content=content,
         content_bytes=stored.content_bytes,
         package_digest=stored.package_digest,
-        items=build.items,
-        truncated=build.truncated,
+        items=stored.items,
+        truncated=stored.truncated,
         receipt=_delivery_receipt(stored),
     )
 

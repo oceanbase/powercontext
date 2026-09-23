@@ -17,7 +17,7 @@ Issue #1429 使用了 Project 和 Workstream 术语。后续 RFC 1345 已确定 
 1. 最多六条当前有效、且被显式标记 `bootstrap-context` 的 Memory 条目。先选择当前 Scope，再按 Scope 的规范顺序选择最多八个直接 Context Reference；每个参与 Scope 最多检查 32 条带标签的条目。
 2. 调用方在当前 Scope 中显式指定的一条精确、已提交 Handoff Revision。服务端不会隐式选择“最新 Handoff”。
 
-标签表示运维者已经审核其适合自动注入，但不是授权机制。不得标记凭证、秘密、个人数据、未经审核的生成指令或其他不应自动注入的内容。Runtime 还会排除 kind 表明为 secret、credential、password、token 或 private-key 的条目。每个参与 Scope 仍须通过当前授权检查。
+标签表示运维者已经审核其适合自动注入，但不是授权机制。不得标记凭证、秘密、个人数据、未经审核的生成指令或其他不应自动注入的内容。Runtime 还会先归一化标点和分隔符，再排除 kind 表明为 secret、credential、password、token、API-key、access-key 或 private-key 的条目。每个参与 Scope 仍须通过当前授权检查。
 
 完整 transcript、全部 Memory、待审核候选、原始 Source 窗口、生成中的 Profile 以及任意其他 Artifact Family 均不符合资格。选择过程不调用 embedding、rerank、生成或扩展。
 
@@ -27,9 +27,9 @@ Issue #1429 使用了 Project 和 Workstream 术语。后续 RFC 1345 已确定 
 
 `ready` 响应的收据为 `pending`。宿主必须先通过 `POST /v1/context/bootstrap/receipts` 一次性认领 `pending`→`injected` 状态迁移，成功后才能输出 `additionalContext`；第二次认领即使已存状态是 `injected` 也会被拒绝。确认失败时不注入。宿主也可记录 `failed`。关闭和无合格内容会产生 `skipped` 收据；终态事件重试只返回不含正文的 `skipped` 响应。
 
-收据不保存查询、正文、transcript 路径、原始宿主事件 ID 或宿主错误文本，只保存有界身份元数据、精确内容引用与摘要、字节数和状态。事件 ID 在持久化前与 Scope、集成及生命周期一同哈希。稳定事件重试在 `pending` 时重建同一精确包，终态后返回 `skipped`；若待交付期间关闭开关，收据会直接终结为跳过且不读取 Context Reference。宿主不提供稳定事件标识时，不宣称具备跨重启幂等性。
+收据不保存查询、正文、transcript 路径、原始宿主事件 ID 或宿主错误文本，只保存有界身份元数据、精确内容引用与摘要、字节数、创建时间和状态。事件 ID 在持久化前与 Scope、集成及生命周期一同哈希；画像、字节预算和精确 Handoff 等会影响包内容的字段另行计算指纹。用不同的这些字段复用同一稳定事件会被拒绝，而不会误返回为另一请求生成的包。其余字段相同的稳定事件重试在 `pending` 时重建同一精确包，终态后返回 `skipped`；若待交付期间关闭开关，收据会直接终结为跳过且不读取 Context Reference。收据保留 30 天并在后续请求中顺带清理；无稳定事件标识的关闭或空结果只返回临时收据，不新增数据库行。宿主不提供稳定事件标识时，不宣称具备跨重启幂等性。
 
-`PrepareContextRequest` 可携带 `bootstrap_receipt_id`。只有当收据属于相同 Scope 且状态为 `injected` 时，普通查询召回才去掉收据中完全相同的 Memory 条目版本；后续修订版仍可召回。缺失、过期、跨 Scope 或非注入收据均被忽略，保持 fail-open。
+`PrepareContextRequest` 可携带 `bootstrap_receipt_id`。只有当收据属于相同 Scope 且状态为 `injected` 时，普通查询召回才去掉收据中完整交付的精确 Memory 条目版本。过滤发生在候选限额和召回充分性判断之前，因此已交付条目既不会误让 gate 判定充分，也不会挤掉仍合格的候选。条目身份不受其他条目推动父 Memory Revision 前进的影响；正文只交付了前缀的条目及后续修订版仍可召回。缺失、过期、跨 Scope 或非注入收据均被忽略，保持 fail-open。
 
 ## 限额与信任边界
 
@@ -39,10 +39,10 @@ Issue #1429 使用了 Project 和 Workstream 术语。后续 RFC 1345 已确定 
 
 ## 宿主集成与失败策略
 
-Codex 和 Claude Code 复用现有 Scope 绑定，在 `SessionStart` 请求启动包，并保留 `startup`、`resume`、`clear`、`compact`、`restore` 和 `fork` 的独立来源语义。两端均默认关闭，使用统一的绝对 HTTP 时间预算，严格校验响应，只在插件持久数据目录保存最近的收据 ID，并在超时、鉴权失败、无权限、服务不可用、旧版本服务或非法响应时不阻断宿主。失败与空结果使用不含正文的诊断事件区分。
+Codex 和 Claude Code 复用现有 Scope 绑定，在 `SessionStart` 请求启动包，并保留 `startup`、`resume`、`clear`、`compact`、`restore` 和 `fork` 的独立来源语义。两端均默认关闭，使用统一的绝对 HTTP 时间预算，严格校验响应，只在插件持久数据目录保存最近的收据 ID；同一已注入终态事件重放时仅保留本地已经存在且匹配的收据，已经消费或清除的收据不会根据服务端终态重建；配置非法、超时、鉴权失败、无权限、服务不可用、旧版本服务或非法响应均不阻断宿主。在新生命周期包建立前发生的任何失败都会清除过期的本地收据。失败与空结果使用不含正文的诊断事件区分。
 
 随后第一次 `UserPromptSubmit` 仍执行普通基于查询的召回，只把该收据 ID 作为精确版本去重提示；现有 prompt 捕获行为不变。
 
 ## 验收
 
-契约与 Runtime 测试必须覆盖：默认关闭、全部生命周期、精确 Handoff、策展 Memory 顺序、Unicode 字节限额、秘密 kind 排除、Context Reference 授权、收据重试与状态迁移、首查询精确版本去重，以及数据库不保存正文。Codex 与 Claude Code 测试必须覆盖成功注入、关闭/空结果、向首查询传递收据、非法响应、超时和 HTTP 失败均不阻塞宿主。
+契约与 Runtime 测试必须覆盖：默认关闭、全部生命周期、精确 Handoff、策展 Memory 顺序、Unicode 字节限额、分隔符归一化后的秘密 kind 排除、Context Reference 授权、收据重试、请求冲突、状态迁移与有界保留、包级遗漏、在 gate 前完成的跨无关 Memory Revision 首查询精确版本去重、部分交付条目继续可召回，以及数据库不保存正文。Codex 与 Claude Code 测试必须覆盖成功注入、关闭/空结果、终态事件重放、向首查询传递收据、非法配置与响应、超时和 HTTP 失败均不阻塞宿主。

@@ -116,15 +116,12 @@ def validate_delivery_receipt(value: object, *, receipt_id: str | None = None) -
         raise InvalidBootstrapResponse
     identifier, state = value.get("receipt_id"), value.get("state")
     if (
-        not isinstance(identifier, str)
-        or not 1 <= len(identifier) <= 64
-        or not identifier.isascii()
-        or not identifier.isprintable()
+        not _printable_identifier(identifier, maximum=64)
         or state not in {"pending", "injected", "skipped", "failed"}
         or (receipt_id is not None and identifier != receipt_id)
     ):
         raise InvalidBootstrapResponse
-    return {"receipt_id": identifier, "state": cast(str, state)}
+    return {"receipt_id": cast(str, identifier), "state": cast(str, state)}
 
 
 def _validate_item(value: object) -> dict[str, object]:
@@ -168,7 +165,5 @@ def _printable_identifier(value: object, *, maximum: int) -> bool:
     return (
         isinstance(value, str)
         and 1 <= len(value) <= maximum
-        and value.isascii()
-        and value.isprintable()
-        and not value.isspace()
+        and all("\x21" <= character <= "\x7e" for character in value)
     )

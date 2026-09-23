@@ -94,8 +94,9 @@ export POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF='{"artifact_id":"HANDOFF_ID","revisi
 
 通过 Memory entry tag API，只把经过审阅、适合每个新 Session 的决策、约束、目标、已验证状态或仓库指南标记为
 `bootstrap-context`。不含正文的 delivery receipt 让重试保持幂等；成功注入后，第一条普通查询会携带该 receipt，
-Runtime 仅排除已经注入的 exact Memory versions，新修订版本仍可正常召回。准备、校验或回执失败时都会 fail open，
-不注入任何内容。
+Runtime 仅排除正文已完整交付的 exact Memory entry versions；启动时被截短的条目和新修订版本仍可正常召回。
+准备、校验或回执失败时都会 fail open，不注入任何内容。
+在新的生命周期包建立前发生失败（包括配置非法）时，还会清除之前保存的过期 receipt。
 
 ## 选择标准上下文文本
 

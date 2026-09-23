@@ -17,10 +17,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import cast
 
 from pydantic import TypeAdapter
-from sqlalchemy import insert, select, update
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -43,6 +44,7 @@ class StoredBootstrapReceipt:
     receipt_id: str
     scope_id: str
     event_key: str | None
+    request_digest: str
     integration: str
     lifecycle: BootstrapContextLifecycle
     profile: BootstrapContextProfile
@@ -53,6 +55,7 @@ class StoredBootstrapReceipt:
     content_bytes: int
     truncated: bool
     items: tuple[BootstrapContextItem, ...]
+    created_at: datetime
 
 
 class BootstrapReceiptRepository:
@@ -108,6 +111,15 @@ class BootstrapReceiptRepository:
             )
             return _stored_receipt(row), False
 
+    async def delete_before(self, cutoff: datetime) -> int:
+        """Delete receipts outside the bounded retry/deduplication window."""
+
+        async with self._database.transaction() as connection:
+            result = await connection.execute(
+                delete(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE).where(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE.c.created_at < cutoff)
+            )
+        return result.rowcount
+
     async def record_delivery(
         self,
         scope_id: str,
@@ -139,6 +151,8 @@ class BootstrapReceiptRepository:
         return (replace(stored, state=outcome) if claimed else stored), claimed
 
     async def injected_memory_keys(self, scope_id: str, receipt_id: str) -> frozenset[tuple[object, ...]]:
+        """Return fully delivered entry-version identities from one injected package."""
+
         async with self._database.transaction() as connection:
             row = (
                 (
@@ -162,12 +176,11 @@ class BootstrapReceiptRepository:
             (
                 item.scope_id,
                 item.artifact.artifact_id,
-                item.artifact.revision,
                 item.entry_id,
                 item.entry_version_id,
             )
             for item in items
-            if item.kind == "memory_entry"
+            if item.kind == "memory_entry" and not item.truncated
         )
 
 
@@ -176,6 +189,7 @@ def _values(receipt: StoredBootstrapReceipt) -> dict[str, object]:
         "receipt_id": receipt.receipt_id,
         "scope_id": receipt.scope_id,
         "event_key": receipt.event_key,
+        "request_digest": receipt.request_digest,
         "integration": receipt.integration,
         "lifecycle": receipt.lifecycle,
         "profile": receipt.profile,
@@ -186,6 +200,7 @@ def _values(receipt: StoredBootstrapReceipt) -> dict[str, object]:
         "content_bytes": receipt.content_bytes,
         "truncated": receipt.truncated,
         "items": _ITEMS.dump_json(receipt.items),
+        "created_at": receipt.created_at,
     }
 
 
@@ -200,6 +215,7 @@ def _stored_receipt(row: object) -> StoredBootstrapReceipt:
         receipt_id=receipt_id,
         scope_id=cast(str, values["scope_id"]),
         event_key=cast(str | None, values["event_key"]),
+        request_digest=cast(str, values["request_digest"]),
         integration=cast(str, values["integration"]),
         lifecycle=cast(BootstrapContextLifecycle, values["lifecycle"]),
         profile=cast(BootstrapContextProfile, values["profile"]),
@@ -210,4 +226,5 @@ def _stored_receipt(row: object) -> StoredBootstrapReceipt:
         content_bytes=cast(int, values["content_bytes"]),
         truncated=cast(bool, values["truncated"]),
         items=_load_items(values["items"], receipt_id),
+        created_at=cast(datetime, values["created_at"]),
     )

@@ -22,7 +22,11 @@ first prompt on startup, resume, clear, compact, or fork. Enable it with
 `bootstrap-context` and one explicitly selected exact committed Handoff are
 eligible. `POWERCONTEXT_CLAUDE_BOOTSTRAP_MAX_BYTES` controls the 512–8192-byte
 budget, and `POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF` supplies the Handoff JSON
-identity. The plugin persists only a content-free delivery receipt.
+identity. The plugin persists only a content-free delivery receipt. The first
+ordinary recall suppresses fully delivered exact Memory entry versions while
+leaving entries truncated during bootstrap eligible.
+Invalid configuration or another failure before a new package is established
+clears any stale saved receipt and injects nothing.
 
 Scope is resolved by the Server from an explicit override, the current session
 or workspace binding, and finally the Server default. Bindings let multiple

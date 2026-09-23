@@ -1096,6 +1096,7 @@ CONTEXT_BOOTSTRAP_RECEIPTS_TABLE = Table(
     Column("receipt_id", identity_string(64), primary_key=True),
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), nullable=False),
     Column("event_key", identity_string(64), nullable=True),
+    Column("request_digest", identity_string(71), nullable=False),
     Column("integration", identity_string(64), nullable=False),
     Column("lifecycle", identity_string(16), nullable=False),
     Column("profile", identity_string(64), nullable=False),
@@ -1106,8 +1107,10 @@ CONTEXT_BOOTSTRAP_RECEIPTS_TABLE = Table(
     Column("content_bytes", Integer, nullable=False),
     Column("truncated", Boolean, nullable=False),
     Column("items", _canonical_payload_type(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
     UniqueConstraint("event_key", name="uq_pc_context_bootstrap_receipts_event"),
+    Index("ix_pc_context_bootstrap_receipts_created_at", "created_at"),
     CheckConstraint(
         "state IN ('pending', 'injected', 'skipped', 'failed')",
         name="ck_pc_context_bootstrap_receipts_state",

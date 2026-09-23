@@ -890,6 +890,7 @@ paths:
         Prepare an opt-in, deterministic bootstrap package without manufacturing a query. Only explicitly curated
         active Memory entries and one caller-selected exact committed Handoff are eligible. Returned historical text
         is untrusted data and grants no authority. A ready receipt remains pending until the host records delivery.
+        Reusing one stable event identity with different package-shaping fields is rejected with 422.
       operationId: prepare_bootstrap_context
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
@@ -6986,11 +6987,13 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
           nullable: true
         entry_version_id:
           type: string
           minLength: 1
           maxLength: 128
+          pattern: '^[\x21-\x7E]+$'
           nullable: true
         content_digest:
           type: string
@@ -8556,8 +8559,9 @@ components:
           maxLength: 64
           pattern: '^[\x21-\x7E]+$'
           description: >-
-            Optional exact receipt for the last successfully injected bootstrap package. Only identical Memory entry
-            versions from an injected same-Scope receipt are removed from this query result.
+            Optional exact receipt for the last successfully injected bootstrap package. Only fully delivered Memory
+            entry versions from an injected same-Scope receipt are removed before candidate limiting and sufficiency
+            assessment; entries whose bootstrap bodies were truncated remain eligible.
     BootstrapContextRequest:
       type: object
       additionalProperties: false
@@ -8587,7 +8591,9 @@ components:
           minLength: 1
           maxLength: 512
           pattern: '^[\x20-\x7E]+$'
-          description: Optional stable host event identity; persisted only as a digest.
+          description: >-
+            Optional stable host event identity, persisted only as a digest. Within the same Scope, integration, and
+            lifecycle, retries must keep the profile, max_bytes, and exact Handoff unchanged.
         max_bytes:
           type: integer
           minimum: 512

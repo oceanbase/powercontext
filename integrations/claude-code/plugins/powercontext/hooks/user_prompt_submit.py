@@ -33,7 +33,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from bootstrap_state import load_receipt  # noqa: E402
+from bootstrap_state import clear_receipt, load_receipt  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from hooks import prepared_context as _prepared_context  # noqa: E402
 from hooks.diagnostics import should_emit as _should_emit_diagnostic  # noqa: E402
@@ -146,6 +146,7 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
             deadline=http_deadline,
         )
         bootstrap_receipt_id = load_receipt(session_id, scope_id)
+        clear_receipt(session_id)
         context = None
         with suppress(Exception):
             context = _recall_context(

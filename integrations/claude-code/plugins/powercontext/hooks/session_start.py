@@ -32,7 +32,7 @@ _SCRIPTS_ROOT = _PLUGIN_ROOT / "scripts"
 sys.path.insert(0, str(_PLUGIN_ROOT))
 sys.path.insert(0, str(_SCRIPTS_ROOT))
 
-from bootstrap_state import clear_receipt, save_receipt  # noqa: E402
+from bootstrap_state import clear_receipt, load_receipt, save_receipt  # noqa: E402
 from claude_code_settings import ClaudeCodePluginSettings  # noqa: E402
 from hooks.bootstrap_context import (  # noqa: E402
     InvalidBootstrapResponse,
@@ -103,16 +103,20 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
             or source not in _LIFECYCLES
         ):
             return 0
-        settings = ClaudeCodePluginSettings.from_environment() if settings is None else settings
+        try:
+            settings = ClaudeCodePluginSettings.from_environment() if settings is None else settings
+        except Exception:
+            clear_receipt(session_id)
+            return 0
         deadline = monotonic() + settings.http_budget_seconds
-        clear_receipt(session_id)
         prepared = _resolve_and_prepare(cwd, session_id, source, payload, settings=settings, deadline=deadline)
         if prepared is None:
+            clear_receipt(session_id)
             return 0
         scope_id, response = prepared
         if response["status"] != "ready":
+            receipt = _synchronize_non_ready_receipt(session_id, scope_id, response)
             if response["status"] == "empty":
-                receipt = cast(dict[str, str], response["receipt"])
                 _emit_bootstrap_event(
                     "empty",
                     http_status=200,
@@ -147,17 +151,22 @@ def main(settings: ClaudeCodePluginSettings | None = None) -> int:
                     deadline=deadline,
                 )
             return 0
-        json.dump(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": response["content"],
-                }
-            },
-            sys.stdout,
-            separators=(",", ":"),
-        )
-        sys.stdout.write("\n")
+        try:
+            json.dump(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "additionalContext": response["content"],
+                    }
+                },
+                sys.stdout,
+                separators=(",", ":"),
+            )
+            sys.stdout.write("\n")
+        except Exception:
+            clear_receipt(session_id)
+            _emit_bootstrap_event("delivery_failed")
+            return 0
     except Exception:
         return 0
     return 0
@@ -269,6 +278,25 @@ def _remaining_time(deadline: float) -> float:
 def _require_injected(receipt: Mapping[str, str]) -> None:
     if receipt.get("state") != "injected":
         raise InvalidBootstrapResponse
+
+
+def _synchronize_non_ready_receipt(
+    session_id: str,
+    scope_id: str,
+    response: Mapping[str, object],
+) -> dict[str, str]:
+    """Retain a receipt only when this exact lifecycle event was already injected."""
+
+    receipt = cast(dict[str, str], response["receipt"])
+    if (
+        response.get("status") == "skipped"
+        and response.get("reason") == "already_delivered"
+        and receipt["state"] == "injected"
+        and load_receipt(session_id, scope_id) == receipt["receipt_id"]
+    ):
+        return receipt
+    clear_receipt(session_id)
+    return receipt
 
 
 def _emit_http_failure(status: int) -> None:

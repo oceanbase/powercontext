@@ -101,9 +101,10 @@ export POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF='{"artifact_id":"HANDOFF_ID","revisi
 
 Use the Memory-entry tag API to add `bootstrap-context` only to reviewed decisions, constraints, objectives, verified
 state, or repository guidance suitable for every new Session. A content-free delivery receipt makes retries idempotent;
-after successful injection, the first ordinary query sends that receipt so the Runtime suppresses only the exact Memory
-versions already delivered. A revised version remains eligible for recall. Preparation, validation, and receipt failures
-all fail open and inject nothing.
+after successful injection, the first ordinary query sends that receipt so the Runtime suppresses only fully delivered
+exact Memory entry versions. Entries truncated during bootstrap and revised versions remain eligible for recall.
+Preparation, validation, and receipt failures all fail open and inject nothing.
+Failures before a new lifecycle package is established, including invalid configuration, also clear any stale saved receipt.
 
 ## Choose standard context text
 

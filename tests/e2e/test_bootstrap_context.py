@@ -17,12 +17,16 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import CONTEXT_BOOTSTRAP_RECEIPTS_TABLE
+from powercontext.builtin.runtime.application import ScopedBootstrapApplication
+from powercontext.builtin.runtime.config import RuntimeConfig
+from powercontext.builtin.runtime.recall_sufficiency import RecallSufficiencyGate
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     BootstrapContextRequest,
@@ -41,7 +45,24 @@ from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
 
 
-def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_query(tmp_path) -> None:
+async def _tag_for_bootstrap(
+    client: PowerContextClient,
+    scope_id: str,
+    memory_artifact_id: str,
+    entry_id: str,
+) -> None:
+    tags = await client.get_memory_entry_tags(scope_id, memory_artifact_id, entry_id)
+    assert tags is not None
+    await client.replace_memory_entry_tags(
+        scope_id,
+        memory_artifact_id,
+        entry_id,
+        ReplaceArtifactTagsRequest.model_validate({"tags": ["bootstrap-context"]}),
+        expected_etag=tags.etag,
+    )
+
+
+def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_keeps_partial_memory_recallable(tmp_path) -> None:
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'bootstrap.db'}"),
@@ -64,7 +85,8 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
                     scope_id=scope.scope_id,
                     kind="decision",
                     text="BOOTSTRAP-ONLY: regenerate the OpenAPI bindings before contract tests. "
-                    + "中文上下文。" * 120,
+                    + "中文上下文。" * 60
+                    + " OMITTED-TAIL: restore the lunar archive after validation.",
                 )
             )
             assert remembered.entry is not None
@@ -83,7 +105,7 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
                 expected_etag=tags.etag,
             )
             secret = await client.remember_memory(
-                RememberMemoryRequest(scope_id=scope.scope_id, kind="credential", text="do-not-inject-secret")
+                RememberMemoryRequest(scope_id=scope.scope_id, kind="access-key", text="do-not-inject-secret")
             )
             assert secret.entry is not None
             secret_tags = await client.get_memory_entry_tags(
@@ -105,12 +127,14 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
                     "scope_id": scope.scope_id,
                     "lifecycle": "startup",
                     "integration": "acceptance",
-                    "event_id": "disabled-event",
                 })
             )
             assert disabled.status == "skipped"
             assert disabled.reason == "disabled"
             assert disabled.receipt.state == "skipped"
+            database = app.state.application._bootstrap_receipts._database
+            async with database.transaction() as connection:
+                assert (await connection.execute(select(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE))).all() == []
 
             request = BootstrapContextRequest.model_validate({
                 "scope_id": scope.scope_id,
@@ -124,6 +148,7 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
             assert prepared.status == "ready"
             assert prepared.content is not None
             assert "BOOTSTRAP-ONLY" in prepared.content
+            assert "OMITTED-TAIL" not in prepared.content
             assert "do-not-inject-secret" not in prepared.content
             assert prepared.content_bytes == len(prepared.content.encode("utf-8")) <= 1024
             assert prepared.truncated is True
@@ -134,6 +159,18 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
             retried = await client.prepare_bootstrap_context(request)
             assert retried.content == prepared.content
             assert retried.receipt == prepared.receipt
+            mismatched_retry = await transport.post(
+                "/v1/context/bootstrap",
+                json={
+                    "scope_id": scope.scope_id,
+                    "enabled": True,
+                    "lifecycle": "startup",
+                    "integration": "acceptance",
+                    "event_id": "stable-event-1",
+                    "max_bytes": 512,
+                },
+            )
+            assert mismatched_retry.status_code == 422
             recorded = await client.record_bootstrap_delivery(
                 RecordBootstrapDeliveryRequest.model_validate({
                     "scope_id": scope.scope_id,
@@ -161,17 +198,19 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
             assert terminal_retry.receipt.state == "injected"
 
             ordinary = await client.prepare_context(
-                PrepareContextRequest(scope_id=scope.scope_id, query="regenerate OpenAPI bindings contract tests")
+                PrepareContextRequest(scope_id=scope.scope_id, query="restore lunar archive validation")
             )
             assert ordinary.status == "ready"
-            deduplicated = await client.prepare_context(
+            assert ordinary.content is not None and "OMITTED-TAIL" in ordinary.content
+            with_receipt = await client.prepare_context(
                 PrepareContextRequest(
                     scope_id=scope.scope_id,
-                    query="regenerate OpenAPI bindings contract tests",
+                    query="restore lunar archive validation",
                     bootstrap_receipt_id=prepared.receipt.receipt_id,
                 )
             )
-            assert deduplicated.status == "empty"
+            assert with_receipt.status == "ready"
+            assert with_receipt.content is not None and "OMITTED-TAIL" in with_receipt.content
 
             current_entries = await client.list_memory_entries(ListMemoryEntriesRequest(scope_id=scope.scope_id))
             current_citation = next(
@@ -235,7 +274,6 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
             assert reenabled_same_event.status == "skipped"
             assert reenabled_same_event.reason == "already_delivered"
 
-            database = app.state.application._bootstrap_receipts._database
             async with database.transaction() as connection:
                 row = (
                     (
@@ -252,6 +290,173 @@ def test_bootstrap_is_opt_in_exact_bounded_idempotent_and_deduplicates_first_que
             assert "BOOTSTRAP-ONLY" not in serialized
             assert "regenerate OpenAPI" not in serialized
             assert "stable-event-1" not in serialized
+
+    asyncio.run(scenario())
+
+
+def test_bootstrap_deduplicates_complete_entry_before_recall_sufficiency_gate(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    assessed_memory_counts: list[int] = []
+    original_assess = RecallSufficiencyGate.assess
+
+    def observe_assess(self, candidates, *args, **kwargs):
+        assessed_memory_counts.append(sum(candidate.family == "memory" for candidate in candidates))
+        return original_assess(self, candidates, *args, **kwargs)
+
+    monkeypatch.setattr(RecallSufficiencyGate, "assess", observe_assess)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'deduplicate-entry-version.db'}"),
+            mcp=McpConfig(enabled=False),
+            metrics=MetricsConfig(enabled=False),
+            runtime=RuntimeConfig(
+                recall_gate_enabled=True,
+                recall_gate_min_top_score=0.0,
+                recall_gate_min_top_gap=0.0,
+                recall_gate_min_lexical_overlap=0.0,
+            ),
+        )
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope = await client.create_scope(
+                CreateScopeRequest(
+                    title="Entry version deduplication",
+                    summary="Ignore unrelated Memory revisions",
+                    idempotency_key="entry-version-deduplication",
+                )
+            )
+            remembered = await client.remember_memory(
+                RememberMemoryRequest(
+                    scope_id=scope.scope_id,
+                    kind="decision",
+                    text="Use the orange moonlight protocol for release validation.",
+                )
+            )
+            assert remembered.entry is not None
+            entry = remembered.entry
+            await _tag_for_bootstrap(
+                client,
+                scope.scope_id,
+                entry.citation.memory_ref.artifact_id,
+                entry.citation.entry_id,
+            )
+            request = BootstrapContextRequest.model_validate({
+                "scope_id": scope.scope_id,
+                "enabled": True,
+                "lifecycle": "startup",
+                "integration": "acceptance",
+                "event_id": "entry-version-event",
+                "max_bytes": 4096,
+            })
+            prepared = await client.prepare_bootstrap_context(request)
+            assert prepared.status == "ready"
+            assert len(prepared.items) == 1
+            assert prepared.items[0].truncated is False
+            await client.record_bootstrap_delivery(
+                RecordBootstrapDeliveryRequest.model_validate({
+                    "scope_id": scope.scope_id,
+                    "receipt_id": prepared.receipt.receipt_id,
+                    "outcome": "injected",
+                })
+            )
+
+            unrelated = await client.remember_memory(
+                RememberMemoryRequest(
+                    scope_id=scope.scope_id,
+                    kind="fact",
+                    text="The cafeteria closes at six.",
+                )
+            )
+            assert unrelated.entry is not None
+            assert unrelated.entry.citation.memory_ref.revision > entry.citation.memory_ref.revision
+
+            ordinary = await client.prepare_context(
+                PrepareContextRequest(scope_id=scope.scope_id, query="orange moonlight release protocol")
+            )
+            assert ordinary.status == "ready"
+            assert ordinary.content is not None and entry.citation.entry_version_id in ordinary.content
+            deduplicated = await client.prepare_context(
+                PrepareContextRequest(
+                    scope_id=scope.scope_id,
+                    query="orange moonlight release protocol",
+                    bootstrap_receipt_id=prepared.receipt.receipt_id,
+                )
+            )
+            assert deduplicated.status == "empty"
+            assert assessed_memory_counts[-1] == 0
+
+    asyncio.run(scenario())
+
+
+def test_pending_bootstrap_retry_preserves_package_level_omission(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'package-omission-retry.db'}"),
+            mcp=McpConfig(enabled=False),
+            metrics=MetricsConfig(enabled=False),
+        )
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope = await client.create_scope(
+                CreateScopeRequest(
+                    title="Package omission retry",
+                    summary="Preserve package-level truncation",
+                    idempotency_key="package-omission-retry",
+                )
+            )
+            entries = []
+            for marker in ("FIRST-ITEM", "SECOND-ITEM"):
+                remembered = await client.remember_memory(
+                    RememberMemoryRequest(
+                        scope_id=scope.scope_id,
+                        kind="decision",
+                        text=f"{marker}: keep this complete body in deterministic order.",
+                    )
+                )
+                assert remembered.entry is not None
+                entries.append(remembered.entry)
+            for entry in entries:
+                await _tag_for_bootstrap(
+                    client,
+                    scope.scope_id,
+                    entry.citation.memory_ref.artifact_id,
+                    entry.citation.entry_id,
+                )
+
+            request = BootstrapContextRequest.model_validate({
+                "scope_id": scope.scope_id,
+                "enabled": True,
+                "lifecycle": "resume",
+                "integration": "acceptance",
+                "event_id": "package-omission-event",
+                "max_bytes": 900,
+            })
+            prepared = await client.prepare_bootstrap_context(request)
+            assert prepared.status == "ready"
+            assert prepared.truncated is True
+            assert len(prepared.items) == 1
+            assert prepared.items[0].truncated is False
+
+            retried = await client.prepare_bootstrap_context(request)
+            assert retried.status == "ready"
+            assert retried.receipt == prepared.receipt
+            assert retried.content == prepared.content
+            assert retried.items == prepared.items
+            assert retried.truncated is True
 
     asyncio.run(scenario())
 
@@ -309,6 +514,9 @@ def test_bootstrap_includes_only_the_explicit_exact_handoff(tmp_path) -> None:
                 })
             )
             assert without_selection.status == "empty"
+            database = app.state.application._bootstrap_receipts._database
+            async with database.transaction() as connection:
+                assert (await connection.execute(select(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE))).all() == []
             selected = await client.prepare_bootstrap_context(
                 BootstrapContextRequest.model_validate({
                     "scope_id": scope.scope_id,
@@ -321,6 +529,127 @@ def test_bootstrap_includes_only_the_explicit_exact_handoff(tmp_path) -> None:
             assert selected.status == "ready"
             assert selected.content is not None and "Continue exact bootstrap work." in selected.content
             assert [(item.kind, item.artifact.revision) for item in selected.items] == [("handoff", 1)]
+
+    asyncio.run(scenario())
+
+
+def test_bootstrap_receipts_expire_after_the_retry_window(tmp_path) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'receipt-retention.db'}"),
+            mcp=McpConfig(enabled=False),
+            metrics=MetricsConfig(enabled=False),
+        )
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope = await client.create_scope(
+                CreateScopeRequest(title="Receipt retention", summary="Bound receipt rows", idempotency_key="expiry")
+            )
+            old = await client.prepare_bootstrap_context(
+                BootstrapContextRequest.model_validate({
+                    "scope_id": scope.scope_id,
+                    "lifecycle": "startup",
+                    "integration": "acceptance",
+                    "event_id": "expired-event",
+                })
+            )
+            database = app.state.application._bootstrap_receipts._database
+            async with database.transaction() as connection:
+                await connection.execute(
+                    update(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE)
+                    .where(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE.c.receipt_id == old.receipt.receipt_id)
+                    .values(created_at=datetime.now(UTC) - timedelta(days=31))
+                )
+
+            await client.prepare_context(
+                PrepareContextRequest(
+                    scope_id=scope.scope_id,
+                    query="Check whether retained context exists.",
+                    bootstrap_receipt_id=old.receipt.receipt_id,
+                )
+            )
+            async with database.transaction() as connection:
+                assert (await connection.execute(select(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE))).all() == []
+
+            await client.prepare_bootstrap_context(
+                BootstrapContextRequest.model_validate({
+                    "scope_id": scope.scope_id,
+                    "lifecycle": "resume",
+                    "integration": "acceptance",
+                    "event_id": "current-event",
+                })
+            )
+            async with database.transaction() as connection:
+                receipt_ids = set(
+                    (await connection.execute(select(CONTEXT_BOOTSTRAP_RECEIPTS_TABLE.c.receipt_id))).scalars()
+                )
+            assert old.receipt.receipt_id not in receipt_ids
+            assert len(receipt_ids) == 1
+
+    asyncio.run(scenario())
+
+
+def test_reconstruction_failure_uses_a_concurrent_terminal_receipt_state(tmp_path, monkeypatch) -> None:
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'reconstruction-race.db'}"),
+            mcp=McpConfig(enabled=False),
+            metrics=MetricsConfig(enabled=False),
+        )
+    )
+
+    async def scenario() -> None:
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as transport,
+        ):
+            client = PowerContextClient("http://testserver", http_client=transport, trust_transport_security=True)
+            scope = await client.create_scope(
+                CreateScopeRequest(title="Receipt race", summary="Concurrent terminal state", idempotency_key="race")
+            )
+            remembered = await client.remember_memory(
+                RememberMemoryRequest(scope_id=scope.scope_id, kind="decision", text="Keep the blue release flag.")
+            )
+            assert remembered.entry is not None
+            await _tag_for_bootstrap(
+                client,
+                scope.scope_id,
+                remembered.entry.citation.memory_ref.artifact_id,
+                remembered.entry.citation.entry_id,
+            )
+            request = BootstrapContextRequest.model_validate({
+                "scope_id": scope.scope_id,
+                "enabled": True,
+                "lifecycle": "resume",
+                "integration": "acceptance",
+                "event_id": "reconstruction-race",
+            })
+            prepared = await client.prepare_bootstrap_context(request)
+            assert prepared.status == "ready"
+
+            async def fail_reconstruction(_application, _item):
+                raise ValueError
+
+            repository = app.state.application._bootstrap_receipts
+            original_record_delivery = repository.record_delivery
+
+            async def concurrent_delivery(scope_id, receipt_id, outcome):
+                assert outcome == "failed"
+                await original_record_delivery(scope_id, receipt_id, "injected")
+                return await original_record_delivery(scope_id, receipt_id, outcome)
+
+            monkeypatch.setattr(ScopedBootstrapApplication, "_candidate_from_item", fail_reconstruction)
+            monkeypatch.setattr(repository, "record_delivery", concurrent_delivery)
+            retried = await client.prepare_bootstrap_context(request)
+            assert retried.status == "skipped"
+            assert retried.reason == "already_delivered"
+            assert retried.receipt.state == "injected"
 
     asyncio.run(scenario())
 

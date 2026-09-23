@@ -260,8 +260,8 @@ class PrepareContextRequest(_PreparedContextModel):
     @field_validator("bootstrap_receipt_id")
     @classmethod
     def validate_bootstrap_receipt_id(cls, value: str | None) -> str | None:
-        if value is not None and (value != value.strip() or not value.isascii() or not value.isprintable()):
-            raise ValueError("bootstrap_receipt_id must be a printable exact identifier")  # noqa: TRY003
+        if value is not None and not all("\x21" <= character <= "\x7e" for character in value):
+            raise ValueError("bootstrap_receipt_id must contain only visible ASCII")  # noqa: TRY003
         return value
 
 
@@ -297,11 +297,18 @@ class BootstrapContextRequest(_PreparedContextModel):
     max_bytes: Annotated[int, Field(ge=512, le=8192)] = 4096
     handoff: ArtifactRef | None = None
 
-    @field_validator("integration", "event_id")
+    @field_validator("integration")
     @classmethod
-    def validate_host_identity(cls, value: str | None) -> str | None:
-        if value is not None and (value != value.strip() or not value.isascii() or not value.isprintable()):
-            raise ValueError("host identity must be printable ASCII without surrounding whitespace")  # noqa: TRY003
+    def validate_integration(cls, value: str) -> str:
+        if not all("\x21" <= character <= "\x7e" for character in value):
+            raise ValueError("integration must contain only visible ASCII")  # noqa: TRY003
+        return value
+
+    @field_validator("event_id")
+    @classmethod
+    def validate_event_id(cls, value: str | None) -> str | None:
+        if value is not None and not all("\x20" <= character <= "\x7e" for character in value):
+            raise ValueError("event_id must contain only printable ASCII")  # noqa: TRY003
         return value
 
     @field_validator("handoff")
@@ -318,8 +325,14 @@ class BootstrapContextItem(_PreparedContextModel):
     kind: Literal["memory_entry", "handoff"]
     scope_id: Annotated[str, Field(min_length=1, max_length=256)]
     artifact: ArtifactRef
-    entry_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
-    entry_version_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    entry_id: Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$")] | None = None
+    entry_version_id: (
+        Annotated[
+            str,
+            Field(min_length=1, max_length=128, pattern=r"^[\x21-\x7E]+$"),
+        ]
+        | None
+    ) = None
     content_digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
     truncated: bool = False
 
@@ -339,7 +352,7 @@ class BootstrapContextItem(_PreparedContextModel):
 class BootstrapDeliveryReceipt(_PreparedContextModel):
     """Content-free durable delivery state exposed to a host integration."""
 
-    receipt_id: Annotated[str, Field(min_length=1, max_length=64)]
+    receipt_id: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[\x21-\x7E]+$")]
     state: BootstrapReceiptState
 
 
@@ -393,7 +406,7 @@ class BootstrapContext(_PreparedContextModel):
 class RecordBootstrapDeliveryRequest(_PreparedContextModel):
     """Finalize one pending delivery receipt without accepting content or error text."""
 
-    receipt_id: Annotated[str, Field(min_length=1, max_length=64)]
+    receipt_id: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[\x21-\x7E]+$")]
     outcome: Literal["injected", "failed"]
 
 

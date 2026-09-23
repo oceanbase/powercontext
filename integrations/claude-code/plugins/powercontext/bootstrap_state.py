@@ -41,8 +41,7 @@ def load_receipt(session_id: str | None, scope_id: str) -> str | None:
             or value.get("scope_id") != scope_id
             or not isinstance(receipt_id, str)
             or not 1 <= len(receipt_id) <= 64
-            or not receipt_id.isascii()
-            or not receipt_id.isprintable()
+            or not all("\x21" <= character <= "\x7e" for character in receipt_id)
         ):
             return None
     except (OSError, ValueError, TypeError, json.JSONDecodeError):

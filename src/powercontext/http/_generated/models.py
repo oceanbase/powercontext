@@ -2873,8 +2873,8 @@ class BootstrapContextItem(BaseModel):
     kind: BootstrapContextItemKind
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     artifact: ArtifactReference
-    entry_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
-    entry_version_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1)]
+    entry_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
+    entry_version_id: Annotated[StrictStr | None, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
     content_digest: Annotated[StrictStr, Field(pattern="^sha256:[0-9a-f]{64}$")]
     truncated: StrictBool
 
@@ -3132,7 +3132,7 @@ class BootstrapContextRequest(BaseModel):
     event_id: Annotated[
         StrictStr | None,
         Field(
-            description="Optional stable host event identity; persisted only as a digest.",
+            description="Optional stable host event identity, persisted only as a digest. Within the same Scope, integration, and lifecycle, retries must keep the profile, max_bytes, and exact Handoff unchanged.",
             max_length=512,
             min_length=1,
             pattern="^[\\x20-\\x7E]+$",
@@ -3773,7 +3773,7 @@ class PrepareContextRequest(BaseModel):
     bootstrap_receipt_id: Annotated[
         StrictStr | None,
         Field(
-            description="Optional exact receipt for the last successfully injected bootstrap package. Only identical Memory entry versions from an injected same-Scope receipt are removed from this query result.",
+            description="Optional exact receipt for the last successfully injected bootstrap package. Only fully delivered Memory entry versions from an injected same-Scope receipt are removed before candidate limiting and sufficiency assessment; entries whose bootstrap bodies were truncated remain eligible.",
             max_length=64,
             min_length=1,
             pattern="^[\\x21-\\x7E]+$",

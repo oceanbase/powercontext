@@ -20,6 +20,7 @@ import sys
 from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 import pytest
 
@@ -67,6 +68,12 @@ def _skipped(reason: str = "disabled") -> dict[str, object]:
 def _empty() -> dict[str, object]:
     value = _skipped("no_eligible_context")
     value["status"] = "empty"
+    return value
+
+
+def _already_delivered() -> dict[str, object]:
+    value = _skipped("already_delivered")
+    value["receipt"] = {"receipt_id": "bcr_test", "state": "injected"}
     return value
 
 
@@ -157,6 +164,91 @@ def test_session_start_marks_delivery_before_injecting_and_first_query_sends_rec
 
     assert recall_module.main(recall_module.CodexPluginSettings(capture_prompts=False)) == 0
     assert prepared_payloads == ["bcr_test"]
+    assert not list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "session-1",
+                "cwd": "/workspace",
+                "prompt": "What applies next?",
+            })
+        ),
+    )
+    assert recall_module.main(recall_module.CodexPluginSettings(capture_prompts=False)) == 0
+    assert prepared_payloads == ["bcr_test", None]
+
+
+def test_repeated_injected_event_preserves_receipt_for_first_query(
+    session_binding_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_binding_module.save_receipt("session-1", "scope:test", "bcr_test")
+    monkeypatch.setattr(session_binding_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
+    monkeypatch.setattr(session_binding_module, "_post_json", lambda *_args, **_kwargs: _already_delivered())
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps({
+                "source": "startup",
+                "session_id": "session-1",
+                "cwd": "/workspace",
+                "event_id": "event-1",
+            })
+        ),
+    )
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", output)
+
+    assert session_binding_module.main(session_binding_module.CodexPluginSettings(bootstrap_context=True)) == 0
+    assert output.getvalue() == ""
+    state_files = list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
+    assert len(state_files) == 1
+    assert json.loads(state_files[0].read_text())["receipt_id"] == "bcr_test"
+
+
+def test_invalid_settings_clear_a_stale_receipt(
+    session_binding_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    session_binding_module.save_receipt("session-1", "scope:test", "bcr_previous")
+
+    def invalid_settings():
+        raise ValueError
+
+    monkeypatch.setattr(session_binding_module, "CodexPluginSettings", invalid_settings)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"source": "compact", "session_id": "session-1", "cwd": "/workspace"})),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    assert session_binding_module.main() == 0
+    assert not list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
+
+
+@pytest.mark.parametrize("invalid_field", ["receipt", "artifact"])
+def test_bootstrap_response_rejects_identifiers_containing_spaces(
+    invalid_field: str,
+    session_binding_module: ModuleType,
+) -> None:
+    response = _ready()
+    if invalid_field == "receipt":
+        response["receipt"] = {"receipt_id": "bcr test", "state": "pending"}
+    else:
+        items = cast(list[dict[str, object]], response["items"])
+        artifact = cast(dict[str, object], items[0]["artifact"])
+        artifact["artifact_id"] = "memory id"
+
+    with pytest.raises(session_binding_module.InvalidBootstrapResponse):
+        session_binding_module.validate_bootstrap_context(response, max_bytes=4096)
 
 
 @pytest.mark.parametrize("lifecycle", ["startup", "resume", "clear", "compact", "restore", "fork"])
@@ -217,6 +309,42 @@ def test_session_start_fails_open_and_does_not_inject_when_delivery_cannot_be_re
     assert json.loads(errors.getvalue())["outcome"] == "delivery_failed"
 
 
+def test_session_start_output_failure_clears_the_deduplication_receipt(
+    session_binding_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class BrokenOutput:
+        def write(self, _value):
+            raise OSError
+
+    def post(path, _payload, **_kwargs):
+        return {"receipt_id": "bcr_test", "state": "injected"} if path.endswith("/receipts") else _ready()
+
+    monkeypatch.setattr(session_binding_module, "_post_json", post)
+    monkeypatch.setattr(session_binding_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"source": "startup", "session_id": "session-1", "cwd": "/workspace"})),
+    )
+    monkeypatch.setattr(sys, "stdout", BrokenOutput())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+
+    assert session_binding_module.main(session_binding_module.CodexPluginSettings(bootstrap_context=True)) == 0
+    assert not list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
+
+    monkeypatch.setattr(session_binding_module, "_post_json", lambda *_args, **_kwargs: _already_delivered())
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(json.dumps({"source": "startup", "session_id": "session-1", "cwd": "/workspace"})),
+    )
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    assert session_binding_module.main(session_binding_module.CodexPluginSettings(bootstrap_context=True)) == 0
+    assert not list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
+
+
 def test_session_start_rejects_malformed_bootstrap_without_blocking(
     session_binding_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -243,6 +371,7 @@ def test_session_start_empty_or_timeout_fails_open(
     result: dict[str, object] | TimeoutError,
     session_binding_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     def post(*_args, **_kwargs):
         if isinstance(result, BaseException):
@@ -251,6 +380,7 @@ def test_session_start_empty_or_timeout_fails_open(
 
     monkeypatch.setattr(session_binding_module, "_post_json", post)
     monkeypatch.setattr(session_binding_module, "resolve_scope_id", lambda *_args, **_kwargs: "scope:test")
+    session_binding_module.save_receipt("session-1", "scope:test", "bcr_previous")
     monkeypatch.setattr(
         sys,
         "stdin",
@@ -267,6 +397,7 @@ def test_session_start_empty_or_timeout_fails_open(
     assert diagnostic["outcome"] == ("server_unavailable" if isinstance(result, BaseException) else "empty")
     assert diagnostic["profile"] == "powercontext.scope-bootstrap.v1"
     assert "content" not in diagnostic
+    assert not list((tmp_path / "plugin-data" / "powercontext-bootstrap").glob("*.json"))
 
 
 @pytest.mark.parametrize(
