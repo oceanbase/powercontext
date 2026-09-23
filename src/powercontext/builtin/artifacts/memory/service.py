@@ -26,6 +26,7 @@ from uuid import uuid4
 from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef
 from powercontext.builtin.artifacts.memory.canonical import (
     canonical_embedding,
+    canonical_error_code,
     canonical_json,
     embedding_content_hash,
     entry_content_bytes,
@@ -1268,7 +1269,11 @@ class MemoryService:
                 artifacts=artifacts,
             )
         except (TypeError, ValueError) as error:
-            raise InvalidMemoryCandidateError("canonical", str(error)) from error
+            raise InvalidMemoryCandidateError(
+                "canonical",
+                str(error),
+                canonical_code=canonical_error_code(error),
+            ) from error
 
     async def _canonical_candidate_sources(
         self,

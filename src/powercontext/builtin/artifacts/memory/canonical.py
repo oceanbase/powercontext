@@ -35,6 +35,7 @@ _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 
 class _CanonicalValueError(ValueError):
     def __init__(self, code: str, detail: object | None = None) -> None:
+        self.code = code
         messages = {
             "text-too-long": "memory entry text must not exceed 8192 UTF-8 bytes",
             "reason-too-long": "memory change reason must not exceed 512 Unicode code points",
@@ -54,12 +55,21 @@ class _CanonicalValueError(ValueError):
 
 class _CanonicalTypeError(TypeError):
     def __init__(self, code: str, detail: object | None = None) -> None:
+        self.code = code
         messages = {
             "string": f"{detail} must be a string",
             "json-key": "canonical JSON object keys must be strings",
             "json-value": f"value of type {detail} is not JSON-compatible",
         }
         super().__init__(messages[code])
+
+
+def canonical_error_code(error: Exception) -> str | None:
+    """Return the stable code for an error raised by canonical validation."""
+
+    if isinstance(error, (_CanonicalValueError, _CanonicalTypeError)):
+        return error.code
+    return None
 
 
 def canonical_json(value: object) -> bytes:
