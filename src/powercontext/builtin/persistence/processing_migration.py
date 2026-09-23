@@ -88,6 +88,11 @@ _DEFAULT_BINDINGS = {
     "experience-incubation": "experience",
     "profile-source-window": "profile",
 }
+_COMPATIBLE_DREAM_BINDING_ADDITIONS = {
+    "handoff.dream.v1": "handoff",
+    "prompt.dream.v1": "prompt",
+}
+_COMPATIBLE_DREAM_CAPABILITY_ADDITIONS = {"handoff", "prompt"}
 _STATE_COLUMNS = {
     "last_schedule_checkpoint_at": "DATETIME NULL",
     "scan_generation": "BIGINT NOT NULL DEFAULT 0",
@@ -164,6 +169,7 @@ async def bootstrap_processing_schema(
 
     marker = await _marker(connection)
     if marker is not None:
+        await _upgrade_compatible_dream_manifest(connection, config_manifest)
         await assert_processing_schema_ready(connection, config_manifest)
         return
     columns = await _columns(connection, STATES.name)
@@ -232,6 +238,82 @@ async def assert_processing_schema_ready(
     problems = await _schema_issues(connection)
     if problems:
         raise ProcessingSchemaNotReadyError(reason="; ".join(problems))
+
+
+async def _upgrade_compatible_dream_manifest(
+    connection: AsyncConnection,
+    config_manifest: Mapping[str, Any] | str | None,
+) -> None:
+    """Record the additive Handoff and Prompt bindings on existing deployments."""
+
+    if config_manifest is None:
+        return
+    marker = await _marker(connection, for_update=True)
+    if marker is None or marker["schema_version"] != PROCESSING_SCHEMA_VERSION or marker["phase"] != "complete":
+        return
+    previous_manifest = _manifest(str(marker["config_manifest"]))
+    current_manifest = _manifest(config_manifest)
+    if _deployment_manifest(previous_manifest) == _deployment_manifest(current_manifest):
+        return
+    previous = json.loads(previous_manifest)
+    current = json.loads(current_manifest)
+    if not _is_compatible_dream_manifest_extension(previous, current):
+        return
+    upgraded = dict(previous)
+    upgraded["bindings"] = {**previous["bindings"], **_manifest_binding_additions(previous, current)}
+    upgraded["capabilities"] = current["capabilities"]
+    upgraded_manifest = _manifest(upgraded)
+    if _deployment_manifest(upgraded_manifest) != _deployment_manifest(current_manifest):
+        return
+    await connection.execute(
+        update(SCHEMA)
+        .where(SCHEMA.c.singleton == 1, SCHEMA.c.config_manifest == marker["config_manifest"])
+        .values(config_manifest=upgraded_manifest)
+    )
+
+
+def _is_compatible_dream_manifest_extension(previous: Mapping[str, Any], current: Mapping[str, Any]) -> bool:
+    if set(previous) != set(current) or previous.get("mode") != current.get("mode"):
+        return False
+    previous_bindings = previous.get("bindings")
+    current_bindings = current.get("bindings")
+    previous_capabilities = previous.get("capabilities")
+    current_capabilities = current.get("capabilities")
+    if (
+        not isinstance(previous_bindings, dict)
+        or not isinstance(current_bindings, dict)
+        or not isinstance(previous_capabilities, list)
+        or not isinstance(current_capabilities, list)
+        or any(not isinstance(item, str) for item in (*previous_capabilities, *current_capabilities))
+    ):
+        return False
+    if any(current_bindings.get(name) != family for name, family in previous_bindings.items()):
+        return False
+    additions = _manifest_binding_additions(previous, current)
+    if not additions or any(
+        _COMPATIBLE_DREAM_BINDING_ADDITIONS.get(name) != family for name, family in additions.items()
+    ):
+        return False
+    previous_capability_set = set(previous_capabilities)
+    current_capability_set = set(current_capabilities)
+    added_capabilities = current_capability_set - previous_capability_set
+    return (
+        previous_capability_set <= current_capability_set
+        and added_capabilities <= _COMPATIBLE_DREAM_CAPABILITY_ADDITIONS
+        and added_capabilities <= set(additions.values())
+    )
+
+
+def _manifest_binding_additions(previous: Mapping[str, Any], current: Mapping[str, Any]) -> dict[str, str]:
+    previous_bindings = previous.get("bindings")
+    current_bindings = current.get("bindings")
+    if not isinstance(previous_bindings, dict) or not isinstance(current_bindings, dict):
+        return {}
+    return {
+        name: family
+        for name, family in current_bindings.items()
+        if isinstance(name, str) and isinstance(family, str) and name not in previous_bindings
+    }
 
 
 async def apply_processing_migration(  # noqa: C901 - explicit durable maintenance phases

@@ -38,7 +38,11 @@ from powercontext.builtin.dream.models import DreamPlan
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
 from powercontext.builtin.persistence.artifacts import RepositoryArtifactDraft
 from powercontext.builtin.records import ArtifactWrite
-from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
+from powercontext.builtin.review.errors import (
+    ArtifactTargetConflictError,
+    CandidateConflictError,
+    InvalidCandidateError,
+)
 from powercontext.builtin.runtime import (
     ApproveArtifactCandidateRequest,
     BuiltinConfig,
@@ -187,6 +191,20 @@ def test_prompt_dream_review_publication_and_monotonic_rollback(database: Databa
                     )
                 )
                 assert approved.result_artifact.revision == 2
+                assert (
+                    await review.approve(
+                        ApproveArtifactCandidateRequest(
+                            candidate_id=candidate.candidate_id, expected_version=candidate.version
+                        )
+                    )
+                    == approved
+                )
+                with pytest.raises(CandidateConflictError):
+                    await review.approve(
+                        ApproveArtifactCandidateRequest(
+                            candidate_id=candidate.candidate_id, expected_version=candidate.version + 1
+                        )
+                    )
                 assert current_prompt("memory.extract") == frozen
                 assert frozen.artifact == target
             fresh = await prompts.resolve(scope.scope_id, "memory.extract")

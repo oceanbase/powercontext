@@ -592,6 +592,10 @@ class ReviewService:
         async with self._connection() as connection:
             current = await self._candidates.get(connection, self._scope_id, candidate_id)
         await self._authorize_decision("approve", current)
+        if current.status is CandidateStatus.APPROVED:
+            if current.version != expected_version:
+                raise CandidateConflictError(candidate_id, expected_version, current.version)
+            return _reviewed_candidate(current)
         if current.family == Memory.family:
             return await self._approve_memory_dream(candidate_id, expected_version)
         if current.family == TopicMemory.family:

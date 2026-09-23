@@ -666,7 +666,7 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
                 completed.error,
             )
             assert (await handoffs.latest()).revision == 1
-            from powercontext.builtin.review.errors import InvalidCandidateError
+            from powercontext.builtin.review.errors import CandidateConflictError, InvalidCandidateError
 
             candidate = await runtime.review.for_scope(scope_id).get(
                 GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
@@ -690,6 +690,20 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
                 )
             )
             assert approved.result_artifact is not None
+            retry = await runtime.review.for_scope(scope_id).approve(
+                ApproveArtifactCandidateRequest(
+                    candidate_id=completed.candidate.candidate_id,
+                    expected_version=completed.candidate.version,
+                )
+            )
+            assert retry == approved
+            with pytest.raises(CandidateConflictError):
+                await runtime.review.for_scope(scope_id).approve(
+                    ApproveArtifactCandidateRequest(
+                        candidate_id=completed.candidate.candidate_id,
+                        expected_version=completed.candidate.version + 1,
+                    )
+                )
             updated = await handoffs.latest()
             assert updated is not None and updated.revision == 2
             assert updated.content.generation is None
