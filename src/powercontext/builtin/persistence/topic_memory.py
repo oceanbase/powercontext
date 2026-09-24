@@ -519,6 +519,38 @@ class TopicMemoryRepository:
                 published_at=published_at,
             )
         )
+        await self.rebuild_current(connection, scope_id, topic, projection)
+        return published_at
+
+    async def rebuild_current(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        topic: TopicMemory,
+        projection: TopicMemoryProjection,
+        /,
+    ) -> None:
+        """Replace one current Topic Memory's target-local search projection."""
+
+        projection = self._validate_projection(TopicMemoryDraft(content=topic.content), projection)
+        ref = topic.as_ref()
+        current_revision = await connection.scalar(
+            select(ARTIFACT_HEADS_TABLE.c.revision).where(
+                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family,
+                ARTIFACT_HEADS_TABLE.c.artifact_id == ref.artifact_id,
+            )
+        )
+        publication = await connection.scalar(
+            select(TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.revision).where(
+                TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.scope_id == scope_id,
+                TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.family == TopicMemory.family,
+                TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.artifact_id == ref.artifact_id,
+                TOPIC_MEMORY_REVISION_PUBLICATIONS_TABLE.c.revision == ref.revision,
+            )
+        )
+        if current_revision != ref.revision or publication != ref.revision:
+            raise TopicMemoryStorageInvariantError("projection-source", (scope_id, ref))
         await self.index.replace(connection, scope_id, ref, projection)
         await connection.execute(
             delete(TOPIC_MEMORY_ACTIVE_CHUNKS_TABLE).where(
@@ -562,7 +594,6 @@ class TopicMemoryRepository:
                 for chunk in projection.chunks
             ],
         )
-        return published_at
 
     def _validate_projection(
         self,

@@ -5,6 +5,7 @@
     "deploy-server",
     "connect-remote-server",
     "artifact-processing-migration",
+    "portable-archive",
     "observability",
     "trace-with-phoenix",
     "trace-with-langfuse",

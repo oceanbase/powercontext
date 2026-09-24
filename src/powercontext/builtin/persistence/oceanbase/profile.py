@@ -172,6 +172,12 @@ async def _require_mysql_tenant(connection: AsyncConnection) -> None:
     result = await connection.exec_driver_sql("SHOW VARIABLES LIKE 'ob_compatibility_mode'")
     row = result.first()
     mode = None if row is None or len(row) < 2 else str(row[1]).upper()
+    if row is None:
+        # Standalone SeekDB 1.4 is MySQL-only and no longer exposes the
+        # multi-tenant compatibility variable. Keep unknown servers rejected.
+        version_row = (await connection.exec_driver_sql("SELECT VERSION()")).first()
+        if version_row and "-OceanBase seekdb-" in str(version_row[0]):
+            return
     if mode != "MYSQL":
         raise UnsupportedOceanBaseTenantError(mode)
 

@@ -204,6 +204,31 @@ def test_profile_requires_an_oceanbase_mysql_tenant(
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("version", ["5.7.25-OceanBase seekdb-v1.4.0.0", "8.0.40", "unknown"])
+def test_profile_recognizes_mysql_only_seekdb_without_tenant_variable(version, monkeypatch) -> None:
+    class Connection(_Connection):
+        async def exec_driver_sql(self, statement, parameters=None):
+            if statement == "SELECT VERSION()":
+                return _Result(((version,),))
+            return await super().exec_driver_sql(statement, parameters)
+
+    async def create_no_tables(_connection, _tables):
+        pass
+
+    async def scenario():
+        engine = _Engine(connection=Connection(row=None))
+        monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_no_tables)
+        if "seekdb" in version:
+            async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=()):
+                pass
+        else:
+            with pytest.raises(UnsupportedOceanBaseTenantError):
+                async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=()):
+                    pass
+
+    asyncio.run(scenario())
+
+
 def test_profile_rejects_legacy_identity_column_collation(monkeypatch: pytest.MonkeyPatch) -> None:
     async def scenario() -> None:
         extension_table = Table(

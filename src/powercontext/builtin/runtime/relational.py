@@ -159,6 +159,7 @@ from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, SOURCE
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.persistence.topic_memory_index import NoTopicMemoryIndex, TopicMemoryIndex
 from powercontext.builtin.persistence.topic_memory_management import TopicMemoryManagementWriter
+from powercontext.builtin.portability import PortableBundleService
 from powercontext.builtin.publication import ArtifactPublicationApplication
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult,
@@ -255,6 +256,9 @@ def _artifact_identity(ref: ArtifactRef) -> tuple[str, str, int]:
 _MEMORY_COMMIT_STAGE = "memory.commit"
 _MEMORY_COMMIT_MEMORY_CHANGED = "powercontext.memory.commit.memory_changed"
 _MEMORY_COMMIT_ENTRY_VERSION_COUNT = "powercontext.memory.commit.entry_version_count"
+
+
+BUILTIN_ARTIFACT_TYPES = (Handoff, Memory, Experience, Skill, Profile, Prompt, TopicMemory)
 
 
 @dataclass(frozen=True, slots=True)
@@ -531,8 +535,14 @@ class RelationalContexts:
         self.experience_index = NoExperienceIndex() if experience_index is None else experience_index
         source_repository = SourceRepository(self.source_registry)
         artifact_repository = ArtifactRepository(
-            (Handoff, Memory, Experience, Skill, Profile, Prompt, TopicMemory),
+            BUILTIN_ARTIFACT_TYPES,
             sources=source_repository,
+        )
+        self.portability = PortableBundleService(
+            database,
+            projection_rebuilder=self.rebuild_portable_projections,
+            supported_source_types=tuple(definition.name for definition in self.source_registry.definitions),
+            supported_artifact_families=artifact_repository.families,
         )
         topic_memory_repository = TopicMemoryRepository(artifacts=artifact_repository, index=self.topic_memory_index)
         self.repositories = _Repositories(
@@ -586,6 +596,7 @@ class RelationalContexts:
             max_concurrency=topic_memory_write_concurrency,
             usage_reporter=self.model_usage_reporter,
         )
+        self._topic_memory_writer = topic_memory_writer
         family_writers = FamilyManagementWriterRegistry((
             topic_memory_writer,
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
@@ -1310,6 +1321,63 @@ class RelationalContexts:
                 )
             ).scalars()
             return tuple(str(value) for value in values)
+
+    async def rebuild_portable_projections(self, scope_ids: tuple[str, ...], /) -> None:
+        """Rebuild target-local search projections after a logical restore."""
+
+        for scope_id in scope_ids:
+            services = self._services_for(scope_id)
+            _, catalog = services.sources()
+            await services.memory(catalog).rebuild_projections(self._embedding_model)
+            async with self.database.transaction() as connection:
+                memory_refs = tuple(
+                    ArtifactRef(family=Memory.family, artifact_id=str(artifact_id), revision=int(revision))
+                    for artifact_id, revision in (
+                        await connection.execute(
+                            select(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
+                            .where(
+                                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                                ARTIFACT_HEADS_TABLE.c.family == Memory.family,
+                            )
+                            .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
+                        )
+                    ).all()
+                )
+                if self.index.capabilities.vector and memory_refs:
+                    model = self._embedding_model
+                    if model is None or not await self.index.vector_complete(
+                        connection, scope_id, memory_refs, model.profile
+                    ):
+                        raise RuntimeError("restored Memory vector projection is incomplete")  # noqa: TRY003
+                topic_heads = tuple(
+                    (
+                        await connection.execute(
+                            select(ARTIFACT_HEADS_TABLE.c.artifact_id, ARTIFACT_HEADS_TABLE.c.revision)
+                            .where(
+                                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                                ARTIFACT_HEADS_TABLE.c.family == TopicMemory.family,
+                            )
+                            .order_by(ARTIFACT_HEADS_TABLE.c.artifact_id)
+                        )
+                    ).all()
+                )
+            for artifact_id, revision in topic_heads:
+                ref = ArtifactRef(
+                    family=TopicMemory.family,
+                    artifact_id=str(artifact_id),
+                    revision=int(revision),
+                )
+                async with self.database.transaction() as connection:
+                    topic = await self.repositories.artifacts.get(connection, scope_id, ref)
+                if not isinstance(topic, TopicMemory):
+                    raise TypeError("restored Topic Memory decoded to the wrong Artifact type")  # noqa: TRY003
+                projection = await self._topic_memory_writer.prepare(topic.content, usage_scope_id=scope_id)
+                async with self.database.transaction() as connection:
+                    await self.repositories.topic_memories.rebuild_current(connection, scope_id, topic, projection)
+        async with self.database.transaction() as connection:
+            await self.topic_memory_index.validate_current(connection)
+        async with self.database.transaction() as connection:
+            await self.experience_index.initialize(connection)
 
     async def process_memory(
         self,
