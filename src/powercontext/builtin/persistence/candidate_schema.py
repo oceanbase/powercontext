@@ -30,6 +30,20 @@ class CandidateMigrationError(RuntimeError):
 
 async def migrate_candidate_schema(engine: AsyncEngine) -> None:
     async with engine.connect() as connection:
+        tables = set(await connection.run_sync(lambda sync: inspect(sync).get_table_names()))
+        _require(
+            not tables & {"pc_catalog_change_candidate_heads", "pc_catalog_change_candidate_versions"},
+            "unpublished Catalog Change schema requires explicit recovery",
+        )
+        candidate_tables = {
+            "pc_artifact_candidate_heads",
+            "pc_artifact_candidate_versions",
+            "pc_candidate_heads",
+            "pc_candidate_versions",
+        }
+        if not tables & candidate_tables:
+            return
+
         sqlite = connection.dialect.name == "sqlite"
         foreign_keys = None
         locked = False
