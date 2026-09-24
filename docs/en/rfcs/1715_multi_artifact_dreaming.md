@@ -52,13 +52,15 @@ Add a server-owned `DreamOperationSpec` registry declaring an operation name and
 
 The current worker dispatch assumes a Skill run or an Experience run. Replace that binary assumption with a binding-to-operation registry and claim one accepted run in deterministic request-generation, acceptance-time, and run-ID order. Reuse one Supervisor binding per Family. Do not create another scheduler or clear ordinary Source progress when a Dream run finishes. Keep explicit work from starving ordinary Source work: after at most four consecutive Dream attempts on one binding, perform one eligible Source pass before continuing, with the counter durable across worker restarts in a new `consecutive_dream_attempts` column on the existing intent table. A completed Source pass resets the counter and preserves queued Dream requests; no new table is required. Apply the additive column migration before processing schema validation on startup, preserving pending work in existing databases.
 
-## API and Client compatibility
+## Unified Candidate API and upgrade boundary
 
-Extend the existing `POST/GET /v1/scopes/{scope_id}/dream` and `GET /v1/scopes/{scope_id}/dream/{run_id}` operations with exact Artifact targets, new operations, and corresponding run results. Extend `POST /v1/artifact-candidates/list`, `get`, `revise`, `approve`, and `reject` for new Artifact proposal types while retaining `candidate_id` and `expected_version`. Extend `GET /v1/capabilities` with available Dream operations, output kinds, and effects. No parallel Dream or Artifact Review path is needed.
+Candidate means a proposed change awaiting review. Replace the Artifact-named review routes with six JSON POST operations: `/v1/candidates/list`, `/v1/candidates/get`, `/v1/candidates/history`, `/v1/candidates/revise`, `/v1/candidates/approve`, and `/v1/candidates/reject`. Both Artifact and Tag changes use these endpoints. Responses discriminate typed proposals and results with `candidate_kind=artifact|tag`; the server derives the immutable kind from the stored candidate for subsequent operations. Retain scope_id, candidate_id, expected_version, evidence, and decision reasons. Revision submits a complete typed proposal and cannot change its kind or target. List supports kind, status, and owning Artifact family filters, one stable ordering, and one cursor; omitting kind includes both types subject to existing authorization. History exposes immutable proposal versions separately from the final decision.
 
-Generated Clients currently use closed Dream operation enums and Candidate proposal unions. Deploy Server, generated Python Client, CLI, integrations, and Dashboard coherently before advertising new operations. An old Client must receive an explicit upgrade signal or only a compatibility-filtered list that it can decode; it must not silently reinterpret a new proposal as an old type. Define and test the minimum supported Client release. Tag proposals have a different result type and ETag transaction; add dedicated Tag candidate interfaces only in stage C, once that different resource lifecycle is implemented. Trusted evaluation is an optional future enhancement. Evaluator registration, result submission, evaluation storage, and evaluation approval gates are outside this PR.
+Remove `/v1/artifact-candidates/*` directly, without aliases, redirects, or compatibility filtering. The unpublished `/v1/catalog-change-candidates/*` and `/v1/catalog-candidates/*` are not exposed and require no compatibility layer. This is an intentional breaking API change requiring coordinated Server and Client upgrades. Automatic database migration does not preserve old API clients.
 
-For Artifact operations, `target` remains an exact ArtifactRef and must also appear in `artifacts`. Memory entry identities and versions are supplied through `memory_citations`, all belonging to that target Memory. References are deduplicated and counted against the evidence budget; a target cannot independently support its own claims. For Profile, Topic Memory, and Handoff, validate the target permission, existence, and exact head separately: retired historical dependencies must not prevent correction using new valid evidence. Recursively validate all selected supporting evidence without granting it the target exemption. Explicit Sources and references must belong to the same Scope. Stage C expresses TagTarget, expected ETag, and the exact content basis through its separate Catalog Change request, without changing the Artifact Dream target type.
+Existing Experience, Skill, import, Profile, and Dream entrypoints create candidates; no generic create endpoint is added. Keep the current Dream submit/list/get routes and capabilities resource, extending their typed operations, targets, and Candidate references. Update the OpenAPI source contract, operation IDs, generated server and Client code, Python SDK, CLI, MCP, integrations, Dashboard, and contract tests together. Update both locales of the website HTTP API, interface overview, review workflow, examples, and generated API reference; do not hand-edit generated site directories. Release notes must identify removed routes and the matching minimum Client version. Trusted evaluation APIs, storage, and gates remain outside this PR.
+
+For Artifact operations, `target` remains an exact ArtifactRef and must also appear in `artifacts`. Memory entry identities and versions are supplied through `memory_citations`, all belonging to that target Memory. References are deduplicated and counted against the evidence budget; a target cannot independently support its own claims. For Profile, Topic Memory, and Handoff, validate the target permission, existence, and exact head separately: retired historical dependencies must not prevent correction using new valid evidence. Recursively validate all selected supporting evidence without granting it the target exemption. Explicit Sources and references must belong to the same Scope. Tag uses tag_target on the same Dream submission route to carry TagTarget, expected ETag, and exact content basis; Artifact operations retain their exact ArtifactRef target.
 
 The existing idempotency identity remains `(scope_id, principal_id, idempotency_key)`, stored using the current principal key digest. The same normalized request returns its original run; changed input under the same key conflicts. Different principals may use the same key without sharing a run, ownership, or worker identity. Capture Profile policy at admission and supply its snapshot to generation; reject changes during queueing, generation, or approval, while allowing stale candidates to be rejected. On first execution freeze the operation adapter, model, and server prompt version for retries. Existing HTTP 202/200 replay semantics remain.
 
@@ -82,13 +84,79 @@ The model returns a typed complete proposal, a concise reason, intent, and only 
 
 **Prompt.** Target only an existing registered, custom-capable key. Propose full `mode/instructions/demonstrations` content after comparing verified errors and their original evidence with human-labelled or otherwise trusted expected outputs. The Dream system prompts and review/evaluation rules cannot be targets. Validate demonstrations against that key's schemas. No held-out dataset service, automated baseline/candidate scoring, or trusted evaluation gate is implemented in this PR. Approval requires deterministic schema/evidence/version checks, human review, and Prompt write authority; it publishes a new Prompt Revision for future inferences. In-flight inference keeps its frozen prior revision; rollback writes a higher revision.
 
-**Tag.** Tag is catalog metadata, not an Artifact Family. A Catalog Change Candidate captures one current TagTarget, expected ETag, exact Artifact or Memory Entry content basis, before/after complete Tag sets, evidence, and reason. Review checks both ETag and current content basis. Approval atomically replaces the Tag set and records its decision, without creating an Artifact Revision or changing its content digest or embeddings. It must not be squeezed into the Artifact Candidate result shape, where approved implies `result_artifact`.
+**Tag.** Tag is catalog metadata, not an Artifact Family. A unified Candidate with candidate_kind=tag captures one current TagTarget, expected ETag, exact Artifact or Memory Entry content basis, before/after complete Tag sets, evidence, and reason. Review checks both ETag and current content basis. Approval atomically replaces the Tag set and records its decision, without creating an Artifact Revision or changing its content digest or embeddings. Its typed approval result contains the target, committed tags, and ETag; result_artifact remains null. Revision cannot alter the original baseline. Retry after successful approval returns the persisted result without applying tags again.
+
+### Tag request and review examples
+
+Create Tag candidates through the existing Dream submission endpoint, not a separate Candidate create API. Read the current tags and ETag and the exact content baseline first. Supply at least one supporting Source, Artifact, or Memory citation within the shared evidence budget. Artifact targets use basis_ref; Memory entry targets use basis_citation. The target and content basis must identify the same resource.
+
+```json
+{
+  "operation": "revise_tags",
+  "tag_target": {
+    "target": {"type": "artifact", "family": "experience", "artifact_id": "exp-17"},
+    "expected_etag": "<ETag from current tag response>",
+    "basis_ref": {"family": "experience", "artifact_id": "exp-17", "revision": 4}
+  },
+  "sources": [{"source_type": "content", "source_id": "src-42"}],
+  "idempotency_key": "dream-tags-exp-17-001"
+}
+```
+
+For a Memory entry, use a target with type=memory_entry, family=memory, artifact_id, and entry_id, and a basis_citation containing its exact memory_ref, entry_id, and entry_version_id. Use the returned Candidate reference for review.
+
+| POST endpoint | Required request fields | Optional fields or result |
+| --- | --- | --- |
+| `/v1/candidates/list` | scope_id | candidate_kind=tag, status, cursor, limit (1–100, default 50); returns candidates and next_cursor |
+| `/v1/candidates/get` | scope_id, candidate_id | Current proposal, version, evidence, and decision |
+| `/v1/candidates/history` | scope_id, candidate_id | Immutable proposal versions |
+| `/v1/candidates/revise` | scope_id, candidate_id, expected_version, proposal, reason | sources, artifacts, memory_citations; creates a pending version |
+| `/v1/candidates/approve` | scope_id, candidate_id, expected_version | Conditional Tag replacement and stored result |
+| `/v1/candidates/reject` | scope_id, candidate_id, expected_version, reason | Terminal rejection without changing tags |
+
+Reads require scope.read; review mutations require scope.review and applicable target permissions. The complete proposal retains the original target, expected_etag, basis, and before_tags. Revision must not change those fields to bypass a conflict. after_tags contains the entire replacement set: 0–32 labels, each 1–64 characters. An empty set clears the tags. Apply NFC/casefold normalization and reject duplicates after normalization.
+
+Example request to `/v1/candidates/revise`:
+
+```json
+{
+  "scope_id": "scope-1",
+  "candidate_id": "cat-candidate-9",
+  "expected_version": 1,
+  "proposal": {
+    "target": {"type": "artifact", "family": "experience", "artifact_id": "exp-17"},
+    "expected_etag": "<original candidate ETag>",
+    "basis_ref": {"family": "experience", "artifact_id": "exp-17", "revision": 4},
+    "before_tags": ["logistics", "gatehouse-delivery"],
+    "after_tags": ["logistics", "wrong-address"]
+  },
+  "reason": "Verified delivery evidence identifies the wrong address",
+  "sources": [{"source_type": "content", "source_id": "src-43"}]
+}
+```
+
+A stale Candidate version returns 409, a changed Tag ETag returns 412, and a changed content baseline returns 409. Read and review a fresh proposal; never automatically rebase. The response includes candidate_kind=tag, candidate_id, version, status, operation=revise_tags, origin, proposal, evidence, reason, and decision. Approval returns the actual target, committed tags, and new tag_digest/ETag without a result_artifact. Successful approval replay checks current authority and request semantics and returns the persisted result without repeating the mutation.
 
 ## Review transaction, storage, and implementation stages
 
 A common review path validates current authority, reads the candidate to choose the server-registered Family/origin adapter, performs any external preparation, then lets that adapter acquire all locks in the Family's established order. The common layer must not lock Candidate before the Profile adapter locks Policy. Inside the transaction, revalidate exact candidate version and digest, target baseline, evidence availability, and applicable deterministic policy. The Family writer and Candidate decision commit together. Stale or invalid candidates remain pending with an actionable conflict; rejected Dream candidates never alter formal content or a Source cursor.
 
-A0/A1 reuse `pc_dream_runs`, `pc_artifact_candidate_heads`, `pc_artifact_candidate_versions`, and Family storage. Prefer existing typed payloads for operation version, target, origin, proposal, and result; add columns or indexes only for proven query, uniqueness, or transactional needs. No new A0/A1 business table, generic index-outbox table, or second Dream scheduler is needed. Preserve the current `(scope_id, principal_key, idempotency_key)` constraint. Evaluator registration, trusted result storage/submission, versioned quality gates, and isolated evaluation execution are excluded from this PR; do not add evaluation tables or placeholder APIs. Stage C may add Tag candidate and candidate-version storage justified by its distinct ETag and result lifecycle. Tag storage is not a prerequisite for A0/A1 startup or migration. Apply any schema change to SQLite and OceanBase.
+Rename the existing `pc_artifact_candidate_heads` and `pc_artifact_candidate_versions` to `pc_candidate_heads` and `pc_candidate_versions`. These are the only two permanent Candidate tables. Do not create Catalog Change tables or a migration journal table. Heads add immutable non-null candidate_kind (artifact/tag, backfilled to artifact for existing rows) and nullable result_payload. Versions inherit kind through candidate identity and reuse proposal, evidence, target, and reason storage. Family remains the owning Artifact family, never tag. Tag proposals store the target, expected ETag, exact content basis, and complete before/after tags.
+
+Approved artifact candidates require a real result_family/result_artifact_id/result_revision foreign key and no Tag result. Approved tag candidates require a valid typed result_payload and null Artifact result columns. Pending and rejected candidates have no success result; rejected candidates retain their reason. Never synthesize revision 0, -1, or 1 for Tag results. Preserve candidate and version primary keys and add only necessary query indexes. Reuse pc_dream_runs, existing Family storage, and the current (scope_id, principal_key, idempotency_key) constraint. Evaluation storage and generic index-outbox tables remain excluded.
+
+### Automatic migration during upgrade
+
+A dedicated startup migration is required; installing the package alone does not change data, and create_all does not rename or upgrade existing tables. Run migration before Candidate create_all, domain reads, API readiness, or Worker startup.
+
+1. Stop old Servers and Workers and back up the database before starting the new release. Mixed old/new binaries and rolling upgrades across this schema change are unsupported. Serialize migration at deployment level; other new instances wait for verified completion.
+2. Detect tables, fields, constraints, and foreign keys. Fresh databases receive the unified schema. Existing databases rename the two tables, add fields, backfill kind=artifact, and update result constraints. Fully migrated databases verify and skip completed work.
+3. Preserve IDs, current and historical versions, proposals, evidence, statuses, reasons, and real approval results. Update the Profile pending_candidate_id foreign key and preserve Dream references and access ownership. Normalize old payloads through explicit readers or lossless conversion; users must not regenerate or reapprove historical candidates.
+4. SQLite may rebuild constraints using temporary tables inside a transaction, verifying copied contents and foreign keys before replacement; only two Candidate tables remain afterward. OceanBase/MySQL DDL is not assumed to be transactionally reversible: inspect actual schema at each idempotent step, resume interrupted work, and block business startup in every incomplete state.
+5. Verify rows, contents, candidate/version relations, approval results, Profile links, and historical references before readiness. Fail with an actionable error while preserving recoverable data; never silently initialize empty replacement tables. Ambiguous simultaneous old/new tables require intervention, not guessed overwrites.
+6. The unpublished Catalog Change schema has no production migration or compatibility requirement. If detected, report it as an unsupported experimental schema without deleting it. Downgrading requires restoring the pre-upgrade backup; old binaries need not understand the new schema.
+
+Validate SQLite and OceanBase fresh and populated upgrades, all three review states, multiple proposal versions, Profile pointers, Dream references, ownership, repeat startup, interruption/resume, concurrent initialization, and ambiguous dual tables. Check that old pending candidates remain reviewable, old approved results remain readable, and Tag approval creates no content revision. Finish migration and coordinated reader/serializer/Client/Dashboard support before advertising new operations. Existing non-Dream automatic generation policies remain unchanged.
 
 | Stage | Deliverable | Enablement gate |
 | --- | --- | --- |
@@ -96,7 +164,7 @@ A0/A1 reuse `pc_dream_runs`, `pc_artifact_candidate_heads`, `pc_artifact_candida
 | A1 | Explicit Memory, Profile, and Topic Memory revision | Atomic Memory write, Profile cursor isolation, and Topic complete-projection publication pass on SQLite and OceanBase |
 | B1 | Handoff refresh and one-file Skill revision | Non-activation boundary, package/evidence validation, and human review pass |
 | B2 | Prompt revision | Same-key schemas, evidence validation, human review, Prompt write authority, and rollback pass |
-| C | Single-target Tag governance | Both ETag and content baseline, distinct result type, and decision history pass |
+| C | Single-target Tag governance using the unified Candidate tables, APIs, and Inbox | Both ETag and content baseline, distinct result type, and decision history pass |
 
 Per-run defaults remain at most 20 explicitly selected target/artifact/entry references, at most 32 projected evidence items including Sources, 64 KiB model-visible evidence, two model calls, 4,096 output tokens per call, and 120 seconds from first execution. A Scope has at most 32 pending/running runs. Root traversal retains its 128-node, 256-edge, 8-level budget. Complete snapshots that exceed budget fail; do not truncate them and claim a complete revision.
 
@@ -110,11 +178,11 @@ Acceptance scenarios cover temporary travel versus an explicit move; a single Me
 
 # Drawbacks
 
-Each Family still needs its own validator and transaction-safe writer. Full Memory-head CAS may conflict in active Scopes. Complete Profile/Topic snapshots can exceed model budgets. Human review adds latency and operational cost; approval alone does not prove quality improvement. Closed Client types require coordinated upgrades. Tag's distinct lifecycle may ultimately justify its own candidate storage and interfaces.
+Each Family still needs its own validator and transaction-safe writer. Full Memory-head CAS may conflict in active Scopes. Complete Profile/Topic snapshots can exceed model budgets. Human review adds latency and operational cost; approval alone does not prove quality improvement. Closed Client types require coordinated upgrades. Unified Candidate storage requires kind-specific constraints and commit adapters; direct API replacement and table renaming require a coordinated upgrade.
 
 # Rationale and alternatives
 
-A generic `replace` writer would be smaller superficially but would bypass Memory Entry Versions, Profile cursor policy, Topic projection invariants, Handoff activation, and Tag ETags. Converting every result into an Experience would leave the underlying inaccurate content in place. One Dream service per Family duplicates idempotency, budgeting, evidence, and recovery. One common run with Family-owned validation and commits preserves the proven runtime while respecting each write boundary. A universal nightly scan and automatic overwrite is postponed because discovery quality, cost, and rollback evidence are not established. In-place `/v1` extension avoids a parallel route tree; it requires a deliberate minimum Client version and compatibility strategy.
+A generic `replace` writer would be smaller superficially but would bypass Memory Entry Versions, Profile cursor policy, Topic projection invariants, Handoff activation, and Tag ETags. Converting every result into an Experience would leave the underlying inaccurate content in place. One Dream service per Family duplicates idempotency, budgeting, evidence, and recovery. One common run with Family-owned validation and commits preserves the proven runtime while respecting each write boundary. A universal nightly scan and automatic overwrite is postponed because discovery quality, cost, and rollback evidence are not established. In-place `/v1` extension avoids a parallel route tree; it requires a deliberate minimum Client version and a coordinated breaking upgrade.
 
 # Prior art
 
@@ -122,10 +190,10 @@ This proposal builds on [Artifact Dreaming](1510-artifact-dreaming.md) for exact
 
 # Unresolved questions
 
-1. Define the minimum coordinated Client release and explicit upgrade or compatibility-filtering behavior for old closed enums and proposal unions.
+1. Choose the coordinated Server and Client release versions; removed routes have no compatibility layer.
 2. Define the Reviewer presentation of evidence, diffs, and configuration-publication effects for Skill and each supported Prompt key.
 3. Extract the transaction-safe, non-activating Handoff writer without bypassing existing tokens or receiver checks.
-4. Choose the Stage C Tag Inbox pagination strategy while preserving its separate lifecycle.
+4. Define Tag diff presentation in the unified Inbox; both kinds already share storage, ordering, and pagination.
 5. Decide which application observes post-publication quality and requests explicit rollback; no automatic causal attribution is claimed.
 
 Stage A0/A1 can be developed independently; an operation in a later stage remains unavailable until its own contract, storage, deterministic validation, review, and concurrency gate is complete.
