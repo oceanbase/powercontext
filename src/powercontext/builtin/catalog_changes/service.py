@@ -279,7 +279,7 @@ class CatalogChangeService:
     async def approve(self, candidate_id: str, expected_version: int) -> CatalogChangeCandidate:
         try:
             return await self._approve_once(candidate_id, expected_version)
-        except (CandidateTerminalError, TagPreconditionError):
+        except (ArtifactTargetConflictError, CandidateTerminalError, TagPreconditionError):
             async with self._connection() as connection:
                 current = await self._repository.get(connection, self._scope_id, candidate_id, current=True)
                 if current.status != "approved" or current.version != expected_version:

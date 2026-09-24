@@ -308,6 +308,51 @@ def test_catalog_concurrent_decisions_publish_only_once(database):
     asyncio.run(scenario())
 
 
+def test_catalog_overlapping_approval_replays_after_basis_changes(tmp_path):
+    async def scenario():
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'overlapping-approval.db'}")
+        async with seed(config) as (contexts, scope, source, artifact):
+            first = contexts.catalog_changes(scope)
+            retry = contexts.catalog_changes(scope)
+            item = await first.propose(
+                await proposal(contexts, scope, artifact), sources=(source,), reason="Verified correction"
+            )
+
+            waiting = asyncio.Event()
+            resume = asyncio.Event()
+            validate = retry._evidence_and_lock
+
+            async def pause_validation(connection, candidate):
+                waiting.set()
+                await resume.wait()
+                await validate(connection, candidate)
+
+            retry._evidence_and_lock = pause_validation
+            retry_task = asyncio.create_task(retry.approve(item.candidate_id, item.version))
+            await waiting.wait()
+
+            approved = await first.approve(item.candidate_id, item.version)
+            async with contexts.database.transaction() as connection:
+                revised = await contexts.repositories.artifacts.revise(
+                    connection,
+                    scope,
+                    artifact,
+                    ExperienceDraft(
+                        content=artifact.content.model_copy(update={"lesson": "A later lesson"}),
+                        sources=(source,),
+                    ),
+                )
+
+            resume.set()
+            replayed = await retry_task
+            assert replayed == approved
+            assert revised.as_ref() != item.proposal.basis_ref
+            assert (await retry.get(item.candidate_id)).status == "approved"
+            assert (await contexts.records.get_tags(scope, item.proposal.target)).tags == ("confirmed",)
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("change", ["revise", "retire"])
 def test_catalog_memory_entry_changes_invalidate_pending_candidate(database, change):
     async def scenario():
