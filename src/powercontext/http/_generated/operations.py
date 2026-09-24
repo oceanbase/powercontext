@@ -18,10 +18,7 @@ from powercontext.http._generated.models import (
     AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
-    ApproveArtifactCandidateRequest,
-    ApproveCatalogCandidateRequest,
-    ArtifactCandidate,
-    ArtifactCandidatePage,
+    ApproveCandidateRequest,
     ArtifactCreated,
     ArtifactPage,
     ArtifactPublication,
@@ -29,12 +26,12 @@ from powercontext.http._generated.models import (
     ArtifactRevisionPage,
     ArtifactTagPage,
     ArtifactTagSet,
+    Candidate,
+    CandidateHistory,
+    CandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
-    CatalogCandidateHistory,
-    CatalogCandidatePage,
-    CatalogChangeCandidate,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CommitConnectorCheckpointRequest,
@@ -68,8 +65,7 @@ from powercontext.http._generated.models import (
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
-    GetArtifactCandidateRequest,
-    GetCatalogCandidateRequest,
+    GetCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
@@ -90,10 +86,9 @@ from powercontext.http._generated.models import (
     ListAccessBindingsRequest,
     ListAccessResourcesRequest,
     ListAccessRolesRequest,
-    ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
-    ListCatalogCandidatesRequest,
+    ListCandidatesRequest,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -131,8 +126,7 @@ from powercontext.http._generated.models import (
     RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterSourceDefinitionRequest,
-    RejectArtifactCandidateRequest,
-    RejectCatalogCandidateRequest,
+    RejectCandidateRequest,
     RememberMemoryRequest,
     RemoteSkillPublication,
     RemoteSkillReceiptResponse,
@@ -147,8 +141,7 @@ from powercontext.http._generated.models import (
     ResolveScopeBindingRequest,
     ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
-    ReviseArtifactCandidateRequest,
-    ReviseCatalogCandidateRequest,
+    ReviseCandidateRequest,
     ReviseMemoryEntryRequest,
     RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
@@ -1464,14 +1457,14 @@ GET_DREAM_RUN = Operation[None, DreamRun](
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
 )
 
-PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, ArtifactCandidate](
+PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, Candidate](
     method="POST",
     path="/v1/experience/propose",
     operation_id="propose_experience",
     request_type=ProposeExperienceRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=201,
     summary="Propose Experience content",
     tags=("experience",),
@@ -1549,14 +1542,14 @@ GET_EXPERIENCE = Operation[GetExperienceRequest, ExperienceArtifact](
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="exact_experience_access"),
 )
 
-PROPOSE_SKILL = Operation[ProposeSkillRequest, ArtifactCandidate](
+PROPOSE_SKILL = Operation[ProposeSkillRequest, Candidate](
     method="POST",
     path="/v1/skill/propose",
     operation_id="propose_skill",
     request_type=ProposeSkillRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=201,
     summary="Propose managed Skill content",
     tags=("skill",),
@@ -1732,14 +1725,14 @@ DOWNLOAD_SKILL_PACKAGE = Operation[GetSkillPackageRequest, SkillPackageDownload]
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="exact_skill_access"),
 )
 
-PROPOSE_SKILL_PACKAGE = Operation[ProposeSkillPackageRequest, ArtifactCandidate](
+PROPOSE_SKILL_PACKAGE = Operation[ProposeSkillPackageRequest, Candidate](
     method="POST",
     path="/v1/skill/package/propose",
     operation_id="propose_skill_package",
     request_type=ProposeSkillPackageRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=201,
     summary="Propose an uploaded standard Skill package",
     tags=("skill",),
@@ -2126,16 +2119,16 @@ IMPORT_EXTERNAL_SKILL = Operation[ImportExternalSkillRequest, GeneratedCandidate
     ),
 )
 
-LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCandidatePage](
+LIST_CANDIDATES = Operation[ListCandidatesRequest, CandidatePage](
     method="POST",
-    path="/v1/artifact-candidates/list",
-    operation_id="list_artifact_candidates",
-    request_type=ListArtifactCandidatesRequest,
+    path="/v1/candidates/list",
+    operation_id="list_candidates",
+    request_type=ListCandidatesRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidatePage,
+    response_type=CandidatePage,
     success_status=200,
-    summary="List Artifact Candidates",
+    summary="List Candidates",
     tags=("review",),
     scope_mode="current",
     responses={
@@ -2153,16 +2146,16 @@ LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCand
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidate](
+GET_CANDIDATE = Operation[GetCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/get",
-    operation_id="get_artifact_candidate",
-    request_type=GetArtifactCandidateRequest,
+    path="/v1/candidates/get",
+    operation_id="get_candidate",
+    request_type=GetCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Get an Artifact Candidate",
+    summary="Get a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
@@ -2181,16 +2174,16 @@ GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidat
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, ArtifactCandidate](
+APPROVE_CANDIDATE = Operation[ApproveCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/approve",
-    operation_id="approve_artifact_candidate",
-    request_type=ApproveArtifactCandidateRequest,
+    path="/v1/candidates/approve",
+    operation_id="approve_candidate",
+    request_type=ApproveCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Approve an Artifact Candidate",
+    summary="Approve a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
@@ -2210,16 +2203,16 @@ APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, Artifact
     access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCandidate](
+REJECT_CANDIDATE = Operation[RejectCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/reject",
-    operation_id="reject_artifact_candidate",
-    request_type=RejectArtifactCandidateRequest,
+    path="/v1/candidates/reject",
+    operation_id="reject_candidate",
+    request_type=RejectCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Reject an Artifact Candidate",
+    summary="Reject a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
@@ -2239,16 +2232,16 @@ REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCa
     access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCandidate](
+REVISE_CANDIDATE = Operation[ReviseCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/revise",
-    operation_id="revise_artifact_candidate",
-    request_type=ReviseArtifactCandidateRequest,
+    path="/v1/candidates/revise",
+    operation_id="revise_candidate",
+    request_type=ReviseCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Revise an Artifact Candidate",
+    summary="Revise a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
@@ -2268,21 +2261,21 @@ REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCa
     access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-LIST_CATALOG_CANDIDATES = Operation[ListCatalogCandidatesRequest, CatalogCandidatePage](
+GET_CANDIDATE_HISTORY = Operation[GetCandidateRequest, CandidateHistory](
     method="POST",
-    path="/v1/catalog-change-candidates/list",
-    operation_id="list_catalog_candidates",
-    request_type=ListCatalogCandidatesRequest,
+    path="/v1/candidates/history",
+    operation_id="get_candidate_history",
+    request_type=GetCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=CatalogCandidatePage,
+    response_type=CandidateHistory,
     success_status=200,
-    summary="List Catalog Change Candidates",
+    summary="History Candidates",
     tags=("review",),
     scope_mode="current",
     responses={
         426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
-        200: {"description": "Current Catalog Change Candidate state."},
+        200: {"description": "Current Candidate state."},
         401: {"$ref": "#/components/responses/Unauthorized"},
         403: {"$ref": "#/components/responses/Forbidden"},
         404: {"$ref": "#/components/responses/NotFound"},
@@ -2292,136 +2285,6 @@ LIST_CATALOG_CANDIDATES = Operation[ListCatalogCandidatesRequest, CatalogCandida
         500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
-)
-
-GET_CATALOG_CANDIDATE = Operation[GetCatalogCandidateRequest, CatalogChangeCandidate](
-    method="POST",
-    path="/v1/catalog-change-candidates/get",
-    operation_id="get_catalog_candidate",
-    request_type=GetCatalogCandidateRequest,
-    request_location="body",
-    path_parameters=(),
-    response_type=CatalogChangeCandidate,
-    success_status=200,
-    summary="Get Catalog Change Candidates",
-    tags=("review",),
-    scope_mode="current",
-    responses={
-        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
-        200: {"description": "Current Catalog Change Candidate state."},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
-)
-
-GET_CATALOG_CANDIDATE_HISTORY = Operation[GetCatalogCandidateRequest, CatalogCandidateHistory](
-    method="POST",
-    path="/v1/catalog-change-candidates/history",
-    operation_id="get_catalog_candidate_history",
-    request_type=GetCatalogCandidateRequest,
-    request_location="body",
-    path_parameters=(),
-    response_type=CatalogCandidateHistory,
-    success_status=200,
-    summary="History Catalog Change Candidates",
-    tags=("review",),
-    scope_mode="current",
-    responses={
-        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
-        200: {"description": "Current Catalog Change Candidate state."},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
-)
-
-REVISE_CATALOG_CANDIDATE = Operation[ReviseCatalogCandidateRequest, CatalogChangeCandidate](
-    method="POST",
-    path="/v1/catalog-change-candidates/revise",
-    operation_id="revise_catalog_candidate",
-    request_type=ReviseCatalogCandidateRequest,
-    request_location="body",
-    path_parameters=(),
-    response_type=CatalogChangeCandidate,
-    success_status=200,
-    summary="Revise Catalog Change Candidates",
-    tags=("review",),
-    scope_mode="current",
-    responses={
-        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
-        200: {"description": "Current Catalog Change Candidate state."},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
-)
-
-APPROVE_CATALOG_CANDIDATE = Operation[ApproveCatalogCandidateRequest, CatalogChangeCandidate](
-    method="POST",
-    path="/v1/catalog-change-candidates/approve",
-    operation_id="approve_catalog_candidate",
-    request_type=ApproveCatalogCandidateRequest,
-    request_location="body",
-    path_parameters=(),
-    response_type=CatalogChangeCandidate,
-    success_status=200,
-    summary="Approve Catalog Change Candidates",
-    tags=("review",),
-    scope_mode="current",
-    responses={
-        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
-        200: {"description": "Current Catalog Change Candidate state."},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
-)
-
-REJECT_CATALOG_CANDIDATE = Operation[RejectCatalogCandidateRequest, CatalogChangeCandidate](
-    method="POST",
-    path="/v1/catalog-change-candidates/reject",
-    operation_id="reject_catalog_candidate",
-    request_type=RejectCatalogCandidateRequest,
-    request_location="body",
-    path_parameters=(),
-    response_type=CatalogChangeCandidate,
-    success_status=200,
-    summary="Reject Catalog Change Candidates",
-    tags=("review",),
-    scope_mode="current",
-    responses={
-        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
-        200: {"description": "Current Catalog Change Candidate state."},
-        401: {"$ref": "#/components/responses/Unauthorized"},
-        403: {"$ref": "#/components/responses/Forbidden"},
-        404: {"$ref": "#/components/responses/NotFound"},
-        409: {"$ref": "#/components/responses/Conflict"},
-        422: {"$ref": "#/components/responses/InvalidRequest"},
-        503: {"$ref": "#/components/responses/Unavailable"},
-        500: {"$ref": "#/components/responses/InternalError"},
-    },
-    access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
 GET_STATS = Operation[GetStatsRequest, ScopedStats](

@@ -59,7 +59,7 @@ class DreamOperationSpec:
     effect: DreamEffect = "review_then_publish"
     spec_version: str = "powercontext.dream.operation.v1"
     validator: Callable[[DreamPlan, CreateDreamRunRequest], None] = DreamPlan.validate_operation
-    output_kind: Literal["artifact_candidate", "catalog_change_candidate"] = "artifact_candidate"
+    output_kind: Literal["candidate", "tag_candidate"] = "candidate"
 
     @property
     def processing_family(self) -> str | None:
@@ -162,7 +162,7 @@ DREAM_OPERATIONS = (
         "review_then_replace_tags",
         # Older candidates may have dropped supporting Artifact references.
         spec_version="powercontext.dream.operation.v2",
-        output_kind="catalog_change_candidate",
+        output_kind="tag_candidate",
     ),
 )
 DREAM_SPECS = {spec.operation: spec for spec in DREAM_OPERATIONS}

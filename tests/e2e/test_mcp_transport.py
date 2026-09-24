@@ -187,7 +187,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
             candidate = candidate_response.json()
 
             approved = await client.call_tool(
-                "approve_artifact_candidate",
+                "approve_candidate",
                 {
                     "scope_id": review_scope_id,
                     "candidate_id": candidate["candidate_id"],
@@ -203,7 +203,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
     assert tools == {
         "acknowledge_handoff",
         "activate_handoff",
-        "approve_artifact_candidate",
+        "approve_candidate",
         "capture_content_source",
         "clear_scope_binding",
         "commit_handoff",
@@ -211,7 +211,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "create_scope",
         "create_work_contract",
         "finalize_handoff",
-        "get_artifact_candidate",
+        "get_candidate",
         "get_handoff_report",
         "get_scope",
         "get_memory_entry",
@@ -226,16 +226,16 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "approve_catalog_candidate",
         "reject_catalog_candidate",
         "revise_catalog_candidate",
-        "list_artifact_candidates",
+        "list_candidates",
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
         "record_task_outcome",
         "resolve_scope_binding",
-        "reject_artifact_candidate",
+        "reject_candidate",
         "remember_memory",
         "retire_memory_entry",
-        "revise_artifact_candidate",
+        "revise_candidate",
         "revise_memory_entry",
         "search_memory",
         "search_topic_memory",

@@ -44,14 +44,14 @@ from powercontext.builtin.review.errors import (
     InvalidCandidateError,
 )
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     BuiltinConfig,
     CaptureSource,
     CreateDreamRunRequest,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetDreamRunRequest,
     InferenceConfig,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
 )
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.sources import SourceRef
@@ -138,11 +138,11 @@ def test_prompt_dream_review_publication_and_monotonic_rollback(database: Databa
                 return
             assert run.candidate is not None, run
             review = runtime.review.for_scope(scope.scope_id)
-            candidate = await review.get(GetArtifactCandidateRequest(candidate_id=run.candidate.candidate_id))
+            candidate = await review.get(GetCandidateRequest(candidate_id=run.candidate.candidate_id))
             invalid = candidate.proposal.model_copy(update={"mode": "auto", "instructions": "", "demonstrations": ()})
             with pytest.raises(InvalidCandidateError, match="custom mode"):
                 await review.revise(
-                    ReviseArtifactCandidateRequest(
+                    ReviseCandidateRequest(
                         candidate_id=candidate.candidate_id,
                         expected_version=candidate.version,
                         proposal=invalid,
@@ -158,17 +158,13 @@ def test_prompt_dream_review_publication_and_monotonic_rollback(database: Databa
                 )
                 with pytest.raises(ArtifactTargetConflictError):
                     await review.approve(
-                        ApproveArtifactCandidateRequest(
-                            candidate_id=candidate.candidate_id, expected_version=candidate.version
-                        )
+                        ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                     )
-                assert (
-                    await review.get(GetArtifactCandidateRequest(candidate_id=candidate.candidate_id))
-                ).status == "pending"
+                assert (await review.get(GetCandidateRequest(candidate_id=candidate.candidate_id))).status == "pending"
                 return
             if case == "edit":
                 candidate = await review.revise(
-                    ReviseArtifactCandidateRequest(
+                    ReviseCandidateRequest(
                         candidate_id=candidate.candidate_id,
                         expected_version=candidate.version,
                         proposal=candidate.proposal.model_copy(
@@ -186,22 +182,18 @@ def test_prompt_dream_review_publication_and_monotonic_rollback(database: Databa
             prompts = runtime._provider.prompts
             async with prompts.bind(scope.scope_id, "memory.extract") as frozen:
                 approved = await review.approve(
-                    ApproveArtifactCandidateRequest(
-                        candidate_id=candidate.candidate_id, expected_version=candidate.version
-                    )
+                    ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                 )
                 assert approved.result_artifact.revision == 2
                 assert (
                     await review.approve(
-                        ApproveArtifactCandidateRequest(
-                            candidate_id=candidate.candidate_id, expected_version=candidate.version
-                        )
+                        ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                     )
                     == approved
                 )
                 with pytest.raises(CandidateConflictError):
                     await review.approve(
-                        ApproveArtifactCandidateRequest(
+                        ApproveCandidateRequest(
                             candidate_id=candidate.candidate_id, expected_version=candidate.version + 1
                         )
                     )

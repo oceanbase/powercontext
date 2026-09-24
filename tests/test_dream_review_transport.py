@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 from typing import cast
 
 import httpx
@@ -26,14 +25,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict
 
-from powercontext.builtin.catalog_changes.application import CatalogChangeApplication
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.runtime import BuiltinRuntime, RuntimeCapabilities
 from powercontext.client import PowerContextClient
 from powercontext.http import (
-    ApproveCatalogCandidateRequest,
-    GetCatalogCandidateRequest,
-    ListCatalogCandidatesRequest,
-    ReviseCatalogCandidateRequest,
+    ApproveCandidateRequest,
+    GetCandidateRequest,
+    ListCandidatesRequest,
+    ReviseCandidateRequest,
 )
 from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.dashboard.preferences import CATALOGS
@@ -73,10 +72,10 @@ def test_capabilities_remain_decodable_by_legacy_clients(enabled):
     )
     operations = (
         [
-            {"operation": "refine_experience", "output_kind": "artifact_candidate", "effect": "review_then_publish"},
+            {"operation": "refine_experience", "output_kind": "candidate", "effect": "review_then_publish"},
             {
                 "operation": "revise_tags",
-                "output_kind": "catalog_change_candidate",
+                "output_kind": "tag_candidate",
                 "effect": "review_then_replace_tags",
             },
         ]
@@ -111,47 +110,92 @@ def test_catalog_http_client_preserves_separate_result_and_version_history(tmp_p
             candidate = await contexts.catalog_changes(scope).propose(
                 await proposal(contexts, scope, artifact), sources=(source,), reason="Confirmed observation"
             )
-            application = SimpleNamespace(catalog_changes=CatalogChangeApplication(contexts.catalog_changes))
+            application = BuiltinRuntime(
+                scope_application=contexts.scopes,
+                provider=contexts,
+                capabilities=RuntimeCapabilities(memory_extraction=False, memory_search_modes=("fts",)),
+                review_service=contexts.review,
+                catalog_change_service=contexts.catalog_changes,
+            )
             app = create_app(application=cast(ServerApplication, application))
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as http:
                 legacy = await http.post("/v1/catalog-change-candidates/list", json={"scope_id": scope})
-                assert legacy.status_code == 426
-                assert legacy.json()["error"]["code"] == "client_upgrade_required"
+                assert legacy.status_code == 404
+                assert (await http.post("/v1/artifact-candidates/list", json={"scope_id": scope})).status_code == 404
                 async with PowerContextClient(
                     "http://testserver", http_client=http, trust_transport_security=True
                 ) as client:
-                    listed = await client.list_catalog_candidates(ListCatalogCandidatesRequest(scope_id=scope))
+                    listed = await client.list_candidates(ListCandidatesRequest(scope_id=scope))
                     assert [item.candidate_id for item in listed.candidates] == [candidate.candidate_id]
-                    revised = await client.revise_catalog_candidate(
-                        ReviseCatalogCandidateRequest.model_validate({
+                    assert listed.candidates[0].candidate_kind.value == "tag"
+                    artifact_candidate = await contexts.review(scope).propose_experience(
+                        artifact.content, sources=(source,), artifacts=(), target=None, reason="Review content"
+                    )
+                    first = await client.list_candidates(ListCandidatesRequest(scope_id=scope, limit=1))
+                    second = await client.list_candidates(
+                        ListCandidatesRequest(scope_id=scope, limit=1, cursor=first.next_cursor)
+                    )
+                    assert [item.candidate_id for item in (*first.candidates, *second.candidates)] == sorted([
+                        candidate.candidate_id,
+                        artifact_candidate.candidate_id,
+                    ])
+                    assert second.next_cursor is None
+                    filtered = await client.list_candidates(
+                        ListCandidatesRequest.model_validate({
+                            "scope_id": scope,
+                            "candidate_kind": "tag",
+                            "family": "experience",
+                        })
+                    )
+                    assert [item.candidate_id for item in filtered.candidates] == [candidate.candidate_id]
+                    bad = await http.post(
+                        "/v1/candidates/revise",
+                        json={
                             "scope_id": scope,
                             "candidate_id": candidate.candidate_id,
                             "expected_version": 1,
-                            "after_tags": ["confirmed", "delivery"],
+                            "proposal": {**candidate.proposal.model_dump(mode="json"), "expected_etag": "changed"},
+                            "reason": "Cannot reset baseline",
+                        },
+                    )
+                    assert bad.status_code == 422
+                    revised = await client.revise_candidate(
+                        ReviseCandidateRequest.model_validate({
+                            "scope_id": scope,
+                            "candidate_id": candidate.candidate_id,
+                            "expected_version": 1,
+                            "proposal": {
+                                **candidate.proposal.model_dump(mode="json"),
+                                "after_tags": ["confirmed", "delivery"],
+                            },
                             "reason": "Keep the category too",
                         })
                     )
                     assert revised.version == 2
+                    assert revised.source_refs == listed.candidates[0].source_refs
                     stale = await http.post(
-                        "/v1/catalog-change-candidates/approve",
+                        "/v1/candidates/approve",
                         headers={"X-PowerContext-Dream-Contract": "2"},
                         json={"scope_id": scope, "candidate_id": candidate.candidate_id, "expected_version": 1},
                     )
                     assert stale.status_code == 409
-                    approved = await client.approve_catalog_candidate(
-                        ApproveCatalogCandidateRequest(
-                            scope_id=scope, candidate_id=candidate.candidate_id, expected_version=2
-                        )
+                    approved = await client.approve_candidate(
+                        ApproveCandidateRequest(scope_id=scope, candidate_id=candidate.candidate_id, expected_version=2)
                     )
                     assert approved.status.value == "approved" and approved.result is not None
                     assert approved.result.etag.startswith('"tags:')
-                    assert "result_artifact" not in approved.model_dump()
-                    history = await client.get_catalog_candidate_history(
-                        GetCatalogCandidateRequest(scope_id=scope, candidate_id=candidate.candidate_id)
+                    assert approved.result_artifact is None
+                    assert approved.candidate_kind.value == "tag"
+                    replay = await client.approve_candidate(
+                        ApproveCandidateRequest(scope_id=scope, candidate_id=candidate.candidate_id, expected_version=2)
+                    )
+                    assert replay == approved
+                    history = await client.get_candidate_history(
+                        GetCandidateRequest(scope_id=scope, candidate_id=candidate.candidate_id)
                     )
                     assert [(item.version, item.status.value) for item in history.versions] == [
                         (1, "pending"),
-                        (2, "approved"),
+                        (2, "pending"),
                     ]
 
     asyncio.run(scenario())
@@ -262,9 +306,7 @@ def test_review_dashboard_exposes_evidence_and_requires_same_origin_decisions(da
         "/dashboard/review/decision", data=form, headers={"Origin": "http://testserver"}, follow_redirects=False
     )
     assert approved.status_code == 303
-    result = dashboard.post(
-        "/v1/artifact-candidates/get", json={"scope_id": scope, "candidate_id": candidate["candidate_id"]}
-    )
+    result = dashboard.post("/v1/candidates/get", json={"scope_id": scope, "candidate_id": candidate["candidate_id"]})
     assert result.json()["status"] == "approved"
 
 
@@ -513,7 +555,7 @@ def test_overlapping_approval_across_servers(  # noqa: C901 - two scheduling bou
     from powercontext.builtin.persistence.artifacts import ArtifactRepository
     from powercontext.builtin.review.service import ReviewService
     from powercontext.builtin.runtime import (
-        ApproveArtifactCandidateRequest,
+        ApproveCandidateRequest,
         BuiltinConfig,
         CaptureSource,
         ProposeExperienceRequest,
@@ -538,7 +580,7 @@ def test_overlapping_approval_across_servers(  # noqa: C901 - two scheduling bou
                 ProposeExperienceRequest(proposal=experience(), sources=(source.source_ref,))
             )
             original = await first.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(candidate_id=original.candidate_id, expected_version=original.version)
+                ApproveCandidateRequest(candidate_id=original.candidate_id, expected_version=original.version)
             )
             target = original.result_artifact
             assert target is not None
@@ -600,7 +642,7 @@ def test_overlapping_approval_across_servers(  # noqa: C901 - two scheduling bou
                 async def delayed_request():
                     token = delayed.set(True)
                     try:
-                        return await b.post("/v1/artifact-candidates/approve", json=payload)
+                        return await b.post("/v1/candidates/approve", json=payload)
                     finally:
                         delayed.reset(token)
 
@@ -613,7 +655,7 @@ def test_overlapping_approval_across_servers(  # noqa: C901 - two scheduling bou
                     elif winner == "reject":
                         winning_payload = {**payload, "reason": "Not suitable."}
                     result = await a.post(
-                        "/v1/artifact-candidates/" + ("reject" if winner == "reject" else "approve"),
+                        "/v1/candidates/" + ("reject" if winner == "reject" else "approve"),
                         json=winning_payload,
                     )
                     assert result.status_code == 200, result.text
@@ -627,8 +669,30 @@ def test_overlapping_approval_across_servers(  # noqa: C901 - two scheduling bou
                 else:
                     assert replay.status_code == 409, replay.text
                 wrong_version = await b.post(
-                    "/v1/artifact-candidates/approve", json={**payload, "expected_version": candidate.version + 1}
+                    "/v1/candidates/approve", json={**payload, "expected_version": candidate.version + 1}
                 )
                 assert wrong_version.status_code == 409, wrong_version.text
 
     asyncio.run(scenario())
+
+
+def test_tag_dream_reference_roundtrips_through_public_contract():
+    from datetime import UTC, datetime
+
+    from powercontext.builtin.dream.models import DreamCandidateRef, DreamRun
+    from powercontext.http import DreamRun as HttpDreamRun
+
+    run = DreamRun(
+        scope_id="scope",
+        run_id="run",
+        operation="revise_tags",
+        status="succeeded",
+        candidate=DreamCandidateRef(kind="tag", candidate_id="candidate", version=1),
+        accepted_at=datetime.now(UTC),
+    )
+    response = HttpDreamRun.model_validate_json(run.model_dump_json())
+    assert response.model_dump(mode="json")["candidate"] == {
+        "kind": "tag",
+        "candidate_id": "candidate",
+        "version": 1,
+    }

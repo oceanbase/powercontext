@@ -25,7 +25,7 @@ from powercontext.artifacts import MemoryCitation
 from powercontext.builtin.artifacts.memory.models import MemoryDreamEntryChange, MemoryDreamWrite
 from powercontext.builtin.dream.models import DreamPlan
 from powercontext.builtin.inference.models import GenerationResult, InferenceUsage
-from powercontext.builtin.runtime import ApproveArtifactCandidateRequest, BuiltinConfig
+from powercontext.builtin.runtime import ApproveCandidateRequest, BuiltinConfig
 from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.authentication import StaticBearerAuthenticationProvider
 from powercontext.server.authz import AccessRole, MemoryEntrySelector, PrincipalRef, ResourceRef
@@ -157,7 +157,7 @@ def test_memory_dream_enforced_attestation_and_sdk_http_review(database):
                     try:
                         with pytest.raises(AccessDeniedError):
                             await runtime.review.for_scope(scope).approve(
-                                ApproveArtifactCandidateRequest(
+                                ApproveCandidateRequest(
                                     candidate_id=candidate["candidate_id"], expected_version=candidate["version"]
                                 )
                             )
@@ -174,7 +174,7 @@ def test_memory_dream_enforced_attestation_and_sdk_http_review(database):
                         context=context,
                     )
                     approved = await client.post(
-                        "/v1/artifact-candidates/approve",
+                        "/v1/candidates/approve",
                         json={
                             "scope_id": scope,
                             "candidate_id": candidate["candidate_id"],
@@ -184,7 +184,7 @@ def test_memory_dream_enforced_attestation_and_sdk_http_review(database):
                     assert approved.status_code == 200, approved.text
                     assert approved.json()["status"] == "approved"
                     reread = await client.post(
-                        "/v1/artifact-candidates/get",
+                        "/v1/candidates/get",
                         json={"scope_id": scope, "candidate_id": candidate["candidate_id"]},
                     )
                     assert reread.status_code == 200, reread.text

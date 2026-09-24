@@ -12,82 +12,59 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Independent, versioned catalog review storage for both relational backends."""
+"""Tag proposal codec over the shared Candidate tables."""
 
-from sqlalchemy import (
-    CheckConstraint,
-    Column,
-    ForeignKeyConstraint,
-    Integer,
-    LargeBinary,
-    Table,
-    insert,
-    select,
-    update,
-)
-from sqlalchemy.dialects.mysql import MEDIUMBLOB
+import json
+
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate
-from powercontext.builtin.persistence.schema import create_tables
-from powercontext.builtin.persistence.tables import SHARED_METADATA, identity_string
+from powercontext.builtin.persistence.tables import CANDIDATE_HEADS_TABLE, CANDIDATE_VERSIONS_TABLE
 from powercontext.builtin.review.errors import CandidateConflictError, CandidateNotFoundError, CandidateTerminalError
-
-CATALOG_CANDIDATE_VERSIONS = Table(
-    "pc_catalog_change_candidate_versions",
-    SHARED_METADATA,
-    Column("scope_id", identity_string(256), primary_key=True),
-    Column("candidate_id", identity_string(128), primary_key=True),
-    Column("version", Integer, primary_key=True),
-    Column("payload", LargeBinary().with_variant(MEDIUMBLOB(), "mysql"), nullable=False),
-    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
-    CheckConstraint("version > 0", name="ck_pc_catalog_candidate_version"),
-)
-CATALOG_CANDIDATE_HEADS = Table(
-    "pc_catalog_change_candidate_heads",
-    SHARED_METADATA,
-    Column("scope_id", identity_string(256), primary_key=True),
-    Column("candidate_id", identity_string(128), primary_key=True),
-    Column("version", Integer, nullable=False),
-    Column("status", identity_string(16), nullable=False),
-    Column("payload", LargeBinary().with_variant(MEDIUMBLOB(), "mysql"), nullable=False),
-    ForeignKeyConstraint(
-        ("scope_id", "candidate_id", "version"),
-        (
-            "pc_catalog_change_candidate_versions.scope_id",
-            "pc_catalog_change_candidate_versions.candidate_id",
-            "pc_catalog_change_candidate_versions.version",
-        ),
-        ondelete="CASCADE",
-    ),
-    CheckConstraint("status IN ('pending', 'approved', 'rejected')", name="ck_pc_catalog_candidate_status"),
-)
+from powercontext.builtin.tags import ArtifactTagSet
 
 
-async def ensure_catalog_change_schema(connection: AsyncConnection) -> None:
-    await create_tables(connection, (CATALOG_CANDIDATE_VERSIONS, CATALOG_CANDIDATE_HEADS))
+def decode_tag_candidate(row) -> CatalogChangeCandidate:
+    snapshot = CatalogChangeCandidate.model_validate_json(row["proposal"])
+    result = None if row["result_payload"] is None else ArtifactTagSet.model_validate_json(row["result_payload"])
+    return CatalogChangeCandidate.model_validate({
+        **snapshot.model_dump(),
+        "status": row["status"],
+        "result": result,
+        "decision_reason": row["decision_reason"],
+    })
 
 
 class CatalogCandidateRepository:
     async def get(
         self, connection: AsyncConnection, scope_id: str, candidate_id: str, *, current: bool = False
     ) -> CatalogChangeCandidate:
-        table = CATALOG_CANDIDATE_HEADS
-        statement = select(table.c.payload).where(table.c.scope_id == scope_id, table.c.candidate_id == candidate_id)
+        heads, versions = CANDIDATE_HEADS_TABLE, CANDIDATE_VERSIONS_TABLE
+        statement = (
+            select(heads, versions)
+            .join(
+                versions,
+                (heads.c.scope_id == versions.c.scope_id)
+                & (heads.c.candidate_id == versions.c.candidate_id)
+                & (heads.c.version == versions.c.version),
+            )
+            .where(heads.c.scope_id == scope_id, heads.c.candidate_id == candidate_id, heads.c.candidate_kind == "tag")
+        )
         if current:
             statement = statement.with_for_update()
-        payload = await connection.scalar(statement)
-        if payload is None:
+        row = (await connection.execute(statement)).mappings().one_or_none()
+        if row is None:
             raise CandidateNotFoundError(candidate_id)
-        return CatalogChangeCandidate.model_validate_json(payload)
+        return decode_tag_candidate(row)
 
     async def lock_pending(
         self, connection: AsyncConnection, scope_id: str, candidate_id: str, expected_version: int
     ) -> CatalogChangeCandidate:
-        table = CATALOG_CANDIDATE_HEADS
+        table = CANDIDATE_HEADS_TABLE
         await connection.execute(
             update(table)
-            .where(table.c.scope_id == scope_id, table.c.candidate_id == candidate_id)
+            .where(table.c.scope_id == scope_id, table.c.candidate_id == candidate_id, table.c.candidate_kind == "tag")
             .values(version=table.c.version)
         )
         current = await self.get(connection, scope_id, candidate_id, current=True)
@@ -102,12 +79,13 @@ class CatalogCandidateRepository:
     ) -> CatalogChangeCandidate:
         await self._version(connection, scope_id, candidate)
         await connection.execute(
-            insert(CATALOG_CANDIDATE_HEADS).values(
+            insert(CANDIDATE_HEADS_TABLE).values(
                 scope_id=scope_id,
                 candidate_id=candidate.candidate_id,
+                family=candidate.proposal.target.family,
+                candidate_kind="tag",
                 version=candidate.version,
                 status=candidate.status,
-                payload=candidate.model_dump_json().encode(),
             )
         )
         return candidate
@@ -121,50 +99,64 @@ class CatalogCandidateRepository:
     ) -> CatalogChangeCandidate:
         if candidate.version != current.version:
             await self._version(connection, scope_id, candidate)
-        table = CATALOG_CANDIDATE_HEADS
+        table = CANDIDATE_HEADS_TABLE
         changed = await connection.execute(
             update(table)
             .where(
                 table.c.scope_id == scope_id,
                 table.c.candidate_id == current.candidate_id,
+                table.c.candidate_kind == "tag",
                 table.c.version == current.version,
                 table.c.status == "pending",
             )
-            .values(version=candidate.version, status=candidate.status, payload=candidate.model_dump_json().encode())
+            .values(
+                version=candidate.version,
+                status=candidate.status,
+                decision_reason=candidate.decision_reason,
+                result_payload=None if candidate.result is None else candidate.result.model_dump_json().encode(),
+            )
         )
         if changed.rowcount != 1:
             raise CandidateConflictError(current.candidate_id, current.version, current.version)
         return candidate
 
     async def _version(self, connection: AsyncConnection, scope_id: str, candidate: CatalogChangeCandidate) -> None:
+        from powercontext.builtin.persistence.citation_codec import dump_memory_citations
+
         await connection.execute(
-            insert(CATALOG_CANDIDATE_VERSIONS).values(
+            insert(CANDIDATE_VERSIONS_TABLE).values(
                 scope_id=scope_id,
                 candidate_id=candidate.candidate_id,
                 version=candidate.version,
-                payload=candidate.model_dump_json().encode(),
+                family=candidate.proposal.target.family,
+                proposal=candidate.model_dump_json().encode(),
+                source_refs=json.dumps([ref.model_dump(mode="json") for ref in candidate.sources]).encode(),
+                artifact_refs=json.dumps([ref.model_dump(mode="json") for ref in candidate.artifacts]).encode(),
+                memory_citations=dump_memory_citations(candidate.memory_citations),
+                reason=candidate.reason,
             )
         )
 
     async def history(
         self, connection: AsyncConnection, scope_id: str, candidate_id: str
     ) -> tuple[CatalogChangeCandidate, ...]:
-        current = await self.get(connection, scope_id, candidate_id, current=True)
-        table = CATALOG_CANDIDATE_VERSIONS
+        await self.get(connection, scope_id, candidate_id, current=True)
+        table = CANDIDATE_VERSIONS_TABLE
         payloads = await connection.scalars(
-            select(table.c.payload)
+            select(table.c.proposal)
             .where(table.c.scope_id == scope_id, table.c.candidate_id == candidate_id)
             .order_by(table.c.version)
         )
-        versions = tuple(CatalogChangeCandidate.model_validate_json(payload) for payload in payloads)
-        return (*versions[:-1], current)
+        return tuple(CatalogChangeCandidate.model_validate_json(payload) for payload in payloads)
 
     async def list(
         self, connection: AsyncConnection, scope_id: str, *, status: str | None, after: str, limit: int
     ) -> tuple[CatalogChangeCandidate, ...]:
-        table = CATALOG_CANDIDATE_HEADS
-        stmt = select(table.c.payload).where(table.c.scope_id == scope_id, table.c.candidate_id > after)
+        table = CANDIDATE_HEADS_TABLE
+        stmt = select(table.c.candidate_id).where(
+            table.c.scope_id == scope_id, table.c.candidate_kind == "tag", table.c.candidate_id > after
+        )
         if status is not None:
             stmt = stmt.where(table.c.status == status)
-        payloads = await connection.scalars(stmt.order_by(table.c.candidate_id).limit(limit))
-        return tuple(CatalogChangeCandidate.model_validate_json(payload) for payload in payloads)
+        ids = await connection.scalars(stmt.order_by(table.c.candidate_id).limit(limit))
+        return tuple([await self.get(connection, scope_id, identity) for identity in ids])

@@ -185,7 +185,7 @@ class DreamUsage(BaseModel):
 
 
 class DreamCandidateRef(BaseModel):
-    kind: Literal["artifact", "catalog_change"] = "artifact"
+    kind: Literal["artifact", "tag"] = "artifact"
     candidate_id: str
     version: int = Field(ge=1)
 

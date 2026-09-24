@@ -17,7 +17,7 @@ Read the current Prompt Artifact revision for a registered custom-capable key, s
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     ArtifactReference, CreateDreamRunRequest, DreamSourceReference,
-    GetArtifactCandidateRequest, ApproveArtifactCandidateRequest,
+    GetCandidateRequest, ApproveCandidateRequest,
 )
 
 async def propose_prompt(client: PowerContextClient, scope_id: str,
@@ -33,11 +33,11 @@ async def propose_prompt(client: PowerContextClient, scope_id: str,
 async def inspect_prompt(client: PowerContextClient, scope_id: str, run_id: str):
     run = await client.get_dream_run(scope_id, run_id)
     if run.status.value == "succeeded" and run.candidate is not None:
-        return await client.get_artifact_candidate(GetArtifactCandidateRequest(
+        return await client.get_candidate(GetCandidateRequest(
             scope_id=scope_id, candidate_id=run.candidate.candidate_id))
 ```
 
-Read the proposal, reason, exact evidence, and diff in `/dashboard/review`. Only after a human approves the inspected version, call `approve_artifact_candidate(ApproveArtifactCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id, expected_version=candidate.version))`. Approval requires review authority and Prompt write authority. It publishes the configuration for future inferences; in-flight inference retains its frozen revision. Rollback uses the existing Artifact replacement API to write the selected earlier configuration as a higher revision.
+Read the proposal, reason, exact evidence, and diff in `/dashboard/review`. Only after a human approves the inspected version, call `approve_candidate(ApproveCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id, expected_version=candidate.version))`. Approval requires review authority and Prompt write authority. It publishes the configuration for future inferences; in-flight inference retains its frozen revision. Rollback uses the existing Artifact replacement API to write the selected earlier configuration as a higher revision.
 
 The CLI accepts the same JSON request:
 
@@ -49,7 +49,7 @@ powercontext candidate revise json --request-file candidate-revision.json
 powercontext candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
 ```
 
-`candidate-revision.json` is a complete `ReviseArtifactCandidateRequest`, including scope, identity, expected version, proposal, exact evidence, and target. Saving a revision creates a new pending version requiring review.
+`candidate-revision.json` is a complete `ReviseCandidateRequest`, including scope, identity, expected version, proposal, exact evidence, and target. Saving a revision creates a new pending version requiring review.
 
 ## Tag metadata
 
@@ -71,16 +71,16 @@ async def propose_tags(client, scope_id, current, tags_etag, evidence_source_id)
     ))
 ```
 
-For an entry target use `MemoryEntryTagTarget` and `basis_citation`, and include that citation in `memory_citations`. The resulting run has `candidate.kind="catalog_change"`. Inspect it using `get_catalog_candidate(GetCatalogCandidateRequest(...))`; approval uses `approve_catalog_candidate(ApproveCatalogCandidateRequest(...))`. The dedicated `/v1/catalog-change-candidates/list|get|history|revise|approve|reject` interfaces preserve Tag's distinct lifecycle. Approval checks both the Tag ETag and content baseline atomically. The result contains the complete tags and new ETag, with no Artifact revision.
+For an entry target use `MemoryEntryTagTarget` and `basis_citation`, and include that citation in `memory_citations`. The resulting run has `candidate.kind="tag"`. Inspect it using `get_candidate(GetCandidateRequest(...))`; approval uses `approve_candidate(ApproveCandidateRequest(...))`. The unified `/v1/candidates/list|get|history|revise|approve|reject` interfaces preserve Tag's distinct lifecycle. Approval checks both the Tag ETag and content baseline atomically. The result contains the complete tags and new ETag, with no Artifact revision.
 
 ```sh
-powercontext catalog-candidate list --scope-id "$SCOPE_ID"
-powercontext catalog-candidate show --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
-powercontext catalog-candidate history --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
-powercontext catalog-candidate revise --request-file tag-revision.json
-powercontext catalog-candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
+powercontext candidate list --candidate-kind tag --scope-id "$SCOPE_ID"
+powercontext candidate show --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
+powercontext candidate history --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
+powercontext candidate revise json --request-file tag-revision.json
+powercontext candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
 ```
 
-Tag candidates preserve the selected supporting Artifact references and recheck their access at approval. Pending candidates created under the older Tag operation contract cannot be approved because their evidence may be incomplete. Reject them and generate a new run using the current content baseline, ETag, and a new idempotency key. Already applied tags are unaffected.
+Tag candidates preserve the selected supporting Artifact references and recheck their access at approval. A revision submits the complete proposal; only after_tags may change. The target, ETag, content baseline, and before_tags remain immutable. Omitting sources or artifacts retains the existing evidence; explicitly supplying either replaces that evidence list.
 
-The unified Dashboard filters Artifact and Catalog Change resources and shows their independent paginated sections. A stale version, changed target, revoked evidence, or changed Tag ETag leaves the candidate pending with a conflict. Inspect current state before submitting another decision. `no_change` and `needs_evidence` create no candidate. Neither a model proposal nor approval proves improvement on later tasks.
+The unified Dashboard lists Artifact and Tag candidates through one cursor and supports filtering by candidate_kind. A stale version, changed target, revoked evidence, or changed Tag ETag leaves the candidate pending with a conflict. Inspect current state before submitting another decision. `no_change` and `needs_evidence` create no candidate. Neither a model proposal nor approval proves improvement on later tasks.

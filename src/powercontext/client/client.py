@@ -41,21 +41,18 @@ from powercontext.http import (
     AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
-    ApproveArtifactCandidateRequest,
-    ApproveCatalogCandidateRequest,
-    ArtifactCandidate,
-    ArtifactCandidatePage,
+    ApproveCandidateRequest,
     ArtifactCreated,
     ArtifactPage,
     ArtifactPublication,
     ArtifactRevision,
     ArtifactRevisionPage,
+    Candidate,
+    CandidateHistory,
+    CandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
-    CatalogCandidateHistory,
-    CatalogCandidatePage,
-    CatalogChangeCandidate,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
     CommitConnectorCheckpointRequest,
@@ -90,8 +87,7 @@ from powercontext.http import (
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
-    GetArtifactCandidateRequest,
-    GetCatalogCandidateRequest,
+    GetCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
@@ -112,10 +108,9 @@ from powercontext.http import (
     ListAccessBindingsRequest,
     ListAccessResourcesRequest,
     ListAccessRolesRequest,
-    ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
-    ListCatalogCandidatesRequest,
+    ListCandidatesRequest,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -152,8 +147,7 @@ from powercontext.http import (
     RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterSourceDefinitionRequest,
-    RejectArtifactCandidateRequest,
-    RejectCatalogCandidateRequest,
+    RejectCandidateRequest,
     RememberMemoryRequest,
     RemoteSkillPublication,
     RemoteSkillReceiptResponse,
@@ -167,8 +161,7 @@ from powercontext.http import (
     ResolveScopeBindingRequest,
     ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
-    ReviseArtifactCandidateRequest,
-    ReviseCatalogCandidateRequest,
+    ReviseCandidateRequest,
     ReviseMemoryEntryRequest,
     RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
@@ -209,8 +202,7 @@ from powercontext.http._generated.models import (
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
-    APPROVE_ARTIFACT_CANDIDATE,
-    APPROVE_CATALOG_CANDIDATE,
+    APPROVE_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     CHECK_ACCESS,
     CLEAR_SCOPE_BINDING,
@@ -237,12 +229,11 @@ from powercontext.http._generated.operations import (
     GENERATE_SKILL,
     GET_ACCESS_PRINCIPAL,
     GET_ARTIFACT,
-    GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
     GET_ARTIFACT_TAGS,
+    GET_CANDIDATE,
+    GET_CANDIDATE_HISTORY,
     GET_CAPABILITIES,
-    GET_CATALOG_CANDIDATE,
-    GET_CATALOG_CANDIDATE_HISTORY,
     GET_CONNECTOR_CHECKPOINT,
     GET_DEFAULT_SCOPE,
     GET_DREAM_RUN,
@@ -266,10 +257,9 @@ from powercontext.http._generated.operations import (
     LIST_ACCESS_BINDINGS,
     LIST_ACCESS_RESOURCES,
     LIST_ACCESS_ROLES,
-    LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACT_REVISIONS,
     LIST_ARTIFACTS,
-    LIST_CATALOG_CANDIDATES,
+    LIST_CANDIDATES,
     LIST_DREAM_RUNS,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
@@ -292,8 +282,7 @@ from powercontext.http._generated.operations import (
     RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
     REGISTER_SOURCE_DEFINITION,
-    REJECT_ARTIFACT_CANDIDATE,
-    REJECT_CATALOG_CANDIDATE,
+    REJECT_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
     REPLACE_ACCESS_BINDING,
@@ -304,8 +293,7 @@ from powercontext.http._generated.operations import (
     RESOLVE_SCOPE_BINDING,
     RESOLVE_SCOPE_SELECTION,
     RETIRE_MEMORY_ENTRY,
-    REVISE_ARTIFACT_CANDIDATE,
-    REVISE_CATALOG_CANDIDATE,
+    REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_ACCESS_BINDING,
     REVOKE_REMOTE_SKILL_TARGET,
@@ -983,7 +971,7 @@ class PowerContextClient:
 
         return await self._request(LIST_MEMORY_CHANGES, request)
 
-    async def propose_experience(self, request: ProposeExperienceRequest) -> ArtifactCandidate:
+    async def propose_experience(self, request: ProposeExperienceRequest) -> Candidate:
         """Submit complete Experience content as a pending Candidate."""
 
         return await self._request(PROPOSE_EXPERIENCE, request)
@@ -998,7 +986,7 @@ class PowerContextClient:
 
         return await self._request(GET_EXPERIENCE, request)
 
-    async def propose_skill(self, request: ProposeSkillRequest) -> ArtifactCandidate:
+    async def propose_skill(self, request: ProposeSkillRequest) -> Candidate:
         """Submit complete managed Skill content as a pending Candidate."""
 
         return await self._request(PROPOSE_SKILL, request)
@@ -1033,7 +1021,7 @@ class PowerContextClient:
 
         return await self._request(DOWNLOAD_SKILL_PACKAGE, request)
 
-    async def propose_skill_package(self, request: ProposeSkillPackageRequest) -> ArtifactCandidate:
+    async def propose_skill_package(self, request: ProposeSkillPackageRequest) -> Candidate:
         """Create a pending exact package Candidate without LLM rewriting."""
 
         return await self._request(PROPOSE_SKILL_PACKAGE, request)
@@ -1137,60 +1125,33 @@ class PowerContextClient:
 
         return await self._request(IMPORT_EXTERNAL_SKILL, request)
 
-    async def list_catalog_candidates(self, request: ListCatalogCandidatesRequest) -> CatalogCandidatePage:
-        """List catalog candidates using the exact requested version."""
+    async def get_candidate_history(self, request: GetCandidateRequest) -> CandidateHistory:
+        return await self._request(GET_CANDIDATE_HISTORY, request)
 
-        return await self._request(LIST_CATALOG_CANDIDATES, request)
-
-    async def get_catalog_candidate(self, request: GetCatalogCandidateRequest) -> CatalogChangeCandidate:
-        """Get catalog candidate using the exact requested version."""
-
-        return await self._request(GET_CATALOG_CANDIDATE, request)
-
-    async def get_catalog_candidate_history(self, request: GetCatalogCandidateRequest) -> CatalogCandidateHistory:
-        """Get catalog candidate history using the exact requested version."""
-
-        return await self._request(GET_CATALOG_CANDIDATE_HISTORY, request)
-
-    async def approve_catalog_candidate(self, request: ApproveCatalogCandidateRequest) -> CatalogChangeCandidate:
-        """Approve catalog candidate using the exact requested version."""
-
-        return await self._request(APPROVE_CATALOG_CANDIDATE, request)
-
-    async def reject_catalog_candidate(self, request: RejectCatalogCandidateRequest) -> CatalogChangeCandidate:
-        """Reject catalog candidate using the exact requested version."""
-
-        return await self._request(REJECT_CATALOG_CANDIDATE, request)
-
-    async def revise_catalog_candidate(self, request: ReviseCatalogCandidateRequest) -> CatalogChangeCandidate:
-        """Revise catalog candidate using the exact requested version."""
-
-        return await self._request(REVISE_CATALOG_CANDIDATE, request)
-
-    async def list_artifact_candidates(self, request: ListArtifactCandidatesRequest) -> ArtifactCandidatePage:
+    async def list_candidates(self, request: ListCandidatesRequest) -> CandidatePage:
         """Page current Candidate heads in the Review Inbox."""
 
-        return await self._request(LIST_ARTIFACT_CANDIDATES, request)
+        return await self._request(LIST_CANDIDATES, request)
 
-    async def get_artifact_candidate(self, request: GetArtifactCandidateRequest) -> ArtifactCandidate:
+    async def get_candidate(self, request: GetCandidateRequest) -> Candidate:
         """Read the current head of one Candidate."""
 
-        return await self._request(GET_ARTIFACT_CANDIDATE, request)
+        return await self._request(GET_CANDIDATE, request)
 
-    async def approve_artifact_candidate(self, request: ApproveArtifactCandidateRequest) -> ArtifactCandidate:
+    async def approve_candidate(self, request: ApproveCandidateRequest) -> Candidate:
         """Approve the exact current Candidate version."""
 
-        return await self._request(APPROVE_ARTIFACT_CANDIDATE, request)
+        return await self._request(APPROVE_CANDIDATE, request)
 
-    async def reject_artifact_candidate(self, request: RejectArtifactCandidateRequest) -> ArtifactCandidate:
+    async def reject_candidate(self, request: RejectCandidateRequest) -> Candidate:
         """Reject the exact current Candidate version."""
 
-        return await self._request(REJECT_ARTIFACT_CANDIDATE, request)
+        return await self._request(REJECT_CANDIDATE, request)
 
-    async def revise_artifact_candidate(self, request: ReviseArtifactCandidateRequest) -> ArtifactCandidate:
+    async def revise_candidate(self, request: ReviseCandidateRequest) -> Candidate:
         """Append a complete replacement Candidate proposal."""
 
-        return await self._request(REVISE_ARTIFACT_CANDIDATE, request)
+        return await self._request(REVISE_CANDIDATE, request)
 
     async def _request(
         self,

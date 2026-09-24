@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.evidence.models import ResolvedEvidence
-from powercontext.builtin.review.models import CandidateAudit
+from powercontext.builtin.review.models import CandidateAudit, CandidateStatus
 from powercontext.builtin.tags import ArtifactTagSet, ArtifactTagTarget, TagTarget, normalize_tags
 from powercontext.sources import SourceRef
 
@@ -73,9 +73,11 @@ class CatalogChangeProposal(TagDreamTarget, TagChangeProposal):
 
 
 class CatalogChangeCandidate(CatalogValue):
+    candidate_kind: Literal["tag"] = "tag"
     candidate_id: str = Field(min_length=1, max_length=128)
     version: int = Field(ge=1)
-    status: Literal["pending", "approved", "rejected"] = "pending"
+    status: CandidateStatus = CandidateStatus.PENDING
+    result_artifact: None = None
     operation: Literal["revise_tags"] = "revise_tags"
     origin: Literal["dream", "manual"] = "dream"
     proposal: CatalogChangeProposal

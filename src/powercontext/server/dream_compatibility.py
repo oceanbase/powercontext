@@ -124,7 +124,7 @@ async def negotiate_dream_contract(request: Request, call_next: RequestResponseE
     path = request.url.path
     relevant = (
         path == "/v1/capabilities"
-        or path.startswith("/v1/artifact-candidates/")
+        or path.startswith("/v1/candidates/")
         or (path.startswith("/v1/scopes/") and ("/dream" in path or "/artifacts" in path))
         or path in {"/v1/context/prepare", "/v1/profile/flush"}
         or path
@@ -137,7 +137,7 @@ async def negotiate_dream_contract(request: Request, call_next: RequestResponseE
             "/v1/external-skills/import",
         }
     )
-    if supports_extended_dream(request) or not relevant:
+    if path.startswith("/v1/candidates/") or supports_extended_dream(request) or not relevant:
         return response
     if response.status_code >= 400 or "application/json" not in response.headers.get("content-type", ""):
         return response

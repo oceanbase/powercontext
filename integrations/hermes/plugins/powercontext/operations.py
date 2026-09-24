@@ -43,11 +43,11 @@ OPERATION_TOOL_MAP: dict[str, str] = {
     "powercontext_list_external_skills": "list_external_skills",
     "powercontext_resolve_external_skill": "resolve_external_skill",
     "powercontext_import_external_skill": "import_external_skill",
-    "powercontext_list_artifact_candidates": "list_artifact_candidates",
-    "powercontext_get_artifact_candidate": "get_artifact_candidate",
-    "powercontext_approve_artifact_candidate": "approve_artifact_candidate",
-    "powercontext_reject_artifact_candidate": "reject_artifact_candidate",
-    "powercontext_revise_artifact_candidate": "revise_artifact_candidate",
+    "powercontext_list_candidates": "list_candidates",
+    "powercontext_get_candidate": "get_candidate",
+    "powercontext_approve_candidate": "approve_candidate",
+    "powercontext_reject_candidate": "reject_candidate",
+    "powercontext_revise_candidate": "revise_candidate",
 }
 
 OPERATION_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
@@ -71,10 +71,10 @@ OPERATION_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "get_skill": ("artifact",),
     "resolve_external_skill": ("external_skill_id", "fingerprint"),
     "import_external_skill": ("external_skill_id", "fingerprint", "mode"),
-    "get_artifact_candidate": ("candidate_id",),
-    "approve_artifact_candidate": ("candidate_id", "expected_version"),
-    "reject_artifact_candidate": ("candidate_id", "expected_version", "reason"),
-    "revise_artifact_candidate": (
+    "get_candidate": ("candidate_id",),
+    "approve_candidate": ("candidate_id", "expected_version"),
+    "reject_candidate": ("candidate_id", "expected_version", "reason"),
+    "revise_candidate": (
         "candidate_id",
         "expected_version",
         "proposal",

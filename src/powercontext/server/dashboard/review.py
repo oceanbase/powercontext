@@ -25,7 +25,7 @@ from fastapi import Request
 
 from powercontext.server.dashboard.api import DashboardAPI, ReadError, segment
 
-KINDS = {"artifact": "/v1/artifact-candidates", "catalog_change": "/v1/catalog-change-candidates"}
+KINDS = {"artifact": "/v1/candidates", "tag": "/v1/candidates"}
 
 
 def formatted(value: Any) -> str:
@@ -40,29 +40,27 @@ async def load_review(api: DashboardAPI, request: Request, ctx: dict[str, Any]) 
     view: dict[str, Any] = {"kind": kind, "status": status, "sections": [], "selected": None}
     ctx["review"] = view
     selected = request.query_params.get("candidate_id")
-    for resource, path in KINDS.items():
-        if kind not in {"all", resource}:
-            continue
-        try:
-            result = await api.read(
-                path + "/list",
-                {
-                    "scope_id": ctx["scope"],
-                    "status": status,
-                    "limit": 12,
-                    "cursor": request.query_params.get(resource + "_cursor"),
-                },
-            )
-            view["sections"].append({"kind": resource, **result})
-        except ReadError as error:
-            ctx["errors"][resource] = error
+    try:
+        result = await api.read(
+            "/v1/candidates/list",
+            {
+                "scope_id": ctx["scope"],
+                "status": status,
+                "limit": 12,
+                "cursor": request.query_params.get("cursor"),
+                "candidate_kind": None if kind == "all" else kind,
+            },
+        )
+        view["sections"].append({"kind": kind, **result})
+    except ReadError as error:
+        ctx["errors"]["candidates"] = error
     if selected:
         selected_kind = request.query_params.get("candidate_kind", "artifact")
         if selected_kind not in KINDS:
             raise ReadError(422, "invalid_request")
         candidate = await api.read(KINDS[selected_kind] + "/get", {"scope_id": ctx["scope"], "candidate_id": selected})
         detail: dict[str, Any] = {
-            "kind": selected_kind,
+            "kind": candidate["candidate_kind"],
             "candidate": candidate,
             "evidence": [],
             "diff": "",
@@ -76,12 +74,18 @@ async def _detail(api: DashboardAPI, scope: str, detail: dict[str, Any]) -> None
     candidate, kind = detail["candidate"], detail["kind"]
     proposal = candidate["proposal"]
     baseline: Any = None
-    if kind == "catalog_change":
+    if kind == "tag":
         baseline, proposed = proposal["before_tags"], proposal["after_tags"]
         detail["history"] = (
             await api.read(KINDS[kind] + "/history", {"scope_id": scope, "candidate_id": candidate["candidate_id"]})
         )["versions"]
-        revision = {"after_tags": proposed, "reason": candidate["reason"]}
+        revision = {
+            "proposal": proposal,
+            "reason": candidate["reason"],
+            "source_refs": candidate["source_refs"],
+            "artifact_refs": candidate["artifact_refs"],
+            "memory_citations": candidate["memory_citations"],
+        }
     else:
         target = candidate.get("target")
         baseline, proposed = await _artifact_comparison(api, scope, detail)
@@ -96,6 +100,9 @@ async def _detail(api: DashboardAPI, scope: str, detail: dict[str, Any]) -> None
         # The public revision input accepts Profile content, while the stored proposal also has generation metadata.
         if candidate["family"] == "profile":
             revision["proposal"] = {"content": proposal["content"]}
+    detail["history"] = (
+        await api.read("/v1/candidates/history", {"scope_id": scope, "candidate_id": candidate["candidate_id"]})
+    )["versions"]
     detail["revision"] = formatted(revision)
     detail["proposal"] = formatted(proposal)
     detail["diff"] = "\n".join(

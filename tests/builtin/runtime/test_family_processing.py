@@ -33,9 +33,9 @@ from powercontext.builtin.persistence.processing_migration import bootstrap_proc
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingLeaseRepository
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_CANDIDATE_HEADS_TABLE,
     ARTIFACT_HEADS_TABLE,
     BUILTIN_TABLES,
+    CANDIDATE_HEADS_TABLE,
     MODEL_USAGE_DAILY_TABLE,
 )
 from powercontext.builtin.runtime.artifact_processing import SpawnArtifactProcessingWorkerLauncher
@@ -151,7 +151,7 @@ def test_owner_failure_rolls_back_domain_cursor_and_ack_then_retry_owns_result(t
                     )
                     assert cursor is None
                     assert intent is not None and intent.handled_generation == 0
-                    for table in (ARTIFACT_HEADS_TABLE, ARTIFACT_CANDIDATE_HEADS_TABLE, ACCESS_OWNERS_TABLE):
+                    for table in (ARTIFACT_HEADS_TABLE, CANDIDATE_HEADS_TABLE, ACCESS_OWNERS_TABLE):
                         assert await connection.scalar(select(func.count()).select_from(table)) == 0
                 setattr(security, hook_name, original)
                 result = await process_family_invocation(contexts, assignment, config=config, security=security)

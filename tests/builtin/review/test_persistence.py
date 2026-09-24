@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.persistence.candidates import CandidateRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
-from powercontext.builtin.persistence.tables import ARTIFACT_CANDIDATE_VERSIONS_TABLE, SHARED_TABLES
+from powercontext.builtin.persistence.tables import CANDIDATE_VERSIONS_TABLE, SCOPES_TABLE, SHARED_TABLES
 from powercontext.sources import SourceRef
 
 
@@ -38,7 +38,19 @@ def test_revise_appends_an_immutable_candidate_version() -> None:
     async def scenario() -> None:
         repository = CandidateRepository({"experience": ExperienceContent})
         evidence = (SourceRef(source_type="content", source_id="task-1"),)
-        async with SQLiteProfile.open(SQLiteConfig(), tables=SHARED_TABLES) as profile:
+        async with SQLiteProfile.open(SQLiteConfig(), tables=(SCOPES_TABLE, *SHARED_TABLES)) as profile:
+            async with profile.database.transaction() as connection:
+                await connection.execute(
+                    insert(SCOPES_TABLE).values(
+                        scope_id="project",
+                        title="Project",
+                        summary="Review",
+                        scope_id_search="project",
+                        title_search="project",
+                        summary_search="review",
+                        version=1,
+                    )
+                )
             async with profile.database.transaction() as connection:
                 original = await repository.create(
                     connection,
@@ -68,11 +80,11 @@ def test_revise_appends_an_immutable_candidate_version() -> None:
                     (
                         await connection.execute(
                             select(
-                                ARTIFACT_CANDIDATE_VERSIONS_TABLE.c.version,
-                                ARTIFACT_CANDIDATE_VERSIONS_TABLE.c.proposal,
+                                CANDIDATE_VERSIONS_TABLE.c.version,
+                                CANDIDATE_VERSIONS_TABLE.c.proposal,
                             )
-                            .where(ARTIFACT_CANDIDATE_VERSIONS_TABLE.c.candidate_id == "candidate-1")
-                            .order_by(ARTIFACT_CANDIDATE_VERSIONS_TABLE.c.version)
+                            .where(CANDIDATE_VERSIONS_TABLE.c.candidate_id == "candidate-1")
+                            .order_by(CANDIDATE_VERSIONS_TABLE.c.version)
                         )
                     ).all()
                 )

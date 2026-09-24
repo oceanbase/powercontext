@@ -249,7 +249,7 @@
   "review_resource": "候选类型",
   "review_all": "全部",
   "review_artifact": "制品候选",
-  "review_catalog_change": "标签变更候选",
+  "review_tag": "标签变更候选",
   "review_status": "状态",
   "review_pending": "待审核",
   "review_approved": "已批准",

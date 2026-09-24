@@ -16,7 +16,7 @@ import pytest
 from pydantic import ValidationError
 
 from powercontext.builtin.artifacts.experience import ExperienceContent
-from powercontext.builtin.review import ArtifactCandidate, CandidateStatus
+from powercontext.builtin.review import Candidate, CandidateStatus
 from powercontext.sources import SourceRef
 
 
@@ -26,7 +26,7 @@ def _proposal() -> ExperienceContent:
 
 def test_candidate_requires_bounded_exact_evidence() -> None:
     with pytest.raises(ValidationError):
-        ArtifactCandidate(
+        Candidate(
             candidate_id="candidate-1",
             version=1,
             family="experience",
@@ -35,7 +35,7 @@ def test_candidate_requires_bounded_exact_evidence() -> None:
         )
 
     with pytest.raises(ValidationError):
-        ArtifactCandidate(
+        Candidate(
             candidate_id="candidate-1",
             version=1,
             family="experience",
@@ -47,7 +47,7 @@ def test_candidate_requires_bounded_exact_evidence() -> None:
 
 def test_candidate_terminal_fields_match_status() -> None:
     with pytest.raises(ValidationError):
-        ArtifactCandidate(
+        Candidate(
             candidate_id="candidate-1",
             version=1,
             family="experience",

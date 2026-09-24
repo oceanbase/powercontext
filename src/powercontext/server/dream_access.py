@@ -27,7 +27,7 @@ from powercontext.builtin.catalog_changes.models import TagDreamTarget
 from powercontext.builtin.dream.models import DreamError, DreamRecord
 from powercontext.builtin.dream.service import DreamPermission
 from powercontext.builtin.evidence.resolver import EvidenceReference
-from powercontext.builtin.review.models import ArtifactCandidate
+from powercontext.builtin.review.models import Candidate
 from powercontext.server.authz.errors import AccessControlError, AccessDeniedError, AccessIdentityRequiredError
 from powercontext.server.authz.models import AccessAction, MemoryEntrySelector, PrincipalRef, ResourceRef
 from powercontext.server.authz.service import AccessAuditContext, AccessControlService
@@ -181,7 +181,7 @@ class DreamAccess:
                 scope_id, principal_identity(principal), "write_tags", target.basis_ref or target.basis_citation
             )
 
-    async def review_action(self, scope_id: str, action: str, candidate: ArtifactCandidate[Any]) -> None:
+    async def review_action(self, scope_id: str, action: str, candidate: Candidate[Any]) -> None:
         principal = current_principal()
         if principal is None:
             raise AccessIdentityRequiredError
@@ -189,9 +189,7 @@ class DreamAccess:
             principal,
             AccessAction.SCOPE_REVIEW,
             ResourceRef.scope(scope_id),
-            context=AccessAuditContext(
-                request_id=current_request_id(), transport="http", operation="review_artifact_candidate"
-            ),
+            context=AccessAuditContext(request_id=current_request_id(), transport="http", operation="review_candidate"),
         )
         if action == "reject":
             return

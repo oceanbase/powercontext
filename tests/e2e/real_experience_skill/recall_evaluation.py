@@ -34,7 +34,7 @@ from typing import Never
 from powercontext.builtin.artifacts.experience import ExperienceContent
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     BuiltinConfig,
     CaptureSource,
     PrepareContextRequest,
@@ -164,7 +164,7 @@ async def _approved_contexts(database: Path) -> dict[str, PreparedContext]:
             if pending.status != "empty":
                 _fail(f"pending Experience entered PreparedContext for {task.name}")
             approved = await runtime.review.for_scope(scope_id).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )

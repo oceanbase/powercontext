@@ -55,9 +55,10 @@ class CandidateAudit(BaseModel):
     proposal_fingerprint: str | None = None
 
 
-class ArtifactCandidate(BaseModel, Generic[ProposalT]):
+class Candidate(BaseModel, Generic[ProposalT]):
     """One current Candidate head with its immutable proposal version."""
 
+    candidate_kind: Literal["artifact"] = "artifact"
     candidate_id: str = Field(min_length=1, max_length=MAX_ARTIFACT_ID_LENGTH)
     version: StrictInt = Field(ge=1)
     family: str
@@ -114,10 +115,10 @@ class ArtifactCandidate(BaseModel, Generic[ProposalT]):
         return self
 
 
-class ArtifactCandidatePage(BaseModel, Generic[ProposalT]):
+class CandidatePage(BaseModel, Generic[ProposalT]):
     """A stable, cursor-based Review Inbox page."""
 
-    candidates: tuple[ArtifactCandidate[ProposalT], ...]
+    candidates: tuple[Candidate[ProposalT], ...]
     next_cursor: str | None = None
 
 
@@ -135,7 +136,7 @@ __all__ = [
     "MAX_CANDIDATE_EVIDENCE",
     "MAX_CANDIDATE_PAGE_SIZE",
     "MAX_CANDIDATE_REASON_LENGTH",
-    "ArtifactCandidate",
-    "ArtifactCandidatePage",
+    "Candidate",
+    "CandidatePage",
     "CandidateStatus",
 ]

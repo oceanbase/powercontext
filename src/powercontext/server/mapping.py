@@ -53,9 +53,15 @@ from powercontext.builtin.artifacts.skill import (
 )
 from powercontext.builtin.artifacts.topic_memory import PublishedTopicMemory, TopicMemorySearchResult
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent as RuntimeTopicMemoryContent
+from powercontext.builtin.catalog_changes.models import (
+    CatalogChangeCandidate as RuntimeTagCandidate,
+)
+from powercontext.builtin.catalog_changes.models import (
+    CatalogChangeProposal as RuntimeTagProposal,
+)
 from powercontext.builtin.persistence.artifact_governance import ArtifactGovernance
-from powercontext.builtin.review import ArtifactCandidate as RuntimeArtifactCandidate
-from powercontext.builtin.review import ArtifactCandidatePage as RuntimeArtifactCandidatePage
+from powercontext.builtin.review import Candidate as RuntimeCandidate
+from powercontext.builtin.review import CandidatePage as RuntimeCandidatePage
 from powercontext.builtin.review import CandidateStatus as RuntimeCandidateStatus
 from powercontext.builtin.review.generation import (
     GeneratedCandidateResult as RuntimeGeneratedCandidateResult,
@@ -94,7 +100,7 @@ from powercontext.builtin.runtime import (
     TopicMemoryFlushResult,
 )
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest as RuntimeApproveArtifactCandidateRequest,
+    ApproveCandidateRequest as RuntimeApproveCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     CommitConnectorCheckpoint as RuntimeCommitConnectorCheckpoint,
@@ -109,7 +115,7 @@ from powercontext.builtin.runtime import (
     GenerateSkillRequest as RuntimeGenerateSkillRequest,
 )
 from powercontext.builtin.runtime import (
-    GetArtifactCandidateRequest as RuntimeGetArtifactCandidateRequest,
+    GetCandidateRequest as RuntimeGetCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     GetExperienceRequest as RuntimeGetExperienceRequest,
@@ -123,7 +129,7 @@ from powercontext.builtin.runtime import (
     ImportExternalSkillRequest as RuntimeImportExternalSkillRequest,
 )
 from powercontext.builtin.runtime import (
-    ListArtifactCandidatesRequest as RuntimeListArtifactCandidatesRequest,
+    ListCandidatesRequest as RuntimeListCandidatesRequest,
 )
 from powercontext.builtin.runtime import ListExternalSkillsRequest as RuntimeListExternalSkillsRequest
 from powercontext.builtin.runtime import (
@@ -137,14 +143,14 @@ from powercontext.builtin.runtime import (
 )
 from powercontext.builtin.runtime import ProposeSkillRequest as RuntimeProposeSkillRequest
 from powercontext.builtin.runtime import (
-    RejectArtifactCandidateRequest as RuntimeRejectArtifactCandidateRequest,
+    RejectCandidateRequest as RuntimeRejectCandidateRequest,
 )
 from powercontext.builtin.runtime import ResolveExternalSkillRequest as RuntimeResolveExternalSkillRequest
 from powercontext.builtin.runtime import (
     RetireMemoryEntryRequest as RuntimeRetireMemoryEntryRequest,
 )
 from powercontext.builtin.runtime import (
-    ReviseArtifactCandidateRequest as RuntimeReviseArtifactCandidateRequest,
+    ReviseCandidateRequest as RuntimeReviseCandidateRequest,
 )
 from powercontext.builtin.runtime import (
     ReviseMemoryEntryRequest as RuntimeReviseMemoryEntryRequest,
@@ -187,16 +193,18 @@ from powercontext.builtin.work import WorkSourceReceipt as RuntimeWorkSourceRece
 from powercontext.http import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
-    ApproveArtifactCandidateRequest,
-    ArtifactCandidate,
-    ArtifactCandidatePage,
+    ApproveCandidateRequest,
     ArtifactReference,
+    Candidate,
     CandidateAudit,
     CandidateFamily,
+    CandidateKind,
+    CandidatePage,
     CandidateStatus,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CaptureStatus,
+    CatalogChangeProposal,
     CommitConnectorCheckpointRequest,
     CommittedHandoff,
     ConnectorCheckpointState,
@@ -215,7 +223,7 @@ from powercontext.http import (
     GeneratedCandidateStatus,
     GenerateExperienceRequest,
     GenerateSkillRequest,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetMemoryEntryRequest,
@@ -231,7 +239,7 @@ from powercontext.http import (
     HandoffSchema,
     HandoffSelection,
     ImportExternalSkillRequest,
-    ListArtifactCandidatesRequest,
+    ListCandidatesRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
     ListMemoryChangesResponse,
@@ -255,10 +263,10 @@ from powercontext.http import (
     ProposeExperienceRequest,
     ProposeSkillRequest,
     RecordTaskOutcomeRequest,
-    RejectArtifactCandidateRequest,
+    RejectCandidateRequest,
     ResolveExternalSkillRequest,
     RetireMemoryEntryRequest,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
     ReviseMemoryEntryRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
@@ -628,8 +636,9 @@ def get_skill_request(value: GetSkillRequest) -> RuntimeGetSkillRequest:
     return RuntimeGetSkillRequest(artifact=runtime_artifact_reference(value.artifact))
 
 
-def list_candidates_request(value: ListArtifactCandidatesRequest) -> RuntimeListArtifactCandidatesRequest:
-    return RuntimeListArtifactCandidatesRequest(
+def list_candidates_request(value: ListCandidatesRequest) -> RuntimeListCandidatesRequest:
+    return RuntimeListCandidatesRequest(
+        candidate_kind=None if value.candidate_kind is None else value.candidate_kind.value,
         status=RuntimeCandidateStatus(value.status.value),
         family=None if value.family is None else value.family.value,
         cursor=value.cursor,
@@ -637,37 +646,61 @@ def list_candidates_request(value: ListArtifactCandidatesRequest) -> RuntimeList
     )
 
 
-def get_candidate_request(value: GetArtifactCandidateRequest) -> RuntimeGetArtifactCandidateRequest:
-    return RuntimeGetArtifactCandidateRequest(candidate_id=value.candidate_id)
+def get_candidate_request(value: GetCandidateRequest) -> RuntimeGetCandidateRequest:
+    return RuntimeGetCandidateRequest(candidate_id=value.candidate_id)
 
 
-def approve_candidate_request(value: ApproveArtifactCandidateRequest) -> RuntimeApproveArtifactCandidateRequest:
-    return RuntimeApproveArtifactCandidateRequest(
+def approve_candidate_request(value: ApproveCandidateRequest) -> RuntimeApproveCandidateRequest:
+    return RuntimeApproveCandidateRequest(
         candidate_id=value.candidate_id,
         expected_version=value.expected_version,
     )
 
 
-def reject_candidate_request(value: RejectArtifactCandidateRequest) -> RuntimeRejectArtifactCandidateRequest:
-    return RuntimeRejectArtifactCandidateRequest(
+def reject_candidate_request(value: RejectCandidateRequest) -> RuntimeRejectCandidateRequest:
+    return RuntimeRejectCandidateRequest(
         candidate_id=value.candidate_id,
         expected_version=value.expected_version,
         reason=value.reason,
     )
 
 
-def revise_candidate_request(value: ReviseArtifactCandidateRequest) -> RuntimeReviseArtifactCandidateRequest:
-    return RuntimeReviseArtifactCandidateRequest(
+def revise_candidate_request(value: ReviseCandidateRequest) -> RuntimeReviseCandidateRequest:
+    from powercontext.builtin.review.errors import InvalidCandidateError
+
+    tag = isinstance(value.proposal, CatalogChangeProposal)
+    if (value.sources is not None or value.artifacts is not None) and not tag:
+        raise InvalidCandidateError("evidence", "sources/artifacts are only accepted for Tag proposals")
+    if (value.sources is not None and "source_refs" in value.model_fields_set) or (
+        value.artifacts is not None and "artifact_refs" in value.model_fields_set
+    ):
+        raise InvalidCandidateError("evidence", "use one spelling for each evidence collection")
+    sources = tuple(runtime_source_reference(source) for source in value.source_refs)
+    artifacts = tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs)
+    if tag:
+        sources = (
+            (None if "source_refs" not in value.model_fields_set else sources)
+            if value.sources is None
+            else tuple(
+                SourceRef(source_type=source.source_type, source_id=source.source_id) for source in value.sources
+            )
+        )
+        artifacts = (
+            (None if "artifact_refs" not in value.model_fields_set else artifacts)
+            if value.artifacts is None
+            else tuple(runtime_artifact_reference(ref) for ref in value.artifacts)
+        )
+    return RuntimeReviseCandidateRequest(
         candidate_id=value.candidate_id,
         expected_version=value.expected_version,
-        proposal=reviewed_content(value.proposal),
-        sources=tuple(runtime_source_reference(source) for source in value.source_refs),
-        artifacts=tuple(runtime_artifact_reference(artifact) for artifact in value.artifact_refs),
-        memory_citations=(
-            None
-            if value.memory_citations is None
-            else tuple(runtime_citation(citation) for citation in value.memory_citations or ())
-        ),
+        proposal=RuntimeTagProposal.model_validate_json(value.proposal.model_dump_json())
+        if tag
+        else reviewed_content(value.proposal),
+        sources=sources,
+        artifacts=artifacts,
+        memory_citations=None
+        if value.memory_citations is None
+        else tuple(runtime_citation(item) for item in value.memory_citations),
         target=None if value.target is None else runtime_artifact_reference(value.target),
         reason=value.reason,
     )
@@ -879,8 +912,34 @@ def changes_response(value: MemoryChangesPage) -> ListMemoryChangesResponse:
     )
 
 
-def candidate_response(value: RuntimeArtifactCandidate[Any]) -> ArtifactCandidate:
-    return ArtifactCandidate(
+def candidate_response(value: RuntimeCandidate[Any] | RuntimeTagCandidate) -> Candidate:
+    if isinstance(value, RuntimeTagCandidate):
+        return Candidate.model_validate({
+            "candidate_kind": "tag",
+            "candidate_id": value.candidate_id,
+            "version": value.version,
+            "family": CandidateFamily(value.proposal.target.family),
+            "status": CandidateStatus(value.status),
+            "proposal": CatalogChangeProposal.model_validate_json(value.proposal.model_dump_json()),
+            "source_refs": [source_reference(ref) for ref in value.sources],
+            "artifact_refs": [artifact_reference(ref) for ref in value.artifacts],
+            "memory_citations": [transport_citation(ref) for ref in value.memory_citations],
+            "target": None,
+            "reason": value.reason,
+            "result_artifact": None,
+            "decision_reason": value.decision_reason,
+            "audit": None
+            if value.audit is None
+            else CandidateAudit.model_validate(value.audit.model_dump(mode="json")),
+            "result": None
+            if value.result is None
+            else {**value.result.model_dump(mode="json"), "etag": value.result.etag},
+            "operation": value.operation,
+            "origin": value.origin,
+            "dream_run_id": value.dream_run_id,
+        })
+    return Candidate(
+        candidate_kind=CandidateKind.ARTIFACT,
         candidate_id=value.candidate_id,
         version=value.version,
         family=CandidateFamily(value.family),
@@ -904,8 +963,8 @@ def generated_candidate_response(value: RuntimeGeneratedCandidateResult) -> Gene
     )
 
 
-def candidate_page_response(value: RuntimeArtifactCandidatePage[Any]) -> ArtifactCandidatePage:
-    return ArtifactCandidatePage(
+def candidate_page_response(value: RuntimeCandidatePage[Any]) -> CandidatePage:
+    return CandidatePage(
         candidates=[candidate_response(candidate) for candidate in value.candidates],
         next_cursor=value.next_cursor,
     )

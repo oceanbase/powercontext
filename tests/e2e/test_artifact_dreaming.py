@@ -58,24 +58,24 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBas
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import BaseValueConflictError
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     BuiltinConfig,
     BuiltinRuntime,
     CaptureSource,
     CreateDreamRunRequest,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetDreamRunRequest,
     GetExperienceRequest,
     GetSkillRequest,
-    ListArtifactCandidatesRequest,
+    ListCandidatesRequest,
     ListDreamRunsRequest,
     PrepareContextRequest,
     ProposeExperienceRequest,
     ProposeSkillRequest,
-    RejectArtifactCandidateRequest,
+    RejectCandidateRequest,
     RememberMemoryRequest,
     RetireMemoryEntryRequest,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
     RuntimeConfig,
 )
 from powercontext.builtin.scope import ScopeDraft
@@ -268,13 +268,13 @@ def test_profile_dream_requires_review_and_preserves_source_cursor(
                 await change_policy()
                 with pytest.raises(BaseValueConflictError):
                     await runtime.review.for_scope(scope_id).approve(
-                        ApproveArtifactCandidateRequest(
+                        ApproveCandidateRequest(
                             candidate_id=completed.candidate.candidate_id,
                             expected_version=completed.candidate.version,
                         )
                     )
                 rejected = await runtime.review.for_scope(scope_id).reject(
-                    RejectArtifactCandidateRequest(
+                    RejectCandidateRequest(
                         candidate_id=completed.candidate.candidate_id,
                         expected_version=completed.candidate.version,
                         reason="Policy changed; regenerate under the current policy.",
@@ -283,7 +283,7 @@ def test_profile_dream_requires_review_and_preserves_source_cursor(
                 assert rejected.status == "rejected"
                 return
             approved = await runtime.review.for_scope(scope_id).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=completed.candidate.candidate_id,
                     expected_version=completed.candidate.version,
                 )
@@ -310,7 +310,7 @@ def test_profile_dream_requires_review_and_preserves_source_cursor(
                 correction = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=correction.run_id))
                 assert correction.candidate is not None
                 corrected = await runtime.review.for_scope(scope_id).approve(
-                    ApproveArtifactCandidateRequest(
+                    ApproveCandidateRequest(
                         candidate_id=correction.candidate.candidate_id,
                         expected_version=correction.candidate.version,
                     )
@@ -384,7 +384,7 @@ def test_memory_dream_revises_only_selected_entry_after_review(
             from powercontext.server.mapping import candidate_response
 
             candidate = await runtime.review.for_scope(scope).get(
-                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=completed.candidate.candidate_id)
             )
             transport_proposal = candidate_response(candidate).proposal
             from powercontext.http import MemoryDreamCandidateProposal as TransportMemoryDreamCandidateProposal
@@ -393,9 +393,7 @@ def test_memory_dream_revises_only_selected_entry_after_review(
             assert transport_proposal.dream_run_id == run.run_id
             before = await runtime.memory.for_scope(scope).list()
             assert any(item.citation == citation for item in before.entries)
-            approval = ApproveArtifactCandidateRequest(
-                candidate_id=candidate.candidate_id, expected_version=candidate.version
-            )
+            approval = ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             if concurrent_revision:
                 from powercontext.builtin.review.errors import CandidateConflictError, CandidateTerminalError
 
@@ -403,7 +401,7 @@ def test_memory_dream_revises_only_selected_entry_after_review(
                     asyncio.gather(
                         runtime.review.for_scope(scope).approve(approval),
                         runtime.review.for_scope(scope).revise(
-                            ReviseArtifactCandidateRequest(
+                            ReviseCandidateRequest(
                                 candidate_id=candidate.candidate_id,
                                 expected_version=candidate.version,
                                 proposal=candidate.proposal,
@@ -423,15 +421,13 @@ def test_memory_dream_revises_only_selected_entry_after_review(
                     if isinstance(result, Exception):
                         assert isinstance(result, (CandidateConflictError, CandidateTerminalError))
                 latest = await runtime.review.for_scope(scope).get(
-                    GetArtifactCandidateRequest(candidate_id=candidate.candidate_id)
+                    GetCandidateRequest(candidate_id=candidate.candidate_id)
                 )
                 approved = (
                     latest
                     if latest.status == "approved"
                     else await runtime.review.for_scope(scope).approve(
-                        ApproveArtifactCandidateRequest(
-                            candidate_id=latest.candidate_id, expected_version=latest.version
-                        )
+                        ApproveCandidateRequest(candidate_id=latest.candidate_id, expected_version=latest.version)
                     )
                 )
             else:
@@ -517,23 +513,21 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
                 )
             assert before.revision == 1
             candidate = await runtime.review.for_scope(scope_id).get(
-                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=completed.candidate.candidate_id)
             )
             assert candidate.memory_citations == (citation,)
             if retire_evidence:
                 await runtime.memory.for_scope(scope_id).retire(RetireMemoryEntryRequest(citation=citation))
                 with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
                     await runtime.review.for_scope(scope_id).approve(
-                        ApproveArtifactCandidateRequest(
-                            candidate_id=candidate.candidate_id, expected_version=candidate.version
-                        )
+                        ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                     )
                 async with runtime._provider.database.transaction() as connection:
                     unchanged = await topics.get_exact(connection, scope_id, published.topic.as_ref())
                 assert unchanged.is_current
                 return
             approved = await runtime.review.for_scope(scope_id).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=completed.candidate.candidate_id,
                     expected_version=completed.candidate.version,
                 )
@@ -560,10 +554,10 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
             second = await runtime.dream.for_scope(scope_id).get(GetDreamRunRequest(run_id=second.run_id))
             assert second.outcome == "proposed" and second.candidate is not None
             candidate = await runtime.review.for_scope(scope_id).get(
-                GetArtifactCandidateRequest(candidate_id=second.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=second.candidate.candidate_id)
             )
             revised = await runtime.review.for_scope(scope_id).revise(
-                ReviseArtifactCandidateRequest(
+                ReviseCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                     proposal=candidate.proposal,
@@ -574,7 +568,7 @@ def test_topic_memory_dream_publishes_complete_revision_after_review(
                 )
             )
             corrected = await runtime.review.for_scope(scope_id).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=revised.candidate_id,
                     expected_version=revised.version,
                 )
@@ -669,11 +663,11 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
             from powercontext.builtin.review.errors import CandidateConflictError, InvalidCandidateError
 
             candidate = await runtime.review.for_scope(scope_id).get(
-                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=completed.candidate.candidate_id)
             )
             with pytest.raises(InvalidCandidateError, match="preserve the target objective"):
                 await runtime.review.for_scope(scope_id).revise(
-                    ReviseArtifactCandidateRequest(
+                    ReviseCandidateRequest(
                         candidate_id=candidate.candidate_id,
                         expected_version=candidate.version,
                         proposal=candidate.proposal.model_copy(update={"objective": "Work on another task."}),
@@ -684,14 +678,14 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
                     )
                 )
             approved = await runtime.review.for_scope(scope_id).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=completed.candidate.candidate_id,
                     expected_version=completed.candidate.version,
                 )
             )
             assert approved.result_artifact is not None
             retry = await runtime.review.for_scope(scope_id).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=completed.candidate.candidate_id,
                     expected_version=completed.candidate.version,
                 )
@@ -699,7 +693,7 @@ def test_handoff_dream_commit_does_not_activate_handoff(database: DatabaseConfig
             assert retry == approved
             with pytest.raises(CandidateConflictError):
                 await runtime.review.for_scope(scope_id).approve(
-                    ApproveArtifactCandidateRequest(
+                    ApproveCandidateRequest(
                         candidate_id=completed.candidate.candidate_id,
                         expected_version=completed.candidate.version + 1,
                     )
@@ -781,9 +775,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
                     ProposeExperienceRequest(proposal=experience(), sources=sources)
                 )
                 evidence = await runtime.review.for_scope(scope.scope_id).approve(
-                    ApproveArtifactCandidateRequest(
-                        candidate_id=evidence.candidate_id, expected_version=evidence.version
-                    )
+                    ApproveCandidateRequest(candidate_id=evidence.candidate_id, expected_version=evidence.version)
                 )
                 assert evidence.result_artifact is not None
                 artifacts = (*artifacts, evidence.result_artifact)
@@ -801,7 +793,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
             completed = await runtime.dream.for_scope(scope.scope_id).get(GetDreamRunRequest(run_id=run.run_id))
             assert completed.candidate is not None, completed
             candidate = await runtime.review.for_scope(scope.scope_id).get(
-                GetArtifactCandidateRequest(candidate_id=completed.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=completed.candidate.candidate_id)
             )
             changed_metadata = await runtime._provider.review(scope.scope_id).prepare_skill(
                 candidate.proposal.model_copy(update={"name": "changed-name", "package": None})
@@ -810,7 +802,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
 
             with pytest.raises(InvalidCandidateError, match="protected package metadata"):
                 await runtime.review.for_scope(scope.scope_id).revise(
-                    ReviseArtifactCandidateRequest(
+                    ReviseCandidateRequest(
                         candidate_id=candidate.candidate_id,
                         expected_version=candidate.version,
                         proposal=changed_metadata,
@@ -821,7 +813,7 @@ def test_skill_dream_revision_publishes_after_review_without_trusted_evaluation(
                     )
                 )
             approved = await runtime.review.for_scope(scope.scope_id).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=completed.candidate.candidate_id, expected_version=completed.candidate.version
                 )
             )
@@ -878,7 +870,7 @@ def test_wizard_skill_selection_accepts_dream_derivation(
                 ProposeExperienceRequest(proposal=experience(), memory_citations=(citation,))
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
             accepted = await runtime.dream.for_scope(scope).create(
@@ -939,7 +931,7 @@ def test_memory_dream_approval_and_skill_preserve_exact_provenance(database: Dat
             assert len([item for item in generator.inputs[0].evidence.evidence if item.kind == "memory"]) == 1
             assert run.input_manifest.root_groups[0].independence == "unknown"
             candidate = await runtime.review.for_scope(scope).get(
-                GetArtifactCandidateRequest(candidate_id=run.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=run.candidate.candidate_id)
             )
             assert candidate.memory_citations == (citation,)
             assert candidate.sources == (root,)
@@ -947,7 +939,7 @@ def test_memory_dream_approval_and_skill_preserve_exact_provenance(database: Dat
             pending_context = await runtime.context.for_scope(scope).prepare(followup)
             assert experience().lesson not in (pending_context.content or "")
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
@@ -975,12 +967,12 @@ def test_memory_dream_approval_and_skill_preserve_exact_provenance(database: Dat
             assert generator.inputs[1].target_evidence_id is None
             assert derived.candidate is not None
             skill_candidate = await runtime.review.for_scope(scope).get(
-                GetArtifactCandidateRequest(candidate_id=derived.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=derived.candidate.candidate_id)
             )
             assert skill_candidate.memory_citations == ()
             assert skill_candidate.artifacts == (artifact.as_ref(),)
             skill_approval = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=skill_candidate.candidate_id,
                     expected_version=skill_candidate.version,
                 )
@@ -1055,7 +1047,7 @@ def test_retirement_during_generation_prevents_candidate_commit(database: Databa
             await worker
             run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
             assert (run.status, run.error, run.candidate) == ("failed", "memory_entry_inactive", None)
-            assert (await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates == ()
+            assert (await runtime.review.for_scope(scope).list(ListCandidatesRequest())).candidates == ()
             assert await runtime.dream.for_scope(scope).create(request) == run
 
     asyncio.run(scenario())
@@ -1072,7 +1064,7 @@ def test_review_rechecks_memory_and_revision_omission_preserves_citations(databa
                 )
             )
             revised = await runtime.review.for_scope(scope).revise(
-                ReviseArtifactCandidateRequest(
+                ReviseCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=1,
                     proposal=experience(),
@@ -1083,13 +1075,13 @@ def test_review_rechecks_memory_and_revision_omission_preserves_citations(databa
             await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citation))
             with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
                 await runtime.review.for_scope(scope).approve(
-                    ApproveArtifactCandidateRequest(
+                    ApproveCandidateRequest(
                         candidate_id=candidate.candidate_id,
                         expected_version=2,
                     )
                 )
             cleared = await runtime.review.for_scope(scope).revise(
-                ReviseArtifactCandidateRequest(
+                ReviseCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=2,
                     proposal=experience(),
@@ -1099,7 +1091,7 @@ def test_review_rechecks_memory_and_revision_omission_preserves_citations(databa
             )
             assert cleared.memory_citations == ()
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=3,
                 )
@@ -1125,7 +1117,7 @@ def test_unknown_model_evidence_fails_without_a_candidate(database: DatabaseConf
             await process_pending(runtime)
             run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
             assert (run.status, run.error) == ("failed", "invalid_generation_output")
-            assert (await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates == ()
+            assert (await runtime.review.for_scope(scope).list(ListCandidatesRequest())).candidates == ()
 
     asyncio.run(scenario())
 
@@ -1136,8 +1128,8 @@ def test_dream_http_client_accepts_active_and_terminal_replays(database: Databas
     from powercontext.client import PowerContextClient
     from powercontext.http import CreateDreamRunRequest as TransportCreateDreamRunRequest
     from powercontext.http import DreamStatus, ExperienceProposal
-    from powercontext.http import GetArtifactCandidateRequest as TransportGetArtifactCandidateRequest
-    from powercontext.http import ReviseArtifactCandidateRequest as TransportReviseArtifactCandidateRequest
+    from powercontext.http import GetCandidateRequest as TransportGetCandidateRequest
+    from powercontext.http import ReviseCandidateRequest as TransportReviseCandidateRequest
     from powercontext.server.app import create_app
 
     async def scenario() -> None:
@@ -1172,11 +1164,11 @@ def test_dream_http_client_accepts_active_and_terminal_replays(database: Databas
                 assert (await client.list_dream_runs(scope)).runs == [complete]
                 assert len(generator.inputs) == 1
                 assert complete.candidate is not None
-                candidate = await client.get_artifact_candidate(
-                    TransportGetArtifactCandidateRequest(scope_id=scope, candidate_id=complete.candidate.candidate_id)
+                candidate = await client.get_candidate(
+                    TransportGetCandidateRequest(scope_id=scope, candidate_id=complete.candidate.candidate_id)
                 )
                 assert isinstance(candidate.proposal, ExperienceProposal)
-                revision = TransportReviseArtifactCandidateRequest(
+                revision = TransportReviseCandidateRequest(
                     scope_id=scope,
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
@@ -1184,13 +1176,13 @@ def test_dream_http_client_accepts_active_and_terminal_replays(database: Databas
                     source_refs=candidate.source_refs,
                     artifact_refs=candidate.artifact_refs,
                 )
-                retained = await client.revise_artifact_candidate(revision)
+                retained = await client.revise_candidate(revision)
                 assert retained.memory_citations == candidate.memory_citations
-                retained = await client.revise_artifact_candidate(
+                retained = await client.revise_candidate(
                     revision.model_copy(update={"expected_version": retained.version, "memory_citations": None})
                 )
                 assert retained.memory_citations == candidate.memory_citations
-                cleared = await client.revise_artifact_candidate(
+                cleared = await client.revise_candidate(
                     revision.model_copy(update={"expected_version": retained.version, "memory_citations": []})
                 )
                 assert cleared.memory_citations == []
@@ -1215,7 +1207,7 @@ def test_concurrent_admission_and_workers_create_one_candidate(database: Databas
             run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted[0].run_id))
             assert run.status == "succeeded"
             assert len(generator.inputs) == 1
-            assert len((await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates) == 1
+            assert len((await runtime.review.for_scope(scope).list(ListCandidatesRequest())).candidates) == 1
 
     asyncio.run(scenario())
 
@@ -1399,7 +1391,7 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
                     assert completed.json()["status"] == "succeeded", completed.text
                     candidate = completed.json()["candidate"]
                     reviewed = await client.post(
-                        "/v1/artifact-candidates/get",
+                        "/v1/candidates/get",
                         json={
                             "scope_id": scope,
                             "candidate_id": candidate["candidate_id"],
@@ -1408,7 +1400,7 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
                     assert reviewed.status_code == 200, reviewed.text
                     # The author has contribution rights, but cannot approve their proposal.
                     forbidden = await client.post(
-                        "/v1/artifact-candidates/approve",
+                        "/v1/candidates/approve",
                         json={
                             "scope_id": scope,
                             "candidate_id": candidate["candidate_id"],
@@ -1433,7 +1425,7 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
                     headers={"Authorization": "Bearer review-token"},
                 ) as reviewer:
                     approved = await reviewer.post(
-                        "/v1/artifact-candidates/approve",
+                        "/v1/candidates/approve",
                         json={
                             "scope_id": scope,
                             "candidate_id": candidate["candidate_id"],
@@ -1494,7 +1486,7 @@ def test_restart_recovers_expired_run_with_its_pinned_input(database: DatabaseCo
             assert complete.started_at == stranded.started_at
             assert complete.attempt_count == complete.usage.model_calls == 2
             assert interrupted.inputs == recovered.inputs
-            assert len((await restarted.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates) == 1
+            assert len((await restarted.review.for_scope(scope).list(ListCandidatesRequest())).candidates) == 1
 
     asyncio.run(scenario())
 
@@ -1513,7 +1505,7 @@ def test_additive_migration_preserves_existing_experience_and_candidate(database
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
@@ -1523,9 +1515,7 @@ def test_additive_migration_preserves_existing_experience_and_candidate(database
         try:
             async with engine.begin() as connection:
                 await connection.exec_driver_sql("ALTER TABLE pc_artifacts DROP COLUMN memory_citations")
-                await connection.exec_driver_sql(
-                    "ALTER TABLE pc_artifact_candidate_versions DROP COLUMN memory_citations"
-                )
+                await connection.exec_driver_sql("ALTER TABLE pc_candidate_versions DROP COLUMN memory_citations")
                 await connection.exec_driver_sql("DROP TABLE pc_dream_runs")
         finally:
             await engine.dispose()
@@ -1538,7 +1528,7 @@ def test_additive_migration_preserves_existing_experience_and_candidate(database
             assert restored.lineage.memory_citations == ()
             assert restored.lineage.sources == (root,)
             restored_candidate = await runtime.review.for_scope(scope).get(
-                GetArtifactCandidateRequest(
+                GetCandidateRequest(
                     candidate_id=candidate.candidate_id,
                 )
             )
@@ -1573,9 +1563,7 @@ def test_replacement_dream_identifies_the_exact_target_in_model_input(database: 
                     )
                 )
                 approved = await runtime.review.for_scope(scope).approve(
-                    ApproveArtifactCandidateRequest(
-                        candidate_id=candidate.candidate_id, expected_version=candidate.version
-                    )
+                    ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                 )
                 assert approved.result_artifact is not None
                 targets.append(approved.result_artifact)
@@ -1593,7 +1581,7 @@ def test_replacement_dream_identifies_the_exact_target_in_model_input(database: 
                 run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
                 assert run.status == "succeeded" and run.candidate is not None
                 candidate = await runtime.review.for_scope(scope).get(
-                    GetArtifactCandidateRequest(candidate_id=run.candidate.candidate_id)
+                    GetCandidateRequest(candidate_id=run.candidate.candidate_id)
                 )
                 assert candidate.target == target
                 runs.append(run)
@@ -1626,7 +1614,7 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
                 ProposeExperienceRequest(proposal=experience(), memory_citations=(citation,))
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
             accepted = await runtime.dream.for_scope(scope).create(
@@ -1638,9 +1626,7 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
             run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
             assert run.candidate is not None
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
-                    candidate_id=run.candidate.candidate_id, expected_version=run.candidate.version
-                )
+                ApproveCandidateRequest(candidate_id=run.candidate.candidate_id, expected_version=run.candidate.version)
             )
             assert approved.result_artifact is not None
             skill = await runtime.skill.for_scope(scope).get(GetSkillRequest(artifact=approved.result_artifact))
@@ -1651,7 +1637,7 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
             skill = await runtime.skill.for_scope(scope).get(GetSkillRequest(artifact=approved.result_artifact))
@@ -1659,7 +1645,7 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
                 proposal=skill.content, sources=(root,), artifacts=(skill.as_ref(),), target=skill.as_ref()
             )
             pending = None if phase == "propose" else await runtime.skill.for_scope(scope).propose(request)
-            before = await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())
+            before = await runtime.review.for_scope(scope).list(ListCandidatesRequest())
             if invalidation == "retired":
                 await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citation))
                 error_type, error_code = EvidenceResolutionError, "memory_entry_inactive"
@@ -1682,7 +1668,7 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
                 elif phase == "revise":
                     assert pending is not None
                     await runtime.review.for_scope(scope).revise(
-                        ReviseArtifactCandidateRequest(
+                        ReviseCandidateRequest(
                             candidate_id=pending.candidate_id,
                             expected_version=pending.version,
                             proposal=pending.proposal,
@@ -1694,11 +1680,9 @@ def test_skill_replacement_rechecks_memory_through_skill_lineage(
                 else:
                     assert pending is not None
                     await runtime.review.for_scope(scope).approve(
-                        ApproveArtifactCandidateRequest(
-                            candidate_id=pending.candidate_id, expected_version=pending.version
-                        )
+                        ApproveCandidateRequest(candidate_id=pending.candidate_id, expected_version=pending.version)
                     )
-            assert await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest()) == before
+            assert await runtime.review.for_scope(scope).list(ListCandidatesRequest()) == before
 
     asyncio.run(scenario())
 
@@ -1716,7 +1700,7 @@ def test_skill_approval_rechecks_transitive_memory_state(database: DatabaseConfi
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
@@ -1735,13 +1719,13 @@ def test_skill_approval_rechecks_transitive_memory_state(database: DatabaseConfi
             await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citation))
             with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
                 await runtime.review.for_scope(scope).approve(
-                    ApproveArtifactCandidateRequest(
+                    ApproveCandidateRequest(
                         candidate_id=run.candidate.candidate_id,
                         expected_version=run.candidate.version,
                     )
                 )
             pending = await runtime.review.for_scope(scope).get(
-                GetArtifactCandidateRequest(
+                GetCandidateRequest(
                     candidate_id=run.candidate.candidate_id,
                 )
             )
@@ -1814,7 +1798,7 @@ def test_replacement_dream_keeps_target_and_replays_after_head_advances(database
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=first.candidate_id,
                     expected_version=first.version,
                 )
@@ -1833,11 +1817,11 @@ def test_replacement_dream_keeps_target_and_replays_after_head_advances(database
             run = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
             assert run.candidate is not None
             candidate = await runtime.review.for_scope(scope).get(
-                GetArtifactCandidateRequest(candidate_id=run.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=run.candidate.candidate_id)
             )
             assert candidate.target == target and target in candidate.artifacts
             replacement = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
@@ -1886,7 +1870,7 @@ def test_dream_model_cannot_claim_an_existing_skill_package(database: DatabaseCo
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
@@ -1931,7 +1915,7 @@ def test_multiple_entries_and_experience_reusing_a_source_keep_one_root(database
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
@@ -1952,7 +1936,7 @@ def test_multiple_entries_and_experience_reusing_a_source_keep_one_root(database
             assert run.input_manifest.root_groups[0].independence == "unknown"
             assert len([item for item in generator.inputs[0].evidence.evidence if item.kind == "source"]) == 1
             result = await runtime.review.for_scope(scope).get(
-                GetArtifactCandidateRequest(candidate_id=run.candidate.candidate_id)
+                GetCandidateRequest(candidate_id=run.candidate.candidate_id)
             )
             assert result.sources == (root,)
             assert len(result.memory_citations) == 2
@@ -2008,7 +1992,7 @@ def test_superseded_supervisor_cannot_overwrite_recovered_result(database: Datab
                     with suppress(asyncio.CancelledError):
                         await worker
                     assert await recovered.dream.for_scope(scope).get(GetDreamRunRequest(run_id=run.run_id)) == run
-                    candidates = await recovered.review.for_scope(scope).list(ListArtifactCandidatesRequest())
+                    candidates = await recovered.review.for_scope(scope).list(ListCandidatesRequest())
                     assert len(candidates.candidates) == 1
                     assert delayed.inputs == replacement.inputs
             finally:
@@ -2044,7 +2028,7 @@ def test_candidate_and_run_rollback_together(database: DatabaseConfig, monkeypat
                 await process_pending(runtime)
             failed = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
             assert (failed.status, failed.candidate) == ("failed", None)
-            assert (await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates == ()
+            assert (await runtime.review.for_scope(scope).list(ListCandidatesRequest())).candidates == ()
             assert await runtime.dream.for_scope(scope).create(request) == failed
             retried = await runtime.dream.for_scope(scope).create(
                 request.model_copy(update={"idempotency_key": "retry"})
@@ -2052,7 +2036,7 @@ def test_candidate_and_run_rollback_together(database: DatabaseConfig, monkeypat
             await process_pending(runtime)
             complete = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=retried.run_id))
             assert complete.status == "succeeded"
-            assert len((await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates) == 1
+            assert len((await runtime.review.for_scope(scope).list(ListCandidatesRequest())).candidates) == 1
 
     asyncio.run(scenario())
 
@@ -2091,7 +2075,7 @@ def test_dream_keeps_prompt_lineage_out_of_factual_evidence(database: DatabaseCo
                 )
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
             accepted = await runtime.dream.for_scope(scope).create(
@@ -2108,7 +2092,7 @@ def test_dream_keeps_prompt_lineage_out_of_factual_evidence(database: DatabaseCo
             assert len(configuration) == 1 and configuration[0].role == "lineage_only"
             assert "powercontext.prompt.v1" not in generator.inputs[0].model_dump_json()
             skill = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=completed.candidate.candidate_id, expected_version=completed.candidate.version
                 )
             )
@@ -2154,9 +2138,7 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                     )
                 )
                 approved = await runtime.review.for_scope(scope).approve(
-                    ApproveArtifactCandidateRequest(
-                        candidate_id=candidate.candidate_id, expected_version=candidate.version
-                    )
+                    ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                 )
                 target = approved.result_artifact
                 assert target is not None and target.revision == revision
@@ -2182,12 +2164,10 @@ def test_ordinary_experience_revisions_do_not_inherit_dream_depth_budget(
                 await runtime.memory.for_scope(scope).retire(RetireMemoryEntryRequest(citation=citations[0]))
                 with pytest.raises(EvidenceResolutionError, match="memory_entry_inactive"):
                     await runtime.review.for_scope(scope).approve(
-                        ApproveArtifactCandidateRequest(
-                            candidate_id=candidate.candidate_id, expected_version=candidate.version
-                        )
+                        ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
                     )
                 pending = await runtime.review.for_scope(scope).get(
-                    GetArtifactCandidateRequest(candidate_id=candidate.candidate_id)
+                    GetCandidateRequest(candidate_id=candidate.candidate_id)
                 )
                 assert pending.status == "pending" and pending.result_artifact is None
 
@@ -2215,7 +2195,7 @@ def test_ordinary_skill_review_keeps_indirect_sources_out_of_direct_reference_bu
                 ProposeExperienceRequest(proposal=experience(), sources=sources)
             )
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
             refs = (approved.result_artifact,)
@@ -2242,7 +2222,7 @@ def test_ordinary_skill_review_keeps_indirect_sources_out_of_direct_reference_bu
             runtime.configure_evidence_authorization(
                 dream=unused, review=authorize_review, context=nullcontext, attest_candidate=unused
             )
-            revision = ReviseArtifactCandidateRequest(
+            revision = ReviseCandidateRequest(
                 candidate_id=candidate.candidate_id,
                 expected_version=candidate.version,
                 proposal=candidate.proposal,
@@ -2253,9 +2233,7 @@ def test_ordinary_skill_review_keeps_indirect_sources_out_of_direct_reference_bu
             denied = False
             revised = await runtime.review.for_scope(scope).revise(revision)
             assert revised.sources == () and revised.artifacts == refs
-            approval = ApproveArtifactCandidateRequest(
-                candidate_id=revised.candidate_id, expected_version=revised.version
-            )
+            approval = ApproveCandidateRequest(candidate_id=revised.candidate_id, expected_version=revised.version)
             denied = True
             with pytest.raises(DreamError, match="access_revoked"):
                 await runtime.review.for_scope(scope).approve(approval)
@@ -2312,7 +2290,7 @@ def test_dream_requests_arriving_during_generation_survive_without_an_automatic_
             assert (
                 await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=second.run_id))
             ).status == "succeeded"
-            candidates = (await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest())).candidates
+            candidates = (await runtime.review.for_scope(scope).list(ListCandidatesRequest())).candidates
             assert len(candidates) == len(generator.inputs) == 1
             reused = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=second.run_id))
             assert reused.reused and reused.candidate is not None
@@ -2427,10 +2405,10 @@ def test_profile_dream_admission_completes_with_concurrent_decision(  # noqa: C9
                 review = runtime.review.for_scope(sid)
                 if decision == "approve":
                     return await review.approve(
-                        ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=1)
+                        ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=1)
                     )
                 return await review.reject(
-                    RejectArtifactCandidateRequest(
+                    RejectCandidateRequest(
                         candidate_id=candidate.candidate_id, expected_version=1, reason="Needs clarification"
                     )
                 )

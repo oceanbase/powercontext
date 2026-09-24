@@ -72,9 +72,9 @@ from powercontext.builtin.review.errors import (
 from powercontext.builtin.review.models import (
     MAX_CANDIDATE_EVIDENCE,
     MAX_CANDIDATE_REASON_LENGTH,
-    ArtifactCandidate,
-    ArtifactCandidatePage,
+    Candidate,
     CandidateEvidenceView,
+    CandidatePage,
     CandidateStatus,
 )
 from powercontext.builtin.sources.content import ContentSource
@@ -94,7 +94,7 @@ ReviewedProposal: TypeAlias = (
 )
 ReviewedArtifact: TypeAlias = Experience | Skill
 ReviewedDraft: TypeAlias = ExperienceDraft | SkillDraft
-ReviewedCandidate: TypeAlias = ArtifactCandidate[ReviewedProposal]
+ReviewedCandidate: TypeAlias = Candidate[ReviewedProposal]
 
 
 class ReviewService:
@@ -134,7 +134,7 @@ class ReviewService:
         self._prompt_registry = prompt_registry
         self._authorization_context = authorization_context
         self._bound_connection = connection
-        self.authorize_action: Callable[[str, str, ArtifactCandidate[Any]], Awaitable[None]] | None = None
+        self.authorize_action: Callable[[str, str, Candidate[Any]], Awaitable[None]] | None = None
 
     def configure_authorization(self, authorize: EvidenceAuthorizer, context: AuthorizationContext) -> None:
         if self._evidence is None:
@@ -142,7 +142,7 @@ class ReviewService:
         self._evidence.authorize = authorize
         self._authorization_context = context
 
-    async def _authorize_decision(self, action: str, candidate: ArtifactCandidate[Any]) -> None:
+    async def _authorize_decision(self, action: str, candidate: Candidate[Any]) -> None:
         if self.authorize_action is not None:
             await self.authorize_action(self._scope_id, action, candidate)
 
@@ -162,7 +162,7 @@ class ReviewService:
         reason: str | None,
         candidate_id: str | None = None,
         memory_citations: tuple[MemoryCitation, ...] = (),
-    ) -> ArtifactCandidate[ExperienceContent]:
+    ) -> Candidate[ExperienceContent]:
         """Persist a human or integration supplied Experience proposal."""
 
         candidate = await self._propose(
@@ -188,7 +188,7 @@ class ReviewService:
         reason: str | None,
         candidate_id: str | None = None,
         memory_citations: tuple[MemoryCitation, ...] = (),
-    ) -> ArtifactCandidate[SkillContent]:
+    ) -> Candidate[SkillContent]:
         """Persist a human or integration supplied managed Skill proposal."""
 
         canonical_sources = _unique_sources(sources)
@@ -224,7 +224,7 @@ class ReviewService:
         reason: str,
         candidate_id: str,
         memory_citations: tuple[MemoryCitation, ...] = (),
-    ) -> ArtifactCandidate[ProfileCandidateProposal]:
+    ) -> Candidate[ProfileCandidateProposal]:
         if proposal.dream_run_id is None or proposal.source_window is not None:
             raise InvalidCandidateError("proposal", "a Dream Profile Candidate requires a Dream run")
         candidate = await self._propose(
@@ -237,7 +237,7 @@ class ReviewService:
             candidate_id=candidate_id,
             memory_citations=memory_citations,
         )
-        return ArtifactCandidate[ProfileCandidateProposal].model_validate(candidate.model_dump(mode="python"))
+        return Candidate[ProfileCandidateProposal].model_validate(candidate.model_dump(mode="python"))
 
     async def propose_memory_dream(
         self,
@@ -250,7 +250,7 @@ class ReviewService:
         target: ArtifactRef,
         reason: str,
         candidate_id: str,
-    ) -> ArtifactCandidate[MemoryDreamCandidateProposal]:
+    ) -> Candidate[MemoryDreamCandidateProposal]:
         if proposal.base != target or not memory_citations:
             raise InvalidCandidateError("target", "Memory Dream requires exact current entries")
         selected = {(citation.entry_id, citation.entry_version_id) for citation in memory_citations}
@@ -268,7 +268,7 @@ class ReviewService:
             reason=reason,
             candidate_id=candidate_id,
         )
-        return ArtifactCandidate[MemoryDreamCandidateProposal].model_validate(candidate.model_dump(mode="python"))
+        return Candidate[MemoryDreamCandidateProposal].model_validate(candidate.model_dump(mode="python"))
 
     async def propose_topic_memory_dream(
         self,
@@ -281,7 +281,7 @@ class ReviewService:
         target: ArtifactRef,
         reason: str,
         candidate_id: str,
-    ) -> ArtifactCandidate[TopicMemoryContent]:
+    ) -> Candidate[TopicMemoryContent]:
         candidate = await self._propose(
             TopicMemory.family,
             proposal,
@@ -292,7 +292,7 @@ class ReviewService:
             reason=reason,
             candidate_id=candidate_id,
         )
-        return ArtifactCandidate[TopicMemoryContent].model_validate(candidate.model_dump(mode="python"))
+        return Candidate[TopicMemoryContent].model_validate(candidate.model_dump(mode="python"))
 
     async def propose_handoff_dream(
         self,
@@ -305,7 +305,7 @@ class ReviewService:
         target: ArtifactRef,
         reason: str,
         candidate_id: str,
-    ) -> ArtifactCandidate[HandoffContent]:
+    ) -> Candidate[HandoffContent]:
         _validate_handoff_citations(proposal, sources, artifacts, memory_citations, target)
         candidate = await self._propose(
             Handoff.family,
@@ -317,7 +317,7 @@ class ReviewService:
             reason=reason,
             candidate_id=candidate_id,
         )
-        return ArtifactCandidate[HandoffContent].model_validate(candidate.model_dump(mode="python"))
+        return Candidate[HandoffContent].model_validate(candidate.model_dump(mode="python"))
 
     async def _propose(
         self,
@@ -388,6 +388,49 @@ class ReviewService:
         )
         return _reviewed_candidate(candidate)
 
+    async def candidate_identities(self, *, status, family, candidate_kind, cursor, limit):
+        from sqlalchemy import select
+
+        from powercontext.builtin.persistence.tables import CANDIDATE_HEADS_TABLE as heads
+
+        statement = select(heads.c.candidate_id).where(heads.c.scope_id == self._scope_id)
+        if status is not None:
+            statement = statement.where(heads.c.status == status.value)
+        if family is not None:
+            statement = statement.where(heads.c.family == family)
+        if candidate_kind is not None:
+            statement = statement.where(heads.c.candidate_kind == candidate_kind)
+        if cursor is not None:
+            statement = statement.where(heads.c.candidate_id > cursor)
+        async with self._connection() as connection:
+            return tuple(await connection.scalars(statement.order_by(heads.c.candidate_id).limit(limit + 1)))
+
+    async def history(self, candidate_id):
+        from sqlalchemy import select
+
+        from powercontext.builtin.persistence.tables import CANDIDATE_VERSIONS_TABLE as versions
+
+        async with self._connection() as connection:
+            await self._candidates.get(connection, self._scope_id, candidate_id)
+            rows = (
+                await connection.execute(
+                    select(versions)
+                    .where(versions.c.scope_id == self._scope_id, versions.c.candidate_id == candidate_id)
+                    .order_by(versions.c.version)
+                )
+            ).mappings()
+            return tuple(
+                self._candidates._decode_row({
+                    **row,
+                    "status": "pending",
+                    "result_family": None,
+                    "result_artifact_id": None,
+                    "result_revision": None,
+                    "decision_reason": None,
+                })
+                for row in rows
+            )
+
     async def get_candidate(self, candidate_id: str, /, *, current: bool = False) -> ReviewedCandidate:
         async with self._connection() as connection:
             candidate = await self._candidates.get(connection, self._scope_id, candidate_id, current=current)
@@ -425,7 +468,7 @@ class ReviewService:
         family: str | None,
         cursor: str | None,
         limit: int,
-    ) -> ArtifactCandidatePage[ReviewedProposal]:
+    ) -> CandidatePage[ReviewedProposal]:
         async with self._connection() as connection:
             page = await self._candidates.list(
                 connection,
@@ -435,7 +478,7 @@ class ReviewService:
                 cursor=cursor,
                 limit=limit,
             )
-        return ArtifactCandidatePage(
+        return CandidatePage(
             candidates=tuple(_reviewed_candidate(candidate) for candidate in page.candidates),
             next_cursor=page.next_cursor,
         )
@@ -719,7 +762,7 @@ class ReviewService:
     async def _lock_generic_review_inputs(
         self,
         connection: AsyncConnection,
-        preview: ArtifactCandidate[Any],
+        preview: Candidate[Any],
         *,
         sources: tuple[SourceRef, ...],
         artifacts: tuple[ArtifactRef, ...],
@@ -742,7 +785,7 @@ class ReviewService:
             dream_skill_target=preview.candidate_id.startswith("cand_dream_"),
         )
 
-    async def _validate_candidate_audit(self, connection: AsyncConnection, candidate: ArtifactCandidate[Any]) -> None:
+    async def _validate_candidate_audit(self, connection: AsyncConnection, candidate: Candidate[Any]) -> None:
         """Recheck persisted generation policy and content after acquiring the Candidate lock."""
 
         from powercontext.builtin.dream.bindings import DREAM_SPECS
@@ -804,7 +847,7 @@ class ReviewService:
         reason: str | None,
         candidate_id: str,
         memory_citations: tuple[MemoryCitation, ...] = (),
-    ) -> ArtifactCandidate[PromptContent]:
+    ) -> Candidate[PromptContent]:
         _validate_reason(reason)
         async with self._connection() as connection:
             await self._validate_prompt_proposal(connection, target, proposal)
@@ -819,7 +862,7 @@ class ReviewService:
                 candidate_id=candidate_id,
                 memory_citations=unique_references(memory_citations),
             )
-        return ArtifactCandidate[PromptContent].model_validate(candidate.model_dump(mode="python"))
+        return Candidate[PromptContent].model_validate(candidate.model_dump(mode="python"))
 
     async def _approve_prompt_dream(self, candidate_id: str, expected_version: int) -> ReviewedCandidate:
         async with self._connection() as connection:
@@ -1202,23 +1245,23 @@ class ReviewService:
         return canonical
 
 
-def _reviewed_candidate(candidate: ArtifactCandidate[Any]) -> ReviewedCandidate:
+def _reviewed_candidate(candidate: Candidate[Any]) -> ReviewedCandidate:
     _validate_proposal_family(candidate.family, candidate.proposal)
-    return ArtifactCandidate[ReviewedProposal].model_validate(candidate.model_dump(mode="python"))
+    return Candidate[ReviewedProposal].model_validate(candidate.model_dump(mode="python"))
 
 
-def _experience_candidate(candidate: ArtifactCandidate[Any]) -> ArtifactCandidate[ExperienceContent]:
+def _experience_candidate(candidate: Candidate[Any]) -> Candidate[ExperienceContent]:
     reviewed = _reviewed_candidate(candidate)
     if reviewed.family != Experience.family or not isinstance(reviewed.proposal, ExperienceContent):
         raise InvalidCandidateError("family", candidate.family)
-    return ArtifactCandidate[ExperienceContent].model_validate(reviewed.model_dump(mode="python"))
+    return Candidate[ExperienceContent].model_validate(reviewed.model_dump(mode="python"))
 
 
-def _skill_candidate(candidate: ArtifactCandidate[Any]) -> ArtifactCandidate[SkillContent]:
+def _skill_candidate(candidate: Candidate[Any]) -> Candidate[SkillContent]:
     reviewed = _reviewed_candidate(candidate)
     if reviewed.family != Skill.family or not isinstance(reviewed.proposal, SkillContent):
         raise InvalidCandidateError("family", candidate.family)
-    return ArtifactCandidate[SkillContent].model_validate(reviewed.model_dump(mode="python"))
+    return Candidate[SkillContent].model_validate(reviewed.model_dump(mode="python"))
 
 
 def _validate_proposal_family(family: str, proposal: object) -> None:

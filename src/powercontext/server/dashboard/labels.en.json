@@ -249,7 +249,7 @@
   "review_resource": "Candidate type",
   "review_all": "All",
   "review_artifact": "Artifact candidates",
-  "review_catalog_change": "Tag change candidates",
+  "review_tag": "Tag change candidates",
   "review_status": "Status",
   "review_pending": "Pending",
   "review_approved": "Approved",

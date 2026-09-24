@@ -19,14 +19,14 @@ import asyncio
 import pytest
 
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CreateDreamRunRequest,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetDreamRunRequest,
     ProposeExperienceRequest,
-    RejectArtifactCandidateRequest,
+    RejectCandidateRequest,
     RetireMemoryEntryRequest,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
 )
 from tests.e2e.dream_support import open_dream_runtime, process_pending
 from tests.e2e.test_artifact_dreaming import (
@@ -58,19 +58,19 @@ def test_dream_suppresses_unchanged_proposals_but_preserves_edited_candidate(dat
             await process_pending(runtime)
             first = await dream.get(GetDreamRunRequest(run_id=first.run_id))
             assert first.candidate is not None
-            candidate = await review.get(GetArtifactCandidateRequest(candidate_id=first.candidate.candidate_id))
+            candidate = await review.get(GetCandidateRequest(candidate_id=first.candidate.candidate_id))
             assert candidate.audit is not None
             assert candidate.audit.dream_run_id == first.run_id
             assert candidate.audit.proposal_digest.startswith("sha256:")
             if decision == "rejected":
                 await review.reject(
-                    RejectArtifactCandidateRequest(
+                    RejectCandidateRequest(
                         candidate_id=candidate.candidate_id, expected_version=1, reason="The rule is too broad."
                     )
                 )
             elif decision == "revised":
                 revised = await review.revise(
-                    ReviseArtifactCandidateRequest(
+                    ReviseCandidateRequest(
                         candidate_id=candidate.candidate_id,
                         expected_version=1,
                         proposal=candidate.proposal.model_copy(
@@ -144,7 +144,7 @@ def test_shared_root_does_not_reuse_candidate_with_unselected_retired_lineage(da
                 ProposeExperienceRequest(proposal=experience(), memory_citations=(citation,))
             )
             first_evidence = await review.approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=first_evidence.candidate_id, expected_version=first_evidence.version
                 )
             )
@@ -158,7 +158,7 @@ def test_shared_root_does_not_reuse_candidate_with_unselected_retired_lineage(da
                 )
             )
             second_evidence = await review.approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=second_evidence.candidate_id, expected_version=second_evidence.version
                 )
             )
@@ -186,11 +186,11 @@ def test_shared_root_does_not_reuse_candidate_with_unselected_retired_lineage(da
             second = await dream.get(GetDreamRunRequest(run_id=second.run_id))
             assert second.candidate is not None, second
             assert not second.reused and second.candidate != first.candidate
-            candidate = await review.get(GetArtifactCandidateRequest(candidate_id=second.candidate.candidate_id))
+            candidate = await review.get(GetCandidateRequest(candidate_id=second.candidate.candidate_id))
             assert second_evidence.result_artifact in candidate.artifacts
             assert first_evidence.result_artifact not in candidate.artifacts
             approved = await review.approve(
-                ApproveArtifactCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
+                ApproveCandidateRequest(candidate_id=candidate.candidate_id, expected_version=candidate.version)
             )
             assert approved.result_artifact is not None
 

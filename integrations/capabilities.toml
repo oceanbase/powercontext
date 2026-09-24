@@ -123,38 +123,23 @@ non_profile_reason = "Read one asynchronous Artifact synthesis run."
 id = "list_dream_runs"
 non_profile_reason = "List asynchronous Artifact synthesis runs in an authorized Scope."
 [[toolsets.tools]]
-id = "list_artifact_candidates"
+id = "list_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "get_artifact_candidate"
+id = "get_candidate"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "approve_artifact_candidate"
+id = "approve_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
 [[toolsets.tools]]
-id = "reject_artifact_candidate"
+id = "reject_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
 [[toolsets.tools]]
-id = "revise_artifact_candidate"
+id = "revise_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
 [[toolsets.tools]]
-id = "list_catalog_candidates"
+id = "get_candidate_history"
 capabilities = ["candidate_review"]
-[[toolsets.tools]]
-id = "get_catalog_candidate"
-capabilities = ["candidate_review"]
-[[toolsets.tools]]
-id = "get_catalog_candidate_history"
-capabilities = ["candidate_review"]
-[[toolsets.tools]]
-id = "approve_catalog_candidate"
-non_profile_reason = "Candidate decision authority is outside this capability contract."
-[[toolsets.tools]]
-id = "reject_catalog_candidate"
-non_profile_reason = "Candidate decision authority is outside this capability contract."
-[[toolsets.tools]]
-id = "revise_catalog_candidate"
-non_profile_reason = "Candidate decision authority is outside this capability contract."
 
 [[toolsets]]
 id = "prompt-hooks"
@@ -233,10 +218,10 @@ capabilities = ["skill_read_or_generate"]
 id = "pc_skill_get:get_skill"
 capabilities = ["skill_read_or_generate"]
 [[toolsets.tools]]
-id = "pc_review_list:list_artifact_candidates"
+id = "pc_review_list:list_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "pc_review_get:get_artifact_candidate"
+id = "pc_review_get:get_candidate"
 capabilities = ["candidate_review"]
 
 [[toolsets]]
@@ -322,10 +307,10 @@ capabilities = ["external_skill"]
 id = "powercontext_import_external_skill"
 capabilities = ["external_skill"]
 [[toolsets.tools]]
-id = "powercontext_list_artifact_candidates"
+id = "powercontext_list_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "powercontext_get_artifact_candidate"
+id = "powercontext_get_candidate"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
 id = "powercontext_list_memory_changes"
@@ -334,13 +319,13 @@ non_profile_reason = "Memory change history is not a profile capability."
 id = "powercontext_get_stats"
 non_profile_reason = "Diagnostics are not a profile capability."
 [[toolsets.tools]]
-id = "powercontext_approve_artifact_candidate"
+id = "powercontext_approve_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
 [[toolsets.tools]]
-id = "powercontext_reject_artifact_candidate"
+id = "powercontext_reject_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
 [[toolsets.tools]]
-id = "powercontext_revise_artifact_candidate"
+id = "powercontext_revise_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
 
 [[toolsets]]
@@ -437,10 +422,10 @@ capabilities = ["skill_read_or_generate"]
 id = "pc_skill_get:get_skill"
 capabilities = ["skill_read_or_generate"]
 [[toolsets.tools]]
-id = "pc_review_list:list_artifact_candidates"
+id = "pc_review_list:list_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "pc_review_get:get_artifact_candidate"
+id = "pc_review_get:get_candidate"
 capabilities = ["candidate_review"]
 
 [[toolsets]]
@@ -522,19 +507,19 @@ capabilities = ["topic_memory_read"]
 id = "pc_topic_get:get_topic_memory"
 capabilities = ["topic_memory_read"]
 [[toolsets.tools]]
-id = "pc_review_list:list_artifact_candidates"
+id = "pc_review_list:list_candidates"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "pc_review_get:get_artifact_candidate"
+id = "pc_review_get:get_candidate"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "pc_review_approve:approve_artifact_candidate"
+id = "pc_review_approve:approve_candidate"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "pc_review_reject:reject_artifact_candidate"
+id = "pc_review_reject:reject_candidate"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
-id = "pc_review_revise:revise_artifact_candidate"
+id = "pc_review_revise:revise_candidate"
 capabilities = ["candidate_review"]
 [[toolsets.tools]]
 id = "pc_external_scan:scan_external_skills"

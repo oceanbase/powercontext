@@ -82,7 +82,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
     assert set(tool_names) == {
         "activate_handoff",
         "acknowledge_handoff",
-        "approve_artifact_candidate",
+        "approve_candidate",
         "capture_content_source",
         "clear_scope_binding",
         "commit_handoff",
@@ -90,7 +90,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "create_scope",
         "create_work_contract",
         "finalize_handoff",
-        "get_artifact_candidate",
+        "get_candidate",
         "get_memory_entry",
         "get_topic_memory",
         "get_scope",
@@ -98,22 +98,17 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "create_dream_run",
         "get_dream_run",
         "list_dream_runs",
-        "list_catalog_candidates",
-        "get_catalog_candidate",
-        "get_catalog_candidate_history",
-        "approve_catalog_candidate",
-        "reject_catalog_candidate",
-        "revise_catalog_candidate",
-        "list_artifact_candidates",
+        "get_candidate_history",
+        "list_candidates",
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
-        "reject_artifact_candidate",
+        "reject_candidate",
         "record_task_outcome",
         "resolve_scope_binding",
         "remember_memory",
         "retire_memory_entry",
-        "revise_artifact_candidate",
+        "revise_candidate",
         "revise_memory_entry",
         "search_memory",
         "search_topic_memory",
@@ -189,9 +184,9 @@ def test_mcp_describes_handoff_tool_side_effects_for_host_approval() -> None:
 
 def test_mcp_describes_review_write_side_effects_for_host_approval() -> None:
     review_writes = {
-        "approve_artifact_candidate",
-        "reject_artifact_candidate",
-        "revise_artifact_candidate",
+        "approve_candidate",
+        "reject_candidate",
+        "revise_candidate",
     }
 
     async def inspect_annotations() -> dict[str, Any]:

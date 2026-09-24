@@ -27,7 +27,7 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_runtime
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CaptureContentSourceRequest,
     GeneratedCandidateStatus,
     GenerateExperienceRequest,
@@ -87,8 +87,8 @@ def test_http_sdk_generates_reviewed_experience_and_managed_skill_candidates() -
                 )
                 assert generated_experience.status is GeneratedCandidateStatus.PENDING
                 assert generated_experience.candidate is not None
-                approved_experience = await client.approve_artifact_candidate(
-                    ApproveArtifactCandidateRequest(
+                approved_experience = await client.approve_candidate(
+                    ApproveCandidateRequest(
                         scope_id=scope_id,
                         candidate_id=generated_experience.candidate.candidate_id,
                         expected_version=1,

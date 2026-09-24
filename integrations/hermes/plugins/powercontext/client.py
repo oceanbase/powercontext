@@ -72,11 +72,11 @@ _OPERATION_SPECS: dict[str, tuple[str, str]] = {
     "list_external_skills": ("POST", "/v1/external-skills/list"),
     "resolve_external_skill": ("POST", "/v1/external-skills/resolve"),
     "import_external_skill": ("POST", "/v1/external-skills/import"),
-    "list_artifact_candidates": ("POST", "/v1/artifact-candidates/list"),
-    "get_artifact_candidate": ("POST", "/v1/artifact-candidates/get"),
-    "approve_artifact_candidate": ("POST", "/v1/artifact-candidates/approve"),
-    "reject_artifact_candidate": ("POST", "/v1/artifact-candidates/reject"),
-    "revise_artifact_candidate": ("POST", "/v1/artifact-candidates/revise"),
+    "list_candidates": ("POST", "/v1/candidates/list"),
+    "get_candidate": ("POST", "/v1/candidates/get"),
+    "approve_candidate": ("POST", "/v1/candidates/approve"),
+    "reject_candidate": ("POST", "/v1/candidates/reject"),
+    "revise_candidate": ("POST", "/v1/candidates/revise"),
     "get_stats": ("GET", "/v1/stats"),
 }
 

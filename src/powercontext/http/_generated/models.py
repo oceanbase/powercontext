@@ -438,7 +438,7 @@ class DreamBudget(BaseModel):
 
 class Kind(StrEnum):
     ARTIFACT = "artifact"
-    CATALOG_CHANGE = "catalog_change"
+    TAG = "tag"
 
 
 class DreamCandidateRef(BaseModel):
@@ -476,7 +476,17 @@ class DreamRootEvidenceGroup(BaseModel):
     independence: DreamEvidenceIndependence = DreamEvidenceIndependence.UNKNOWN
 
 
-class ApproveArtifactCandidateRequest(BaseModel):
+class CandidateKind(StrEnum):
+    ARTIFACT = "artifact"
+    TAG = "tag"
+
+
+class Origin(StrEnum):
+    DREAM = "dream"
+    MANUAL = "manual"
+
+
+class ApproveCandidateRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -486,8 +496,8 @@ class ApproveArtifactCandidateRequest(BaseModel):
 
 
 class OutputKind(StrEnum):
-    ARTIFACT_CANDIDATE = "artifact_candidate"
-    CATALOG_CHANGE_CANDIDATE = "catalog_change_candidate"
+    CANDIDATE = "candidate"
+    TAG_CANDIDATE = "tag_candidate"
 
 
 class Effect(StrEnum):
@@ -1393,7 +1403,7 @@ class GetTopicMemoryRequest(BaseModel):
     artifact: ArtifactReference
 
 
-class GetArtifactCandidateRequest(BaseModel):
+class GetCandidateRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1513,7 +1523,7 @@ class RetireMemoryEntryRequest(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=512)] = None
 
 
-class RejectArtifactCandidateRequest(BaseModel):
+class RejectCandidateRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2640,101 +2650,6 @@ class CatalogTagResult(BaseModel):
     etag: Annotated[StrictStr, Field(min_length=1)]
 
 
-class Operation(StrEnum):
-    REVISE_TAGS = "revise_tags"
-
-
-class Origin(StrEnum):
-    DREAM = "dream"
-    MANUAL = "manual"
-
-
-class CatalogChangeCandidate(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    audit: CandidateAudit | None = None
-    operation: Operation = Operation.REVISE_TAGS
-    origin: Origin = Origin.DREAM
-    candidate_id: Annotated[StrictStr, Field(min_length=1)]
-    version: Annotated[StrictInt, Field(ge=1)]
-    status: CandidateStatus
-    proposal: CatalogChangeProposal
-    sources: Annotated[list[DreamSourceReference], Field(validate_default=True)] = []
-    artifacts: Annotated[list[ArtifactReference], Field(validate_default=True)] = []
-    memory_citations: Annotated[list[MemoryCitation], Field(validate_default=True)] = []
-    reason: Annotated[StrictStr, Field(min_length=1)]
-    dream_run_id: StrictStr | None = None
-    result: CatalogTagResult | None = None
-    decision_reason: StrictStr | None = None
-
-
-class CatalogCandidatePage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    candidates: list[CatalogChangeCandidate]
-    next_cursor: StrictStr | None = None
-
-
-class CatalogCandidateHistory(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    versions: list[CatalogChangeCandidate]
-
-
-class ListCatalogCandidatesRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    status: CandidateStatus | None = None
-    cursor: StrictStr | None = None
-    limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
-
-
-class GetCatalogCandidateRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    candidate_id: Annotated[StrictStr, Field(min_length=1)]
-
-
-class ApproveCatalogCandidateRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    candidate_id: Annotated[StrictStr, Field(min_length=1)]
-    expected_version: Annotated[StrictInt, Field(ge=1)]
-
-
-class RejectCatalogCandidateRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    candidate_id: Annotated[StrictStr, Field(min_length=1)]
-    expected_version: Annotated[StrictInt, Field(ge=1)]
-    reason: Annotated[StrictStr, Field(min_length=1)]
-
-
-class ReviseCatalogCandidateRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1)]
-    candidate_id: Annotated[StrictStr, Field(min_length=1)]
-    expected_version: Annotated[StrictInt, Field(ge=1)]
-    after_tags: Annotated[list[AfterTag], Field(max_length=32)]
-    reason: Annotated[StrictStr, Field(min_length=1)]
-    sources: list[DreamSourceReference] | None = None
-    artifacts: list[ArtifactReference] | None = None
-    memory_citations: list[MemoryCitation] | None = None
-
-
 class FlushProfileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3231,7 +3146,7 @@ class ListMemoryEntriesRequest(BaseModel):
     ] = False
 
 
-class ListArtifactCandidatesRequest(BaseModel):
+class ListCandidatesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3240,6 +3155,7 @@ class ListArtifactCandidatesRequest(BaseModel):
     family: CandidateFamily | None = None
     cursor: Annotated[StrictStr | None, Field(max_length=128, min_length=1)] = None
     limit: Annotated[StrictInt, Field(ge=1, le=100)] = 50
+    candidate_kind: CandidateKind | None = None
 
 
 class MemoryEntry(BaseModel):
@@ -3992,10 +3908,24 @@ class PreparedHandoff(BaseModel):
     content: HandoffContent
 
 
-class ReviseArtifactCandidateRequest(BaseModel):
+class ReviseCandidateRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    sources: Annotated[
+        list[DreamSourceReference] | None,
+        Field(
+            description="Tag proposal Source evidence. Omission retains existing evidence; do not combine with source_refs.",
+            max_length=32,
+        ),
+    ] = None
+    artifacts: Annotated[
+        list[ArtifactReference] | None,
+        Field(
+            description="Tag proposal Artifact evidence. Omission retains existing evidence; do not combine with artifact_refs.",
+            max_length=32,
+        ),
+    ] = None
     memory_citations: Annotated[
         list[MemoryCitation] | None,
         Field(
@@ -4014,21 +3944,24 @@ class ReviseArtifactCandidateRequest(BaseModel):
         | TopicMemoryDreamProposal
         | HandoffContent
         | PromptContent
+        | CatalogChangeProposal
     )
     source_refs: Annotated[
         list[SourceReference],
         Field(
             description="Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.",
             max_length=32,
+            validate_default=True,
         ),
-    ]
+    ] = []
     artifact_refs: Annotated[
         list[ArtifactReference],
         Field(
             description="Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.",
             max_length=32,
+            validate_default=True,
         ),
-    ]
+    ] = []
     target: ArtifactReference | None = None
     reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)] = None
 
@@ -4056,7 +3989,7 @@ class ReplaceHandoffArtifactRequest(BaseModel):
     content: HandoffContent
 
 
-class ArtifactCandidate(BaseModel):
+class Candidate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4085,6 +4018,7 @@ class ArtifactCandidate(BaseModel):
         | TopicMemoryDreamProposal
         | HandoffContent
         | PromptContent
+        | CatalogChangeProposal
     )
     source_refs: Annotated[
         list[SourceReference],
@@ -4104,6 +4038,11 @@ class ArtifactCandidate(BaseModel):
     reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
     result_artifact: Annotated[ArtifactReference | None, Field(...)]
     decision_reason: Annotated[StrictStr | None, Field(max_length=2000, min_length=1)]
+    candidate_kind: CandidateKind
+    result: CatalogTagResult | None = None
+    operation: StrictStr | None = None
+    origin: Origin | None = None
+    dream_run_id: StrictStr | None = None
 
     @model_validator(mode="after")
     def _reject_excess_candidate_evidence(self):
@@ -4114,11 +4053,11 @@ class ArtifactCandidate(BaseModel):
         return self
 
 
-class ArtifactCandidatePage(BaseModel):
+class CandidatePage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    candidates: list[ArtifactCandidate]
+    candidates: list[Candidate]
     next_cursor: Annotated[StrictStr | None, Field(...)]
 
 
@@ -4206,7 +4145,7 @@ class GeneratedCandidateResponse(BaseModel):
         extra="forbid",
     )
     status: GeneratedCandidateStatus
-    candidate: Annotated[ArtifactCandidate | None, Field(...)]
+    candidate: Annotated[Candidate | None, Field(...)]
 
 
 class CreateArtifactRequest(
@@ -4252,3 +4191,10 @@ class ReplaceArtifactRequest(
         | ReplacePromptArtifactRequest
         | ReplaceProfileArtifactRequest
     )
+
+
+class CandidateHistory(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    versions: list[Candidate]

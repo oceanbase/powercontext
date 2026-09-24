@@ -122,7 +122,6 @@ def links(request: Request, ctx: dict[str, Any]):
                     "candidate_id",
                     "candidate_kind",
                     "artifact_cursor",
-                    "catalog_change_cursor",
                 }
             })
         if destination == "methods" and ctx["page"] in {"experience", "skill"}:

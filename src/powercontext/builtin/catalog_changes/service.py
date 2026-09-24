@@ -44,6 +44,7 @@ from powercontext.builtin.records import InvalidCursorError
 from powercontext.builtin.review.errors import (
     ArtifactTargetConflictError,
     CandidateConflictError,
+    CandidateTerminalError,
     InvalidCandidateError,
 )
 from powercontext.builtin.review.models import CandidateAudit
@@ -235,6 +236,7 @@ class CatalogChangeService:
         *,
         after_tags: tuple[str, ...],
         reason: str,
+        proposal: CatalogChangeProposal | None = None,
         sources: tuple[SourceRef, ...] | None = None,
         artifacts: tuple[ArtifactRef, ...] | None = None,
         memory_citations: tuple[MemoryCitation, ...] | None = None,
@@ -243,7 +245,10 @@ class CatalogChangeService:
             preview = await self._repository.get(connection, self._scope_id, candidate_id)
             if self.authorize_action is not None:
                 await self.authorize_action(self._scope_id, "revise", preview.proposal)
-            proposal = CatalogChangeProposal.model_validate({**preview.proposal.model_dump(), "after_tags": after_tags})
+            expected = CatalogChangeProposal.model_validate({**preview.proposal.model_dump(), "after_tags": after_tags})
+            if proposal is not None and proposal != expected:
+                raise InvalidCandidateError("proposal", "Tag revision cannot change its original target or baseline")
+            proposal = expected
             revised = CatalogChangeCandidate.model_validate({
                 **preview.model_dump(),
                 "version": expected_version + 1,
@@ -272,10 +277,26 @@ class CatalogChangeService:
             return await self._repository.save(connection, self._scope_id, current, revised)
 
     async def approve(self, candidate_id: str, expected_version: int) -> CatalogChangeCandidate:
+        try:
+            return await self._approve_once(candidate_id, expected_version)
+        except (CandidateTerminalError, TagPreconditionError):
+            async with self._connection() as connection:
+                current = await self._repository.get(connection, self._scope_id, candidate_id, current=True)
+                if current.status != "approved" or current.version != expected_version:
+                    raise
+                if self.authorize_action is not None:
+                    await self.authorize_action(self._scope_id, "approve", current.proposal)
+                await self._authorize_target(current.proposal)
+                return current
+
+    async def _approve_once(self, candidate_id: str, expected_version: int) -> CatalogChangeCandidate:
         async with self._connection() as connection:
             preview = await self._repository.get(connection, self._scope_id, candidate_id)
             if self.authorize_action is not None:
                 await self.authorize_action(self._scope_id, "approve", preview.proposal)
+            if preview.status == "approved" and preview.version == expected_version:
+                await self._authorize_target(preview.proposal)
+                return preview
             await self._evidence_and_lock(connection, preview)
             current = await self._repository.lock_pending(connection, self._scope_id, candidate_id, expected_version)
             if current != preview:
@@ -325,7 +346,7 @@ class CatalogChangeService:
             record.run.operation != "revise_tags"
             or record.run.tag_target != baseline
             or reference is None
-            or reference.kind != "catalog_change"
+            or reference.kind != "tag"
             or reference.candidate_id != candidate.candidate_id
             or reference.version > candidate.version
             or validation_policy_digest(record) != audit.validation_policy_digest

@@ -17,7 +17,7 @@ Dream 使用精确目标与证据生成待审 Candidate。生成不会批准、�
 from powercontext.client import PowerContextClient
 from powercontext.http import (
     ArtifactReference, CreateDreamRunRequest, DreamSourceReference,
-    GetArtifactCandidateRequest, ApproveArtifactCandidateRequest,
+    GetCandidateRequest, ApproveCandidateRequest,
 )
 
 async def propose_prompt(client: PowerContextClient, scope_id: str,
@@ -32,11 +32,11 @@ async def propose_prompt(client: PowerContextClient, scope_id: str,
 async def inspect_prompt(client, scope_id, run_id):
     run = await client.get_dream_run(scope_id, run_id)
     if run.status.value == "succeeded" and run.candidate is not None:
-        return await client.get_artifact_candidate(GetArtifactCandidateRequest(
+        return await client.get_candidate(GetCandidateRequest(
             scope_id=scope_id, candidate_id=run.candidate.candidate_id))
 ```
 
-在 `/dashboard/review` 检查完整提案、目标差异和精确证据。用户明确批准所检查的版本后，调用 `approve_artifact_candidate(ApproveArtifactCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id, expected_version=candidate.version))`。审批同时要求审核权限与 Prompt 写权限。新配置用于之后的推理；已开始的推理继续使用冻结的旧版本。回滚复用已有 Artifact replacement 接口，将选中的历史配置写为更高版本。
+在 `/dashboard/review` 检查完整提案、目标差异和精确证据。用户明确批准所检查的版本后，调用 `approve_candidate(ApproveCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id, expected_version=candidate.version))`。审批同时要求审核权限与 Prompt 写权限。新配置用于之后的推理；已开始的推理继续使用冻结的旧版本。回滚复用已有 Artifact replacement 接口，将选中的历史配置写为更高版本。
 
 CLI 接受相同的 JSON 请求：
 
@@ -48,7 +48,7 @@ powercontext candidate revise json --request-file candidate-revision.json
 powercontext candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
 ```
 
-`candidate-revision.json` 为完整 `ReviseArtifactCandidateRequest`，包含 scope、候选标识、expected_version、proposal、精确证据和 target。保存后产生新的待审版本，必须再次检查后才能批准。
+`candidate-revision.json` 为完整 `ReviseCandidateRequest`，包含 scope、候选标识、expected_version、proposal、精确证据和 target。保存后产生新的待审版本，必须再次检查后才能批准。
 
 ## 标签变更
 
@@ -70,16 +70,16 @@ async def propose_tags(client, scope_id, current, tags_etag, evidence_source_id)
     ))
 ```
 
-Memory 条目使用 `MemoryEntryTagTarget` 与 `basis_citation`，并在 `memory_citations` 中提供该精确引用。成功生成后 `candidate.kind="catalog_change"`，通过 `get_catalog_candidate(GetCatalogCandidateRequest(...))` 检查，通过 `approve_catalog_candidate(ApproveCatalogCandidateRequest(...))` 决定。独立的 `/v1/catalog-change-candidates/list|get|history|revise|approve|reject` 接口保留标签生命周期，批准时同时校验 ETag 和正文版本，原子替换标签并记录决定，不创建 Artifact Revision。
+Memory 条目使用 `MemoryEntryTagTarget` 与 `basis_citation`，并在 `memory_citations` 中提供该精确引用。成功生成后 `candidate.kind="tag"`，通过 `get_candidate(GetCandidateRequest(...))` 检查，通过 `approve_candidate(ApproveCandidateRequest(...))` 决定。统一的 `/v1/candidates/list|get|history|revise|approve|reject` 接口保留标签生命周期，批准时同时校验 ETag 和正文版本，原子替换标签并记录决定，不创建 Artifact Revision。
 
 ```sh
-powercontext catalog-candidate list --scope-id "$SCOPE_ID"
-powercontext catalog-candidate show --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
-powercontext catalog-candidate history --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
-powercontext catalog-candidate revise --request-file tag-revision.json
-powercontext catalog-candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
+powercontext candidate list --candidate-kind tag --scope-id "$SCOPE_ID"
+powercontext candidate show --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
+powercontext candidate history --scope-id "$SCOPE_ID" "$CANDIDATE_ID"
+powercontext candidate revise json --request-file tag-revision.json
+powercontext candidate approve --scope-id "$SCOPE_ID" "$CANDIDATE_ID" --expected-version 2
 ```
 
-标签候选保留选中的支持制品引用，并在批准时重新检查其访问权限。旧版 Tag 操作契约生成的待审候选可能缺少证据，因此不能批准；请拒绝旧候选，使用当前正文基准、ETag 和新的幂等键重新生成。已生效的标签不受影响。
+标签候选保留选中的支持制品引用，并在批准时重新检查其访问权限。修订提交完整 proposal；不能修改原始 target、expected_etag、正文基准和 before_tags 来绕过冲突。省略证据集合会保留已有证据，显式数组会替换它。
 
-统一收件箱支持制品与标签候选筛选，两类资源分别分页，显示完整提案、证据、差异和决定历史。候选版本过期、目标变化、证据撤销或 ETag 变化时，候选保持 pending 并返回冲突；重新检查当前状态后再决定。`no_change` 和 `needs_evidence` 不创建候选。模型提案与人工批准均不等于后续任务质量已经提升。
+统一收件箱支持制品与标签候选筛选，两类候选共用稳定排序和分页游标，显示完整提案、证据、差异和决定历史。候选版本过期、目标变化、证据撤销或 ETag 变化时，候选保持 pending 并返回冲突；重新检查当前状态后再决定。`no_change` 和 `needs_evidence` 不创建候选。模型提案与人工批准均不等于后续任务质量已经提升。

@@ -74,16 +74,15 @@ from powercontext.builtin.inference.errors import (
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.candidates import attach_candidate_audit, proposal_digest
-from powercontext.builtin.persistence.catalog_changes import CATALOG_CANDIDATE_HEADS
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.dream import DreamRepository, database_now
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError
 from powercontext.builtin.persistence.processing_intents import ArtifactProcessingIntentRepository
 from powercontext.builtin.persistence.profile import ProfilePolicyRepository
-from powercontext.builtin.persistence.tables import ARTIFACT_CANDIDATE_HEADS_TABLE, SCOPES_TABLE
+from powercontext.builtin.persistence.tables import CANDIDATE_HEADS_TABLE, SCOPES_TABLE
 from powercontext.builtin.review.errors import ArtifactTargetConflictError, InvalidCandidateError
 from powercontext.builtin.review.generation import SkillGenerationOrigin, validate_skill_lineage
-from powercontext.builtin.review.models import ArtifactCandidate, CandidateStatus
+from powercontext.builtin.review.models import Candidate, CandidateStatus
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.tags import TagPreconditionError
@@ -499,9 +498,7 @@ class DreamService:
                 candidate_id=_candidate_id(record),
                 audit=candidate_audit(record, proposal),
             )
-            return DreamCandidateRef(
-                candidate_id=candidate.candidate_id, version=candidate.version, kind="catalog_change"
-            )
+            return DreamCandidateRef(candidate_id=candidate.candidate_id, version=candidate.version, kind="tag")
         review = self.review(record.run.scope_id, connection)
         if isinstance(plan.proposal, ExperienceContent):
             candidate = await review.propose_experience(
@@ -617,7 +614,7 @@ class DreamService:
                 ref = previous.run.candidate
                 if ref is None:
                     continue
-                table = CATALOG_CANDIDATE_HEADS if ref.kind == "catalog_change" else ARTIFACT_CANDIDATE_HEADS_TABLE
+                table = CANDIDATE_HEADS_TABLE
                 await connection.execute(
                     update(table)
                     .where(
@@ -626,7 +623,7 @@ class DreamService:
                     )
                     .values(version=table.c.version)
                 )
-                if ref.kind == "catalog_change":
+                if ref.kind == "tag":
                     candidate = await self._catalog(record.run.scope_id, connection).get(ref.candidate_id, current=True)
                 else:
                     candidate = await self.review(record.run.scope_id, connection).get_candidate(
@@ -741,7 +738,7 @@ def _candidate_id(record: DreamRecord) -> str:
 
 
 def _candidate_matches_evidence(
-    candidate: ArtifactCandidate[Any] | CatalogChangeCandidate, record: DreamRecord, resolved: ResolvedEvidence
+    candidate: Candidate[Any] | CatalogChangeCandidate, record: DreamRecord, resolved: ResolvedEvidence
 ) -> bool:
     """A shared root alone cannot authorize stale or differently selected evidence."""
     if isinstance(candidate, CatalogChangeCandidate):

@@ -44,12 +44,13 @@ from powercontext.builtin.artifacts.skill import (
     SkillContent,
 )
 from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
+from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate, CatalogChangeProposal
 from powercontext.builtin.review import (
     DEFAULT_CANDIDATE_PAGE_SIZE,
     MAX_CANDIDATE_EVIDENCE,
     MAX_CANDIDATE_PAGE_SIZE,
-    ArtifactCandidate,
-    ArtifactCandidatePage,
+    Candidate,
+    CandidatePage,
     CandidateStatus,
 )
 from powercontext.builtin.review.generation import SkillGenerationOrigin
@@ -115,7 +116,7 @@ class CommitConnectorCheckpoint(BaseModel):
 
 class DreamOperationCapability(BaseModel):
     operation: str
-    output_kind: Literal["artifact_candidate", "catalog_change_candidate"] = "artifact_candidate"
+    output_kind: Literal["candidate", "tag_candidate"] = "candidate"
     effect: Literal[
         "review_then_publish",
         "review_then_commit_without_activation",
@@ -425,31 +426,33 @@ ExternalSkillScanResult = ExternalSkillProviderScan
 ExternalSkillList = tuple[ExternalSkillResolution, ...]
 
 
-class ListArtifactCandidatesRequest(BaseModel):
+class ListCandidatesRequest(BaseModel):
     """Filter and page the current Review Inbox."""
 
+    candidate_kind: Literal["artifact", "tag"] | None = None
     status: CandidateStatus = CandidateStatus.PENDING
     family: Literal["experience", "skill", "profile", "memory", "topic-memory", "handoff", "prompt"] | None = None
     cursor: str | None = None
     limit: Annotated[int, Field(ge=1, le=MAX_CANDIDATE_PAGE_SIZE)] = DEFAULT_CANDIDATE_PAGE_SIZE
 
 
-class GetArtifactCandidateRequest(BaseModel):
+class GetCandidateRequest(BaseModel):
     candidate_id: str
 
 
-class ApproveArtifactCandidateRequest(BaseModel):
+class ApproveCandidateRequest(BaseModel):
     candidate_id: str
     expected_version: Annotated[int, Field(ge=1)]
 
 
-class RejectArtifactCandidateRequest(ApproveArtifactCandidateRequest):
+class RejectCandidateRequest(ApproveCandidateRequest):
     reason: Annotated[str, Field(min_length=1, max_length=2_000)]
 
 
-class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
+class ReviseCandidateRequest(ApproveCandidateRequest):
     proposal: (
-        ExperienceContent
+        CatalogChangeProposal
+        | ExperienceContent
         | SkillContent
         | ProfileWriteContent
         | MemoryDreamCandidateProposal
@@ -457,15 +460,19 @@ class ReviseArtifactCandidateRequest(ApproveArtifactCandidateRequest):
         | HandoffContent
         | PromptContent
     )
-    sources: tuple[SourceRef, ...] = ()
-    artifacts: tuple[ArtifactRef, ...] = ()
+    sources: tuple[SourceRef, ...] | None = None
+    artifacts: tuple[ArtifactRef, ...] | None = None
     memory_citations: tuple[MemoryCitation, ...] | None = None
     target: ArtifactRef | None = None
     reason: str | None = None
 
 
-ExperienceCandidate = ArtifactCandidate[ExperienceContent]
-ExperienceCandidatePage = ArtifactCandidatePage[ExperienceContent]
-SkillCandidate = ArtifactCandidate[SkillContent]
-ReviewedCandidate = ArtifactCandidate[ReviewedProposal]
-ReviewedCandidatePage = ArtifactCandidatePage[ReviewedProposal]
+ExperienceCandidate = Candidate[ExperienceContent]
+ExperienceCandidatePage = CandidatePage[ExperienceContent]
+SkillCandidate = Candidate[SkillContent]
+ReviewedCandidate = Candidate[ReviewedProposal] | CatalogChangeCandidate
+
+
+class ReviewedCandidatePage(BaseModel):
+    candidates: tuple[ReviewedCandidate, ...]
+    next_cursor: str | None = None

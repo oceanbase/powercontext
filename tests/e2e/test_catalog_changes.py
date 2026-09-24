@@ -268,7 +268,7 @@ def test_catalog_decision_failure_rolls_back_tags_and_can_be_retried(tmp_path):
             )
             async with contexts.database.transaction() as connection:
                 await connection.exec_driver_sql("""CREATE TRIGGER reject_catalog_decision
-                    BEFORE UPDATE ON pc_catalog_change_candidate_heads
+                    BEFORE UPDATE ON pc_candidate_heads
                     WHEN NEW.status = 'approved'
                     BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END""")
             from sqlalchemy.exc import IntegrityError
@@ -300,10 +300,9 @@ def test_catalog_concurrent_decisions_publish_only_once(database):
                 service.approve(item.candidate_id, 1), service.approve(item.candidate_id, 1), return_exceptions=True
             )
             from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate
-            from powercontext.builtin.review.errors import CandidateTerminalError
 
-            assert sum(isinstance(result, CatalogChangeCandidate) for result in results) == 1
-            assert sum(isinstance(result, CandidateTerminalError) for result in results) == 1
+            assert all(isinstance(result, CatalogChangeCandidate) for result in results)
+            assert results[0] == results[1]
             assert (await contexts.records.get_tags(scope, item.proposal.target)).tags == ("confirmed",)
 
     asyncio.run(scenario())
@@ -368,8 +367,10 @@ def test_legacy_database_adds_catalog_review_without_losing_existing_tags(tmp_pa
                 scope, initial.target, ("existing",), expected_etag=initial.expected_etag
             )
             async with contexts.database.transaction() as connection:
-                await connection.exec_driver_sql("DROP TABLE pc_catalog_change_candidate_heads")
-                await connection.exec_driver_sql("DROP TABLE pc_catalog_change_candidate_versions")
+                await connection.exec_driver_sql("ALTER TABLE pc_candidate_heads RENAME TO pc_artifact_candidate_heads")
+                await connection.exec_driver_sql(
+                    "ALTER TABLE pc_candidate_versions RENAME TO pc_artifact_candidate_versions"
+                )
                 await connection.exec_driver_sql("DROP INDEX ix_pc_dream_runs_proposal_fingerprint")
                 await connection.exec_driver_sql("ALTER TABLE pc_dream_runs DROP COLUMN proposal_fingerprint")
         for _ in range(2):
@@ -450,7 +451,7 @@ def test_tag_dream_uses_exact_body_and_reuses_pending_candidates(database, decis
             await process_pending(runtime)
             first = await runtime.dream.for_scope(scope).get(GetDreamRunRequest(run_id=first.run_id))
             assert first.outcome == "proposed", first
-            assert first.candidate.kind == "catalog_change"
+            assert first.candidate.kind == "tag"
             assert (await runtime.records.for_scope(scope).get_tags(target)).tags == ("old",)
             second = await runtime.dream.for_scope(scope).create(
                 request.model_copy(update={"idempotency_key": "second"})

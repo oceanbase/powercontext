@@ -45,11 +45,11 @@ from powercontext.builtin.persistence.processing_migration import bootstrap_proc
 from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import (
-    ARTIFACT_CANDIDATE_HEADS_TABLE,
-    ARTIFACT_CANDIDATE_VERSIONS_TABLE,
     ARTIFACT_HEADS_TABLE,
     ARTIFACT_PROCESSING_BINDING_STATES_TABLE,
     BUILTIN_TABLES,
+    CANDIDATE_HEADS_TABLE,
+    CANDIDATE_VERSIONS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
     MODEL_USAGE_DAILY_TABLE,
     SCOPES_TABLE,
@@ -340,9 +340,9 @@ async def _custom_prompt_evidence(contexts: RelationalContexts, scope: str) -> d
         experience_proposals = (
             (
                 await connection.execute(
-                    select(ARTIFACT_CANDIDATE_VERSIONS_TABLE.c.proposal).where(
-                        ARTIFACT_CANDIDATE_VERSIONS_TABLE.c.scope_id == scope,
-                        ARTIFACT_CANDIDATE_VERSIONS_TABLE.c.family == "experience",
+                    select(CANDIDATE_VERSIONS_TABLE.c.proposal).where(
+                        CANDIDATE_VERSIONS_TABLE.c.scope_id == scope,
+                        CANDIDATE_VERSIONS_TABLE.c.family == "experience",
                     )
                 )
             )
@@ -482,9 +482,9 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
                 ).all()
                 candidate_rows = (
                     await connection.execute(
-                        select(ARTIFACT_CANDIDATE_HEADS_TABLE.c.family, func.count())
-                        .where(ARTIFACT_CANDIDATE_HEADS_TABLE.c.scope_id == scope)
-                        .group_by(ARTIFACT_CANDIDATE_HEADS_TABLE.c.family)
+                        select(CANDIDATE_HEADS_TABLE.c.family, func.count())
+                        .where(CANDIDATE_HEADS_TABLE.c.scope_id == scope)
+                        .group_by(CANDIDATE_HEADS_TABLE.c.family)
                     )
                 ).all()
                 ownership_rows = (
@@ -532,10 +532,10 @@ async def run_acceptance(  # noqa: C901 - one bounded end-to-end acceptance life
             async with contexts.database.transaction() as connection:
                 review_count = await connection.scalar(
                     select(func.count())
-                    .select_from(ARTIFACT_CANDIDATE_HEADS_TABLE)
+                    .select_from(CANDIDATE_HEADS_TABLE)
                     .where(
-                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.scope_id == scope,
-                        ARTIFACT_CANDIDATE_HEADS_TABLE.c.family == "profile",
+                        CANDIDATE_HEADS_TABLE.c.scope_id == scope,
+                        CANDIDATE_HEADS_TABLE.c.family == "profile",
                     )
                 )
                 review_cursor = await SourceCursorRepository().load(connection, scope, PROFILE_SOURCE_WINDOW_BINDING)

@@ -37,7 +37,7 @@ from powercontext.client import PowerContextClient
 from powercontext.http import (
     CandidateFamily,
     CaptureContentSourceRequest,
-    ListArtifactCandidatesRequest,
+    ListCandidatesRequest,
     PrepareContextRequest,
 )
 from powercontext.server.factory import create_server_app
@@ -89,8 +89,8 @@ def _app(database: Path, scheduler: Path):
 async def _pending_experience(client: PowerContextClient, scope_id: str):
     deadline = monotonic() + 30
     while monotonic() < deadline:
-        page = await client.list_artifact_candidates(
-            ListArtifactCandidatesRequest(
+        page = await client.list_candidates(
+            ListCandidatesRequest(
                 scope_id=scope_id,
                 family=CandidateFamily.EXPERIENCE,
             )

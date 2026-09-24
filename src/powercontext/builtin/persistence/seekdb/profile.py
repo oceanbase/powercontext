@@ -33,6 +33,7 @@ from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from typing_extensions import override
 
+from powercontext.builtin.persistence.candidate_schema import migrate_candidate_schema
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.schema import create_tables
@@ -112,6 +113,7 @@ class SeekDBProfile:
             database = AsyncDatabase.own(engine)
             profile = cls(database=database, tables=tables)
             try:
+                await migrate_candidate_schema(engine)
                 async with database.transaction() as connection:
                     await create_tables(connection, tables)
                 yield profile

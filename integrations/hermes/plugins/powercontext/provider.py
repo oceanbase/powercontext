@@ -653,7 +653,7 @@ class PowerContextMemoryProvider(MemoryProvider):
             "For a requested transfer, powercontext_handoff_current_work records the inspected boundary and returns "
             "a temporary Handoff; commit only for a requested durable milestone. Preparation does not establish "
             "commitment, acceptance, or receiver execution.\n"
-            "Inspect candidates with powercontext_list_artifact_candidates / powercontext_get_artifact_candidate. "
+            "Inspect candidates with powercontext_list_candidates / powercontext_get_candidate. "
             "Generation, listing, reading, and assessing are not approval, installation, publication, or execution. "
             "Use a review mutation only for an explicit human decision on the exact candidate and current version, "
             "preserving the host authorization channel. Never self-approve generated work.\n"

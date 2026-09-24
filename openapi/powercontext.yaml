@@ -1920,7 +1920,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidate"
+                $ref: "#/components/schemas/Candidate"
         "409":
           $ref: "#/components/responses/Conflict"
         "401":
@@ -2040,7 +2040,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidate"
+                $ref: "#/components/schemas/Candidate"
         "409":
           $ref: "#/components/responses/Conflict"
         "401":
@@ -2291,7 +2291,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidate"
+                $ref: "#/components/schemas/Candidate"
         "409":
           $ref: "#/components/responses/Conflict"
         "401":
@@ -2818,16 +2818,16 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
-  /v1/artifact-candidates/list:
+  /v1/candidates/list:
     post:
       tags: [review]
-      summary: List Artifact Candidates
+      summary: List Candidates
       description: >-
         Page current Candidate heads; pending is the default Review Inbox view. List PowerContext artifact candidates
         when the user wants to inspect the review queue. This is not a Memory inventory or historical search. Report
         pending, approved, or rejected status as returned; listing does not approve, install, publish, or execute a
         candidate.
-      operationId: list_artifact_candidates
+      operationId: list_candidates
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
@@ -2835,7 +2835,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ListArtifactCandidatesRequest"
+              $ref: "#/components/schemas/ListCandidatesRequest"
       responses:
         "426":
           $ref: "#/components/responses/ClientUpgradeRequired"
@@ -2847,7 +2847,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidatePage"
+                $ref: "#/components/schemas/CandidatePage"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2858,15 +2858,15 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
-  /v1/artifact-candidates/get:
+  /v1/candidates/get:
     post:
       tags: [review]
-      summary: Get an Artifact Candidate
+      summary: Get a Candidate
       description: >-
         Read the current head and exact immutable proposal version. Inspect one PowerContext artifact candidate by
         candidate_id before discussing a requested review. Read its proposal, evidence, status, and version. Inspection
         grants no approval authority; do not treat a pending candidate as an active artifact.
-      operationId: get_artifact_candidate
+      operationId: get_candidate
       x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
@@ -2874,7 +2874,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/GetArtifactCandidateRequest"
+              $ref: "#/components/schemas/GetCandidateRequest"
       responses:
         "426":
           $ref: "#/components/responses/ClientUpgradeRequired"
@@ -2886,7 +2886,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidate"
+                $ref: "#/components/schemas/Candidate"
         "404":
           $ref: "#/components/responses/NotFound"
         "401":
@@ -2899,16 +2899,16 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
-  /v1/artifact-candidates/approve:
+  /v1/candidates/approve:
     post:
       tags: [review]
-      summary: Approve an Artifact Candidate
+      summary: Approve a Candidate
       description: >-
         Commit the reviewed proposal and mark the Candidate approved in one transaction. Approve an inspected pending
         candidate only on an explicit human decision for that exact candidate and version, using the current
         authorization channel. A request to list, summarize, generate, or assess a candidate is not approval. Never
         self-approve generated work; report success only after the decision completes.
-      operationId: approve_artifact_candidate
+      operationId: approve_candidate
       x-powercontext-access: {action: scope.review, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
@@ -2916,7 +2916,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ApproveArtifactCandidateRequest"
+              $ref: "#/components/schemas/ApproveCandidateRequest"
       responses:
         "426":
           $ref: "#/components/responses/ClientUpgradeRequired"
@@ -2928,7 +2928,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidate"
+                $ref: "#/components/schemas/Candidate"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -2943,16 +2943,16 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
-  /v1/artifact-candidates/reject:
+  /v1/candidates/reject:
     post:
       tags: [review]
-      summary: Reject an Artifact Candidate
+      summary: Reject a Candidate
       description: >-
         Move the exact pending version to its rejected terminal state without writing an Artifact. Reject an inspected
         pending candidate only when the user explicitly requests that decision. Supply its exact current version and the
         requested reason. A negative assessment alone does not authorize a write. Preserve conflicts and do not claim
         rejection before success.
-      operationId: reject_artifact_candidate
+      operationId: reject_candidate
       x-powercontext-access: {action: scope.review, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
@@ -2960,7 +2960,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RejectArtifactCandidateRequest"
+              $ref: "#/components/schemas/RejectCandidateRequest"
       responses:
         "426":
           $ref: "#/components/responses/ClientUpgradeRequired"
@@ -2972,7 +2972,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidate"
+                $ref: "#/components/schemas/Candidate"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -2987,16 +2987,16 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
-  /v1/artifact-candidates/revise:
+  /v1/candidates/revise:
     post:
       tags: [review]
-      summary: Revise an Artifact Candidate
+      summary: Revise a Candidate
       description: >-
         Append a complete replacement proposal as the next immutable pending version. Revise an inspected candidate
         proposal only when the user explicitly requests the change. Preserve exact provenance and current version.
         Revision is not approval, publication, installation, or execution; after a conflict inspect the current
         candidate before deciding whether the request still applies.
-      operationId: revise_artifact_candidate
+      operationId: revise_candidate
       x-powercontext-access: {action: scope.review, resource: {type: scope, scope-id-from: scope_id}}
       x-powercontext-scope-mode: current
       requestBody:
@@ -3004,7 +3004,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ReviseArtifactCandidateRequest"
+              $ref: "#/components/schemas/ReviseCandidateRequest"
       responses:
         "426":
           $ref: "#/components/responses/ClientUpgradeRequired"
@@ -3016,7 +3016,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactCandidate"
+                $ref: "#/components/schemas/Candidate"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -3031,14 +3031,14 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
-  /v1/catalog-change-candidates/list:
+  /v1/candidates/history:
     post:
       tags:
       - review
-      summary: List Catalog Change Candidates
+      summary: History Candidates
       description: Review one Tag metadata change. Approval checks both the exact candidate
         version and current Tag/content baseline; it never creates an Artifact revision.
-      operationId: list_catalog_candidates
+      operationId: get_candidate_history
       x-powercontext-access:
         action: scope.read
         resource:
@@ -3050,231 +3050,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ListCatalogCandidatesRequest'
+              $ref: '#/components/schemas/GetCandidateRequest'
       responses:
         "426":
           $ref: "#/components/responses/ClientUpgradeRequired"
         '200':
-          description: Current Catalog Change Candidate state.
+          description: Current Candidate state.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CatalogCandidatePage'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/catalog-change-candidates/get:
-    post:
-      tags:
-      - review
-      summary: Get Catalog Change Candidates
-      description: Review one Tag metadata change. Approval checks both the exact candidate
-        version and current Tag/content baseline; it never creates an Artifact revision.
-      operationId: get_catalog_candidate
-      x-powercontext-access:
-        action: scope.read
-        resource:
-          type: scope
-          scope-id-from: scope_id
-      x-powercontext-scope-mode: current
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GetCatalogCandidateRequest'
-      responses:
-        "426":
-          $ref: "#/components/responses/ClientUpgradeRequired"
-        '200':
-          description: Current Catalog Change Candidate state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CatalogChangeCandidate'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/catalog-change-candidates/history:
-    post:
-      tags:
-      - review
-      summary: History Catalog Change Candidates
-      description: Review one Tag metadata change. Approval checks both the exact candidate
-        version and current Tag/content baseline; it never creates an Artifact revision.
-      operationId: get_catalog_candidate_history
-      x-powercontext-access:
-        action: scope.read
-        resource:
-          type: scope
-          scope-id-from: scope_id
-      x-powercontext-scope-mode: current
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GetCatalogCandidateRequest'
-      responses:
-        "426":
-          $ref: "#/components/responses/ClientUpgradeRequired"
-        '200':
-          description: Current Catalog Change Candidate state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CatalogCandidateHistory'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/catalog-change-candidates/revise:
-    post:
-      tags:
-      - review
-      summary: Revise Catalog Change Candidates
-      description: Review one Tag metadata change. Approval checks both the exact candidate
-        version and current Tag/content baseline; it never creates an Artifact revision.
-      operationId: revise_catalog_candidate
-      x-powercontext-access:
-        action: scope.review
-        resource:
-          type: scope
-          scope-id-from: scope_id
-      x-powercontext-scope-mode: current
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReviseCatalogCandidateRequest'
-      responses:
-        "426":
-          $ref: "#/components/responses/ClientUpgradeRequired"
-        '200':
-          description: Current Catalog Change Candidate state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CatalogChangeCandidate'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/catalog-change-candidates/approve:
-    post:
-      tags:
-      - review
-      summary: Approve Catalog Change Candidates
-      description: Review one Tag metadata change. Approval checks both the exact candidate
-        version and current Tag/content baseline; it never creates an Artifact revision.
-      operationId: approve_catalog_candidate
-      x-powercontext-access:
-        action: scope.review
-        resource:
-          type: scope
-          scope-id-from: scope_id
-      x-powercontext-scope-mode: current
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ApproveCatalogCandidateRequest'
-      responses:
-        "426":
-          $ref: "#/components/responses/ClientUpgradeRequired"
-        '200':
-          description: Current Catalog Change Candidate state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CatalogChangeCandidate'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/InvalidRequest'
-        '503':
-          $ref: '#/components/responses/Unavailable'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/catalog-change-candidates/reject:
-    post:
-      tags:
-      - review
-      summary: Reject Catalog Change Candidates
-      description: Review one Tag metadata change. Approval checks both the exact candidate
-        version and current Tag/content baseline; it never creates an Artifact revision.
-      operationId: reject_catalog_candidate
-      x-powercontext-access:
-        action: scope.review
-        resource:
-          type: scope
-          scope-id-from: scope_id
-      x-powercontext-scope-mode: current
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RejectCatalogCandidateRequest'
-      responses:
-        "426":
-          $ref: "#/components/responses/ClientUpgradeRequired"
-        '200':
-          description: Current Catalog Change Candidate state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CatalogChangeCandidate'
+                $ref: '#/components/schemas/CandidateHistory'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -5598,7 +5383,7 @@ components:
           type: string
           enum:
           - artifact
-          - catalog_change
+          - tag
           default: artifact
         candidate_id:
           type: string
@@ -5815,21 +5600,22 @@ components:
       - runs
       type: object
       additionalProperties: false
-    ArtifactCandidate:
+    Candidate:
       type: object
       additionalProperties: false
       required:
-        - candidate_id
-        - version
-        - family
-        - status
-        - proposal
-        - source_refs
-        - artifact_refs
-        - target
-        - reason
-        - result_artifact
-        - decision_reason
+      - candidate_kind
+      - candidate_id
+      - version
+      - family
+      - status
+      - proposal
+      - source_refs
+      - artifact_refs
+      - target
+      - reason
+      - result_artifact
+      - decision_reason
       properties:
         audit:
           $ref: '#/components/schemas/CandidateAudit'
@@ -5838,48 +5624,50 @@ components:
           type: array
           maxItems: 32
           default: []
-          description: Exact Memory entry provenance for Experience, Profile Dream or Memory Dream changes. Counted toward the combined evidence bound.
+          description: Exact Memory entry provenance for Experience, Profile Dream or Memory Dream changes. Counted toward the
+            combined evidence bound.
           items:
-            $ref: "#/components/schemas/MemoryCitation"
+            $ref: '#/components/schemas/MemoryCitation'
         permissions:
-          $ref: "#/components/schemas/CandidatePermissions"
+          $ref: '#/components/schemas/CandidatePermissions'
           nullable: true
           description: Current Principal permissions in enforced mode; advisory and checked again on mutation.
         candidate_id:
           type: string
           minLength: 1
           maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
+          pattern: ^[\x21-\x7E]+$
         version:
           type: integer
           minimum: 1
         family:
-          $ref: "#/components/schemas/CandidateFamily"
+          $ref: '#/components/schemas/CandidateFamily'
         status:
-          $ref: "#/components/schemas/CandidateStatus"
+          $ref: '#/components/schemas/CandidateStatus'
         proposal:
           oneOf:
-            - $ref: "#/components/schemas/ExperienceProposal"
-            - $ref: "#/components/schemas/SkillProposal"
-            - $ref: "#/components/schemas/ProfileCandidateProposal"
-            - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
-            - $ref: "#/components/schemas/TopicMemoryDreamProposal"
-            - $ref: "#/components/schemas/HandoffContent"
-            - $ref: "#/components/schemas/PromptContent"
+          - $ref: '#/components/schemas/ExperienceProposal'
+          - $ref: '#/components/schemas/SkillProposal'
+          - $ref: '#/components/schemas/ProfileCandidateProposal'
+          - $ref: '#/components/schemas/MemoryDreamCandidateProposal'
+          - $ref: '#/components/schemas/TopicMemoryDreamProposal'
+          - $ref: '#/components/schemas/HandoffContent'
+          - $ref: '#/components/schemas/PromptContent'
+          - $ref: '#/components/schemas/CatalogChangeProposal'
         source_refs:
           type: array
           maxItems: 32
           description: Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.
           items:
-            $ref: "#/components/schemas/SourceReference"
+            $ref: '#/components/schemas/SourceReference'
         artifact_refs:
           type: array
           maxItems: 32
           description: Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.
           items:
-            $ref: "#/components/schemas/ArtifactReference"
+            $ref: '#/components/schemas/ArtifactReference'
         target:
-          $ref: "#/components/schemas/ArtifactReference"
+          $ref: '#/components/schemas/ArtifactReference'
           nullable: true
         reason:
           type: string
@@ -5887,14 +5675,34 @@ components:
           maxLength: 2000
           nullable: true
         result_artifact:
-          $ref: "#/components/schemas/ArtifactReference"
+          $ref: '#/components/schemas/ArtifactReference'
           nullable: true
         decision_reason:
           type: string
           minLength: 1
           maxLength: 2000
           nullable: true
-    ArtifactCandidatePage:
+        candidate_kind:
+          type: string
+          enum:
+          - artifact
+          - tag
+        result:
+          $ref: '#/components/schemas/CatalogTagResult'
+          nullable: true
+        operation:
+          type: string
+          nullable: true
+        origin:
+          type: string
+          enum:
+          - dream
+          - manual
+          nullable: true
+        dream_run_id:
+          type: string
+          nullable: true
+    CandidatePage:
       type: object
       additionalProperties: false
       required: [candidates, next_cursor]
@@ -5902,11 +5710,11 @@ components:
         candidates:
           type: array
           items:
-            $ref: "#/components/schemas/ArtifactCandidate"
+            $ref: "#/components/schemas/Candidate"
         next_cursor:
           type: string
           nullable: true
-    ApproveArtifactCandidateRequest:
+    ApproveCandidateRequest:
       type: object
       additionalProperties: false
       required: [scope_id, candidate_id, expected_version]
@@ -5933,7 +5741,7 @@ components:
           $ref: "#/components/schemas/DreamOperation"
         output_kind:
           type: string
-          enum: [artifact_candidate, catalog_change_candidate]
+          enum: [candidate, tag_candidate]
         effect:
           type: string
           enum: [review_then_publish, review_then_commit_without_activation, review_then_publish_configuration, review_then_replace_tags]
@@ -8518,7 +8326,7 @@ components:
           pattern: '.*\S.*'
         artifact:
           $ref: "#/components/schemas/ArtifactReference"
-    GetArtifactCandidateRequest:
+    GetCandidateRequest:
       type: object
       additionalProperties: false
       required: [scope_id, candidate_id]
@@ -8657,21 +8465,22 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MemoryEntry"
-    ListArtifactCandidatesRequest:
+    ListCandidatesRequest:
       type: object
       additionalProperties: false
-      required: [scope_id]
+      required:
+      - scope_id
       properties:
         scope_id:
           type: string
           minLength: 1
           maxLength: 256
-          pattern: '.*\S.*'
+          pattern: .*\S.*
         status:
-          $ref: "#/components/schemas/CandidateStatus"
+          $ref: '#/components/schemas/CandidateStatus'
           default: pending
         family:
-          $ref: "#/components/schemas/CandidateFamily"
+          $ref: '#/components/schemas/CandidateFamily'
           nullable: true
         cursor:
           type: string
@@ -8683,6 +8492,12 @@ components:
           minimum: 1
           maximum: 100
           default: 50
+        candidate_kind:
+          type: string
+          enum:
+          - artifact
+          - tag
+          nullable: true
     ListExternalSkillsRequest:
       type: object
       additionalProperties: false
@@ -8981,7 +8796,7 @@ components:
         status:
           $ref: "#/components/schemas/GeneratedCandidateStatus"
         candidate:
-          $ref: "#/components/schemas/ArtifactCandidate"
+          $ref: "#/components/schemas/Candidate"
           nullable: true
     ReadinessResponse:
       type: object
@@ -9039,7 +8854,7 @@ components:
           type: string
           maxLength: 512
           nullable: true
-    RejectArtifactCandidateRequest:
+    RejectCandidateRequest:
       type: object
       additionalProperties: false
       required: [scope_id, candidate_id, expected_version, reason]
@@ -9062,54 +8877,76 @@ components:
           minLength: 1
           maxLength: 2000
           pattern: '.*\S.*'
-    ReviseArtifactCandidateRequest:
+    ReviseCandidateRequest:
       type: object
       additionalProperties: false
-      required: [scope_id, candidate_id, expected_version, proposal, source_refs, artifact_refs]
+      required:
+      - scope_id
+      - candidate_id
+      - expected_version
+      - proposal
       properties:
+        sources:
+          type: array
+          nullable: true
+          maxItems: 32
+          description: Tag proposal Source evidence. Omission retains existing evidence; do not combine with source_refs.
+          items:
+            $ref: '#/components/schemas/DreamSourceReference'
+        artifacts:
+          type: array
+          nullable: true
+          maxItems: 32
+          description: Tag proposal Artifact evidence. Omission retains existing evidence; do not combine with artifact_refs.
+          items:
+            $ref: '#/components/schemas/ArtifactReference'
         memory_citations:
           type: array
           maxItems: 32
           nullable: true
-          description: Omission or null retains the current citations; an explicit array replaces them, including an empty array. Non-empty for supported Memory-citing Candidate families.
+          description: Omission or null retains the current citations; an explicit array replaces them, including an empty array.
+            Non-empty for supported Memory-citing Candidate families.
           items:
-            $ref: "#/components/schemas/MemoryCitation"
+            $ref: '#/components/schemas/MemoryCitation'
         scope_id:
           type: string
           minLength: 1
           maxLength: 256
-          pattern: '.*\S.*'
+          pattern: .*\S.*
         candidate_id:
           type: string
           minLength: 1
           maxLength: 128
-          pattern: '^[\x21-\x7E]+$'
+          pattern: ^[\x21-\x7E]+$
         expected_version:
           type: integer
           minimum: 1
         proposal:
           oneOf:
-            - $ref: "#/components/schemas/ExperienceProposal"
-            - $ref: "#/components/schemas/SkillProposal"
-            - $ref: "#/components/schemas/ProfileWriteContent"
-            - $ref: "#/components/schemas/MemoryDreamCandidateProposal"
-            - $ref: "#/components/schemas/TopicMemoryDreamProposal"
-            - $ref: "#/components/schemas/HandoffContent"
-            - $ref: "#/components/schemas/PromptContent"
+          - $ref: '#/components/schemas/ExperienceProposal'
+          - $ref: '#/components/schemas/SkillProposal'
+          - $ref: '#/components/schemas/ProfileWriteContent'
+          - $ref: '#/components/schemas/MemoryDreamCandidateProposal'
+          - $ref: '#/components/schemas/TopicMemoryDreamProposal'
+          - $ref: '#/components/schemas/HandoffContent'
+          - $ref: '#/components/schemas/PromptContent'
+          - $ref: '#/components/schemas/CatalogChangeProposal'
         source_refs:
           type: array
           maxItems: 32
           description: Exact Source evidence. Counted with artifact_refs toward a combined maximum of 32 references.
           items:
-            $ref: "#/components/schemas/SourceReference"
+            $ref: '#/components/schemas/SourceReference'
+          default: []
         artifact_refs:
           type: array
           maxItems: 32
           description: Exact Artifact evidence. Counted with source_refs toward a combined maximum of 32 references.
           items:
-            $ref: "#/components/schemas/ArtifactReference"
+            $ref: '#/components/schemas/ArtifactReference'
+          default: []
         target:
-          $ref: "#/components/schemas/ArtifactReference"
+          $ref: '#/components/schemas/ArtifactReference'
           nullable: true
         reason:
           type: string
@@ -10666,69 +10503,7 @@ components:
         tags: *id005
         tag_digest: *id001
         etag: *id001
-    CatalogChangeCandidate:
-      type: object
-      additionalProperties: false
-      required:
-      - candidate_id
-      - version
-      - status
-      - proposal
-      - reason
-      properties:
-        audit:
-          $ref: '#/components/schemas/CandidateAudit'
-          nullable: true
-        operation: {type: string, enum: [revise_tags], default: revise_tags}
-        origin: {type: string, enum: [dream, manual], default: dream}
-        candidate_id: *id001
-        version:
-          type: integer
-          minimum: 1
-        status:
-          $ref: '#/components/schemas/CandidateStatus'
-        proposal:
-          $ref: '#/components/schemas/CatalogChangeProposal'
-        sources:
-          type: array
-          items:
-            $ref: '#/components/schemas/DreamSourceReference'
-          default: []
-        artifacts:
-          type: array
-          items:
-            $ref: '#/components/schemas/ArtifactReference'
-          default: []
-        memory_citations:
-          type: array
-          items:
-            $ref: '#/components/schemas/MemoryCitation'
-          default: []
-        reason: *id001
-        dream_run_id:
-          type: string
-          nullable: true
-        result:
-          $ref: '#/components/schemas/CatalogTagResult'
-          nullable: true
-        decision_reason:
-          type: string
-          nullable: true
-    CatalogCandidatePage:
-      type: object
-      additionalProperties: false
-      required:
-      - candidates
-      properties:
-        candidates:
-          type: array
-          items:
-            $ref: '#/components/schemas/CatalogChangeCandidate'
-          default: []
-        next_cursor:
-          type: string
-          nullable: true
-    CatalogCandidateHistory:
+    CandidateHistory:
       type: object
       additionalProperties: false
       required:
@@ -10737,91 +10512,5 @@ components:
         versions:
           type: array
           items:
-            $ref: '#/components/schemas/CatalogChangeCandidate'
+            $ref: '#/components/schemas/Candidate'
           default: []
-    ListCatalogCandidatesRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - scope_id
-      properties:
-        scope_id: &id006
-          type: string
-          minLength: 1
-          maxLength: 256
-        status:
-          $ref: '#/components/schemas/CandidateStatus'
-          nullable: true
-        cursor:
-          type: string
-          nullable: true
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-    GetCatalogCandidateRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - scope_id
-      - candidate_id
-      properties:
-        scope_id: *id006
-        candidate_id: *id001
-    ApproveCatalogCandidateRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - scope_id
-      - candidate_id
-      - expected_version
-      properties:
-        scope_id: *id006
-        candidate_id: *id001
-        expected_version: &id007
-          type: integer
-          minimum: 1
-    RejectCatalogCandidateRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - scope_id
-      - candidate_id
-      - expected_version
-      - reason
-      properties:
-        scope_id: *id006
-        candidate_id: *id001
-        expected_version: *id007
-        reason: *id001
-    ReviseCatalogCandidateRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - scope_id
-      - candidate_id
-      - expected_version
-      - after_tags
-      - reason
-      properties:
-        scope_id: *id006
-        candidate_id: *id001
-        expected_version: *id007
-        after_tags: *id005
-        reason: *id001
-        sources:
-          type: array
-          items:
-            $ref: '#/components/schemas/DreamSourceReference'
-          nullable: true
-        artifacts:
-          type: array
-          items:
-            $ref: '#/components/schemas/ArtifactReference'
-          nullable: true
-        memory_citations:
-          type: array
-          items:
-            $ref: '#/components/schemas/MemoryCitation'
-          nullable: true
