@@ -182,10 +182,8 @@ See [Server authentication and permissions](configuration.md#server) for Princip
 ## Local tracing examples and existing Server configuration
 
 The local Phoenix and Langfuse tracing examples are written for an isolated test instance and default to loopback
-addresses. Whether the Dashboard is enabled depends on the installed version and effective configuration. In newer
-versions, a personal Dashboard requires `ACCESS_MODE=enforced` and a valid `AUTH_TOKEN`; if startup reports
-`DASHBOARD_ENABLED requires ACCESS_MODE=enforced and AUTH_TOKEN`, complete the authentication configuration or disable
-the Dashboard in the isolated local test instance.
+addresses. Dashboard follows the Server access mode: local access with `ACCESS_MODE=disabled` requires no token and
+leaves `AUTH_TOKEN` unset; `ACCESS_MODE=enforced` requires a valid static token.
 
 When an existing Server already uses static Bearer authentication, keep its authentication configuration while adding
 tracing. If you also enable the Dashboard, use the same static Bearer configuration:

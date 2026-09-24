@@ -99,8 +99,8 @@ This adds inference latency to each prompt and is not the normal interactive set
 
 ## Connect to an authenticated local Server
 
-Local Server authentication is disabled by default. Enable it when needed; enabling Dashboard also requires
-authenticated access. A fresh local configuration wizard leaves Dashboard off unless you select it.
+Local Server authentication is disabled by default and can be enabled independently of Dashboard.
+A fresh local configuration wizard leaves Dashboard off unless you select it; selecting it does not require a token.
 
 Load one token from your local secret manager, then start the Server with authentication enabled:
 

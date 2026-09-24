@@ -71,7 +71,8 @@ evidence against the current Candidate version and reviewer permissions; an unav
 Omitting `memory_citations` or setting it to null on revision retains them; the HTTP request
 can explicitly replace them, and `[]` clears them. Approved Experience revisions preserve these citations in their lineage.
 
-Dashboard is an opt-in personal content viewer using static Bearer authentication. It displays approved Experiences and
+Dashboard is an opt-in personal content viewer sharing the Server access mode; enforced access uses a static Bearer token.
+It displays approved Experiences and
 Skills, with exact references linking to historical Memory entries. Dream creation, Run inspection, and Candidate review
 use the CLI, Client, or HTTP API. See [Install and run](../get-started/install-and-run.md) to enable personal access.
 

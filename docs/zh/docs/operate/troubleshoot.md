@@ -178,16 +178,15 @@ Principal、Access Control 和 Bearer token 的配置方式见[Server 鉴权与�
 ## 本地 tracing 示例与已有 Server 配置冲突
 
 Phoenix 和 Langfuse 文档中的本地 tracing 示例按独立测试实例编写，默认使用 loopback 地址。
-实际是否启用 Dashboard 以所安装版本和生效配置为准。新版本的个人 Dashboard 要求 `ACCESS_MODE=enforced` 和有效
-`AUTH_TOKEN`；如果启动报 `DASHBOARD_ENABLED requires ACCESS_MODE=enforced and AUTH_TOKEN`，请补齐鉴权配置，
-或在独立的本机测试实例中关闭 Dashboard。
+Dashboard 遵循 Server 的访问模式：本地使用 `ACCESS_MODE=disabled` 时无需 token，也不设置 `AUTH_TOKEN`；
+`ACCESS_MODE=enforced` 时需要有效的静态 token。
 
 已有 Server 启用了静态 Bearer 鉴权时，应保留对应配置。下面是同时启用 Dashboard 的示例：
 
 ```dotenv
 POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
 POWERCONTEXT_SERVER_ACCESS_MODE=enforced
-POWERCONTEXT_SERVER_AUTH_TOKEN=<有效 token>
+POWERCONTEXT_SERVER_AUTH_TOKEN=<valid-token>
 ```
 
 已有 Server 接入 Phoenix 或 Langfuse 时，应继续使用该 Server 原有的鉴权配置，不要通过清除鉴权环境变量来绕过

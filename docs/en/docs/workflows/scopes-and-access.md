@@ -38,5 +38,5 @@ target's tags follows that target's write permission. Use [Tags](manage-artifact
 ## Team access
 
 Teams use the API, MCP, or host integrations with their own identities and permissions. The Dashboard is limited to
-personal and demonstration deployments using a static token. It is not a team RBAC interface; leave
+personal and demonstration deployments, with optional static token authentication. It is not a team RBAC interface; leave
 `POWERCONTEXT_SERVER_DASHBOARD_ENABLED=false` in team deployments.

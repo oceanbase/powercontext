@@ -29,7 +29,7 @@ For a first local installation:
 1. **Storage**: SQLite works without another database dependency. To try embedded seekdb, select it and approve the background dependency installation.
 2. **Usage scenario**: choose “Only on this machine” when your Agent, browser, and Server share a machine. For a remote Server, first read [Connect to a remote Server](../operate/connect-remote-server.md).
 3. **Memory capabilities**: select full memory and enter Generation and Embedding API details. See [Configure models](configure-models.md) for protocols and dimensions.
-4. **Dashboard**: enable it to inspect Sources and memories. The wizard creates or reuses a Server token.
+4. **Dashboard**: enable it to inspect Sources and memories. Local authentication defaults to off; enable it if you want to require a token. See [optional authentication](configure-server-environment.md#local-dashboard-and-optional-authentication).
 5. **Background processing**: start with the recommended schedule for each Artifact. An inspection interval is not a completion deadline; model processing takes additional time.
 6. **Agent**: select Codex and plan a new isolated Scope. Select Claude Code next if needed, then choose “Finish Agent configuration”.
 7. Review and save.
@@ -38,11 +38,12 @@ The wizard writes:
 
 | File | Purpose |
 | --- | --- |
-| `.env` | Server, client, Agent, database, and model settings, including credentials and the Server token |
+| `.env` | Server, client, Agent, database, and model settings, including any configured credentials |
 | `.env.next-steps.md` | Startup, Scope creation, plugin connection, and checks for your choices |
 
-The final screen shows the Dashboard URL, a newly generated token, and the SSH command when selected. Later, look up
-`POWERCONTEXT_SERVER_AUTH_TOKEN` in `.env`. These files contain credentials; do not commit them.
+The final screen shows the Dashboard URL and the SSH command when selected. If authentication is enabled, it also
+shows a newly generated Server token once; later, look up `POWERCONTEXT_SERVER_AUTH_TOKEN` in `.env`.
+These files can contain credentials; do not commit them.
 If seekdb is still installing, the wizard waits with an activity indicator. Complete any reported dependency recovery
 before starting the Server. Saving files or installing dependencies does not start the Server.
 
@@ -56,7 +57,8 @@ powercontext server run --env-file .env
 ```
 
 Keep the terminal running. Open the Dashboard URL printed by the wizard, using the port saved as
-`POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. Sign in with the **Server token**, not a model API key.
+`POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. With authentication disabled, the page opens directly. Otherwise, sign in
+with the **Server token**, not a model API key.
 An empty Dashboard is expected before you capture data. For operation after closing the terminal, stop the foreground
 Server and install a [persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server)
 with `powercontext service install --env-file .env` to reuse the same configuration.
@@ -101,11 +103,11 @@ codex
 
 Confirm that the PowerContext Hook and MCP have both loaded in Codex. For a non-default address, follow the Codex
 connection instructions in `.env.next-steps.md`: the installed plugin's `.mcp.json` must use the same Server as the Hook,
-and read Authorization from `POWERCONTEXT_CODEX_AUTHORIZATION`. Installing the plugin does not start the Server.
+with credentials configured when authentication is enabled. Installing the plugin does not start the Server.
 
 These commands use Codex CLI. A desktop app may not inherit terminal environment variables. Before testing in the
-desktop app, verify that both its Hook and MCP receive the same URL, token, and Scope. See
-[Codex](../integrations/codex.md) and [Claude Code](../integrations/claude-code.md) for host-specific behavior.
+desktop app, verify that both its Hook and MCP receive the same URL and Scope, and credentials when authentication
+is enabled. See [Codex](../integrations/codex.md) and [Claude Code](../integrations/claude-code.md) for host-specific behavior.
 
 Full memory also needs a generation policy for this real Scope to use Profile. Follow the
 [Profile policy steps](configure-models.md#enable-a-profile-policy-for-the-scope) to read its current version and update it;

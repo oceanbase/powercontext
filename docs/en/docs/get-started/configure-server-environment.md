@@ -23,8 +23,8 @@ then asks about Dashboard and access settings and only the model connections nee
 memory uses explicit Agent-saved memories and full-text recall without a separate model API; automatic processing
 and semantic retrieval require their respective model settings. Existing files can be reused or adjusted by module.
 
-A fresh local setup leaves Dashboard and authentication disabled. Enable Dashboard to opt into authenticated
-access, or set `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and `POWERCONTEXT_SERVER_AUTH_TOKEN` explicitly.
+A fresh local setup leaves Dashboard and authentication disabled. Enabling Dashboard does not require authentication.
+For manual authentication setup, set `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and `POWERCONTEXT_SERVER_AUTH_TOKEN`.
 Remote setup enables authentication. Existing Dashboard and authentication settings are preserved when accepting defaults.
 
 Agent configuration selects one Agent at a time and can then add another; configured choices are removed from the
@@ -56,6 +56,24 @@ hidden wizard prompts, your environment, or a secret manager, not in command-lin
 
 Windows support is `experimental`. Before using the file for a personal service, restrict its ACL as described in
 [Deploy the Server](../operate/deploy-server.md).
+
+### Local Dashboard and optional authentication
+
+When enabling Dashboard in a new local setup, the wizard offers optional authentication, disabled by default.
+Accepting the default generates no Server token: the browser opens directly, and HTTP API and MCP requests need no
+Authorization header. The minimal settings are:
+
+```dotenv
+POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
+POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
+POWERCONTEXT_SERVER_ACCESS_MODE=disabled
+```
+
+To require authentication, select it when enabling Dashboard. The wizard generates a token and writes
+credentials for the selected Agents. For manual configuration, set `POWERCONTEXT_SERVER_ACCESS_MODE=enforced` and
+`POWERCONTEXT_SERVER_AUTH_TOKEN`. Dashboard, HTTP API, and MCP share this setting. Remote scenarios still enable authentication.
+
+Existing authenticated configurations retain their token and access mode.
 
 ### Choose or change the Web / Server port
 
@@ -130,7 +148,7 @@ powercontext ready
 powercontext capabilities
 ```
 
-This supplies the client address and Server Token without loading model API keys into the client environment.
+This supplies the client address and, when authentication is enabled, the Server token. Local unauthenticated configurations need no token.
 Follow `.env.next-steps.md` to create Scopes and install plugins, then verify real memory using the [quickstart](quickstart.md).
 
 For every variable, default, and precedence rule, see [Configuration](../operate/configuration.md).

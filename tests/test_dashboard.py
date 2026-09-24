@@ -662,7 +662,7 @@ def test_committed_handoff_json_and_its_sources_are_readable(dashboard: TestClie
     )
 
 
-def test_dashboard_is_opt_in_and_requires_the_static_token_profile(tmp_path: Path, monkeypatch) -> None:
+def test_dashboard_is_opt_in_and_enforced_access_requires_the_static_token_profile(tmp_path: Path, monkeypatch) -> None:
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
     from powercontext.server.authz import PrincipalRef
 
@@ -677,8 +677,8 @@ def test_dashboard_is_opt_in_and_requires_the_static_token_profile(tmp_path: Pat
         assert client.post("/dashboard/session", data={"token": "unused"}).status_code == 404
 
     monkeypatch.setenv("POWERCONTEXT_SERVER_DASHBOARD_ENABLED", "true")
-    with pytest.raises(ValueError, match="DASHBOARD_ENABLED requires"):
-        ServerSettings(database=database)
+    with pytest.raises(ValueError, match="AUTH_TOKEN"):
+        ServerSettings(database=database, access=AccessControlConfig(mode="enforced"))
     token = token_urlsafe(24)
     settings = ServerSettings(
         database=database,

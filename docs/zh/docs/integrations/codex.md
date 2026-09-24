@@ -92,7 +92,7 @@ export POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE=true
 
 ## 连接启用鉴权的本地 Server
 
-本地 Server 默认关闭认证，需要时再开启；启用 Dashboard 时需要同时开启认证。首次本地配置向导默认不启用 Dashboard。
+本地 Server 默认关闭认证，需要时可独立开启。首次本地配置向导默认不启用 Dashboard；选择启用 Dashboard 不要求配置 token。
 
 从本地 secret manager 加载一个 token，然后启用鉴权并启动 Server：
 

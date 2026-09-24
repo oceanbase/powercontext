@@ -28,7 +28,13 @@ from pydantic import SecretStr, ValidationError
 
 from powercontext.client import PowerContextClient
 from powercontext.client.settings import ClientSettings
-from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, HttpConfig, ServerSettings
+from powercontext.server.settings import (
+    AccessControlConfig,
+    BearerAuthConfig,
+    DashboardConfig,
+    HttpConfig,
+    ServerSettings,
+)
 from powercontext.transport import canonical_loopback_endpoint, is_loopback_host, is_plaintext_non_loopback
 
 _ALL_INTERFACES = "0.0.0.0"  # noqa: S104 - a non-loopback bind used to exercise the policy.
@@ -223,10 +229,12 @@ def test_client_refuses_an_unauthenticated_untrusted_non_loopback_transport() ->
         PowerContextClient("http://memory.example", http_client=http_client)
 
 
-def test_server_rejects_an_unauthenticated_non_loopback_bind() -> None:
+@pytest.mark.parametrize("dashboard", [False, True])
+def test_server_rejects_an_unauthenticated_non_loopback_bind(dashboard: bool) -> None:
     with pytest.raises(ValidationError):
         ServerSettings(
             http=HttpConfig(host=_ALL_INTERFACES),
+            dashboard=DashboardConfig(enabled=dashboard),
             auth=BearerAuthConfig(),
         )
 

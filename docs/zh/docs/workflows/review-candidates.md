@@ -68,7 +68,7 @@ Dream 运行详情中的 `input_manifest` 保留生成时的根 Source 分组和
 修订省略 `memory_citations` 或设为 null 会保留现有引用，
 HTTP revise 请求可以显式替换该集合，`[]` 表示清空。批准后的 Experience Revision 在 lineage 中保存这些引用。
 
-Dashboard 默认关闭，是使用静态 Bearer 鉴权的个人内容查看器。启用后可阅读已批准的 Experience 和 Skill，
+Dashboard 默认关闭，是与 Server 共用访问模式的个人内容查看器；启用认证时使用静态 Bearer token。启用后可阅读已批准的 Experience 和 Skill，
 并沿精确引用查看历史 Memory 条目；Dream 发起、运行查询和候选审核通过 CLI／Client／HTTP API 完成。
 个人启用步骤见[安装和运行](../get-started/install-and-run.md)。
 

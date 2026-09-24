@@ -72,13 +72,16 @@ powercontext server run
 按 `Ctrl-C` 可正常关闭。再次运行该命令会打开同一个数据库。
 
 Dashboard 是个人使用和演示的可选内容查看器，默认关闭。它不需要单独安装前端或配置模型。
-需要使用时，在受保护的环境文件中设置以下值，并将 token 示例替换为自己的长随机凭据：
+本地免 token 启用时，在环境文件中设置以下值：
 
 ```dotenv
+POWERCONTEXT_SERVER_HTTP_HOST=127.0.0.1
 POWERCONTEXT_SERVER_DASHBOARD_ENABLED=true
-POWERCONTEXT_SERVER_ACCESS_MODE=enforced
-POWERCONTEXT_SERVER_AUTH_TOKEN=replace-with-your-random-token
+POWERCONTEXT_SERVER_ACCESS_MODE=disabled
 ```
+
+需要认证时，将 `POWERCONTEXT_SERVER_ACCESS_MODE` 设为 `enforced`，并将 `POWERCONTEXT_SERVER_AUTH_TOKEN` 设为自己的长随机凭据。
+[配置向导](configure-server-environment.md#本地-dashboard-与可选认证)在本地开启 Dashboard 时也提供这一选择。
 
 ```bash
 chmod 600 /path/to/powercontext.env
@@ -86,10 +89,10 @@ powercontext config validate --env-file /path/to/powercontext.env
 powercontext server run --env-file /path/to/powercontext.env
 ```
 
-打开 `http://127.0.0.1:8000/dashboard/home`，输入同一个 token。更改端口后使用实际端口。
-该 token 同时用于 Server API 和 MCP，已连接的 Agent 也需配置它。CLI 不会自动读取目录中的 `.env` 文件。
+打开 `http://127.0.0.1:8000/dashboard/home`，更改端口后使用实际端口。未启用认证时可直接进入页面；
+启用后使用 Server Token 登录，已连接的 Agent 也需配置该 token 来访问 API 和 MCP。CLI 不会自动读取目录中的 `.env` 文件。
 
-首次登录选择 Server 默认 Scope，未保存内容时显示空状态。通过 Agent 或公开 API 保存一条 Memory，
+首次访问选择 Server 默认 Scope，未保存内容时显示空状态。通过 Agent 或公开 API 保存一条 Memory，
 再刷新同一 Scope 的记忆页即可查看。经验、技能、交接和用量也来自实际保存记录；页面不采集会话、不运行生成，
 也不批准候选。Dashboard 和 Agent 必须连接同一个 Server、使用同一个 Scope。
 
@@ -97,7 +100,7 @@ powercontext server run --env-file /path/to/powercontext.env
 在**交接**目录条目或详情页点击**导出 Markdown**，可下载该精确版本的完整正文、遗漏和引用。
 若登录失效，重新登录后会返回所选详情，再次点击导出即可。
 
-所有 token 持有者使用同一个身份。多成员 RBAC 部署应保持 Dashboard 关闭，通过 API、MCP 或宿主集成访问内容。
+启用认证时，所有 token 持有者使用同一个身份。多成员 RBAC 部署应保持 Dashboard 关闭，通过 API、MCP 或宿主集成访问内容。
 网络与凭据配置见[部署 Server](../operate/deploy-server.md)。
 
 这种最小启动方式不会启用依赖模型的抽取或向量搜索。如需生成并校验一份显式环境文件以启用这些能力，请继续阅读
@@ -157,7 +160,7 @@ Agent 诊断见[各自的集成文档](../integrations/index.md)；Server 状态
 升级已有部署前，先备份数据库和配置。1.1.0 会在 Server 启动时升级旧标签表约束，以支持 Topic Memory 标签。
 先停止旧 Server 实例，再启动一个升级后的实例，待结构升级完成后再启动其他实例。对于 1.0.0 之前的数据库，
 如果尚未完成[Artifact 处理迁移](../operate/artifact-processing-migration.md)，还需要先执行该迁移。
-Server、客户端和 Agent 集成需一起升级。Dashboard 需要显式启用并配置静态 Bearer 认证，
+Server、客户端和 Agent 集成需一起升级。Dashboard 需要显式启用，本地使用可选择静态 Bearer 认证，
 见[部署 Server](../operate/deploy-server.md)；远程明文 HTTP 连接需要客户端明确同意，
 见[连接远程 Server](../operate/connect-remote-server.md)。
 
