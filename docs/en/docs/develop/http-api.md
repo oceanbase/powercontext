@@ -202,7 +202,7 @@ use the same policy enforcement point; MCP tool visibility is not permission.
 | Low-level Handoff | `/v1/handoff/*` | Activate, prepare, finalize, commit, or continue a Handoff |
 | Memory | `/v1/memory/*` | Flush, remember, search, list, get, revise, retire, and inspect changes |
 | Experience and Skill | `/v1/experience/*`, `/v1/skill/*`, `/v1/skills/*` | Propose, review, package, govern, distribute, and read managed Skill revisions |
-| Review | `/v1/artifact-candidates/*` | List, inspect, revise, approve, or reject pending Candidates |
+| Review | `/v1/candidates/*` | List, inspect, revise, approve, or reject pending Candidates |
 | External Skills | `/v1/external-skills/*` | Scan configured targets and resolve or import packages |
 | Handoff Reports | `/v1/handoff-reports/*` | Generate a read-only report for a Scope selection |
 | Statistics | `/v1/stats` | Read scoped usage statistics |

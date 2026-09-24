@@ -30,7 +30,9 @@ PROFILE_FAMILY = "profile"
 PROFILE_ARTIFACT_ID = "profile"
 PROFILE_SOURCE_WINDOW_BINDING = "profile-source-window"
 ProfileActivationMode = Literal["automatic", "review_required"]
-ProfileGenerationMode = Literal["automatic", "manual_create", "manual_replace", "review_approved", "rollback"]
+ProfileGenerationMode = Literal[
+    "automatic", "manual_create", "manual_replace", "review_approved", "dream_review_approved", "rollback"
+]
 
 
 class _ProfileValue(BaseModel):
@@ -74,6 +76,7 @@ class ProfileGeneration(_ProfileValue):
     generator_id: str | None = None
     generator_version: str | None = None
     source_window: SourceWindow | None = None
+    dream_run_id: str | None = None
     restored_from_revision: int | None = Field(default=None, ge=1)
 
     @field_validator("created_at")
@@ -85,9 +88,12 @@ class ProfileGeneration(_ProfileValue):
 
     @model_validator(mode="after")
     def valid_generation(self):
-        generated = self.mode in {"automatic", "review_approved"}
-        if generated != (self.source_window is not None):
-            raise ValueError("only generated profiles require a Source window")  # noqa: TRY003
+        windowed = self.mode in {"automatic", "review_approved"}
+        if windowed != (self.source_window is not None):
+            raise ValueError("only Source-window profiles require a Source window")  # noqa: TRY003
+        if (self.mode == "dream_review_approved") != (self.dream_run_id is not None):
+            raise ValueError("only Dream-approved profiles name a Dream run")  # noqa: TRY003
+        generated = windowed or self.mode == "dream_review_approved"
         if generated and (not self.generator_id or not self.generator_version):
             raise ValueError("generated profiles require generator identity")  # noqa: TRY003
         if not generated and (self.generator_id is not None or self.generator_version is not None):
@@ -114,7 +120,9 @@ class ProfileCandidateProposal(_ProfileValue):
         default="powercontext.profile-candidate.v1", alias="schema"
     )
     content: str
-    source_window: SourceWindow
+    source_window: SourceWindow | None = None
+    dream_run_id: str | None = None
+    policy_version: int | None = Field(default=None, ge=1)
     generator_id: str = Field(min_length=1)
     generator_version: str = Field(min_length=1)
     created_at: datetime
@@ -128,6 +136,14 @@ class ProfileCandidateProposal(_ProfileValue):
     @classmethod
     def utc_timestamp(cls, value: datetime) -> datetime:
         return ProfileGeneration.utc_timestamp(value)
+
+    @model_validator(mode="after")
+    def valid_origin(self):
+        if (self.source_window is None) == (self.dream_run_id is None):
+            raise ValueError("Profile Candidate requires exactly one generation origin")  # noqa: TRY003
+        if (self.dream_run_id is None) != (self.policy_version is None):
+            raise ValueError("Dream Profile Candidate requires a Policy version")  # noqa: TRY003
+        return self
 
 
 class Profile(Artifact[ProfileContent]):

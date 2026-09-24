@@ -395,7 +395,7 @@ function artifactTools(runtime: PluginRuntime, defineTool: DefineTool): unknown[
         status: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
         family: { type: 'string', enum: ['experience', 'skill'] },
       },
-      execute: (args, exec) => run(runtime, exec, 'list_artifact_candidates', {
+      execute: (args, exec) => run(runtime, exec, 'list_candidates', {
         status: args.status ?? 'pending', family: args.family,
       }),
     }),
@@ -408,7 +408,7 @@ function artifactTools(runtime: PluginRuntime, defineTool: DefineTool): unknown[
         'the human /pc review command.',
       kind: 'read',
       parameters: { candidate_id: { type: 'string', required: true } },
-      execute: (args, exec) => run(runtime, exec, 'get_artifact_candidate', { candidate_id: args.candidate_id }),
+      execute: (args, exec) => run(runtime, exec, 'get_candidate', { candidate_id: args.candidate_id }),
     }),
   ]
 }

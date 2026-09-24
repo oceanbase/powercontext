@@ -47,13 +47,13 @@ from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient
 from powercontext.client.errors import ServerResponseError
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CaptureContentSourceRequest,
     CreateDreamRunRequest,
     CreateScopeRequest,
     DreamOperation,
     DreamStatus,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetExperienceRequest,
     GetSkillRequest,
     ListDreamRunsRequest,
@@ -309,14 +309,14 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                 assert run.status == DreamStatus.SUCCEEDED and run.candidate is not None, (
                     f"run_result:{run.status}:{run.error}"
                 )
-                candidate = await client.get_artifact_candidate(
-                    GetArtifactCandidateRequest(scope_id=scope.scope_id, candidate_id=run.candidate.candidate_id)
+                candidate = await client.get_candidate(
+                    GetCandidateRequest(scope_id=scope.scope_id, candidate_id=run.candidate.candidate_id)
                 )
                 report[label]["experience_candidate"] = candidate.model_dump(mode="json")
                 assert candidate.memory_citations and candidate.source_refs
                 assert run.input_manifest is not None and len(run.input_manifest.root_groups) == 3
-                approved = await client.approve_artifact_candidate(
-                    ApproveArtifactCandidateRequest(
+                approved = await client.approve_candidate(
+                    ApproveCandidateRequest(
                         scope_id=scope.scope_id, candidate_id=candidate.candidate_id, expected_version=candidate.version
                     )
                 )
@@ -351,13 +351,13 @@ async def validate_runtime(label, configuration, *, dream_generator=None):
                 assert skill_run.status == DreamStatus.SUCCEEDED and skill_run.candidate is not None, (
                     f"run_result:{skill_run.status}:{skill_run.error}"
                 )
-                skill_candidate = await client.get_artifact_candidate(
-                    GetArtifactCandidateRequest(scope_id=scope.scope_id, candidate_id=skill_run.candidate.candidate_id)
+                skill_candidate = await client.get_candidate(
+                    GetCandidateRequest(scope_id=scope.scope_id, candidate_id=skill_run.candidate.candidate_id)
                 )
                 report[label]["skill_candidate"] = skill_candidate.model_dump(mode="json")
                 assert not skill_candidate.memory_citations and skill_candidate.artifact_refs == [experience.artifact]
-                skill_approved = await client.approve_artifact_candidate(
-                    ApproveArtifactCandidateRequest(
+                skill_approved = await client.approve_candidate(
+                    ApproveCandidateRequest(
                         scope_id=scope.scope_id,
                         candidate_id=skill_candidate.candidate_id,
                         expected_version=skill_candidate.version,

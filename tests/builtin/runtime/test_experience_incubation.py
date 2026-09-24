@@ -23,13 +23,13 @@ from powercontext.builtin.inference import InferenceUnavailableError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.records import ArtifactWrite
 from powercontext.builtin.runtime import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     BuiltinConfig,
     BuiltinConfigurationError,
     BuiltinRuntime,
     CaptureSource,
     GetExperienceRequest,
-    ListArtifactCandidatesRequest,
+    ListCandidatesRequest,
     RuntimeConfig,
     open_builtin_runtime,
 )
@@ -102,7 +102,7 @@ def test_incubation_uses_an_independent_cursor_and_keeps_candidates_gated() -> N
             memory_cursor = await runtime.memory.for_scope(scope).cursor()
             incubated = await runtime.experience.for_scope(scope).incubate(limit=1)
             replay = await runtime.experience.for_scope(scope).incubate(limit=1)
-            inbox = await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest(family="experience"))
+            inbox = await runtime.review.for_scope(scope).list(ListCandidatesRequest(family="experience"))
 
             assert ordinary.candidate_count == 0
             assert ordinary.current_cursor == 1
@@ -120,7 +120,7 @@ def test_incubation_uses_an_independent_cursor_and_keeps_candidates_gated() -> N
             assert candidate.result_artifact is None
 
             approved = await runtime.review.for_scope(scope).approve(
-                ApproveArtifactCandidateRequest(
+                ApproveCandidateRequest(
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
                 )
@@ -153,7 +153,7 @@ def test_incubation_retries_the_same_window_after_generation_failure() -> None:
             with pytest.raises(InferenceUnavailableError):
                 await runtime.experience.for_scope(scope).incubate()
             retried = await runtime.experience.for_scope(scope).incubate()
-            inbox = await runtime.review.for_scope(scope).list(ListArtifactCandidatesRequest(family="experience"))
+            inbox = await runtime.review.for_scope(scope).list(ListCandidatesRequest(family="experience"))
 
             assert retried.previous_cursor == 0
             assert retried.current_cursor == 1

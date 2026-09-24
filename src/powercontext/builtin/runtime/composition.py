@@ -60,6 +60,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     validate_topic_memory_stage_capacity,
 )
 from powercontext.builtin.code.configuration import open_code_service
+from powercontext.builtin.dream.bindings import DREAM_OPERATIONS, operation_spec
 from powercontext.builtin.dream.generation import (
     DREAM_INSTRUCTIONS,
     DreamGenerationInput,
@@ -125,7 +126,7 @@ from powercontext.builtin.runtime.artifact_processing import (
 )
 from powercontext.builtin.runtime.config import BuiltinConfig, ExternalSkillsConfig, InferenceConfig, RuntimeConfig
 from powercontext.builtin.runtime.family_processing import FAMILY_BINDINGS, FamilyWorkerSpec, run_family_worker
-from powercontext.builtin.runtime.models import MemorySearchMode, RuntimeCapabilities
+from powercontext.builtin.runtime.models import DreamOperationCapability, MemorySearchMode, RuntimeCapabilities
 from powercontext.builtin.runtime.processing_discovery import SourceProcessingPendingProvider, enabled_profile_scopes
 from powercontext.builtin.runtime.processing_registry import (
     canonical_processing_manifest,
@@ -272,6 +273,7 @@ async def open_builtin_runtime(
     dream_authorizer: DreamAuthorizer | None = None,
     dream_authorization_context: AuthorizationContext = nullcontext,
     dream_candidate_attester: CandidateAttester | None = None,
+    dream_candidate_authorizer: CandidateAttester | None = None,
     external_skill_provider: ExternalSkillProvider | None = None,
     handoff_pipeline: HandoffGenerationPipeline | None = None,
     embedding_model: EmbeddingModel | None = None,
@@ -460,9 +462,9 @@ async def open_builtin_runtime(
         if dream_generator is not None and config.runtime.dream_enabled:
             registered_families = {binding.artifact_family for binding in processing_bindings}
             configured_operations = tuple(
-                operation
-                for operation, family in (("refine_experience", "experience"), ("derive_skill", "skill"))
-                if family in registered_families
+                spec.operation
+                for spec in DREAM_OPERATIONS
+                if spec.family in registered_families or (spec.family is None and registered_families)
             )
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
         runtime = await resources.enter_async_context(
@@ -474,6 +476,14 @@ async def open_builtin_runtime(
                     experience_generation=contexts.experience_generation,
                     managed_skill_generation=contexts.managed_skill_generation,
                     artifact_dreaming=bool(configured_operations),
+                    artifact_dreaming_operations=tuple(
+                        DreamOperationCapability(
+                            operation=operation,
+                            effect=operation_spec(operation).effect,
+                            output_kind=operation_spec(operation).output_kind,
+                        )
+                        for operation in configured_operations
+                    ),
                     external_skill_registry=contexts.external_skill_registry,
                     memory_search_modes=_search_modes(contexts.index.capabilities),
                     handoff_generation=contexts.handoff_generation,
@@ -487,6 +497,7 @@ async def open_builtin_runtime(
                 scope_cache_observer=scope_cache_observer,
                 scope_ids=contexts.scope_ids,
                 review_service=contexts.review,
+                catalog_change_service=contexts.catalog_changes,
                 profiles=contexts.profiles,
                 subject_sources=contexts.subject_sources,
                 generation_service=contexts.generation,
@@ -498,6 +509,7 @@ async def open_builtin_runtime(
                     authorize=dream_authorizer,
                     authorization_context=dream_authorization_context,
                     attest_candidate=dream_candidate_attester,
+                    authorize_candidate=dream_candidate_authorizer,
                 ),
                 generation_concurrency=config.runtime.generation_concurrency,
                 experience_recall=contexts.search_experience_outcome,
@@ -599,6 +611,8 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
         "experience": config.runtime.experience_schedule_seconds,
         "profile": config.runtime.profile_schedule_enabled or None,
         "skill": None,
+        "handoff": None,
+        "prompt": None,
     }
     for family, schedule in automatic.items():
         if schedule is not None and family not in declared | registered:
@@ -658,7 +672,7 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
                 else None,
                 timezone=config.runtime.profile_timezone if family == "profile" else "Asia/Shanghai",
                 pending_provider=None
-                if family == "skill"
+                if family in {"skill", "handoff", "prompt"}
                 else SourceProcessingPendingProvider(contexts.database, binding, family),
                 automatic_scope_filter=enabled_profile_scopes if family == "profile" else None,
             )
@@ -768,11 +782,15 @@ async def open_builtin_contexts(
             load_vector_extension=embedding_model is not None,
         ) as profile:
             async with profile.database.transaction() as connection:
+                # This block is SQLite-only. Reserve SQLite's single-writer slot
+                # before startup schema reads, so concurrent Runtime openings cannot
+                # both establish a read snapshot and fail while upgrading to a write.
+                await connection.exec_driver_sql("BEGIN IMMEDIATE")
+                await ensure_dream_schema(connection)
                 await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
                 await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
                 await ensure_skill_distribution_schema(connection)
                 await ensure_topic_memory_tag_schema(connection)
-                await ensure_dream_schema(connection)
                 await ensure_scope_search_schema(connection)
                 # A Topic child reuses its parent's schema. It never reads or
                 # writes Memory/Experience projections; rebuilding their FTS
@@ -829,11 +847,11 @@ async def open_builtin_contexts(
         raise BuiltinConfigurationError("database")
     async with profile_context as profile:
         async with profile.database.transaction() as connection:
+            await ensure_dream_schema(connection)
             await bootstrap_processing_schema(connection, canonical_processing_manifest(config))
             await assert_processing_schema_ready(connection, canonical_processing_manifest(config))
             await ensure_skill_distribution_schema(connection)
             await ensure_topic_memory_tag_schema(connection)
-            await ensure_dream_schema(connection)
             await ensure_scope_search_schema(connection)
             if not _topic_memory_worker:
                 await index.initialize(connection)

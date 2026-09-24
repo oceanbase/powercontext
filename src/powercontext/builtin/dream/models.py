@@ -23,7 +23,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from powercontext.artifacts import ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import ExperienceContent
+from powercontext.builtin.artifacts.handoff.models import HandoffContent
+from powercontext.builtin.artifacts.memory.models import MemoryDreamWrite
+from powercontext.builtin.artifacts.profile.models import ProfilePolicy, ProfileWriteContent
+from powercontext.builtin.artifacts.prompt.models import PROMPT_KEYS, PromptContent
 from powercontext.builtin.artifacts.skill import SkillContent
+from powercontext.builtin.artifacts.topic_memory.models import TopicMemoryContent
+from powercontext.builtin.catalog_changes.models import TagChangeProposal, TagDreamTarget
 from powercontext.builtin.evidence.models import (
     EvidenceLimits,
     EvidenceManifest,
@@ -34,11 +40,21 @@ from powercontext.builtin.evidence.models import (
 from powercontext.errors import PowerContextError
 from powercontext.sources import SourceRef
 
-DreamOperation = Literal["refine_experience", "derive_skill"]
+DreamOperation = Literal[
+    "refine_experience",
+    "derive_skill",
+    "revise_skill",
+    "revise_profile",
+    "revise_memory",
+    "revise_topic_memory",
+    "refresh_handoff",
+    "revise_prompt",
+    "revise_tags",
+]
 DreamStatus = Literal["queued", "running", "succeeded", "failed"]
 DreamOutcome = Literal["proposed", "no_change", "needs_evidence"]
 DreamIntent = Literal["create", "corroborate", "refine", "correct", "derive"]
-DREAM_PROMPT_VERSION = "powercontext.dream.v1"
+DREAM_PROMPT_VERSION = "powercontext.dream.v1.2"
 
 
 class DreamError(PowerContextError, ValueError):
@@ -55,6 +71,7 @@ class CreateDreamRunRequest(BaseModel):
     memory_citations: tuple[MemoryCitation, ...] = ()
     sources: tuple[SourceRef, ...] = ()
     target: ArtifactRef | None = None
+    tag_target: TagDreamTarget | None = None
     idempotency_key: str = Field(min_length=1, max_length=128)
 
     @field_validator("idempotency_key")
@@ -70,11 +87,30 @@ class CreateDreamRunRequest(BaseModel):
         return tuple(sorted(unique_references(value), key=reference_key))
 
     @model_validator(mode="after")
-    def validate_selection(self):
+    def validate_selection(self):  # noqa: C901 - bounded validation for each registered operation
+        if self.operation == "revise_tags":
+            if self.target is not None or self.tag_target is None:
+                raise DreamError("invalid_target")
+            if not 1 <= len(self.sources) + len(self.artifacts) + len(self.memory_citations) <= 32:
+                raise DreamError("evidence_limit_exceeded")
+            return self
+        if self.tag_target is not None:
+            raise DreamError("invalid_target")
         selected = len(self.artifacts) + len(self.memory_citations)
-        if not 1 <= selected <= 20 or selected + len(self.sources) > 32:
+        selected_limit = 21 if self.operation == "revise_memory" else 20
+        if not 1 <= selected <= selected_limit or selected + len(self.sources) > 32:
             raise DreamError("evidence_limit_exceeded")
-        if any(ref.family != "experience" for ref in self.artifacts):
+        allowed_families = {
+            "refine_experience": {"experience"},
+            "derive_skill": {"experience"},
+            "revise_skill": {"experience", "skill"},
+            "revise_profile": {"experience", "profile"},
+            "revise_memory": {"experience", "memory"},
+            "revise_topic_memory": {"experience", "topic-memory"},
+            "refresh_handoff": {"experience", "handoff"},
+            "revise_prompt": {"experience", "prompt"},
+        }[self.operation]
+        if any(ref.family not in allowed_families for ref in self.artifacts):
             raise DreamError("invalid_artifact_family")
         if any(
             ref.memory_ref.family != "memory"
@@ -87,6 +123,47 @@ class CreateDreamRunRequest(BaseModel):
             raise DreamError("invalid_target")
         if self.operation == "derive_skill" and (
             self.memory_citations or self.target is not None or not self.artifacts
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_skill" and (
+            self.target is None
+            or self.target.family != "skill"
+            or any(ref.family == "skill" and ref != self.target for ref in self.artifacts)
+            or not (self.sources or self.memory_citations or any(ref != self.target for ref in self.artifacts))
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_profile" and (
+            self.target is None
+            or self.target.family != "profile"
+            or any(ref.family == "profile" and ref != self.target for ref in self.artifacts)
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_memory" and (
+            self.target is None
+            or self.target.family != "memory"
+            or not self.memory_citations
+            or any(citation.memory_ref != self.target for citation in self.memory_citations)
+            or any(ref.family == "memory" and ref != self.target for ref in self.artifacts)
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_topic_memory" and (
+            self.target is None
+            or self.target.family != "topic-memory"
+            or any(ref.family == "topic-memory" and ref != self.target for ref in self.artifacts)
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "refresh_handoff" and (
+            self.target is None
+            or self.target.family != "handoff"
+            or any(ref.family == "handoff" and ref != self.target for ref in self.artifacts)
+        ):
+            raise DreamError("invalid_dream_operation")
+        if self.operation == "revise_prompt" and (
+            self.target is None
+            or self.target.family != "prompt"
+            or self.target.artifact_id not in PROMPT_KEYS
+            or any(ref.family == "prompt" and ref != self.target for ref in self.artifacts)
+            or not self.sources
         ):
             raise DreamError("invalid_dream_operation")
         return self
@@ -108,6 +185,7 @@ class DreamUsage(BaseModel):
 
 
 class DreamCandidateRef(BaseModel):
+    kind: Literal["artifact", "tag"] = "artifact"
     candidate_id: str
     version: int = Field(ge=1)
 
@@ -121,6 +199,7 @@ class DreamRun(BaseModel):
     status: DreamStatus = "queued"
     outcome: DreamOutcome | None = None
     target: ArtifactRef | None = None
+    tag_target: TagDreamTarget | None = None
     candidate: DreamCandidateRef | None = None
     reason: str | None = None
     error: str | None = None
@@ -133,6 +212,7 @@ class DreamRun(BaseModel):
     budget: DreamBudget = Field(default_factory=DreamBudget)
     prompt_version: str = DREAM_PROMPT_VERSION
     model_config_id: str | None = None
+    reused: bool = False
 
     @property
     def terminal(self) -> bool:
@@ -164,6 +244,8 @@ class DreamRecord(BaseModel):
     generation: int = 0
     request_generation: int = 0
     deadline_at: datetime | None = None
+    profile_policy: ProfilePolicy | None = None
+    proposal_fingerprint: str | None = None
 
 
 class DreamPlan(BaseModel):
@@ -172,7 +254,17 @@ class DreamPlan(BaseModel):
     outcome: DreamOutcome
     reason: str = Field(min_length=1, max_length=2000)
     intent: DreamIntent | None = None
-    proposal: ExperienceContent | SkillContent | None = None
+    proposal: (
+        ExperienceContent
+        | SkillContent
+        | ProfileWriteContent
+        | MemoryDreamWrite
+        | TopicMemoryContent
+        | HandoffContent
+        | PromptContent
+        | TagChangeProposal
+        | None
+    ) = None
     evidence_ids: tuple[str, ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
@@ -186,13 +278,44 @@ class DreamPlan(BaseModel):
             raise DreamError("invalid_generation_output")
         return self
 
-    def validate_operation(self, request: CreateDreamRunRequest) -> None:
+    def validate_operation(self, request: CreateDreamRunRequest) -> None:  # noqa: C901 - explicit operation contracts
         if self.outcome != "proposed":
             return
         if request.operation == "derive_skill":
             valid = (
                 isinstance(self.proposal, SkillContent) and self.intent == "derive" and self.proposal.package is None
             )
+        elif request.operation == "revise_skill":
+            valid = (
+                isinstance(self.proposal, SkillContent) and self.intent == "correct" and self.proposal.package is None
+            )
+        elif request.operation == "revise_profile":
+            valid = (
+                isinstance(self.proposal, ProfileWriteContent)
+                and self.proposal.restored_from_revision is None
+                and self.intent == "correct"
+            )
+        elif request.operation == "revise_memory":
+            selected = {(citation.entry_id, citation.entry_version_id) for citation in request.memory_citations}
+            valid = (
+                isinstance(self.proposal, MemoryDreamWrite)
+                and self.intent == "correct"
+                and all((change.entry_id, change.entry_version_id) in selected for change in self.proposal.changes)
+            )
+        elif request.operation == "revise_topic_memory":
+            valid = isinstance(self.proposal, TopicMemoryContent) and self.intent == "correct"
+        elif request.operation == "refresh_handoff":
+            valid = (
+                isinstance(self.proposal, HandoffContent)
+                and self.proposal.generation is None
+                and self.intent == "correct"
+            )
+        elif request.operation == "revise_prompt":
+            valid = (
+                isinstance(self.proposal, PromptContent) and self.proposal.mode == "custom" and self.intent == "correct"
+            )
+        elif request.operation == "revise_tags":
+            valid = isinstance(self.proposal, TagChangeProposal) and self.intent == "correct"
         else:
             intents = {"create"} if request.target is None else {"corroborate", "refine", "correct"}
             valid = isinstance(self.proposal, ExperienceContent) and self.intent in intents

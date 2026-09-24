@@ -47,6 +47,7 @@ from powercontext.builtin.runtime.config import BuiltinConfig
 from powercontext.builtin.runtime.processing_registry import processing_capabilities
 from powercontext.builtin.sources import CONTENT_SOURCE_NAME
 from powercontext.http import (
+    ArtifactDreamingOperationCapability,
     Capabilities,
     MemorySearchMode,
     PreparedContextSchema,
@@ -217,6 +218,7 @@ def create_server_app(  # noqa: C901
                     if dream_access is None
                     else dream_access.access.defer_decision_audit,
                     dream_candidate_attester=None if dream_access is None else dream_access.attest_candidate,
+                    dream_candidate_authorizer=None if dream_access is None else dream_access.authorize_candidate,
                     external_skill_provider=external_skill_provider,
                     handoff_pipeline=handoff_pipeline,
                     embedding_model=embedding_model,
@@ -607,6 +609,10 @@ async def _server_capabilities(runtime: BuiltinRuntime) -> Capabilities:
         experience_generation=capabilities.experience_generation,
         managed_skill_generation=capabilities.managed_skill_generation,
         artifact_dreaming=capabilities.artifact_dreaming,
+        artifact_dreaming_operations=[
+            ArtifactDreamingOperationCapability.model_validate(value.model_dump())
+            for value in capabilities.artifact_dreaming_operations
+        ],
         external_skill_registry=capabilities.external_skill_registry,
         handoff_generation=capabilities.handoff_generation,
         search_modes=[MemorySearchMode(mode) for mode in capabilities.memory_search_modes],

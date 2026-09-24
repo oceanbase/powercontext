@@ -175,6 +175,10 @@ Each `powercontext doctor <host>` command still fails when that host CLI is miss
 host-specific integration check, including OpenCode's separate `plugin` and `skill` results. DSH checks that
 `dump-config` lists `powercontext-dsh`; Pi checks that the CLI lists the PowerContext package.
 
+The unified HTTP review routes are `/v1/candidates/list`, `get`, `history`, `revise`, `approve`, and `reject` (all POST).
+`candidate_kind=artifact|tag` distinguishes proposals. Old Artifact Candidate routes are removed; callers must upgrade together.
+Artifact approval returns a real revision; Tag approval returns committed tags and ETag without creating a content revision.
+
 The `candidate` command group exposes the human Review Inbox. See [Review Candidates](../workflows/review-candidates.md)
 for the ordered workflow to list, inspect, revise, approve, or reject Candidates.
 
@@ -289,7 +293,7 @@ contract. The Server publishes a Scalar API reference at `/docs`, its OpenAPI do
 `/health/ready`, capabilities at `/v1/capabilities`, and Streamable HTTP MCP at `/mcp` by default. The Scalar reference
 remains public when bearer authentication is enabled, but the operations it describes retain their normal authentication
 requirements. HTTP is the complete application contract. MCP is a curated Agent-facing projection of Source capture,
-Memory maintenance, work continuity, scope Handoff Report lookup, and Candidate Review. The five Candidate Review
+Memory maintenance, work continuity, scope Handoff Report lookup, and Candidate Review. The six Candidate Review
 operations use the same validation, `expected_version` concurrency checks, and approval transaction over HTTP and MCP.
 Readiness is `ready` with HTTP 200 when all checks pass, `degraded` with HTTP 200 when only configured inference checks
 fail, and `not_ready` with HTTP 503 when the Runtime or database fails. Dependency checks use `ready`, `unavailable`,

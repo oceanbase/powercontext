@@ -183,7 +183,7 @@ Principal，并注入 Authorization Provider。HTTP 与 MCP 使用同一个策�
 | 底层 Handoff | `/v1/handoff/*` | activate、prepare、finalize、commit 或 continue Handoff |
 | Memory | `/v1/memory/*` | flush、remember、search、list、get、revise、retire 和查看变更 |
 | Experience 与 Skill | `/v1/experience/*`、`/v1/skill/*`、`/v1/skills/*` | propose、review、打包、治理、分发并读取 managed Skill Revision |
-| 审核 | `/v1/artifact-candidates/*` | 列出、检查、修订、批准或拒绝 pending Candidate |
+| 审核 | `/v1/candidates/*` | 列出、检查、修订、批准或拒绝 pending Candidate |
 | 外部 Skill | `/v1/external-skills/*` | 扫描已配置 target，解析或导入 package |
 | Handoff Report | `/v1/handoff-reports/*` | 按 Scope selection 生成只读报告 |
 | 统计 | `/v1/stats` | 读取指定 scope 的使用统计 |

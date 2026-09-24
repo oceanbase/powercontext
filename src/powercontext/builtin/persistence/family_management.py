@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, f
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing_extensions import override
 
-from powercontext.artifacts import Artifact, ArtifactLineage
+from powercontext.artifacts import Artifact, ArtifactLineage, ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import Experience, ExperienceContent
 from powercontext.builtin.artifacts.handoff import Handoff, HandoffContent, HandoffService, PreparedHandoff
 from powercontext.builtin.artifacts.memory import (
@@ -264,6 +264,36 @@ class PromptManagementWriter(_RepositoryFamilyWriter):
         validated = cast(PromptContent, content)
         self._registry.validate(current.artifact_id, validated)
         return cast(Prompt, await self._revise_artifact(connection, scope_id, current, validated, direct_source))
+
+    async def commit_reviewed(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        current: Prompt,
+        content: PromptContent,
+        *,
+        sources: tuple[SourceRef, ...],
+        artifacts: tuple[ArtifactRef, ...],
+        memory_citations: tuple[MemoryCitation, ...],
+    ) -> Prompt:
+        """Publish a reviewed configuration using the normal Prompt validation and Artifact CAS."""
+
+        self._registry.validate(current.artifact_id, content)
+        return cast(
+            Prompt,
+            await self._artifacts.revise(
+                connection,
+                scope_id,
+                current,
+                RepositoryArtifactDraft(
+                    family=self.family,
+                    content=content,
+                    sources=sources,
+                    artifacts=artifacts,
+                    memory_citations=memory_citations,
+                ),
+            ),
+        )
 
 
 class ExperienceManagementWriter(_RepositoryFamilyWriter):
@@ -568,6 +598,27 @@ class HandoffManagementWriter:
         return await self._service(scope_id, connection).commit(
             prepared,
             additional_sources=(direct_source,),
+            force_revision=True,
+        )
+
+    async def commit_reviewed(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        current: Handoff,
+        content: HandoffContent,
+        sources: tuple[SourceRef, ...],
+    ) -> Handoff:
+        """Commit an approved Handoff without activating or acknowledging it."""
+
+        if current.artifact_id != self._handoff_artifact_id or content.generation is not None:
+            raise InvalidBaseAccessRequestError("handoff", "reviewed replacement must target the local singleton")
+        if content.objective != current.content.objective:
+            raise InvalidBaseAccessRequestError("handoff", "reviewed replacement must preserve the objective")
+        prepared = PreparedHandoff(scope_id=scope_id, base=current.as_ref(), content=content)
+        return await self._service(scope_id, connection).commit(
+            prepared,
+            additional_sources=sources,
             force_revision=True,
         )
 

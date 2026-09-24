@@ -124,6 +124,8 @@ class RuntimeConfig(BaseModel):
         "topic_memory_max_workers",
         "experience_max_workers",
         "skill_max_workers",
+        "handoff_max_workers",
+        "prompt_max_workers",
         "profile_max_workers",
         "profile_max_concurrency",
         "artifact_processing_max_workers",
@@ -200,11 +202,15 @@ class RuntimeConfig(BaseModel):
     topic_memory_max_workers: int = Field(default=10, ge=1)
     experience_max_workers: int = Field(default=1, ge=1)
     skill_max_workers: int = Field(default=1, ge=1)
+    handoff_max_workers: int = Field(default=1, ge=1)
+    prompt_max_workers: int = Field(default=1, ge=1)
     profile_max_workers: int = Field(default=4, ge=1)
     memory_worker_timeout_seconds: float = Field(default=600, gt=0)
     topic_memory_worker_timeout_seconds: float = Field(default=600, gt=0)
     experience_worker_timeout_seconds: float = Field(default=600, gt=0)
     skill_worker_timeout_seconds: float = Field(default=600, gt=0)
+    handoff_worker_timeout_seconds: float = Field(default=600, gt=0)
+    prompt_worker_timeout_seconds: float = Field(default=600, gt=0)
     profile_worker_timeout_seconds: float = Field(default=600, gt=0)
 
     @model_validator(mode="after")

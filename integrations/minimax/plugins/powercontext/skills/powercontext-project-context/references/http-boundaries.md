@@ -11,7 +11,7 @@ The runtime tool catalog determines which capabilities are callable. PowerContex
 | Topic Memory | `search_topic_memory`, `get_topic_memory` |
 | Sources and work | `capture_content_source`, `create_work_contract`, `handoff_current_work`, `acknowledge_handoff`, `record_task_outcome` |
 | Handoffs | `activate_handoff`, `finalize_handoff`, `commit_handoff`, `continue_handoff`, `get_handoff_report` |
-| Candidate review | `list_artifact_candidates`, `get_artifact_candidate`, `approve_artifact_candidate`, `reject_artifact_candidate`, `revise_artifact_candidate` |
+| Candidate review | `list_candidates`, `get_candidate`, `approve_candidate`, `reject_candidate`, `revise_candidate` |
 | Artifact publication | `publish_artifact` |
 
 This table describes the server contract used by the package. Hosts may hide tools, and older servers may lack some operations. Check the active deployment's catalog.

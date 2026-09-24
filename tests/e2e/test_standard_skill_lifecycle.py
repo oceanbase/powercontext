@@ -208,7 +208,7 @@ def _propose_package(
 
 def _approve(client: TestClient, scope_id: str, candidate: dict[str, Any]) -> dict[str, Any]:
     response = client.post(
-        "/v1/artifact-candidates/approve",
+        "/v1/candidates/approve",
         json={
             "scope_id": scope_id,
             "candidate_id": candidate["candidate_id"],

@@ -36,6 +36,7 @@ from powercontext.server.dashboard.navigation import (
 )
 from powercontext.server.dashboard.preferences import CATALOGS, presentation, remember_language
 from powercontext.server.dashboard.presenters import source_view
+from powercontext.server.dashboard.review import load_review, submit_review
 from powercontext.server.dashboard.session import login_response
 
 ROOT = Path(__file__).parent
@@ -51,6 +52,7 @@ PAGES = {
     "profile",
     "handoff-download",
     "usage",
+    "review",
     "entry",
     *RECORDS,
 }
@@ -115,6 +117,11 @@ def links(request: Request, ctx: dict[str, Any]):
                     "skill_page",
                     "experience_history",
                     "handoff_history",
+                    "resource_type",
+                    "review_status",
+                    "candidate_id",
+                    "candidate_kind",
+                    "artifact_cursor",
                 }
             })
         if destination == "methods" and ctx["page"] in {"experience", "skill"}:
@@ -215,6 +222,7 @@ def initial_context(request: Request, page: str) -> dict[str, Any]:
         "selected_note": None,
         "requested_entry": request.query_params.get("entry"),
         "collections": {},
+        "review": {"kind": "all", "status": "pending", "sections": [], "selected": None},
         "related_sources": [],
         "source_record": None,
         "source": None,
@@ -377,6 +385,25 @@ async def download_handoff(request: Request) -> Response:
     return render(request, ctx)
 
 
+@router.post("/review/decision")
+async def review_decision(request: Request) -> Response:
+    ctx = initial_context(request, "review")
+    api = DashboardAPI(request)
+    try:
+        scope, kind, candidate_id = await submit_review(api, request)
+        return RedirectResponse(
+            "/dashboard/review?" + urlencode({"scope": scope, "candidate_kind": kind, "candidate_id": candidate_id}),
+            status_code=303,
+        )
+    except ReadError as error:
+        if error.status == 401:
+            return login_response(request=request)
+        ctx.update(page_error=error, status=error.status)
+        return render(request, ctx)
+    finally:
+        await api.client.aclose()
+
+
 @router.get("/{page}")
 async def screen(request: Request, page: str) -> HTMLResponse:
     ctx = initial_context(request, page if page in PAGES else "home")
@@ -384,7 +411,9 @@ async def screen(request: Request, page: str) -> HTMLResponse:
     try:
         validate_selection(page, ctx)
         await scope_context(api, ctx)
-        if ctx["scope"] and page != "entry":
+        if ctx["scope"] and page == "review":
+            await load_review(api, request, ctx)
+        elif ctx["scope"] and page != "entry":
             await load_content(api, request, ctx)
         if ctx["errors"] and not ctx["scope_descriptor"] and not ctx["record_only"]:
             raise next(iter(ctx["errors"].values()))

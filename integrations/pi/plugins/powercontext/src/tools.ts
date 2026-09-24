@@ -765,7 +765,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     label: 'PowerContext Candidate Approve',
     description: 'Approve an inspected pending Artifact candidate only after the user explicitly approves that exact candidate and version. Approval does not install, publish, activate, or execute the Artifact.',
     parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION }, { additionalProperties: false }),
-    operationId: 'approve_artifact_candidate',
+    operationId: 'approve_candidate',
     payload: (params) => ({ candidate_id: params.candidate_id, expected_version: params.expected_version }),
     mutates: true,
   })
@@ -775,7 +775,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     label: 'PowerContext Candidate Reject',
     description: 'Reject an inspected pending Artifact candidate only after the user explicitly requests that decision. Use its exact current version and a non-empty reason.',
     parameters: Type.Object({ candidate_id: CANDIDATE_ID, expected_version: EXPECTED_VERSION, reason: CANDIDATE_REASON }, { additionalProperties: false }),
-    operationId: 'reject_artifact_candidate',
+    operationId: 'reject_candidate',
     payload: (params) => ({ candidate_id: params.candidate_id, expected_version: params.expected_version, reason: params.reason }),
     mutates: true,
   })
@@ -785,7 +785,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     label: 'PowerContext Candidate Revise',
     description: 'Revise an inspected Artifact candidate only after the user explicitly requests the change. Preserve the exact current version and provenance; revision creates a new reviewable candidate and does not approve, publish, install, activate, or execute it.',
     parameters: REVISE_CANDIDATE,
-    operationId: 'revise_artifact_candidate',
+    operationId: 'revise_candidate',
     payload: (params) => {
       const value = params as ReviseCandidateParams
       if (value.source_refs.length + value.artifact_refs.length > 32) {
@@ -819,7 +819,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
       cursor: Type.Optional(Type.String({ description: 'Cursor returned by the previous candidate page.' })),
       limit: Type.Optional(Type.Number({ description: 'Maximum candidates; capped at 100.' })),
     }),
-    operationId: 'list_artifact_candidates',
+    operationId: 'list_candidates',
     payload: (params) => ({
       status: params.status ?? 'pending',
       family: params.family,
@@ -833,7 +833,7 @@ export function registerTools(pi: ExtensionAPI, runtime: PluginRuntime): void {
     label: 'PowerContext Candidate Get',
     description: 'Read one Artifact candidate for inspection without changing its review state.',
     parameters: Type.Object({ candidate_id: Type.String() }),
-    operationId: 'get_artifact_candidate',
+    operationId: 'get_candidate',
     payload: (params) => ({ candidate_id: params.candidate_id }),
   })
 

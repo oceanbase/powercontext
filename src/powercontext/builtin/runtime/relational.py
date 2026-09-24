@@ -52,6 +52,7 @@ from powercontext.builtin.artifacts.handoff import (
     ActivateHandoff,
     Handoff,
     HandoffActivation,
+    HandoffContent,
     HandoffEvidenceUnavailableError,
     HandoffGenerationPipeline,
     HandoffService,
@@ -67,11 +68,12 @@ from powercontext.builtin.artifacts.memory import (
     MemoryService,
     MemoryWritePlan,
 )
+from powercontext.builtin.artifacts.memory.models import MemoryDreamCandidateProposal
 from powercontext.builtin.artifacts.profile import Profile
 from powercontext.builtin.artifacts.profile.management import ProfileManagementWriter
 from powercontext.builtin.artifacts.profile.models import ProfileCandidateProposal
 from powercontext.builtin.artifacts.profile.service import RelationalProfileService
-from powercontext.builtin.artifacts.prompt import Prompt, PromptRegistry
+from powercontext.builtin.artifacts.prompt import Prompt, PromptContent, PromptRegistry
 from powercontext.builtin.artifacts.prompt.builtin import builtin_prompt_definitions
 from powercontext.builtin.artifacts.prompt.service import (
     DemonstrationGenerator,
@@ -102,6 +104,7 @@ from powercontext.builtin.artifacts.topic_memory import (
     PublishedTopicMemory,
     TopicMemory,
     TopicMemoryBrowseCursor,
+    TopicMemoryContent,
     TopicMemoryCurrentItem,
     TopicMemorySearchMode,
     TopicMemorySearchResult,
@@ -166,7 +169,7 @@ from powercontext.builtin.review.generation import (
     ReviewedGenerationService,
     SkillGenerationOrigin,
 )
-from powercontext.builtin.review.models import ArtifactCandidate
+from powercontext.builtin.review.models import Candidate
 from powercontext.builtin.review.service import ReviewService
 from powercontext.builtin.runtime.models import (
     CommitConnectorCheckpoint,
@@ -245,7 +248,7 @@ if TYPE_CHECKING:
 
 MemorySnapshotAuthorizer = Callable[[Memory | None], Awaitable[None]]
 MemoryCommitHook = Callable[[AsyncConnection, Memory | None, Memory | None], Awaitable[None]]
-ExperienceCommitHook = Callable[[AsyncConnection, tuple[ArtifactCandidate[ExperienceContent], ...]], Awaitable[None]]
+ExperienceCommitHook = Callable[[AsyncConnection, tuple[Candidate[ExperienceContent], ...]], Awaitable[None]]
 
 
 def _artifact_identity(ref: ArtifactRef) -> tuple[str, str, int]:
@@ -305,6 +308,8 @@ class _ScopedServices:
     source_registry: SourceDefinitionRegistry
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
+    topic_writer: TopicMemoryManagementWriter
+    handoff_writer: HandoffManagementWriter
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -389,6 +394,10 @@ class _ScopedServices:
             id_factory=self.id_factory,
             evidence=self.evidence(),
             connection=connection,
+            memory=lambda bound: self.memory(self.sources(bound)[1], bound),
+            topic_writer=self.topic_writer,
+            handoff_writer=self.handoff_writer,
+            prompt_registry=self.prompts.registry,
         )
 
     def recurrence_ledger(self) -> RelationalRecurrenceLedger:
@@ -543,6 +552,10 @@ class RelationalContexts:
                 Experience.family: ExperienceContent,
                 Skill.family: SkillContent,
                 Profile.family: ProfileCandidateProposal,
+                Memory.family: MemoryDreamCandidateProposal,
+                TopicMemory.family: TopicMemoryContent,
+                Handoff.family: HandoffContent,
+                Prompt.family: PromptContent,
             }),
             connector_checkpoints=ConnectorCheckpointRepository(),
             source_definitions=SourceDefinitionManifestRepository(),
@@ -586,6 +599,17 @@ class RelationalContexts:
             max_concurrency=topic_memory_write_concurrency,
             usage_reporter=self.model_usage_reporter,
         )
+        self._topic_memory_writer = topic_memory_writer
+        handoff_writer = HandoffManagementWriter(
+            database=database,
+            artifacts=self.repositories.artifacts,
+            sources=self.repositories.sources,
+            memory_index=self.index,
+            id_factory=self._id_factory,
+            memory_artifact_id=memory_artifact_id,
+            handoff_artifact_id=handoff_artifact_id,
+        )
+        self._handoff_writer = handoff_writer
         family_writers = FamilyManagementWriterRegistry((
             topic_memory_writer,
             PromptManagementWriter(self.repositories.artifacts, self.prompt_registry),
@@ -603,15 +627,7 @@ class RelationalContexts:
                 self.experience_index,
                 self.repositories.skill_packages,
             ),
-            HandoffManagementWriter(
-                database=database,
-                artifacts=self.repositories.artifacts,
-                sources=self.repositories.sources,
-                memory_index=self.index,
-                id_factory=self._id_factory,
-                memory_artifact_id=memory_artifact_id,
-                handoff_artifact_id=handoff_artifact_id,
-            ),
+            handoff_writer,
         ))
         self.profiles = RelationalProfileService(
             database,
@@ -694,6 +710,19 @@ class RelationalContexts:
 
         return self._services_for(scope_id).review()
 
+    def catalog_changes(self, scope_id: str, connection: AsyncConnection | None = None):
+        from powercontext.builtin.catalog_changes.service import CatalogChangeService
+
+        services = self._services_for(scope_id)
+        return CatalogChangeService(
+            database=self.database,
+            scope_id=scope_id,
+            artifacts=self.repositories.artifacts,
+            evidence=services.evidence(),
+            id_factory=services.id_factory,
+            connection=connection,
+        )
+
     def dream(
         self,
         generator: DreamGenerator | None,
@@ -703,6 +732,7 @@ class RelationalContexts:
         authorize: DreamAuthorizer | None = None,
         authorization_context: AuthorizationContext = nullcontext,
         attest_candidate: CandidateAttester | None = None,
+        authorize_candidate: CandidateAttester | None = None,
         operations: tuple[DreamOperation, ...] = (),
         processing: ScopeInvocation | None = None,
     ) -> DreamService:
@@ -717,6 +747,8 @@ class RelationalContexts:
             authorize=authorize,
             authorization_context=authorization_context,
             attest_candidate=attest_candidate,
+            authorize_candidate=authorize_candidate,
+            catalog_changes=self.catalog_changes,
             operations=operations,
             processing=processing,
         )
@@ -1141,7 +1173,7 @@ class RelationalContexts:
         reason: str | None,
         target: ArtifactRef | None,
         /,
-    ) -> ArtifactCandidate[SkillContent]:
+    ) -> Candidate[SkillContent]:
         """Canonicalize an explicit upload and create a pending exact-import Candidate."""
 
         scope = validate_scope_id(scope_id)
@@ -1404,6 +1436,8 @@ class RelationalContexts:
             generation_receipts=self._generation_receipts,
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
+            topic_writer=self._topic_memory_writer,
+            handoff_writer=self._handoff_writer,
         )
 
 
@@ -1819,7 +1853,7 @@ class _RelationalExperienceIncubator:
             prompt_refs = () if selection is None or selection.artifact is None else (selection.artifact,)
             _validate_experience_plans(plans, eligible_rows)
             candidate_ids: list[str] = []
-            candidates: list[ArtifactCandidate[ExperienceContent]] = []
+            candidates: list[Candidate[ExperienceContent]] = []
             async with self._services.database.transaction() as connection:
                 if processing is not None:
                     await processing.guard(connection)

@@ -152,7 +152,7 @@ async def _scenario(url, token, scope_ids, report, settings):
         report["checks"].append("real_llm_pending_candidate_excluded")
 
         approved = await transport.post(
-            "/v1/artifact-candidates/approve",
+            "/v1/candidates/approve",
             json={"scope_id": current, "candidate_id": pending.json()["candidate_id"], "expected_version": 1},
         )
         assert approved.status_code == 200, approved.text

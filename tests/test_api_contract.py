@@ -24,11 +24,11 @@ import powercontext.http as http_models
 from powercontext.http import (
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
-    ApproveArtifactCandidateRequest,
-    ArtifactCandidate,
+    ApproveCandidateRequest,
     ArtifactCreated,
     ArtifactReference,
     ArtifactRevision,
+    Candidate,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
     CommitHandoffRequest,
@@ -69,7 +69,7 @@ from powercontext.http import (
     ProposeSkillRequest,
     RecordTaskOutcomeRequest,
     ResolveExternalSkillRequest,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
     ScanExternalSkillsRequest,
     ScanExternalSkillsResponse,
     ScopedStats,
@@ -87,7 +87,7 @@ from powercontext.http import (
 from powercontext.http._generated.operations import (
     ACKNOWLEDGE_HANDOFF,
     ACTIVATE_HANDOFF,
-    APPROVE_ARTIFACT_CANDIDATE,
+    APPROVE_CANDIDATE,
     CAPTURE_CONTENT_SOURCE,
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
@@ -104,8 +104,8 @@ from powercontext.http._generated.operations import (
     GENERATE_EXPERIENCE,
     GENERATE_SKILL,
     GET_ARTIFACT,
-    GET_ARTIFACT_CANDIDATE,
     GET_ARTIFACT_REVISION,
+    GET_CANDIDATE,
     GET_EXPERIENCE,
     GET_MEMORY_ENTRY,
     GET_READINESS,
@@ -116,8 +116,8 @@ from powercontext.http._generated.operations import (
     GET_TOPIC_MEMORY,
     HANDOFF_CURRENT_WORK,
     IMPORT_EXTERNAL_SKILL,
-    LIST_ARTIFACT_CANDIDATES,
     LIST_ARTIFACTS,
+    LIST_CANDIDATES,
     LIST_EXTERNAL_SKILLS,
     LIST_MANAGED_SKILLS,
     LIST_MEMORY_CHANGES,
@@ -134,13 +134,13 @@ from powercontext.http._generated.operations import (
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
     RECORD_TASK_OUTCOME,
-    REJECT_ARTIFACT_CANDIDATE,
+    REJECT_CANDIDATE,
     REMEMBER_MEMORY,
     RENAME_REMOTE_SKILL_TARGET,
     REPLACE_ARTIFACT,
     RESOLVE_EXTERNAL_SKILL,
     RETIRE_MEMORY_ENTRY,
-    REVISE_ARTIFACT_CANDIDATE,
+    REVISE_CANDIDATE,
     REVISE_MEMORY_ENTRY,
     REVOKE_REMOTE_SKILL_TARGET,
     SCAN_EXTERNAL_SKILLS,
@@ -271,6 +271,7 @@ def test_capabilities_report_semantics_without_runtime_tuning_values() -> None:
 
     assert set(properties) == {
         "artifact_dreaming",
+        "artifact_dreaming_operations",
         "source_types",
         "artifact_families",
         "memory_extraction",
@@ -483,16 +484,16 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
 
 def test_experience_skill_and_review_operations_are_typed_and_family_routed() -> None:
     review_operations = (
-        LIST_ARTIFACT_CANDIDATES,
-        GET_ARTIFACT_CANDIDATE,
-        APPROVE_ARTIFACT_CANDIDATE,
-        REJECT_ARTIFACT_CANDIDATE,
-        REVISE_ARTIFACT_CANDIDATE,
+        LIST_CANDIDATES,
+        GET_CANDIDATE,
+        APPROVE_CANDIDATE,
+        REJECT_CANDIDATE,
+        REVISE_CANDIDATE,
     )
 
     assert PROPOSE_EXPERIENCE.path == "/v1/experience/propose"
     assert PROPOSE_EXPERIENCE.request_type is ProposeExperienceRequest
-    assert PROPOSE_EXPERIENCE.response_type is ArtifactCandidate
+    assert PROPOSE_EXPERIENCE.response_type is Candidate
     assert PROPOSE_EXPERIENCE.success_status == 201
     assert GENERATE_EXPERIENCE.path == "/v1/experience/generate"
     assert GENERATE_EXPERIENCE.request_type is GenerateExperienceRequest
@@ -501,15 +502,15 @@ def test_experience_skill_and_review_operations_are_typed_and_family_routed() ->
     assert GET_EXPERIENCE.path == "/v1/experience/get"
     assert PROPOSE_SKILL.path == "/v1/skill/propose"
     assert PROPOSE_SKILL.request_type is ProposeSkillRequest
-    assert PROPOSE_SKILL.response_type is ArtifactCandidate
+    assert PROPOSE_SKILL.response_type is Candidate
     assert PROPOSE_SKILL.success_status == 201
     assert GENERATE_SKILL.path == "/v1/skill/generate"
     assert GENERATE_SKILL.request_type is GenerateSkillRequest
     assert GENERATE_SKILL.response_type is GeneratedCandidateResponse
     assert GENERATE_SKILL.success_status == 200
     assert GET_SKILL.path == "/v1/skill/get"
-    assert all(operation.path.startswith("/v1/artifact-candidates/") for operation in review_operations)
-    assert APPROVE_ARTIFACT_CANDIDATE.request_type is ApproveArtifactCandidateRequest
+    assert all(operation.path.startswith("/v1/candidates/") for operation in review_operations)
+    assert APPROVE_CANDIDATE.request_type is ApproveCandidateRequest
 
     contract = yaml.safe_load(CONTRACT_PATH.read_text())
     schemas = contract["components"]["schemas"]
@@ -525,19 +526,19 @@ def test_experience_skill_and_review_operations_are_typed_and_family_routed() ->
         "metadata",
         "allowed_tools",
     }
-    assert schemas["ListArtifactCandidatesRequest"]["properties"]["limit"] == {
+    assert schemas["ListCandidatesRequest"]["properties"]["limit"] == {
         "type": "integer",
         "minimum": 1,
         "maximum": 100,
         "default": 50,
     }
     for schema_name in (
-        "ArtifactCandidate",
+        "Candidate",
         "ProposeExperienceRequest",
         "GenerateExperienceRequest",
         "ProposeSkillRequest",
         "GenerateSkillRequest",
-        "ReviseArtifactCandidateRequest",
+        "ReviseCandidateRequest",
     ):
         properties = schemas[schema_name]["properties"]
         assert properties["source_refs"]["maxItems"] == 32
@@ -628,7 +629,7 @@ def test_candidate_transport_rejects_combined_evidence_over_limit() -> None:
     with pytest.raises(ValidationError, match="together must not exceed 32"):
         ProposeExperienceRequest.model_validate(over_limit)
     with pytest.raises(ValidationError, match="together must not exceed 32"):
-        ReviseArtifactCandidateRequest.model_validate({
+        ReviseCandidateRequest.model_validate({
             **over_limit,
             "candidate_id": "cand-1",
             "expected_version": 1,

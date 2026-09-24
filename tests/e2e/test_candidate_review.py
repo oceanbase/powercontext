@@ -31,19 +31,19 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.cli.app import create_cli
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CandidateFamily,
     CaptureContentSourceRequest,
     CreateScopeRequest,
     ExperienceProposal,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetExperienceRequest,
     GetSkillRequest,
-    ListArtifactCandidatesRequest,
+    ListCandidatesRequest,
     PrepareContextRequest,
     ProposeExperienceRequest,
     ProposeSkillRequest,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
     SkillProposal,
     SkillValidationItem,
 )
@@ -129,15 +129,15 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                     artifact_refs=[],
                 )
             )
-            inbox = await client.list_artifact_candidates(ListArtifactCandidatesRequest(scope_id=scope_id))
+            inbox = await client.list_candidates(ListCandidatesRequest(scope_id=scope_id))
             prepared = await client.prepare_context(
                 PrepareContextRequest(
                     scope_id=scope_id,
                     query="Regenerate the Client before contract tests.",
                 )
             )
-            revised = await client.revise_artifact_candidate(
-                ReviseArtifactCandidateRequest(
+            revised = await client.revise_candidate(
+                ReviseCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=candidate.candidate_id,
                     expected_version=1,
@@ -147,15 +147,15 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                 )
             )
             with pytest.raises(ServerResponseError) as stale:
-                await client.approve_artifact_candidate(
-                    ApproveArtifactCandidateRequest(
+                await client.approve_candidate(
+                    ApproveCandidateRequest(
                         scope_id=scope_id,
                         candidate_id=candidate.candidate_id,
                         expected_version=1,
                     )
                 )
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=candidate.candidate_id,
                     expected_version=2,
@@ -171,8 +171,8 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                     query="Regenerate and inspect the Client before contract tests.",
                 )
             )
-            exact_candidate = await client.get_artifact_candidate(
-                GetArtifactCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id)
+            exact_candidate = await client.get_candidate(
+                GetCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id)
             )
 
             skill_candidate = await client.propose_skill(
@@ -184,11 +184,11 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                     reason="Incubated from the approved Experience.",
                 )
             )
-            skill_inbox = await client.list_artifact_candidates(
-                ListArtifactCandidatesRequest(scope_id=scope_id, family=CandidateFamily.SKILL)
+            skill_inbox = await client.list_candidates(
+                ListCandidatesRequest(scope_id=scope_id, family=CandidateFamily.SKILL)
             )
-            skill_approval = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            skill_approval = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=skill_candidate.candidate_id,
                     expected_version=1,
@@ -217,8 +217,8 @@ def test_http_sdk_experience_review_vertical_slice(database_kind: str, tmp_path:
                     reason="Usage evidence made the generation check explicit.",
                 )
             )
-            replacement_approval = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            replacement_approval = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=replacement.candidate_id,
                     expected_version=1,
@@ -286,25 +286,25 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(  # noqa: C901
             assert self._transport is not None
             await self._transport.aclose()
 
-        async def list_artifact_candidates(self, request):
+        async def list_candidates(self, request):
             assert self._client is not None
-            return await self._client.list_artifact_candidates(request)
+            return await self._client.list_candidates(request)
 
-        async def get_artifact_candidate(self, request):
+        async def get_candidate(self, request):
             assert self._client is not None
-            return await self._client.get_artifact_candidate(request)
+            return await self._client.get_candidate(request)
 
-        async def approve_artifact_candidate(self, request):
+        async def approve_candidate(self, request):
             assert self._client is not None
-            return await self._client.approve_artifact_candidate(request)
+            return await self._client.approve_candidate(request)
 
-        async def reject_artifact_candidate(self, request):
+        async def reject_candidate(self, request):
             assert self._client is not None
-            return await self._client.reject_artifact_candidate(request)
+            return await self._client.reject_candidate(request)
 
-        async def revise_artifact_candidate(self, request):
+        async def revise_candidate(self, request):
             assert self._client is not None
-            return await self._client.revise_artifact_candidate(request)
+            return await self._client.revise_candidate(request)
 
         async def get_skill(self, request):
             assert self._client is not None
@@ -399,7 +399,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(  # noqa: C901
             ],
         )
         approved_head = transport.post(
-            "/v1/artifact-candidates/get",
+            "/v1/candidates/get",
             json={"scope_id": scope_id, "candidate_id": first["candidate_id"]},
         ).json()
         experience_ref = approved_head["result_artifact"]
@@ -413,7 +413,7 @@ def test_candidate_cli_lists_shows_revises_approves_and_rejects(  # noqa: C901
             },
         ).json()
         skill_approved = transport.post(
-            "/v1/artifact-candidates/approve",
+            "/v1/candidates/approve",
             json={
                 "scope_id": scope_id,
                 "candidate_id": skill_candidate["candidate_id"],

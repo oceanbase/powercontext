@@ -897,9 +897,9 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	list_artifact_candidates: {
+	list_candidates: {
 		method: "POST",
-		path: "/v1/artifact-candidates/list",
+		path: "/v1/candidates/list",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -908,9 +908,9 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	get_artifact_candidate: {
+	get_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/get",
+		path: "/v1/candidates/get",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -919,9 +919,9 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	approve_artifact_candidate: {
+	approve_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/approve",
+		path: "/v1/candidates/approve",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -930,9 +930,9 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	reject_artifact_candidate: {
+	reject_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/reject",
+		path: "/v1/candidates/reject",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -941,9 +941,20 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
-	revise_artifact_candidate: {
+	revise_candidate: {
 		method: "POST",
-		path: "/v1/artifact-candidates/revise",
+		path: "/v1/candidates/revise",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
+	get_candidate_history: {
+		method: "POST",
+		path: "/v1/candidates/history",
 		location: "body",
 		scopeMode: "current",
 		pathParameters: [],
@@ -1562,6 +1573,7 @@ var PowerContextClient = class {
 	}
 	init(spec, request, signal) {
 		const headers = {
+			"X-PowerContext-Dream-Contract": "2",
 			Accept: "application/json",
 			"User-Agent": PLUGIN_USER_AGENT,
 			...request.headers
@@ -2318,7 +2330,7 @@ function createTools(runtime) {
 				]).optional(),
 				family: z.enum(["experience", "skill"]).optional()
 			},
-			operationId: "list_artifact_candidates",
+			operationId: "list_candidates",
 			payload: (args) => ({
 				status: args.status ?? "pending",
 				family: args.family
@@ -2327,7 +2339,7 @@ function createTools(runtime) {
 		pc_review_get: operationTool(runtime, {
 			description: "Inspect one PowerContext artifact candidate by candidate_id before discussing a requested review. Read its proposal, evidence, status, and version. Inspection grants no approval authority; do not treat a pending candidate as an active artifact. Review mutations are not exposed as model tools in this host.",
 			args: { candidate_id: z.string() },
-			operationId: "get_artifact_candidate",
+			operationId: "get_candidate",
 			payload: (args) => ({ candidate_id: args.candidate_id })
 		})
 	};

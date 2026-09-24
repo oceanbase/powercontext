@@ -93,6 +93,7 @@ from powercontext.builtin.inference import (
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.cursors import SourceCursorRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError, GenerationConflictError
 from powercontext.builtin.persistence.sources import SourceRepository, StoredSource
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence, ArtifactProcessingLeaseRepository
@@ -1541,8 +1542,57 @@ async def _run_topic_memory_worker(
     spec: TopicMemoryWorkerSpec,
     assignment: ArtifactProcessingWorkAssignment,
 ) -> ArtifactProcessingWorkerCompletion:
+    if await _process_topic_dream_if_pending(spec, assignment):
+        return ArtifactProcessingWorkerCompletion()
     async with _open_topic_memory_processor(spec, assignment.scope_id) as processor:
         return await processor.process(assignment)
+
+
+async def _process_topic_dream_if_pending(
+    spec: TopicMemoryWorkerSpec, assignment: ArtifactProcessingWorkAssignment
+) -> bool:
+    """Dispatch explicit Dream work without consuming the Topic Source cursor."""
+
+    from powercontext.builtin.dream.bindings import operations_for_binding
+    from powercontext.builtin.inference.usage import UsageReportingEmbeddingModel
+    from powercontext.builtin.runtime.composition import _dream_generator, _embedding_models, open_builtin_contexts
+    from powercontext.builtin.runtime.dream_processing import process_dream_invocation
+
+    operations = operations_for_binding(assignment.binding_name)
+    if not operations or not spec.config.runtime.dream_enabled:
+        return False
+    async with AsyncExitStack() as resources:
+        raw_embedding, _ = await _embedding_models(
+            spec.config.inference, resources, None, disable_provider_retries=True
+        )
+        embedding = None if raw_embedding is None else UsageReportingEmbeddingModel(raw_embedding)
+        contexts = await resources.enter_async_context(
+            open_builtin_contexts(spec.config, embedding_model=embedding, _topic_memory_worker=True)
+        )
+        async with contexts.database.transaction() as connection:
+            record = await DreamRepository().next_pending(
+                connection,
+                assignment.scope_id,
+                operations,
+                through_generation=assignment.claimed_request_generation,
+            )
+        if record is None:
+            return False
+        generator = await _dream_generator(spec.config.inference, record.run.budget, resources, None)
+        security = None
+        if spec.worker_security is not None:
+            from powercontext.server.processing_security import open_worker_security
+
+            security = await resources.enter_async_context(
+                open_worker_security(spec.worker_security, contexts.database)
+            )
+        return await process_dream_invocation(
+            contexts,
+            assignment,
+            config=spec.config,
+            generator=generator,
+            security=security,
+        )
 
 
 @asynccontextmanager

@@ -83,6 +83,10 @@ class _SeekDBModule:
         return self.instance
 
 
+async def _skip_candidate_migration(_engine: AsyncEngine) -> None:
+    """These profile unit tests use engine doubles; migration has integration coverage."""
+
+
 class _TerminatingConnection:
     def __init__(self) -> None:
         self.terminated = False
@@ -152,6 +156,7 @@ def test_profile_closes_engine_before_instance(tmp_path, monkeypatch: pytest.Mon
         monkeypatch.setattr(seekdb_profile_module, "_load_binding", lambda: module)
         monkeypatch.setattr(seekdb_profile_module, "_create_engine", lambda _config, _options: engine)
         monkeypatch.setattr(seekdb_profile_module, "create_tables", create_no_tables)
+        monkeypatch.setattr(seekdb_profile_module, "migrate_candidate_schema", _skip_candidate_migration)
 
         async with SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=()):
             pass
@@ -185,6 +190,7 @@ def test_profile_finishes_shutdown_before_propagating_repeated_cancellation(
         monkeypatch.setattr(seekdb_profile_module, "_load_binding", lambda: module)
         monkeypatch.setattr(seekdb_profile_module, "_create_engine", lambda _config, _options: engine)
         monkeypatch.setattr(seekdb_profile_module, "create_tables", create_no_tables)
+        monkeypatch.setattr(seekdb_profile_module, "migrate_candidate_schema", _skip_candidate_migration)
         monkeypatch.setattr(AsyncDatabase, "close", observe_close)
 
         context = SeekDBProfile.open(SeekDBConfig(path=tmp_path / "seekdb"), tables=())

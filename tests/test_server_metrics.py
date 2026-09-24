@@ -61,7 +61,7 @@ def test_http_metrics_use_declared_operations_and_exclude_infrastructure(tmp_pat
         scope_id = client.get("/v1/scopes/default").json()["scope_id"]
         assert client.get("/v1/capabilities").status_code == 200
         assert client.post("/v1/memory/flush", json={"scope_id": scope_id}).status_code == 200
-        assert client.post("/v1/artifact-candidates/list", json={"scope_id": scope_id}).status_code == 200
+        assert client.post("/v1/candidates/list", json={"scope_id": scope_id}).status_code == 200
         assert client.get("/health/live").status_code == 200
         response = client.get("/metrics")
 
@@ -74,12 +74,11 @@ def test_http_metrics_use_declared_operations_and_exclude_infrastructure(tmp_pat
     )
     assert 'powercontext_server_application_operations_total{operation="flush_memory",outcome="noop"} 1.0' in metrics
     assert (
-        'powercontext_server_transport_requests_total{operation="list_artifact_candidates",outcome="success",transport="http"} 1.0'
+        'powercontext_server_transport_requests_total{operation="list_candidates",outcome="success",transport="http"} 1.0'
         in metrics
     )
     assert (
-        'powercontext_server_application_operations_total{operation="list_artifact_candidates",outcome="success"} 1.0'
-        in metrics
+        'powercontext_server_application_operations_total{operation="list_candidates",outcome="success"} 1.0' in metrics
     )
     assert "get_liveness" not in metrics
     assert "project:metrics" not in metrics

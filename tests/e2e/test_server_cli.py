@@ -78,6 +78,7 @@ def test_capabilities_flow_through_server_sdk_and_cli(monkeypatch: pytest.Monkey
         "managed_skill_generation": False,
         "external_skill_registry": False,
         "artifact_dreaming": False,
+        "artifact_dreaming_operations": [],
         "handoff_generation": True,
         "search_modes": ["fts"],
         "context_versions": ["powercontext.prepared-context.v1"],

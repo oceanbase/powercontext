@@ -57,6 +57,7 @@ class DashboardAPI:
         self.app = request.app
         headers = authentication_headers(request.scope)
         headers = {key: value for key, value in headers.items() if key in {"authorization", "cookie"}}
+        headers["X-PowerContext-Dream-Contract"] = "2"
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=request.app, raise_app_exceptions=False),
             base_url=str(request.base_url),
