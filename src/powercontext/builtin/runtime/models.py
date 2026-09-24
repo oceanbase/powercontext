@@ -251,6 +251,7 @@ class PrepareContextRequest(_PreparedContextModel):
     query: Annotated[str, Field(min_length=1, max_length=8192)]
     max_bytes: Annotated[int, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
+    include_code: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod

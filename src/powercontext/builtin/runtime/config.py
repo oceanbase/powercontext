@@ -40,6 +40,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.code.models import CodeConfig
 from powercontext.builtin.dream.models import DreamBudget
 from powercontext.builtin.inference import character_token_estimator
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
@@ -403,6 +404,7 @@ def normalize_database_discriminator(value: Any) -> Any:
 class BuiltinConfig(BaseModel):
     """Configuration for one built-in runtime and its database."""
 
+    code: CodeConfig = Field(default_factory=CodeConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=SQLiteConfig, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)

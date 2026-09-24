@@ -331,6 +331,17 @@ const OPERATIONS = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	query_code: {
+		method: "POST",
+		path: "/v1/scopes/{scope_id}/code/query",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: ["scope_id"],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	prepare_context: {
 		method: "POST",
 		path: "/v1/context/prepare",

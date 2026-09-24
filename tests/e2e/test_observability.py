@@ -139,7 +139,11 @@ _STAGE_ATTRIBUTE_KEYS = {
         "powercontext.context.build.topic_memory_candidate_count",
         "powercontext.context.build.experience_candidate_count",
         "powercontext.context.build.profile_candidate_count",
+        "powercontext.context.build.code_candidate_count",
         "powercontext.context.build.selected_count",
+        "powercontext.context.build.code_selected_count",
+        "powercontext.context.build.code_injected_count",
+        "powercontext.context.build.code_omitted_count",
         "powercontext.context.build.status",
         "powercontext.context.build.content_bytes",
     },
@@ -933,6 +937,13 @@ def test_memory_read_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) -
     assert (empty_context.attributes or {})["powercontext.context.build.selected_count"] == 0
     assert (empty_context.attributes or {})["powercontext.context.build.status"] == "empty"
     assert (empty_context.attributes or {})["powercontext.context.build.content_bytes"] == 0
+
+    for context in (ready_context, empty_context):
+        attributes = dict(context.attributes or {})
+        assert attributes["powercontext.context.build.code_candidate_count"] == 0
+        assert attributes["powercontext.context.build.code_selected_count"] == 0
+        assert attributes["powercontext.context.build.code_injected_count"] == 0
+        assert attributes["powercontext.context.build.code_omitted_count"] == 0
 
     for span in spans:
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)

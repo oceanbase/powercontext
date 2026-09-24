@@ -76,6 +76,7 @@ _CURRENT_OPERATIONS = frozenset({
     "propose_skill",
     "propose_skill_package",
     "publish_remote_skill",
+    "query_code",
     "record_skill_usage",
     "record_task_outcome",
     "reject_candidate",

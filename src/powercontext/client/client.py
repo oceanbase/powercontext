@@ -55,6 +55,8 @@ from powercontext.http import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CodeQueryRequest,
+    CodeQueryResponse,
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
@@ -277,6 +279,7 @@ from powercontext.http._generated.operations import (
     PUBLISH_REMOTE_SKILL,
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
+    QUERY_CODE,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -915,6 +918,10 @@ class PowerContextClient:
         """Read one exact immutable Topic Memory revision."""
 
         return await self._request(GET_TOPIC_MEMORY, request)
+
+    async def query_code(self, scope_id: str, request: CodeQueryRequest) -> CodeQueryResponse:
+        """Read bounded native code evidence for an explicitly authorized Scope."""
+        return await self._request(QUERY_CODE, request, path_parameters={"scope_id": scope_id})
 
     async def prepare_context(self, request: PrepareContextRequest) -> PreparedContext:
         """Prepare final bounded context for one Agent turn."""

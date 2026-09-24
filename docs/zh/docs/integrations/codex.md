@@ -208,8 +208,8 @@ MCP 显示 connected 也不等于 Source 已采集。
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | 未设置 | 完整 `Bearer <token>` 运行时覆盖；setup 保存后供后续 Hook 和原生 MCP 连接使用 |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | 把用户提示词采集为 Source 证据 |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | 采集后等待 Source 处理 |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Hook 单次请求超时 |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Hook 共享 HTTP 时间预算 |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Hook 单次请求超时 |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Hook 共享 HTTP 时间预算 |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | 每个提示词最多执行的 flush 次数 |
 
 Hook 默认允许环回 HTTP，远程 HTTP 需要显式同意，HTTPS 证书校验仍然启用。setup 会保存同意并更新已安装插件的

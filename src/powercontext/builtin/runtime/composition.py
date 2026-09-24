@@ -59,6 +59,7 @@ from powercontext.builtin.artifacts.topic_memory.generation import (
     topic_memory_stage_budget,
     validate_topic_memory_stage_capacity,
 )
+from powercontext.builtin.code.configuration import open_code_service
 from powercontext.builtin.dream.bindings import DREAM_OPERATIONS, operation_spec
 from powercontext.builtin.dream.generation import (
     DREAM_INSTRUCTIONS,
@@ -468,6 +469,7 @@ async def open_builtin_runtime(
         topic_memory_processing_available = _topic_memory_processing_available(config, processing_bindings)
         runtime = await resources.enter_async_context(
             BuiltinRuntime(
+                code_service=await resources.enter_async_context(open_code_service(config.code, config.database)),
                 provider=contexts,
                 capabilities=RuntimeCapabilities(
                     memory_extraction=contexts.memory_extraction,

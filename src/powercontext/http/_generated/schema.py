@@ -787,6 +787,63 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 },
             }
         },
+        "/v1/scopes/{scope_id}/code/query": {
+            "post": {
+                "tags": ["code"],
+                "summary": "Query current repository code evidence",
+                "description": "Read a bounded native Git "
+                "code index for the "
+                "authorized Scope. Use "
+                "symbols or explore before "
+                "relation or read "
+                "operations, then pass the "
+                "returned fingerprint. "
+                "Results are static "
+                "evidence with explicit "
+                "limitations. Queries "
+                "never build indexes, "
+                "execute repository code, "
+                "or persist history. "
+                "code_changed requires "
+                "local sync before retry.",
+                "operationId": "query_code",
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+                "parameters": [
+                    {
+                        "name": "scope_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": ".*\\S.*"},
+                    }
+                ],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CodeQueryRequest"}}},
+                },
+                "responses": {
+                    "200": {
+                        "description": "Bounded code evidence or index status.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CodeQueryResponse"}}},
+                    },
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "409": {"$ref": "#/components/responses/Conflict"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                    "501": {
+                        "description": "The requested code capability is unsupported.",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+                    },
+                },
+            }
+        },
         "/v1/context/prepare": {
             "post": {
                 "tags": ["context"],
@@ -7659,11 +7716,285 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["memory_ref", "changes"],
             },
+            "CodeChangesOperation": {
+                "properties": {"kind": {"type": "string", "enum": ["changes"]}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind"],
+            },
+            "CodeMapOperation": {
+                "properties": {
+                    "path_prefix": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                    "kind": {"type": "string", "enum": ["map"]},
+                    "depth": {"type": "integer", "maximum": 5.0, "minimum": 1.0, "default": 2},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind"],
+                "description": "path_prefix is empty or a "
+                "normalized repository-relative "
+                "path, without dot segments, "
+                "backslashes, colons or NUL.",
+                "x-powercontext-code-validation": "operation",
+            },
+            "CodeReadOperation": {
+                "properties": {
+                    "kind": {"type": "string", "enum": ["read"]},
+                    "path": {"type": "string"},
+                    "file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "start_line": {"type": "integer", "minimum": 1.0},
+                    "end_line": {"type": "integer", "minimum": 1.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "path", "file_sha256", "start_line", "end_line"],
+                "description": "Read a normalized "
+                "repository-relative path without "
+                "dot segments, backslashes, "
+                "colons or NUL. The inclusive "
+                "range must contain 1 to 200 "
+                "lines (start_line <= end_line < "
+                "start_line + 200).",
+                "x-powercontext-code-validation": "operation",
+            },
+            "CodeRelationOperation": {
+                "properties": {
+                    "path_prefix": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                    "kind": {"type": "string", "enum": ["callers", "callees", "impact"]},
+                    "symbol_id": {"type": "string", "maxLength": 128, "minLength": 1},
+                    "depth": {"type": "integer", "maximum": 5.0, "minimum": 1.0, "default": 2},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "symbol_id"],
+                "description": "path_prefix is empty or a "
+                "normalized "
+                "repository-relative path, "
+                "without dot segments, "
+                "backslashes, colons or NUL.",
+                "x-powercontext-code-validation": "operation",
+            },
+            "CodeSearchOperation": {
+                "properties": {
+                    "path_prefix": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                    "kind": {"type": "string", "enum": ["symbols", "explore"]},
+                    "query": {"type": "string", "maxLength": 8192, "minLength": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "query"],
+                "description": "query must contain "
+                "non-whitespace text. "
+                "path_prefix is empty or a "
+                "normalized repository-relative "
+                "path, without dot segments, "
+                "backslashes, colons or NUL.",
+                "x-powercontext-code-validation": "operation",
+            },
+            "CodeStatusOperation": {
+                "properties": {"kind": {"type": "string", "enum": ["status"]}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind"],
+            },
+            "CodeTestsOperation": {
+                "properties": {
+                    "path_prefix": {"type": "string", "default": ""},
+                    "limit": {"type": "integer", "maximum": 50.0, "minimum": 1.0, "default": 20},
+                    "kind": {"type": "string", "enum": ["affected_tests", "impact_changes"]},
+                    "paths": {"items": {"type": "string"}, "type": "array", "maxItems": 100, "minItems": 1},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["kind", "paths"],
+                "description": "paths must be unique normalized "
+                "repository-relative paths, "
+                "without dot segments, "
+                "backslashes, colons or NUL. "
+                "path_prefix follows the same "
+                "rules but may be empty.",
+                "x-powercontext-code-validation": "operation",
+            },
+            "CodeQueryRequest": {
+                "properties": {
+                    "operation": {
+                        "oneOf": [
+                            {"$ref": "#/components/schemas/CodeStatusOperation"},
+                            {"$ref": "#/components/schemas/CodeChangesOperation"},
+                            {"$ref": "#/components/schemas/CodeMapOperation"},
+                            {"$ref": "#/components/schemas/CodeSearchOperation"},
+                            {"$ref": "#/components/schemas/CodeRelationOperation"},
+                            {"$ref": "#/components/schemas/CodeTestsOperation"},
+                            {"$ref": "#/components/schemas/CodeReadOperation"},
+                        ],
+                        "type": "object",
+                        "description": "Operation "
+                        "object, "
+                        "never "
+                        "a "
+                        "string. "
+                        "Start "
+                        "with "
+                        '{"kind":"explore","query":"symbol '
+                        "or "
+                        'task"} '
+                        "or "
+                        '{"kind":"symbols","query":"name"}. '
+                        "For "
+                        "callers/callees/impact "
+                        "pass "
+                        "symbol_id "
+                        "inside "
+                        "operation "
+                        "and "
+                        "the "
+                        "returned "
+                        "expected_fingerprint "
+                        "at "
+                        "the "
+                        "request "
+                        "root.",
+                        "discriminator": {
+                            "propertyName": "kind",
+                            "mapping": {
+                                "status": "#/components/schemas/CodeStatusOperation",
+                                "changes": "#/components/schemas/CodeChangesOperation",
+                                "map": "#/components/schemas/CodeMapOperation",
+                                "symbols": "#/components/schemas/CodeSearchOperation",
+                                "explore": "#/components/schemas/CodeSearchOperation",
+                                "callers": "#/components/schemas/CodeRelationOperation",
+                                "callees": "#/components/schemas/CodeRelationOperation",
+                                "impact": "#/components/schemas/CodeRelationOperation",
+                                "affected_tests": "#/components/schemas/CodeTestsOperation",
+                                "impact_changes": "#/components/schemas/CodeTestsOperation",
+                                "read": "#/components/schemas/CodeReadOperation",
+                            },
+                        },
+                    },
+                    "expected_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "before_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0, "default": 16000},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["operation"],
+                "description": "callers, callees, impact, "
+                "affected_tests, impact_changes "
+                "and read require "
+                "expected_fingerprint. "
+                "impact_changes also requires "
+                "before_fingerprint; other "
+                "operations must omit it or set it "
+                "to null.",
+                "x-powercontext-code-validation": "query",
+            },
+            "CodeQueryResult": {
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "enum": ["powercontext.code-query.v1"],
+                        "default": "powercontext.code-query.v1",
+                    },
+                    "scope_id": {"type": "string"},
+                    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "before_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "commit": {"type": "string", "nullable": True},
+                    "git_object_format": {"type": "string", "enum": ["sha1", "sha256"]},
+                    "dirty": {"type": "boolean"},
+                    "checked_at": {"type": "string"},
+                    "operation": {"type": "string"},
+                    "status": {"type": "string", "enum": ["ok", "partial"], "default": "ok"},
+                    "items": {"items": {"additionalProperties": {}, "type": "object"}, "type": "array"},
+                    "coverage": {"additionalProperties": {}, "type": "object"},
+                    "limitations": {"items": {"type": "string"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "scope_id",
+                    "fingerprint",
+                    "commit",
+                    "git_object_format",
+                    "dirty",
+                    "checked_at",
+                    "operation",
+                ],
+            },
+            "CodeStatus": {
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "enum": ["powercontext.code-status.v1"],
+                        "default": "powercontext.code-status.v1",
+                    },
+                    "scope_id": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["disabled", "missing", "building", "ready", "stale", "failed"],
+                    },
+                    "freshness": {"type": "string", "enum": ["fresh", "stale", "unknown"], "default": "unknown"},
+                    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$", "nullable": True},
+                    "engine": {"type": "string", "default": "powercontext-native-v1"},
+                    "languages": {
+                        "items": {"type": "string"},
+                        "type": "array",
+                        "default": ["python", "javascript", "typescript", "go"],
+                    },
+                    "operations": {
+                        "items": {"type": "string"},
+                        "type": "array",
+                        "default": [
+                            "status",
+                            "map",
+                            "symbols",
+                            "explore",
+                            "callers",
+                            "callees",
+                            "impact",
+                            "affected_tests",
+                            "read",
+                            "changes",
+                            "impact_changes",
+                        ],
+                    },
+                    "last_build": {"additionalProperties": {}, "type": "object", "nullable": True},
+                    "reason": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id", "status"],
+            },
+            "CodeQueryResponse": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/CodeQueryResult"},
+                    {"$ref": "#/components/schemas/CodeStatus"},
+                ],
+                "type": "object",
+            },
             "PrepareContextRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
                     "query": {"type": "string", "maxLength": 8192, "minLength": 1, "pattern": ".*\\S.*"},
                     "max_bytes": {"type": "integer", "maximum": 32768.0, "minimum": 512.0, "default": 8000},
+                    "include_code": {
+                        "type": "boolean",
+                        "description": "Opt "
+                        "into "
+                        "current-Scope "
+                        "native "
+                        "code "
+                        "evidence. "
+                        "No "
+                        "index "
+                        "is "
+                        "built "
+                        "during "
+                        "preparation.",
+                        "default": False,
+                    },
                     "assembly": {"$ref": "#/components/schemas/ContextAssembly"},
                 },
                 "additionalProperties": False,

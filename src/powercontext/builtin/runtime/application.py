@@ -119,6 +119,10 @@ from powercontext.builtin.artifacts.topic_memory import (
 from powercontext.builtin.catalog_changes.application import CatalogChangeApplication
 from powercontext.builtin.catalog_changes.models import CatalogChangeProposal, TagDreamTarget
 from powercontext.builtin.catalog_changes.service import CatalogChangeService
+from powercontext.builtin.code.application import CodeApplication
+from powercontext.builtin.code.errors import CodeError
+from powercontext.builtin.code.models import CodeConfig, CodeQueryRequest, CodeQueryResult
+from powercontext.builtin.code.service import CodeService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.dream.application import DreamApplication
 from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorizer, DreamService
@@ -208,6 +212,7 @@ from powercontext.builtin.runtime.models import (
     SubmitSourceObservation,
     TopicMemoryFlushResult,
 )
+from powercontext.builtin.runtime.prepared_code import PreparedCodeCandidate, code_candidates
 from powercontext.builtin.runtime.prepared_context import (
     PreparedContextBuild,
     PreparedContextBuilder,
@@ -840,7 +845,7 @@ class ScopedContextApplication:
         ):
             raise InvalidRuntimeRequestError("context-assembly-entry-limit")
         async with self._runtime._scope_operation(self.scope_id) as scope:
-            if request.assembly is not None and not request.assembly.sections:
+            if request.assembly is not None and not request.assembly.sections and not request.include_code:
                 return PreparedContextBuilder().empty()
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
@@ -904,6 +909,8 @@ class ScopedContextApplication:
         """
 
         builder = PreparedContextBuilder()
+        if request.include_code:
+            builder.entry_limit = self._runtime.context_assembly_max_entries
         scope_ids = [self.scope_id, *scope.context_references]
         families: set[str] = (
             {section.family for section in request.assembly.sections}
@@ -958,6 +965,7 @@ class ScopedContextApplication:
                 topic_reuse=topic_reuse,
                 round_zero=round_zero,
             )
+        code = await self._code_candidates(request) if request.include_code else ()
         with self._runtime._stage(
             "context.build",
             attributes={
@@ -970,6 +978,7 @@ class ScopedContextApplication:
                     len(candidates.hits) for candidates in experience_candidates
                 ),
                 "powercontext.context.build.profile_candidate_count": len(profile_candidates),
+                "powercontext.context.build.code_candidate_count": len(code),
             },
         ) as span:
             build = builder.build_scopes_result(
@@ -979,6 +988,7 @@ class ScopedContextApplication:
                 topic_memory_hits=topic_memory_hits,
                 experience_candidates=experience_candidates,
                 profile_candidates=profile_candidates,
+                code_candidates=code,
             )
             if recall_effort is not None:
                 recall_effort = replace(
@@ -990,7 +1000,10 @@ class ScopedContextApplication:
                 )
             if span is not None:
                 span.set_attributes({
-                    "powercontext.context.build.selected_count": len(build.origins),
+                    "powercontext.context.build.selected_count": len(build.origins) + len(build.code_origins),
+                    "powercontext.context.build.code_selected_count": len(build.code_origins),
+                    "powercontext.context.build.code_injected_count": len(build.code_origins),
+                    "powercontext.context.build.code_omitted_count": max(0, len(code) - len(build.code_origins)),
                     "powercontext.context.build.status": build.context.status,
                     "powercontext.context.build.content_bytes": build.context.content_bytes,
                 })
@@ -1005,6 +1018,37 @@ class ScopedContextApplication:
                         "powercontext.context.build.recall.dropped_items": recall_effort.dropped_items,
                     })
         return build, recall_effort
+
+    async def _code_candidates(self, request: PrepareContextRequest) -> tuple[PreparedCodeCandidate, ...]:
+        try:
+            result = await self._runtime.code.for_scope(self.scope_id).query(
+                CodeQueryRequest.model_validate({
+                    "operation": {"kind": "explore", "query": request.query},
+                    "max_bytes": 16000,
+                })
+            )
+        except CodeError as error:
+            log_safely(
+                logger,
+                logging.INFO,
+                "Code context unavailable",
+                extra={
+                    "event": "context.code.unavailable",
+                    "reason": error.code,
+                },
+            )
+            return ()
+        candidates = code_candidates(result) if isinstance(result, CodeQueryResult) else ()
+        log_safely(
+            logger,
+            logging.INFO,
+            "Code context retrieved",
+            extra={
+                "event": "context.code.retrieved",
+                "candidate_count": len(candidates),
+            },
+        )
+        return candidates
 
     async def _gated_recall_effort(  # noqa: C901 - the bounded expansion loop is intentionally explicit
         self,
@@ -2946,6 +2990,7 @@ class BuiltinRuntime:
         *,
         provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         capabilities: RuntimeCapabilities,
+        code_service: CodeService | None = None,
         source_window_limit: int = 100,
         context_assembly_max_entries: int = 8,
         recall_sufficiency_policy: RecallSufficiencyPolicy | None = None,
@@ -3069,6 +3114,7 @@ class BuiltinRuntime:
         self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
         self.ingestion = RemoteIngestionApplication(self, remote_ingestion)
+        self.code = CodeApplication(self, code_service or CodeService(CodeConfig()))
         self.context = ContextApplication(self)
         self.experience = ExperienceApplication(self)
         self.dream = DreamApplication(self)

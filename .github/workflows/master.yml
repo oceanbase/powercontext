@@ -65,6 +65,27 @@ jobs:
       - name: Run end-to-end tests
         run: make e2e-test
 
+  code-seekdb:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Test code indexing with embedded seekdb
+        run: make code-seekdb-test
+
   windows-unit-portability:
     timeout-minutes: 20
     runs-on: windows-latest
@@ -85,6 +106,13 @@ jobs:
 
       - name: Verify spawned worker lifecycle on Windows
         run: uv run --locked --no-sync pytest -q tests/builtin/runtime/test_artifact_processing.py
+
+      - name: Verify unsupported native indexing is skipped on Windows
+        run: >-
+          uv run --locked --no-sync pytest -q
+          tests/builtin/test_native_code.py
+          tests/builtin/test_native_code_multilanguage.py
+          tests/e2e/test_native_code_multilanguage.py
 
       - name: Exercise fixtures without Windows long-path support
         shell: pwsh

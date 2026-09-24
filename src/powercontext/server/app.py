@@ -118,6 +118,9 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchResult,
 )
 from powercontext.builtin.catalog_changes.models import CatalogChangeCandidate as RuntimeTagCandidate
+from powercontext.builtin.code.application import CodeApplication
+from powercontext.builtin.code.errors import CodeError
+from powercontext.builtin.code.models import CodeQueryRequest as RuntimeCodeQueryRequest
 from powercontext.builtin.dream.application import DreamApplication
 from powercontext.builtin.dream.models import CreateDreamRunRequest as RuntimeCreateDreamRunRequest
 from powercontext.builtin.dream.models import DreamError
@@ -407,6 +410,8 @@ from powercontext.http import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CodeQueryRequest,
+    CodeQueryResponse,
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
@@ -713,6 +718,7 @@ from powercontext.http._generated.operations import (
     PUBLISH_REMOTE_SKILL,
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
+    QUERY_CODE,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -1225,6 +1231,7 @@ class ServerApplication(Protocol):
     sources: _SourceApplication
     records: _RecordApplication
     ingestion: _RemoteIngestionApplication
+    code: CodeApplication
     context: _ContextApplication
     experience: _ExperienceApplication
     external_skills: _ExternalSkillApplication
@@ -1420,6 +1427,7 @@ def create_app(
     _add_route(app, REMEMBER_MEMORY, remember_memory)
     _add_route(app, SEARCH_MEMORY, search_memory)
     _add_route(app, PREPARE_CONTEXT, prepare_context)
+    _add_route(app, QUERY_CODE, query_code)
     _add_route(app, CREATE_WORK_CONTRACT, create_work_contract)
     _add_route(app, HANDOFF_CURRENT_WORK, handoff_current_work)
     _add_route(app, ACKNOWLEDGE_HANDOFF, acknowledge_handoff)
@@ -2890,6 +2898,19 @@ async def search_memory(
 ) -> SearchMemoryResponse:
     result = await application.memory.for_scope(request.scope_id).search(mapping.search_request(request))
     return mapping.search_response(result)
+
+
+async def query_code(
+    scope_id: Annotated[str, Path(min_length=1, max_length=256, pattern=r".*\S.*")],
+    request: CodeQueryRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> CodeQueryResponse:
+    try:
+        query = RuntimeCodeQueryRequest.model_validate_json(request.model_dump_json(exclude_unset=True))
+    except ValueError as error:
+        raise CodeError("invalid_code_request", status=422) from error
+    result = await application.code.for_scope(scope_id).query(query)
+    return CodeQueryResponse.model_validate_json(result.model_dump_json(by_alias=True))
 
 
 async def prepare_context(
@@ -5216,6 +5237,8 @@ def _set_error_headers(response: Response, error: Exception) -> None:
 def _map_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None]:
     if isinstance(error, DreamError) and error.code == "client_upgrade_required":
         return 426, error.code, "Upgrade to a client supporting Dream contract 2.", {"required_dream_contract": 2}
+    if isinstance(error, CodeError):
+        return error.status, error.code, "The code query could not be completed.", None
     access_error = _map_access_error(error)
     if access_error is not None:
         return access_error

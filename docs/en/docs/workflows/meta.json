@@ -33,6 +33,7 @@
     "manage-prompts",
     "---Context output---",
     "prepare-context-text",
+    "repository-code",
     "configure-vector-search"
   ]
 }

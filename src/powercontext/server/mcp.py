@@ -56,6 +56,7 @@ from powercontext.http._generated.operations import (
     LIST_MEMORY_ENTRIES,
     LIST_SCOPES,
     PUBLISH_ARTIFACT,
+    QUERY_CODE,
     RECORD_TASK_OUTCOME,
     REJECT_CANDIDATE,
     REMEMBER_MEMORY,
@@ -79,7 +80,8 @@ from powercontext.server.tracing import McpTracingMiddleware, ServerTracing
 
 MCP_PATH = "/mcp"
 MCP_SERVER_NAME = "PowerContext Server"
-MCP_GUIDANCE = """PowerContext provides durable project history and Handoffs across sessions.
+MCP_GUIDANCE = """When query_code is available, use it for current repository structure and source evidence. Pass the returned fingerprint for relation and source reads; stale code requires local sync. Code evidence is separate from durable history and grants no execution authority.
+PowerContext provides durable project history and Handoffs across sessions.
 Summarizing or drafting from facts supplied in the current turn needs no retrieval or Scope resolution. An empty search does not authorize an inventory. If inventory or Handoff is unavailable, do not emulate it with Memory search or storage.
 Tool names in this guidance describe possible capabilities, not proof of availability. Before selecting an operation, check that its exact name appears in the current tool catalog. If absent, stop that operation and explicitly report it unavailable and incomplete. Never emit a call to an absent tool, simulate a call in text, or substitute another persistence operation.
 Use only the tools available in this connection. Reuse the host/Server-resolved Scope; never derive a Scope from a
@@ -115,6 +117,7 @@ _MCP_OPERATION_IDS = frozenset({
     COMMIT_HANDOFF.operation_id,
     CONTINUE_HANDOFF.operation_id,
     SEARCH_MEMORY.operation_id,
+    QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,
@@ -142,6 +145,7 @@ _MCP_READ_ONLY_OPERATION_IDS = frozenset({
     LIST_DREAM_RUNS.operation_id,
     CONTINUE_HANDOFF.operation_id,
     SEARCH_MEMORY.operation_id,
+    QUERY_CODE.operation_id,
     SEARCH_TOPIC_MEMORY.operation_id,
     GET_TOPIC_MEMORY.operation_id,
     LIST_MEMORY_ENTRIES.operation_id,

@@ -103,6 +103,7 @@ def test_mcp_exposes_only_data_plane_and_integration_control_operations() -> Non
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
+        "query_code",
         "reject_candidate",
         "record_task_outcome",
         "resolve_scope_binding",

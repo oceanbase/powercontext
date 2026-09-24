@@ -145,7 +145,7 @@ def test_topic_dream_enforced_http_admission_and_review(database, operation):
                 run = completed.json()
                 assert run["outcome"] == "proposed", (run["status"], run.get("error"), run.get("reason"))
                 candidate = run["candidate"]
-                resource = "catalog-change-candidates" if operation == "revise_tags" else "artifact-candidates"
+                resource = "candidates"
                 identity = {"scope_id": scope, "candidate_id": candidate["candidate_id"]}
                 read = await client.post(f"/v1/{resource}/get", json=identity)
                 assert read.status_code == 200, read.text

@@ -223,8 +223,8 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 | `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` runtime override; setup saves it for subsequent Hook and native MCP connections |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Shared hook HTTP budget |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Shared hook HTTP budget |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
 
 Hooks allow loopback HTTP by default; remote HTTP requires explicit consent, and HTTPS certificate validation stays

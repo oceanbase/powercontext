@@ -843,6 +843,66 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/InvalidRequest"
+  /v1/scopes/{scope_id}/code/query:
+    post:
+      tags:
+      - code
+      summary: Query current repository code evidence
+      description: Read a bounded native Git code index for the authorized Scope. Use symbols or explore before relation or
+        read operations, then pass the returned fingerprint. Results are static evidence with explicit limitations. Queries
+        never build indexes, execute repository code, or persist history. code_changed requires local sync before retry.
+      operationId: query_code
+      x-powercontext-access:
+        action: scope.read
+        resource:
+          type: scope
+          scope-id-from: scope_id
+      x-powercontext-scope-mode: current
+      parameters:
+      - name: scope_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: .*\S.*
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CodeQueryRequest'
+      responses:
+        '200':
+          description: Bounded code evidence or index status.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeQueryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '501':
+          description: The requested code capability is unsupported.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/context/prepare:
     post:
       tags: [context]
@@ -8580,6 +8640,353 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EntryChange"
+    CodeChangesOperation:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - changes
+      required:
+      - kind
+      type: object
+    CodeMapOperation:
+      x-powercontext-code-validation: operation
+      description: path_prefix is empty or a normalized repository-relative path, without dot segments, backslashes, colons or NUL.
+      additionalProperties: false
+      properties:
+        path_prefix:
+          default: ''
+          type: string
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+        kind:
+          type: string
+          enum:
+          - map
+        depth:
+          default: 2
+          maximum: 5
+          minimum: 1
+          type: integer
+      required:
+      - kind
+      type: object
+    CodeReadOperation:
+      x-powercontext-code-validation: operation
+      description: >-
+        Read a normalized repository-relative path without dot segments, backslashes, colons or NUL.
+        The inclusive range must contain 1 to 200 lines (start_line <= end_line < start_line + 200).
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - read
+        path:
+          type: string
+        file_sha256:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+        start_line:
+          minimum: 1
+          type: integer
+        end_line:
+          minimum: 1
+          type: integer
+      required:
+      - kind
+      - path
+      - file_sha256
+      - start_line
+      - end_line
+      type: object
+    CodeRelationOperation:
+      x-powercontext-code-validation: operation
+      description: path_prefix is empty or a normalized repository-relative path, without dot segments, backslashes, colons or NUL.
+      additionalProperties: false
+      properties:
+        path_prefix:
+          default: ''
+          type: string
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+        kind:
+          enum:
+          - callers
+          - callees
+          - impact
+          type: string
+        symbol_id:
+          maxLength: 128
+          minLength: 1
+          type: string
+        depth:
+          default: 2
+          maximum: 5
+          minimum: 1
+          type: integer
+      required:
+      - kind
+      - symbol_id
+      type: object
+    CodeSearchOperation:
+      x-powercontext-code-validation: operation
+      description: >-
+        query must contain non-whitespace text. path_prefix is empty or a normalized repository-relative path,
+        without dot segments, backslashes, colons or NUL.
+      additionalProperties: false
+      properties:
+        path_prefix:
+          default: ''
+          type: string
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+        kind:
+          enum:
+          - symbols
+          - explore
+          type: string
+        query:
+          maxLength: 8192
+          minLength: 1
+          type: string
+      required:
+      - kind
+      - query
+      type: object
+    CodeStatusOperation:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum:
+          - status
+      required:
+      - kind
+      type: object
+    CodeTestsOperation:
+      x-powercontext-code-validation: operation
+      description: >-
+        paths must be unique normalized repository-relative paths, without dot segments, backslashes, colons or NUL.
+        path_prefix follows the same rules but may be empty.
+      additionalProperties: false
+      properties:
+        path_prefix:
+          default: ''
+          type: string
+        limit:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+        kind:
+          enum:
+          - affected_tests
+          - impact_changes
+          type: string
+        paths:
+          items:
+            type: string
+          maxItems: 100
+          minItems: 1
+          type: array
+      required:
+      - kind
+      - paths
+      type: object
+    CodeQueryRequest:
+      x-powercontext-code-validation: query
+      description: >-
+        callers, callees, impact, affected_tests, impact_changes and read require expected_fingerprint.
+        impact_changes also requires before_fingerprint; other operations must omit it or set it to null.
+      additionalProperties: false
+      properties:
+        operation:
+          type: object
+          description: >-
+            Operation object, never a string. Start with {"kind":"explore","query":"symbol or task"}
+            or {"kind":"symbols","query":"name"}. For callers/callees/impact pass symbol_id inside
+            operation and the returned expected_fingerprint at the request root.
+          discriminator:
+            propertyName: kind
+            mapping:
+              status: '#/components/schemas/CodeStatusOperation'
+              changes: '#/components/schemas/CodeChangesOperation'
+              map: '#/components/schemas/CodeMapOperation'
+              symbols: '#/components/schemas/CodeSearchOperation'
+              explore: '#/components/schemas/CodeSearchOperation'
+              callers: '#/components/schemas/CodeRelationOperation'
+              callees: '#/components/schemas/CodeRelationOperation'
+              impact: '#/components/schemas/CodeRelationOperation'
+              affected_tests: '#/components/schemas/CodeTestsOperation'
+              impact_changes: '#/components/schemas/CodeTestsOperation'
+              read: '#/components/schemas/CodeReadOperation'
+          oneOf:
+          - $ref: '#/components/schemas/CodeStatusOperation'
+          - $ref: '#/components/schemas/CodeChangesOperation'
+          - $ref: '#/components/schemas/CodeMapOperation'
+          - $ref: '#/components/schemas/CodeSearchOperation'
+          - $ref: '#/components/schemas/CodeRelationOperation'
+          - $ref: '#/components/schemas/CodeTestsOperation'
+          - $ref: '#/components/schemas/CodeReadOperation'
+        expected_fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        before_fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        max_bytes:
+          default: 16000
+          maximum: 32768
+          minimum: 512
+          type: integer
+      required:
+      - operation
+      type: object
+    CodeQueryResult:
+      additionalProperties: false
+      properties:
+        schema:
+          default: powercontext.code-query.v1
+          type: string
+          enum:
+          - powercontext.code-query.v1
+        scope_id:
+          type: string
+        fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+        before_fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        commit:
+          type: string
+          nullable: true
+        git_object_format:
+          enum:
+          - sha1
+          - sha256
+          type: string
+        dirty:
+          type: boolean
+        checked_at:
+          type: string
+        operation:
+          type: string
+        status:
+          default: ok
+          enum:
+          - ok
+          - partial
+          type: string
+        items:
+          items:
+            additionalProperties: {}
+            type: object
+          type: array
+        coverage:
+          additionalProperties: {}
+          type: object
+        limitations:
+          items:
+            type: string
+          type: array
+      required:
+      - scope_id
+      - fingerprint
+      - commit
+      - git_object_format
+      - dirty
+      - checked_at
+      - operation
+      type: object
+    CodeStatus:
+      additionalProperties: false
+      properties:
+        schema:
+          default: powercontext.code-status.v1
+          type: string
+          enum:
+          - powercontext.code-status.v1
+        scope_id:
+          type: string
+        status:
+          enum:
+          - disabled
+          - missing
+          - building
+          - ready
+          - stale
+          - failed
+          type: string
+        freshness:
+          default: unknown
+          enum:
+          - fresh
+          - stale
+          - unknown
+          type: string
+        fingerprint:
+          pattern: ^[0-9a-f]{64}$
+          type: string
+          nullable: true
+        engine:
+          default: powercontext-native-v1
+          type: string
+        languages:
+          default:
+          - python
+          - javascript
+          - typescript
+          - go
+          items:
+            type: string
+          type: array
+        operations:
+          default:
+          - status
+          - map
+          - symbols
+          - explore
+          - callers
+          - callees
+          - impact
+          - affected_tests
+          - read
+          - changes
+          - impact_changes
+          items:
+            type: string
+          type: array
+        last_build:
+          additionalProperties: {}
+          type: object
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+      required:
+      - scope_id
+      - status
+      type: object
+    CodeQueryResponse:
+      type: object
+      oneOf:
+      - $ref: '#/components/schemas/CodeQueryResult'
+      - $ref: '#/components/schemas/CodeStatus'
     PrepareContextRequest:
       type: object
       additionalProperties: false
@@ -8600,6 +9007,10 @@ components:
           minimum: 512
           maximum: 32768
           default: 8000
+        include_code:
+          type: boolean
+          default: false
+          description: Opt into current-Scope native code evidence. No index is built during preparation.
         assembly:
           $ref: "#/components/schemas/ContextAssembly"
     ContextAssemblySection:

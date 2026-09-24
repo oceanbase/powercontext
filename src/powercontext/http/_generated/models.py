@@ -1470,6 +1470,252 @@ class MemoryCitation(BaseModel):
     entry_version_id: Annotated[StrictStr, Field(max_length=128, min_length=1, pattern="^[\\x21-\\x7E]+$")]
 
 
+class Kind4(StrEnum):
+    CHANGES = "changes"
+
+
+class CodeChangesOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["changes"]
+
+
+class Kind5(StrEnum):
+    MAP = "map"
+
+
+class CodeMapOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path_prefix: StrictStr = ""
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+    kind: Literal["map"]
+    depth: Annotated[StrictInt, Field(ge=1, le=5)] = 2
+
+    @model_validator(mode="after")
+    def _validate_code_operation(self):
+        from powercontext._code_validation import validate_code_operation
+
+        validate_code_operation(self.model_dump())
+        return self
+
+
+class Kind6(StrEnum):
+    READ = "read"
+
+
+class CodeReadOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["read"]
+    path: StrictStr
+    file_sha256: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    start_line: Annotated[StrictInt, Field(ge=1)]
+    end_line: Annotated[StrictInt, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def _validate_code_operation(self):
+        from powercontext._code_validation import validate_code_operation
+
+        validate_code_operation(self.model_dump())
+        return self
+
+
+class Kind7(StrEnum):
+    CALLERS = "callers"
+    CALLEES = "callees"
+    IMPACT = "impact"
+
+
+class CodeRelationOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path_prefix: StrictStr = ""
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+    kind: Literal["callers", "callees", "impact"]
+    symbol_id: Annotated[StrictStr, Field(max_length=128, min_length=1)]
+    depth: Annotated[StrictInt, Field(ge=1, le=5)] = 2
+
+    @model_validator(mode="after")
+    def _validate_code_operation(self):
+        from powercontext._code_validation import validate_code_operation
+
+        validate_code_operation(self.model_dump())
+        return self
+
+
+class Kind8(StrEnum):
+    SYMBOLS = "symbols"
+    EXPLORE = "explore"
+
+
+class CodeSearchOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path_prefix: StrictStr = ""
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+    kind: Literal["symbols", "explore"]
+    query: Annotated[StrictStr, Field(max_length=8192, min_length=1)]
+
+    @model_validator(mode="after")
+    def _validate_code_operation(self):
+        from powercontext._code_validation import validate_code_operation
+
+        validate_code_operation(self.model_dump())
+        return self
+
+
+class Kind9(StrEnum):
+    STATUS = "status"
+
+
+class CodeStatusOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["status"]
+
+
+class Kind10(StrEnum):
+    AFFECTED_TESTS = "affected_tests"
+    IMPACT_CHANGES = "impact_changes"
+
+
+class CodeTestsOperation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    path_prefix: StrictStr = ""
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20
+    kind: Literal["affected_tests", "impact_changes"]
+    paths: Annotated[list[StrictStr], Field(max_length=100, min_length=1)]
+
+    @model_validator(mode="after")
+    def _validate_code_operation(self):
+        from powercontext._code_validation import validate_code_operation
+
+        validate_code_operation(self.model_dump())
+        return self
+
+
+class CodeQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    operation: Annotated[
+        CodeStatusOperation
+        | CodeChangesOperation
+        | CodeMapOperation
+        | CodeSearchOperation
+        | CodeRelationOperation
+        | CodeTestsOperation
+        | CodeReadOperation,
+        Field(
+            description='Operation object, never a string. Start with {"kind":"explore","query":"symbol or task"} or {"kind":"symbols","query":"name"}. For callers/callees/impact pass symbol_id inside operation and the returned expected_fingerprint at the request root.',
+            discriminator="kind",
+        ),
+    ]
+    expected_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    before_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 16000
+
+    @model_validator(mode="after")
+    def _validate_code_query(self):
+        from powercontext._code_validation import validate_code_query
+
+        validate_code_query(self.operation.kind, self.expected_fingerprint, self.before_fingerprint)
+        return self
+
+
+class Schema4(StrEnum):
+    POWERCONTEXT_CODE_QUERY_V1 = "powercontext.code-query.v1"
+
+
+class GitObjectFormat(StrEnum):
+    SHA1 = "sha1"
+    SHA256 = "sha256"
+
+
+class Status1(StrEnum):
+    OK = "ok"
+    PARTIAL = "partial"
+
+
+class CodeQueryResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema4, Field(alias="schema")] = Schema4.POWERCONTEXT_CODE_QUERY_V1
+    scope_id: StrictStr
+    fingerprint: Annotated[StrictStr, Field(pattern="^[0-9a-f]{64}$")]
+    before_fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    commit: Annotated[StrictStr | None, Field(...)]
+    git_object_format: GitObjectFormat
+    dirty: StrictBool
+    checked_at: StrictStr
+    operation: StrictStr
+    status: Status1 = Status1.OK
+    items: list[dict[str, Any]] | None = None
+    coverage: dict[str, Any] | None = None
+    limitations: list[StrictStr] | None = None
+
+
+class Schema5(StrEnum):
+    POWERCONTEXT_CODE_STATUS_V1 = "powercontext.code-status.v1"
+
+
+class Status2(StrEnum):
+    DISABLED = "disabled"
+    MISSING = "missing"
+    BUILDING = "building"
+    READY = "ready"
+    STALE = "stale"
+    FAILED = "failed"
+
+
+class Freshness(StrEnum):
+    FRESH = "fresh"
+    STALE = "stale"
+    UNKNOWN = "unknown"
+
+
+class CodeStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    schema_: Annotated[Schema5, Field(alias="schema")] = Schema5.POWERCONTEXT_CODE_STATUS_V1
+    scope_id: StrictStr
+    status: Status2
+    freshness: Freshness = Freshness.UNKNOWN
+    fingerprint: Annotated[StrictStr | None, Field(pattern="^[0-9a-f]{64}$")] = None
+    engine: StrictStr = "powercontext-native-v1"
+    languages: list[StrictStr] = ["python", "javascript", "typescript", "go"]
+    operations: list[StrictStr] = [
+        "status",
+        "map",
+        "symbols",
+        "explore",
+        "callers",
+        "callees",
+        "impact",
+        "affected_tests",
+        "read",
+        "changes",
+        "impact_changes",
+    ]
+    last_build: dict[str, Any] | None = None
+    reason: StrictStr | None = None
+
+
+class CodeQueryResponse(RootModel[CodeQueryResult | CodeStatus]):
+    root: CodeQueryResult | CodeStatus
+
+
 class ContextAssemblyFamily(StrEnum):
     MEMORY = "memory"
     EXPERIENCE = "experience"
@@ -1886,7 +2132,7 @@ class PromptDemonstration(BaseModel):
     expected_output: Annotated[Any, Field(description="Desired JSON output matching the registered Prompt Definition.")]
 
 
-class Status1(StrEnum):
+class Status3(StrEnum):
     SUPPORTED = "supported"
     DISABLED = "disabled"
     UNSUPPORTED = "unsupported"
@@ -1915,7 +2161,7 @@ class PromptCapability(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    status: Status1
+    status: Status3
     reason: Annotated[Reason | None, Field(...)]
     definition_version: StrictStr
     builtin_version: StrictStr
@@ -1968,7 +2214,7 @@ class PromptConfiguration(BaseModel):
     )
     scope_id: StrictStr
     prompt_key: PromptKey
-    status: Status1
+    status: Status3
     reason: Annotated[Reason1 | None, Field(...)]
     mode: Mode3
     artifact: Annotated[ArtifactReference | None, Field(...)]
@@ -3716,6 +3962,10 @@ class PrepareContextRequest(BaseModel):
     scope_id: Annotated[StrictStr, Field(max_length=256, min_length=1, pattern=".*\\S.*")]
     query: Annotated[StrictStr, Field(max_length=8192, min_length=1, pattern=".*\\S.*")]
     max_bytes: Annotated[StrictInt, Field(ge=512, le=32768)] = 8000
+    include_code: Annotated[
+        StrictBool,
+        Field(description="Opt into current-Scope native code evidence. No index is built during preparation."),
+    ] = False
     assembly: ContextAssembly | None = None
 
 

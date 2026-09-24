@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from powercontext.builtin.artifacts.skill import AgentSkillTarget
+from powercontext.builtin.code.models import CodeConfig
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
@@ -210,6 +211,7 @@ class ServerSettings(BaseSettings):
     tracing: TracingConfig = Field(default_factory=TracingConfig)
     cursor_signing_secret: SecretStr | None = Field(default=None, repr=False)
     handoff_generation_verification_secrets: tuple[SecretStr, ...] = Field(default=(), max_length=8, repr=False)
+    code: CodeConfig = Field(default_factory=CodeConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     database: DatabaseConfig = Field(default_factory=_default_database, discriminator="kind")
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)

@@ -90,9 +90,16 @@ class SeekDBConfig(BaseModel):
 class SeekDBProfile:
     """An initialized embedded seekdb profile with explicit runtime ownership."""
 
-    def __init__(self, *, database: AsyncDatabase, tables: tuple[Table, ...]) -> None:
+    def __init__(
+        self,
+        *,
+        database: AsyncDatabase,
+        tables: tuple[Table, ...],
+        connection_options: Mapping[str, object] | None = None,
+    ) -> None:
         self.database = database
         self.tables = tables
+        self.connection_options = dict(connection_options or {})
 
     @classmethod
     @asynccontextmanager
@@ -111,7 +118,7 @@ class SeekDBProfile:
         try:
             engine = _create_engine(config, instance.connection_options())
             database = AsyncDatabase.own(engine)
-            profile = cls(database=database, tables=tables)
+            profile = cls(database=database, tables=tables, connection_options=instance.connection_options())
             try:
                 await migrate_candidate_schema(engine)
                 async with database.transaction() as connection:
