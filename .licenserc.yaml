@@ -43,6 +43,7 @@ header:
     - '**/.gitignore'
     - '**/.dockerignore'
     - '**/.env.example'
+    - '**/*.example.env'
     - '**/LICENSE'
     - 'NOTICE'
     - '**/LICENSE.oceanbase-design'

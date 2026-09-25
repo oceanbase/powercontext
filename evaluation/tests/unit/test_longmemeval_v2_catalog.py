@@ -25,11 +25,15 @@ import powercontext_eval.benchmarks.longmemeval_v2.catalog as longmemeval_catalo
 import powercontext_eval.benchmarks.longmemeval_v2.smoke as longmemeval_smoke
 from powercontext_eval.benchmarks.longmemeval_v2.catalog import (
     RUN_INPUT_MANIFEST_SCHEMA,
+    RUN_SUBSET_SCHEMA,
     SMOKE_MANIFEST_SCHEMA,
     UPSTREAM_HARNESS_COMMIT,
     LongMemEvalV2Catalog,
     LongMemEvalV2CatalogError,
+    LongMemEvalV2EnvironmentError,
+    LongMemEvalV2InputError,
     SmokeCase,
+    SmokeSelection,
     load_dataset_lock,
     load_smoke_manifest,
     validate_harness_checkout,
@@ -171,7 +175,7 @@ def test_catalog_rejects_a_cross_domain_haystack(tmp_path: Path) -> None:
 def test_smoke_selection_requires_all_published_abilities(tmp_path: Path) -> None:
     catalog = LongMemEvalV2Catalog.load(data_root(tmp_path), tier="small")
 
-    with pytest.raises(LongMemEvalV2CatalogError, match="missing published abilities"):
+    with pytest.raises(LongMemEvalV2InputError, match="missing published abilities"):
         catalog.select_smoke((SmokeCase(question_id="q-static", ability="static_state"),))
 
 
@@ -222,7 +226,7 @@ def test_dataset_lock_pins_exact_file_digests(tmp_path: Path) -> None:
 
     LongMemEvalV2Catalog.load(root, tier=loaded.tier, expected_digests=loaded.file_digests)
     (root / "questions.jsonl").write_text("{}\n", encoding="utf-8")
-    with pytest.raises(LongMemEvalV2CatalogError, match="SHA-256 mismatch"):
+    with pytest.raises(LongMemEvalV2EnvironmentError, match="SHA-256 mismatch"):
         LongMemEvalV2Catalog.load(root, tier=loaded.tier, expected_digests=loaded.file_digests)
 
 
@@ -253,7 +257,7 @@ def test_harness_checkout_rejects_a_different_revision(monkeypatch, tmp_path: Pa
     harness, _revision = harness_checkout(tmp_path)
     monkeypatch.setattr(longmemeval_catalog, "UPSTREAM_HARNESS_COMMIT", "0" * 40)
 
-    with pytest.raises(LongMemEvalV2CatalogError, match="harness checkout must be"):
+    with pytest.raises(LongMemEvalV2EnvironmentError, match="harness checkout must be"):
         validate_harness_checkout(harness)
 
 
@@ -266,7 +270,7 @@ def test_harness_checkout_rejects_tracked_edits(monkeypatch, tmp_path: Path, sta
     if staged:
         subprocess.run(("git", "-C", str(harness), "add", "evaluation/harness.py"), check=True)
 
-    with pytest.raises(LongMemEvalV2CatalogError, match="tracked changes"):
+    with pytest.raises(LongMemEvalV2EnvironmentError, match="tracked changes"):
         validate_harness_checkout(harness)
 
 
@@ -290,14 +294,17 @@ def test_prepare_smoke_run_writes_non_overwritable_provenance(tmp_path: Path) ->
             output_dir=output,
         )
         manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        subset = json.loads((output / "subset.json").read_text(encoding="utf-8"))
         assert manifest["schema"] == RUN_INPUT_MANIFEST_SCHEMA
         assert manifest["classification"] == "smoke-subset"
+        assert subset["schema"] == RUN_SUBSET_SCHEMA
+        assert subset["classification"] == "smoke-subset"
         assert manifest["upstream"]["harness_commit"] == revision
         assert manifest["dataset"]["revision"] == "fixture-data-revision"
         assert manifest["dataset_lock"]["content_sha256"] == hashlib.sha256(lock.read_bytes()).hexdigest()
         assert manifest["smoke_manifest"]["content_sha256"] == hashlib.sha256(smoke.read_bytes()).hexdigest()
         assert "path_sha256" not in manifest["smoke_manifest"]
-        with pytest.raises(LongMemEvalV2CatalogError, match="Refusing to overwrite"):
+        with pytest.raises(LongMemEvalV2EnvironmentError, match="Refusing to overwrite"):
             prepare_smoke_run(
                 data_root=root,
                 dataset_lock=lock,
@@ -307,3 +314,26 @@ def test_prepare_smoke_run_writes_non_overwritable_provenance(tmp_path: Path) ->
             )
     finally:
         monkeypatch.undo()
+
+
+def test_prepare_smoke_run_serializes_the_validated_selection(monkeypatch, tmp_path: Path) -> None:
+    root = data_root(tmp_path)
+    smoke = smoke_manifest(tmp_path / "smoke.json")
+    harness, revision = harness_checkout(tmp_path)
+    lock = dataset_lock(tmp_path / "dataset-lock.json", root, harness_commit=revision)
+    output = tmp_path / "run"
+    validated = SmokeSelection(tier="small", cases=(SmokeCase(question_id="q-static", ability="static_state"),))
+    monkeypatch.setattr(longmemeval_catalog, "UPSTREAM_HARNESS_COMMIT", revision)
+    monkeypatch.setattr(longmemeval_smoke, "UPSTREAM_HARNESS_COMMIT", revision)
+    monkeypatch.setattr(LongMemEvalV2Catalog, "select_smoke", lambda self, cases: validated)
+
+    prepare_smoke_run(
+        data_root=root,
+        dataset_lock=lock,
+        harness_root=harness,
+        smoke_manifest=smoke,
+        output_dir=output,
+    )
+
+    subset = json.loads((output / "subset.json").read_text(encoding="utf-8"))
+    assert subset["cases"] == [{"question_id": "q-static", "ability": "static_state"}]

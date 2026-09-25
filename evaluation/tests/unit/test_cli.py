@@ -24,8 +24,12 @@ from urllib.request import Request
 
 from typer.testing import CliRunner
 
-from powercontext_eval.cli import app
+from powercontext_eval.benchmarks.longmemeval_v2.catalog import (
+    LongMemEvalV2EnvironmentError,
+    LongMemEvalV2InputError,
+)
 from powercontext_eval.benchmarks.longmemeval_v2.smoke import PreparedSmokeRun
+from powercontext_eval.cli import app
 from powercontext_eval.runner import MinimalRunResult, RunConfig
 
 
@@ -73,6 +77,46 @@ def test_longmemeval_v2_smoke_prepares_input_artifacts_without_a_model(monkeypat
 
     assert result.exit_code == 0, result.output
     assert '"classification": "smoke-subset"' in result.output
+
+
+def test_longmemeval_v2_smoke_reports_invalid_configuration_as_bad_parameter(monkeypatch) -> None:
+    def prepare(**_kwargs: object) -> PreparedSmokeRun:
+        raise LongMemEvalV2InputError("Smoke manifest schema is unsupported")
+
+    monkeypatch.setattr("powercontext_eval.cli.prepare_smoke_run", prepare)
+    result = CliRunner().invoke(app, ["longmemeval-v2", "smoke", *_longmemeval_smoke_arguments()])
+
+    assert result.exit_code == 2
+    assert "Invalid value" in result.output
+    assert "Smoke manifest schema is unsupported" in result.output
+
+
+def test_longmemeval_v2_smoke_reports_environment_failure_with_exit_one(monkeypatch) -> None:
+    def prepare(**_kwargs: object) -> PreparedSmokeRun:
+        raise LongMemEvalV2EnvironmentError("LongMemEval-V2 SHA-256 mismatch for questions.jsonl")
+
+    monkeypatch.setattr("powercontext_eval.cli.prepare_smoke_run", prepare)
+    result = CliRunner().invoke(app, ["longmemeval-v2", "smoke", *_longmemeval_smoke_arguments()])
+
+    assert result.exit_code == 1
+    assert "LongMemEval-V2 smoke failed" in result.output
+    assert "SHA-256 mismatch" in result.output
+    assert "Invalid value" not in result.output
+
+
+def _longmemeval_smoke_arguments() -> list[str]:
+    return [
+        "--data-root",
+        "/data",
+        "--dataset-lock",
+        "/dataset-lock.json",
+        "--harness-root",
+        "/harness",
+        "--smoke-manifest",
+        "/smoke.json",
+        "--output-dir",
+        "/output",
+    ]
 
 
 def test_codex_contract_smoke_is_an_executable_injectable_cli(monkeypatch) -> None:
