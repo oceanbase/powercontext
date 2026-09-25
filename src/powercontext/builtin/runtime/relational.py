@@ -36,7 +36,6 @@ from referencing.exceptions import Unresolvable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from powercontext._logging import log_safely
 from powercontext.artifacts import Artifact, ArtifactRef, MemoryCitation
 from powercontext.builtin.artifacts.experience import (
     EXPERIENCE_INCUBATION_CURSOR_NAME,
@@ -168,6 +167,7 @@ from powercontext.builtin.review.generation import (
 )
 from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
+from powercontext.builtin.runtime._model_usage import _ModelUsageRecorder
 from powercontext.builtin.runtime.models import (
     CommitConnectorCheckpoint,
     ConnectorCheckpointState,
@@ -305,6 +305,7 @@ class _ScopedServices:
     source_registry: SourceDefinitionRegistry
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
+    model_usage: _ModelUsageRecorder
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -470,6 +471,7 @@ class _ScopedServices:
             recurrence=self.repositories.recurrence,
             artifacts=self.repositories.artifacts,
             token_estimator=None if self.token_estimator is None else self.token_estimator.profile,
+            model_usage=self.model_usage,
         )
 
     def recall_tokens(self) -> RelationalRecallTokenEstimator | None:
@@ -522,6 +524,9 @@ class RelationalContexts:
         handoff_verification_keys: tuple[bytes, ...] = (),
         topic_memory_write_timeout_seconds: float = 30.0,
         topic_memory_write_concurrency: int = 4,
+        model_usage_queue_capacity: int = 256,
+        model_usage_write_timeout_seconds: float = 1.0,
+        model_usage_flush_timeout_seconds: float = 0.5,
     ) -> None:
         self.database = database
         self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
@@ -557,6 +562,13 @@ class RelationalContexts:
             processing_leases=ArtifactProcessingLeaseRepository(),
             processing_binding_states=ArtifactProcessingBindingStateRepository(),
             topic_memories=topic_memory_repository,
+        )
+        self._model_usage = _ModelUsageRecorder(
+            database,
+            self.repositories.statistics,
+            queue_capacity=model_usage_queue_capacity,
+            write_timeout_seconds=model_usage_write_timeout_seconds,
+            flush_timeout_seconds=model_usage_flush_timeout_seconds,
         )
         self._id_factory = _scoped_id_factory(memory_artifact_id, id_factory)
         self.prompt_registry = prompt_registry or PromptRegistry(
@@ -734,39 +746,40 @@ class RelationalContexts:
     def model_usage_reporter(
         self, scope_id: str, /
     ) -> Callable[[ModelUsagePurpose, ModelUsageOperation, InferenceUsage], Awaitable[None]]:
-        """Return a best-effort usage callback for one operational Scope."""
+        """Return a best-effort usage callback for one operational Scope.
+
+        The callback only freezes and enqueues the record. The runtime-owned
+        recorder performs the independent short write; it never joins the
+        caller's transaction and never consumes the caller's model deadline.
+        """
 
         async def report(
             purpose: ModelUsagePurpose,
             operation: ModelUsageOperation,
             usage: InferenceUsage,
         ) -> None:
-            try:
-                await self.statistics(scope_id).record(
-                    purpose,
-                    operation,
-                    usage,
-                    datetime.now(UTC).date(),
-                )
-            except Exception as error:
-                # Usage is an operational side effect; a statistics outage
-                # must not turn a successful Artifact write into a failure.
-                log_safely(
-                    logger,
-                    logging.ERROR,
-                    "Model usage recording failed",
-                    exc_info=error,
-                    extra={
-                        "event": "statistics.model_usage.failed",
-                        "scope_id": scope_id,
-                        "purpose": purpose.value,
-                        "operation": operation.value,
-                        "outcome": "failure",
-                        "unit": "statistics",
-                    },
-                )
+            self._model_usage.offer(scope_id, purpose, operation, usage, datetime.now(UTC).date())
 
         return report
+
+    async def aclose_usage_recorder(self) -> None:
+        """Drain the usage recorder after its producers and before the database.
+
+        Ordering is load-bearing: closing the database first would reject the
+        recorder's own write, and closing this before producers stop would drop
+        records that were already accepted.
+        """
+
+        await self._model_usage.close()
+
+    async def flush_model_usage(self) -> None:
+        """Make usage accepted so far visible at an operation's completion boundary.
+
+        The wait is bounded and covers only the records already accepted, so a
+        continuously producing runtime cannot stall a completing operation.
+        """
+
+        await self._model_usage.flush()
 
     async def register_source_definition(
         self,
@@ -1404,6 +1417,7 @@ class RelationalContexts:
             generation_receipts=self._generation_receipts,
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
+            model_usage=self._model_usage,
         )
 
 

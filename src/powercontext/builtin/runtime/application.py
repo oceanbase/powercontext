@@ -742,28 +742,23 @@ class ScopedStatisticsApplication:
         usage: InferenceUsage,
         /,
     ) -> None:
-        try:
-            async with self._runtime._scope_operation(self.scope_id):
-                await self._runtime._statistics(self.scope_id).record(
-                    purpose,
-                    operation,
-                    usage,
-                    self._runtime._clock().astimezone(UTC).date(),
-                )
-        except Exception as error:
-            log_safely(
-                logger,
-                logging.ERROR,
-                "Model usage recording failed",
-                exc_info=error,
-                extra={
-                    "event": "statistics.model_usage.failed",
-                    "purpose": purpose.value,
-                    "operation": operation.value,
-                    "outcome": "failure",
-                    "unit": "statistics",
-                },
-            )
+        """Freeze usage for this Scope; the recorder owns the write.
+
+        The enclosing operation already validated and leased the Scope, so this
+        callback performs no I/O. The runtime-owned recorder writes the record in
+        an independent short transaction outside the caller's model deadline.
+        A Runtime without statistics has no recorder, and accounting must never
+        turn a successful model call into a failure.
+        """
+
+        if self._runtime._statistics_service is None:
+            return
+        self._runtime._statistics(self.scope_id).offer_model_usage(
+            purpose,
+            operation,
+            usage,
+            self._runtime._clock().astimezone(UTC).date(),
+        )
 
     async def record_recall(self, measurement: RecallTokenMeasurement, /) -> None:
         try:
@@ -3268,7 +3263,17 @@ class BuiltinRuntime:
                 raise _RuntimeStateError("scope")
             registered = await self.scopes.get(scope)
             with self._scope_cache.lease(scope):
-                yield registered
+                try:
+                    yield registered
+                finally:
+                    # Every scoped operation, read or write, is a completion
+                    # boundary for the usage it accepted. The recorder owns its
+                    # own budget, so this never widens the operation's model
+                    # deadlines, and a Runtime without statistics has no recorder
+                    # to drain. One flush here covers the nested _scoped_operation
+                    # rather than paying for it twice.
+                    if self._statistics_service is not None:
+                        await self._statistics(scope).flush_model_usage()
 
     @asynccontextmanager
     async def _scoped_operation(

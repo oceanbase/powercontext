@@ -69,6 +69,7 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_DATABASE_KIND` | `sqlite` | Storage backend: `sqlite`, `seekdb`, or `oceanbase` |
 | `POWERCONTEXT_SERVER_DATABASE_URL` | user data SQLite file | SQLAlchemy async URL for SQLite or OceanBase; do not set for seekdb |
 | `POWERCONTEXT_SERVER_DATABASE_PATH` | user data `seekdb` directory | Embedded seekdb path; used only when `DATABASE_KIND=seekdb` |
+| `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS` | `5000` | Milliseconds a business connection waits for SQLite's single write lock before raising; it does not govern usage accounting, which has its own bounded budget |
 | `POWERCONTEXT_SERVER_RUNTIME_SCOPE_CACHE_SIZE` | `128` | Inactive scope compositions retained by the Runtime; in-flight scopes are never evicted |
 | `POWERCONTEXT_SERVER_RUNTIME_SOURCE_WINDOW_LIMIT` | `100` | Maximum Sources processed in one activation |
 | `POWERCONTEXT_SERVER_RUNTIME_CONTEXT_ASSEMBLY_MAX_ENTRIES` | `8` | Maximum sum of explicit `assembly.sections[].limit`; positive integer. Per-family limits still apply. |
@@ -107,6 +108,9 @@ Server settings use the `POWERCONTEXT_SERVER_` prefix.
 | `POWERCONTEXT_SERVER_RUNTIME_MEMORY_WORKER_TIMEOUT_SECONDS` | `600` | Total Memory Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_EXPERIENCE_WORKER_TIMEOUT_SECONDS` | `600` | Total Experience Scope timeout |
 | `POWERCONTEXT_SERVER_RUNTIME_PROFILE_WORKER_TIMEOUT_SECONDS` | `600` | Total Profile Scope timeout |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_QUEUE_CAPACITY` | `256` | Accepted model-usage records a Runtime holds in memory; further records are dropped with a diagnostic |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_WRITE_TIMEOUT_SECONDS` | `1` | Budget for one usage record's own statistics transaction, spent in slices so a busy writer gets several attempts |
+| `POWERCONTEXT_SERVER_RUNTIME_MODEL_USAGE_FLUSH_TIMEOUT_SECONDS` | `0.5` | Bounded wait for already-accepted usage at an operation-completion or statistics-read boundary |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL` | unset | Pydantic AI model used by configured extraction, generation, Handoff, and reranking operations |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_BASE_URL` | provider default | Custom generation provider base URL |
 | `POWERCONTEXT_SERVER_INFERENCE_GENERATION_HEADERS` | `{}` | JSON object of static generation client headers; values are secrets |
@@ -139,6 +143,16 @@ assessment calls no model, and expansion reuses the same request's Scope, famili
 with the query vectors already produced. The round-one and round-two similarity floors must stay in decreasing order, or
 startup fails. Enabling the gate can add search rounds and latency, so evaluate retrieval results and latency on your own
 data.
+
+Model usage accounting is best-effort and never gates a model call. Each Runtime owns one bounded recorder that accepts a
+record without any I/O and writes it in an independent short transaction, so a statistics outage, a full queue, or a lock
+that outlives the record's own budget drops that record with a diagnostic instead of failing the operation that produced it.
+Already-accepted usage is drained within a bounded wait when an operation completes or statistics are read, and again at
+shutdown. Contended business writes fail by design once they have waited this long: SQLite admits one writer at a time, so a
+concurrent writer holding the lock for longer than the configured value makes the waiting business write report
+`database is locked`. That is why multi-scope deployments raise `POWERCONTEXT_SERVER_DATABASE_BUSY_TIMEOUT_MS`; the same
+lock pressure no longer reaches usage accounting, and usage records are dropped rather than failing the operation that
+produced them.
 
 Topic Workers enforce a durable allowance per unadvanced Scope Cursor: 3 attempts, 512 reserved provider requests,
 and 64,000,000 estimated token-capacity units across all retries. A Window admits at most 4,194,304 canonical evidence

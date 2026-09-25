@@ -206,6 +206,9 @@ class RuntimeConfig(BaseModel):
     experience_worker_timeout_seconds: float = Field(default=600, gt=0)
     skill_worker_timeout_seconds: float = Field(default=600, gt=0)
     profile_worker_timeout_seconds: float = Field(default=600, gt=0)
+    model_usage_queue_capacity: int = Field(default=256, ge=1, le=16_384)
+    model_usage_write_timeout_seconds: float = Field(default=1.0, gt=0, le=30)
+    model_usage_flush_timeout_seconds: float = Field(default=0.5, gt=0, le=30)
 
     @model_validator(mode="after")
     def validate_topic_memory_history_candidates(self) -> RuntimeConfig:

@@ -15,20 +15,22 @@
 """Generic writes remain visible through family reads, tags and publication."""
 
 import asyncio
+import logging
 import sqlite3
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from powercontext.builtin.artifacts.memory import EmbeddingProfile
 from powercontext.builtin.inference import EmbeddingResult, InferenceUnavailableError, InferenceUsage
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTopicMemoryFTSIndex
+from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
 from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
-from powercontext.builtin.runtime.statistics import RelationalScopedStatistics
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
@@ -49,10 +51,10 @@ class UsageEmbeddings(Embeddings):
         return result.model_copy(update={"usage": InferenceUsage(requests=1, input_tokens=len(texts), output_tokens=0)})
 
 
-def _app(tmp_path, embedding=None, *, embedding_timeout=30.0):
+def _app(tmp_path, embedding=None, *, embedding_timeout=30.0, busy_timeout_ms=5_000):
     return create_server_app(
         settings=ServerSettings(
-            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'topics.db'}"),
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'topics.db'}", busy_timeout_ms=busy_timeout_ms),
             runtime=RuntimeConfig(artifact_processing_families=()),
             inference=InferenceConfig(embedding_timeout_seconds=embedding_timeout),
             auth=BearerAuthConfig(enabled=False),
@@ -78,6 +80,36 @@ def _create(client, scope, word):
     response = client.post(f"/v1/scopes/{scope}/artifacts", json={"family": "topic-memory", "content": _content(word)})
     assert response.status_code == 201, response.text
     return response
+
+
+def _topic_embedding_requests(database, scope=None):
+    """Read the recorded topic-memory embedding requests directly from the store."""
+
+    query = (
+        "SELECT coalesce(sum(requests), 0) FROM pc_model_usage_daily "
+        "WHERE purpose = 'topic_memory_indexing' AND operation = 'embedding'"
+    )
+    parameters: tuple[object, ...] = ()
+    if scope is not None:
+        query += " AND scope_id = ?"
+        parameters = (scope,)
+    with sqlite3.connect(database) as connection:
+        return connection.execute(query, parameters).fetchone()[0]
+
+
+async def _await_usage_record(database, scope):
+    """Wait until the scope's usage row is visible.
+
+    A visible row means the recorder's transaction committed, so it no longer
+    holds SQLite's write lock. A later write that upgrades from a read does not
+    consult the busy handler and fails immediately instead of waiting, so a
+    health check issued while that write is still in flight measures contention
+    rather than the runtime's health.
+    """
+
+    async with asyncio.timeout(5):
+        while _topic_embedding_requests(database, scope) == 0:  # noqa: ASYNC110 - bounded observation of committed database state
+            await asyncio.sleep(0.02)
 
 
 @pytest.mark.parametrize("vector", [False, True])
@@ -275,10 +307,11 @@ def test_write_embeddings_are_attributed_to_the_operation_scope(tmp_path):
 
 
 def test_statistics_outage_does_not_block_topic_memory_writes(tmp_path, monkeypatch):
-    async def fail_record(*args, **kwargs):
+    async def fail_record(repository, connection, *args):
         raise RuntimeError("injected statistics storage failure")  # noqa: TRY003
 
-    monkeypatch.setattr(RelationalScopedStatistics, "record", fail_record)
+    # The runtime-owned recorder owns this call, so it is where an outage lands.
+    monkeypatch.setattr(StatisticsRepository, "record", fail_record)
     embedding = UsageEmbeddings()
     with TestClient(_app(tmp_path, embedding)) as client:
         source, target = _scope(client, "statistics-source"), _scope(client, "statistics-target")
@@ -303,6 +336,252 @@ def test_statistics_outage_does_not_block_topic_memory_writes(tmp_path, monkeypa
         assert client.get(path).json()["content"] == _content("replace")
         target_ref = published.json()["target"]["artifact"]
         assert client.get(f"/v1/scopes/{target}/artifacts/topic-memory/{target_ref['artifact_id']}").status_code == 200
+
+
+@pytest.mark.parametrize("operation", ["create", "replace", "publish"])
+def test_usage_lock_wait_does_not_expire_successful_topic_embedding(tmp_path, monkeypatch, operation):
+    """A competing writer must not fail the write nor spend the embedding deadline.
+
+    Usage is best-effort, and this holds SQLite's write lock for as long as the
+    recorder is willing to wait, so that one record may legitimately be dropped.
+    What must hold is that the business write still succeeds with exactly one
+    model call, and that the recorder keeps accounting once the contender is gone.
+    """
+
+    class CountedEmbeddings(UsageEmbeddings):
+        completed_calls = 0
+
+        async def embed(self, texts, /):
+            result = await super().embed(texts)
+            self.completed_calls += 1
+            return result
+
+    embedding = CountedEmbeddings()
+    original = StatisticsRepository.record
+
+    async def locked_record(repository, connection, *args):
+        """Keep a competing writer on the lock for the whole recorder attempt."""
+
+        async with connection.engine.connect() as locker:
+            await locker.exec_driver_sql("BEGIN IMMEDIATE")
+            try:
+                return await original(repository, connection, *args)
+            finally:
+                await locker.rollback()
+
+    with TestClient(_app(tmp_path, embedding, embedding_timeout=0.1, busy_timeout_ms=300)) as client:
+        source, target = _scope(client, "usage-lock-source"), _scope(client, "usage-lock-target")
+        initial = None
+        if operation != "create":
+            initial = _create(client, source, "original")
+        embedding.completed_calls = 0
+        with monkeypatch.context() as injected:
+            injected.setattr(StatisticsRepository, "record", locked_record)
+            if operation == "create":
+                response = client.post(
+                    f"/v1/scopes/{source}/artifacts", json={"family": "topic-memory", "content": _content("updated")}
+                )
+            elif operation == "replace":
+                assert initial is not None
+                response = client.put(
+                    initial.headers["Location"],
+                    headers={"If-Match": initial.headers["ETag"]},
+                    json={"content": _content("updated")},
+                )
+            else:
+                assert initial is not None
+                ref = {key: initial.json()[key] for key in ("family", "artifact_id", "revision")}
+                response = client.post(
+                    "/v1/artifact-publications",
+                    json={
+                        "source": {"scope_id": source, "artifact": ref},
+                        "target_scope_id": target,
+                        "idempotency_key": "usage-lock-publish",
+                    },
+                )
+        assert response.status_code == (200 if operation == "replace" else 201), response.text
+        assert embedding.completed_calls == 1
+        if operation == "publish":
+            ref = response.json()["target"]["artifact"]
+            saved = client.get(f"/v1/scopes/{target}/artifacts/topic-memory/{ref['artifact_id']}")
+            assert saved.json()["content"] == _content("original")
+        else:
+            saved = client.get(f"/v1/scopes/{source}/artifacts/topic-memory/{response.json()['artifact_id']}")
+            assert saved.json()["content"] == _content("updated")
+        # The contender is gone, so the recorder must account for new work again,
+        # and the write's own completion boundary must make that visible before
+        # the client returns rather than only at shutdown.
+        _create(client, source, "accounting-recovered")
+        assert _topic_embedding_requests(tmp_path / "topics.db", source) >= 1
+
+
+def test_stalled_usage_write_does_not_delay_or_fail_the_topic_write(tmp_path, monkeypatch):
+    """Usage recording is best-effort and runs outside the request's own path.
+
+    The recorder is blocked on its own write here. That must not delay or fail
+    the business write, and must not turn a completed model call into a failure.
+    """
+
+    async def scenario():
+        release = asyncio.Event()
+        entered = asyncio.Event()
+        original = StatisticsRepository.record
+
+        async def stalled_record(repository, connection, *args):
+            entered.set()
+            await release.wait()
+            return await original(repository, connection, *args)
+
+        app = _app(tmp_path, UsageEmbeddings())
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+        ):
+            created_scope = await client.post(
+                "/v1/scopes", json={"title": "Stalled", "summary": "Stalled", "idempotency_key": "stalled"}
+            )
+            scope = created_scope.json()["scope_id"]
+            path = f"/v1/scopes/{scope}/artifacts"
+            payload = {"family": "topic-memory", "content": _content("stalled")}
+            with monkeypatch.context() as injected:
+                injected.setattr(StatisticsRepository, "record", stalled_record)
+                # The only wait this path may pay is the bounded flush at its own
+                # completion boundary; anything near the record's write budget
+                # would mean bookkeeping is back on the request's critical path.
+                response = await asyncio.wait_for(client.post(path, json=payload), 2)
+                assert response.status_code == 201, response.text
+                assert await asyncio.wait_for(entered.wait(), 5)
+                release.set()
+            assert len((await client.get(path + "/topic-memory")).json()["items"]) == 1
+            await _await_usage_record(tmp_path / "topics.db", scope)
+            assert (await client.post(path, json=payload)).status_code == 201
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_writes_under_a_held_writer_lock_keep_every_usage_record(tmp_path):
+    """The issue's own setting: concurrent scopes plus a competing writer holding the lock.
+
+    Concurrency alone does not reproduce the report, because an in-memory model
+    yields no long await. The lock has to be held across the requests, which is
+    what a slow generation or embedding call does in a real deployment.
+
+    The budgets must stay ordered, or the test measures the wrong thing:
+
+        embedding timeout  <  lock hold  <  busy timeout
+                            lock hold  <  record write budget
+
+    Holding the lock past the busy timeout fails the *business* write on its own
+    terms, which has nothing to do with accounting; holding it below the embedding
+    timeout leaves the original defect unexercised; holding it past the recorder's
+    own write budget lets a record be dropped before the final count is read.
+    """
+
+    writes = 6
+    embedding_timeout = 0.2
+    lock_hold_seconds = 0.6
+    busy_timeout_ms = 2_000
+
+    async def scenario():
+        app = _app(
+            tmp_path,
+            UsageEmbeddings(),
+            embedding_timeout=embedding_timeout,
+            busy_timeout_ms=busy_timeout_ms,
+        )
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+        ):
+            created_scope = await client.post(
+                "/v1/scopes", json={"title": "Concurrent", "summary": "Concurrent", "idempotency_key": "concurrent"}
+            )
+            scope = created_scope.json()["scope_id"]
+            path = f"/v1/scopes/{scope}/artifacts"
+            payloads = [{"family": "topic-memory", "content": _content(f"c{index}")} for index in range(writes)]
+            holder = sqlite3.connect(tmp_path / "topics.db")
+            try:
+                holder.execute("BEGIN IMMEDIATE")
+                holder.execute("SELECT * FROM pc_scopes").fetchall()
+
+                async def release_later() -> None:
+                    await asyncio.sleep(lock_hold_seconds)
+                    holder.rollback()
+
+                releasing = asyncio.create_task(release_later())
+                responses = await asyncio.gather(*(client.post(path, json=payload) for payload in payloads))
+                await releasing
+            finally:
+                holder.rollback()
+                holder.close()
+            assert [response.status_code for response in responses] == [201] * writes
+
+    asyncio.run(scenario())
+
+    # Drain at shutdown, not at the request boundary: the competing lock outlives
+    # a single record's budget here, so this asserts that no already-accepted
+    # record is lost once contention ends.
+    assert _topic_embedding_requests(tmp_path / "topics.db") == writes
+
+
+def test_usage_write_failure_logs_no_traceback_and_keeps_the_round(tmp_path, monkeypatch, caplog):
+    """Request 1 of the issue: the reported traceback is gone and the round survives."""
+
+    async def fail_record(repository, connection, *args):
+        raise OperationalError("INSERT INTO pc_model_usage_daily", {}, Exception("database is locked"))  # noqa: TRY003
+
+    monkeypatch.setattr(StatisticsRepository, "record", fail_record)
+    with caplog.at_level(logging.DEBUG), TestClient(_app(tmp_path, UsageEmbeddings())) as client:
+        scope = _scope(client, "outage-round")
+        created = _create(client, scope, "survives")
+        assert created.status_code == 201, created.text
+        saved = client.get(f"/v1/scopes/{scope}/artifacts/topic-memory/{created.json()['artifact_id']}")
+        assert saved.json()["content"] == _content("survives")
+
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+def test_cancelling_a_request_during_a_stalled_usage_write_leaves_the_runtime_healthy(tmp_path, monkeypatch):
+    """Cancelling must propagate and must not wedge the runtime or its recorder.
+
+    Usage no longer runs inside the request, so a cancelled request neither waits
+    for it nor rolls it back; what must hold is that cancellation propagates and
+    the runtime keeps accepting work afterwards.
+    """
+
+    async def scenario():
+        release = asyncio.Event()
+        entered = asyncio.Event()
+        original = StatisticsRepository.record
+
+        async def stalled_record(repository, connection, *args):
+            entered.set()
+            await release.wait()
+            return await original(repository, connection, *args)
+
+        app = _app(tmp_path, UsageEmbeddings())
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+        ):
+            created_scope = await client.post(
+                "/v1/scopes", json={"title": "Cancelled", "summary": "Cancelled", "idempotency_key": "cancelled"}
+            )
+            scope = created_scope.json()["scope_id"]
+            path = f"/v1/scopes/{scope}/artifacts"
+            payload = {"family": "topic-memory", "content": _content("cancelled")}
+            with monkeypatch.context() as injected:
+                injected.setattr(StatisticsRepository, "record", stalled_record)
+                pending = asyncio.create_task(client.post(path, json=payload))
+                await asyncio.wait_for(entered.wait(), 5)
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await pending
+                release.set()
+            await _await_usage_record(tmp_path / "topics.db", scope)
+            assert (await client.post(path, json=payload)).status_code == 201
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("topic_family", [False, True])
