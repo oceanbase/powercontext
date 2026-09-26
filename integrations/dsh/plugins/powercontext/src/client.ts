@@ -30,6 +30,9 @@ import {
 import { OPERATIONS, type OperationId, type OperationSpec } from './operations.generated.ts'
 import { normalizeServerUrl } from './transport.ts'
 
+// Cold readiness can spend 30s on inference, then 5s on access checks. Leave transport headroom.
+const MIN_READINESS_TIMEOUT_MS = 40_000
+
 export type JsonObject = Record<string, unknown>
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
 
@@ -201,6 +204,10 @@ export class PowerContextClient {
     this.fetchImpl = options.fetch ?? fetch
   }
 
+  requestTimeoutMsFor(id: string): number {
+    return id === 'get_readiness' ? Math.max(this.requestTimeoutMs, MIN_READINESS_TIMEOUT_MS) : this.requestTimeoutMs
+  }
+
   async request(
     id: string,
     payload?: JsonObject,
@@ -211,7 +218,7 @@ export class PowerContextClient {
     const spec = OPERATIONS[id as OperationId]
     const prepared = prepareRequest(spec, payload)
     const url = `${this.baseUrl}${prepared.path}${prepared.query}`
-    const init = this.buildInit(spec, prepared, signal)
+    const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id))
     if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(undefined, init.signal))
     try {
       const response = await this.fetchImpl(url, init)
@@ -237,7 +244,9 @@ export class PowerContextClient {
     }
   }
 
-  private buildInit(spec: OperationSpec, request: PreparedRequest, signal?: AbortSignal): RequestInit {
+  private buildInit(
+    spec: OperationSpec, request: PreparedRequest, signal?: AbortSignal, requestTimeoutMs = this.requestTimeoutMs,
+  ): RequestInit {
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'User-Agent': PLUGIN_USER_AGENT,
@@ -248,7 +257,7 @@ export class PowerContextClient {
       method: spec.method,
       headers,
       redirect: 'manual',
-      signal: combineSignals([timeoutSignal(this.requestTimeoutMs), ...signal ? [signal] : []]),
+      signal: combineSignals([timeoutSignal(requestTimeoutMs), ...signal ? [signal] : []]),
     }
     if (spec.location === 'body') {
       headers['Content-Type'] = 'application/json'

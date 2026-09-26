@@ -1476,6 +1476,7 @@ function resolveTransport(host, env, nativeUrl, nativeConsent, defaultUrl) {
 
 //#endregion
 //#region src/client.ts
+const MIN_READINESS_TIMEOUT_MS = 4e4;
 function combineSignals(signals) {
 	const present$1 = signals.filter(Boolean);
 	if (typeof AbortSignal.any === "function") return AbortSignal.any(present$1);
@@ -1605,12 +1606,15 @@ var PowerContextClient = class {
 		this.requestTimeoutMs = options.requestTimeoutMs;
 		this.fetchImpl = options.fetch ?? fetch;
 	}
+	requestTimeoutMsFor(id) {
+		return id === "get_readiness" ? Math.max(this.requestTimeoutMs, MIN_READINESS_TIMEOUT_MS) : this.requestTimeoutMs;
+	}
 	async request(id, payload, signal, options = {}) {
 		if (!(id in OPERATIONS$1)) throw new UnknownOperationError(id);
 		const spec = OPERATIONS$1[id];
 		const prepared = prepareRequest(spec, payload);
 		const url = `${this.baseUrl}${prepared.path}${prepared.query}`;
-		const init = this.buildInit(spec, prepared, signal);
+		const init = this.buildInit(spec, prepared, signal, this.requestTimeoutMsFor(id));
 		if (init.signal?.aborted) throw new RequestNotSentError(prepared.path, this.transportCause(void 0, init.signal));
 		try {
 			const response = await this.fetchImpl(url, init);
@@ -1642,7 +1646,7 @@ var PowerContextClient = class {
 			throw this.wrapTransport(path, error, init.signal);
 		}
 	}
-	buildInit(spec, request, signal) {
+	buildInit(spec, request, signal, requestTimeoutMs = this.requestTimeoutMs) {
 		const headers = {
 			Accept: "application/json",
 			"User-Agent": PLUGIN_USER_AGENT,
@@ -1653,7 +1657,7 @@ var PowerContextClient = class {
 			method: spec.method,
 			headers,
 			redirect: "manual",
-			signal: combineSignals([timeoutSignal(this.requestTimeoutMs), ...signal ? [signal] : []])
+			signal: combineSignals([timeoutSignal(requestTimeoutMs), ...signal ? [signal] : []])
 		};
 		if (spec.location === "body") {
 			headers["Content-Type"] = "application/json";
@@ -1995,7 +1999,7 @@ function transportFailure(error) {
 	if (cause instanceof Error && cause.name === "TimeoutError") return [
 		"request_timeout",
 		"The request exceeded its deadline.",
-		"Check the effective requestTimeoutMs and the running Server latency; inspect the failing dependency before increasing the timeout."
+		"Check request_timeout_ms (readiness_request_timeout_ms for get_readiness) in configuration and the running Server latency; inspect the failing dependency before increasing requestTimeoutMs."
 	];
 	if (cause instanceof Error && cause.name === "AbortError") return [
 		"cancelled",
@@ -2248,7 +2252,10 @@ async function diagnoseServer(runtime, cwd, signal) {
 	}) : check("prepare_context", "scope_unavailable", "Not checked because the current Scope could not be resolved.", "Resolve the Scope check first.", "skipped");
 	return {
 		ok: Object.values(checks).every((value) => value.state === "ok"),
-		configuration: config.summary,
+		configuration: {
+			...config.summary,
+			readiness_request_timeout_ms: runtime.client.requestTimeoutMsFor("get_readiness")
+		},
 		checks,
 		coverage: "Read-only checks of the current configuration. Write routes are declared by the contract but not executed; processing, capture and injection are not verified by Doctor."
 	};
