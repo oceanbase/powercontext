@@ -239,7 +239,9 @@ from that container. In the fixed nested-container harness, `host-gateway` addre
 proxy exposed there can be passed as `http://host-gateway:<port>`. The typed setting is also treated as a secret when
 evidence is written.
 
-Agent setup uses Bub's supported installation path: `uv tool install` installs Bub with the local PowerContext plugin,
+The agent container sees only the repository files that installation needs: the `powercontext` package and the
+host integration. Workload files, answer keys, and benchmark data stay on the host, because the agent can search its
+container. Agent setup uses Bub's supported installation path: `uv tool install` installs Bub with the local PowerContext plugin,
 then `bub install bub-acp-server` adds the ACP server to the same environment. Harbor uploads and runs its native ACP
 client. The Terminal-Bench task keeps its original image, setup, verifier, and isolation boundary. The harness ignores
 dataset CPU and memory limits because it evaluates Memory behavior rather than benchmark resource compliance. This

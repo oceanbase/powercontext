@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from pathlib import Path
 from typing import Any, Protocol
 
 from harbor.models.trial.config import AgentConfig, ServiceVolumeConfig
 
 from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec
-from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH
+from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION, REMOTE_CODEX_AUTH, REMOTE_SOURCE
 from .settings import bub_environment, codex_auth_path, powercontext_bub_environment
 
 
@@ -37,8 +39,8 @@ class HostAdapter(Protocol):
     def agent_model(self) -> str | None:
         """Return the runtime-selected model recorded in evidence."""
 
-    def mounts(self, task: E2ETask) -> list[ServiceVolumeConfig]:
-        """Return host-owned bind mounts for the task container."""
+    def mounts(self, task: E2ETask, repository: Path) -> list[ServiceVolumeConfig]:
+        """Return host-owned bind mounts for the task container, such as the integration sources it installs."""
 
     def agent_config(
         self,
@@ -67,18 +69,11 @@ class BubHost:
     def agent_model(self) -> str | None:
         return bub_environment().get("BUB_MODEL")
 
-    def mounts(self, task: E2ETask) -> list[ServiceVolumeConfig]:
-        if not task.execution.model or not (auth_path := codex_auth_path()).is_file():
-            return []
-        return [
-            {
-                "type": "bind",
-                "source": str(auth_path),
-                "target": REMOTE_CODEX_AUTH,
-                "read_only": True,
-                "bind": {"create_host_path": False},
-            }
-        ]
+    def mounts(self, task: E2ETask, repository: Path) -> list[ServiceVolumeConfig]:
+        mounts = source_mounts(repository, ("integrations/bub", "e2e/bub/source-overrides.txt"))
+        if task.execution.model and (auth_path := codex_auth_path()).is_file():
+            mounts.append(read_only_bind(auth_path, REMOTE_CODEX_AUTH))
+        return mounts
 
     def agent_config(
         self,
@@ -127,6 +122,26 @@ def _capture_settings(task: E2ETask) -> tuple[bool, int, int]:
     # Bub captures nothing automatically by default. The ON arm records every turn so that, like the other hosts'
     # integrations, it captures what the user says without relying on the model to call a memory tool.
     return isinstance(evaluation, ContinuationEvaluationSpec), 5, 8192
+
+
+def source_mounts(repository: Path, paths: Iterable[str]) -> list[ServiceVolumeConfig]:
+    """Mount selected repository paths read-only at the same relative place under the agent's source directory.
+
+    Only what an installation needs is mounted: the whole repository would also expose workload answer keys and
+    benchmark data to the agent.
+    """
+
+    return [read_only_bind(repository / path, f"{REMOTE_SOURCE}/{path}") for path in paths]
+
+
+def read_only_bind(source: Path, target: str) -> ServiceVolumeConfig:
+    return {
+        "type": "bind",
+        "source": str(source),
+        "target": target,
+        "read_only": True,
+        "bind": {"create_host_path": False},
+    }
 
 
 _HOSTS: dict[str, HostAdapter] = {"bub": BubHost()}

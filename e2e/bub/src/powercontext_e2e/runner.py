@@ -45,7 +45,7 @@ from .artifacts import write_artifacts
 from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
 from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
-from .hosts import host_adapter
+from .hosts import host_adapter, source_mounts
 from .models import (
     CaptureRecord,
     EvaluationReport,
@@ -67,6 +67,9 @@ FailurePolicy = Literal["fail-fast", "collect-all"]
 TaskStatus = Literal["completed", "failed", "skipped"]
 BATCH_CATEGORY_PREFIX = "batch:"
 BATCH_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# Host integrations install against the local powercontext package, so the agent container gets that package's
+# sources and nothing else from the repository.
+POWERCONTEXT_PACKAGE_PATHS = ("pyproject.toml", "README.md", "LICENSE", "src")
 
 
 class TaskArtifacts(NamedTuple):
@@ -425,14 +428,8 @@ def _job_config(
     host = host_adapter(task)
     repository = settings.repository_path()
     mounts: list[ServiceVolumeConfig] = [
-        {
-            "type": "bind",
-            "source": str(repository),
-            "target": "/opt/powercontext/source",
-            "read_only": True,
-            "bind": {"create_host_path": False},
-        },
-        *host.mounts(task),
+        *source_mounts(repository, POWERCONTEXT_PACKAGE_PATHS),
+        *host.mounts(task, repository),
     ]
     agent = host.agent_config(
         task,
