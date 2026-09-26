@@ -493,9 +493,24 @@ def capture_response(value: SourceReceipt) -> CaptureContentSourceResponse:
     )
 
 
+def _without_absent_evidence(payload: dict[str, Any]) -> dict[str, Any]:
+    """Drop only an absent evidence declaration from a serialized request model.
+
+    A worker whose Definition pre-dates the declaration must not gain one during
+    mapping, but ``exclude_none`` would also drop required values that are
+    legitimately JSON null, such as an explicit null projection value.
+    """
+
+    if payload.get("memory_evidence") is None:
+        payload.pop("memory_evidence", None)
+    return payload
+
+
 def runtime_source_definition_manifest(value: SourceDefinitionManifest) -> RuntimeSourceDefinitionManifest:
     try:
-        return RuntimeSourceDefinitionManifest.model_validate(value.model_dump(mode="json", by_alias=True))
+        return RuntimeSourceDefinitionManifest.model_validate(
+            _without_absent_evidence(value.model_dump(mode="json", by_alias=True))
+        )
     except ValidationError as error:
         raise InvalidRuntimeRequestError("source-definition-manifest") from error
 
@@ -519,7 +534,9 @@ def submit_source_observation_request(value: SubmitSourceObservationRequest) -> 
     try:
         return RuntimeSubmitSourceObservation(
             scope_id=value.scope_id,
-            observation=RuntimeSourceObservation.model_validate(value.observation.model_dump(mode="json")),
+            observation=RuntimeSourceObservation.model_validate(
+                _without_absent_evidence(value.observation.model_dump(mode="json"))
+            ),
         )
     except ValidationError as error:
         raise InvalidRuntimeRequestError("source-observation") from error

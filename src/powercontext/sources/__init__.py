@@ -30,7 +30,15 @@ from powercontext.sources.definitions import (
     SourceDefinitionRegistry,
     SourceProjection,
 )
-from powercontext.sources.models import Source, SourceMaterialization, SourceProjectionKey, SourceRef
+from powercontext.sources.models import (
+    MemoryEvidenceAuthority,
+    MemoryEvidenceDeclaration,
+    MemoryEvidenceVerification,
+    Source,
+    SourceMaterialization,
+    SourceProjectionKey,
+    SourceRef,
+)
 from powercontext.sources.observations import (
     SourceDefinitionManifest,
     SourceObservation,
@@ -53,6 +61,9 @@ __all__ = [
     "ConnectorRunSession",
     "ConnectorRunStatus",
     "ConnectorSubmissionStatus",
+    "MemoryEvidenceAuthority",
+    "MemoryEvidenceDeclaration",
+    "MemoryEvidenceVerification",
     "Source",
     "SourceAdapter",
     "SourceCatalog",

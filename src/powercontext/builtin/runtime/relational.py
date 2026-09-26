@@ -1428,6 +1428,11 @@ class _RelationalMemorySourceResolver:
     def as_ref(self, source: Source, /) -> SourceRef:
         return self._catalog.as_ref(source)
 
+    def memory_evidence(self, source: Source, /):
+        """Resolve Definition-owned evidence metadata for a stored Source."""
+
+        return self._catalog.memory_evidence(source)
+
     async def get(self, source: Source, /) -> Source:
         try:
             async with self._database.connection(self._connection) as connection:
@@ -1923,6 +1928,8 @@ def _validate_source_observation(source: SourceObservation, manifest: SourceDefi
         raise InvalidSourceObservationError("definition", "does not match the registered manifest identity")
     if source.definition_fingerprint != manifest.fingerprint:
         raise InvalidSourceObservationError("fingerprint", "does not match the registered manifest")
+    if "memory_evidence" in source.__pydantic_fields_set__ and source.memory_evidence != manifest.memory_evidence:
+        raise InvalidSourceObservationError("memory_evidence", "does not match the registered manifest")
     if len(source.model_dump_json().encode()) > MAX_SOURCE_OBSERVATION_BYTES:
         raise InvalidSourceObservationError("size", "must not exceed 4 MiB")
     _validate_schema_value(manifest.name, manifest.source_schema, source.payload)

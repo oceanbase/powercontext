@@ -29,8 +29,10 @@ from powercontext.builtin.persistence.codec import dump_model
 from powercontext.builtin.persistence.sources import SourceRepository
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.tables import SHARED_TABLES, SOURCES_TABLE
+from powercontext.builtin.runtime.models import SubmitSourceObservation
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.sources import (
+    SourceDefinitionManifest,
     SourceDefinitionRegistry,
     SourceMaterialization,
     SourceObservation,
@@ -38,12 +40,32 @@ from powercontext.sources import (
     manifest_for_definition,
     project_source_for_transport,
 )
+from powercontext.sources.observations import _source_definition_fingerprint
 from tests.builtin.persistence.contract import (
     SOURCE_ADAPTERS,
     CommitSource,
+    NoteInput,
     NoteSource,
     repository_profile,
 )
+
+
+def _legacy_manifest(current: SourceDefinitionManifest) -> SourceDefinitionManifest:
+    """Return the declaration shape registered before the evidence field existed."""
+
+    return SourceDefinitionManifest(
+        name=current.name,
+        version=current.version,
+        fingerprint=_source_definition_fingerprint(
+            name=current.name,
+            version=current.version,
+            source_schema=current.source_schema,
+            projections=current.projections,
+            memory_evidence=None,
+        ),
+        source_schema=current.source_schema,
+        projections=current.projections,
+    )
 
 
 def test_two_source_adapters_share_one_repository_and_journal() -> None:
@@ -174,6 +196,34 @@ def test_remote_definition_cannot_shadow_the_active_registry() -> None:
 
             with pytest.raises(InvalidSourceDefinitionError, match="active Source Definition"):
                 await contexts.register_source_definition(manifest)
+
+    asyncio.run(scenario())
+
+
+def test_legacy_definition_manifest_registers_reads_back_and_accepts_an_observation() -> None:
+    async def scenario() -> None:
+        worker_registry = SourceDefinitionRegistry.from_adapters(SOURCE_ADAPTERS)
+        definition = worker_registry.definition_for_name("note")
+        legacy = _legacy_manifest(manifest_for_definition(definition))
+        source = await worker_registry.resolve(NoteInput(note_id="note-1", body="Registered before the declaration."))
+        projected = project_source_for_transport(worker_registry, source)
+        observation = SourceObservation.model_validate(
+            projected.model_dump(mode="json", exclude={"memory_evidence"})
+            | {"definition_fingerprint": legacy.fingerprint}
+        )
+
+        async with repository_profile() as (profile, _repositories):
+            # The server owns its own registry, so the worker definition stays remote.
+            contexts = RelationalContexts(database=profile.database)
+            first = await contexts.register_source_definition(legacy)
+            second = await contexts.register_source_definition(legacy)
+            receipt = await contexts.submit_source_observation(
+                SubmitSourceObservation(scope_id="scope-a", observation=observation)
+            )
+
+        assert first == legacy
+        assert second == first
+        assert receipt.source_ref == SourceRef(source_type="note", source_id="note-1")
 
     asyncio.run(scenario())
 

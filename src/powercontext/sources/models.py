@@ -29,6 +29,44 @@ class SourceMaterialization(StrEnum):
     REFERENCED = "referenced"
 
 
+class MemoryEvidenceAuthority(StrEnum):
+    """The declared authority class of evidence produced by a Source Definition."""
+
+    UNTRUSTED = "untrusted"
+    USER_ASSERTED = "user_asserted"
+    REPOSITORY_ATTESTED = "repository_attested"
+    SYSTEM_ATTESTED = "system_attested"
+
+
+class MemoryEvidenceVerification(StrEnum):
+    """Whether a Source Definition's authority declaration has been verified."""
+
+    UNKNOWN = "unknown"
+    VERIFIED = "verified"
+    NOT_VERIFIED = "not_verified"
+
+
+class MemoryEvidenceDeclaration(BaseModel):
+    """A versioned, reconstructible declaration for Memory evidence.
+
+    This is Definition-owned metadata, not a claim inferred from a ``SourceRef``
+    or from Source content. Its neutral default deliberately contributes no
+    ranking preference until a later policy opts in.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authority: MemoryEvidenceAuthority = MemoryEvidenceAuthority.UNTRUSTED
+    verification: MemoryEvidenceVerification = MemoryEvidenceVerification.UNKNOWN
+    declaration_version: str = "1"
+
+    @field_validator("declaration_version")
+    @classmethod
+    def validate_declaration_version(cls, value: str) -> str:
+        _validate_reference_part("declaration_version", value)
+        return value
+
+
 class SourceRef(BaseModel):
     """A stable reference to one Source in the current catalog view."""
 
@@ -64,6 +102,7 @@ class Source(BaseModel):
     definition_version: str = "1"
     materialization: SourceMaterialization
     description: str | None = None
+    memory_evidence: MemoryEvidenceDeclaration = MemoryEvidenceDeclaration()
 
     @field_validator("definition_version")
     @classmethod

@@ -234,6 +234,8 @@ def test_text_file_definition_declares_its_executable_contract() -> None:
     assert definition.version == "1"
     assert definition.input_class is TextFileSnapshotCapture
     assert len(definition.projections) == 1
+    assert definition.memory_evidence.authority == "untrusted"
+    assert definition.memory_evidence.verification == "unknown"
 
 
 def test_remote_opendal_worker_completes_the_source_to_memory_loop(tmp_path: Path) -> None:

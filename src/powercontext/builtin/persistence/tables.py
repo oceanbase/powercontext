@@ -978,6 +978,45 @@ MEMORY_ENTRY_VERSIONS_TABLE = Table(
     ),
 )
 
+MEMORY_ENTRY_EVIDENCE_TABLE = Table(
+    "pc_memory_entry_evidence",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("ordinal", Integer, primary_key=True),
+    Column("source_type", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    Column("source_id", identity_string(MAX_SOURCE_ID_LENGTH), nullable=False),
+    Column("authority", identity_string(32), nullable=False),
+    Column("verification", identity_string(32), nullable=False),
+    Column("declaration_version", identity_string(MAX_SOURCE_TYPE_LENGTH), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "memory_artifact_id", "entry_id", "entry_version_id"),
+        (
+            "pc_memory_entry_versions.scope_id",
+            "pc_memory_entry_versions.memory_artifact_id",
+            "pc_memory_entry_versions.entry_id",
+            "pc_memory_entry_versions.entry_version_id",
+        ),
+        ondelete="CASCADE",
+    ),
+    ForeignKeyConstraint(
+        ("scope_id", "source_type", "source_id"),
+        ("pc_sources.scope_id", "pc_sources.source_type", "pc_sources.source_id"),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("ordinal >= 0", name="ck_pc_memory_entry_evidence_ordinal_nonnegative"),
+    CheckConstraint(
+        "authority IN ('untrusted', 'user_asserted', 'repository_attested', 'system_attested')",
+        name="ck_pc_memory_entry_evidence_authority",
+    ),
+    CheckConstraint(
+        "verification IN ('unknown', 'verified', 'not_verified')",
+        name="ck_pc_memory_entry_evidence_verification",
+    ),
+)
+
 MEMORY_ENTRY_HEADS_TABLE = Table(
     "pc_memory_entry_heads",
     SHARED_METADATA,
@@ -1012,8 +1051,61 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
     CheckConstraint("head_revision > 0", name="ck_pc_memory_entry_heads_revision_positive"),
 )
 
+# Lifecycle rows are maintained per entry and re-stamped only by the revision that
+# changes them, like the active-head and vector rows. ``head_revision`` records the
+# revision that last wrote a row; a read identifies rows by entry and proves
+# completeness against the authoritative manifest rather than by revision.
+MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE = Table(
+    "pc_memory_entry_lifecycle_projections",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("head_revision", Integer, nullable=False),
+    Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+    Column("validity", identity_string(32), nullable=False),
+    Column("validity_reason", identity_string(256)),
+    Column("successor_entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH)),
+    Column("source_count", Integer, nullable=False),
+    Column("rule_version", identity_string(64), nullable=False),
+    Column("quality_policy", identity_string(16), nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "memory_artifact_id", "head_revision"),
+        (
+            "pc_artifacts.scope_id",
+            "pc_artifacts.family",
+            "pc_artifacts.artifact_id",
+            "pc_artifacts.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    ForeignKeyConstraint(
+        ("scope_id", "memory_artifact_id", "entry_id", "entry_version_id"),
+        (
+            "pc_memory_entry_versions.scope_id",
+            "pc_memory_entry_versions.memory_artifact_id",
+            "pc_memory_entry_versions.entry_id",
+            "pc_memory_entry_versions.entry_version_id",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("head_revision > 0", name="ck_pc_memory_lifecycle_projection_revision_positive"),
+    CheckConstraint("source_count >= 0", name="ck_pc_memory_lifecycle_projection_sources_nonnegative"),
+    CheckConstraint(
+        "validity IN ('current', 'inactive', 'superseded', 'unresolved_conflict')",
+        name="ck_pc_memory_lifecycle_projection_validity",
+    ),
+    CheckConstraint("quality_policy = 'neutral'", name="ck_pc_memory_lifecycle_projection_quality_neutral"),
+)
 
-MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
+
+MEMORY_TABLES = (
+    MEMORY_ENTRY_VERSIONS_TABLE,
+    MEMORY_ENTRY_EVIDENCE_TABLE,
+    MEMORY_ENTRY_HEADS_TABLE,
+    MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE,
+)
 
 TOPIC_MEMORY_TABLES = (
     TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,

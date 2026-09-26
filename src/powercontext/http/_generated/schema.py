@@ -6057,6 +6057,21 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["key", "schema"],
             },
+            "MemoryEvidenceAuthority": {
+                "type": "string",
+                "enum": ["untrusted", "user_asserted", "repository_attested", "system_attested"],
+            },
+            "MemoryEvidenceVerification": {"type": "string", "enum": ["unknown", "verified", "not_verified"]},
+            "MemoryEvidenceDeclaration": {
+                "properties": {
+                    "authority": {"$ref": "#/components/schemas/MemoryEvidenceAuthority"},
+                    "verification": {"$ref": "#/components/schemas/MemoryEvidenceVerification"},
+                    "declaration_version": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["authority", "verification", "declaration_version"],
+            },
             "SourceDefinitionManifest": {
                 "properties": {
                     "name": {"type": "string", "maxLength": 128, "minLength": 1, "pattern": ".*\\S.*"},
@@ -6068,6 +6083,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                         "type": "array",
                         "maxItems": 16,
                     },
+                    "memory_evidence": {"$ref": "#/components/schemas/MemoryEvidenceDeclaration"},
                 },
                 "additionalProperties": False,
                 "type": "object",
@@ -6119,6 +6135,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "description": {"type": "string", "nullable": True},
                     "source_type": {"type": "string", "maxLength": 128, "minLength": 1},
                     "definition_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                    "memory_evidence": {"$ref": "#/components/schemas/MemoryEvidenceDeclaration"},
                     "payload": {"additionalProperties": True, "type": "object"},
                     "projections": {
                         "items": {"$ref": "#/components/schemas/SourceProjectionValue"},

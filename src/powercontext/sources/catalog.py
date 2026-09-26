@@ -24,7 +24,7 @@ from powercontext.errors import (
 )
 from powercontext.sources.adapters import SourceAdapter
 from powercontext.sources.definitions import SourceDefinitionRegistry
-from powercontext.sources.models import Source, SourceProjectionKey, SourceRef
+from powercontext.sources.models import MemoryEvidenceDeclaration, Source, SourceProjectionKey, SourceRef
 from powercontext.sources.observations import SourceObservation
 from powercontext.sources.protocols import SourceCatalogBackend
 
@@ -66,6 +66,19 @@ class SourceCatalog:
             return SourceRef(source_type=source.source_type, source_id=source.name)
         definition = self._registry.definition_for_source(source)
         return SourceRef(source_type=definition.name, source_id=source.name)
+
+    def memory_evidence(self, source: Source, /) -> MemoryEvidenceDeclaration:
+        """Return the immutable declaration carried by the exact Source value."""
+
+        return self._registry.memory_evidence(source)
+
+    def materialize(self, source: Source, /) -> Source:
+        """Attach the Definition-owned declaration before a native Source is stored."""
+
+        if isinstance(source, SourceObservation):
+            return source
+        definition = self._registry.definition_for_source(source)
+        return source.model_copy(update={"memory_evidence": definition.memory_evidence})
 
     async def resolve(self, value: object, /) -> Source:
         return await self._registry.resolve(value)

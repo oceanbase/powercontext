@@ -61,6 +61,7 @@ from powercontext.builtin.artifacts.memory.models import (
     MemoryContent,
     MemoryEntryInput,
     MemoryEntryVersion,
+    MemoryEvidenceSnapshot,
     MemoryHit,
     MemoryManifest,
     MemoryManifestEntry,
@@ -92,7 +93,7 @@ from powercontext.builtin.inference import (
 )
 from powercontext.builtin.tags import TagFilter
 from powercontext.errors import RevisionConflictError
-from powercontext.sources import Source, SourceRef
+from powercontext.sources import MemoryEvidenceDeclaration, Source, SourceRef
 
 MemoryRememberMode: TypeAlias = Literal["append", "extract", "auto"]
 IdFactory: TypeAlias = Callable[[str], str]
@@ -103,6 +104,8 @@ class _SourceResolver(Protocol):
     async def get(self, source: Source, /) -> Source: ...
 
     def as_ref(self, source: Source, /) -> SourceRef: ...
+
+    def memory_evidence(self, source: Source, /) -> MemoryEvidenceDeclaration: ...
 
 
 class _ArtifactResolver(Protocol):
@@ -120,6 +123,7 @@ class _EntryMaterial:
     kind: str
     text: str
     sources: tuple[SourceRef, ...]
+    source_evidence: tuple[MemoryEvidenceSnapshot, ...]
     artifacts: tuple[ArtifactRef, ...]
     content_bytes: bytes
     content_hash: str
@@ -1265,6 +1269,7 @@ class MemoryService:
         previous_artifacts = () if previous is None else previous.artifacts
         candidate_sources = await self._canonical_candidate_sources(candidate.sources, allowed_sources)
         candidate_source_refs = self._source_refs(candidate_sources)
+        candidate_source_evidence = self._source_evidence(candidate_sources)
         candidate_artifacts = await self._canonical_candidate_artifacts(
             candidate.artifacts,
             allowed_artifacts,
@@ -1272,16 +1277,19 @@ class MemoryService:
         )
         if previous is None:
             sources = candidate_source_refs
+            source_evidence = candidate_source_evidence
             artifacts = candidate_artifacts
         else:
             # Revises retain predecessor evidence and add current candidate evidence.
             sources = (*previous.sources, *candidate_source_refs)
+            source_evidence = (*previous.source_evidence, *candidate_source_evidence)
             artifacts = (*previous.artifacts, *candidate_artifacts)
         try:
             return self._entry_material(
                 kind=candidate.kind,
                 text=candidate.text,
                 sources=sources,
+                source_evidence=source_evidence,
                 artifacts=artifacts,
             )
         except (TypeError, ValueError) as error:
@@ -1327,6 +1335,7 @@ class MemoryService:
             kind=version.kind,
             text=version.text,
             sources=version.sources,
+            source_evidence=version.source_evidence,
             artifacts=version.artifacts,
         )
 
@@ -1336,11 +1345,13 @@ class MemoryService:
         kind: str,
         text: str,
         sources: Sequence[SourceRef],
+        source_evidence: Sequence[MemoryEvidenceSnapshot],
         artifacts: Sequence[ArtifactRef],
     ) -> _EntryMaterial:
         normalized_kind = normalize_kind(kind)
         normalized_text = normalize_text(text)
         canonical_sources = _canonical_source_refs(sources)
+        canonical_evidence = _canonical_source_evidence(canonical_sources, source_evidence)
         canonical_artifacts = _canonical_artifact_refs(artifacts)
         source_refs = tuple(source.model_dump(mode="json") for source in canonical_sources)
         artifact_refs = tuple(artifact.model_dump(mode="json") for artifact in canonical_artifacts)
@@ -1354,6 +1365,7 @@ class MemoryService:
             kind=normalized_kind,
             text=normalized_text,
             sources=canonical_sources,
+            source_evidence=canonical_evidence,
             artifacts=canonical_artifacts,
             content_bytes=content_bytes,
             content_hash=entry_content_hash(
@@ -1378,6 +1390,25 @@ class MemoryService:
             keyed.setdefault(canonical_json(reference.model_dump(mode="json")), reference)
         return tuple(keyed[key] for key in sorted(keyed))
 
+    def _source_evidence(self, sources: Sequence[Source]) -> tuple[MemoryEvidenceSnapshot, ...]:
+        """Snapshot Definition-owned declarations without changing content identity."""
+
+        if not sources:
+            return ()
+        if self._source_resolver is None:
+            raise InvalidMemoryEvidenceError("source-adapter")
+        resolver = getattr(self._source_resolver, "memory_evidence", None)
+        keyed: dict[bytes, MemoryEvidenceSnapshot] = {}
+        for source in sources:
+            try:
+                reference = self._source_resolver.as_ref(source)
+                declaration = MemoryEvidenceDeclaration() if resolver is None else resolver(source)
+                snapshot = MemoryEvidenceSnapshot(source=reference, declaration=declaration)
+            except (KeyError, LookupError, TypeError, ValueError):
+                raise InvalidMemoryEvidenceError("source-adapter") from None
+            keyed.setdefault(canonical_json(reference.model_dump(mode="json")), snapshot)
+        return tuple(keyed[key] for key in sorted(keyed))
+
     def _new_entry_version(
         self,
         *,
@@ -1396,6 +1427,7 @@ class MemoryService:
             kind=material.kind,
             text=material.text,
             sources=material.sources,
+            source_evidence=material.source_evidence,
             artifacts=material.artifacts,
             entry_content_hash=material.content_hash,
             created_in_revision=created_in_revision,
@@ -1440,6 +1472,30 @@ def _manifest_entry(version: MemoryEntryVersion, *, state: Literal["active", "in
 def _canonical_source_refs(values: Sequence[SourceRef]) -> tuple[SourceRef, ...]:
     keyed = {canonical_json(value.model_dump(mode="json")): value for value in values}
     return tuple(keyed[key] for key in sorted(keyed))
+
+
+def _canonical_source_evidence(
+    sources: Sequence[SourceRef],
+    values: Sequence[MemoryEvidenceSnapshot],
+) -> tuple[MemoryEvidenceSnapshot, ...]:
+    """Align provenance snapshots with canonical source identity.
+
+    Entries written before the lifecycle projection existed have no snapshots.
+    They deliberately derive the neutral declaration instead of acquiring a
+    trust claim from a current adapter configuration.
+    """
+
+    declared = {canonical_json(value.source.model_dump(mode="json")): value for value in values}
+    canonical: list[MemoryEvidenceSnapshot] = []
+    for source in sources:
+        key = canonical_json(source.model_dump(mode="json"))
+        canonical.append(
+            declared.get(
+                key,
+                MemoryEvidenceSnapshot(source=source, declaration=MemoryEvidenceDeclaration()),
+            )
+        )
+    return tuple(canonical)
 
 
 def _canonical_artifact_refs(values: Sequence[ArtifactRef]) -> tuple[ArtifactRef, ...]:

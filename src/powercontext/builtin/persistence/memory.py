@@ -19,10 +19,10 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal, cast
 
 from pydantic import RootModel
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactDraft, ArtifactRef
@@ -34,7 +34,10 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCommit,
     MemoryContent,
     MemoryEntryVersion,
+    MemoryEvidenceSnapshot,
     MemoryHit,
+    MemoryLifecycleProjection,
+    MemoryLifecycleValidity,
     MemoryProjection,
     MemoryRevisionChanges,
     MemorySearchChannels,
@@ -55,18 +58,25 @@ from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
-from powercontext.builtin.persistence.database import AsyncDatabase
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE, AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
+    MEMORY_ENTRY_EVIDENCE_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
+    MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
 )
 from powercontext.builtin.persistence.tags import tag_predicate
 from powercontext.builtin.tags import TagFilter
 from powercontext.errors import ArtifactNotFoundError
-from powercontext.sources import SourceRef
+from powercontext.sources import (
+    MemoryEvidenceAuthority,
+    MemoryEvidenceDeclaration,
+    MemoryEvidenceVerification,
+    SourceRef,
+)
 
 
 class _SourceRefs(RootModel[tuple[SourceRef, ...]]):
@@ -77,6 +87,11 @@ class _ArtifactRefs(RootModel[tuple[ArtifactRef, ...]]):
     pass
 
 
+# An evidence lookup binds three identity columns per entry plus the scope, so it
+# chunks at the shared bind budget instead of the shared selection row count.
+_EVIDENCE_SELECTION_BATCH_SIZE = max(1, SELECTION_BATCH_SIZE // 3)
+
+
 class _MemoryDraft(ArtifactDraft[MemoryContent]):
     family: ClassVar[str] = Memory.family
 
@@ -85,6 +100,7 @@ class _MemoryDraft(ArtifactDraft[MemoryContent]):
 class _RebuildSnapshot:
     memory_ref: ArtifactRef
     projections: tuple[MemoryProjection, ...]
+    lifecycle: tuple[MemoryLifecycleProjection, ...]
 
 
 class _InvalidMemoryCommitError(MemoryBackendConfigurationError):
@@ -193,42 +209,89 @@ class RelationalMemoryBackend:
                     )
                 )
             ).mappings()
-            by_id = {str(row["entry_version_id"]): _decode_entry(row) for row in rows}
+            versions = await self._hydrate_source_evidence(connection, tuple(_decode_entry(row) for row in rows))
+            by_id = {version.entry_version_id: version for version in versions}
         if set(by_id) != set(version_ids):
             raise InvalidMemoryCitationError("missing-version")
         return tuple(by_id[version_id] for version_id in version_ids)
+
+    async def lifecycle_projections(self, memory: ArtifactRef, /) -> tuple[MemoryLifecycleProjection, ...]:
+        """Load the internal neutral lifecycle projection for one exact Memory head.
+
+        Rows are keyed by entry and re-stamped only by the revision that changes
+        them, so the read selects the artifact's rows and proves completeness by
+        entry identity, exactly as the active-head projection does.
+        """
+
+        canonical = await self.get(memory)
+        version_ids = tuple(item.entry_version_id for item in canonical.content.manifest.entries)
+        if not version_ids:
+            return ()
+        async with self._database.connection(self._bound_connection) as connection:
+            entry_rows = (
+                await connection.execute(
+                    select(MEMORY_ENTRY_VERSIONS_TABLE).where(
+                        MEMORY_ENTRY_VERSIONS_TABLE.c.scope_id == self._scope_id,
+                        MEMORY_ENTRY_VERSIONS_TABLE.c.memory_artifact_id == memory.artifact_id,
+                        MEMORY_ENTRY_VERSIONS_TABLE.c.entry_version_id.in_(version_ids),
+                    )
+                )
+            ).mappings()
+            versions = await self._hydrate_source_evidence(connection, tuple(_decode_entry(row) for row in entry_rows))
+            by_version = {entry.entry_version_id: entry for entry in versions}
+            rows = (
+                await connection.execute(
+                    select(MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE)
+                    .where(
+                        MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE.c.scope_id == self._scope_id,
+                        MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE.c.memory_artifact_id == memory.artifact_id,
+                    )
+                    .order_by(MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE.c.entry_id)
+                )
+            ).mappings()
+            projections = tuple(
+                _decode_lifecycle_projection(memory, row, by_version.get(str(row["entry_version_id"]))) for row in rows
+            )
+        if {item.entry_id for item in projections} != {item.entry_id for item in canonical.content.manifest.entries}:
+            raise InvalidMemoryCitationError("lifecycle-projection")
+        return projections
 
     async def projections(self, memory: ArtifactRef, /) -> tuple[MemoryProjection, ...]:
         canonical = await self.get(memory)
         async with self._database.connection(self._bound_connection) as connection:
             rows = (
-                await connection.execute(
-                    select(MEMORY_ENTRY_HEADS_TABLE, MEMORY_ENTRY_VERSIONS_TABLE)
-                    .join(
-                        MEMORY_ENTRY_VERSIONS_TABLE,
-                        (MEMORY_ENTRY_VERSIONS_TABLE.c.scope_id == MEMORY_ENTRY_HEADS_TABLE.c.scope_id)
-                        & (
-                            MEMORY_ENTRY_VERSIONS_TABLE.c.memory_artifact_id
-                            == MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id
+                (
+                    await connection.execute(
+                        select(MEMORY_ENTRY_HEADS_TABLE, MEMORY_ENTRY_VERSIONS_TABLE)
+                        .join(
+                            MEMORY_ENTRY_VERSIONS_TABLE,
+                            (MEMORY_ENTRY_VERSIONS_TABLE.c.scope_id == MEMORY_ENTRY_HEADS_TABLE.c.scope_id)
+                            & (
+                                MEMORY_ENTRY_VERSIONS_TABLE.c.memory_artifact_id
+                                == MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id
+                            )
+                            & (
+                                MEMORY_ENTRY_VERSIONS_TABLE.c.entry_version_id
+                                == MEMORY_ENTRY_HEADS_TABLE.c.entry_version_id
+                            ),
                         )
-                        & (
-                            MEMORY_ENTRY_VERSIONS_TABLE.c.entry_version_id
-                            == MEMORY_ENTRY_HEADS_TABLE.c.entry_version_id
-                        ),
+                        .where(
+                            MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
+                            MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == memory.artifact_id,
+                        )
+                        .order_by(MEMORY_ENTRY_HEADS_TABLE.c.entry_id)
                     )
-                    .where(
-                        MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
-                        MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == memory.artifact_id,
-                    )
-                    .order_by(MEMORY_ENTRY_HEADS_TABLE.c.entry_id)
                 )
-            ).mappings()
+                .mappings()
+                .all()
+            )
+            entries = await self._hydrate_source_evidence(connection, tuple(_decode_entry(row) for row in rows))
             projections = tuple(
                 MemoryProjection(
-                    entry_version=_decode_entry(row),
+                    entry_version=entry,
                     searchable_text=str(row["searchable_text"]),
                 )
-                for row in rows
+                for row, entry in zip(rows, entries, strict=True)
             )
             projections = await self._index.hydrate(connection, self._scope_id, projections)
         active_ids = {item.entry_version_id for item in canonical.content.manifest.entries if item.state == "active"}
@@ -264,6 +327,11 @@ class RelationalMemoryBackend:
             await connection.execute(
                 delete(MEMORY_ENTRY_HEADS_TABLE).where(MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id)
             )
+            await connection.execute(
+                delete(MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE).where(
+                    MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE.c.scope_id == self._scope_id
+                )
+            )
             for snapshot in rebuilt:
                 if snapshot.projections:
                     await connection.execute(
@@ -272,6 +340,11 @@ class RelationalMemoryBackend:
                             _projection_values(self._scope_id, snapshot.memory_ref, projection)
                             for projection in snapshot.projections
                         ],
+                    )
+                if snapshot.lifecycle:
+                    await connection.execute(
+                        insert(MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE),
+                        [_lifecycle_values(self._scope_id, lifecycle) for lifecycle in snapshot.lifecycle],
                     )
                 await self._index.replace(
                     connection,
@@ -358,7 +431,106 @@ class RelationalMemoryBackend:
                 if row is None:
                     raise InvalidMemoryCitationError("expand-anchor")
                 expanded.append(_decode_entry(row))
-        return tuple(expanded)
+            return await self._hydrate_source_evidence(connection, tuple(expanded))
+
+    async def _hydrate_source_evidence(
+        self,
+        connection: AsyncConnection,
+        entries: tuple[MemoryEntryVersion, ...],
+    ) -> tuple[MemoryEntryVersion, ...]:
+        if not entries:
+            return ()
+        identities = tuple(
+            dict.fromkeys((entry.memory_artifact_id, entry.entry_id, entry.entry_version_id) for entry in entries)
+        )
+        snapshots: dict[tuple[str, str, str], list[MemoryEvidenceSnapshot]] = {}
+        for start in range(0, len(identities), _EVIDENCE_SELECTION_BATCH_SIZE):
+            batch = identities[start : start + _EVIDENCE_SELECTION_BATCH_SIZE]
+            rows = (
+                await connection.execute(
+                    select(MEMORY_ENTRY_EVIDENCE_TABLE)
+                    .where(
+                        MEMORY_ENTRY_EVIDENCE_TABLE.c.scope_id == self._scope_id,
+                        tuple_(
+                            MEMORY_ENTRY_EVIDENCE_TABLE.c.memory_artifact_id,
+                            MEMORY_ENTRY_EVIDENCE_TABLE.c.entry_id,
+                            MEMORY_ENTRY_EVIDENCE_TABLE.c.entry_version_id,
+                        ).in_(batch),
+                    )
+                    .order_by(
+                        MEMORY_ENTRY_EVIDENCE_TABLE.c.memory_artifact_id,
+                        MEMORY_ENTRY_EVIDENCE_TABLE.c.entry_id,
+                        MEMORY_ENTRY_EVIDENCE_TABLE.c.entry_version_id,
+                        MEMORY_ENTRY_EVIDENCE_TABLE.c.ordinal,
+                    )
+                )
+            ).mappings()
+            for row in rows:
+                identity = (str(row["memory_artifact_id"]), str(row["entry_id"]), str(row["entry_version_id"]))
+                snapshots.setdefault(identity, []).append(
+                    MemoryEvidenceSnapshot(
+                        source=SourceRef(source_type=str(row["source_type"]), source_id=str(row["source_id"])),
+                        declaration=MemoryEvidenceDeclaration(
+                            authority=MemoryEvidenceAuthority(str(row["authority"])),
+                            verification=MemoryEvidenceVerification(str(row["verification"])),
+                            declaration_version=str(row["declaration_version"]),
+                        ),
+                    )
+                )
+        hydrated: list[MemoryEntryVersion] = []
+        for entry in entries:
+            identity = (entry.memory_artifact_id, entry.entry_id, entry.entry_version_id)
+            evidence = tuple(snapshots.get(identity, ()))
+            if evidence and tuple(snapshot.source for snapshot in evidence) != entry.sources:
+                raise InvalidMemoryCitationError("evidence-source")
+            hydrated.append(
+                entry.model_copy(update={"source_evidence": evidence or _neutral_source_evidence(entry.sources)})
+            )
+        return tuple(hydrated)
+
+    async def _lifecycle_for_memory(
+        self,
+        connection: AsyncConnection,
+        memory: Memory,
+    ) -> tuple[MemoryLifecycleProjection, ...]:
+        return await self._lifecycle_for_entries(
+            connection,
+            memory,
+            tuple(item.entry_id for item in memory.content.manifest.entries),
+        )
+
+    async def _lifecycle_for_entries(
+        self,
+        connection: AsyncConnection,
+        memory: Memory,
+        entry_ids: tuple[str, ...],
+    ) -> tuple[MemoryLifecycleProjection, ...]:
+        """Derive lifecycle rows for the named manifest entries of one Memory."""
+
+        wanted = frozenset(entry_ids)
+        manifest = tuple(item for item in memory.content.manifest.entries if item.entry_id in wanted)
+        if not manifest:
+            return ()
+        version_ids = tuple(item.entry_version_id for item in manifest)
+        rows = (
+            await connection.execute(
+                select(MEMORY_ENTRY_VERSIONS_TABLE).where(
+                    MEMORY_ENTRY_VERSIONS_TABLE.c.scope_id == self._scope_id,
+                    MEMORY_ENTRY_VERSIONS_TABLE.c.memory_artifact_id == memory.artifact_id,
+                    MEMORY_ENTRY_VERSIONS_TABLE.c.entry_version_id.in_(version_ids),
+                )
+            )
+        ).mappings()
+        versions = await self._hydrate_source_evidence(connection, tuple(_decode_entry(row) for row in rows))
+        by_version = {entry.entry_version_id: entry for entry in versions}
+        lifecycle: list[MemoryLifecycleProjection] = []
+        for item in manifest:
+            entry = by_version.get(item.entry_version_id)
+            if entry is None:
+                raise InvalidMemoryCitationError("missing-version")
+            _validate_rebuild_entry(memory.as_ref(), item.entry_id, item.entry_content_hash, entry)
+            lifecycle.append(_lifecycle_projection(memory.as_ref(), item.state, entry))
+        return tuple(lifecycle)
 
     async def _authoritative_projections(
         self,
@@ -385,9 +557,10 @@ class RelationalMemoryBackend:
                 revision=int(revision),
             )
             memory = _require_memory(await self._artifacts.get(connection, self._scope_id, ref))
+            lifecycle = await self._lifecycle_for_memory(connection, memory)
             active = tuple(item for item in memory.content.manifest.entries if item.state == "active")
             if not active:
-                snapshots.append(_RebuildSnapshot(memory_ref=ref, projections=()))
+                snapshots.append(_RebuildSnapshot(memory_ref=ref, projections=(), lifecycle=lifecycle))
                 continue
             version_ids = tuple(item.entry_version_id for item in active)
             rows = (
@@ -399,7 +572,8 @@ class RelationalMemoryBackend:
                     )
                 )
             ).mappings()
-            versions = {str(row["entry_version_id"]): _decode_entry(row) for row in rows}
+            hydrated = await self._hydrate_source_evidence(connection, tuple(_decode_entry(row) for row in rows))
+            versions = {entry.entry_version_id: entry for entry in hydrated}
             projections: list[MemoryProjection] = []
             for item in active:
                 version = versions.get(item.entry_version_id)
@@ -416,6 +590,7 @@ class RelationalMemoryBackend:
                 _RebuildSnapshot(
                     memory_ref=ref,
                     projections=tuple(projections),
+                    lifecycle=lifecycle,
                 )
             )
         return tuple(snapshots)
@@ -492,6 +667,9 @@ class RelationalMemoryBackend:
                 insert(MEMORY_ENTRY_VERSIONS_TABLE),
                 [_entry_values(self._scope_id, entry) for entry in value.entry_versions],
             )
+            evidence_rows = [row for entry in value.entry_versions for row in _evidence_values(self._scope_id, entry)]
+            if evidence_rows:
+                await connection.execute(insert(MEMORY_ENTRY_EVIDENCE_TABLE), evidence_rows)
         # Only entries whose pointer or state changed need projection work; the
         # rest of the active head stays exactly as the previous revision left it.
         previous_active = (
@@ -541,6 +719,41 @@ class RelationalMemoryBackend:
                 self._scope_id,
                 value.memory.as_ref(),
                 upserts,
+            )
+        # Lifecycle rows cover every manifest entry, including inactive ones, and
+        # follow the same per-entry rule as the active head: only the entries whose
+        # identity or state changed are rewritten, so repeated appends stay bounded
+        # by the appended entries instead of the manifest size.
+        previous_entries = (
+            {}
+            if value.base is None
+            else {item.entry_id: (item.entry_version_id, item.state) for item in value.base.content.manifest.entries}
+        )
+        current_entries = {
+            item.entry_id: (item.entry_version_id, item.state) for item in value.memory.content.manifest.entries
+        }
+        lifecycle_removed = tuple(sorted(entry_id for entry_id in previous_entries if entry_id not in current_entries))
+        lifecycle_changed = tuple(
+            sorted(
+                entry_id for entry_id, identity in current_entries.items() if previous_entries.get(entry_id) != identity
+            )
+        )
+        lifecycle_drop = tuple(sorted({*lifecycle_removed, *lifecycle_changed}))
+        if lifecycle_drop:
+            await connection.execute(
+                delete(MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE).where(
+                    MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE.c.scope_id == self._scope_id,
+                    MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE.c.memory_artifact_id == value.memory.artifact_id,
+                    MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE.c.entry_id.in_(lifecycle_drop),
+                )
+            )
+        if lifecycle_changed:
+            lifecycle = await self._lifecycle_for_entries(connection, committed, lifecycle_changed)
+            if len(lifecycle) != len(lifecycle_changed):
+                raise _InvalidMemoryCommitError("lifecycle-projection")
+            await connection.execute(
+                insert(MEMORY_ENTRY_LIFECYCLE_PROJECTIONS_TABLE),
+                [_lifecycle_values(self._scope_id, projection) for projection in lifecycle],
             )
         return committed
 
@@ -609,6 +822,24 @@ def _entry_values(scope_id: str, value: MemoryEntryVersion) -> dict[str, object]
     }
 
 
+def _evidence_values(scope_id: str, value: MemoryEntryVersion) -> tuple[dict[str, object], ...]:
+    return tuple(
+        {
+            "scope_id": scope_id,
+            "memory_artifact_id": value.memory_artifact_id,
+            "entry_id": value.entry_id,
+            "entry_version_id": value.entry_version_id,
+            "ordinal": ordinal,
+            "source_type": snapshot.source.source_type,
+            "source_id": snapshot.source.source_id,
+            "authority": snapshot.declaration.authority.value,
+            "verification": snapshot.declaration.verification.value,
+            "declaration_version": snapshot.declaration.declaration_version,
+        }
+        for ordinal, snapshot in enumerate(value.source_evidence)
+    )
+
+
 def _projection_values(
     scope_id: str,
     memory_ref: ArtifactRef,
@@ -624,6 +855,23 @@ def _projection_values(
         "entry_version_id": entry.entry_version_id,
         "entry_content_hash": entry.entry_content_hash,
         "searchable_text": value.searchable_text,
+    }
+
+
+def _lifecycle_values(scope_id: str, value: MemoryLifecycleProjection) -> dict[str, object]:
+    return {
+        "scope_id": scope_id,
+        "family": Memory.family,
+        "memory_artifact_id": value.memory_ref.artifact_id,
+        "head_revision": value.memory_ref.revision,
+        "entry_id": value.entry_id,
+        "entry_version_id": value.entry_version_id,
+        "validity": value.validity,
+        "validity_reason": value.validity_reason,
+        "successor_entry_id": value.successor_entry_id,
+        "source_count": len(value.source_evidence),
+        "rule_version": value.rule_version,
+        "quality_policy": value.quality_policy,
     }
 
 
@@ -652,6 +900,48 @@ def _decode_entry(row: Mapping[Any, Any]) -> MemoryEntryVersion:
         entry_content_hash=str(row["entry_content_hash"]),
         created_in_revision=int(row["created_in_revision"]),
     )
+
+
+def _neutral_source_evidence(sources: tuple[SourceRef, ...]) -> tuple[MemoryEvidenceSnapshot, ...]:
+    return tuple(MemoryEvidenceSnapshot(source=source, declaration=MemoryEvidenceDeclaration()) for source in sources)
+
+
+def _lifecycle_projection(
+    memory_ref: ArtifactRef,
+    state: str,
+    entry: MemoryEntryVersion,
+) -> MemoryLifecycleProjection:
+    validity = "current" if state == "active" else "inactive"
+    return MemoryLifecycleProjection(
+        memory_ref=memory_ref,
+        entry_id=entry.entry_id,
+        entry_version_id=entry.entry_version_id,
+        validity=validity,
+        source_evidence=entry.source_evidence,
+    )
+
+
+def _decode_lifecycle_projection(
+    memory_ref: ArtifactRef,
+    row: Mapping[Any, Any],
+    entry: MemoryEntryVersion | None,
+) -> MemoryLifecycleProjection:
+    if entry is None or entry.entry_id != str(row["entry_id"]):
+        raise InvalidMemoryCitationError("lifecycle-version")
+    projection = MemoryLifecycleProjection(
+        memory_ref=memory_ref,
+        entry_id=str(row["entry_id"]),
+        entry_version_id=str(row["entry_version_id"]),
+        validity=cast(MemoryLifecycleValidity, str(row["validity"])),
+        validity_reason=(None if row["validity_reason"] is None else str(row["validity_reason"])),
+        successor_entry_id=(None if row["successor_entry_id"] is None else str(row["successor_entry_id"])),
+        source_evidence=entry.source_evidence,
+        rule_version=str(row["rule_version"]),
+        quality_policy=cast(Literal["neutral"], str(row["quality_policy"])),
+    )
+    if int(row["source_count"]) != len(projection.source_evidence):
+        raise InvalidMemoryCitationError("lifecycle-source-count")
+    return projection
 
 
 def _validate_rebuild_entry(
