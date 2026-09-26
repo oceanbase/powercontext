@@ -35,3 +35,17 @@ def test_generation_model_settings_reject_static_headers() -> None:
             generation_model="provider:model",
             generation_model_settings={"extra_headers": {"Authorization": "Bearer secret"}},
         )
+
+
+def test_decision_overrides_require_decision_model() -> None:
+    with pytest.raises(ValidationError, match="decision overrides require decision_model"):
+        InferenceConfig(
+            decision_model_settings={
+                "temperature": 0,
+            }
+        )
+
+
+def test_decision_base_url_requires_decision_model() -> None:
+    with pytest.raises(ValidationError, match="decision_base_url requires decision_model"):
+        InferenceConfig.model_validate({"decision_base_url": "https://decision.example/v1"})
