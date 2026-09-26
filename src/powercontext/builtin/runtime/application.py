@@ -62,11 +62,14 @@ from powercontext.builtin.artifacts.memory import (
     MemoryHit,
     MemoryQueryEmbedding,
     MemoryService,
+    MemoryWritePlan,
+    MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.memory.errors import (
     CapabilityNotSupportedError,
     InvalidMemoryCitationError,
     MemoryEntryNotFoundError,
+    MemoryWriteRejectedError,
 )
 from powercontext.builtin.artifacts.profile.service import RelationalProfileService
 from powercontext.builtin.artifacts.prompt import (
@@ -161,6 +164,7 @@ from powercontext.builtin.runtime._scope_cache import (
     ScopeCacheObserver,
     ScopeEvictor,
 )
+from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
@@ -2391,7 +2395,9 @@ class ScopedMemoryApplication:
                 service = context.artifacts.memory
                 current = await _head_or_none(service, context.artifacts.memory_artifact_id)
                 _validate_expected_revision(current, request.expected_revision)
-                updated = await service.remember(memory=current, entries=request.entries, mode="append")
+                plan = await service.plan_remember(memory=current, entries=request.entries, mode="append")
+                _raise_if_held(plan)
+                updated = await service.apply(plan)
             if updated is None:
                 raise _RuntimeStateError("empty-write")
             return MemoryMutationResult(
@@ -2493,7 +2499,7 @@ class ScopedMemoryApplication:
                     context.artifacts.memory_artifact_id,
                     request.citation,
                 )
-                updated = await service.remember(
+                plan = await service.plan_remember(
                     memory=current,
                     entries=(
                         MemoryEntryInput(
@@ -2505,6 +2511,8 @@ class ScopedMemoryApplication:
                     ),
                     mode="append",
                 )
+                _raise_if_held(plan)
+                updated = await service.apply(plan)
             if updated is None:
                 raise _RuntimeStateError("empty-write")
             revised = next(item for item in await service.entries(updated) if item.entry_id == entry.entry_id)
@@ -2969,6 +2977,7 @@ class BuiltinRuntime:
         prompt_service: PromptService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         recall_effort_sink: RecallEffortSink | None = None,
+        decision_model: DecisionModel | None = None,
         publication_application: ArtifactPublicationApplication | None = None,
         scope_application: ScopeApplication | None = None,
         readiness: RuntimeReadinessChecks | None = None,
@@ -3024,6 +3033,9 @@ class BuiltinRuntime:
         self._prompt_service = prompt_service
         self._recall_token_estimator = recall_token_estimator
         self._recall_effort_sink = recall_effort_sink
+        # Public read-only seam for the cross-family decision role; deterministic Runtime callers
+        # (and tests) read it directly, and it is always fail-open wrapped before it gets here.
+        self.decision_model = decision_model
         self.publications = publication_application
         self.scopes = scope_application
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
@@ -3469,6 +3481,16 @@ def _is_stale_memory_search(error: CapabilityNotSupportedError | InvalidMemoryCi
     return (isinstance(error, CapabilityNotSupportedError) and error.capability == "head") or (
         isinstance(error, InvalidMemoryCitationError) and error.code == "memory-mismatch"
     )
+
+
+def _raise_if_held(plan: MemoryWritePlan) -> None:
+    """Surface a gate refusal as a structured error so the caller can read code and reason."""
+
+    decision = plan.decision
+    if decision is None or decision.verdict is not MemoryWriteVerdict.HOLD:
+        return
+    code = "unspecified" if decision.code is None else decision.code.value
+    raise MemoryWriteRejectedError(code, decision.reason)
 
 
 def _validate_expected_revision(memory: Memory | None, expected_revision: int | None) -> None:

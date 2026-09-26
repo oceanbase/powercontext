@@ -102,5 +102,19 @@ class InvalidMemoryCitationError(MemoryLayerError, ValueError):
         super().__init__(messages.get(code, f"invalid memory citation: {code}"))
 
 
+class MemoryWriteRejectedError(MemoryLayerError, RuntimeError):
+    """A structured, caller-visible refusal to apply one Memory write.
+
+    ``code`` and ``reason`` carry the gate's decision to the host, so a refused write is
+    observable rather than silently dropped.
+    """
+
+    def __init__(self, code: str, reason: str | None = None) -> None:
+        self.code = code
+        self.reason = reason
+        detail = "" if reason is None else f": {reason}"
+        super().__init__(f"memory write was rejected ({code}){detail}")
+
+
 class MemoryBackendConfigurationError(MemoryLayerError, RuntimeError):
     """Raised when a repository cannot satisfy its declared configuration."""

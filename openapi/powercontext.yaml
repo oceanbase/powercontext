@@ -8153,6 +8153,17 @@ components:
         memory:
           $ref: "#/components/schemas/ArtifactReference"
           nullable: true
+        held_count:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Number of source windows held by the Memory write gate.
+        hold_codes:
+          type: array
+          items:
+            type: string
+          default: []
+          description: Structured Memory write gate refusal codes for held windows.
     FlushTopicMemoryRequest:
       type: object
       additionalProperties: false

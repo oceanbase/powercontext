@@ -46,6 +46,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryEvidenceError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
+    MemoryWriteRejectedError,
 )
 from powercontext.builtin.artifacts.memory.fusion import (
     admit_fts_candidates,
@@ -78,7 +79,11 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemoryCommit,
     MemoryProjection,
     MemorySearchRequest,
+    MemoryWriteAssessment,
+    MemoryWriteGate,
+    MemoryWriteGateRequest,
     MemoryWritePlan,
+    MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.memory.reranking import MemoryReranker
 from powercontext.builtin.artifacts.prompt.service import ScopedPrompts, current_prompt, prompt_operation
@@ -97,6 +102,8 @@ from powercontext.sources import Source, SourceRef
 MemoryRememberMode: TypeAlias = Literal["append", "extract", "auto"]
 IdFactory: TypeAlias = Callable[[str], str]
 ValueT = TypeVar("ValueT")
+_GATE_EVIDENCE_ITEM_LIMIT = 32
+_GATE_EVIDENCE_TEXT_LIMIT = 2000
 
 
 class _SourceResolver(Protocol):
@@ -154,6 +161,15 @@ def _require_tag_filter(capabilities: MemoryCapabilities, tag_filter: TagFilter 
         raise CapabilityNotSupportedError("tag-filter")
 
 
+def _annotate_reason(reason: str | None, flagged_reason: str | None) -> str | None:
+    """Fill a missing audit reason from a flagged gate verdict without overwriting a caller's."""
+
+    normalized = normalize_reason(reason)
+    if normalized is not None or flagged_reason is None:
+        return normalized
+    return normalize_reason(flagged_reason)
+
+
 class MemoryService:
     """Validate and orchestrate Memory operations without exposing storage details."""
 
@@ -169,10 +185,12 @@ class MemoryService:
         artifact_resolver: _ArtifactResolver | None = None,
         id_factory: IdFactory | None = None,
         prompt_context: ScopedPrompts | None = None,
+        write_gate: MemoryWriteGate | None = None,
     ) -> None:
         self._backend = backend
         self._prompt_context = prompt_context
         self._candidate_pipeline = candidate_pipeline
+        self._write_gate = write_gate
         self._embedding_model = embedding_model
         if rerank_candidate_limit < 1:
             raise _InvalidMemoryOperationError("search-limit")
@@ -244,15 +262,15 @@ class MemoryService:
     ) -> Memory | None:
         """Append or extract validated entry changes against one exact head."""
 
-        return await self.apply(
-            await self.plan_remember(
-                memory=memory,
-                sources=sources,
-                artifacts=artifacts,
-                entries=entries,
-                mode=mode,
-            )
+        plan = await self.plan_remember(
+            memory=memory,
+            sources=sources,
+            artifacts=artifacts,
+            entries=entries,
+            mode=mode,
         )
+        _raise_if_write_held(plan)
+        return await self.apply(plan)
 
     async def plan_remember(
         self,
@@ -299,15 +317,25 @@ class MemoryService:
             if not candidates:
                 return MemoryWritePlan(result=base, commit=None)
 
+            assessment = await self._assess_write(base, candidates, evidence)
+            if assessment is not None and assessment.verdict is MemoryWriteVerdict.HOLD:
+                # A refused write stays visible: the caller reads the structured code and reason
+                # from the plan. The plan carries no commit, so nothing is written.
+                return MemoryWritePlan(result=base, commit=None, decision=assessment)
+
+            flagged_reason = (
+                assessment.reason if assessment is not None and assessment.verdict is MemoryWriteVerdict.FLAG else None
+            )
             commit = await self._prepare_commit(
                 base=base,
                 candidates=candidates,
                 evidence=evidence,
                 current_entries=current_entries,
+                flagged_reason=flagged_reason,
             )
             if commit is None:
-                return MemoryWritePlan(result=base, commit=None)
-            return MemoryWritePlan(result=commit.memory, commit=commit)
+                return MemoryWritePlan(result=base, commit=None, decision=assessment)
+            return MemoryWritePlan(result=commit.memory, commit=commit, decision=assessment)
 
     async def apply(self, plan: MemoryWritePlan, /) -> Memory | None:
         """Apply one prepared write through this service's transaction boundary."""
@@ -1111,6 +1139,65 @@ class MemoryService:
             )
         )
 
+    async def _assess_write(
+        self,
+        base: Memory | None,
+        candidates: tuple[MemoryEntryInput, ...],
+        evidence: _OperationEvidence,
+    ) -> MemoryWriteAssessment | None:
+        """Ask the configured gate about one candidate set; ``None`` means no gate is active."""
+
+        if self._write_gate is None:
+            return None
+        try:
+            return await self._write_gate.assess(
+                MemoryWriteGateRequest(
+                    candidates=tuple(candidate.text for candidate in candidates),
+                    evidence=self._gate_evidence(evidence, candidates),
+                    expected_revision=None if base is None else base.revision,
+                )
+            )
+        except Exception:
+            return MemoryWriteAssessment(
+                verdict=MemoryWriteVerdict.ACCEPT,
+                policy_id=self._write_gate.policy_id,
+                used_fallback=True,
+            )
+
+    def _gate_evidence(
+        self,
+        evidence: _OperationEvidence,
+        candidates: tuple[MemoryEntryInput, ...],
+    ) -> tuple[str, ...]:
+        entries: list[str] = []
+        for source in evidence.sources:
+            _append_unique(entries, self._source_gate_evidence(source))
+        for artifact in evidence.artifacts:
+            _append_unique(entries, self._artifact_gate_evidence(artifact))
+        for candidate in candidates:
+            for source in candidate.sources:
+                _append_unique(entries, self._source_gate_evidence(source))
+            for artifact in candidate.artifacts:
+                _append_unique(entries, self._artifact_gate_evidence(artifact))
+            if candidate.entry is not None:
+                for source in candidate.entry.sources:
+                    _append_unique(entries, f"source:{source.source_type}:{source.source_id}")
+                for artifact in candidate.entry.artifacts:
+                    _append_unique(entries, f"artifact:{artifact.family}:{artifact.artifact_id}@{artifact.revision}")
+        return tuple(entries[:_GATE_EVIDENCE_ITEM_LIMIT])
+
+    def _source_gate_evidence(self, source: Source) -> str:
+        ref = self._source_refs((source,))[0]
+        content = getattr(source, "content", None)
+        if isinstance(content, str) and content.strip():
+            return _bounded_gate_evidence(f"source:{ref.source_type}:{ref.source_id}", content)
+        return f"source:{ref.source_type}:{ref.source_id}"
+
+    @staticmethod
+    def _artifact_gate_evidence(artifact: Artifact[object]) -> str:
+        ref = artifact.as_ref()
+        return f"artifact:{ref.family}:{ref.artifact_id}@{ref.revision}"
+
     async def _prepare_commit(
         self,
         *,
@@ -1118,6 +1205,7 @@ class MemoryService:
         candidates: tuple[MemoryEntryInput, ...],
         evidence: _OperationEvidence,
         current_entries: tuple[MemoryEntryVersion, ...] | None,
+        flagged_reason: str | None = None,
     ) -> MemoryCommit | None:
         memory_id = base.artifact_id if base is not None else self._new_id("memory")
         next_revision = 1 if base is None else base.revision + 1
@@ -1156,7 +1244,7 @@ class MemoryService:
                         entry_id=entry_id,
                         from_entry_version_id=None,
                         to_entry_version_id=version.entry_version_id,
-                        reason=normalize_reason(candidate.reason),
+                        reason=_annotate_reason(candidate.reason, flagged_reason),
                     )
                 )
                 continue
@@ -1195,7 +1283,7 @@ class MemoryService:
                     entry_id=entry_id,
                     from_entry_version_id=previous.entry_version_id,
                     to_entry_version_id=version.entry_version_id,
-                    reason=normalize_reason(candidate.reason),
+                    reason=_annotate_reason(candidate.reason, flagged_reason),
                 )
             )
 
@@ -1435,6 +1523,19 @@ def _manifest_entry(version: MemoryEntryVersion, *, state: Literal["active", "in
         entry_content_hash=version.entry_content_hash,
         state=state,
     )
+
+
+def _raise_if_write_held(plan: MemoryWritePlan) -> None:
+    decision = plan.decision
+    if decision is None or decision.verdict is not MemoryWriteVerdict.HOLD:
+        return
+    code = "unspecified" if decision.code is None else decision.code.value
+    raise MemoryWriteRejectedError(code, decision.reason)
+
+
+def _bounded_gate_evidence(identity: str, content: str) -> str:
+    normalized = normalize_text(content)
+    return f"{identity}\n{normalized[:_GATE_EVIDENCE_TEXT_LIMIT]}"
 
 
 def _canonical_source_refs(values: Sequence[SourceRef]) -> tuple[SourceRef, ...]:

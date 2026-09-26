@@ -7351,6 +7351,18 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "high_watermark": {"type": "integer", "minimum": 0.0},
                     "processed_source_count": {"type": "integer", "minimum": 0.0},
                     "memory": {"$ref": "#/components/schemas/ArtifactReference", "nullable": True},
+                    "held_count": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "default": 0,
+                        "description": "Number of source windows held by the Memory write gate.",
+                    },
+                    "hold_codes": {
+                        "items": {"type": "string"},
+                        "type": "array",
+                        "default": [],
+                        "description": "Structured Memory write gate refusal codes for held windows.",
+                    },
                 },
                 "additionalProperties": False,
                 "type": "object",

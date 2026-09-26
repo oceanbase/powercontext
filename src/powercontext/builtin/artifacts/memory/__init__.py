@@ -24,6 +24,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
     MemoryLayerError,
+    MemoryWriteRejectedError,
 )
 from powercontext.builtin.artifacts.memory.extraction import (
     DefaultMemoryEvidenceProjector,
@@ -78,7 +79,12 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemorySearchChannels,
     MemorySearchRequest,
     MemoryUnitOfWork,
+    MemoryWriteAssessment,
+    MemoryWriteGate,
+    MemoryWriteGateRequest,
     MemoryWritePlan,
+    MemoryWriteRejectionCode,
+    MemoryWriteVerdict,
 )
 from powercontext.builtin.artifacts.memory.reranking import (
     MEMORY_RERANK_INSTRUCTIONS,
@@ -158,7 +164,13 @@ __all__ = [
     "MemoryService",
     "MemoryUnitOfWork",
     "MemoryUsedSearchMode",
+    "MemoryWriteAssessment",
+    "MemoryWriteGate",
+    "MemoryWriteGateRequest",
     "MemoryWritePlan",
+    "MemoryWriteRejectedError",
+    "MemoryWriteRejectionCode",
+    "MemoryWriteVerdict",
     "memory_extraction_instructions",
     "memory_extraction_instructions_version",
 ]
