@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PowerContext Desktop Preview",
+  "version": "0.1.0",
+  "identifier": "com.powercontext.desktop.preview",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "PowerContext Desktop",
+        "width": 1180,
+        "height": 800,
+        "minWidth": 400,
+        "minHeight": 400,
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": true,
+        "create": false
+      }
+    ],
+    "security": {
+      "capabilities": [
+        "main"
+      ],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; font-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost ws://127.0.0.1:1420; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "publisher": "PowerContext",
+    "shortDescription": "Internal desktop foundation preview",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "English",
+          "SimpChinese"
+        ],
+        "displayLanguageSelector": true
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  }
+}
