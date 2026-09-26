@@ -17,12 +17,14 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from powercontext.builtin.inference import InferenceConfigurationError
+from powercontext.builtin.inference import InferenceConfigurationError, InferenceUnavailableError
 from powercontext.builtin.inference.pydantic_ai import PydanticAIConfigurationError
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
+    InferenceConfig,
     ReadinessCheckStatus,
+    RuntimeConfig,
     RuntimeReadinessStatus,
     dependency_readiness_probe,
     open_builtin_runtime,
@@ -70,5 +72,31 @@ def test_dependency_readiness_probe_redacts_plain_configuration_errors() -> None
         probe = dependency_readiness_probe(reject)
 
         assert await probe() == "misconfigured"
+
+    asyncio.run(scenario())
+
+
+def test_inference_decision_readiness_is_registered_and_non_blocking(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    async def unavailable(*args, **kwargs) -> None:
+        raise InferenceUnavailableError("evaluate")
+
+    monkeypatch.setattr("powercontext.builtin.inference.pydantic_ai.probe_pydantic_ai_model", unavailable)
+
+    async def scenario() -> None:
+        config = BuiltinConfig(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'decision-readiness.db'}"),
+            runtime=RuntimeConfig(decision_assistance_enabled=True),
+            inference=InferenceConfig(decision_model="openai-chat:decision-model"),
+        )
+        async with open_builtin_runtime(config) as runtime:
+            readiness = await runtime.readiness()
+            await runtime.close()
+
+        # An enabled decision model registers a non-blocking probe: its failure degrades
+        # readiness without turning the Runtime NOT_READY.
+        assert readiness.checks["inference.decision"] is ReadinessCheckStatus.UNAVAILABLE
+        assert readiness.status is RuntimeReadinessStatus.DEGRADED
 
     asyncio.run(scenario())

@@ -168,6 +168,7 @@ from powercontext.builtin.review.generation import (
 )
 from powercontext.builtin.review.models import ArtifactCandidate
 from powercontext.builtin.review.service import ReviewService
+from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.models import (
     CommitConnectorCheckpoint,
     ConnectorCheckpointState,
@@ -297,6 +298,7 @@ class _ScopedServices:
     embedding_model: EmbeddingModel | None
     memory_reranker: MemoryReranker | None
     memory_rerank_candidate_limit: int
+    decision_model: DecisionModel | None
     id_factory: IdFactory
     handoff_artifact_id: str
     memory_artifact_id: str
@@ -510,6 +512,7 @@ class RelationalContexts:
         embedding_model: EmbeddingModel | None = None,
         token_estimator: TokenEstimator | None = None,
         memory_reranker: MemoryReranker | None = None,
+        decision_model: DecisionModel | None = None,
         memory_rerank_candidate_limit: int = 30,
         id_factory: IdFactory | None = None,
         handoff_artifact_id: str = "handoff",
@@ -659,6 +662,7 @@ class RelationalContexts:
         self._embedding_model = embedding_model
         self._token_estimator = token_estimator
         self._memory_reranker = memory_reranker
+        self._decision_model = decision_model
         self._memory_rerank_candidate_limit = memory_rerank_candidate_limit
         self._handoff_artifact_id = handoff_artifact_id
         self._memory_artifact_id = memory_artifact_id
@@ -1396,6 +1400,7 @@ class RelationalContexts:
             embedding_model=self._embedding_model,
             memory_reranker=self._memory_reranker,
             memory_rerank_candidate_limit=self._memory_rerank_candidate_limit,
+            decision_model=self._decision_model,
             id_factory=self._id_factory,
             handoff_artifact_id=self._handoff_artifact_id,
             memory_artifact_id=self._memory_artifact_id,
