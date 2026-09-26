@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
+from hashlib import sha256
 from time import perf_counter
 from typing import Literal, Protocol, TypeAlias, TypeVar, overload
 from uuid import uuid4
@@ -31,7 +32,7 @@ from powercontext.builtin.artifacts.memory.canonical import (
     embedding_content_hash,
     entry_content_bytes,
     entry_content_hash,
-    memory_content_hash,
+    memory_content_bytes,
     normalize_kind,
     normalize_query,
     normalize_reason,
@@ -44,6 +45,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCandidateError,
     InvalidMemoryCitationError,
     InvalidMemoryEvidenceError,
+    MemoryCapacityExceededError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
 )
@@ -56,8 +58,13 @@ from powercontext.builtin.artifacts.memory.models import (
     EmbeddingProfile,
     Memory,
     MemoryCapabilities,
+    MemoryCapacity,
+    MemoryCapacityBudget,
+    MemoryCapacityDimension,
     MemoryChange,
     MemoryCitation,
+    MemoryCompactionPolicy,
+    MemoryCompactionResult,
     MemoryContent,
     MemoryEntryInput,
     MemoryEntryVersion,
@@ -140,6 +147,8 @@ class _InvalidMemoryOperationError(ValueError):
             "search-limit": "memory search limit must be positive",
             "search-mode": "unsupported memory search mode",
             "search-query": "memory search query must be non-empty text",
+            "compaction-limit": "memory compaction limit must be positive",
+            "history-limit": "memory history revision limit must be positive",
         }
         super().__init__(messages[code])
 
@@ -169,6 +178,9 @@ class MemoryService:
         artifact_resolver: _ArtifactResolver | None = None,
         id_factory: IdFactory | None = None,
         prompt_context: ScopedPrompts | None = None,
+        capacity_budget: MemoryCapacityBudget | None = None,
+        compaction: MemoryCompactionPolicy | None = None,
+        max_history_revisions: int = 100,
     ) -> None:
         self._backend = backend
         self._prompt_context = prompt_context
@@ -181,6 +193,11 @@ class MemoryService:
         self._source_resolver = source_resolver
         self._artifact_resolver = artifact_resolver
         self._id_factory = _default_id if id_factory is None else id_factory
+        self._capacity_budget = MemoryCapacityBudget() if capacity_budget is None else capacity_budget.model_copy()
+        self._compaction = MemoryCompactionPolicy() if compaction is None else compaction.model_copy()
+        if max_history_revisions < 1:
+            raise _InvalidMemoryOperationError("history-limit")
+        self._max_history_revisions = max_history_revisions
         # One entry, describing the projections of the most recently written Memory
         # revision. Revisions are immutable, so a hit is always valid for that exact
         # reference; a rebuilt or externally advanced Memory simply misses.
@@ -202,6 +219,8 @@ class MemoryService:
 
         canonical = await self.get(memory)
         latest = await self._backend.latest(canonical.artifact_id)
+        if latest.revision > self._max_history_revisions:
+            raise CapabilityNotSupportedError("history-window")
         history = []
         for revision in range(1, latest.revision + 1):
             history.append(
@@ -215,6 +234,120 @@ class MemoryService:
         """Return the current Memory head by its stable Artifact identity."""
 
         return await self._backend.latest(artifact_id)
+
+    async def capacity(self, memory: Memory, /) -> MemoryCapacity:
+        """Measure an exact Revision, including eligible tombstones even when compaction is disabled."""
+
+        canonical = await self._canonical_memory(memory)
+        values = self._capacity_values(canonical.content)
+        return MemoryCapacity(
+            memory_ref=canonical.as_ref(),
+            active_entry_count=values["active_entries"],
+            manifest_entry_count=values["manifest_entries"],
+            manifest_bytes=values["manifest_bytes"],
+            compactable_entry_count=len(await self._compactable_entry_ids(canonical)),
+            budget=self._capacity_budget.model_copy(),
+            exceeded=tuple(dimension for dimension, limit in self._capacity_limits() if values[dimension] > limit),
+        )
+
+    def _capacity_limits(self) -> tuple[tuple[MemoryCapacityDimension, int], ...]:
+        budget = self._capacity_budget
+        return (
+            ("manifest_bytes", budget.max_manifest_bytes),
+            ("manifest_entries", budget.max_manifest_entries),
+            ("active_entries", budget.max_active_entries),
+        )
+
+    @staticmethod
+    def _capacity_values(
+        content: MemoryContent, content_bytes: bytes | None = None
+    ) -> dict[MemoryCapacityDimension, int]:
+        return {
+            "manifest_bytes": len(memory_content_bytes(content) if content_bytes is None else content_bytes),
+            "manifest_entries": len(content.manifest.entries),
+            "active_entries": sum(item.state == "active" for item in content.manifest.entries),
+        }
+
+    def _require_capacity(
+        self, base: Memory | None, content: MemoryContent, *, growth: frozenset[str], content_bytes: bytes
+    ) -> None:
+        if not growth:
+            return
+        values = self._capacity_values(content, content_bytes)
+        previous = None
+        for dimension, limit in self._capacity_limits():
+            observed = values[dimension]
+            if dimension not in growth or observed <= limit:
+                continue
+            if previous is None:
+                previous = {} if base is None else self._capacity_values(base.content)
+            if observed > previous.get(dimension, 0):
+                raise MemoryCapacityExceededError(dimension, limit, observed)
+
+    async def _compactable_entry_ids(self, memory: Memory) -> tuple[str, ...]:
+        inactive = {item.entry_id for item in memory.content.manifest.entries if item.state == "inactive"}
+        if not inactive:
+            return ()
+        # Only the recovery window matters. An inactive entry untouched throughout
+        # that window was already inactive at its lower bound.
+        lower = max(0, memory.revision - self._compaction.min_tombstone_revisions)
+        if lower < 1:
+            return ()
+        recent = {
+            change.entry_id
+            for revision in await self._backend.changes(memory.as_ref(), lower)
+            for change in revision.changes
+            if change.op in {"add", "deactivate", "reactivate"}
+        }
+        tagged = await self._backend.any_tagged_entry_ids(memory.as_ref())
+        return tuple(sorted(inactive - recent - tagged, key=str.encode))
+
+    async def compact(
+        self, memory: Memory, *, dry_run: bool = False, limit: int | None = None, reason: str | None = None
+    ) -> MemoryCompactionResult:
+        """Drop aged, untagged tombstones; retain every prior Revision and entry body.
+
+        Previews are available while compaction is disabled. Reclaimed bytes are
+        the signed difference of complete canonical contents, including the audit
+        changes and reason, which can outweigh a small manifest reduction.
+        """
+
+        if limit is not None and limit < 1:
+            raise _InvalidMemoryOperationError("compaction-limit")
+        if not dry_run and not self._compaction.enabled:
+            raise CapabilityNotSupportedError("compaction")
+        normalized_reason = normalize_reason(reason)
+        base = await self._canonical_base(memory)
+        entry_ids = (await self._compactable_entry_ids(base))[:limit]
+        selected = frozenset(entry_ids)
+        manifest = {item.entry_id: item for item in base.content.manifest.entries if item.entry_id not in selected}
+        changes = tuple(
+            MemoryChange(
+                op="compact",
+                entry_id=item.entry_id,
+                from_entry_version_id=item.entry_version_id,
+                to_entry_version_id=None,
+                reason=normalized_reason,
+            )
+            for item in base.content.manifest.entries
+            if item.entry_id in selected
+        )
+        if not entry_ids:
+            return MemoryCompactionResult(memory=base, dry_run=dry_run)
+        content = MemoryContent(manifest=MemoryManifest(entries=tuple(manifest.values())), changes=changes)
+        reclaimed = len(memory_content_bytes(base.content)) - len(memory_content_bytes(content))
+        result = (
+            base
+            if dry_run
+            else await self._commit_existing_transition(
+                base=base,
+                manifest=manifest,
+                changes=changes,
+                current_by_entry={},
+                entry_versions=(),
+            )
+        )
+        return MemoryCompactionResult(memory=result, entry_ids=entry_ids, reclaimed_bytes=reclaimed, dry_run=dry_run)
 
     async def head_entries(self, artifact_id: str, /) -> tuple[Memory, tuple[MemoryEntryVersion, ...]]:
         """Return the current Memory head together with its validated entry objects.
@@ -843,6 +976,7 @@ class MemoryService:
             changes=changes,
             current_by_entry=current_by_entry,
             entry_versions=(),
+            growth=frozenset({"active_entries"}) if target_state == "active" else frozenset(),
         )
 
     async def _commit_existing_transition(
@@ -853,10 +987,13 @@ class MemoryService:
         changes: Sequence[MemoryChange],
         current_by_entry: dict[str, MemoryEntryVersion],
         entry_versions: tuple[MemoryEntryVersion, ...],
+        growth: frozenset[str] = frozenset(),
     ) -> Memory:
         sorted_manifest = tuple(sorted(manifest.values(), key=lambda item: item.entry_id.encode("utf-8")))
         sorted_changes = tuple(sorted(changes, key=lambda change: change.entry_id.encode("utf-8")))
         content = MemoryContent(manifest=MemoryManifest(entries=sorted_manifest), changes=sorted_changes)
+        content_bytes = memory_content_bytes(content)
+        self._require_capacity(base, content, growth=growth, content_bytes=content_bytes)
         memory = Memory(
             artifact_id=base.artifact_id,
             revision=base.revision + 1,
@@ -872,7 +1009,7 @@ class MemoryService:
         commit = MemoryCommit(
             base=base,
             memory=memory,
-            content_hash=memory_content_hash(content),
+            content_hash=sha256(content_bytes).hexdigest(),
             entry_versions=entry_versions,
             projections=projections,
         )
@@ -1205,6 +1342,13 @@ class MemoryService:
         sorted_manifest = tuple(sorted(manifest.values(), key=lambda item: item.entry_id.encode("utf-8")))
         sorted_changes = tuple(sorted(changes, key=lambda change: change.entry_id.encode("utf-8")))
         content = MemoryContent(manifest=MemoryManifest(entries=sorted_manifest), changes=sorted_changes)
+        content_bytes = memory_content_bytes(content)
+        self._require_capacity(
+            base,
+            content,
+            growth=frozenset({"active_entries", "manifest_entries", "manifest_bytes"}),
+            content_bytes=content_bytes,
+        )
         memory = Memory(
             artifact_id=memory_id,
             revision=next_revision,
@@ -1223,7 +1367,7 @@ class MemoryService:
         return MemoryCommit(
             base=base,
             memory=memory,
-            content_hash=memory_content_hash(content),
+            content_hash=sha256(content_bytes).hexdigest(),
             entry_versions=tuple(new_versions),
             projections=projections,
         )

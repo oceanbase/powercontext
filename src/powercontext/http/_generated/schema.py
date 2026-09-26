@@ -1592,6 +1592,43 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/memory/capacity": {
+            "post": {
+                "tags": ["memory"],
+                "summary": "Read Memory capacity",
+                "description": "Measure the current Memory head "
+                "against the deployment budget, "
+                "including exact canonical content "
+                "bytes and the number of aged, untagged "
+                "tombstones eligible for compaction. "
+                "Returns 404 when no Memory exists.",
+                "operationId": "get_memory_capacity",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/GetMemoryCapacityRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "Capacity of one exact current Memory Revision.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryCapacity"}}},
+                    },
+                    "404": {"$ref": "#/components/responses/NotFound"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/memory/entries/list": {
             "post": {
                 "tags": ["memory"],
@@ -7368,6 +7405,63 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["status"],
             },
+            "GetMemoryCapacityRequest": {
+                "properties": {"scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"}},
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "MemoryCapacityDimension": {
+                "type": "string",
+                "enum": ["active_entries", "manifest_entries", "manifest_bytes"],
+            },
+            "MemoryCapacityBudget": {
+                "properties": {
+                    "max_active_entries": {"type": "integer", "minimum": 1.0},
+                    "max_manifest_entries": {"type": "integer", "minimum": 1.0},
+                    "max_manifest_bytes": {"type": "integer", "minimum": 1024.0},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["max_active_entries", "max_manifest_entries", "max_manifest_bytes"],
+            },
+            "MemoryCapacity": {
+                "properties": {
+                    "memory_ref": {"$ref": "#/components/schemas/ArtifactReference"},
+                    "active_entry_count": {"type": "integer", "minimum": 0.0},
+                    "manifest_entry_count": {"type": "integer", "minimum": 0.0},
+                    "manifest_bytes": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "description": "Exact "
+                        "canonical "
+                        "bytes "
+                        "of "
+                        "the "
+                        "complete "
+                        "Revision "
+                        "content, "
+                        "including "
+                        "its "
+                        "change "
+                        "records.",
+                    },
+                    "compactable_entry_count": {"type": "integer", "minimum": 0.0},
+                    "budget": {"$ref": "#/components/schemas/MemoryCapacityBudget"},
+                    "exceeded": {"items": {"$ref": "#/components/schemas/MemoryCapacityDimension"}, "type": "array"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": [
+                    "memory_ref",
+                    "active_entry_count",
+                    "manifest_entry_count",
+                    "manifest_bytes",
+                    "compactable_entry_count",
+                    "budget",
+                    "exceeded",
+                ],
+            },
             "GetMemoryEntryRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -9283,7 +9377,10 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             "CandidateStatus": {"type": "string", "enum": ["pending", "approved", "rejected"]},
             "PreparedContextSchema": {"type": "string", "enum": ["powercontext.prepared-context.v1"]},
             "PreparedContextStatus": {"type": "string", "enum": ["ready", "empty"]},
-            "EntryChangeOperation": {"type": "string", "enum": ["add", "revise", "deactivate", "reactivate"]},
+            "EntryChangeOperation": {
+                "type": "string",
+                "enum": ["add", "revise", "deactivate", "reactivate", "compact"],
+            },
             "FlushStatus": {"type": "string", "enum": ["idle", "processed"]},
             "TopicMemoryFlushStatus": {"type": "string", "enum": ["accepted", "idle"]},
             "TopicMemoryMatchedBy": {

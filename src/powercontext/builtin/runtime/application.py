@@ -56,6 +56,7 @@ from powercontext.builtin.artifacts.handoff import (
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     Memory,
+    MemoryCapacity,
     MemoryCitation,
     MemoryEntryInput,
     MemoryEntryVersion,
@@ -2456,6 +2457,15 @@ class ScopedMemoryApplication:
                         hits=result.hits,
                         rerank=result.rerank,
                     )
+
+    async def capacity(self) -> MemoryCapacity:
+        """Read capacity of the Scope's current Memory, or raise when it does not exist."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            service = context.artifacts.memory
+            current = await service.head(context.artifacts.memory_artifact_id)
+            _validate_memory_identity(context.artifacts.memory_artifact_id, current)
+            return await service.capacity(current)
 
     async def list(self, *, include_inactive: bool = False, tag_filter: TagFilter | None = None) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:

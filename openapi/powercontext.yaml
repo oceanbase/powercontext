@@ -1555,6 +1555,44 @@ paths:
           $ref: "#/components/responses/Unavailable"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/memory/capacity:
+    post:
+      tags: [memory]
+      summary: Read Memory capacity
+      description: >-
+        Measure the current Memory head against the deployment budget, including exact canonical content bytes
+        and the number of aged, untagged tombstones eligible for compaction. Returns 404 when no Memory exists.
+      operationId: get_memory_capacity
+      x-powercontext-access: {action: scope.read, resource: {type: scope, scope-id-from: scope_id}}
+      x-powercontext-scope-mode: current
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetMemoryCapacityRequest"
+      responses:
+        "200":
+          description: Capacity of one exact current Memory Revision.
+          headers:
+            X-PowerContext-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryCapacity"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/memory/entries/list:
     post:
       tags: [memory]
@@ -8170,6 +8208,59 @@ components:
       properties:
         status:
           $ref: "#/components/schemas/TopicMemoryFlushStatus"
+    GetMemoryCapacityRequest:
+      type: object
+      additionalProperties: false
+      required: [scope_id]
+      properties:
+        scope_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '.*\S.*'
+    MemoryCapacityDimension:
+      type: string
+      enum: [active_entries, manifest_entries, manifest_bytes]
+    MemoryCapacityBudget:
+      type: object
+      additionalProperties: false
+      required: [max_active_entries, max_manifest_entries, max_manifest_bytes]
+      properties:
+        max_active_entries:
+          type: integer
+          minimum: 1
+        max_manifest_entries:
+          type: integer
+          minimum: 1
+        max_manifest_bytes:
+          type: integer
+          minimum: 1024
+    MemoryCapacity:
+      type: object
+      additionalProperties: false
+      required: [memory_ref, active_entry_count, manifest_entry_count, manifest_bytes, compactable_entry_count, budget, exceeded]
+      properties:
+        memory_ref:
+          $ref: "#/components/schemas/ArtifactReference"
+        active_entry_count:
+          type: integer
+          minimum: 0
+        manifest_entry_count:
+          type: integer
+          minimum: 0
+        manifest_bytes:
+          type: integer
+          minimum: 0
+          description: Exact canonical bytes of the complete Revision content, including its change records.
+        compactable_entry_count:
+          type: integer
+          minimum: 0
+        budget:
+          $ref: "#/components/schemas/MemoryCapacityBudget"
+        exceeded:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryCapacityDimension"
     GetMemoryEntryRequest:
       type: object
       additionalProperties: false
@@ -10038,7 +10129,7 @@ components:
       enum: [ready, empty]
     EntryChangeOperation:
       type: string
-      enum: [add, revise, deactivate, reactivate]
+      enum: [add, revise, deactivate, reactivate, compact]
     FlushStatus:
       type: string
       enum: [idle, processed]

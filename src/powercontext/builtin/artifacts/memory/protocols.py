@@ -111,6 +111,11 @@ class MemoryUnitOfWork(Protocol):
 
 
 class MemoryBackend(Protocol):
+    async def any_tagged_entry_ids(self, memory: ArtifactRef, /) -> frozenset[str]:
+        """Return logical entry IDs carrying any tag in this Memory."""
+
+        ...
+
     async def tagged_entry_ids(self, memory: ArtifactRef, tag_filter: TagFilter) -> frozenset[str]:
         """Return exact tag matches without imposing a candidate limit."""
 

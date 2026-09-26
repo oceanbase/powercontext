@@ -63,9 +63,11 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCandidateError,
     InvalidMemoryCitationError,
     InvalidMemoryEvidenceError,
+    MemoryCapacityExceededError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
 )
+from powercontext.builtin.artifacts.memory.models import MemoryCapacity as RuntimeMemoryCapacity
 from powercontext.builtin.artifacts.prompt import GeneratePromptDemonstrations, PromptError
 from powercontext.builtin.artifacts.skill import (
     AgentKind,
@@ -448,6 +450,7 @@ from powercontext.http import (
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
+    GetMemoryCapacityRequest,
     GetMemoryEntryRequest,
     GetSkillPackageRequest,
     GetSkillRequest,
@@ -479,6 +482,7 @@ from powercontext.http import (
     ListRemoteSkillTargetsResponse,
     ListScopesRequest,
     ListSourcesRequest,
+    MemoryCapacity,
     MemoryEntry,
     MemoryEntryAccessSelector,
     MemoryMutationResponse,
@@ -677,6 +681,7 @@ from powercontext.http._generated.operations import (
     GET_EXPERIENCE,
     GET_HANDOFF_REPORT,
     GET_LIVENESS,
+    GET_MEMORY_CAPACITY,
     GET_MEMORY_ENTRY,
     GET_MEMORY_ENTRY_TAGS,
     GET_PROFILE_POLICY,
@@ -1152,6 +1157,8 @@ class _WorkApplication(Protocol):
 
 
 class _ScopedMemoryApplication(Protocol):
+    async def capacity(self) -> RuntimeMemoryCapacity: ...
+
     async def remember(self, request: RuntimeRememberMemoryRequest, /) -> MemoryMutationResult: ...
 
     async def search(self, request: RuntimeSearchMemoryRequest, /) -> MemorySearchPage: ...
@@ -1425,6 +1432,7 @@ def create_app(
     _add_route(app, COMMIT_HANDOFF, commit_handoff)
     _add_route(app, CONTINUE_HANDOFF, continue_handoff)
     _add_route(app, LIST_MEMORY_ENTRIES, list_memory_entries)
+    _add_route(app, GET_MEMORY_CAPACITY, get_memory_capacity)
     _add_route(app, GET_MEMORY_ENTRY, get_memory_entry)
     _add_route(app, REVISE_MEMORY_ENTRY, revise_memory_entry)
     _add_route(app, RETIRE_MEMORY_ENTRY, retire_memory_entry)
@@ -3085,6 +3093,14 @@ async def continue_handoff(
     return mapping.handoff_resolution_response(result)
 
 
+async def get_memory_capacity(
+    request: GetMemoryCapacityRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> MemoryCapacity:
+    result = await application.memory.for_scope(request.scope_id).capacity()
+    return MemoryCapacity.model_validate_json(result.model_dump_json())
+
+
 async def list_memory_entries(
     request: ListMemoryEntriesRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -4318,6 +4334,7 @@ def _add_route(
 _COLLECTION_CONTENT_OPERATIONS = frozenset({
     "search_memory",
     "list_memory_entries",
+    "get_memory_capacity",
     "list_memory_changes",
     "prepare_context",
     "list_managed_skills",
@@ -5468,10 +5485,9 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
         return status.HTTP_404_NOT_FOUND, "artifact_not_found", "The requested Artifact was not found.", None
     if isinstance(error, MemoryEntryNotFoundError):
         return status.HTTP_404_NOT_FOUND, "memory_not_found", "The requested Memory value was not found.", None
-    if isinstance(error, RevisionConflictError):
-        return status.HTTP_409_CONFLICT, "revision_conflict", "The Memory Revision is stale.", None
-    if isinstance(error, MemoryEntryInactiveError):
-        return status.HTTP_409_CONFLICT, "memory_entry_inactive", "The Memory entry is inactive.", None
+    memory_conflict = _map_memory_conflict_error(error)
+    if memory_conflict is not None:
+        return memory_conflict
     if isinstance(error, CapabilityNotSupportedError):
         return (
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -5501,6 +5517,21 @@ def _map_domain_error(error: Exception) -> tuple[int, str, str, dict[str, Any] |
     if isinstance(error, InferenceUnavailableError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "inference_unavailable", "Model inference is unavailable.", None
     return status.HTTP_500_INTERNAL_SERVER_ERROR, "internal_error", "The Server failed.", None
+
+
+def _map_memory_conflict_error(error: Exception) -> tuple[int, str, str, dict[str, Any] | None] | None:
+    if isinstance(error, RevisionConflictError):
+        return status.HTTP_409_CONFLICT, "revision_conflict", "The Memory Revision is stale.", None
+    if isinstance(error, MemoryCapacityExceededError):
+        return (
+            status.HTTP_409_CONFLICT,
+            "memory_capacity_exceeded",
+            "The Memory has reached its capacity budget.",
+            {"dimension": error.dimension, "limit": error.limit, "observed": error.observed},
+        )
+    if isinstance(error, MemoryEntryInactiveError):
+        return status.HTTP_409_CONFLICT, "memory_entry_inactive", "The Memory entry is inactive.", None
+    return None
 
 
 def _invalid_request_details(error: Exception) -> dict[str, Any] | None:

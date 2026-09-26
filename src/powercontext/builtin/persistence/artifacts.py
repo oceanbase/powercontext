@@ -20,7 +20,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
-from sqlalchemy import insert, select, tuple_, update
+from sqlalchemy import insert, select, true, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -306,6 +306,9 @@ class ArtifactRepository:
         family: str,
         artifact_id: str,
         /,
+        *,
+        since_revision: int = 0,
+        through_revision: int | None = None,
     ) -> tuple[Artifact[Any], ...]:
         """Return an artifact lifecycle in ascending revision order."""
 
@@ -318,6 +321,8 @@ class ArtifactRepository:
                     ARTIFACTS_TABLE.c.scope_id == scope_id,
                     ARTIFACTS_TABLE.c.family == family,
                     ARTIFACTS_TABLE.c.artifact_id == artifact_id,
+                    ARTIFACTS_TABLE.c.revision > since_revision,
+                    true() if through_revision is None else ARTIFACTS_TABLE.c.revision <= through_revision,
                 )
                 .order_by(ARTIFACTS_TABLE.c.revision)
             )

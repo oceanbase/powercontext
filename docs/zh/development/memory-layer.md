@@ -70,6 +70,62 @@ revised = await memory.revise(
 `retire()` 将 entry 标记为 inactive，但不删除不可变 content。`changes()` 返回紧凑的 revision change。
 expected revision 和 citation 保留 optimistic concurrency，调用方无需重新构造 reference。
 
+## 容量与墓碑压缩
+
+`await runtime.memory.for_scope(scope_id).capacity()` 返回当前版本的活跃条目数、清单条目总数、精确的规范化内容
+字节数、可压缩墓碑数、预算和超限维度。直接调用 `await service.capacity(memory)` 则测量传入的精确版本。
+远程调用使用 `POST /v1/memory/capacity`，请求体为 `{"scope_id": "project-alpha"}`；Python 客户端提供
+`PowerContextClient.get_memory_capacity(GetMemoryCapacityRequest(scope_id="project-alpha"))`。
+Scope 尚无 Memory 时返回 404，查询不会创建 Memory。
+
+`RuntimeConfig` 提供以下部署级默认值：
+
+| 配置项 | 默认值 |
+| --- | --- |
+| `memory_max_active_entries` | 5,000 |
+| `memory_max_manifest_entries` | 10,000 |
+| `memory_max_manifest_bytes` | 4,194,304 |
+| `memory_compaction_enabled` | `False` |
+| `memory_compaction_min_tombstone_revisions` | 10 |
+| `memory_max_history_revisions` | 100 |
+
+容量默认值约束每个版本的增长，不保证追加延迟，也不限制数据库总大小；保留的历史清单仍会持续累积。
+部署时应结合对应后端的代表性测量调整预算。
+
+活跃条目上限不得大于清单条目上限。显式写入、提取和通用 Artifact 管理共用预算。只有某维度既超过上限、又比
+基础版本更大时才拒绝写入；错误维度按字节数、清单条目数、活跃条目数的固定顺序选择。HTTP 返回
+`409 memory_capacity_exceeded`，详情包含 `dimension`、`limit` 和 `observed`，拒绝后不持久化内容。
+`manifest_bytes` 计入完整规范化版本内容，包括变更记录及其原因。
+
+超限时仍可执行 `forget()` 和 `organize()`；`reactivate()` 仅检查活跃条目数增长。压缩从当前清单移除达到保留
+年龄且未绑定标签的非活跃条目。通过 `RuntimeConfig` 显式启用，或使用 `MemoryCompactionPolicy(enabled=True)`
+构造 `MemoryService`，执行前先预览：
+
+```python
+preview = await service.compact(memory, dry_run=True, limit=100)
+result = await service.compact(memory, limit=100)
+memory = result.memory
+```
+
+压缩关闭时仍可预览，预览不写入版本。年龄按已推进的版本数计算：默认保留 10 个版本时，在版本 2 停用的条目
+从版本 12 起可压缩。重新激活并再次停用会重置保留窗口。资格检查只读取这一近期窗口。无变化的维护操作不会
+推进版本；如果所有墓碑都过新，可显式配置 `memory_compaction_min_tombstone_revisions=0`，或使用
+`MemoryCompactionPolicy(enabled=True, min_tombstone_revisions=0)`，先预览再立即压缩。零年龄只跳过保留窗口，
+活跃条目和带标签墓碑仍受保护。除非需要立即恢复容量，否则建议保留默认窗口，因为压缩后无法重新激活条目。
+标签会保护非活跃条目；压缩期间新增标签会使整个事务回滚并抛出
+`CapabilityNotSupportedError("compaction-tag-conflict")`，调用方可重新预览。
+
+压缩保留所有条目正文、历史版本和精确引用。被移除的条目无法重新激活，也不会出现在当前清单中。
+每次移除都记录新增的 `compact` 变更类型；启用前应更新穷举变更类型的消费者。压缩仅提供进程内接口。
+`reclaimed_bytes` 是完整规范化内容的有符号字节差；审计记录或较长原因可能抵消小规模清单缩减，因此该值可能
+为负。后续版本不再携带本次压缩的变更记录。
+
+`MemoryService.revisions()` 在历史超过 `memory_max_history_revisions` 时，在展开历史前抛出
+`CapabilityNotSupportedError("history-window")`，不会静默截断结果；历史内容和精确版本读取仍然保留。
+在接近 4 MiB 字节预算时，默认 100 个版本已可能包含约 400 MiB 规范内容，尚未计入对象开销。这是读取展开次数
+上限，不是内存硬上限；调低预算或执行补救操作后，版本也可能超过字节预算。只有调用方能承担完整快照开销时
+才应提高历史读取上限。这一上限不为 `entries()` 或 `changes()` 提供分页。
+
 ## 检索、展开与引用
 
 SQLite 和 OceanBase 都会初始化全文索引，因此不配置 embedding model 也可以检索：

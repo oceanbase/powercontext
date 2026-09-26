@@ -605,6 +605,17 @@ const OPERATIONS$1 = {
 		successStatuses: [200],
 		emptyStatuses: []
 	},
+	get_memory_capacity: {
+		method: "POST",
+		path: "/v1/memory/capacity",
+		location: "body",
+		scopeMode: "current",
+		pathParameters: [],
+		queryParams: [],
+		headerParams: [],
+		successStatuses: [200],
+		emptyStatuses: []
+	},
 	list_memory_entries: {
 		method: "POST",
 		path: "/v1/memory/entries/list",

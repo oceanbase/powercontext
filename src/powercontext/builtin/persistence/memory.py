@@ -48,6 +48,7 @@ from powercontext.builtin.artifacts.memory.canonical import (
     memory_content_hash,
 )
 from powercontext.builtin.artifacts.memory.errors import (
+    CapabilityNotSupportedError,
     InvalidMemoryCitationError,
     MemoryBackendConfigurationError,
 )
@@ -60,6 +61,7 @@ from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
+    ARTIFACT_TAGS_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
 )
@@ -177,6 +179,23 @@ class RelationalMemoryBackend:
                 )
             )
             return frozenset(rows)
+
+    async def any_tagged_entry_ids(self, memory: ArtifactRef, /) -> frozenset[str]:
+        await self.get(memory)
+        async with self._database.connection(self._bound_connection) as connection:
+            return await self._any_tagged_entry_ids(connection, memory)
+
+    async def _any_tagged_entry_ids(
+        self, connection: AsyncConnection, memory: ArtifactRef, *, for_update: bool = False
+    ) -> frozenset[str]:
+        table = ARTIFACT_TAGS_TABLE
+        query = select(table.c.target_id).where(
+            table.c.scope_id == self._scope_id,
+            table.c.family == Memory.family,
+            table.c.artifact_id == memory.artifact_id,
+            table.c.target_type == "memory_entry",
+        )
+        return frozenset(await connection.scalars(query.with_for_update() if for_update else query))
 
     async def entries(self, memory: ArtifactRef, /) -> tuple[MemoryEntryVersion, ...]:
         canonical = await self.get(memory)
@@ -297,8 +316,10 @@ class RelationalMemoryBackend:
                 self._scope_id,
                 Memory.family,
                 memory.artifact_id,
+                since_revision=lower,
+                through_revision=target.revision,
             )
-        selected = (_require_memory(value) for value in revisions if lower < value.revision <= target.revision)
+        selected = (_require_memory(value) for value in revisions)
         return tuple(
             MemoryRevisionChanges(memory_ref=value.as_ref(), changes=value.content.changes) for value in selected
         )
@@ -486,6 +507,15 @@ class RelationalMemoryBackend:
         committed = _require_memory(artifact)
         if committed != value.memory:
             raise _InvalidMemoryCommitError("artifact-result")
+
+        compacted = {change.entry_id for change in value.memory.content.changes if change.op == "compact"}
+        if compacted:
+            # Artifact revision CAS holds the same head lock as tag replacement.
+            # Recheck with a current read so a newly tagged entry rolls back the
+            # entire compaction instead of leaving a dangling tag.
+            tagged = await self._any_tagged_entry_ids(connection, value.memory.as_ref(), for_update=True)
+            if compacted & tagged:
+                raise CapabilityNotSupportedError("compaction-tag-conflict")
 
         if value.entry_versions:
             await connection.execute(
