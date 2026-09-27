@@ -5,7 +5,7 @@ description: Measured routing, execution evidence, and remaining model limitatio
 
 # Agent guidance evaluation record
 
-The complementary [skill-up regression suite](../../../evaluation/skill-up/README.md) pins the packaged Claude Code
+The complementary [skill-up regression suite](https://github.com/oceanbase/powercontext/blob/master/evaluation/skill-up/README.md) pins the packaged Claude Code
 Skill and checks tool selection and authorization boundaries with rule-based assertions, controlled MCP replies, and
 a with/without-Skill comparison. It covers Claude Code + MCP only, with hooks disabled and permissions bypassed;
 it does not qualify real host approval, bounded recall, automatic Capture/Flush, persistence or memory quality.
