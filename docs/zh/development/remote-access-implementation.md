@@ -83,6 +83,7 @@ inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。
 | 领域 | Operation |
 | --- | --- |
 | Health | liveness 和 readiness |
+| Server discovery | 稳定 deployment identity 和协议契约 |
 | Capabilities | source type、Artifact family、extraction、search mode |
 | Sources | capture 持久化 content evidence |
 | Memory | flush 待处理 Source、remember 显式 entry、search |
@@ -95,6 +96,34 @@ HTTP request model 是 transport value，与 Core domain model 保持独立。
 Server error 使用 OpenAPI error schema，并在 response header 中包含由 inbound request span 派生的
 Server-owned `X-PowerContext-Request-ID`。validation error、revision conflict、entry 不存在、inference
 unavailable 和内部 failure 会映射为稳定的 HTTP status code。
+
+### Server identity 与兼容性发现
+
+`GET /v1/server-info` 受 `server.observe` 保护，返回稳定的 deployment `server_id`、已安装 package version、API
+contract version、response schema version 和首批 feature contract。它刻意不返回 health、已启用 runtime
+capability、limit、inventory、secret、文件系统 path 或已认证 principal；这些信息分别由 health、capabilities、
+statistics 和 access endpoint 负责。
+
+所有 discovery version 都使用 `major` 和 `minor` 整数。major 增加表示受管契约可能被移除或发生不兼容变化；minor
+增加只允许向后兼容的扩展。response 的 `schema_version` 管理字段与语义，`api_contract_version` 是 OpenAPI
+`info.version` 的 major/minor 投影。每个 feature contract version 只约束它列出的 OpenAPI operation ID：增加
+operation 或兼容语义时增加 minor，移除、重命名或不兼容地改变已列 operation 时增加 major。兼容 client 必须忽略
+schema minor version 新增的未知可选字段。
+
+Server 在配置的主关系数据库中保存一条 identity singleton。启动时会原子创建或读取它，因此进程重启、package
+升级、备份恢复以及共享同一数据库的 replica 都保持相同 ID。identity schema 初始化或读取失败时，Server 会在
+进入 readiness 之前直接启动失败，而不会发布临时 identity。内存 SQLite 没有持久存储，所以每个新进程都会获得
+新的 ID。
+
+把备份恢复为原 deployment 时应保留原 ID。若用备份创建独立 clone，请停止所有使用 clone 数据库的 Server
+进程，然后只在 clone 上轮换：
+
+```bash
+uv run powercontext server identity-reset --env-file /path/to/clone.env --maintenance-confirmed
+```
+
+该命令拒绝内存数据库，并要求显式 maintenance confirmation。它无法检测仍在运行的 replica，因此停服是 operator
+前置条件。逻辑 application-data import 不会复制 identity，除非显式包含 `pc_server_identity` 表。
 
 ## Python Client
 
@@ -113,6 +142,7 @@ from powercontext.client import PowerContextClient
 
 async def search() -> None:
     async with PowerContextClient("http://127.0.0.1:8000") as client:
+        server_info = await client.get_server_info()
         capabilities = await client.get_capabilities()
         result = await client.search_memory(
             SearchMemoryRequest(
@@ -122,6 +152,7 @@ async def search() -> None:
                 mode="auto",
             )
         )
+        print(server_info.model_dump())
         print(capabilities.model_dump())
         print(result.model_dump())
 ```

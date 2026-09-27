@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shlex
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -272,6 +273,57 @@ def test_server_reuses_file_backed_cursor_secret_across_restarts(tmp_path, monke
 
     assert second_page.status_code == 200
     assert len(second_page.json()["items"]) == 1
+
+
+def test_server_info_uses_one_durable_identity_across_restarts(tmp_path) -> None:
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+        auth=BearerAuthConfig(enabled=False),
+        mcp=McpConfig(enabled=False),
+    )
+
+    with TestClient(create_server_app(settings=settings)) as client:
+        first = client.get("/v1/server-info")
+    with TestClient(create_server_app(settings=settings)) as client:
+        second = client.get("/v1/server-info")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert first.json()["schema_version"] == {"major": 1, "minor": 0}
+    assert first.json()["api_contract_version"] == {"major": 1, "minor": 2}
+    assert first.json()["feature_contracts"] == {
+        "access.principal": {
+            "version": {"major": 1, "minor": 0},
+            "operations": ["get_access_principal"],
+        },
+        "scope.selection": {
+            "version": {"major": 1, "minor": 0},
+            "operations": ["list_scopes", "get_scope", "get_default_scope"],
+        },
+        "memory.explicit": {
+            "version": {"major": 1, "minor": 0},
+            "operations": ["remember_memory", "search_memory", "get_memory_entry"],
+        },
+    }
+
+
+def test_server_startup_fails_when_identity_initialization_fails(tmp_path, monkeypatch) -> None:
+    @asynccontextmanager
+    async def unavailable_identity(_config):
+        raise OSError("identity backend unavailable")  # noqa: TRY003
+        yield
+
+    monkeypatch.setattr("powercontext.server.factory.open_server_identity_repository", unavailable_identity)
+    app = create_server_app(
+        settings=ServerSettings(
+            database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
+            auth=BearerAuthConfig(enabled=False),
+            mcp=McpConfig(enabled=False),
+        )
+    )
+
+    with pytest.raises(OSError, match="identity backend unavailable"), TestClient(app):
+        pass
 
 
 def test_server_settings_use_configured_workspace_for_default_skill_targets(tmp_path, monkeypatch) -> None:
@@ -582,6 +634,8 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
         missing = client.get("/v1/capabilities")
         invalid = client.get("/v1/capabilities", headers={"Authorization": "Bearer wrong"})
         accepted = client.get("/v1/capabilities", headers={"Authorization": "Bearer server-secret"})
+        protected_server_info = client.get("/v1/server-info")
+        accepted_server_info = client.get("/v1/server-info", headers={"Authorization": "Bearer server-secret"})
         protected_metrics = client.get("/metrics")
         accepted_metrics = client.get("/metrics", headers={"Authorization": "Bearer server-secret"})
         liveness = client.get("/health/live")
@@ -599,6 +653,8 @@ def test_server_factory_optionally_requires_bearer_authentication() -> None:
     }
     assert invalid.status_code == 401
     assert accepted.status_code == 200
+    assert protected_server_info.status_code == 401
+    assert accepted_server_info.status_code == 200
     assert protected_metrics.status_code == 401
     assert accepted_metrics.status_code == 200
     assert liveness.status_code == 200

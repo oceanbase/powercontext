@@ -629,6 +629,27 @@ def test_cli_exposes_installed_role_commands() -> None:
     assert "client" not in result.output
 
 
+def test_server_identity_reset_requires_offline_confirmation_and_rotates(tmp_path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(f"POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///{tmp_path / 'runtime.db'}\n")
+    cli = create_cli([server_app])
+
+    refused = CliRunner().invoke(cli, ["server", "identity-reset", "--env-file", str(environment)])
+    first = CliRunner().invoke(
+        cli,
+        ["server", "identity-reset", "--env-file", str(environment), "--maintenance-confirmed"],
+    )
+    second = CliRunner().invoke(
+        cli,
+        ["server", "identity-reset", "--env-file", str(environment), "--maintenance-confirmed"],
+    )
+
+    assert refused.exit_code == 2
+    assert "requires --maintenance-confirmed" in refused.output
+    assert first.exit_code == second.exit_code == 0
+    assert first.output.strip() != second.output.strip()
+
+
 def test_service_command_provider_requires_the_complete_server_role() -> None:
     script = """
 import builtins

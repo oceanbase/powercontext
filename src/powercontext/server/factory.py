@@ -75,6 +75,8 @@ from powercontext.server.context import current_principal, current_request_id
 from powercontext.server.cursor_secret import resolve_cursor_secret
 from powercontext.server.dashboard import mount_dashboard
 from powercontext.server.dream_access import DreamAccess
+from powercontext.server.identity import open_server_identity_repository
+from powercontext.server.info import server_info
 from powercontext.server.mcp import mount_mcp
 from powercontext.server.metrics import CONTENT_TYPE_LATEST, HttpMetricsMiddleware, ServerMetrics
 from powercontext.server.middleware import AuthenticationMiddleware
@@ -176,6 +178,8 @@ def create_server_app(  # noqa: C901
         )
         cursor_secret = resolve_cursor_secret(config.database, configured_cursor_secret)
         async with AsyncExitStack() as resources:
+            async with open_server_identity_repository(config.database) as identity_repository:
+                server_id = await identity_repository.load_or_create()
             active_access_control = configured_access_control
             if active_access_control is None and resolved.access.mode == "enforced":
                 active_access_control = await resources.enter_async_context(
@@ -255,6 +259,7 @@ def create_server_app(  # noqa: C901
             app.state.access_control = active_access_control
             app.state.authentication_provider = configured_authentication
             app.state.capabilities = await _server_capabilities(runtime)
+            app.state.server_info = server_info(server_id)
             await readiness_probe()
             try:
                 yield
@@ -264,6 +269,7 @@ def create_server_app(  # noqa: C901
                 app.state.application = None
                 app.state.access_control = configured_access_control
                 app.state.authentication_provider = configured_authentication
+                app.state.server_info = None
                 app.state.capabilities = Capabilities(
                     source_types=[],
                     artifact_families=[],
