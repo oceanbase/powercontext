@@ -105,8 +105,12 @@ class SQLiteProfile:
 
 
 def _is_memory_url(value: str) -> bool:
-    database = make_url(value).database
-    return database in {None, "", ":memory:"}
+    url = make_url(value)
+    database = url.database
+    if database in {None, "", ":memory:"}:
+        return True
+    uri = str(url.query.get("uri", "")).casefold() == "true"
+    return uri and (database == "file::memory:" or str(url.query.get("mode", "")).casefold() == "memory")
 
 
 def _create_database_directory(value: str) -> None:

@@ -58,16 +58,13 @@ def test_server_identity_survives_reopen_restore_and_explicit_clone_rotation(tmp
 def test_concurrent_server_initializers_converge_on_one_identity(tmp_path) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'deployment.db'}")
-        async with (
-            open_server_identity_repository(config) as first,
-            open_server_identity_repository(config) as second,
-        ):
-            first_identity, second_identity = await asyncio.gather(
-                first.load_or_create(),
-                second.load_or_create(),
-            )
 
-        assert first_identity == second_identity
+        async def initialize() -> str:
+            async with open_server_identity_repository(config) as repository:
+                return await repository.load_or_create()
+
+        identities = await asyncio.gather(*(initialize() for _ in range(8)))
+        assert len(set(identities)) == 1
 
     asyncio.run(scenario())
 

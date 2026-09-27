@@ -652,6 +652,21 @@ def test_server_identity_reset_requires_offline_confirmation_and_rotates(tmp_pat
     assert first.output.strip() != second.output.strip()
 
 
+def test_server_identity_reset_rejects_sqlite_memory_uri(tmp_path) -> None:
+    environment = tmp_path / "server.env"
+    environment.write_text(
+        "POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=true\n"
+    )
+
+    result = CliRunner().invoke(
+        create_cli([server_app]),
+        ["server", "identity-reset", "--env-file", str(environment), "--maintenance-confirmed"],
+    )
+
+    assert result.exit_code == 2
+    assert "identity reset requires a persistent database" in result.output
+
+
 def test_service_command_provider_requires_the_complete_server_role() -> None:
     script = """
 import builtins

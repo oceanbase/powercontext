@@ -110,10 +110,10 @@ statistics 和 access endpoint 负责。
 operation 或兼容语义时增加 minor，移除、重命名或不兼容地改变已列 operation 时增加 major。兼容 client 必须忽略
 schema minor version 新增的未知可选字段。
 
-Server 在配置的主关系数据库中保存一条 identity singleton。启动时会原子创建或读取它，因此进程重启、package
-升级、备份恢复以及共享同一数据库的 replica 都保持相同 ID。identity schema 初始化或读取失败时，Server 会在
-进入 readiness 之前直接启动失败，而不会发布临时 identity。内存 SQLite 没有持久存储，所以每个新进程都会获得
-新的 ID。
+Server 在配置的主关系数据库中保存一条 identity singleton。启动时先幂等创建 identity table，再原子创建或读取
+singleton，因此并发 initializer 会收敛到同一 ID，进程重启、package 升级、备份恢复以及共享同一数据库的 replica
+也会保持该 ID。identity schema 初始化或读取失败时，Server 会在进入 readiness 之前直接启动失败，而不会发布
+临时 identity。内存 SQLite（包括 SQLite URI memory mode）没有持久存储，所以每个数据库生命周期都会获得新 ID。
 
 把备份恢复为原 deployment 时应保留原 ID。若用备份创建独立 clone，请停止所有使用 clone 数据库的 Server
 进程，然后只在 clone 上轮换：

@@ -115,10 +115,12 @@ contract version applies only to its listed OpenAPI operation IDs: adding an ope
 minor; removing, renaming, or incompatibly changing a listed operation increments major. Compatible clients must ignore
 unknown optional fields introduced by a schema minor version.
 
-The Server stores one identity singleton in the configured primary relational database. Startup creates it atomically or
-loads the existing value, so restarts, package upgrades, backup restore, and replicas sharing that database retain the
-same ID. If identity schema initialization or loading fails, Server startup fails before readiness instead of publishing a
-temporary identity. An in-memory SQLite deployment receives a new ID with each process because it has no durable store.
+The Server stores one identity singleton in the configured primary relational database. Startup creates the identity
+table idempotently, then atomically creates or loads the singleton, so concurrent initializers converge on one ID and
+restarts, package upgrades, backup restore, and replicas sharing that database retain it. If identity schema
+initialization or loading fails, Server startup fails before readiness instead of publishing a temporary identity. An
+in-memory SQLite deployment, including SQLite URI memory mode, receives a new ID with each database lifetime because it
+has no durable store.
 
 Treat a restored backup as the same deployment and keep its ID. When a backup is used to create an independent clone,
 stop every Server process using the clone database and rotate only the clone:

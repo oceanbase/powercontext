@@ -34,6 +34,22 @@ def test_sqlite_config_requires_the_async_dialect() -> None:
         SQLiteConfig(url="sqlite:///:memory:")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite+aiosqlite:///:memory:",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=true",
+        "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true",
+    ],
+)
+def test_sqlite_config_recognizes_memory_urls(url: str) -> None:
+    assert SQLiteConfig(url=url).is_in_memory
+
+
+def test_sqlite_config_does_not_treat_uri_like_filename_as_memory_without_uri_mode() -> None:
+    assert not SQLiteConfig(url="sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared").is_in_memory
+
+
 def test_sqlite_profile_creates_a_missing_database_directory(tmp_path) -> None:
     async def scenario() -> None:
         database = tmp_path / "nested" / "powercontext.db"

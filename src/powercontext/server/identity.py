@@ -22,6 +22,7 @@ from uuid import uuid4
 
 from sqlalchemy import CheckConstraint, Column, Integer, MetaData, String, Table, insert, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.schema import CreateTable
 
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig, OceanBaseProfile
@@ -98,7 +99,7 @@ class ServerIdentityRepository:
 async def open_server_identity_repository(config: DatabaseConfig) -> AsyncIterator[ServerIdentityRepository]:
     """Open the configured primary database with only the Server identity schema."""
 
-    tables = (SERVER_IDENTITY_TABLE,)
+    tables: tuple[Table, ...] = ()
     if isinstance(config, SQLiteConfig):
         opened = SQLiteProfile.open(config, tables=tables)
     elif isinstance(config, OceanBaseConfig):
@@ -108,6 +109,8 @@ async def open_server_identity_repository(config: DatabaseConfig) -> AsyncIterat
     else:
         raise TypeError(f"unsupported Server identity database: {type(config).__name__}")  # noqa: TRY003
     async with opened as profile:
+        async with profile.database.transaction() as connection:
+            await connection.execute(CreateTable(SERVER_IDENTITY_TABLE, if_not_exists=True))
         yield ServerIdentityRepository(profile.database)
 
 
