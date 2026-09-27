@@ -14,25 +14,57 @@
 
 """Grade the recall answer without depending on the agent host.
 
-This file is uploaded only with the recall step's tests, so no earlier session can read the expected answer.
+The answer is structured, so the grader checks the values the agent asserts rather than matching keywords that a
+contradictory or hedged answer could also contain. This file is uploaded only with the recall step's tests, so no
+earlier session can read the expected answer.
 """
 
 from __future__ import annotations
 
-import re
+import json
 import sys
 import unicodedata
 from pathlib import Path
 
-# Every group must match; any alternative inside a group is enough.
-REQUIRED = (("oceanbase",), ("12", "twelve"))
+EXPECTED_DATABASE = "oceanbase"
+EXPECTED_SHARD_COUNT = 12
+ANSWER_KEYS = {"database", "shard_count"}
+
+
+class DuplicateKeyError(ValueError):
+    """A repeated key would let a later value silently override a contradictory earlier one."""
 
 
 def score(answer: str) -> int:
-    text = unicodedata.normalize("NFC", answer.casefold())
+    try:
+        payload = json.loads(answer, object_pairs_hook=_unique_keys)
+    except ValueError:
+        return 0
+    # Extra keys could carry a hedge or an alternative that the checked fields do not show.
+    if not isinstance(payload, dict) or set(payload) != ANSWER_KEYS:
+        return 0
+    database = payload.get("database")
+    shard_count = payload.get("shard_count")
     return int(
-        all(any(re.search(rf"\b{re.escape(term)}\b", text) for term in group) for group in REQUIRED),
+        isinstance(database, str)
+        and unicodedata.normalize("NFKC", database).strip().casefold() == EXPECTED_DATABASE
+        and _integer(shard_count) == EXPECTED_SHARD_COUNT
     )
+
+
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise DuplicateKeyError
+    return dict(pairs)
+
+
+def _integer(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().isdecimal():
+        return int(value.strip())
+    return None
 
 
 def main(answer_path: Path, reward_path: Path) -> None:

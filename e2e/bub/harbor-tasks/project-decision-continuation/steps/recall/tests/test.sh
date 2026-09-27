@@ -15,4 +15,4 @@
 
 set -eu
 
-python3 /tests/grade.py /workspace/answer.txt /logs/verifier/reward.txt
+python3 /tests/grade.py /workspace/answer.json /logs/verifier/reward.txt

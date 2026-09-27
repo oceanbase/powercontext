@@ -144,9 +144,12 @@ independent ACP session and Bub tape.
 
 A continuation workload is a Harbor multi-step task written in plain language, so any agent host can run it. An
 earlier session mentions a fact only in the conversation, next to an unrelated small job. The final recall session
-asks for that fact and has the agent write its answer to a file. The recall step's own tests grade the answer, and
-the answer key lives only there, because Harbor leaves every uploaded test directory in the container for later
-steps. The task reward is the final step's reward.
+asks for that fact and has the agent write its answer to a file as structured values, so the grader checks what the
+answer asserts rather than keywords that a contradictory or hedged answer could also contain. The recall step's own
+tests grade the answer, and the answer key lives only there, because Harbor leaves every uploaded test directory in
+the container for later steps. The recall step's own reward decides the run whatever the task's multi-step reward
+strategy; earlier steps' rewards are recorded for diagnosis only. A task may not set `min_reward` on an earlier
+step, because Harbor would then skip the recall step when that step's unrelated job falls short.
 
 The `paired` command runs each selected workload with PowerContext off and on, in separate containers, and repeats
 this for `--trials` trials. The arm that runs first alternates between trials.
@@ -239,13 +242,14 @@ from that container. In the fixed nested-container harness, `host-gateway` addre
 proxy exposed there can be passed as `http://host-gateway:<port>`. The typed setting is also treated as a secret when
 evidence is written.
 
-The agent container sees only the repository files that installation needs: the `powercontext` package and the
-host integration. Workload files, answer keys, and benchmark data stay on the host, because the agent can search its
-container. Agent setup uses Bub's supported installation path: `uv tool install` installs Bub with the local PowerContext plugin,
-then `bub install bub-acp-server` adds the ACP server to the same environment. Harbor uploads and runs its native ACP
-client. The Terminal-Bench task keeps its original image, setup, verifier, and isolation boundary. The harness ignores
-dataset CPU and memory limits because it evaluates Memory behavior rather than benchmark resource compliance. This
-also keeps the fixed harness usable in nested container runtimes that cannot create additional cgroups.
+The agent container sees only the repository files that installation needs: the `powercontext` package and the host
+integration. Workload files, answer keys, and benchmark data stay on the host, because the agent can search its
+container. Agent setup uses Bub's supported installation path: `uv tool install` installs Bub with the local
+PowerContext plugin, then `bub install bub-acp-server` adds the ACP server to the same environment. Harbor uploads and
+runs its native ACP client. The Terminal-Bench task keeps its original image, setup, verifier, and isolation boundary.
+The harness ignores dataset CPU and memory limits because it evaluates Memory behavior rather than benchmark resource
+compliance. This also keeps the fixed harness usable in nested container runtimes that cannot create additional
+cgroups.
 
 Long-horizon acceptance requires observable Memory behavior:
 

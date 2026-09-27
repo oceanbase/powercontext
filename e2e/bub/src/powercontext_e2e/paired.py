@@ -79,6 +79,7 @@ async def run_paired(
     if not tasks or trials < 1:
         raise ValueError("At least one continuation workload and one trial are required")  # noqa: TRY003
     recall_sessions = {task.id: recall_session_index(task, settings) for task in tasks}
+    recall_steps = {task.id: _continuation(task).recall_step for task in tasks}
     require_runtime_models(tasks)
 
     observations: list[PairedArmObservation] = []
@@ -98,6 +99,7 @@ async def run_paired(
                         arm=arm,
                         position=position,
                         recall_session=recall_sessions[task.id],
+                        recall_step=recall_steps[task.id],
                         output_dir=arm_dir,
                         settings=settings,
                     )
@@ -117,15 +119,26 @@ async def run_paired(
 def recall_session_index(task: E2ETask, settings: HarnessSettings) -> int:
     """Return the zero-based agent session that answers from earlier sessions."""
 
-    evaluation = task.evaluation
-    if not isinstance(evaluation, ContinuationEvaluationSpec):
-        raise TypeError(f"Workload {task.id!r} is not an OFF/ON continuation workload")  # noqa: TRY003
-    steps = _load_source_task(task, settings.repository_path()).source_steps
+    evaluation = _continuation(task)
+    source = _load_source_task(task, settings.repository_path())
+    steps = source.source_steps
     if len(steps) < 2 or steps[-1] != evaluation.recall_step:
         raise ValueError(  # noqa: TRY003
             f"Workload {task.id!r} must end with its recall step {evaluation.recall_step!r} after an earlier session"
         )
+    # Harbor skips the remaining steps when a step scores below its min_reward, so an earlier session's unrelated
+    # job could keep the recall session from running at all.
+    if gated := [step.name for step in (source.harbor_task.config.steps or ())[:-1] if step.min_reward is not None]:
+        raise ValueError(  # noqa: TRY003
+            f"Workload {task.id!r} sets min_reward on {gated!r}, which could stop its recall step from running"
+        )
     return len(steps) - 1
+
+
+def _continuation(task: E2ETask) -> ContinuationEvaluationSpec:
+    if not isinstance(task.evaluation, ContinuationEvaluationSpec):
+        raise TypeError(f"Workload {task.id!r} is not an OFF/ON continuation workload")  # noqa: TRY003
+    return task.evaluation
 
 
 async def _run_arm(
@@ -136,6 +149,7 @@ async def _run_arm(
     arm: Arm,
     position: int,
     recall_session: int,
+    recall_step: str,
     output_dir: Path,
     settings: HarnessSettings,
 ) -> PairedArmObservation:
@@ -175,15 +189,6 @@ async def _run_arm(
         if arm == "on"
         else ()
     )
-    exception_types = tuple(
-        name
-        for name in (
-            *(step.exception_info.exception_type for step in step_results if step.exception_info is not None),
-            harbor.exception_type,
-        )
-        if name is not None
-    )
-    reward = harbor.rewards.get("reward")
     return PairedArmObservation(
         run_id=run_id,
         task_id=task.id,
@@ -193,23 +198,60 @@ async def _run_arm(
         environment=_run_environment(task, started_at, settings),
         scope_id=scope_id,
         harbor=harbor,
-        step_rewards={
-            step.step_name: float(step.verifier_result.rewards["reward"])
-            for step in step_results
-            if step.verifier_result is not None
-            and step.verifier_result.rewards
-            and "reward" in step.verifier_result.rewards
-        },
-        outcome=classify_outcome(
+        step_rewards=step_rewards(step_results),
+        outcome=arm_outcome(
+            step_results,
+            harbor,
+            recall_step=recall_step,
             harness_failed=bool(errors),
-            exception_types=exception_types,
             treatment_failures=treatment,
-            reward=None if reward is None else float(reward),
         ),
         errors=tuple(errors),
         sessions=sessions,
         treatment_failures=treatment,
     )
+
+
+def arm_outcome(
+    step_results: Sequence[StepResult],
+    harbor: HarborTrialObservation,
+    *,
+    recall_step: str,
+    harness_failed: bool,
+    treatment_failures: Sequence[str],
+) -> ArmOutcome:
+    """Classify one arm from Harbor's results, scoring it by the recall step's own reward."""
+
+    exception_types = tuple(
+        name
+        for name in (
+            *(step.exception_info.exception_type for step in step_results if step.exception_info is not None),
+            harbor.exception_type,
+        )
+        if name is not None
+    )
+    return classify_outcome(
+        harness_failed=harness_failed,
+        exception_types=exception_types,
+        treatment_failures=treatment_failures,
+        reward=step_rewards(step_results).get(recall_step),
+    )
+
+
+def step_rewards(step_results: Sequence[StepResult]) -> dict[str, float]:
+    """Return each step's own reward.
+
+    The recall step's reward decides an arm. Harbor's trial reward follows the task's multi-step strategy and can
+    average in earlier steps, whose small jobs are unrelated to recall.
+    """
+
+    return {
+        step.step_name: float(step.verifier_result.rewards["reward"])
+        for step in step_results
+        if step.verifier_result is not None
+        and step.verifier_result.rewards
+        and "reward" in step.verifier_result.rewards
+    }
 
 
 def treatment_failures(sessions: Sequence[SessionSnapshot], recall_session: int) -> tuple[str, ...]:

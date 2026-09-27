@@ -18,15 +18,25 @@ from __future__ import annotations
 
 import asyncio
 import runpy
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from harbor.models.task.task import Task as HarborTask
+from harbor.models.trial.result import StepResult
+from harbor.models.verifier.result import VerifierResult
 
 from powercontext_e2e.catalog import load_tasks
 from powercontext_e2e.models import HarborTrialObservation, PairedArmObservation, RunEnvironment, SessionSnapshot
-from powercontext_e2e.paired import classify_outcome, recall_session_index, summarize, treatment_failures
+from powercontext_e2e.paired import (
+    arm_outcome,
+    classify_outcome,
+    recall_session_index,
+    summarize,
+    treatment_failures,
+)
 from powercontext_e2e.runner import run_tasks
 from powercontext_e2e.sessions import SessionRecorder, settle_session
 from powercontext_e2e.settings import HarnessSettings
@@ -48,15 +58,26 @@ def _grade(answer_path: Path, reward_path: Path) -> None:
 @pytest.mark.parametrize(
     ("answer", "reward"),
     [
-        ("We chose OceanBase with a shard count of 12.", 1),
-        ("oceanbase, twelve shards", 1),
-        ("OceanBase with 120 shards.", 0),
-        ("PostgreSQL with 12 shards.", 0),
-        ("unknown", 0),
+        ('{"database": "OceanBase", "shard_count": 12}', 1),
+        ('{"database": " oceanbase ", "shard_count": "12"}', 1),
+        # Contradictory answers name the right fact somewhere but assert another value.
+        ('{"database": "OceanBase", "shard_count": 24}', 0),
+        ('{"database": "PostgreSQL", "shard_count": 12}', 0),
+        ("We chose OceanBase with 24 shards, not 12.", 0),
+        ("We chose PostgreSQL rather than OceanBase, with 12 shards.", 0),
+        # Uncertain answers do not assert the decision.
+        ('{"database": null, "shard_count": null}', 0),
+        ('{"database": "OceanBase?", "shard_count": 12}', 0),
+        ('{"database": "maybe OceanBase", "shard_count": 12}', 0),
+        ('{"database": "OceanBase", "shard_count": "about 12"}', 0),
+        ('["OceanBase", 12]', 0),
+        # A repeated key or an extra field could hide a contradiction from the checked values.
+        ('{"database": "PostgreSQL", "database": "OceanBase", "shard_count": 12}', 0),
+        ('{"database": "OceanBase", "shard_count": 12, "note": "or PostgreSQL with 24"}', 0),
     ],
 )
-def test_recall_grader_requires_every_fact(tmp_path: Path, answer: str, reward: int) -> None:
-    answer_path = tmp_path / "answer.txt"
+def test_recall_grader_checks_the_asserted_values(tmp_path: Path, answer: str, reward: int) -> None:
+    answer_path = tmp_path / "answer.json"
     answer_path.write_text(answer, encoding="utf-8")
     reward_path = tmp_path / "reward.txt"
 
@@ -68,7 +89,7 @@ def test_recall_grader_requires_every_fact(tmp_path: Path, answer: str, reward: 
 def test_recall_grader_scores_a_missing_answer_as_zero(tmp_path: Path) -> None:
     reward_path = tmp_path / "reward.txt"
 
-    _grade(tmp_path / "answer.txt", reward_path)
+    _grade(tmp_path / "answer.json", reward_path)
 
     assert reward_path.read_text(encoding="utf-8") == "0\n"
 
@@ -131,6 +152,38 @@ def test_treatment_passes_when_powercontext_keeps_or_returns_nothing() -> None:
 )
 def test_treatment_fails_when_the_integration_did_not_capture_or_ask(sessions, failure: str) -> None:
     assert any(failure in reason for reason in treatment_failures(sessions, recall_session=1))
+
+
+def test_the_recall_step_reward_decides_the_arm_whatever_harbor_averaged() -> None:
+    # Harbor averages step rewards unless a task opts into its final-step strategy; an unfinished capture-session
+    # chore must not turn a correct recall into a failure.
+    steps = (
+        StepResult(step_name="capture", verifier_result=VerifierResult(rewards={"reward": 0})),
+        StepResult(step_name="recall", verifier_result=VerifierResult(rewards={"reward": 1})),
+    )
+    averaged = HarborTrialObservation(rewards={"reward": 0.5})
+
+    outcome = arm_outcome(steps, averaged, recall_step="recall", harness_failed=False, treatment_failures=())
+
+    assert outcome == "passed"
+
+
+def test_continuation_tasks_cannot_gate_the_recall_step_behind_an_earlier_reward(tmp_path: Path) -> None:
+    # Harbor skips the remaining steps when a step scores below its min_reward.
+    task = next(task for task in _PAIRED_TASKS if task.id == "project-decision-continuation")
+    task_dir = tmp_path / "e2e" / "bub" / "harbor-tasks" / task.dataset.task_id
+    shutil.copytree(_HARBOR_TASKS / task.dataset.task_id, task_dir)
+    config = task_dir / "task.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace('name = "capture"', 'name = "capture"\nmin_reward = 1.0'),
+        encoding="utf-8",
+    )
+    task = task.model_copy(
+        update={"dataset": task.dataset.model_copy(update={"checksum": HarborTask(task_dir).checksum})}
+    )
+
+    with pytest.raises(ValueError, match="min_reward"):
+        recall_session_index(task, HarnessSettings(repository=tmp_path))
 
 
 @pytest.mark.parametrize(
