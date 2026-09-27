@@ -5,6 +5,13 @@ description: Measured routing, execution evidence, and remaining model limitatio
 
 # Agent guidance evaluation record
 
+The complementary [skill-up regression suite](../../../evaluation/skill-up/README.md) pins the packaged Claude Code
+Skill and checks tool selection and authorization boundaries with rule-based assertions, controlled MCP replies, and
+a with/without-Skill comparison. It covers Claude Code + MCP only, with hooks disabled and permissions bypassed;
+it does not qualify real host approval, bounded recall, automatic Capture/Flush, persistence or memory quality.
+Retain real model transcripts and input snapshots with any measured coverage claim. Keep those results separate from
+the multi-surface qualification observations recorded here and from task-outcome benchmarks.
+
 The implementation and reproducible commands are described in [Agent tool routing](integration-guidance.md).
 The baseline is upstream `fe4002d37663213294ebffe4c080b6676b1c8014`. Measurements were made on Windows on
 2026-09-09 with `step-3.7-flash` through the configured StepFun endpoint, temperature 0, a 6,000-token output budget,

@@ -1,0 +1,244 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+id: empty-search
+title: Accept an empty search and keep the following coding turn local
+
+input:
+  turns:
+    - role: user
+      content: |
+        The host has resolved the current PowerContext Scope to
+        skill-up-fixture-scope. Use this exact Scope for any requested operation.
+        Search my memories for the previously recorded retry limit for
+        Project Apollo. Report what the search returned in English.
+        If there are no matches, include NO_MATCHES in your answer.
+    - role: user
+      content: |
+        For the current task, use this complete retry policy: make at most
+        three attempts, waiting one second before the second attempt and
+        two seconds before the third. What Python list represents those
+        two delays? Answer with only the list.
+
+context:
+  repo_fixture: evals/fixtures/repos/powercontext-tool-contract
+
+judge:
+  type: rule_based
+  success:
+    - tool_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__search_memory
+        args:
+          scope_id: skill-up-fixture-scope
+    - turn_response_contains:
+        turn: 1
+        contains_all: ["NO_MATCHES"]
+    - output_matches:
+        all: ['^\s*(?:\[\s*1\s*,\s*2\s*\]|`\[\s*1\s*,\s*2\s*\]`)\s*$']
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__acknowledge_handoff
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__activate_handoff
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__approve_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__capture_content_source
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__clear_scope_binding
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__commit_handoff
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__continue_handoff
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__create_dream_run
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__create_scope
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__create_work_contract
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__finalize_handoff
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__get_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__get_dream_run
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__get_handoff_report
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__get_memory_entry
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__get_topic_memory
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__handoff_current_work
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__list_artifact_candidates
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__list_dream_runs
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__list_memory_entries
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__list_scopes
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__publish_artifact
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__query_code
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__record_task_outcome
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__reject_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__remember_memory
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__retire_memory_entry
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__revise_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__revise_memory_entry
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__search_topic_memory
+    - tool_not_called_in_turn:
+        turn: 1
+        name: mcp__powercontext__set_scope_binding
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__acknowledge_handoff
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__activate_handoff
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__approve_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__capture_content_source
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__clear_scope_binding
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__commit_handoff
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__continue_handoff
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__create_dream_run
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__create_scope
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__create_work_contract
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__finalize_handoff
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__get_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__get_dream_run
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__get_handoff_report
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__get_memory_entry
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__get_scope
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__get_topic_memory
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__handoff_current_work
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__list_artifact_candidates
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__list_dream_runs
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__list_memory_entries
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__list_scopes
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__publish_artifact
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__query_code
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__record_task_outcome
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__reject_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__remember_memory
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__resolve_scope_binding
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__retire_memory_entry
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__revise_artifact_candidate
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__revise_memory_entry
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__search_memory
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__search_topic_memory
+    - tool_not_called_in_turn:
+        turn: 2
+        name: mcp__powercontext__set_scope_binding
