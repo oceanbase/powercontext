@@ -35,7 +35,7 @@ _SINGLETON_KEY = 1
 SERVER_IDENTITY_TABLE = Table(
     "pc_server_identity",
     _IDENTITY_METADATA,
-    Column("singleton_key", Integer, primary_key=True),
+    Column("singleton_key", Integer, primary_key=True, autoincrement=False),
     Column("server_id", String(36), nullable=False, unique=True),
     CheckConstraint("singleton_key = 1", name="ck_pc_server_identity_singleton"),
 )

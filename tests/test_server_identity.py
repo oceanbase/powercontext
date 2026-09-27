@@ -17,8 +17,18 @@ from __future__ import annotations
 import asyncio
 import shutil
 
+from sqlalchemy.dialects import mysql
+from sqlalchemy.schema import CreateTable
+
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
-from powercontext.server.identity import open_server_identity_repository
+from powercontext.server.identity import SERVER_IDENTITY_TABLE, open_server_identity_repository
+
+
+def test_server_identity_singleton_key_is_not_auto_incremented_by_mysql_profiles() -> None:
+    ddl = str(CreateTable(SERVER_IDENTITY_TABLE).compile(dialect=mysql.dialect()))
+
+    assert "AUTO_INCREMENT" not in ddl
+    assert "CHECK (singleton_key = 1)" in ddl
 
 
 def test_server_identity_survives_reopen_restore_and_explicit_clone_rotation(tmp_path) -> None:
