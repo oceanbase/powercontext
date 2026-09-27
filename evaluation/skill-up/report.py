@@ -32,6 +32,7 @@ from pathlib import Path
 ARMS = ("with_skill", "without_skill")
 CASE_TURNS = {"ordinary-coding": 1, "explicit-save": 1, "empty-search": 2, "inspect-candidates": 1, "failed-save": 1}
 PREFIX = "mcp__powercontext__"
+FIXTURE_SCOPE = "skill-up-fixture-scope"
 REQUIRED_CALLS = {
     "explicit-save": {"remember_memory"},
     "empty-search": {"search_memory"},
@@ -97,7 +98,8 @@ def read_json(path: Path, errors: list[str]):
 def read_session(path: Path, prompts: list[str], errors: list[str]) -> list[dict]:
     """Extract raw calls with line references; never infer calls from assistant prose."""
     calls = []
-    assistant_turns = set()
+    completed_turns = set()
+    pending = {}
     current_turn = 0
     seen = {}
     try:
@@ -134,9 +136,21 @@ def read_session(path: Path, prompts: list[str], errors: list[str]) -> list[dict
             if next_turn != current_turn + 1:
                 errors.append(f"Ambiguous/out-of-order logical prompt at {path}:{line_number}")
             current_turn = next_turn
+        blocks = content if isinstance(content, list) else []
+        results = [
+            block
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "tool_result" and event.get("type") == "user"
+        ]
+        if event.get("type") == "tool_result":
+            results = [{"tool_use_id": (event.get("tool_result") or {}).get("call_id")}]
+        for result in results:
+            if pending.pop(result.get("tool_use_id"), None) != current_turn:
+                errors.append(f"Unmatched tool result at {path}:{line_number}")
         if event.get("type") == "assistant":
-            assistant_turns.add(current_turn)
-            blocks = content if isinstance(content, list) else []
+            completed_turns.discard(current_turn)
+            if message.get("stop_reason") == "end_turn" and text.strip() and not pending:
+                completed_turns.add(current_turn)
             blocks = [block for block in blocks if isinstance(block, dict) and block.get("type") == "tool_use"]
         elif event.get("type") == "tool_call":
             blocks = [event.get("tool_call")]
@@ -156,14 +170,30 @@ def read_session(path: Path, prompts: list[str], errors: list[str]) -> list[dict
                 errors.append(f"Duplicate/ambiguous tool call ID at {path}:{line_number}")
                 continue
             seen[block["id"]] = block["name"]
+            pending[block["id"]] = current_turn
+            completed_turns.discard(current_turn)
             if not current_turn:
                 errors.append(f"Tool call before a known logical prompt at {path}:{line_number}")
-            calls.append({"id": block["id"], "name": block["name"], "line": line_number, "turn": current_turn})
+            arguments = block.get("input", {})
+            if not isinstance(arguments, dict):
+                errors.append(f"Invalid tool arguments at {path}:{line_number}")
+                arguments = {}
+            calls.append(
+                {
+                    "id": block["id"],
+                    "name": block["name"],
+                    "arguments": arguments,
+                    "line": line_number,
+                    "turn": current_turn,
+                }
+            )
     if current_turn != len(prompts) or not prompts:
         errors.append(f"Missing logical user prompt boundaries in {path}")
     for turn in range(1, len(prompts) + 1):
-        if turn not in assistant_turns:
-            errors.append(f"No assistant session evidence for turn {turn} in {path}")
+        if turn not in completed_turns:
+            errors.append(f"No completed assistant response for turn {turn} in {path}")
+    if pending:
+        errors.append(f"Missing tool results in {path}: {sorted(pending)}")
     return calls
 
 
@@ -277,14 +307,25 @@ def build_manifest(iteration: Path, skill_lock: Path, engine_exit_code: int = 0)
     if not operations:
         errors.append("Missing declared MCP fixture catalog")
     catalog = {PREFIX + operation for operation in operations}
+    scoped = {PREFIX + name for names in REQUIRED_CALLS.values() for name in names} | {PREFIX + "get_scope"}
     cases = []
     inventory = {arm: Counter() for arm in ARMS}
     for case_id in CASE_TURNS:
         for arm in ARMS:
             row = indexed.get((case_id, arm), {})
             turns = case_inventory(iteration, case_id, arm, row, errors)
+            scope_failures = []
             for turn in turns:
                 inventory[arm].update(turn["tool_names"])
+                for call in turn["recorded_calls"]:
+                    arguments = call["arguments"]
+                    if (call["name"] in scoped and arguments.get("scope_id") != FIXTURE_SCOPE) or (
+                        call["name"] == PREFIX + "resolve_scope_binding"
+                        and arguments.get("explicit_scope_id") not in (None, FIXTURE_SCOPE)
+                    ):
+                        scope_failures.append(
+                            f"Wrong/missing Scope: {case_id}/{arm}: {call['name']} at line {call['line']}"
+                        )
                 for name in turn["tool_names"]:
                     known_operation = any(
                         name == operation or name.endswith(("__" + operation, "." + operation, "/" + operation))
@@ -293,6 +334,7 @@ def build_manifest(iteration: Path, skill_lock: Path, engine_exit_code: int = 0)
                     if (known_operation and name not in catalog) or (name.startswith(PREFIX) and name not in catalog):
                         failures.append(f"Unqualified/mismatched tool namespace: {case_id}/{arm}: {name}")
             if arm == "with_skill":
+                failures.extend(scope_failures)
                 required = {PREFIX + name for name in REQUIRED_CALLS.get(case_id, set())}
                 missing = required - set(turns[0]["tool_names"])
                 if missing:
@@ -310,7 +352,9 @@ def build_manifest(iteration: Path, skill_lock: Path, engine_exit_code: int = 0)
                 {
                     "case_id": case_id,
                     "configuration": arm,
-                    "status": row.get("status", "MISSING"),
+                    "status": "FAIL" if scope_failures else row.get("status", "MISSING"),
+                    "native_status": row.get("status", "MISSING"),
+                    "scope_failures": scope_failures,
                     "error": row.get("error"),
                     "grading": row.get("grading"),
                     "turns": turns,
@@ -320,7 +364,7 @@ def build_manifest(iteration: Path, skill_lock: Path, engine_exit_code: int = 0)
         failures.append("Zero recorded calls in the Skill-installed arm; positive call requirements are not satisfied")
     summaries = {}
     for arm in ARMS:
-        passed = sum(indexed.get((case_id, arm), {}).get("status") == "PASS" for case_id in CASE_TURNS)
+        passed = sum(case["status"] == "PASS" for case in cases if case["configuration"] == arm)
         summaries[arm] = {"passed": passed, "total": len(CASE_TURNS), "pass_rate": passed / len(CASE_TURNS)}
     observed = set(inventory["with_skill"]) | set(inventory["without_skill"])
     suite_pass = not errors and not failures and summaries["with_skill"]["passed"] == len(CASE_TURNS)

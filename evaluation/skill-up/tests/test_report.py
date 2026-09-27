@@ -86,14 +86,15 @@ class ReportTests(unittest.TestCase):
                                 {
                                     "type": "assistant",
                                     "message": {
+                                        "stop_reason": "tool_use",
                                         "content": [
                                             {
                                                 "type": "tool_use",
                                                 "id": f"call-{index}",
                                                 "name": report.PREFIX + name,
-                                                "input": {},
+                                                "input": {"scope_id": report.FIXTURE_SCOPE},
                                             }
-                                        ]
+                                        ],
                                     },
                                 },
                                 {
@@ -105,7 +106,12 @@ class ReportTests(unittest.TestCase):
                                     },
                                 },
                             ]
-                    events.append({"type": "assistant", "message": {"content": [{"type": "text", "text": "Done."}]}})
+                    events.append(
+                        {
+                            "type": "assistant",
+                            "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Done."}]},
+                        }
+                    )
                 path = self.transcript(case_id, arm)
                 path.parent.mkdir(parents=True)
                 path.write_text("\n".join(json.dumps(event) for event in events), encoding="utf-8")
@@ -155,6 +161,78 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(manifest["evidence_complete"])
         self.assertTrue(any("namespace" in failure for failure in manifest["qualification_failures"]))
         self.assertTrue(any("Required positive calls" in failure for failure in manifest["qualification_failures"]))
+
+    def test_every_scoped_call_is_checked_before_and_after_a_correct_call(self):
+        path = self.transcript("explicit-save")
+        original = path.read_text(encoding="utf-8")
+        for name, arguments, position in (
+            ("remember_memory", {"scope_id": "other-project"}, 1),
+            ("remember_memory", {"scope_id": "other-project"}, 3),
+            ("remember_memory", {}, 1),
+            ("get_scope", {"scope_id": "other-project"}, 1),
+            ("get_scope", {}, 1),
+            ("resolve_scope_binding", {"explicit_scope_id": "other-project"}, 1),
+        ):
+            with self.subTest(name=name, arguments=arguments, position=position):
+                events = [json.loads(line) for line in original.splitlines()]
+                extra = json.loads(json.dumps(events[1:3]))
+                extra[0]["message"]["content"][0].update(id="extra", name=report.PREFIX + name, input=arguments)
+                extra[1]["message"]["content"][0]["tool_use_id"] = "extra"
+                events[position:position] = extra
+                path.write_text("\n".join(map(json.dumps, events)), encoding="utf-8")
+                manifest = self.manifest()
+                self.assertTrue(manifest["evidence_complete"], manifest["evidence_errors"])
+                self.assertEqual(manifest["status"], "FAIL")
+                self.assertTrue(any("Wrong/missing Scope" in failure for failure in manifest["qualification_failures"]))
+                case = next(c for c in manifest["cases"] if c["case_id"] == "explicit-save")
+                self.assertEqual((case["native_status"], case["status"]), ("PASS", "FAIL"))
+                self.assertEqual(manifest["arms"]["with_skill"]["passed"], 4)
+
+    def test_wrong_scope_in_baseline_changes_comparison_without_failing_suite(self):
+        text = self.transcript("explicit-save").read_text(encoding="utf-8")
+        self.transcript("explicit-save", "without_skill").write_text(
+            text.replace(report.FIXTURE_SCOPE, "other-project"), encoding="utf-8"
+        )
+        row = next(
+            r
+            for r in self.result["case_results"]
+            if r["case_id"] == "explicit-save" and r["configuration"] == "without_skill"
+        )
+        row["status"] = row["grading"]["status"] = "PASS"
+        row["grading"]["assertion_results"][0]["passed"] = True
+        self.write_result()
+        manifest = self.manifest()
+        self.assertEqual(manifest["status"], "PASS", manifest["evidence_errors"])
+        self.assertEqual(manifest["arms"]["without_skill"]["passed"], 0)
+        case = next(
+            c for c in manifest["cases"] if c["case_id"] == "explicit-save" and c["configuration"] == "without_skill"
+        )
+        self.assertEqual((case["native_status"], case["status"]), ("PASS", "FAIL"))
+        self.assertTrue(case["scope_failures"])
+
+    def test_truncated_turn_or_unanswered_tool_cannot_qualify(self):
+        original = self.transcript("explicit-save").read_text(encoding="utf-8")
+        events = [json.loads(line) for line in original.splitlines()]
+        mismatched = json.loads(json.dumps(events))
+        mismatched[2]["message"]["content"][0]["tool_use_id"] = "unrelated-call"
+        for arm in report.ARMS:
+            for description, incomplete in (
+                ("ends at tool call", events[:2]),
+                ("ends at tool result", events[:3]),
+                ("missing tool result", events[:2] + events[3:]),
+                ("answer before result", events[:2] + events[3:] + events[2:3]),
+                ("wrong result ID", mismatched),
+            ):
+                with self.subTest(arm=arm, description=description):
+                    path = self.transcript("explicit-save", arm)
+                    path.write_text("\n".join(map(json.dumps, incomplete)), encoding="utf-8")
+                    manifest = self.manifest()
+                    self.assertEqual(manifest["status"], "FAIL")
+                    self.assertFalse(manifest["evidence_complete"])
+                    self.assertTrue(
+                        any("No completed assistant response" in error for error in manifest["evidence_errors"])
+                    )
+                    path.write_text(original, encoding="utf-8")
 
     def test_engine_error_survives_an_otherwise_passing_grade(self):
         self.result["case_results"][0]["error"] = "synthetic engine failure"

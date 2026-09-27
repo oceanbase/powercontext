@@ -21,7 +21,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -57,7 +56,7 @@ def main() -> int:
         raise SystemExit("Install skill-up v0.12.0 or pass --skill-up /path/to/skill-up")
     binary = str(Path(binary).resolve())
     runner_version = version(binary)
-    if not re.search(r"\b0\.12\.0\b", runner_version):
+    if runner_version != "skill-up version 0.12.0":
         raise SystemExit(f"Expected skill-up v0.12.0, got {runner_version}")
     config = str(PROJECT / "evals/eval.yaml")
     validation = execute([binary, "validate", config])

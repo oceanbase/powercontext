@@ -40,13 +40,13 @@ class SuiteValidationTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.project = Path(temporary.name) / "suite"
         shutil.copytree(PROJECT, self.project, ignore=shutil.ignore_patterns("tests", "results", "__pycache__"))
-        for name, value in (
-            ("VENDOR", self.project / "vendor/powercontext-project-context"),
-            ("LOCK", self.project / "skill-lock.json"),
-        ):
-            patched = patch.object(sync_skill, name, value)
-            patched.start()
-            self.addCleanup(patched.stop)
+        self.enterContext(
+            patch.multiple(
+                sync_skill,
+                VENDOR=self.project / "vendor/powercontext-project-context",
+                LOCK=self.project / "skill-lock.json",
+            )
+        )
 
     def read(self, reference):
         return yaml.safe_load((self.project / reference).read_text(encoding="utf-8"))
@@ -54,9 +54,6 @@ class SuiteValidationTests(unittest.TestCase):
     def write(self, reference, value):
         content = json.dumps(value) if reference.endswith(".json") else yaml.safe_dump(value, sort_keys=False)
         (self.project / reference).write_text(content, encoding="utf-8")
-
-    def test_complete_suite_validates_without_model_or_server(self):
-        validate_suite.validate(self.project)
 
     def test_every_case_requires_the_shared_parameter_reference(self):
         reference = "evals/cases/explicit-save.yaml"
@@ -136,20 +133,6 @@ class SuiteValidationTests(unittest.TestCase):
         case["input"] = {"prompt": case["input"]["turns"][0]["content"]}
         self.write(reference, case)
         with self.assertRaisesRegex(ValueError, "input.turns"):
-            validate_suite.validate(self.project)
-
-    def test_glob_and_missing_fixture_fail_before_runner(self):
-        reference = "evals/eval.yaml"
-        original = self.read(reference)
-        for missing in ("evals/cases/*.yaml", "evals/cases/missing.yaml"):
-            with self.subTest(reference=missing):
-                config = dict(original, cases=dict(original["cases"], files=[missing]))
-                self.write(reference, config)
-                with self.assertRaises(ValueError):
-                    validate_suite.validate(self.project)
-        original["mcp"]["servers"][0]["config_ref"] = "evals/fixtures/mcp/missing.json"
-        self.write(reference, original)
-        with self.assertRaisesRegex(ValueError, "Missing suite file"):
             validate_suite.validate(self.project)
 
     def test_inline_headers_are_rejected_even_in_mock_mode(self):

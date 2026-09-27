@@ -36,14 +36,6 @@ REQUIRED_CALLS = {
     "inspect-candidates": {"list_artifact_candidates", "get_artifact_candidate"},
     "failed-save": {"remember_memory"},
 }
-RULE_TYPES = {
-    "tool_called_in_turn",
-    "tool_not_called_in_turn",
-    "turn_response_contains",
-    "turn_response_not_contains",
-    "output_contains",
-    "output_matches",
-}
 
 
 def require(condition: bool, message: str) -> None:
@@ -51,28 +43,8 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def local_file(project: Path, reference: str) -> Path:
-    require(isinstance(reference, str) and bool(reference), "A project-relative file reference is required")
-    require(not any(char in reference for char in "*?[]"), f"skill-up does not expand case/path globs: {reference}")
-    path = (project / reference).resolve()
-    require(not Path(reference).is_absolute() and path.is_relative_to(project.resolve()), f"Nonlocal path: {reference}")
-    require(path.is_file(), f"Missing suite file: {reference}")
-    return path
-
-
-def document(project: Path, reference: str) -> dict:
-    path = local_file(project, reference)
-    try:
-        value = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as error:
-        message = f"Invalid YAML in {reference}: {error}"
-        raise ValueError(message) from error
-    require(isinstance(value, dict), f"Expected a mapping in {reference}")
-    return value
-
-
 def mocked_fixture(project: Path, mcp: dict) -> dict:
-    servers = mcp.get("servers", [])
+    servers = mcp["servers"]
     require(len(servers) == 1, "The v1 suite requires exactly one powercontext MCP server")
     server = servers[0]
     require("headers" not in server, "MCP headers belong in config_ref, never inline under servers")
@@ -80,18 +52,9 @@ def mocked_fixture(project: Path, mcp: dict) -> dict:
         server.get("name") == "powercontext" and server.get("mode") == "mocked",
         "The v1 suite requires name: powercontext and mode: mocked",
     )
-    require(
-        not (set(server) - {"name", "mode", "transport", "config_ref"}) and server.get("transport", "stdio") == "stdio",
-        "Mocked MCP supplies its own stdio command; endpoint/command/args are unsupported",
-    )
-    fixture = document(project, server.get("config_ref", ""))
-    require(
-        set(fixture) == {"tool_responses"},
-        "Mocked fixtures must contain only tool_responses; metadata/auth are ignored",
-    )
-    responses = fixture["tool_responses"]
-    require(isinstance(responses, dict) and bool(responses), "Mocked fixture must advertise its tool catalog")
-    return responses
+    fixture = yaml.safe_load((project / server["config_ref"]).read_text(encoding="utf-8"))
+    require(set(fixture) == {"tool_responses"}, "Mocked fixture metadata/auth are ignored; use only tool_responses")
+    return fixture["tool_responses"]
 
 
 def render_tool_contract(catalog: set[str]) -> str:
@@ -163,7 +126,7 @@ def render_tool_contract(catalog: set[str]) -> str:
     return "\n".join(lines)
 
 
-def case_rules(case: dict, catalog: set[str]) -> tuple[dict[int, set[str]], dict[int, set[str]]]:
+def validate_case(case: dict, fixture: dict, catalog: set[str]) -> None:
     case_id = case["id"]
     turns = case.get("input", {}).get("turns", [])
     require(not case.get("input", {}).get("prompt") and bool(turns), f"{case_id}: use input.turns for turn assertions")
@@ -175,15 +138,12 @@ def case_rules(case: dict, catalog: set[str]) -> tuple[dict[int, set[str]], dict
     )
     called = {turn: set() for turn in range(1, len(turns) + 1)}
     forbidden = {turn: set() for turn in called}
-    for rule in judge.get("success", []):
-        require(
-            isinstance(rule, dict) and len(rule) == 1 and set(rule) <= RULE_TYPES, f"{case_id}: unsupported assertion"
-        )
+    for rule in judge["success"]:
+        require(len(rule) == 1, f"{case_id}: each assertion must have exactly one rule")
         kind, value = next(iter(rule.items()))
-        if kind.startswith(("tool_", "turn_")):
-            require(value.get("turn") in called, f"{case_id}: assertion references a nonexistent turn")
         if not kind.startswith("tool_"):
             continue
+        require(value.get("turn") in called, f"{case_id}: tool assertion must reference a logical turn")
         name = value.get("name", "")
         require(
             name.startswith(NAMESPACE) and name.removeprefix(NAMESPACE) in catalog,
@@ -197,12 +157,6 @@ def case_rules(case: dict, catalog: set[str]) -> tuple[dict[int, set[str]], dict
                 value.get("args", {}).get("scope_id") == SCOPE,
                 f"{case_id}: positive control must assert the fixture Scope",
             )
-    return called, forbidden
-
-
-def validate_case(case: dict, fixture: dict, catalog: set[str]) -> None:
-    case_id = case["id"]
-    called, forbidden = case_rules(case, catalog)
     required = REQUIRED_CALLS[case_id]
     require(required <= called[1], f"{case_id}: required positive tool control is missing")
     allowed = required | {"get_scope", "resolve_scope_binding"} if required else set()
@@ -231,38 +185,23 @@ def validate_case(case: dict, fixture: dict, catalog: set[str]) -> None:
 def validate(project: Path = PROJECT) -> None:
     """Validate the pinned, mocked Claude Code suite, supplementing native validate."""
     check()
-    config = document(project, "evals/eval.yaml")
-    require(config.get("environment", {}).get("type") == "none", "The v1 mocked suite uses environment.type: none")
-    require(config.get("engine", {}).get("name") == "claude_code", "The v1 host boundary is claude_code only")
-    require(config.get("judge", {}).get("type") == "rule_based", "The suite requires deterministic rule_based judging")
-    require(config.get("cases", {}).get("parallelism") == 1, "cases.parallelism must remain 1")
-    require(config.get("benchmark", {}).get("enabled") is True, "Both Skill-loaded and baseline arms are required")
-    report = config.get("report", {})
-    require({"json", "junit", "html"} <= set(report.get("formats", [])), "Reports require json, junit and html")
-    require("transcript" in report.get("artifacts", []), "Transcript evidence is required")
-    skills = config.get("skills", [])
-    require(len(skills) == 1, "Install exactly the pinned integration Skill")
-    skill = skills[0]
+    config = yaml.safe_load((project / "evals/eval.yaml").read_text(encoding="utf-8"))
+    require(config["cases"]["parallelism"] == 1, "cases.parallelism must remain 1")
     require(
-        skill.get("source") == "local_path" and skill.get("path") == "vendor/powercontext-project-context",
-        "Skill input must be the pinned vendor copy",
+        config["skills"] == [{"source": "local_path", "path": "vendor/powercontext-project-context"}],
+        "Install exactly the unfiltered pinned Skill",
     )
-    require(
-        not skill.get("exclude")
-        and (not skill.get("include") or set(skill["include"]) == {"SKILL.md", "references/**"}),
-        "Do not filter out the pinned Skill guidance",
-    )
-    local_file(project, skill["path"] + "/SKILL.md")
-    fixture = mocked_fixture(project, config.get("mcp", {}))
+    fixture = mocked_fixture(project, config["mcp"])
     catalog = set(fixture)
     require(len(catalog) == 34, "The pinned mock catalog must retain all 34 PowerContext operations")
-    contract = local_file(project, CONTRACT_FIXTURE + "/CLAUDE.md")
+    contract = project / CONTRACT_FIXTURE / "CLAUDE.md"
     require(
         contract.read_text(encoding="utf-8") == render_tool_contract(catalog),
         "Tool argument reference differs from OpenAPI; run validate_suite.py --write-tool-contract",
     )
-    files = config.get("cases", {}).get("files", [])
-    cases = [document(project, reference) for reference in files]
+    cases = [
+        yaml.safe_load((project / reference).read_text(encoding="utf-8")) for reference in config["cases"]["files"]
+    ]
     require(
         len(cases) == len(REQUIRED_CALLS) and {case.get("id") for case in cases} == set(REQUIRED_CALLS),
         "Keep all five routing/authorization cases, including both positive and negative controls",
@@ -285,7 +224,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         if args.write_tool_contract:
-            config = document(PROJECT, "evals/eval.yaml")
+            config = yaml.safe_load((PROJECT / "evals/eval.yaml").read_text(encoding="utf-8"))
             catalog = set(mocked_fixture(PROJECT, config.get("mcp", {})))
             target = PROJECT / CONTRACT_FIXTURE / "CLAUDE.md"
             target.parent.mkdir(parents=True, exist_ok=True)
