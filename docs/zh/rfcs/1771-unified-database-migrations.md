@@ -4,6 +4,7 @@ title: 统一版本化数据库迁移
 
 - Proposal Name: `unified_versioned_database_migrations`
 - Start Date: 2026-09-28
+- RFC PR: [oceanbase/powercontext#1771](https://github.com/oceanbase/powercontext/pull/1771)
 - Tracking Issue: [oceanbase/powercontext#1756](https://github.com/oceanbase/powercontext/issues/1756)
 - 关联讨论：[PR #1716 的迁移框架建议](https://github.com/oceanbase/powercontext/pull/1716#issuecomment-5862598291)
 - 设计来源：[语雀 RFC](https://yuque.antfin.com/obopensrc/knowledge_sharing/psb5g51gae41q16l)

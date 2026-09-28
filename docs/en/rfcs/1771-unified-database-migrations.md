@@ -4,6 +4,7 @@ title: Unified Versioned Database Migrations
 
 - Proposal Name: `unified_versioned_database_migrations`
 - Start Date: 2026-09-28
+- RFC PR: [oceanbase/powercontext#1771](https://github.com/oceanbase/powercontext/pull/1771)
 - Tracking Issue: [oceanbase/powercontext#1756](https://github.com/oceanbase/powercontext/issues/1756)
 - Related Discussion: [Migration framework proposal on PR #1716](https://github.com/oceanbase/powercontext/pull/1716#issuecomment-5862598291)
 - Design Source: [Yuque RFC](https://yuque.antfin.com/obopensrc/knowledge_sharing/psb5g51gae41q16l)
