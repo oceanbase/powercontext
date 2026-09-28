@@ -104,3 +104,7 @@ class InvalidMemoryCitationError(MemoryLayerError, ValueError):
 
 class MemoryBackendConfigurationError(MemoryLayerError, RuntimeError):
     """Raised when a repository cannot satisfy its declared configuration."""
+
+
+class MemoryDirectoryItemTooLargeError(MemoryLayerError):
+    """Raised when one directory item cannot fit the public page budget."""

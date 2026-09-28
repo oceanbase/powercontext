@@ -307,6 +307,7 @@ class _ScopedServices:
     source_registry: SourceDefinitionRegistry
     prompts: PromptService
     generation_receipts: HandoffGenerationReceipts
+    cursor_secret: bytes
 
     def generation_sources(self) -> GenerationSourceAccess:
         return GenerationSourceAccess(self.repositories.sources)
@@ -339,6 +340,7 @@ class _ScopedServices:
                 artifacts=self.repositories.artifacts,
                 index=self.index,
                 connection=connection,
+                cursor_secret=self.cursor_secret,
             ),
             candidate_pipeline=self.candidate_pipeline,
             embedding_model=self.embedding_model,
@@ -527,7 +529,8 @@ class RelationalContexts:
         topic_memory_write_concurrency: int = 4,
     ) -> None:
         self.database = database
-        self.scopes = ScopeApplication(database, cursor_secret=cursor_secret)
+        self._cursor_secret = cursor_secret if cursor_secret is not None else secrets.token_bytes(32)
+        self.scopes = ScopeApplication(database, cursor_secret=self._cursor_secret)
         self.source_registry = source_registry or BUILTIN_SOURCE_REGISTRY
         self.index = NoMemoryIndex() if index is None else index
         self.topic_memory_index = NoTopicMemoryIndex() if topic_memory_index is None else topic_memory_index
@@ -579,7 +582,7 @@ class RelationalContexts:
         )
         self.prompts = PromptService(self.prompt_registry, self._prompt_head, prompt_demonstrators)
         self._generation_receipts = HandoffGenerationReceipts(
-            cursor_secret if cursor_secret is not None else secrets.token_bytes(32),
+            self._cursor_secret,
             verification_keys=handoff_verification_keys,
         )
         topic_memory_writer = TopicMemoryManagementWriter(
@@ -631,7 +634,7 @@ class RelationalContexts:
             self.repositories.artifacts,
             family_writers,
             id_factory=id_factory,
-            cursor_secret=cursor_secret,
+            cursor_secret=self._cursor_secret,
             processing_pending=self.repositories.processing_pending,
             source_processing_bindings=(TOPIC_MEMORY_SOURCE_WINDOW_BINDING,),
             topic_memory_list_reader=TopicMemoryArtifactListReader(
@@ -1407,6 +1410,7 @@ class RelationalContexts:
             source_lock=self._source_locks.setdefault(scope, asyncio.Lock()),
             prompts=self.prompts,
             generation_receipts=self._generation_receipts,
+            cursor_secret=self._cursor_secret,
             token_estimator=self._token_estimator,
             source_registry=self.source_registry,
         )

@@ -27,7 +27,9 @@ from powercontext.builtin.artifacts.memory.models import (
     Memory,
     MemoryCapabilities,
     MemoryChannelHit,
+    MemoryCitation,
     MemoryEntryInput,
+    MemoryEntryState,
     MemoryEntryVersion,
     MemoryHit,
     MemoryRevisionChanges,
@@ -92,6 +94,32 @@ class MemorySearchChannels(BaseModel):
     vector: tuple[MemoryChannelHit, ...] = ()
 
 
+class MemoryDirectoryQuery(BaseModel):
+    """A bounded directory traversal over one stable Memory identity."""
+
+    include_inactive: bool = False
+    tag_filter: TagFilter | None = None
+    limit: int = 50
+    cursor: str | None = None
+
+
+class MemoryDirectoryItem(BaseModel):
+    """Compact exact identity for one entry without its body or evidence."""
+
+    citation: MemoryCitation
+    version: int
+    kind: str
+    state: MemoryEntryState
+
+
+class MemoryDirectoryPage(BaseModel):
+    """One bounded page pinned to an exact Memory Revision."""
+
+    memory_ref: ArtifactRef | None
+    items: tuple[MemoryDirectoryItem, ...] = ()
+    next_cursor: str | None = None
+
+
 class CandidatePipeline(Protocol):
     """Produce untrusted Memory candidates from canonical bounded evidence."""
 
@@ -130,6 +158,11 @@ class MemoryBackend(Protocol):
 
     async def latest(self, artifact_id: str, /) -> Memory:
         """Load the current head of one Memory identity."""
+
+        ...
+
+    async def query_directory(self, artifact_id: str, query: MemoryDirectoryQuery, /) -> MemoryDirectoryPage:
+        """Read one compact keyset page without loading the Memory manifest or entry bodies."""
 
         ...
 

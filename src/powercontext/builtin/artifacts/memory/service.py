@@ -76,6 +76,8 @@ from powercontext.builtin.artifacts.memory.protocols import (
     MemoryBackend,
     MemoryCandidateRequest,
     MemoryCommit,
+    MemoryDirectoryPage,
+    MemoryDirectoryQuery,
     MemoryProjection,
     MemorySearchRequest,
     MemoryWritePlan,
@@ -196,6 +198,11 @@ class MemoryService:
 
         canonical = await self.get(memory)
         return await self._backend.latest(canonical.artifact_id)
+
+    async def query_directory(self, artifact_id: str, query: MemoryDirectoryQuery, /) -> MemoryDirectoryPage:
+        """Read compact entry identities without expanding the authoritative manifest."""
+
+        return await self._backend.query_directory(artifact_id, query)
 
     async def revisions(self, memory: Memory, /) -> tuple[Memory, ...]:
         """Return the visible Memory history in ascending Revision order."""

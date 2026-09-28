@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from sqlalchemy import BigInteger, DateTime, Integer, String, select
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.artifacts.memory import MemoryDirectoryQuery, MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import (
     MEMORY_ENTRY_DIRECTORY_TABLE,
@@ -28,8 +29,10 @@ from powercontext.builtin.persistence.tables import (
     MEMORY_ENTRY_VERSIONS_TABLE,
     MEMORY_TAG_GENERATIONS_TABLE,
 )
+from powercontext.builtin.records import InvalidCursorError
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.sources import ContentCapture, ContentSource
+from powercontext.builtin.tags import MemoryEntryTagTarget, TagFilter
 
 _INNODB_MAX_INDEX_BYTES = 3072
 
@@ -147,6 +150,119 @@ def test_sqlite_memory_directory_records_only_changed_revision_intervals() -> No
             ]
             assert third.revision == 3
             assert generation == 0
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_memory_directory_query_pins_revision_and_invalidates_changed_tags(monkeypatch) -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            context = await contexts.get("project")
+            service = context.artifacts.memory
+            first = await service.remember(
+                memory=None,
+                entries=tuple(MemoryEntryInput(kind="fact", text=f"Directory body {index}") for index in range(3)),
+                mode="append",
+            )
+            assert first is not None
+            original_ids = sorted(item.entry_id for item in await service.entries(first))
+
+            import powercontext.builtin.persistence.memory as persistence_memory
+
+            decoded = 0
+            original_decode = persistence_memory._decode_entry
+
+            def counting_decode(row):
+                nonlocal decoded
+                decoded += 1
+                return original_decode(row)
+
+            monkeypatch.setattr(persistence_memory, "_decode_entry", counting_decode)
+            page_one = await service.query_directory(
+                first.artifact_id,
+                MemoryDirectoryQuery(limit=1),
+            )
+            assert page_one.memory_ref == first.as_ref()
+            assert [item.citation.entry_id for item in page_one.items] == original_ids[:1]
+            assert set(page_one.items[0].model_dump()) == {"citation", "version", "kind", "state"}
+            assert page_one.next_cursor is not None
+            assert decoded == 0
+
+            second = await service.remember(
+                memory=first,
+                entries=(MemoryEntryInput(kind="fact", text="Visible only to a new traversal."),),
+                mode="append",
+            )
+            assert second is not None
+            remaining = []
+            cursor = page_one.next_cursor
+            while cursor is not None:
+                page = await service.query_directory(
+                    first.artifact_id,
+                    MemoryDirectoryQuery(limit=1, cursor=cursor),
+                )
+                assert page.memory_ref == first.as_ref()
+                remaining.extend(item.citation.entry_id for item in page.items)
+                cursor = page.next_cursor
+            assert remaining == original_ids[1:]
+            assert decoded == 0
+            with pytest.raises(InvalidCursorError):
+                await service.query_directory(
+                    first.artifact_id,
+                    MemoryDirectoryQuery(limit=2, cursor=page_one.next_cursor),
+                )
+
+            tagged_ids = sorted(original_ids[:2])
+            for entry_id in tagged_ids:
+                target = MemoryEntryTagTarget(artifact_id=first.artifact_id, entry_id=entry_id)
+                empty = await contexts.records.get_tags("project", target)
+                await contexts.records.replace_tags(
+                    "project",
+                    target,
+                    ("paged",),
+                    expected_etag=empty.etag,
+                )
+            filtered = await service.query_directory(
+                first.artifact_id,
+                MemoryDirectoryQuery(tag_filter=TagFilter(tags=("PAGED",)), limit=1),
+            )
+            assert [item.citation.entry_id for item in filtered.items] == tagged_ids[:1]
+            assert filtered.next_cursor is not None
+
+            unchanged_target = MemoryEntryTagTarget(artifact_id=first.artifact_id, entry_id=tagged_ids[0])
+            unchanged = await contexts.records.get_tags("project", unchanged_target)
+            await contexts.records.replace_tags(
+                "project",
+                unchanged_target,
+                unchanged.tags,
+                expected_etag=unchanged.etag,
+            )
+            continued = await service.query_directory(
+                first.artifact_id,
+                MemoryDirectoryQuery(
+                    tag_filter=TagFilter(tags=("paged",)),
+                    limit=1,
+                    cursor=filtered.next_cursor,
+                ),
+            )
+            assert [item.citation.entry_id for item in continued.items] == tagged_ids[1:]
+
+            restarted = await service.query_directory(
+                first.artifact_id,
+                MemoryDirectoryQuery(tag_filter=TagFilter(tags=("paged",)), limit=1),
+            )
+            changed_target = MemoryEntryTagTarget(artifact_id=first.artifact_id, entry_id=tagged_ids[1])
+            changed = await contexts.records.get_tags("project", changed_target)
+            await contexts.records.replace_tags("project", changed_target, (), expected_etag=changed.etag)
+            with pytest.raises(InvalidCursorError, match="tag_state_changed"):
+                await service.query_directory(
+                    first.artifact_id,
+                    MemoryDirectoryQuery(
+                        tag_filter=TagFilter(tags=("paged",)),
+                        limit=1,
+                        cursor=restarted.next_cursor,
+                    ),
+                )
 
     asyncio.run(scenario())
 

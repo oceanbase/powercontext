@@ -57,6 +57,8 @@ from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     Memory,
     MemoryCitation,
+    MemoryDirectoryPage,
+    MemoryDirectoryQuery,
     MemoryEntryInput,
     MemoryEntryVersion,
     MemoryHit,
@@ -192,6 +194,7 @@ from powercontext.builtin.runtime.models import (
     PreparedContext,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    QueryMemoryEntriesRequest,
     RejectArtifactCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
@@ -2457,6 +2460,18 @@ class ScopedMemoryApplication:
                         hits=result.hits,
                         rerank=result.rerank,
                     )
+
+    async def query(self, request: QueryMemoryEntriesRequest, /) -> MemoryDirectoryPage:
+        async with self._runtime._context(self.scope_id) as context:
+            return await context.artifacts.memory.query_directory(
+                context.artifacts.memory_artifact_id,
+                MemoryDirectoryQuery(
+                    include_inactive=request.include_inactive,
+                    tag_filter=request.tag_filter,
+                    limit=request.limit,
+                    cursor=request.cursor,
+                ),
+            )
 
     async def list(self, *, include_inactive: bool = False, tag_filter: TagFilter | None = None) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:

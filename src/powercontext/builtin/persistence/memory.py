@@ -16,13 +16,15 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar
 
-from pydantic import RootModel
-from sqlalchemy import delete, insert, select, update
+import rfc8785
+from pydantic import JsonValue, RootModel
+from sqlalchemy import delete, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactDraft, ArtifactRef
@@ -33,6 +35,10 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCapabilities,
     MemoryCommit,
     MemoryContent,
+    MemoryDirectoryItem,
+    MemoryDirectoryItemTooLargeError,
+    MemoryDirectoryPage,
+    MemoryDirectoryQuery,
     MemoryEntryVersion,
     MemoryHit,
     MemoryProjection,
@@ -55,6 +61,7 @@ from powercontext.builtin.artifacts.search import analyze_text
 from powercontext.builtin.inference import EmbeddingModel
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.codec import dump_model, load_model, stored_bytes
+from powercontext.builtin.persistence.cursor_codec import Clock, SignedCursorCodec
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
@@ -66,9 +73,12 @@ from powercontext.builtin.persistence.tables import (
     MEMORY_TAG_GENERATIONS_TABLE,
 )
 from powercontext.builtin.persistence.tags import tag_predicate
+from powercontext.builtin.records import InvalidBaseAccessRequestError, InvalidCursorError
 from powercontext.builtin.tags import TagFilter
 from powercontext.errors import ArtifactNotFoundError
 from powercontext.sources import SourceRef
+
+_MEMORY_DIRECTORY_PAGE_BUDGET_BYTES = 4 * 1024 * 1024
 
 
 class _SourceRefs(RootModel[tuple[SourceRef, ...]]):
@@ -114,6 +124,15 @@ class _MemoryProjectionRebuildError(MemoryBackendConfigurationError):
         super().__init__(messages[code])
 
 
+class _MemoryDirectoryConfigurationError(MemoryBackendConfigurationError):
+    def __init__(self, code: str) -> None:
+        messages = {
+            "revision": "directory query did not pin a Memory revision",
+            "tag-generation": "Memory tag generation is unavailable",
+        }
+        super().__init__(messages[code])
+
+
 class RelationalMemoryBackend:
     """Use shared Artifact revisions plus Memory-owned entry projections."""
 
@@ -125,12 +144,20 @@ class RelationalMemoryBackend:
         artifacts: ArtifactRepository,
         index: MemoryIndex | None = None,
         connection: AsyncConnection | None = None,
+        cursor_secret: bytes | None = None,
+        cursor_clock: Clock | None = None,
+        cursor_ttl_seconds: int = 3_600,
     ) -> None:
         self._database = database
         self._scope_id = scope_id
         self._artifacts = artifacts
         self._index = NoMemoryIndex() if index is None else index
         self._bound_connection = connection
+        self._cursor_codec = SignedCursorCodec(
+            secret=cursor_secret,
+            clock=cursor_clock,
+            ttl_seconds=cursor_ttl_seconds,
+        )
 
     async def capabilities(self) -> MemoryCapabilities:
         return self._index.capabilities
@@ -157,6 +184,93 @@ class RelationalMemoryBackend:
             except RepositoryNotFoundError:
                 raise ArtifactNotFoundError(artifact_id) from None
         return _require_memory(artifact)
+
+    async def query_directory(self, artifact_id: str, query: MemoryDirectoryQuery, /) -> MemoryDirectoryPage:
+        if isinstance(query.limit, bool) or not 1 <= query.limit <= 100:
+            raise InvalidBaseAccessRequestError("limit", "must be between 1 and 100")
+        expected_cursor = _directory_cursor_context(self._scope_id, artifact_id, query)
+        cursor_state = self._cursor_codec.after_text(query.cursor, expected_cursor)
+        pinned_revision, expected_tag_generation, after_entry_id = _decode_directory_cursor(cursor_state)
+        selected = await self._select_directory_rows(
+            artifact_id,
+            query,
+            pinned_revision=pinned_revision,
+            expected_tag_generation=expected_tag_generation,
+            after_entry_id=after_entry_id,
+        )
+        if selected is None:
+            return MemoryDirectoryPage(memory_ref=None)
+        pinned_revision, expected_tag_generation, rows = selected
+        memory_ref = ArtifactRef(family=Memory.family, artifact_id=artifact_id, revision=pinned_revision)
+        items, has_more = _directory_items(memory_ref, rows, query.limit)
+        next_cursor = None
+        if has_more and items:
+            cursor_position = rfc8785.dumps([
+                pinned_revision,
+                expected_tag_generation,
+                items[-1].citation.entry_id,
+            ]).decode("utf-8")
+            next_cursor = self._cursor_codec.encode(expected_cursor, cursor_position)
+        return MemoryDirectoryPage(memory_ref=memory_ref, items=items, next_cursor=next_cursor)
+
+    async def _select_directory_rows(
+        self,
+        artifact_id: str,
+        query: MemoryDirectoryQuery,
+        *,
+        pinned_revision: int | None,
+        expected_tag_generation: int | None,
+        after_entry_id: str,
+    ) -> tuple[int, int | None, list[Mapping[Any, Any]]] | None:
+        async with self._database.transaction() as connection:
+            current_revision = await connection.scalar(
+                select(ARTIFACT_HEADS_TABLE.c.revision).where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == self._scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == Memory.family,
+                    ARTIFACT_HEADS_TABLE.c.artifact_id == artifact_id,
+                )
+            )
+            if current_revision is None:
+                if query.cursor is not None:
+                    raise InvalidCursorError
+                return None
+            current_revision = int(current_revision)
+            if query.cursor is None:
+                pinned_revision = current_revision
+            elif pinned_revision is None or not 1 <= pinned_revision <= current_revision:
+                raise InvalidCursorError
+
+            tag_generation = await _memory_tag_generation(
+                connection,
+                self._scope_id,
+                artifact_id,
+                required=query.tag_filter is not None,
+            )
+            if query.cursor is None:
+                expected_tag_generation = tag_generation
+            elif expected_tag_generation != tag_generation:
+                raise InvalidCursorError("tag_state_changed")
+
+            statement = _directory_statement(
+                self._scope_id,
+                artifact_id,
+                query,
+                pinned_revision,
+                after_entry_id,
+            )
+            rows = (await connection.execute(statement)).mappings().all()
+            if query.tag_filter is not None and query.cursor is not None:
+                observed_generation = await _memory_tag_generation(
+                    connection,
+                    self._scope_id,
+                    artifact_id,
+                    required=True,
+                )
+                if observed_generation != expected_tag_generation:
+                    raise InvalidCursorError("tag_state_changed")
+        if pinned_revision is None:
+            raise _MemoryDirectoryConfigurationError("revision")
+        return pinned_revision, expected_tag_generation, list(rows)
 
     async def tagged_entry_ids(self, memory: ArtifactRef, tag_filter: TagFilter) -> frozenset[str]:
         canonical = await self.get(memory)
@@ -635,6 +749,146 @@ def _validate_commit(value: MemoryCommit) -> None:
     projected = {item.entry_version.entry_version_id for item in value.projections}
     if active != projected:
         raise _InvalidMemoryCommitError("projection")
+
+
+def _directory_cursor_context(
+    scope_id: str,
+    artifact_id: str,
+    query: MemoryDirectoryQuery,
+) -> dict[str, JsonValue]:
+    return {
+        "version": 1,
+        "endpoint": "query_memory_entries",
+        "scope_id": scope_id,
+        "memory_artifact_id": artifact_id,
+        "include_inactive": query.include_inactive,
+        "tags": [] if query.tag_filter is None else list(query.tag_filter.keys),
+        "tag_match": None if query.tag_filter is None else query.tag_filter.match,
+        "limit": query.limit,
+        "order": "entry_id:asc",
+    }
+
+
+def _directory_statement(
+    scope_id: str,
+    artifact_id: str,
+    query: MemoryDirectoryQuery,
+    pinned_revision: int,
+    after_entry_id: str,
+):
+    directory = MEMORY_ENTRY_DIRECTORY_TABLE
+    versions = MEMORY_ENTRY_VERSIONS_TABLE
+    statement = (
+        select(
+            directory.c.entry_id,
+            directory.c.entry_version_id,
+            directory.c.state,
+            versions.c.version,
+            versions.c.kind,
+        )
+        .join(
+            versions,
+            (versions.c.scope_id == directory.c.scope_id)
+            & (versions.c.memory_artifact_id == directory.c.memory_artifact_id)
+            & (versions.c.entry_id == directory.c.entry_id)
+            & (versions.c.entry_version_id == directory.c.entry_version_id),
+        )
+        .where(
+            directory.c.scope_id == scope_id,
+            directory.c.memory_artifact_id == artifact_id,
+            directory.c.valid_from_revision <= pinned_revision,
+            or_(
+                directory.c.valid_to_revision.is_(None),
+                directory.c.valid_to_revision > pinned_revision,
+            ),
+            directory.c.entry_id > after_entry_id,
+        )
+        .order_by(directory.c.entry_id)
+        .limit(query.limit + 1)
+    )
+    if not query.include_inactive:
+        statement = statement.where(directory.c.state == "active")
+    if query.tag_filter is not None:
+        statement = statement.where(
+            tag_predicate(
+                scope_id,
+                directory.c.family,
+                directory.c.memory_artifact_id,
+                "memory_entry",
+                directory.c.entry_id,
+                query.tag_filter,
+            )
+        )
+    return statement
+
+
+def _directory_items(
+    memory_ref: ArtifactRef,
+    rows: list[Mapping[Any, Any]],
+    limit: int,
+) -> tuple[tuple[MemoryDirectoryItem, ...], bool]:
+    items: list[MemoryDirectoryItem] = []
+    page_bytes = 0
+    for row in rows:
+        if len(items) == limit:
+            return tuple(items), True
+        item = MemoryDirectoryItem.model_validate({
+            "citation": {
+                "memory_ref": memory_ref,
+                "entry_id": row["entry_id"],
+                "entry_version_id": row["entry_version_id"],
+            },
+            "version": row["version"],
+            "kind": row["kind"],
+            "state": row["state"],
+        })
+        encoded_bytes = len(item.model_dump_json().encode("utf-8"))
+        if page_bytes + encoded_bytes > _MEMORY_DIRECTORY_PAGE_BUDGET_BYTES:
+            if not items:
+                raise MemoryDirectoryItemTooLargeError
+            return tuple(items), True
+        items.append(item)
+        page_bytes += encoded_bytes
+    return tuple(items), False
+
+
+def _decode_directory_cursor(value: str) -> tuple[int | None, int | None, str]:
+    if not value:
+        return None, None, ""
+    try:
+        state = json.loads(value)
+    except (TypeError, ValueError):
+        raise InvalidCursorError from None
+    if not isinstance(state, list) or len(state) != 3:
+        raise InvalidCursorError
+    revision, generation, after_entry_id = state
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        raise InvalidCursorError
+    if generation is not None and (not isinstance(generation, int) or isinstance(generation, bool) or generation < 0):
+        raise InvalidCursorError
+    if not isinstance(after_entry_id, str) or not after_entry_id:
+        raise InvalidCursorError
+    return revision, generation, after_entry_id
+
+
+async def _memory_tag_generation(
+    connection: AsyncConnection,
+    scope_id: str,
+    artifact_id: str,
+    *,
+    required: bool,
+) -> int | None:
+    if not required:
+        return None
+    value = await connection.scalar(
+        select(MEMORY_TAG_GENERATIONS_TABLE.c.generation).where(
+            MEMORY_TAG_GENERATIONS_TABLE.c.scope_id == scope_id,
+            MEMORY_TAG_GENERATIONS_TABLE.c.memory_artifact_id == artifact_id,
+        )
+    )
+    if value is None:
+        raise _MemoryDirectoryConfigurationError("tag-generation")
+    return int(value)
 
 
 def _entry_values(scope_id: str, value: MemoryEntryVersion) -> dict[str, object]:
