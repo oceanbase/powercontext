@@ -21,6 +21,7 @@ from tempfile import TemporaryDirectory
 import pytest
 
 _REAL_E2E_ROOT = Path(__file__).parent / "e2e" / "real_experience_skill"
+_DATABASE_MIGRATION_ENV = Path(__file__).parent / "fixtures" / "database_migrations" / "env.py"
 
 
 @pytest.fixture
@@ -70,6 +71,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    # Alembic executes env.py as migration configuration; doctest collection
+    # must not import it as a test module.
+    if collection_path.resolve() == _DATABASE_MIGRATION_ENV.resolve():
+        return True
     if config.getoption("run_real_e2e"):
         return None
     try:
