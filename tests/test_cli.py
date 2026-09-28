@@ -652,11 +652,16 @@ def test_server_identity_reset_requires_offline_confirmation_and_rotates(tmp_pat
     assert first.output.strip() != second.output.strip()
 
 
-def test_server_identity_reset_rejects_sqlite_memory_uri(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=1",
+        "sqlite+aiosqlite:///file:%3Amemory%3A?cache=shared&uri=true",
+    ],
+)
+def test_server_identity_reset_rejects_sqlite_memory_uri(tmp_path, url: str) -> None:
     environment = tmp_path / "server.env"
-    environment.write_text(
-        "POWERCONTEXT_SERVER_DATABASE_URL=sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=true\n"
-    )
+    environment.write_text(f"POWERCONTEXT_SERVER_DATABASE_URL={url}\n")
 
     result = CliRunner().invoke(
         create_cli([server_app]),

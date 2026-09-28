@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qs, unquote, urlsplit
 from weakref import WeakKeyDictionary
 
 import sqlite_vec
@@ -106,11 +107,15 @@ class SQLiteProfile:
 
 def _is_memory_url(value: str) -> bool:
     url = make_url(value)
-    database = url.database
-    if database in {None, "", ":memory:"}:
+    # Match the driver's effective URI flag and filename, including boolean aliases.
+    args, options = url.get_dialect()().create_connect_args(url)
+    filename = str(args[0])
+    if filename == ":memory:":
         return True
-    uri = str(url.query.get("uri", "")).casefold() == "true"
-    return uri and (database == "file::memory:" or str(url.query.get("mode", "")).casefold() == "memory")
+    if not options.get("uri"):
+        return False
+    uri = urlsplit(filename)
+    return uri.scheme == "file" and (unquote(uri.path) == ":memory:" or parse_qs(uri.query).get("mode") == ["memory"])
 
 
 def _create_database_directory(value: str) -> None:

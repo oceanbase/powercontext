@@ -108,8 +108,8 @@ version, API contract version, response schema version, and initial feature cont
 health, enabled runtime capabilities, limits, inventory, secrets, filesystem paths, or the authenticated principal.
 Use the dedicated health, capabilities, statistics, and access endpoints for those concerns.
 
-All discovery versions use `major` and `minor` integers. A major increment may remove or incompatibly change the
-governed contract; a minor increment is backward compatible. The response `schema_version` governs its fields and
+All discovery versions use integers with `major >= 1` and `minor >= 0`. A major increment may remove or incompatibly
+change the governed contract; a minor increment is backward compatible. The response `schema_version` governs its fields and
 semantics, while `api_contract_version` is the major/minor projection of the OpenAPI `info.version`. Each feature
 contract version applies only to its listed OpenAPI operation IDs: adding an operation or compatible semantics increments
 minor; removing, renaming, or incompatibly changing a listed operation increments major. Compatible clients must ignore
@@ -117,8 +117,8 @@ unknown optional fields introduced by a schema minor version.
 
 OpenAPI's root `x-powercontext-feature-contracts` declares the explicit feature versions. Each governed operation lists
 its membership in the same extension; `make api-generate` produces the discovery metadata from those declarations.
-Generation rejects invalid versions, unknown or duplicate memberships, and features without operations. Version bumps
-remain an explicit contract edit, not an automatic consequence of changing membership.
+Generation rejects invalid versions (including values outside these bounds), unknown or duplicate memberships, and
+features without operations. Version bumps remain an explicit contract edit, not an automatic consequence of changing membership.
 
 The Server stores one identity singleton using the Runtime-owned primary relational database. Startup creates the identity
 table idempotently, then atomically creates or loads the singleton, so concurrent initializers converge on one ID and
@@ -127,6 +127,9 @@ initialization or loading fails, Server startup fails before readiness instead o
 in-memory SQLite deployment, including SQLite URI memory mode, receives a new ID with each database lifetime because it
 has no durable store. Applications using the same shared-memory SQLite database share both data and identity while any
 Runtime connection keeps that database alive; after the last connection closes, reopening creates new data and identity.
+Memory classification uses the dialect's effective connection arguments and the decoded SQLite URI, including supported
+true spellings (`true`, `1`, `yes`, `on`) and percent-encoded `:memory:` paths. Pooling and offline maintenance guards
+consume the same `SQLiteConfig.is_in_memory` classification.
 
 Treat a restored backup as the same deployment and keep its ID. When a backup is used to create an independent clone,
 stop every Server process using the clone database and rotate only the clone:

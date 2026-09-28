@@ -39,15 +39,20 @@ def test_sqlite_config_requires_the_async_dialect() -> None:
     [
         "sqlite+aiosqlite:///:memory:",
         "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=true",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=1",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=yes",
+        "sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared&uri=on",
         "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true",
+        "sqlite+aiosqlite:///file:%3Amemory%3A?cache=shared&uri=true",
     ],
 )
 def test_sqlite_config_recognizes_memory_urls(url: str) -> None:
     assert SQLiteConfig(url=url).is_in_memory
 
 
-def test_sqlite_config_does_not_treat_uri_like_filename_as_memory_without_uri_mode() -> None:
-    assert not SQLiteConfig(url="sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared").is_in_memory
+@pytest.mark.parametrize("uri", ["", "&uri=false", "&uri=0", "&uri=no", "&uri=off"])
+def test_sqlite_config_does_not_treat_uri_like_filename_as_memory_without_uri_mode(uri: str) -> None:
+    assert not SQLiteConfig(url=f"sqlite+aiosqlite:///file:deployment?mode=memory&cache=shared{uri}").is_in_memory
 
 
 def test_sqlite_profile_creates_a_missing_database_directory(tmp_path) -> None:

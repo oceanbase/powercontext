@@ -356,6 +356,7 @@ def _feature_contracts(
             or not isinstance(version, dict)
             or set(version) != {"major", "minor"}
             or any(type(value) is not int or value < 0 for value in version.values())
+            or version["major"] < 1
         ):
             raise ContractGenerationError("feature version", {name: version})  # noqa: TRY003
         features[name] = {"version": version, "operations": []}

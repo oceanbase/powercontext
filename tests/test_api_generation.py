@@ -124,8 +124,11 @@ def test_generation_projects_explicit_feature_versions_and_operation_membership(
 @pytest.mark.parametrize(
     ("invalid", "value"),
     [
-        ("version", -1),
-        ("version", True),
+        ("major", 0),
+        ("major", -1),
+        ("major", True),
+        ("minor", -1),
+        ("minor", True),
         ("membership", ["undefined.feature"]),
         ("membership", "scope.selection"),
         ("membership", ["scope.selection", "scope.selection"]),
@@ -134,8 +137,8 @@ def test_generation_projects_explicit_feature_versions_and_operation_membership(
 )
 def test_generation_rejects_invalid_feature_contract_declarations(feature_contract, invalid, value) -> None:
     generator = _load_generator()
-    if invalid == "version":
-        feature_contract["x-powercontext-feature-contracts"]["scope.selection"]["minor"] = value
+    if invalid in {"major", "minor"}:
+        feature_contract["x-powercontext-feature-contracts"]["scope.selection"][invalid] = value
     elif invalid == "membership":
         feature_contract["paths"]["/scopes"]["get"]["x-powercontext-feature-contracts"] = value
     else:
