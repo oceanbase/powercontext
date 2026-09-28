@@ -56,7 +56,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     SpawnArtifactProcessingWorkerLauncher,
 )
-from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig, WorkerConfig
 from powercontext.builtin.runtime.family_processing import FamilyWorkerSpec, process_family_invocation
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkAssignment,
@@ -622,6 +622,8 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
             mcp=McpConfig(enabled=False),
+            # Inspect a terminal failure before explicitly recovering the operation.
+            worker=WorkerConfig(max_attempts=1),
         ),
         candidate_pipeline=_FixedCandidatePipeline(memory_content),
         tracing=ServerTracing(provider),
@@ -644,19 +646,25 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
             """)
         failed = client.post("/v1/memory/flush", json={"scope_id": scope_id}, headers={"Prefer": "respond-async"})
         assert failed.status_code == 202
-        failed_execute = _wait_for_named_span(exporter, "work.execute", outcome="retry_wait")
+        failed_execute = _wait_for_named_span(exporter, "work.execute", outcome="failed")
         failed_spans = list(exporter.get_finished_spans())
         operation_id = failed.json()["operation_id"]
         operation = client.get(f"/v1/operations/{operation_id}")
         assert operation.status_code == 200
-        assert operation.json()["status"] == "retry_wait"
+        assert operation.json()["status"] == "failed"
+        assert operation.json()["attempt_count"] == 1
         entries = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
         assert entries.status_code == 200
         assert entries.json()["entries"] == []
 
         with sqlite3.connect(database_path) as connection:
             connection.execute("DROP TRIGGER reject_memory_insert")
-        retried = client.post("/v1/memory/flush", json={"scope_id": scope_id})
+        retried = client.post(
+            f"/v1/operations/{operation_id}/retry", json={"expected_version": operation.json()["state_version"]}
+        )
+        assert retried.status_code == 200
+        assert retried.json()["operation_id"] == operation_id
+        _wait_for_work_span(exporter, MEMORY_WORK_KIND)
         completed = client.get(f"/v1/operations/{operation_id}")
 
     failed_work_commit = _only_child(failed_spans, failed_execute, "work.commit")
@@ -676,9 +684,9 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
 
     assert completed.status_code == 200
     assert completed.json()["status"] == "succeeded"
-    assert retried.status_code == 200
-    assert retried.json()["processed_source_count"] == 1
-    assert retried.json()["memory"] is not None
+    assert completed.json()["attempt_count"] == 2
+    assert completed.json()["result"]["processed_source_count"] == 1
+    assert completed.json()["result"]["memory"] is not None
 
 
 def test_process_memory_preserves_commit_tracing(tmp_path) -> None:

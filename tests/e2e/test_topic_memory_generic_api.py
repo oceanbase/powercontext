@@ -20,6 +20,7 @@ import sqlite3
 from contextlib import AsyncExitStack
 from typing import cast
 
+import aiosqlite
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -523,21 +524,22 @@ def test_concurrent_writes_under_a_held_writer_lock_keep_every_usage_record(tmp_
             scope = created_scope.json()["scope_id"]
             path = f"/v1/scopes/{scope}/artifacts"
             payloads = [{"family": "topic-memory", "content": _content(f"c{index}")} for index in range(writes)]
-            holder = sqlite3.connect(tmp_path / "topics.db")
-            try:
-                holder.execute("BEGIN IMMEDIATE")
-                holder.execute("SELECT * FROM pc_scopes").fetchall()
+            async with aiosqlite.connect(tmp_path / "topics.db") as holder:
+                try:
+                    # Acquiring the lock must let runtime background writers commit.
+                    await holder.execute("BEGIN IMMEDIATE")
+                    async with holder.execute("SELECT * FROM pc_scopes") as cursor:
+                        await cursor.fetchall()
 
-                async def release_later() -> None:
-                    await asyncio.sleep(lock_hold_seconds)
-                    holder.rollback()
+                    async def release_later() -> None:
+                        await asyncio.sleep(lock_hold_seconds)
+                        await holder.rollback()
 
-                releasing = asyncio.create_task(release_later())
-                responses = await asyncio.gather(*(client.post(path, json=payload) for payload in payloads))
-                await releasing
-            finally:
-                holder.rollback()
-                holder.close()
+                    releasing = asyncio.create_task(release_later())
+                    responses = await asyncio.gather(*(client.post(path, json=payload) for payload in payloads))
+                    await releasing
+                finally:
+                    await holder.rollback()
             assert [response.status_code for response in responses] == [201] * writes
 
     asyncio.run(scenario())
