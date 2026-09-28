@@ -4,7 +4,7 @@
 - 关联工作：[#1657](https://github.com/oceanbase/powercontext/issues/1657)、
   [#1709](https://github.com/oceanbase/powercontext/pull/1709) 和
   [#1718](https://github.com/oceanbase/powercontext/issues/1718)
-- 状态：核心设计原则已达成共识；实现进行中
+- 状态：可供 review
 
 # 摘要
 
@@ -224,13 +224,9 @@ verify 确认派生覆盖率和精确身份前保持 incomplete。
 | 旧行为不变 | legacy list path | 现有 suite + compatibility regression |
 | 资源声称 | persistence | 可复现 scale report |
 
-## 6. 验证计划与当前状态
+## 6. 验证
 
 review 前运行定向 OpenAPI、cursor、Memory persistence、tag、migration、Server、access-control 和 client 测试；SQLite 规模测量；
 可用时的 OceanBase 证据；generated-code、contract、docs、format、lint、type check；以及 `make check` 和 `make unit-test`。
-不可用服务和 skipped check 必须与 pass 分开报告。
-
-当前状态：revision-valid directory、tag generation 失效、有界 runtime query、feature-scoped
-migration/readiness gate、运维 CLI、公开 OpenAPI/Server/SDK/MCP 接口与可复现 SQLite 规模报告已实现，
-并通过定向 persistence、contract、access 和 runtime 测试。配置测试服务后可运行真实 OceanBase migration
-contract；该服务与全仓检查仍待运行。
+不可用服务和 skipped check 必须与 pass 分开报告。真实 OceanBase migration contract 在配置隔离测试服务后
+可条件运行；未配置该服务是 skip，不是 pass。

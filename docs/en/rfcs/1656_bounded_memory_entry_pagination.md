@@ -4,7 +4,7 @@
 - Related work: [#1657](https://github.com/oceanbase/powercontext/issues/1657),
   [#1709](https://github.com/oceanbase/powercontext/pull/1709), and
   [#1718](https://github.com/oceanbase/powercontext/issues/1718)
-- Status: core design accepted in principle; implementation in progress
+- Status: ready for review
 
 # Summary
 
@@ -252,14 +252,10 @@ complete. Existing databases remain incomplete until offline verification confir
 | Legacy unchanged | legacy list path | existing suite plus compatibility regression |
 | Resource claims | persistence | reproducible scale report |
 
-## 6. Verification plan and current status
+## 6. Verification
 
 Before review, run focused OpenAPI, cursor, Memory persistence, tag, migration, Server, access-control, and client tests;
 SQLite scale measurements; OceanBase evidence when its service is available; generated-code, contract, documentation,
 format, lint, and type checks; then `make check` and `make unit-test`. Report unavailable services and skipped checks
-separately from passes.
-
-Current status: the revision-valid directory, tag-generation invalidation, bounded runtime query, feature-scoped
-migration/readiness gate, operator CLI, public OpenAPI/Server/SDK/MCP surface, and reproducible SQLite scale report are
-implemented with focused persistence, contract, access, and runtime tests. A live OceanBase migration contract is
-available when its test service is configured; that service and the full repository checks remain to be run.
+separately from passes. The live OceanBase migration contract is conditionally runnable when its isolated test service
+is configured; absence of that service is a skip, not a pass.
