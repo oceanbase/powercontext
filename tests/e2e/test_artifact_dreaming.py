@@ -606,6 +606,7 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
     from powercontext.server.authentication import StaticBearerAuthenticationProvider
     from powercontext.server.authz import AccessRole, MemoryEntrySelector, PrincipalRef, ResourceRef
     from powercontext.server.authz.composition import open_builtin_access_control
+    from powercontext.server.authz.repository import ACCESS_TABLES
     from powercontext.server.authz.service import AccessAuditContext, CreateBinding
     from powercontext.server.dream_access import DreamAccess, principal_identity
     from powercontext.server.middleware import AuthenticationMiddleware
@@ -625,6 +626,7 @@ def test_enforced_access_rechecks_background_actor_and_attests_candidate(databas
                 dream_authorizer=adapter.authorize,
                 dream_authorization_context=access.defer_decision_audit,
                 dream_candidate_attester=adapter.attest_candidate,
+                schema_extension_tables=ACCESS_TABLES,
             ) as runtime:
                 scope, _, citation = await seed(runtime)
                 entries = await runtime.memory.for_scope(scope).list()
@@ -845,6 +847,9 @@ def test_additive_migration_preserves_existing_experience_and_candidate(database
                     "ALTER TABLE pc_artifact_candidate_versions DROP COLUMN memory_citations"
                 )
                 await connection.exec_driver_sql("DROP TABLE pc_dream_runs")
+                await connection.exec_driver_sql(
+                    "UPDATE pc_schema_revisions SET version_num = '0007_processing_supervisor'"
+                )
         finally:
             await engine.dispose()
         async with open_builtin_runtime(settings, dream_generator=Generator()) as runtime:
@@ -1284,7 +1289,16 @@ def test_superseded_supervisor_cannot_overwrite_recovered_result(database: Datab
 
     from sqlalchemy import update
 
+    from powercontext.builtin.dream.bindings import DREAM_BINDINGS
     from powercontext.builtin.persistence.tables import ARTIFACT_PROCESSING_LEASES_TABLE
+    from powercontext.builtin.runtime.artifact_processing import ArtifactProcessingBinding, ArtifactProcessingSupervisor
+    from tests.e2e.dream_support import Controller
+
+    class RecoveryController(Controller):
+        async def start(self, assignment):
+            handle = await super().start(assignment)
+            handle.ready.set()
+            return handle
 
     async def scenario() -> None:
         delayed = Generator(blocked=True)
@@ -1312,11 +1326,21 @@ def test_superseded_supervisor_cannot_overwrite_recovered_result(database: Datab
                         )
                     )
                 replacement = Generator()
-                async with open_builtin_runtime(config(database), dream_generator=replacement) as recovered:
-                    await process_pending(recovered)
+                # Replace the Supervisor inside the single runtime owner. The outstanding
+                # invocation has already captured its own copy of the delayed generator.
+                original._dream_service.generator = replacement
+                controller = RecoveryController()
+                controller.runtime = original
+                async with ArtifactProcessingSupervisor(
+                    database=original._dream_service.database,
+                    bindings=(
+                        ArtifactProcessingBinding(DREAM_BINDINGS["refine_experience"], "experience", controller),
+                    ),
+                    lease_mode="oceanbase" if isinstance(database, OceanBaseConfig) else "single-process",
+                ):
                     async with asyncio.timeout(15):
                         while True:
-                            run = await recovered.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
+                            run = await original.dream.for_scope(scope).get(GetDreamRunRequest(run_id=accepted.run_id))
                             if run.terminal:
                                 break
                             await asyncio.sleep(0.02)
@@ -1325,8 +1349,8 @@ def test_superseded_supervisor_cannot_overwrite_recovered_result(database: Datab
                     delayed.release.set()
                     with suppress(asyncio.CancelledError):
                         await worker
-                    assert await recovered.dream.for_scope(scope).get(GetDreamRunRequest(run_id=run.run_id)) == run
-                    candidates = await recovered.review.for_scope(scope).list(ListArtifactCandidatesRequest())
+                    assert await original.dream.for_scope(scope).get(GetDreamRunRequest(run_id=run.run_id)) == run
+                    candidates = await original.review.for_scope(scope).list(ListArtifactCandidatesRequest())
                     assert len(candidates.candidates) == 1
                     assert delayed.inputs == replacement.inputs
             finally:

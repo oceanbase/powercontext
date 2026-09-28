@@ -23,7 +23,7 @@ runs:
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: 'true'
-        cache-suffix: ${{ matrix.python-version }}
+        cache-suffix: ${{ inputs.python-version }}
 
     - name: Install Python dependencies
       run: uv sync --frozen

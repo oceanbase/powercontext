@@ -49,6 +49,15 @@ _OCEANBASE_FTS_INDEX_EXISTS_SQL = text(
       AND index_name = :index_name
     """
 )
+_SEARCHABLE_TEXT_EXISTS_SQL = text(
+    """
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'pc_artifact_heads'
+      AND column_name = 'searchable_text'
+    """
+)
 
 
 class OceanBaseExperienceFTSIndex:
@@ -66,6 +75,27 @@ class OceanBaseExperienceFTSIndex:
         )
         if count == 0:
             await connection.exec_driver_sql(_OCEANBASE_CREATE_FTS_SQL)
+        await self.verify(connection)
+
+    async def verify(self, connection: AsyncConnection, /) -> None:
+        """Require the migrator-provisioned Experience projection without DDL."""
+
+        if connection.dialect.name != "mysql":
+            raise CapabilityNotSupportedError("oceanbase-experience-fts")
+        if int(await connection.scalar(_SEARCHABLE_TEXT_EXISTS_SQL) or 0) == 0:
+            raise CapabilityNotSupportedError(
+                "oceanbase-experience-fts",
+                "search projection column is missing; run `powercontext server migrate`",
+            )
+        count = await connection.scalar(
+            _OCEANBASE_FTS_INDEX_EXISTS_SQL,
+            {"index_name": _OCEANBASE_FTS_INDEX_NAME},
+        )
+        if count == 0:
+            raise CapabilityNotSupportedError(
+                "oceanbase-experience-fts",
+                "index is missing; run `powercontext server migrate`",
+            )
         probe = match(ARTIFACT_HEADS_TABLE.c.searchable_text, against="powercontext")
         await connection.execute(select(ARTIFACT_HEADS_TABLE.c.artifact_id).where(probe).limit(1))
 

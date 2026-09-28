@@ -137,7 +137,9 @@ is an explicit shortened-history diagnostic, recorded as a subset that is not eq
 answer and judge response. The response cap does not bound ingestion requests or input tokens. Cases run sequentially.
 Memory extraction honors the configured `generation_max_requests` (PowerContext default: `2`) for both smoke and full.
 This allows the normal structured-output correction attempt when a response fails schema validation; it does not
-silently add retries beyond the configured limit. Semantic evidence validation errors still fail the case.
+silently add retries beyond the configured limit. Each extraction window uses one Work Ledger attempt; failed
+windows are retried only when the benchmark run is explicitly resumed. Semantic evidence validation errors still
+fail the case.
 
 ## Diagnostic arms
 
@@ -170,11 +172,13 @@ Outputs default to `benchmark/locomo_plus/results/<run-id>/`:
 - `run.json`: immutable run identity, selection, model configuration, harness fingerprint, and execution settings.
 - `dataset-audit.json`: pinned provenance, source counts, construction policy, and excluded rows.
 - `inputs.jsonl`: selected session inputs and source identities; Memory arms capture these sessions.
-- `ingestion.json`: resumable ingestion state, failed session positions/source IDs, and sanitized exception chains
-  with validation error codes. Failure history is retained after a successful resume.
-- `diagnostics/`: captured extraction requests and model responses for failed sessions, when available. These
-  contain conversation data and model output; keep the results directory local. Provider headers and arbitrary
-  provider exception messages are not included in the diagnostics produced by the runner.
+- `ingestion.json`: resumable ingestion state, failed session positions/source IDs, and sanitized error details.
+  Work Ledger failures retain the operation ID, bounded category, and code; they do not expose provider exception
+  chains or model responses. Failure history is retained after a successful resume.
+- `diagnostics/`: local extraction requests and model responses captured by a direct adapter, when available.
+  Durable Work Ledger execution does not export these messages. Existing diagnostic files may contain conversation
+  data and model output; keep the results directory local. Provider headers and arbitrary provider exception messages
+  are excluded.
 - `observations.jsonl`: frozen retrieval/context, rendered generator and judge inputs, answers, judgments, usage,
   latency, and classified errors.
 - `summary.json` and `summary.md`: grouped quality, completion, retrieval, usage, and cost reports.

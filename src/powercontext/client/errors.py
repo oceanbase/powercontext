@@ -42,6 +42,24 @@ class InvalidResponseError(ClientError):
         super().__init__(f"response from {path} violated the API schema")
 
 
+class OperationPendingError(ClientError):
+    """Raised when a durable operation outlives the Client deadline."""
+
+    def __init__(self, operation_id: str) -> None:
+        self.operation_id = operation_id
+        super().__init__(f"operation {operation_id} is still pending")
+
+
+class OperationFailedError(ClientError):
+    """Raised when a durable operation reaches failed or cancelled."""
+
+    def __init__(self, operation_id: str, *, code: str | None) -> None:
+        self.operation_id = operation_id
+        self.code = code
+        suffix = "" if code is None else f" ({code})"
+        super().__init__(f"operation {operation_id} did not succeed{suffix}")
+
+
 class ServerResponseError(ClientError):
     """Raised when the Server returns a non-success status."""
 
@@ -103,6 +121,8 @@ __all__ = (
     "ClientError",
     "ForbiddenResponseError",
     "InvalidResponseError",
+    "OperationFailedError",
+    "OperationPendingError",
     "ServerResponseError",
     "TransportError",
     "UnauthorizedResponseError",

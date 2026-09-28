@@ -38,6 +38,7 @@ from benchmark.locomo.runner import load_settings, normalize_run_id, public_conf
 from powercontext.builtin.artifacts.memory.prompts import memory_extraction_instructions_version
 from powercontext.builtin.inference import InvalidInferenceOutputError, character_token_estimator
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.work import WorkStatus
 from powercontext.builtin.runtime import (
     BuiltinConfig,
     CaptureSource,
@@ -46,6 +47,8 @@ from powercontext.builtin.runtime import (
     SearchMemoryRequest,
     open_builtin_runtime,
 )
+from powercontext.builtin.runtime.config import WorkerConfig
+from powercontext.builtin.runtime.operations import RuntimeOperationFailedError
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.server.settings import ServerSettings
 
@@ -91,6 +94,12 @@ def describe_error(error: BaseException) -> dict[str, Any]:
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         item: dict[str, Any] = {"type": type(current).__name__}
+        if isinstance(current, RuntimeOperationFailedError):
+            item.update({
+                "operation_id": current.operation.work_id,
+                "category": current.operation.error_category,
+                "code": current.operation.error_code,
+            })
         if isinstance(current, InvalidInferenceOutputError):
             if current.operation in {"generate", "embed", "memory-extract"}:
                 item["operation"] = current.operation
@@ -278,6 +287,7 @@ def _configuration(settings, judge_model, max_tokens) -> dict[str, Any]:
         "max_tokens": max_tokens,
         "generation_timeout_seconds": inference.generation_timeout_seconds,
         "generation_max_requests": inference.generation_max_requests,
+        "extraction_work_max_attempts": 1,
         "generation_model_settings": inference.generation_model_settings,
         "embedding_model_settings": inference.embedding_model_settings,
         "embedding_timeout_seconds": inference.embedding_timeout_seconds,
@@ -315,13 +325,26 @@ async def _flush_session(memory_app, session, position, scope, output_directory,
             raise
 
 
-async def _ingest(runtime, case, sessions, scope, output_directory, records, prices, settings):
+async def _resume_ingestion(runtime, scope, record, resumable_operations):
+    operation_id = record.get("error", {}).get("operation_id")
+    if operation_id not in resumable_operations:
+        return
+    resumable_operations.remove(operation_id)
+    operation = await runtime.operations.get(operation_id)
+    if operation.scope_id != scope:
+        raise ValueError("ingestion operation belongs to a different scope")  # noqa: TRY003
+    if operation.status is WorkStatus.FAILED:
+        await runtime.operations.retry(operation_id, expected_version=operation.state_version)
+
+
+async def _ingest(runtime, case, sessions, scope, output_directory, records, prices, settings, resumable_operations):
     source_app = runtime.sources.for_scope(scope)
     memory_app = runtime.memory.for_scope(scope)
     started = perf_counter()
     record = records.setdefault(scope, {"scope_id": scope, "latency_ms": 0.0})
     flush_inflight = False
     try:
+        await _resume_ingestion(runtime, scope, record, resumable_operations)
         for session in sessions:
             await source_app.capture(
                 CaptureSource(source_id=session.session_id, content=render_case_session(case, session), metadata={})
@@ -468,6 +491,7 @@ async def _evaluate(
     max_tokens,
     prices,
     ingestion,
+    resumable_operations,
     previous,
 ):
     started = perf_counter()
@@ -505,7 +529,9 @@ async def _evaluate(
                 )
                 scope = registered.scope_id
                 observation["scope_id"] = scope
-                page = await _ingest(runtime, case, sessions, scope, output_directory, ingestion, prices, settings)
+                page = await _ingest(
+                    runtime, case, sessions, scope, output_directory, ingestion, prices, settings, resumable_operations
+                )
                 phase = "retrieval"
                 queried = perf_counter()
                 before = await _recall_usage(runtime, scope)
@@ -701,6 +727,11 @@ async def run_benchmark(  # noqa: C901
     ingestion = json.loads(ingestion_path.read_text(encoding="utf-8")) if ingestion_path.exists() else {}
     if not pending:
         return _summarize(output_directory)
+    resumable_operations = {
+        record["error"]["operation_id"]
+        for record in ingestion.values()
+        if record.get("status") == "error" and record.get("error", {}).get("operation_id")
+    }
     try:
         async with AsyncExitStack() as resources:
             runtime = None
@@ -713,6 +744,9 @@ async def run_benchmark(  # noqa: C901
                         artifact_processing_role="all",
                     ),
                     inference=settings.inference,
+                    # One work attempt preserves the configured model request budget. Failed windows
+                    # are retried only when the caller explicitly resumes this benchmark run.
+                    worker=WorkerConfig(max_attempts=1),
                 )
                 runtime = await resources.enter_async_context(open_builtin_runtime(runtime_config))
             answer = await open_model(settings.inference.generation_model, settings.inference, resources)
@@ -733,6 +767,7 @@ async def run_benchmark(  # noqa: C901
                     max_tokens=max_tokens,
                     prices=rates,
                     ingestion=ingestion,
+                    resumable_operations=resumable_operations,
                     previous=observed.get(case.case_id),
                 )
                 _append(output_directory / "observations.jsonl", row)

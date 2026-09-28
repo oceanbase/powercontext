@@ -93,7 +93,8 @@ service 负责领域行为。
 `Trigger` 是基于 signal 和先前 state 的策略。它返回 `PolicyTransition`，其中包含下一状态和零个或多个 action。
 Trigger 不应打开存储、调度自身或执行它选择的 action。
 
-APScheduler 属于 Builtin runtime 的生命周期，负责决定何时评估策略。Trigger 只解释当前 signal 的含义。
+持久化 Scheduler 属于 Builtin runtime 生命周期，负责决定何时评估策略并把任务写入数据库 ledger。Trigger 只解释
+当前 signal 的含义；带 fence 的 Worker 执行被选择的 action。
 
 ## 职责边界
 
@@ -104,7 +105,7 @@ APScheduler 属于 Builtin runtime 的生命周期，负责决定何时评估策
 | 基于环境变量的进程配置 | `powercontext.client.settings`、`powercontext.server.settings` |
 | HTTP 生命周期与可选 MCP transport | `powercontext.server` |
 | Provider 相关的生成和 embedding | 推理集成 |
-| 数据库和 scheduler 资源生命周期 | 应用入口或 Builtin runtime instance |
+| 数据库、Scheduler 和 Worker 资源生命周期 | 应用入口或 Builtin runtime instance |
 
 Core model 使用 Pydantic `BaseModel`。只有存在真实领域约束时才增加 validator。对于普通存储字段，不需要包装
 property；模型和协议已经能表达边界时，也不需要自定义 JSON value 层级或第二套 definition 对象。

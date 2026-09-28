@@ -108,7 +108,7 @@ def test_configured_services_and_native_codex_consume_standard_text(tmp_path, py
             report["temporary_database"] = temporary_database
             (tmp_path / "assembly-report.json").write_text(json.dumps(report, indent=2))
         print("Starting isolated configured-service context assembly acceptance", flush=True)
-        server = _start_configured_server(settings, tmp_path / "scheduler.db")
+        server = _start_configured_server(settings)
         scope_id, nonce, entry_version = asyncio.run(_api_scenario(server.base_url, token, scope_ids, report, tmp_path))
         with tempfile.TemporaryDirectory(prefix="powercontext-assembly-host-") as temp:
             root = Path(temp)

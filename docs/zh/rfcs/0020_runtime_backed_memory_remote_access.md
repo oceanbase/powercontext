@@ -6,6 +6,9 @@
 > **注意：** PowerContext 当前使用随 builtin 依赖捆绑的 sqlite-vec 提供 SQLite 向量检索。本 RFC 中关于 Vec1 的
 > 表述已不再适用，仅作为原始设计记录保留。
 
+> **执行更新：** [RFC 1430](1430_distributed_server_workers.md) 取代本 RFC 中的单进程调度、仅同步 flush 和
+> 非持久 Operation 假设。本 RFC 继续定义 HTTP 映射和生成契约边界。
+
 # Summary
 
 本 RFC 定义首个基于 RFC 0011 架构和 RFC 0019 本地 Runtime 的具体远程 API。FastAPI Server 暴露

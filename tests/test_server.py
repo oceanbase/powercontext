@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shlex
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -41,14 +42,16 @@ from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.seekdb import SeekDBConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
+from powercontext.builtin.persistence.work import StoredWork
 from powercontext.builtin.runtime import (
-    BuiltinRuntime,
     ExperienceIncubationResult,
     InferenceConfig,
     MemoryExtractionProfile,
     RuntimeConfig,
 )
 from powercontext.builtin.runtime.readiness import READINESS_PROBE_TIMEOUT_SECONDS
+from powercontext.builtin.runtime.relational import RelationalContexts
+from powercontext.builtin.runtime.work_handlers import EXPERIENCE_WORK_KIND
 from powercontext.http import (
     Capabilities,
     ReadinessResponse,
@@ -56,7 +59,7 @@ from powercontext.http import (
 )
 from powercontext.server.app import create_app
 from powercontext.server.authz import AccessControlService, PrincipalRef
-from powercontext.server.factory import _scheduled_access_runners, create_server_app
+from powercontext.server.factory import _work_access, create_server_app
 from powercontext.server.settings import (
     AccessControlConfig,
     BearerAuthConfig,
@@ -428,7 +431,7 @@ def test_server_settings_reject_custom_embedded_seekdb_database(tmp_path, monkey
         ServerSettings()
 
 
-def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, monkeypatch) -> None:
+def test_background_processing_uses_primary_database_without_scheduler_sidecar(tmp_path, monkeypatch) -> None:
     data_dir = tmp_path / "powercontext-data"
     monkeypatch.setenv("POWERCONTEXT_HOME", str(data_dir))
     app = create_server_app(
@@ -440,7 +443,12 @@ def test_supervisor_uses_primary_database_without_scheduler_sidecar(tmp_path, mo
     )
 
     with TestClient(app):
-        assert (data_dir / "powercontext.db").is_file()
+        database = data_dir / "powercontext.db"
+        assert database.is_file()
+        with sqlite3.connect(database) as connection:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert "pc_scheduler_leases" in tables
+        assert "pc_work_items" in tables
         assert not (data_dir / "scheduler.db").exists()
 
 
@@ -454,10 +462,6 @@ def test_scheduled_experience_owns_only_candidates_created_by_its_incubation() -
             candidate_count=1,
             candidate_ids=("scheduled-candidate",),
         )
-        incubate = AsyncMock(return_value=result)
-        runtime = SimpleNamespace(
-            experience=SimpleNamespace(for_scope=lambda _scope_id: SimpleNamespace(incubate=incubate))
-        )
         access = AsyncMock(spec=AccessControlService)
         settings = ServerSettings(
             runtime=RuntimeConfig(experience_schedule_seconds=1),
@@ -467,15 +471,31 @@ def test_scheduled_experience_owns_only_candidates_created_by_its_incubation() -
             ),
             mcp=McpConfig(enabled=False),
         )
-        source_runner, experience_runner = _scheduled_access_runners(
+        hooks = _work_access(
             settings,
             access,
             legacy_static_principal=None,
         )
 
-        assert source_runner is None
-        assert experience_runner is not None
-        assert await experience_runner("scope-1", cast(BuiltinRuntime, runtime)) == result
+        assert hooks is not None
+        await hooks.succeeded(
+            cast(RelationalContexts, SimpleNamespace()),
+            cast(
+                StoredWork,
+                SimpleNamespace(
+                    kind=EXPERIENCE_WORK_KIND,
+                    scope_id="scope-1",
+                    payload={
+                        "cursor_name": "experience-incubation",
+                        "cursor_generation": 0,
+                        "after": 0,
+                        "through": 2,
+                        "high_watermark": 2,
+                    },
+                    result_payload=result.model_dump(mode="json"),
+                ),
+            ),
+        )
         access.attest_candidate_owner.assert_awaited_once_with(
             scope_id="scope-1",
             candidate_id="scheduled-candidate",

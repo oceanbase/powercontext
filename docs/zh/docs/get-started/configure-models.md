@@ -8,6 +8,10 @@ description: 理解 Generation、Embedding、后台调度及各制品的触发�
 [快速开始](quickstart.md)默认通过向导配置完整记忆。本页解释要准备哪些 API、哪些能力需要模型，
 以及保存配置后仍要完成的策略和业务检查。
 
+完整记忆流程使用默认的 `single_node` 部署。分布式 v1 支持 Memory、Experience 和 Profile 处理，
+不支持 Topic Memory processing，必须保持其调度周期未设置。该拓扑见
+[运行分布式角色](../operate/deploy-server.md#运行分布式角色)。
+
 ## 模型连接怎么选
 
 运行 `powercontext config init --language zh --output .env`，选择完整记忆或自定义能力。
@@ -143,19 +147,56 @@ curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/flush" \
   -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\"}"
 ```
 
-核对返回游标是否推进，并查看该 Scope 的 Memory 与 Source 引用。`idle` 可能表示后台已处理，
+HTTP `200` 返回已完成的 flush 结果；HTTP `202` 返回持久 operation 句柄。使用相同认证轮询返回的
+`status_url`，完成后检查 `result`；轮询与恢复说明见 [HTTP API](../develop/http-api.md)。
+核对已完成结果中的游标是否推进，并查看该 Scope 的 Memory 与 Source 引用。`idle` 可能表示后台已处理，
 不代表没有记忆；Memory flush 也不等于 Topic/Profile/Experience 的全部处理完成。
 查看用量可运行 `powercontext stats --scope-id "$POWERCONTEXT_CODEX_SCOPE_ID"`。
 
-为了让验收记录可复现，在发送测试输入前先分配一个来源标识，再检查返回的条目。列表响应包含 `current_cursor`，
-每个条目包含 `position`、`entry_id`、`source_refs` 和 `matched_by`；这些字段可以区分采集到的证据与之后生成的制品。
+为了让验收记录可复现，采集一条带独立标识的测试 Source，并保留返回的 `position`：
 
 ```bash
 SOURCE_ID="quickstart-$(date +%s)-$$"
-echo "请将测试输入标记为来源：$SOURCE_ID"
-curl -fsS "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/entries/list?scope_id=$POWERCONTEXT_CODEX_SCOPE_ID" \
-  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN"
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/sources/content" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\",\"source_id\":\"$SOURCE_ID\",\"content\":\"PowerContext acceptance check: prefer small, verifiable steps.\"}"
 ```
+
+使用上方命令 flush 同一 Scope。处理完成后，`current_cursor` 必须不小于 capture `position`。
+再检查该 Scope 的条目：
+
+```bash
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/entries/list" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\"}"
+```
+
+找到 `source_refs` 包含已采集 Source 的条目，保留其 `citation.entry_id`。列表响应返回条目与 citation；
+采集位置与处理游标分别来自 Source 采集和 flush 结果。验证语义召回时，按
+[配置向量检索](../workflows/configure-vector-search.md)使用 `mode: "vector"` 搜索，
+确认结果包含同一条目，且其 `matched_by` 包含 `vector`。
+
+## 数据与重启
+
+SQLite 向导默认建议用户数据目录，并将选中的文件位置保存到 `POWERCONTEXT_SERVER_DATABASE_URL`。
+未覆盖数据库位置且未设置 `POWERCONTEXT_HOME` 时，默认的 `powercontext.db`（包含持久调度与 operation 状态）位于：
+
+- Linux：`$XDG_DATA_HOME/powercontext`，或 `~/.local/share/powercontext`；
+- macOS：`~/Library/Application Support/powercontext`；
+- Windows（`experimental`）：`%LOCALAPPDATA%\\powercontext`。
+
+在生成配置前设置 `POWERCONTEXT_HOME` 可以改变建议位置；已显式保存的数据库 URL 优先于该目录设置。
+修改数据库 URL 会把 Server 指向另一个（可能是空的）数据库；需要旧数据时请保留原来的值。
+
+## 停止与恢复
+
+在 Server 终端按 `Ctrl+C` 停止进程。数据持久保存在 SQLite 中，重启不会丢失。恢复时重新加载同一个 `.env`，再次
+执行 `powercontext server run --env-file .env`；pending 的 Source 会在下一次调度或 flush 时继续处理。默认 Scope 及其
+不透明 ID 也保存在同一数据库中，因此重启后保持稳定。
+
+## 快速排障
 
 | 现象 | 优先检查 |
 | --- | --- |

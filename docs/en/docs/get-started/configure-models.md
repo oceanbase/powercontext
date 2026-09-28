@@ -8,6 +8,10 @@ description: Understand Generation, Embedding, schedules, and Artifact triggers,
 [Quick Start](quickstart.md) uses the wizard to configure full memory. This page explains the API details you need,
 which capabilities use models, and the policies and behavior to check after saving configuration.
 
+The full-memory walkthrough uses the default `single_node` deployment. Distributed v1 supports Memory,
+Experience, and Profile processing; Topic Memory processing is unavailable and its schedule must remain unset.
+See [Run distributed roles](../operate/deploy-server.md#run-distributed-roles) for that topology.
+
 ## Choose model connections
 
 Run `powercontext config init --language en --output .env` and select full memory or individual capabilities.
@@ -149,20 +153,59 @@ curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/flush" \
   -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\"}"
 ```
 
-Check the returned cursor and the Scope's Memory/Source references. `idle` can mean background processing already ran;
-it does not necessarily mean no memory exists. Memory flush does not complete all Topic/Profile/Experience processing.
+HTTP `200` returns the completed flush result. HTTP `202` returns a durable operation handle; poll its
+`status_url` with the same authentication until it completes, then inspect `result`. See
+[HTTP API](../develop/http-api.md) for polling and recovery. Check the completed result's cursor and the
+Scope's Memory/Source references. `idle` can mean background processing already ran; it does not necessarily
+mean no memory exists. Memory flush does not complete all Topic/Profile/Experience processing.
 Use `powercontext stats --scope-id "$POWERCONTEXT_CODEX_SCOPE_ID"` to inspect usage.
 
-For a repeatable acceptance record, assign a source identifier before sending the test input and inspect the resulting
-entry. The list response exposes `current_cursor` and each entry's `position`, `entry_id`, `source_refs`, and `matched_by`
-fields; these let you distinguish captured evidence from a later generated Artifact.
+For a repeatable acceptance record, capture a distinct test Source and keep the returned `position`:
 
 ```bash
 SOURCE_ID="quickstart-$(date +%s)-$$"
-echo "Send the acceptance input with source id: $SOURCE_ID"
-curl -fsS "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/entries/list?scope_id=$POWERCONTEXT_CODEX_SCOPE_ID" \
-  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN"
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/sources/content" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\",\"source_id\":\"$SOURCE_ID\",\"content\":\"PowerContext acceptance check: prefer small, verifiable steps.\"}"
 ```
+
+Flush the same Scope using the command above. Once processing completes, `current_cursor` must be at least the
+capture `position`. Inspect entries in that Scope:
+
+```bash
+curl -fsS -X POST "$POWERCONTEXT_CLIENT_SERVER_URL/v1/memory/entries/list" \
+  -H "Authorization: Bearer $POWERCONTEXT_CLIENT_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"scope_id\":\"$POWERCONTEXT_CODEX_SCOPE_ID\"}"
+```
+
+Find an entry whose `source_refs` contains the captured Source and keep its `citation.entry_id`. The list response
+returns entries and citations; capture positions and processing cursors come from Source capture and flush results.
+To check semantic recall, search with `mode: "vector"` using [Configure vector search](../workflows/configure-vector-search.md)
+and verify the same entry is returned with `vector` in its `matched_by` field.
+
+## Data and restart behavior
+
+The SQLite wizard suggests the user data directory and records the selected file in
+`POWERCONTEXT_SERVER_DATABASE_URL`. Without a database override or `POWERCONTEXT_HOME`, the default `powercontext.db`,
+including durable scheduling and operation state, is stored under:
+
+- Linux: `$XDG_DATA_HOME/powercontext`, or `~/.local/share/powercontext`;
+- macOS: `~/Library/Application Support/powercontext`;
+- Windows (`experimental`): `%LOCALAPPDATA%\\powercontext`.
+
+Set `POWERCONTEXT_HOME` before generating configuration to change the suggested location. An explicitly saved database
+URL takes precedence over this directory. Changing that URL points the Server at a different (possibly empty) database;
+keep the previous value if you need the old data.
+
+## Stop and restart
+
+Press `Ctrl+C` in the Server terminal to stop it. Data persists in SQLite across restarts. To resume, load the same
+`.env` and run `powercontext server run --env-file .env` again; pending Sources are processed on the next Scheduler run
+or flush. The default Scope and its opaque ID also remain stable because they are persisted in the same database.
+
+## Quick troubleshooting
 
 | Symptom | Check first |
 | --- | --- |

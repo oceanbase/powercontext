@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import pytest
 from pydantic_ai.messages import ModelResponse, RetryPromptPart, TextPart
@@ -337,19 +338,54 @@ def test_extraction_corrects_invalid_json_within_the_configured_request_budget(
         failure = ingestion["failures"][0]
         assert failure["session_position"] == 1
         assert failure["source_id"] == "D1"
-        assert failure["error"]["operation"] == "generate"
-        validation = next(item for item in failure["error"]["chain"] if "validation_errors" in item)
-        assert validation["validation_errors"] == [{"type": "json_invalid", "location": []}]
-        assert malformed in (tmp_path / failure["messages_file"]).read_text().replace('\\"', '"')
+        assert failure["error"]["type"] == "RuntimeOperationFailedError"
+        assert str(UUID(failure["error"]["operation_id"])) == failure["error"]["operation_id"]
+        assert failure["error"]["category"] == "internal"
+        assert failure["error"]["code"] == "unhandled_handler_error"
+        assert "messages_file" not in failure
+        assert malformed not in (tmp_path / "ingestion.json").read_text()
+        assert summary["configuration"]["extraction_work_max_attempts"] == 1
+
+
+def test_local_extraction_failure_retains_validation_and_captured_messages(tmp_path: Path) -> None:
+    malformed = '{"candidates":[{"intent":"add","kind":"kind":"preference"}]}'
+
+    async def extract(messages, info):
+        return ModelResponse(parts=[TextPart(malformed)])
+
+    generator = PydanticAIStructuredGenerator(
+        model=FunctionModel(extract),
+        instructions="Extract memories with source citations.",
+        input_type=MemoryExtractionInput,
+        output_type=MemoryExtractionOutput,
+        limits=InferenceLimits(max_requests=1),
+    )
+
+    class LocalExtraction:
+        async def flush(self, *, limit):
+            return await generator.generate(MemoryExtractionInput(evidence=(), current_entries=()))
+
+    record = {}
+    session = _dataset().cases[0].sessions[0]
+    with pytest.raises(InvalidInferenceOutputError):
+        asyncio.run(runner._flush_session(LocalExtraction(), session, 1, "test-scope", tmp_path, record))
+    failure = record["failures"][0]
+    assert failure["error"]["operation"] == "generate"
+    validation = next(item for item in failure["error"]["chain"] if "validation_errors" in item)
+    assert validation["validation_errors"] == [{"type": "json_invalid", "location": []}]
+    assert malformed in (tmp_path / failure["messages_file"]).read_text().replace('\\"', '"')
 
 
 def test_failed_extraction_usage_remains_unknown_after_successful_resume(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fail_extraction = True
+    extraction_calls = 0
 
     class Pipeline(_CandidatePipeline):
         async def extract(self, request: MemoryCandidateRequest, /) -> tuple[MemoryEntryInput, ...]:
+            nonlocal extraction_calls
+            extraction_calls += 1
             if fail_extraction:
                 raise InvalidInferenceOutputError("memory-extract", "candidate cites evidence outside the request")
             return await super().extract(request)
@@ -387,6 +423,7 @@ def test_failed_extraction_usage_remains_unknown_after_successful_resume(
     failed = asyncio.run(runner.run_benchmark(**parameters))
     assert failed["overall"]["failures_by_stage"]["infrastructure"] == 1
     assert failed["overall"]["generated_answer_count"] == 0
+    assert extraction_calls == 1
     for field in ("requests", "input_tokens", "output_tokens", "cost_usd"):
         assert failed["ingestion"]["usage"][field] is None
         assert failed["usage"]["ingestion"][field] is None
@@ -394,10 +431,13 @@ def test_failed_extraction_usage_remains_unknown_after_successful_resume(
     fail_extraction = False
     completed = asyncio.run(runner.run_benchmark(**parameters))
     assert completed["overall"]["completed_count"] == 1, _rows(tmp_path)
+    assert extraction_calls == 4
     ingestion = next(iter(json.loads((tmp_path / "ingestion.json").read_text()).values()))
     assert "error" not in ingestion
     assert "error_type" not in ingestion
-    assert ingestion["failures"][0]["error"]["detail"] == "candidate cites evidence outside the request"
+    assert ingestion["failures"][0]["error"]["type"] == "RuntimeOperationFailedError"
+    assert ingestion["failures"][0]["error"]["code"] == "unhandled_handler_error"
+    assert "candidate cites evidence outside the request" not in (tmp_path / "ingestion.json").read_text()
     for field in ("requests", "input_tokens", "output_tokens", "cost_usd"):
         assert completed["ingestion"]["usage"][field] is None
         assert completed["usage"]["ingestion"][field] is None

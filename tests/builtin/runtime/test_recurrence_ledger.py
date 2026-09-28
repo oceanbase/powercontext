@@ -27,7 +27,7 @@ from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactRef
-from powercontext.builtin.artifacts.experience import Experience
+from powercontext.builtin.artifacts.experience import Experience, ExperienceCandidateInput
 from powercontext.builtin.artifacts.experience.models import (
     ExperienceContent,
     FailureRecord,
@@ -53,7 +53,13 @@ from powercontext.builtin.persistence.tables import (
     SCOPES_TABLE,
     SHARED_TABLES,
 )
+from powercontext.builtin.persistence.work import WorkRepository, WorkStatus
+from powercontext.builtin.review.models import CandidateStatus
+from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
+from powercontext.builtin.runtime.config import WorkerConfig
 from powercontext.builtin.runtime.recurrence import RelationalRecurrenceLedger
+from powercontext.builtin.runtime.work_handlers import ExperienceWorkHandler, experience_work_spec
+from powercontext.builtin.runtime.worker import DurableWorker
 from powercontext.builtin.sources.content import CONTENT_SOURCE_ADAPTER, ContentSource
 from powercontext.builtin.work.models import (
     HandoffReceipt,
@@ -62,7 +68,7 @@ from powercontext.builtin.work.models import (
     TaskOutcomeStatus,
     WorkClaim,
 )
-from powercontext.sources import SourceMaterialization, SourceRef
+from powercontext.sources import Source, SourceMaterialization, SourceRef
 
 SCOPE = "scope-a"
 CUE = "openapi contract changed without regenerating the client"
@@ -614,3 +620,53 @@ def test_the_ledger_module_performs_no_read_path_instrumentation() -> None:
     source = Path("src/powercontext/builtin/artifacts/experience/recurrence.py").read_text(encoding="utf-8")
     for forbidden in ("sqlalchemy", "AsyncConnection", "Repository"):
         assert forbidden not in source, forbidden
+
+
+class _NoExperienceCandidates:
+    async def incubate(self, sources: tuple[Source, ...], /) -> tuple[ExperienceCandidateInput, ...]:
+        return ()
+
+
+def test_durable_experience_windows_preserve_recurrence_and_repair_candidates(tmp_path) -> None:
+    async def scenario() -> None:
+        config = BuiltinConfig(database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'recurrence.db'}"))
+        async with open_builtin_contexts(config, experience_pipeline=_NoExperienceCandidates()) as contexts:
+            sources = contexts.repositories.sources
+            repository = WorkRepository()
+            async with contexts.database.transaction() as connection:
+                await _seed_scope(connection)
+                await _seed_artifacts(connection, sources)
+                await _add_receipt(sources, connection)
+            worker = DurableWorker(
+                database=contexts.database,
+                worker_id="recurrence-worker",
+                handlers=(ExperienceWorkHandler(contexts),),
+                config=WorkerConfig(concurrency=1),
+            )
+            for ordinal in range(1, 4):
+                async with contexts.database.transaction() as connection:
+                    await _add_source(sources, connection, f"outcome-{ordinal}", _failed_outcome().model_dump_json())
+                spec = await experience_work_spec(contexts, SCOPE, limit=100, max_attempts=1, payload_version=1)
+                assert spec is not None
+                async with contexts.database.transaction() as connection:
+                    queued = await repository.enqueue(connection, spec)
+                assert await worker.run_once() == 1
+                async with contexts.database.transaction() as connection:
+                    completed = await repository.get(connection, queued.work.work_id)
+                    observations = await contexts.repositories.recurrence.observations(connection, SCOPE)
+                assert completed.status is WorkStatus.SUCCEEDED
+                assert completed.result_payload is not None
+                assert completed.result_payload["candidate_count"] == (1 if ordinal == 3 else 0)
+                assert sum(observation.event == "recurred" for observation in observations) == ordinal
+
+            candidates = await contexts.review(SCOPE).list_candidates(
+                status=CandidateStatus.PENDING, family="experience", cursor=None, limit=10
+            )
+            assert len(candidates.candidates) == 1
+            assert candidates.candidates[0].target == EXPERIENCE_REF
+            assert candidates.candidates[0].reason is not None
+            assert "recurred 3 times" in candidates.candidates[0].reason
+            assert await experience_work_spec(contexts, SCOPE, limit=100, max_attempts=1, payload_version=1) is None
+            assert await worker.run_once() == 0
+
+    asyncio.run(scenario())

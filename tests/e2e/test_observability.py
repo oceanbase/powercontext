@@ -56,12 +56,13 @@ from powercontext.builtin.runtime.artifact_processing import (
     ArtifactProcessingBinding,
     SpawnArtifactProcessingWorkerLauncher,
 )
-from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime.config import InferenceConfig, RuntimeConfig, WorkerConfig
 from powercontext.builtin.runtime.family_processing import FamilyWorkerSpec, process_family_invocation
 from powercontext.builtin.runtime.processing_contracts import (
     ArtifactProcessingWorkAssignment,
     ArtifactProcessingWorkerCompletion,
 )
+from powercontext.builtin.runtime.work_handlers import MEMORY_WORK_KIND
 from powercontext.builtin.scope import ScopeDraft
 from powercontext.errors import RevisionConflictError
 from powercontext.server.factory import create_server_app
@@ -177,6 +178,22 @@ _STAGE_ATTRIBUTE_KEYS = {
             "error.type",
         }
         for stage in ("start", "wait", "acknowledge")
+    },
+    "work.commit": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.work.kind",
+        "powercontext.work.payload_version",
+    },
+    "work.execute": {
+        "powercontext.operation.name",
+        "powercontext.operation.unit",
+        "powercontext.operation.outcome",
+        "powercontext.work.kind",
+        "powercontext.work.payload_version",
+        "powercontext.work.attempt",
+        "powercontext.work.recovery_generation",
     },
 }
 
@@ -446,29 +463,24 @@ def test_inference_spans_join_the_operation_trace_only_when_instrumented(monkeyp
 
     transport = next(span for span in instrumented if span.name == "HTTP flush_memory")
     application = next(span for span in instrumented if span.name == "powercontext flush_memory")
-    flush = _only_child(instrumented, application, "memory.flush")
-    invoke_agent = _only_child(instrumented, flush, "invoke_agent memory_extraction")
-    chat = _only_child_with_prefix(instrumented, invoke_agent, "chat ")
-    commit = _only_child(instrumented, flush, "memory.commit")
+    enqueue = _only_child(instrumented, application, "work.enqueue")
+    execute = _work_span(instrumented, "work.execute", MEMORY_WORK_KIND, outcome="succeeded")
+    invoke_agent = next(span for span in instrumented if span.name == "invoke_agent memory_extraction")
+    chat = next(span for span in instrumented if span.name.startswith("chat "))
+    commit = _only_child(instrumented, execute, "work.commit")
 
     assert application.parent is not None
     assert application.parent.span_id == transport.context.span_id
-    assert _pop_prompt_attributes(dict(flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
-        "powercontext.operation.name": "memory.flush",
-        "powercontext.operation.unit": "stage",
-        "powercontext.memory.flush.source_count": 1,
-        "powercontext.operation.outcome": "success",
-    }
-    assert dict(commit.attributes or {}) == {
-        "powercontext.operation.name": "memory.commit",
-        "powercontext.operation.unit": "stage",
-        "powercontext.memory.commit.memory_changed": False,
-        "powercontext.memory.commit.entry_version_count": 0,
-        "powercontext.operation.outcome": "success",
-    }
-    assert {span.context.trace_id for span in (transport, application, flush, invoke_agent, chat, commit)} == {
-        transport.context.trace_id
-    }
+    assert enqueue.context.trace_id == application.context.trace_id
+    assert execute.parent is None
+    assert execute.context.trace_id != application.context.trace_id
+    assert invoke_agent.parent is not None
+    assert invoke_agent.parent.span_id == execute.context.span_id
+    assert chat.parent is not None
+    assert chat.parent.span_id == invoke_agent.context.span_id
+    assert commit.context.trace_id == execute.context.trace_id
+    assert {span.context.trace_id for span in (transport, application, enqueue)} == {transport.context.trace_id}
+    assert {span.context.trace_id for span in (execute, invoke_agent, chat, commit)} == {execute.context.trace_id}
     assert not any(_is_inference_span(span) for span in uninstrumented)
 
 
@@ -549,28 +561,23 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
 
     flush_applications = [span for span in spans if span.name == "powercontext flush_memory"]
     assert len(flush_applications) == 2
-    flushes = [_only_child(spans, application, "memory.flush") for application in flush_applications]
-    processed_flush = next(
-        span for span in flushes if (span.attributes or {})["powercontext.operation.outcome"] == "success"
+    enqueues = [_only_child(spans, application, "work.enqueue") for application in flush_applications]
+    assert {(span.attributes or {})["powercontext.operation.outcome"] for span in enqueues} == {"created", "idle"}
+    execute = _work_span(spans, "work.execute", MEMORY_WORK_KIND, outcome="succeeded")
+    assert execute.parent is None
+    assert (
+        len([
+            span
+            for span in spans
+            if span.name == "work.execute" and (span.attributes or {}).get("powercontext.work.kind") == MEMORY_WORK_KIND
+        ])
+        == 1
     )
-    no_op_flush = next(span for span in flushes if (span.attributes or {})["powercontext.operation.outcome"] == "noop")
-    processed_application = next(
-        application
-        for application in flush_applications
-        if processed_flush.parent is not None and processed_flush.parent.span_id == application.context.span_id
-    )
-    assert _only_child(spans, processed_application, "scope.context")
-    assert _only_child(spans, processed_application, "scope.lock")
-    assert _pop_prompt_attributes(dict(processed_flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
-        "powercontext.operation.name": "memory.flush",
-        "powercontext.operation.unit": "stage",
-        "powercontext.memory.flush.source_count": 1,
-        "powercontext.operation.outcome": "success",
-    }
-    invoke_agent = _only_child(spans, processed_flush, "invoke_agent memory_extraction")
+    invoke_agent = _only_child(spans, execute, "invoke_agent memory_extraction")
     chat = _only_child_with_prefix(spans, invoke_agent, "chat ")
-    embedding = _only_child_with_prefix(spans, processed_flush, "embeddings ")
-    commit = _only_child(spans, processed_flush, "memory.commit")
+    embedding = _only_child_with_prefix(spans, execute, "embeddings ")
+    work_commit = _only_child(spans, execute, "work.commit")
+    commit = _only_child(spans, work_commit, "memory.commit")
     assert embedding.name == "embeddings test"
     assert dict(commit.attributes or {}) == {
         "powercontext.operation.name": "memory.commit",
@@ -579,34 +586,20 @@ def test_memory_write_stage_spans_are_bounded_and_nested(monkeypatch, tmp_path) 
         "powercontext.memory.commit.entry_version_count": 1,
         "powercontext.operation.outcome": "success",
     }
-    assert {
-        span.context.trace_id
-        for span in (processed_application, processed_flush, invoke_agent, chat, embedding, commit)
-    } == {processed_application.context.trace_id}
-
-    assert _pop_prompt_attributes(dict(no_op_flush.attributes or {}), _MEMORY_EXTRACT_PROMPT_PREFIX) == {
-        "powercontext.operation.name": "memory.flush",
-        "powercontext.operation.unit": "stage",
-        "powercontext.memory.flush.source_count": 0,
-        "powercontext.operation.outcome": "noop",
+    assert {span.context.trace_id for span in (execute, invoke_agent, chat, embedding, work_commit, commit)} == {
+        execute.context.trace_id
     }
-    assert not _children(spans, no_op_flush, "invoke_agent memory_extraction")
-    assert not [
-        span
-        for span in spans
-        if span.name.startswith("embeddings ")
-        and span.parent is not None
-        and span.parent.span_id == no_op_flush.context.span_id
-    ]
-    assert not _children(spans, no_op_flush, "memory.commit")
+    assert execute.context.trace_id not in {span.context.trace_id for span in flush_applications}
 
     for span in spans:
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
         if allowed_keys is None:
             continue
-        if span.name == "memory.flush":
+        if span.name == "work.execute":
             allowed_keys = allowed_keys | {_MEMORY_EXTRACT_PROMPT_PREFIX + key for key in _PROMPT_SELECTION_ATTRIBUTES}
         attributes = dict(span.attributes or {})
+        if span.name == "work.execute":
+            _pop_prompt_attributes(attributes.copy(), _MEMORY_EXTRACT_PROMPT_PREFIX)
         assert attributes.keys() <= allowed_keys
         assert all(isinstance(value, str | bool | int | float) for value in attributes.values())
 
@@ -629,6 +622,8 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{database_path}"),
             mcp=McpConfig(enabled=False),
+            # Inspect a terminal failure before explicitly recovering the operation.
+            worker=WorkerConfig(max_attempts=1),
         ),
         candidate_pipeline=_FixedCandidatePipeline(memory_content),
         tracing=ServerTracing(provider),
@@ -649,22 +644,31 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
                     SELECT RAISE(ABORT, 'forced Memory commit failure');
                 END;
             """)
-        failed = client.post("/v1/memory/flush", json={"scope_id": scope_id})
+        failed = client.post("/v1/memory/flush", json={"scope_id": scope_id}, headers={"Prefer": "respond-async"})
+        assert failed.status_code == 202
+        failed_execute = _wait_for_named_span(exporter, "work.execute", outcome="failed")
         failed_spans = list(exporter.get_finished_spans())
+        operation_id = failed.json()["operation_id"]
+        operation = client.get(f"/v1/operations/{operation_id}")
+        assert operation.status_code == 200
+        assert operation.json()["status"] == "failed"
+        assert operation.json()["attempt_count"] == 1
+        entries = client.post("/v1/memory/entries/list", json={"scope_id": scope_id})
+        assert entries.status_code == 200
+        assert entries.json()["entries"] == []
 
         with sqlite3.connect(database_path) as connection:
             connection.execute("DROP TRIGGER reject_memory_insert")
-        retried = client.post("/v1/memory/flush", json={"scope_id": scope_id})
+        retried = client.post(
+            f"/v1/operations/{operation_id}/retry", json={"expected_version": operation.json()["state_version"]}
+        )
+        assert retried.status_code == 200
+        assert retried.json()["operation_id"] == operation_id
+        _wait_for_work_span(exporter, MEMORY_WORK_KIND)
+        completed = client.get(f"/v1/operations/{operation_id}")
 
-    assert failed.status_code == 500
-    failed_application = next(
-        span
-        for span in failed_spans
-        if span.name == "powercontext flush_memory"
-        and (span.attributes or {}).get("powercontext.operation.outcome") == "failure"
-    )
-    failed_flush = _only_child(failed_spans, failed_application, "memory.flush")
-    failed_commit = _only_child(failed_spans, failed_flush, "memory.commit")
+    failed_work_commit = _only_child(failed_spans, failed_execute, "work.commit")
+    failed_commit = _only_child(failed_spans, failed_work_commit, "memory.commit")
     assert dict(failed_commit.attributes or {}) == {
         "powercontext.operation.name": "memory.commit",
         "powercontext.operation.unit": "stage",
@@ -678,9 +682,11 @@ def test_memory_commit_failure_is_traced_and_rolls_back(tmp_path) -> None:
     assert memory_content not in exported
     assert "forced Memory commit failure" not in exported
 
-    assert retried.status_code == 200
-    assert retried.json()["processed_source_count"] == 1
-    assert retried.json()["memory"] is not None
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "succeeded"
+    assert completed.json()["attempt_count"] == 2
+    assert completed.json()["result"]["processed_source_count"] == 1
+    assert completed.json()["result"]["memory"] is not None
 
 
 def test_process_memory_preserves_commit_tracing(tmp_path) -> None:
@@ -1019,7 +1025,7 @@ def test_scope_lock_stage_span_reports_contention_and_closes_at_acquisition(tmp_
         (span.attributes or {})["powercontext.scope.lock.contended"] for span in spans if span.name == "scope.lock"
     ] == [False, True, False, False]
     # Every wait span succeeds, including the conflicting write's: the span closes before the critical section runs.
-    for span in spans:
+    for span in (span for span in spans if span.name == "scope.lock"):
         assert (span.attributes or {}).get("powercontext.operation.outcome") == "success"
         allowed_keys = _STAGE_ATTRIBUTE_KEYS.get(span.name)
         assert allowed_keys is None or (span.attributes or {}).keys() <= allowed_keys
@@ -1351,9 +1357,15 @@ def test_injected_always_on_embedding_skips_readiness_but_traces_vector_search(m
         tracing=tracing,
     )
     with TestClient(app) as client:
+        exporter.clear()
         readiness = client.get("/health/ready")
         readiness_spans = list(exporter.get_finished_spans())
-        assert not [span for span in readiness_spans if span.parent is None]
+        root_span_names = [
+            span.name
+            for span in readiness_spans
+            if span.parent is None and (span.attributes or {}).get("powercontext.operation.unit") != "background"
+        ]
+        assert not root_span_names, root_span_names
         assert not any(_is_inference_span(span) for span in readiness_spans)
 
         scope_id = _get_default_scope_id(client)
@@ -1475,6 +1487,32 @@ def _wait_for_named_span(
                 return span
         sleep(0.02)
     raise AssertionError(f"{name} span was not exported")  # noqa: TRY003
+
+
+def _wait_for_work_span(
+    exporter: InMemorySpanExporter,
+    kind: str,
+    *,
+    timeout: float = 3,
+) -> ReadableSpan:
+    deadline = monotonic() + timeout
+    while monotonic() < deadline:
+        spans = list(exporter.get_finished_spans())
+        try:
+            return _work_span(spans, "work.execute", kind, outcome="succeeded")
+        except StopIteration:
+            sleep(0.02)
+    raise AssertionError(f"work.execute span for {kind} was not exported")  # noqa: TRY003
+
+
+def _work_span(spans: list[ReadableSpan], name: str, kind: str, *, outcome: str) -> ReadableSpan:
+    return next(
+        span
+        for span in spans
+        if span.name == name
+        and (span.attributes or {}).get("powercontext.work.kind") == kind
+        and (span.attributes or {}).get("powercontext.operation.outcome") == outcome
+    )
 
 
 def _assert_stage_attribute_keys(span: ReadableSpan) -> None:

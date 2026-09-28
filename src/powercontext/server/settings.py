@@ -28,14 +28,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from powercontext.builtin.artifacts.skill import AgentSkillTarget
 from powercontext.builtin.code.models import CodeConfig
-from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime.config import (
+    BuiltinConfig,
+    CoordinationConfig,
     DatabaseConfig,
+    DeploymentConfig,
     ExternalSkillsConfig,
     HandoffReportConfig,
     InferenceConfig,
+    OperationsConfig,
+    RateLimitConfig,
     RuntimeConfig,
+    WorkerConfig,
 )
 from powercontext.paths import default_database_path, default_seekdb_path, sqlite_url
 from powercontext.transport import is_loopback_host
@@ -217,6 +222,27 @@ class ServerSettings(BaseSettings):
     handoff_report: HandoffReportConfig = Field(default_factory=HandoffReportConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     external_skills: ExternalSkillsConfig = Field(default_factory=ExternalSkillsConfig)
+    deployment: DeploymentConfig = Field(default_factory=DeploymentConfig)
+    coordination: CoordinationConfig = Field(default_factory=CoordinationConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+
+    def to_builtin_config(self) -> BuiltinConfig:
+        """Return the runtime-owned subset of the Server configuration."""
+
+        return BuiltinConfig(
+            code=self.code,
+            runtime=self.runtime,
+            database=self.database,
+            handoff_report=self.handoff_report,
+            inference=self.inference,
+            external_skills=self.external_skills,
+            deployment=self.deployment,
+            coordination=self.coordination,
+            worker=self.worker,
+            operations=self.operations,
+        )
 
     @field_validator("cursor_signing_secret")
     @classmethod
@@ -242,7 +268,7 @@ class ServerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def configure_default_local_skill_targets(self) -> ServerSettings:
-        if "external_skills" not in self.model_fields_set:
+        if "external_skills" not in self.model_fields_set and self.deployment.mode == "single_node":
             self.external_skills = _default_local_external_skills(self.workspace)
         return self
 
@@ -324,10 +350,7 @@ class ServerSettings(BaseSettings):
             allow_unauthenticated_non_loopback=self.allow_unauthenticated_non_loopback,
         ):
             raise UnauthenticatedNonLoopbackBindError(_UNSAFE_BIND_MESSAGE)
-        if not isinstance(self.database, OceanBaseConfig) and self.runtime.artifact_processing_role != "all":
-            raise ValueError(  # noqa: TRY003
-                "runtime.artifact_processing_role must be 'all' for SQLite and embedded seekdb"
-            )
+        self.to_builtin_config()
         return self
 
 

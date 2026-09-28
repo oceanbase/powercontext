@@ -17,7 +17,10 @@
 import asyncio
 import logging
 import sqlite3
+from contextlib import AsyncExitStack
+from typing import cast
 
+import aiosqlite
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -30,7 +33,15 @@ from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.sqlite.topic_memory_index import SQLiteTopicMemoryFTSIndex
 from powercontext.builtin.persistence.statistics import StatisticsRepository
 from powercontext.builtin.persistence.tag_schema import ensure_topic_memory_tag_schema
-from powercontext.builtin.runtime import InferenceConfig, RuntimeConfig
+from powercontext.builtin.runtime import (
+    BuiltinConfig,
+    BuiltinRuntime,
+    InferenceConfig,
+    RuntimeCapabilities,
+    RuntimeConfig,
+    open_builtin_contexts,
+)
+from powercontext.server.app import ServerApplication, create_app
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import AccessControlConfig, BearerAuthConfig, McpConfig, ServerSettings
 
@@ -513,21 +524,22 @@ def test_concurrent_writes_under_a_held_writer_lock_keep_every_usage_record(tmp_
             scope = created_scope.json()["scope_id"]
             path = f"/v1/scopes/{scope}/artifacts"
             payloads = [{"family": "topic-memory", "content": _content(f"c{index}")} for index in range(writes)]
-            holder = sqlite3.connect(tmp_path / "topics.db")
-            try:
-                holder.execute("BEGIN IMMEDIATE")
-                holder.execute("SELECT * FROM pc_scopes").fetchall()
+            async with aiosqlite.connect(tmp_path / "topics.db") as holder:
+                try:
+                    # Acquiring the lock must let runtime background writers commit.
+                    await holder.execute("BEGIN IMMEDIATE")
+                    async with holder.execute("SELECT * FROM pc_scopes") as cursor:
+                        await cursor.fetchall()
 
-                async def release_later() -> None:
-                    await asyncio.sleep(lock_hold_seconds)
-                    holder.rollback()
+                    async def release_later() -> None:
+                        await asyncio.sleep(lock_hold_seconds)
+                        await holder.rollback()
 
-                releasing = asyncio.create_task(release_later())
-                responses = await asyncio.gather(*(client.post(path, json=payload) for payload in payloads))
-                await releasing
-            finally:
-                holder.rollback()
-                holder.close()
+                    releasing = asyncio.create_task(release_later())
+                    responses = await asyncio.gather(*(client.post(path, json=payload) for payload in payloads))
+                    await releasing
+                finally:
+                    await holder.rollback()
             assert [response.status_code for response in responses] == [201] * writes
 
     asyncio.run(scenario())
@@ -715,15 +727,35 @@ def test_prepared_replace_rechecks_head_and_publication_races_are_idempotent(tmp
                 return await super().embed(texts)
 
         app = _app(tmp_path, DelayedEmbeddings())
-        competing_app = _app(tmp_path, Embeddings())
-        async with (
-            app.router.lifespan_context(app),
-            competing_app.router.lifespan_context(competing_app),
-            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=competing_app), base_url="http://test"
-            ) as competing_client,
-        ):
+        async with AsyncExitStack() as resources:
+            await resources.enter_async_context(app.router.lifespan_context(app))
+            # The competing SDK facade has independent connections and scope locks,
+            # while the managed server retains the single-node background ownership.
+            contexts = await resources.enter_async_context(
+                open_builtin_contexts(
+                    BuiltinConfig(
+                        database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'topics.db'}"),
+                        runtime=RuntimeConfig(artifact_processing_families=()),
+                    ),
+                    embedding_model=Embeddings(),
+                )
+            )
+            competing_runtime = await resources.enter_async_context(
+                BuiltinRuntime(
+                    provider=contexts,
+                    capabilities=RuntimeCapabilities(memory_extraction=False, memory_search_modes=()),
+                    record_service=contexts.records,
+                    publication_application=contexts.publications,
+                    scope_application=contexts.scopes,
+                )
+            )
+            competing_app = create_app(application=cast(ServerApplication, competing_runtime))
+            client = await resources.enter_async_context(
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+            )
+            competing_client = await resources.enter_async_context(
+                httpx.AsyncClient(transport=httpx.ASGITransport(app=competing_app), base_url="http://test")
+            )
             scopes = []
             for name in ("race-source", "race-target"):
                 result = await client.post("/v1/scopes", json={"title": name, "summary": name, "idempotency_key": name})

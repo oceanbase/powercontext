@@ -373,7 +373,7 @@ def _real_code_acceptance(tmp_path, pytestconfig, backend, *, include_history):
             CodeService(code).index(scope_id)
             settings = settings.model_copy(update={"code": code})
             token = _configured_access_token(settings)
-            server = _start_configured_server(settings, tmp_path / "server-scheduler.db")
+            server = _start_configured_server(settings)
             if include_history:
                 asyncio.run(_history(server.base_url, token, scope_id, report))
             else:
@@ -480,7 +480,7 @@ def test_native_code_automatic_context_controlled_experiment(tmp_path, pytestcon
                         row["passed"] = True
 
         try:
-            server = _start_configured_server(settings, tmp_path / "server-scheduler.db")
+            server = _start_configured_server(settings)
             asyncio.run(experiment())
             report["status"] = "passed"
         finally:

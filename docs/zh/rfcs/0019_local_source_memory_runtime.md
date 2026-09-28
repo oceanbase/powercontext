@@ -2,6 +2,9 @@
 - Start Date: 2026-07-24
 - RFC PR: [oceanbase/powercontext#19](https://github.com/oceanbase/powercontext/pull/19)
 
+> **执行更新：** [RFC 1430](1430_distributed_server_workers.md) 使用同一套数据库 Work Ledger 替代 APScheduler
+> sidecar 和单进程执行假设，并同时服务本地与分布式模式。本 RFC 仍负责 Source window、cursor、Memory 和领域提交语义。
+
 > **注意：** PowerContext 当前使用随 builtin 依赖捆绑的 sqlite-vec 提供 SQLite 向量检索。本 RFC 中关于 Vec1 的
 > 表述已不再适用，仅作为原始设计记录保留。
 

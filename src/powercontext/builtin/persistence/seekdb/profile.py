@@ -107,6 +107,7 @@ class SeekDBProfile:
         config: SeekDBConfig,
         *,
         tables: tuple[Table, ...],
+        create_schema: bool = True,
     ) -> AsyncIterator[SeekDBProfile]:
         """Start seekdb locally and connect through its async Unix socket."""
 
@@ -119,8 +120,9 @@ class SeekDBProfile:
             database = AsyncDatabase.own(engine)
             profile = cls(database=database, tables=tables, connection_options=instance.connection_options())
             try:
-                async with database.transaction() as connection:
-                    await create_tables(connection, tables)
+                if create_schema:
+                    async with database.transaction() as connection:
+                        await create_tables(connection, tables)
                 yield profile
             finally:
                 close_task = asyncio.create_task(database.close())

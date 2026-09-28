@@ -43,6 +43,7 @@ from powercontext.http import (
     EntryChangeOperation,
     ExternalSkillResolution,
     FinalizeHandoffRequest,
+    FlushMemoryResponse,
     FlushTopicMemoryRequest,
     FlushTopicMemoryResponse,
     GeneratedCandidateResponse,
@@ -63,6 +64,7 @@ from powercontext.http import (
     ListExternalSkillsResponse,
     ListMemoryEntriesRequest,
     MemoryCapacity,
+    OperationAccepted,
     PrepareContextRequest,
     PreparedContext,
     PreparedHandoff,
@@ -95,6 +97,7 @@ from powercontext.http._generated.operations import (
     COMMIT_HANDOFF,
     CONTINUE_HANDOFF,
     CREATE_ARTIFACT,
+    CREATE_DREAM_RUN,
     CREATE_REMOTE_SKILL_TARGET,
     CREATE_SOURCE,
     CREATE_WORK_CONTRACT,
@@ -297,6 +300,14 @@ def test_capture_operation_declares_its_typed_accepted_exchange() -> None:
     assert CAPTURE_CONTENT_SOURCE.request_type is CaptureContentSourceRequest
     assert CAPTURE_CONTENT_SOURCE.response_type is CaptureContentSourceResponse
     assert CAPTURE_CONTENT_SOURCE.success_status == 202
+
+
+def test_flush_operation_exposes_every_declared_success_response() -> None:
+    assert FLUSH_MEMORY.success_statuses == (200, 202)
+    assert FLUSH_MEMORY.success_response_types == {
+        200: FlushMemoryResponse,
+        202: OperationAccepted,
+    }
 
 
 def test_topic_memory_operations_use_strict_public_shapes_without_retrieval_controls() -> None:
@@ -988,3 +999,8 @@ def test_memory_capacity_contract_and_compact_change_are_public():
     assert EntryChangeOperation.COMPACT.value == "compact"
     with pytest.raises(ValidationError):
         GetMemoryCapacityRequest.model_validate({"scope_id": "scope", "budget": {}})
+
+
+def test_dream_operation_keeps_accepted_as_default_with_terminal_success() -> None:
+    assert CREATE_DREAM_RUN.success_status == 202
+    assert CREATE_DREAM_RUN.success_response_types == {202: http_models.DreamRun, 200: http_models.DreamRun}

@@ -14,12 +14,10 @@
 
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
-from zoneinfo import ZoneInfo
 
 import pytest
-from apscheduler.triggers.cron import CronTrigger
 from pydantic import ValidationError
 
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
@@ -31,6 +29,7 @@ from powercontext.builtin.runtime.artifact_processing import (
     SpawnArtifactProcessingWorkerLauncher,
 )
 from powercontext.builtin.runtime.composition import open_builtin_contexts
+from powercontext.builtin.runtime.cron import CronSchedule
 from powercontext.builtin.runtime.family_processing import process_family_invocation
 from powercontext.builtin.scope import ScopeDraft
 
@@ -38,9 +37,9 @@ from powercontext.builtin.scope import ScopeDraft
 def test_profile_cron_defaults_and_validation():
     config = RuntimeConfig()
     assert not config.profile_schedule_enabled
-    trigger = CronTrigger.from_crontab(config.profile_cron, timezone=ZoneInfo(config.profile_timezone))
-    now = datetime(2026, 9, 7, 1, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
-    assert trigger.get_next_fire_time(None, now) == now.replace(hour=2)
+    schedule = CronSchedule.parse(config.profile_cron, config.profile_timezone)
+    now = datetime(2026, 9, 6, 17, 0, tzinfo=UTC)
+    assert schedule.next_after(now) == now.replace(hour=18, tzinfo=None)
     with pytest.raises((ValidationError, ValueError)):
         RuntimeConfig(profile_cron="invalid")
     with pytest.raises((ValidationError, KeyError)):

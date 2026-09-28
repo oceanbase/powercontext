@@ -72,8 +72,8 @@ export POWERCONTEXT_SERVER_DATABASE_URL="mysql+aoceanbase://user:password@host:2
 inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。
 
 设置 `POWERCONTEXT_SERVER_RUNTIME_SCHEDULE_SECONDS` 可以按持久化 interval 处理待消费的 Source window。
-定时 job 使用 `POWERCONTEXT_HOME/scheduler.db` 作为 SQLite sidecar。调度可以配合任一 application database
-使用，但必须配置 generation pipeline。
+定时发现和执行使用主数据库中的 Work Ledger。`single_node/all` 模式内嵌 Scheduler 与 Worker；分布式
+OceanBase 部署将它们作为独立角色运行。Worker 必须配置 generation pipeline。
 
 ## HTTP 接口
 
@@ -86,6 +86,7 @@ inference 配置见[配置 Pydantic AI 推理](pydantic-ai-inference.md)。
 | Capabilities | source type、Artifact family、extraction、search mode |
 | Sources | capture 持久化 content evidence |
 | Memory | flush 待处理 Source、remember 显式 entry、search |
+| Operations | 查询、列举、取消和重试持久后台任务 |
 | Memory entries | list、get、revise、retire |
 | History | list Memory change |
 
