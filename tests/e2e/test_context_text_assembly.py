@@ -39,10 +39,12 @@ from powercontext.http import (
     CreateScopeRequest,
     ExperienceProposal,
     GetMemoryEntryRequest,
+    MemorySearchMode,
     PrepareContextRequest,
     ProposeExperienceRequest,
     RememberMemoryRequest,
     ReviseMemoryEntryRequest,
+    SearchMemoryRequest,
 )
 from powercontext.server.factory import create_server_app
 from powercontext.server.settings import McpConfig, MetricsConfig, ServerSettings
@@ -95,6 +97,66 @@ async def _seed_topics(database, scope_ids, embedding_model=None):
                 await contexts.repositories.topic_memories.publish_create(
                     connection, scope_id, "assembly-topic", TopicMemoryDraft(content=content), projection
                 )
+
+
+def test_quoted_operator_queries_preserve_identifiers_in_search_and_prepared_context(tmp_path):
+    async def scenario():
+        async with _server(tmp_path) as (_, _, client):
+            scope = await client.create_scope(
+                CreateScopeRequest(
+                    title="Operator precedence", summary="Quoted identifiers", idempotency_key="quoted-operators"
+                )
+            )
+            operators = "AND binds more tightly than OR."
+            arithmetic = "Multiplication has precedence over addition."
+            for text in (operators, arithmetic):
+                await client.remember_memory(RememberMemoryRequest(scope_id=scope.scope_id, kind="fact", text=text))
+
+            query = '"AND" "OR" precedence'
+            found = await client.search_memory(
+                SearchMemoryRequest(scope_id=scope.scope_id, query=query, mode=MemorySearchMode.FTS)
+            )
+            prepared = await client.prepare_context(PrepareContextRequest(scope_id=scope.scope_id, query=query))
+
+            assert [hit.text for hit in found.hits] == [operators]
+            assert prepared.content is not None
+            assert operators in prepared.content
+            assert arithmetic not in prepared.content
+
+    asyncio.run(scenario())
+
+
+def test_multibyte_query_stays_within_the_contract_bound_for_search_and_prepared_context(tmp_path):
+    """A query inside the contract's character bound must not meet the storage byte bound.
+
+    Both ``/v1/memory/search`` and ``/v1/context/prepare`` accept a query of up to 8192
+    characters. The retrieval path once normalized that query through the durable entry
+    body normalizer, whose 8192-byte limit rejected 2731 non-ASCII characters -- 8193
+    UTF-8 bytes, still inside the character bound -- as an internal Server failure.
+    """
+
+    async def scenario():
+        async with _server(tmp_path) as (_, _, client):
+            scope = await client.create_scope(
+                CreateScopeRequest(title="Multibyte query", summary="Character bound", idempotency_key="query-bound")
+            )
+            await client.remember_memory(
+                RememberMemoryRequest(scope_id=scope.scope_id, kind="fact", text="Budget review is on Thursday.")
+            )
+
+            query = "界" * 2731
+            assert len(query) < 8192
+            assert len(query.encode("utf-8")) > 8192
+
+            found = await client.search_memory(
+                SearchMemoryRequest(scope_id=scope.scope_id, query=query, mode=MemorySearchMode.FTS)
+            )
+            prepared = await client.prepare_context(PrepareContextRequest(scope_id=scope.scope_id, query=query))
+
+            assert found.hits == []
+            assert prepared.content is None
+
+    asyncio.run(scenario())
 
 
 def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(tmp_path, monkeypatch):

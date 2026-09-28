@@ -26,6 +26,12 @@ from powercontext.client.receiver_service import (
 from powercontext.client.skill_receiver import RemoteSkillReceiverConfig
 
 
+@pytest.fixture(autouse=True)
+def linux_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise mocked systemd operations independently of the host OS."""
+    monkeypatch.setattr(service_module.sys, "platform", "linux")
+
+
 def _config(tmp_path: Path) -> RemoteSkillReceiverConfig:
     return RemoteSkillReceiverConfig(
         server_url="https://powercontext.example.com",

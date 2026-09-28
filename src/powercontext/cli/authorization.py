@@ -26,7 +26,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Literal
 
-from powercontext.client.settings import normalize_server_url
+from powercontext.client.transport_policy import normalize_client_url
 
 AuthorizationStatus = Literal["configured", "not_configured", "url_mismatch", "invalid", "unsafe_permissions"]
 SetupAuthorizationStatus = Literal[
@@ -40,14 +40,6 @@ _AUTHORIZATION_ENVIRONMENTS = {
     "pi": "POWERCONTEXT_PI_AUTHORIZATION",
     "workbuddy": "POWERCONTEXT_WORKBUDDY_AUTHORIZATION",
     "dsh": "POWERCONTEXT_DSH_AUTHORIZATION",
-}
-_SERVER_URL_ENVIRONMENTS = {
-    "codex": "POWERCONTEXT_CODEX_SERVER_URL",
-    "claude-code": "POWERCONTEXT_CLAUDE_SERVER_URL",
-    "opencode": "POWERCONTEXT_OPENCODE_BASE_URL",
-    "pi": "POWERCONTEXT_PI_BASE_URL",
-    "workbuddy": "POWERCONTEXT_WORKBUDDY_SERVER_URL",
-    "dsh": "POWERCONTEXT_DSH_BASE_URL",
 }
 _CODEX_AUTHORIZATION_ENVIRONMENT = "POWERCONTEXT_CODEX_AUTHORIZATION"
 
@@ -104,7 +96,7 @@ def write_stored_authorization(path: Path, *, server_url: str, value: str) -> No
     path = Path(path).expanduser()
     if path.exists() and (path.is_symlink() or not path.is_file()):
         raise ValueError("credential path must be a regular file")  # noqa: TRY003
-    normalized_url = normalize_server_url(server_url)
+    normalized_url = normalize_client_url(server_url)
     authorization = normalize_authorization(value)
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True)
@@ -144,9 +136,9 @@ def read_stored_authorization(path: Path, *, server_url: str) -> AuthorizationRe
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("version") != 1:
             raise ValueError("invalid persisted authorization record")  # noqa: TRY003, TRY301
-        stored_url = normalize_server_url(payload["server_url"])
+        stored_url = normalize_client_url(payload["server_url"])
         authorization = normalize_authorization(payload["authorization"])
-        effective_url = normalize_server_url(server_url)
+        effective_url = normalize_client_url(server_url)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return AuthorizationResolution("invalid", None)
     if stored_url != effective_url:
@@ -182,13 +174,17 @@ def configure_stored_authorization(host: str, *, server_url: str, value: str | N
 def setup_authorization_value(host: str) -> str | None:
     """Read the host-specific setup token, falling back to the shared token."""
 
-    return os.environ.get(_AUTHORIZATION_ENVIRONMENTS[host]) or os.environ.get("POWERCONTEXT_CLIENT_API_TOKEN")
+    from powercontext.cli.transport import setup_environment
+
+    values = setup_environment() | dict(os.environ)
+    return values.get(_AUTHORIZATION_ENVIRONMENTS[host]) or values.get("POWERCONTEXT_CLIENT_API_TOKEN")
 
 
 def setup_server_url(host: str, default: str) -> str:
-    """Resolve the endpoint used by a host before binding its credential."""
+    """Compatibility entry point; installation resolves endpoints in setup orchestration."""
+    from powercontext.cli.transport import resolve_setup_endpoint
 
-    return os.environ.get(_SERVER_URL_ENVIRONMENTS[host], default)
+    return resolve_setup_endpoint(host, default=default)
 
 
 def configure_codex_desktop_authorization(value: str) -> bool:

@@ -57,6 +57,32 @@ def test_setup_pi_installs_the_native_package_and_reports_configuration(tmp_path
     assert str(package) in result.output
 
 
+@pytest.mark.parametrize("endpoint", ["http://127.0.0.1:18000", "https://remote.example/proxy"])
+def test_setup_pi_binds_runtime_and_credentials_to_selected_endpoint(
+    tmp_path: Path, monkeypatch, endpoint: str
+) -> None:
+    """A real installer persists one endpoint for runtime and URL-bound credentials."""
+    import powercontext.cli.pi as pi_cli
+    from powercontext.cli.authorization import credential_path, read_stored_authorization
+    from powercontext.client.transport_policy import load_client_settings
+
+    package = _write_pi_package(tmp_path / "checkout")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pi"))
+    monkeypatch.setenv("POWERCONTEXT_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    monkeypatch.setenv("POWERCONTEXT_PI_AUTHORIZATION", "test-token")
+    monkeypatch.setattr(pi_cli, "which", lambda _name: "/usr/bin/pi")
+    monkeypatch.setattr(pi_cli, "_run_pi", lambda *_args: f"User packages:\n  {package}\n    {package}\n")
+    result = CliRunner().invoke(
+        create_cli([setup_app]), ["setup", "pi", "--source", str(package), "--server-url", endpoint]
+    )
+    assert result.exit_code == 0, result.output
+    assert load_client_settings("pi")["server_url"] == endpoint
+    assert read_stored_authorization(credential_path("pi"), server_url=endpoint).authorization == "Bearer test-token"
+    assert read_stored_authorization(credential_path("pi"), server_url="https://other.example").status == "url_mismatch"
+
+
 def test_setup_pi_refreshes_remote_source_and_replaces_previous_package(tmp_path: Path, monkeypatch) -> None:
     import powercontext.cli.pi as pi_cli
 

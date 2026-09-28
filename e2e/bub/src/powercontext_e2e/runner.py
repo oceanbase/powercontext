@@ -33,7 +33,7 @@ from harbor.models.job.config import DatasetConfig, JobConfig
 from harbor.models.task.config import MultiStepRewardStrategy, TaskConfig
 from harbor.models.task.paths import TaskPaths
 from harbor.models.task.task import Task as HarborTask
-from harbor.models.trial.config import AgentConfig, EnvironmentConfig, ResourceMode, ServiceVolumeConfig
+from harbor.models.trial.config import EnvironmentConfig, ResourceMode, ServiceVolumeConfig
 from harbor.models.trial.config import TaskConfig as HarborTrialTaskConfig
 from harbor.models.trial.paths import TrialPaths
 from harbor.models.trial.result import StepResult
@@ -45,7 +45,7 @@ from .artifacts import write_artifacts
 from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
 from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
-from .harbor_agent import BUB_ACP_SERVER_VERSION, BUB_VERSION
+from .hosts import host_adapter
 from .models import (
     CaptureRecord,
     EvaluationReport,
@@ -61,13 +61,7 @@ from .models import (
     TaskObservation,
 )
 from .report import render_evaluation_summary
-from .settings import (
-    HarnessSettings,
-    ModelNotConfiguredError,
-    bub_environment,
-    codex_auth_path,
-    powercontext_bub_environment,
-)
+from .settings import HarnessSettings, ModelNotConfiguredError
 
 FailurePolicy = Literal["fail-fast", "collect-all"]
 TaskStatus = Literal["completed", "failed", "skipped"]
@@ -157,8 +151,10 @@ async def run_tasks(
     settings: HarnessSettings,
     failure_policy: FailurePolicy = "collect-all",
 ) -> bool:
-    model_workload_ids = tuple(task.id for task in tasks if task.execution.model)
-    if model_workload_ids and "BUB_MODEL" not in bub_environment():
+    model_workload_ids = tuple(
+        task.id for task in tasks if task.execution.model and not host_adapter(task).model_configured()
+    )
+    if model_workload_ids:
         raise ModelNotConfiguredError(model_workload_ids)
 
     accepted = True
@@ -419,6 +415,7 @@ def _job_config(
     runtime: PreparedRuntime | None = None,
     invocation_scopes: tuple[str, ...] = (),
 ) -> JobConfig:
+    host = host_adapter(task)
     repository = settings.repository_path()
     mounts: list[ServiceVolumeConfig] = [
         {
@@ -427,43 +424,17 @@ def _job_config(
             "target": "/opt/powercontext/source",
             "read_only": True,
             "bind": {"create_host_path": False},
-        }
+        },
+        *host.mounts(task),
     ]
-    if task.execution.model and (auth_path := codex_auth_path()).is_file():
-        mounts.append({
-            "type": "bind",
-            "source": str(auth_path),
-            "target": "/run/powercontext/codex-auth.json",
-            "read_only": True,
-            "bind": {"create_host_path": False},
-        })
-
-    evaluation = task.evaluation
-    agent_env = powercontext_bub_environment()
-    if task.execution.model:
-        agent_env.update(bub_environment())
-    else:
-        agent_env.update({"BUB_API_KEY": "null", "BUB_FALLBACK_MODELS": "null"})
-    agent_env.update({
-        "BUB_HOME": "/installed-agent/bub-home",
-        "BUB_MAX_STEPS": str(task.execution.max_steps),
-        "BUB_MAX_TOKENS": str(task.execution.max_tokens),
-        "CODEX_HOME": "/installed-agent/codex",
-        "POWERCONTEXT_BUB_CAPTURE_CHECKPOINT_EVERY": str(
-            evaluation.checkpoint_every_events if isinstance(evaluation, MemoryEvaluationSpec) else 5
-        ),
-        "POWERCONTEXT_BUB_CAPTURE_EVENTS": str(
-            evaluation.capture_events if isinstance(evaluation, MemoryEvaluationSpec) else False
-        ).lower(),
-        "POWERCONTEXT_BUB_CAPTURE_LOG": "/logs/agent/powercontext-capture.jsonl",
-        "POWERCONTEXT_BUB_CAPTURE_MAX_BYTES": str(
-            evaluation.max_event_bytes if isinstance(evaluation, MemoryEvaluationSpec) else 8192
-        ),
-        "POWERCONTEXT_BUB_SCOPE_ID": scope_id,
-    })
+    agent = host.agent_config(
+        task,
+        scope_id=scope_id,
+        invocation_scopes=invocation_scopes if runtime is not None else None,
+    )
     if settings.agent_proxy_url is not None:
         proxy_url = settings.agent_proxy_url.get_secret_value()
-        agent_env.update({
+        agent.env.update({
             "HTTP_PROXY": proxy_url,
             "HTTPS_PROXY": proxy_url,
             "NO_PROXY": "127.0.0.1,localhost,host-gateway,powercontext",
@@ -471,10 +442,6 @@ def _job_config(
             "https_proxy": proxy_url,
             "no_proxy": "127.0.0.1,localhost,host-gateway,powercontext",
         })
-    agent_kwargs: dict[str, Any] = {}
-    if runtime is not None:
-        agent_env.pop("POWERCONTEXT_BUB_SCOPE_ID")
-        agent_kwargs["invocation_scopes"] = invocation_scopes
 
     return JobConfig(
         job_name=run_id,
@@ -490,13 +457,7 @@ def _job_config(
             extra_docker_compose=[repository / "e2e" / "bub" / "harbor-task-overlay.yaml"],
             mounts=mounts,
         ),
-        agents=[
-            AgentConfig(
-                import_path="powercontext_e2e.harbor_agent:PowerContextBubAcpAgent",
-                env=agent_env,
-                kwargs=agent_kwargs,
-            )
-        ],
+        agents=[agent],
         datasets=[] if runtime else [_dataset_config(task, repository)],
         tasks=[runtime.task_config] if runtime else [],
     )
@@ -680,12 +641,13 @@ async def _prepared_probes(
 
 
 def _run_environment(task: E2ETask, started_at: datetime, settings: HarnessSettings) -> RunEnvironment:
+    host = host_adapter(task)
     return RunEnvironment(
         commit=settings.commit_id(),
         database=settings.database,
-        adapter_version=BUB_VERSION,
-        adapter_protocol_version=BUB_ACP_SERVER_VERSION,
-        agent_model=bub_environment().get("BUB_MODEL") if task.execution.model else None,
+        adapter_version=host.version,
+        adapter_protocol_version=host.protocol_version,
+        agent_model=host.agent_model() if task.execution.model else None,
         started_at=started_at,
         finished_at=datetime.now(UTC),
     )

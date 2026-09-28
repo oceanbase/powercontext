@@ -16,12 +16,24 @@
 
 from __future__ import annotations
 
+import socket
+
 import pytest
 import typer
 from typer.testing import CliRunner
 
 from powercontext.cli.config_wizard import CLIENT, SERVER, Wizard, _network, _scenario
 from powercontext.cli.config_wizard_ui import WizardUI
+
+
+@pytest.fixture(autouse=True)
+def available_listener(monkeypatch):
+    """Stub routine probes and return the real probe for socket conflict coverage."""
+    from powercontext.cli import config_wizard
+
+    probe = config_wizard._listener_port_available
+    monkeypatch.setattr(config_wizard, "_listener_port_available", lambda host, port: True)
+    return probe
 
 
 def _run_network(state: Wizard, input_text: str):
@@ -32,6 +44,74 @@ def _run_network(state: Wizard, input_text: str):
         _network(state)
 
     return CliRunner().invoke(app, [], input=input_text)
+
+
+@pytest.mark.parametrize("port", [1, 65535])
+def test_local_port_retries_invalid_input_and_accepts_boundaries(port: int) -> None:
+    """Reject non-integer and out-of-range input before accepting a valid port."""
+    state = Wizard(WizardUI("en"), {}, {})
+    result = _run_network(state, f"n\ninvalid\n0\n65536\n{port}\n")
+    assert result.exit_code == 0, result.output
+    assert "Enter an integer." in result.output
+    assert "between 1 and 65535" in result.output
+    assert state.values[SERVER + "HTTP_PORT"] == str(port)
+
+
+def test_ssh_server_port_is_editable_independently_of_forwarded_port() -> None:
+    """Use the chosen Server port as the SSH destination, not the client port."""
+    state = Wizard(WizardUI("en"), {}, {}, scenario="remote")
+    result = _run_network(state, "y\nssh\n19000\nt1\n18000\n")
+    assert result.exit_code == 0, result.output
+    assert state.values[SERVER + "HTTP_PORT"] == "19000"
+    assert "ssh -N -L 18000:127.0.0.1:19000 t1" in result.output
+    assert state.forwarded_address == "http://127.0.0.1:18000"
+
+
+def test_occupied_port_can_be_kept_with_process_shutdown_warning(monkeypatch, available_listener) -> None:
+    """Detect a real listener and retain the user's choice with a persistent warning."""
+    from powercontext.cli import config_wizard
+
+    monkeypatch.setattr(config_wizard, "_listener_port_available", available_listener)
+    state = Wizard(WizardUI("en"), {}, {})
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        result = _run_network(state, f"n\n{port}\nkeep\n")
+    assert result.exit_code == 0, result.output
+    assert "already in use" in result.output
+    assert state.values[SERVER + "HTTP_PORT"] == str(port)
+    assert any("stop or terminate the process" in note for note in state.notes)
+
+
+def test_occupied_port_can_be_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retry port selection rather than saving a known occupied listener."""
+    from powercontext.cli import config_wizard
+
+    monkeypatch.setattr(config_wizard, "_listener_port_available", lambda host, port: port != 18000)
+    state = Wizard(WizardUI("zh"), {}, {})
+    result = _run_network(state, "否\n18000\nchange\n19000\n")
+    assert result.exit_code == 0, result.output
+    assert "已被占用" in result.output
+    assert state.values[SERVER + "HTTP_PORT"] == "19000"
+    assert state.client[CLIENT + "SERVER_URL"] == "http://127.0.0.1:19000"
+
+
+def test_probe_failure_warns_without_claiming_port_is_occupied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Distinguish unavailable probe results from a confirmed listener conflict."""
+    from powercontext.cli import config_wizard
+
+    def unavailable(host: str, port: int) -> bool:
+        """Simulate a bind permission failure without opening a socket."""
+        raise PermissionError
+
+    monkeypatch.setattr(config_wizard, "_listener_port_available", unavailable)
+    state = Wizard(WizardUI("en"), {}, {})
+    result = _run_network(state, "n\n18000\n")
+    assert result.exit_code == 0, result.output
+    assert "Could not verify local listener" in result.output
+    assert "already in use" not in result.output
+    assert state.values[SERVER + "HTTP_PORT"] == "18000"
 
 
 def test_scenario_only_asks_local_or_other_machine(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,7 +138,7 @@ def test_invalid_existing_port_can_be_repaired_in_the_wizard(original_port: str)
 
     assert result.exit_code == 0, result.output
     assert "invalid" in result.output
-    assert "Server port [8000]" in result.output
+    assert "Server port [17429]" in result.output
     assert state.values[SERVER + "HTTP_PORT"] == "9000"
     assert state.client[CLIENT + "SERVER_URL"] == "http://127.0.0.1:9000"
 
@@ -71,7 +151,7 @@ def test_invalid_existing_port_retry_is_localized_and_can_accept_fallback() -> N
     assert result.exit_code == 0, result.output
     assert "无效" in result.output
     assert "invalid" not in result.output
-    assert state.values[SERVER + "HTTP_PORT"] == "8000"
+    assert state.values[SERVER + "HTTP_PORT"] == "17429"
 
 
 def test_existing_non_default_local_port_can_be_changed() -> None:
@@ -118,21 +198,24 @@ def test_custom_access_asks_for_listener_and_client_url() -> None:
     assert state.client[CLIENT + "SERVER_URL"] == "https://memory.example.com"
 
 
-def test_default_local_port_keeps_the_short_flow() -> None:
+def test_fresh_local_port_defaults_to_17429() -> None:
+    """Allow accepting the default listener port on a fresh setup."""
     state = Wizard(WizardUI("en"), {}, {})
 
-    result = _run_network(state, "n\n")
+    result = _run_network(state, "n\n\n")
 
     assert result.exit_code == 0, result.output
-    assert "Server port" not in result.output
-    assert state.values[SERVER + "HTTP_PORT"] == "8000"
+    assert "Server port [17429]" in result.output
+    assert "Dashboard, HTTP API, and MCP share" in result.output
+    assert "restart it with the saved configuration" in result.output
+    assert state.values[SERVER + "HTTP_PORT"] == "17429"
     assert state.forwarded_address == ""
 
 
 def test_dashboard_question_explains_authentication_and_keeps_mcp_enabled() -> None:
     state = Wizard(WizardUI("en"), {}, {})
 
-    result = _run_network(state, "n\n")
+    result = _run_network(state, "n\n\n")
 
     assert result.exit_code == 0, result.output
     assert "authenticated access" in result.output
@@ -141,26 +224,67 @@ def test_dashboard_question_explains_authentication_and_keeps_mcp_enabled() -> N
     assert state.values[SERVER + "MCP_ENABLED"] == "true"
 
 
+def test_fresh_local_setup_defaults_to_no_authentication() -> None:
+    state = Wizard(WizardUI("en"), {}, {})
+
+    result = _run_network(state, "\n\n")
+
+    assert result.exit_code == 0, result.output
+    assert state.values[SERVER + "DASHBOARD_ENABLED"] == "false"
+    assert state.values[SERVER + "ACCESS_MODE"] == "disabled"
+    assert SERVER + "AUTH_TOKEN" not in state.values
+    assert CLIENT + "API_TOKEN" not in state.client
+
+
+@pytest.mark.parametrize("dashboard", ["true", "false"])
+def test_existing_local_authentication_is_preserved_when_accepting_defaults(dashboard: str) -> None:
+    values = {
+        SERVER + "DASHBOARD_ENABLED": dashboard,
+        SERVER + "ACCESS_MODE": "enforced",
+        SERVER + "AUTH_TOKEN": "existing-test-token",
+    }
+    state = Wizard(WizardUI("en"), dict(values), dict(values))
+
+    result = _run_network(state, "\n\n")
+
+    assert result.exit_code == 0, result.output
+    assert state.values[SERVER + "DASHBOARD_ENABLED"] == dashboard
+    assert state.values[SERVER + "ACCESS_MODE"] == "enforced"
+    assert state.client[CLIENT + "API_TOKEN"] == "existing-test-token"
+
+
+def test_enabling_dashboard_opts_into_authentication() -> None:
+    state = Wizard(WizardUI("en"), {}, {})
+
+    result = _run_network(state, "y\n\n")
+
+    assert result.exit_code == 0, result.output
+    assert state.values[SERVER + "DASHBOARD_ENABLED"] == "true"
+    assert state.values[SERVER + "ACCESS_MODE"] == "enforced"
+    assert state.values[SERVER + "AUTH_TOKEN"]
+    assert state.client[CLIENT + "API_TOKEN"] == state.values[SERVER + "AUTH_TOKEN"]
+
+
 def test_ssh_preserves_server_address_and_exposes_forwarded_client_address() -> None:
     state = Wizard(WizardUI("en"), {}, {}, scenario="remote")
 
-    result = _run_network(state, "y\nssh\nt1\n18000\n")
+    result = _run_network(state, "y\nssh\n\nt1\n18000\n")
 
     assert result.exit_code == 0, result.output
     assert state.values[SERVER + "HTTP_HOST"] == "127.0.0.1"
-    assert state.values[SERVER + "HTTP_PORT"] == "8000"
-    assert state.client[CLIENT + "SERVER_URL"] == "http://127.0.0.1:8000"
+    assert state.values[SERVER + "HTTP_PORT"] == "17429"
+    assert state.client[CLIENT + "SERVER_URL"] == "http://127.0.0.1:17429"
     assert state.forwarded_address == "http://127.0.0.1:18000"
-    assert "ssh -N -L 18000:127.0.0.1:8000 t1" in result.output
+    assert "ssh -N -L 18000:127.0.0.1:17429 t1" in result.output
     assert "run the generated command on the client" in result.output
 
 
 def test_switching_from_ssh_to_local_clears_the_old_forwarded_address() -> None:
     state = Wizard(WizardUI("en"), {}, {}, scenario="remote")
-    assert _run_network(state, "n\nssh\nt1\n18000\n").exit_code == 0
+    assert _run_network(state, "n\nssh\n\nt1\n18000\n").exit_code == 0
     state.scenario = "local"
 
-    result = _run_network(state, "n\n")
+    result = _run_network(state, "n\n\n")
 
     assert result.exit_code == 0, result.output
     assert state.forwarded_address == ""

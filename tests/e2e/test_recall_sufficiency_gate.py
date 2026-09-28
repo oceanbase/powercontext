@@ -32,13 +32,14 @@ import pytest
 
 from powercontext.artifacts import ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceSearchOutcome
-from powercontext.builtin.artifacts.memory import MemoryEntryInput
+from powercontext.builtin.artifacts.memory import EmbeddingProfile, MemoryEntryInput
 from powercontext.builtin.artifacts.search import AdmissionCounts
 from powercontext.builtin.artifacts.topic_memory import (
     TopicMemoryContent,
     TopicMemoryDraft,
     prepare_topic_memory_projection,
 )
+from powercontext.builtin.inference import EmbeddingResult
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
     BuiltinConfig,
@@ -345,6 +346,43 @@ def test_two_expansion_rounds_stop_at_max_rounds(tmp_path, monkeypatch) -> None:
         assert effort.assessment == REASON_AT_MAX_ROUNDS
         assert effort.expansion_actions == ("admission", "policy-floor")
         assert len(log.calls) == 3
+
+    asyncio.run(scenario())
+
+
+def test_topic_embedding_timeout_is_paid_once_per_prepare(tmp_path, monkeypatch) -> None:
+    class SlowEmbedding:
+        profile = EmbeddingProfile(profile_id="slow", model="slow", dimension=2)
+        attempts = 0
+
+        async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+            self.attempts += 1
+            await asyncio.sleep(20)
+            return EmbeddingResult(vectors=((1.0, 0.0),))
+
+    log = _RecallRoundLog()
+    log.force_recoverable_family = "topic-memory"
+    log.install(monkeypatch)
+    embedding = SlowEmbedding()
+
+    async def scenario() -> None:
+        async with _runtime(
+            tmp_path / "topic-timeout.db",
+            RuntimeConfig(recall_gate_enabled=True, recall_gate_max_rounds=2, recall_gate_min_candidates=100),
+        ) as runtime:
+            scope_id = await _create_scope(runtime, "topic-timeout")
+            await _seed_topic_memories(runtime, scope_id, 1)
+            runtime._topic_memory_embedding_model = embedding
+            request = _memory_request(assembly=_TOPIC_MEMORY_ONLY)
+            for attempt in (1, 2):
+                build, effort = await _prepare_build(runtime, scope_id, request)
+                assert effort.rounds == 3
+                assert effort.expansion_actions == ("admission", "policy-floor")
+                assert effort.added_embeddings == 0
+                assert build.context.content is not None
+                assert "alpha beta topic" in build.context.content
+                # This is the external inference-attempt budget for one request.
+                assert embedding.attempts == attempt
 
     asyncio.run(scenario())
 

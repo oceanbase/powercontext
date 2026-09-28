@@ -127,6 +127,10 @@ _PROBE_FTS_SQL = "SELECT rowid FROM pc_memory_entry_fts WHERE pc_memory_entry_ft
 _DELETE_MEMORY_FTS_SQL = text(
     "DELETE FROM pc_memory_entry_fts WHERE scope_id = :scope_id AND memory_artifact_id = :memory_artifact_id"
 )
+_DELETE_FTS_ENTRIES_SQL = text(
+    "DELETE FROM pc_memory_entry_fts"
+    " WHERE scope_id = :scope_id AND memory_artifact_id = :memory_artifact_id AND entry_id IN :entry_ids"
+).bindparams(bindparam("entry_ids", expanding=True))
 _SEARCH_FTS_SQL = text(
     """
     SELECT f.memory_artifact_id, f.head_revision, f.entry_id, f.entry_version_id, v.text
@@ -176,7 +180,6 @@ _VECTOR_COMPLETENESS_SQL = text(
     FROM pc_memory_entry_heads AS h
     JOIN requested AS r
       ON r.memory_artifact_id = h.memory_artifact_id
-     AND r.head_revision = h.head_revision
     WHERE h.scope_id = :scope_id
     UNION ALL
     SELECT 'artifact_head' AS row_kind, h.artifact_id, h.revision,
@@ -287,9 +290,40 @@ class SQLiteMemoryFTSIndex:
             _DELETE_MEMORY_FTS_SQL,
             {"scope_id": scope_id, "memory_artifact_id": memory_ref.artifact_id},
         )
-        for projection in projections:
-            await self._insert_row(
-                connection,
+        await self.upsert(connection, scope_id, memory_ref, projections)
+
+    async def delete(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        if not entry_ids:
+            return
+        await connection.execute(
+            _DELETE_FTS_ENTRIES_SQL,
+            {
+                "scope_id": scope_id,
+                "memory_artifact_id": memory_ref.artifact_id,
+                "entry_ids": list(entry_ids),
+            },
+        )
+
+    async def upsert(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
+        if not projections:
+            return
+        await connection.execute(
+            _INSERT_FTS_SQL,
+            [
                 {
                     "scope_id": scope_id,
                     "memory_artifact_id": memory_ref.artifact_id,
@@ -297,8 +331,10 @@ class SQLiteMemoryFTSIndex:
                     "entry_id": projection.entry_version.entry_id,
                     "entry_version_id": projection.entry_version.entry_version_id,
                     "searchable_text": projection.searchable_text,
-                },
-            )
+                }
+                for projection in projections
+            ],
+        )
 
     async def search(
         self,
@@ -440,6 +476,46 @@ class SQLiteMemoryVectorIndex:
                 SQLITE_MEMORY_VECTOR_ENTRIES_TABLE.c.memory_artifact_id == memory_ref.artifact_id,
             )
         )
+        await self.upsert(connection, scope_id, memory_ref, projections)
+
+    async def delete(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        if not entry_ids:
+            return
+        metadata = SQLITE_MEMORY_VECTOR_ENTRIES_TABLE
+        vector_ids = (
+            await connection.execute(
+                select(metadata.c.vector_id).where(
+                    metadata.c.scope_id == scope_id,
+                    metadata.c.memory_artifact_id == memory_ref.artifact_id,
+                    metadata.c.entry_id.in_(entry_ids),
+                )
+            )
+        ).scalars()
+        for vector_id in vector_ids:
+            await connection.execute(_DELETE_VECTOR_SQL, {"vector_id": int(vector_id)})
+        await connection.execute(
+            delete(metadata).where(
+                metadata.c.scope_id == scope_id,
+                metadata.c.memory_artifact_id == memory_ref.artifact_id,
+                metadata.c.entry_id.in_(entry_ids),
+            )
+        )
+
+    async def upsert(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
         for projection in projections:
             if projection.embedding is None or projection.embedding_content_hash is None:
                 continue

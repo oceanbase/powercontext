@@ -134,6 +134,9 @@ This adds inference latency to each prompt and is not the normal interactive set
 
 ## Connect to an authenticated local Server
 
+Local Server authentication is disabled by default. Enable it when needed; enabling Dashboard also requires
+authenticated access. A fresh local configuration wizard leaves Dashboard off unless you select it.
+
 Load one token from your local secret manager, then start the Server with authentication enabled:
 
 ```bash
@@ -158,12 +161,28 @@ powercontext setup codex
 powercontext doctor codex
 ```
 
-Setup stores a URL-bound credential under `~/.codex/powercontext/credentials.json`. On Windows it also writes the
-matching `POWERCONTEXT_CODEX_AUTHORIZATION` value to the current user's environment and broadcasts a Windows
-environment-change notification. Existing processes do not receive the new value. Restart Desktop after setup so its
-new process inherits it. On other platforms, start Codex from an environment containing the variable. The prompt Hook
-reads the saved record, and an explicit process value overrides it. Do not put the token in `.mcp.json`, the Server URL,
-or a static MCP header.
+Setup stores a URL-bound credential under `$CODEX_HOME/powercontext/credentials.json` (by default,
+`~/.codex/powercontext/credentials.json`) and configures a native MCP `http_headers_helper` to read that same record.
+New Codex sessions on Linux, macOS, and Windows do not need an authorization export. Use a Codex build supporting
+`http_headers_helper`; this path is verified with Codex CLI 0.153.4. The helper command contains only local paths,
+and saved credentials are rejected for a different endpoint, malformed storage, or unsafe POSIX permissions.
+The prompt Hook reads the same record. An explicit `POWERCONTEXT_CODEX_AUTHORIZATION` value overrides saved
+authorization without changing it. Do not put the token in `.mcp.json`, the Server URL, or a static MCP header.
+
+On Windows, setup also maintains the current user's authorization environment for Desktop compatibility. Existing
+processes do not receive environment changes. Restart Codex after setup to load the updated plugin configuration.
+Rerunning setup without a token preserves the saved credential; supplying a new token rotates it.
+
+To verify a new session without a process override on Linux or macOS:
+
+```bash
+unset POWERCONTEXT_CODEX_AUTHORIZATION
+powercontext doctor codex
+```
+
+Doctor must report native MCP tool discovery. If it reports a saved credential unavailable to the host, upgrade
+Codex and rerun setup with the matching PowerContext plugin, then restart Codex. For an older host, start Codex from
+a process containing the complete `POWERCONTEXT_CODEX_AUTHORIZATION` header.
 
 When no stored credential or process override is configured and Server authentication is disabled, the plugin behaves
 exactly as it does by default. When Server authentication is enabled but the effective credential is missing or
@@ -202,15 +221,15 @@ The Server Scheduler processes new Sources at the configured interval.
 The Hook derives its Server URL from the installed plugin's `.mcp.json`, which MCP also reads.
 Both default to `http://127.0.0.1:8000`. For a custom port, SSH forwarding, or HTTPS, update that shared file.
 It takes precedence over `POWERCONTEXT_CODEX_SERVER_URL`; exporting that variable alone does not change the endpoint.
-`setup codex` updates the installed MCP URL. The native MCP client reads authorization from the host process environment
-in this form:
+`setup codex` updates the installed MCP URL and adds a credential helper with absolute paths for that installation.
+Keep the environment override in the base configuration:
 
 ```json
 {
   "mcpServers": {
     "powercontext": {
       "type": "http",
-      "url": "http://127.0.0.1:8000/mcp",
+      "url": "http://127.0.0.1:8000/mcp/",
       "required": false,
       "env_http_headers": {
         "Authorization": "POWERCONTEXT_CODEX_AUTHORIZATION"
@@ -220,8 +239,9 @@ in this form:
 }
 ```
 
-Replace the URL with your actual MCP endpoint and preserve other servers in the file, then rerun `powercontext setup
-codex` so Windows Desktop receives the matching user environment value. The token is never hard-coded in JSON. The
+Use `powercontext setup codex --server-url <server-url>` to update the endpoint and helper together. If editing the
+installed file, preserve its generated `http_headers_helper`; the example above is only the base configuration.
+The token is never hard-coded in JSON. The
 Hook binds the Scope and injects it into MCP data operations; a planned title or directory name is not a Scope ID.
 
 Desktop apps do not inherit changes made inside an already running terminal. On Windows, setup persists the value in
@@ -235,14 +255,14 @@ Complete the [Source, topic evolution, and cross-session recall check](../get-st
 | --- | --- | --- |
 | `POWERCONTEXT_CODEX_ALLOW_INSECURE_HTTP` | `false` | Explicitly permit non-loopback plaintext HTTP for hooks |
 | `POWERCONTEXT_CODEX_SCOPE_ID` | unset | Explicitly select an existing Scope instead of resolving bindings and the Server default |
-| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` header; setup persists it in the Windows user environment for Desktop |
+| `POWERCONTEXT_CODEX_AUTHORIZATION` | unset | Complete `Bearer <token>` runtime override; setup saves it for subsequent Hook and native MCP connections |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_CONTEXT` | `false` | Inject the curated bootstrap profile on supported `SessionStart` events |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_MAX_BYTES` | `4096` | Bootstrap package limit; valid values are 512 through 8192 bytes |
 | `POWERCONTEXT_CODEX_BOOTSTRAP_HANDOFF` | unset | JSON identity of one exact committed Handoff, for example `{"artifact_id":"...","revision":3}` |
 | `POWERCONTEXT_CODEX_CAPTURE_PROMPTS` | `true` | Capture user prompts as Source evidence |
 | `POWERCONTEXT_CODEX_FLUSH_ON_CAPTURE` | `false` | Wait for Source processing after capture |
-| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `1` | Per-request hook timeout |
-| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `4` | Shared hook HTTP budget |
+| `POWERCONTEXT_CODEX_REQUEST_TIMEOUT_SECONDS` | `3` | Per-request hook timeout |
+| `POWERCONTEXT_CODEX_HTTP_BUDGET_SECONDS` | `6` | Shared hook HTTP budget |
 | `POWERCONTEXT_CODEX_FLUSH_MAX_CALLS` | `4` | Maximum flush calls per prompt |
 
 Hooks allow loopback HTTP by default; remote HTTP requires explicit consent, and HTTPS certificate validation stays

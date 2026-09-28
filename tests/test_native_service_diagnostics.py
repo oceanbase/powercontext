@@ -43,11 +43,13 @@ def test_native_startup_failure_preserves_diagnostics_after_cleanup(
     retry_state.write_text('{"attempts":[1]}', encoding="utf-8")
     token = logs / "launchd-retry.enabled"
     token.write_text("enabled", encoding="utf-8")
-    monkeypatch.setattr(
-        lifecycle.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "state = running\npid = 123", ""),
-    )
+
+    def run_command(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[0] == "/usr/bin/sample":
+            Path(command[-1]).write_text("Service process stack sample", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "state = running\npid = 123", "")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", run_command)
 
     def cleanup(adapter: LaunchdUserAdapter) -> None:
         retry_state.unlink()
@@ -61,3 +63,4 @@ def test_native_startup_failure_preserves_diagnostics_after_cleanup(
     snapshot = json.loads((logs / "launchd-failure-snapshot.json").read_text(encoding="utf-8"))
     assert snapshot == {"retry_token_present": True, "retry_state": '{"attempts":[1]}'}
     assert "state = running\npid = 123" in (logs / "launchd-before-cleanup.log").read_text(encoding="utf-8")
+    assert (logs / "launchd-process-sample.log").read_text(encoding="utf-8") == "Service process stack sample"

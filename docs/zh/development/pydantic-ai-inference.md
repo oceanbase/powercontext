@@ -88,6 +88,9 @@ timeout 和 request limit 未显式设置时继承 generation 的对应配置。
 
 Server 会拒绝不完整的 embedding profile。`embedding_model`、`embedding_profile_id` 和
 `embedding_dimension` 必须一起配置。SQLite vector search 使用这组配置，因为 index dimension 必须与持久化向量一致。
+`embedding_dimension` 默认也会作为请求参数 `dimensions` 发送，并覆盖 model settings 里的同名字段。固定输出维度、
+不接受该参数的模型把 `POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` 设为 `false`；本地维度仍然必填，
+返回向量仍按它校验。
 
 ## 直接组合 generation
 

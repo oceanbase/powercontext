@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from powercontext.builtin.inference.models import EmbeddingResult, GenerationResult, InferenceUsage
-from powercontext.builtin.inference.protocols import EmbeddingModel, StructuredGenerator
+from powercontext.builtin.inference.protocols import EmbeddingModel, StructuredGenerator, embed_query
 from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
 
 InputT = TypeVar("InputT")
@@ -98,6 +98,11 @@ class UsageReportingEmbeddingModel:
 
     async def embed(self, texts: tuple[str, ...], /) -> EmbeddingResult:
         result = await self._delegate.embed(texts)
+        await _report(ModelUsageOperation.EMBEDDING, result.usage)
+        return result
+
+    async def embed_query(self, texts: tuple[str, ...], /) -> EmbeddingResult:
+        result = await embed_query(self._delegate, texts)
         await _report(ModelUsageOperation.EMBEDDING, result.usage)
         return result
 

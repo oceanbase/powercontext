@@ -20,19 +20,22 @@ from datetime import UTC, datetime
 from typing import TypedDict, cast
 
 import pytest
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from powercontext.artifacts import ArtifactAddress, ArtifactRef
 from powercontext.builtin.artifacts.experience import ExperienceContent, ExperienceSearchHit
 from powercontext.builtin.artifacts.memory import MemoryCitation, MemoryHit
 from powercontext.builtin.artifacts.profile.models import Profile, ProfileContent, ProfileGeneration
 from powercontext.builtin.artifacts.topic_memory import TopicMemorySearchHit
+from powercontext.builtin.code.capture import digest_bytes
+from powercontext.builtin.code.models import CodeQueryResult
 from powercontext.builtin.runtime import ContextAssembly, PrepareContextRequest
 from powercontext.builtin.runtime.application import (
     _limit_expanded_experience_candidates,
     _limit_expanded_memory_candidates,
 )
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
+from powercontext.builtin.runtime.prepared_code import CodeEvidenceRef, PreparedCodeCandidate, code_candidates
 from powercontext.builtin.runtime.prepared_context import (
     _MIN_TRUNCATED_CONTENT_BYTES,
     PreparedContextBuild,
@@ -831,3 +834,166 @@ def test_omission_counting_leaves_rendered_content_and_origins_unchanged() -> No
         MemoryCitation(memory_ref=MEMORY_REF, entry_id="first", entry_version_id="first-v1"),
         MemoryCitation(memory_ref=MEMORY_REF, entry_id="second", entry_version_id="second-v1"),
     )
+
+
+def _code_candidates(count: int = 5) -> tuple[PreparedCodeCandidate, ...]:
+    content = "def budget():\n    return '预算'\n"
+    return tuple(
+        PreparedCodeCandidate(
+            origin=CodeEvidenceRef(
+                "scope", "a" * 64, f"module{number}.py", "b" * 64, 1, 2, digest_bytes(content.encode())
+            ),
+            content=content,
+            checked_at="2026-09-21T00:00:00Z",
+        )
+        for number in range(count)
+    )
+
+
+def test_code_context_uses_same_budget_and_separate_origins() -> None:
+    result = PreparedContextBuilder().build_scopes_result(
+        request=PrepareContextRequest(query="budget", include_code=True, max_bytes=8000),
+        current_scope_id="scope",
+        code_candidates=_code_candidates(),
+        memory_candidates=(
+            PreparedMemoryCandidates("scope", MEMORY_REF, tuple(_hit(str(i), f"History {i}") for i in range(8))),
+        ),
+    )
+    assert 0 < len(result.code_origins) <= 4
+    assert len(result.origins) + len(result.code_origins) <= 8
+    assert all(not isinstance(origin, CodeEvidenceRef) for origin in result.origins)
+    assert result.context.content_bytes <= 8000
+    assert result.context.content is not None
+    assert "History" in result.context.content
+    assert "snippet_sha256" in result.context.content
+    assert result.context.content.count("BEGIN_POWERCONTEXT_CODE_V1") == 1
+
+
+def test_code_only_prepare_and_unavailable_code_preserve_empty_contract() -> None:
+    request = PrepareContextRequest(query="budget", include_code=True, assembly=ContextAssembly(sections=()))
+    builder = PreparedContextBuilder()
+    result = builder.build_scopes_result(request=request, current_scope_id="scope", code_candidates=_code_candidates())
+    assert result.context.status == "ready"
+    assert not result.origins
+    assert len(result.code_origins) == 4
+    empty = builder.build_scopes_result(request=request, current_scope_id="scope")
+    assert empty.context.status == "empty"
+    assert empty.context.content is None
+    assert empty.context.content_bytes == 0
+
+
+@pytest.mark.parametrize("memory_count", [0, 1, 3, 6])
+def test_code_context_counts_selected_history_instead_of_section_capacity(memory_count: int) -> None:
+    result = PreparedContextBuilder().build_scopes_result(
+        request=PrepareContextRequest(query="client", include_code=True, max_bytes=32768, assembly=ContextAssembly()),
+        current_scope_id="scope",
+        code_candidates=_code_candidates(4),
+        memory_candidates=(
+            PreparedMemoryCandidates(
+                "scope", MEMORY_REF, tuple(_hit(str(i), f"History {i}") for i in range(memory_count))
+            ),
+        ),
+        experience_candidates=(PreparedExperienceCandidates("scope", (_experience_hit(), _experience_hit("second"))),),
+    )
+    assert len(result.code_origins) == 4
+    assert len(result.origins) == min(memory_count + 2, 4)
+    assert result.context.content is not None
+    assert ("## Experience" in result.context.content) is (memory_count < 4)
+    assert result.context.content_bytes <= 32768
+
+
+def test_code_off_is_identical_and_degradation_returns_history_budget() -> None:
+    builder = PreparedContextBuilder()
+    memory = (PreparedMemoryCandidates("scope", MEMORY_REF, (_hit("history", "Important constraint " * 80),)),)
+    request = PrepareContextRequest(query="budget", max_bytes=1800)
+    baseline = builder.build_scopes_result(request=request, current_scope_id="scope", memory_candidates=memory)
+    disabled = builder.build_scopes_result(
+        request=request, current_scope_id="scope", memory_candidates=memory, code_candidates=_code_candidates()
+    )
+    degraded = builder.build_scopes_result(
+        request=request.model_copy(update={"include_code": True}), current_scope_id="scope", memory_candidates=memory
+    )
+    assert baseline == disabled == degraded
+
+
+def test_unavailable_code_preserves_explicit_history_section_limits() -> None:
+    builder = PreparedContextBuilder()
+    request = PrepareContextRequest(
+        query="client",
+        max_bytes=32768,
+        assembly=ContextAssembly.model_validate({
+            "sections": [{"family": "memory", "limit": 8}, {"family": "experience", "limit": 2}]
+        }),
+    )
+    memory = (PreparedMemoryCandidates("scope", MEMORY_REF, tuple(_hit(str(i), "History") for i in range(8))),)
+    experiences = (PreparedExperienceCandidates("scope", (_experience_hit(), _experience_hit("second"))),)
+    baseline = builder.build_scopes_result(
+        request=request, current_scope_id="scope", memory_candidates=memory, experience_candidates=experiences
+    )
+    degraded = builder.build_scopes_result(
+        request=request.model_copy(update={"include_code": True}),
+        current_scope_id="scope",
+        memory_candidates=memory,
+        experience_candidates=experiences,
+    )
+    assert len(baseline.origins) == 10
+    assert degraded == baseline
+
+
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_include_code_requires_a_json_boolean(value) -> None:
+    with pytest.raises(ValidationError):
+        PrepareContextRequest.model_validate({"query": "budget", "include_code": value})
+
+
+def test_code_evidence_merges_overlapping_ranges_without_losing_source() -> None:
+    content = 'def outer():\r\n    def inner():\r\n        return "before\u2028after"\r\n    return inner()\r\n'
+    lines = content.split("\n")
+    items: list[dict[str, JsonValue]] = []
+    for start, end in ((2, 3), (1, 4)):
+        excerpt = "\n".join(lines[start - 1 : end]) + "\n"
+        items.append({
+            "path": "module.py",
+            "start_line": start,
+            "end_line": end,
+            "content": excerpt,
+            "file_sha256": digest_bytes(content.encode()),
+            "snippet_sha256": digest_bytes(excerpt.encode()),
+        })
+    result = CodeQueryResult(
+        scope_id="scope",
+        fingerprint="a" * 64,
+        commit="b" * 40,
+        git_object_format="sha1",
+        dirty=False,
+        checked_at="2026-09-21T00:00:00Z",
+        operation="explore",
+        items=items,
+        coverage={},
+        limitations=[],
+    )
+    candidates = code_candidates(result)
+    assert len(candidates) == 1
+    assert candidates[0].content == content
+    assert (candidates[0].origin.start_line, candidates[0].origin.end_line) == (1, 4)
+    assert candidates[0].origin.snippet_sha256 == digest_bytes(content.encode())
+
+
+@pytest.mark.parametrize(
+    "assembly,expect_topic", [(None, True), (ContextAssembly(), False), (ContextAssembly(sections=()), False)]
+)
+def test_code_opt_in_preserves_topic_assembly_selection(assembly, expect_topic) -> None:
+    request = (
+        PrepareContextRequest(query="topic", include_code=True)
+        if assembly is None
+        else PrepareContextRequest(query="topic", include_code=True, assembly=assembly)
+    )
+    result = PreparedContextBuilder().build_scopes_result(
+        request=request,
+        current_scope_id="scope",
+        topic_memory_hits=(_topic_hit(),),
+        code_candidates=_code_candidates(1),
+    )
+    assert result.context.content is not None
+    assert ("Title topic-1" in result.context.content) is expect_topic
+    assert "BEGIN_POWERCONTEXT_CODE_V1" in result.context.content

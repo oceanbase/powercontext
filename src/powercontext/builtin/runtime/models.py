@@ -242,6 +242,7 @@ class PrepareContextRequest(_PreparedContextModel):
     max_bytes: Annotated[int, Field(ge=512, le=32768)] = 8000
     assembly: ContextAssembly | None = None
     bootstrap_receipt_id: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    include_code: bool = Field(default=False, strict=True)
 
     @model_validator(mode="before")
     @classmethod

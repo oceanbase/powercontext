@@ -36,6 +36,51 @@ from powercontext.cli.authorization import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolate_setup_configuration(tmp_path, monkeypatch):
+    """Avoid reading real Agent configuration while testing setup authorization."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_CONFIG_FILE", str(tmp_path / "clients.json"))
+    monkeypatch.chdir(tmp_path)
+
+
+@pytest.mark.parametrize("port", ["1", "18000", "65535"])
+def test_setup_url_uses_local_server_port(monkeypatch: pytest.MonkeyPatch, port: str) -> None:
+    """Resolve a local listener when no explicit access URL is configured."""
+    for name in ("POWERCONTEXT_CODEX_SERVER_URL", "POWERCONTEXT_CLIENT_SERVER_URL", "POWERCONTEXT_SERVER_PUBLIC_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", port)
+    assert setup_server_url("codex", "http://127.0.0.1:8000") == f"http://127.0.0.1:{port}"
+
+
+@pytest.mark.parametrize("port", ["", "invalid", "0", "65536", "1.5"])
+def test_setup_url_rejects_invalid_server_port(monkeypatch: pytest.MonkeyPatch, port: str) -> None:
+    """Do not silently bind credentials to a default endpoint for an invalid port."""
+    for name in ("POWERCONTEXT_CODEX_SERVER_URL", "POWERCONTEXT_CLIENT_SERVER_URL", "POWERCONTEXT_SERVER_PUBLIC_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", port)
+    with pytest.raises(ValueError, match="must be an integer between 1 and 65535"):
+        setup_server_url("codex", "http://127.0.0.1:8000")
+
+
+def test_setup_url_preserves_explicit_access_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prefer Agent, client, and proxy URLs over an internal listener port."""
+    monkeypatch.setenv("POWERCONTEXT_SERVER_HTTP_PORT", "18000")
+    monkeypatch.setenv("POWERCONTEXT_CODEX_SERVER_URL", "https://agent.example.com")
+    monkeypatch.setenv("POWERCONTEXT_CLIENT_SERVER_URL", "https://client.example.com")
+    monkeypatch.setenv("POWERCONTEXT_SERVER_PUBLIC_URL", "https://proxy.example.com")
+    with pytest.raises(ValueError, match="Conflicting PowerContext endpoints"):
+        setup_server_url("codex", "fallback")
+    monkeypatch.delenv("POWERCONTEXT_CODEX_SERVER_URL")
+    assert setup_server_url("codex", "fallback") == "https://client.example.com"
+    monkeypatch.delenv("POWERCONTEXT_CLIENT_SERVER_URL")
+    assert setup_server_url("codex", "fallback") == "https://proxy.example.com"
+    monkeypatch.delenv("POWERCONTEXT_SERVER_PUBLIC_URL")
+    monkeypatch.delenv("POWERCONTEXT_SERVER_HTTP_PORT")
+    assert setup_server_url("codex", "fallback") == "fallback"
+
+
 def test_normalize_authorization_accepts_bare_tokens_and_headers() -> None:
     assert normalize_authorization("  secret-token  ") == "Bearer secret-token"
     assert normalize_authorization("bearer secret-token") == "Bearer secret-token"
@@ -113,6 +158,50 @@ def test_setup_uses_host_specific_credentials_and_endpoints(monkeypatch) -> None
 
     assert setup_authorization_value("opencode") == "Bearer host-token"
     assert setup_server_url("opencode", "http://127.0.0.1:8000") == "https://memory.example/api"
+
+
+@pytest.mark.parametrize(
+    ("process_values", "expected"),
+    [
+        ({}, "file-host-token"),
+        ({"POWERCONTEXT_PI_AUTHORIZATION": "process-host-token"}, "process-host-token"),
+        ({"POWERCONTEXT_CLIENT_API_TOKEN": "process-shared-token"}, "file-host-token"),
+        ({"POWERCONTEXT_PI_AUTHORIZATION": ""}, "file-shared-token"),
+        (
+            {"POWERCONTEXT_PI_AUTHORIZATION": "", "POWERCONTEXT_CLIENT_API_TOKEN": "process-shared-token"},
+            "process-shared-token",
+        ),
+    ],
+    ids=["file-host", "process-host", "host-before-shared", "empty-host-fallback", "process-shared"],
+)
+def test_setup_authorization_merges_file_and_process_without_exporting_tokens(
+    tmp_path, monkeypatch, process_values, expected
+):
+    monkeypatch.delenv("POWERCONTEXT_PI_AUTHORIZATION", raising=False)
+    monkeypatch.delenv("POWERCONTEXT_CLIENT_API_TOKEN", raising=False)
+    path = tmp_path / ".env"
+    content = "POWERCONTEXT_PI_AUTHORIZATION=file-host-token\nPOWERCONTEXT_CLIENT_API_TOKEN=file-shared-token\n"
+    path.write_text(content)
+    for name, value in process_values.items():
+        monkeypatch.setenv(name, value)
+    environment_before = dict(os.environ)
+
+    assert setup_authorization_value("pi") == expected
+    assert dict(os.environ) == environment_before
+    assert path.read_text() == content
+
+
+@pytest.mark.parametrize("server_url", ["http://192.0.2.10:18000/proxy", "https://proxy.example/prefix"])
+def test_stored_authorization_remains_bound_to_proxy_path(tmp_path, server_url):
+    path = tmp_path / "credentials.json"
+    write_stored_authorization(path, server_url=server_url + "/", value="test-token")
+
+    assert read_stored_authorization(path, server_url=server_url) == AuthorizationResolution(
+        "configured", "Bearer test-token"
+    )
+    assert read_stored_authorization(path, server_url=server_url + "-other") == AuthorizationResolution(
+        "url_mismatch", None
+    )
 
 
 def test_credential_path_uses_host_owned_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

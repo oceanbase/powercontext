@@ -29,7 +29,6 @@ from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from multiprocessing.connection import Connection
 from multiprocessing.context import SpawnProcess
 from multiprocessing.process import BaseProcess
 from random import SystemRandom
@@ -141,6 +140,24 @@ class ArtifactProcessingBinding:
             CronTrigger.from_crontab(self.cron, timezone=ZoneInfo(self.timezone))
 
 
+class _WorkerResultSender(Protocol):
+    """The child's end of the result pipe; POSIX yields `Connection`, Windows `PipeConnection`."""
+
+    def send(self, obj: object, /) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class _WorkerResultReceiver(Protocol):
+    """The owner's end of the result pipe; POSIX yields `Connection`, Windows `PipeConnection`."""
+
+    def poll(self) -> bool: ...
+
+    def recv(self) -> object: ...
+
+    def close(self) -> None: ...
+
+
 @dataclass(slots=True)
 class _SpawnStartOwner:
     """Retain Popen ownership before BaseProcess can publish the handle."""
@@ -220,8 +237,8 @@ async def _cleanup_cancelled_spawn_start(
     start_task: asyncio.Task[None],
     process: BaseProcess,
     owner: _SpawnStartOwner,
-    receiver: Connection,
-    sender: Connection,
+    receiver: _WorkerResultReceiver,
+    sender: _WorkerResultSender,
 ) -> None:
     """Own and reap a partially-started child before cancellation returns."""
 
@@ -247,8 +264,8 @@ async def _complete_spawn_cleanup(cleanup_task: asyncio.Task[None]) -> None:
 
 async def _cleanup_failed_spawn_start(
     owner: _SpawnStartOwner,
-    receiver: Connection,
-    sender: Connection,
+    receiver: _WorkerResultReceiver,
+    sender: _WorkerResultSender,
 ) -> None:
     """Terminate a child whose Popen exists but was never published by BaseProcess."""
 
@@ -278,7 +295,7 @@ def _wait_for_spawn_popen_exit(popen: SpawnPopen, timeout_seconds: float) -> Non
 
 
 class _SpawnedWorkerHandle:
-    def __init__(self, process: BaseProcess, receiver: Connection) -> None:
+    def __init__(self, process: BaseProcess, receiver: _WorkerResultReceiver) -> None:
         self._process = process
         self._receiver = receiver
         self._closed = False
@@ -1152,7 +1169,7 @@ class ArtifactProcessingSupervisors:
 
 
 def _run_spawned_worker(
-    sender: Connection,
+    sender: _WorkerResultSender,
     entrypoint: WorkerEntrypoint,
     assignment: ArtifactProcessingWorkAssignment,
 ) -> None:

@@ -94,7 +94,9 @@ jobs:
           uv build --wheel
           wheel=$(find dist -name '*.whl' -print -quit)
           uv venv .native-venv
-          uv pip install --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
+          # Finish bytecode compilation during installation, before launchd
+          # runs the cold-start lifecycle under its bounded startup deadline.
+          uv pip install --compile-bytecode --python .native-venv/bin/python "powercontext[cli,server] @ file://$PWD/$wheel" pytest
 
       - name: Exercise the real LaunchAgent lifecycle
         run: >-

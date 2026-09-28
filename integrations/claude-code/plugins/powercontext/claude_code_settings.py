@@ -82,10 +82,11 @@ class ClaudeCodePluginSettings:
     bootstrap_context: bool = False
     bootstrap_max_bytes: int = 4096
     bootstrap_handoff: BootstrapHandoff | None = None
+    include_code: bool = False
     capture_prompts: bool = True
     flush_on_capture: bool = False
-    request_timeout_seconds: float = 1.0
-    http_budget_seconds: float = 4.0
+    request_timeout_seconds: float = 3.0
+    http_budget_seconds: float = 6.0
     flush_max_calls: int = 4
     allow_insecure_http: bool | None = None
 
@@ -151,6 +152,7 @@ class ClaudeCodePluginSettings:
                 default=4096,
             ),
             bootstrap_handoff=_environment_bootstrap_handoff("POWERCONTEXT_CLAUDE_BOOTSTRAP_HANDOFF"),
+            include_code=_environment_bool("POWERCONTEXT_CLAUDE_INCLUDE_CODE", default=False),
             capture_prompts=_environment_bool(
                 "POWERCONTEXT_CLAUDE_CAPTURE_PROMPTS",
                 "CLAUDE_PLUGIN_OPTION_CAPTURE_PROMPTS",
@@ -162,11 +164,11 @@ class ClaudeCodePluginSettings:
             ),
             request_timeout_seconds=_environment_float(
                 "POWERCONTEXT_CLAUDE_REQUEST_TIMEOUT_SECONDS",
-                default=1.0,
+                default=3.0,
             ),
             http_budget_seconds=_environment_float(
                 "POWERCONTEXT_CLAUDE_HTTP_BUDGET_SECONDS",
-                default=4.0,
+                default=6.0,
             ),
             flush_max_calls=_environment_int(
                 "POWERCONTEXT_CLAUDE_FLUSH_MAX_CALLS",

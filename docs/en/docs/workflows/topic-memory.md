@@ -5,9 +5,10 @@ description: Search topic summaries produced from long-running Sources and read 
 
 # Use Topic Memory
 
-Topic Memory is a read-oriented Artifact family for long-running topics. It turns accumulated Sources in one Scope into a
-`title`, `summary`, and progressively disclosed `detail`, so an Agent can locate a topic first and read the full detail only
-when needed. It does not replace Memory, Experience, Skill, or Handoff.
+Topic Memory is an Artifact family for long-running topics. It turns accumulated Sources in one Scope into a `title`,
+`summary`, and progressively disclosed `detail`, so an Agent can locate a topic first and read the full detail only
+when needed; callers can also submit complete topic content directly through the generic interfaces in
+[Manage Artifacts](artifacts.md). It does not replace Memory, Experience, Skill, or Handoff.
 
 Topic Memory is Scope-local. Capturing a Source does not synchronously create a topic; configured background processing
 must advance it.
@@ -28,6 +29,10 @@ authorization, or the Agent's other instructions.
 Topic Memory is not created by an explicit Memory write. A meaningful Source window, supported Generation settings,
 and enabled Topic processing are required. The model can revise an existing topic, merge evidence, or decide that no
 new topic revision is warranted.
+
+Registered remote Source observations can share a processing window with built-in Sources. Topic processing uses the
+stored standard text-evidence projection when available, or the captured payload otherwise; it does not require a
+local adapter for the remote Source. Published revisions retain the original Source references for provenance.
 
 ## Lifecycle
 
@@ -128,6 +133,31 @@ Content-Type: application/json
 The response contains `title`, `summary`, full `detail`, and `source_refs`. Even after the current topic head advances, the
 exact reference resolves to the same historical Revision for audit, citation, and progressive disclosure.
 
+## Write through the generic Artifact interfaces
+
+Besides Source processing, Topic Memory also uses the generic interfaces in [Manage Artifacts](artifacts.md):
+
+| Operation | Route |
+| --- | --- |
+| Create | `POST /v1/scopes/{scope_id}/artifacts` (`family` is `topic-memory`) |
+| Replace | `PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}` |
+| List heads | `GET /v1/scopes/{scope_id}/artifacts/{family}` |
+| Read a head, list revisions, read an exact revision | `GET /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}`, `.../revisions`, `.../revisions/{revision}` |
+| Read, replace, and query tags | `GET`/`PUT /v1/scopes/{scope_id}/artifacts/{family}/{artifact_id}/tags`, `POST /v1/scopes/{scope_id}/artifact-tags/query` |
+
+Creation requires `scope.contribute` on the target Scope, and the request body carries the complete `title`, `summary`,
+and `detail`. The content skips semantic generation: topic content, the current head, chunks, and the retrieval indexes
+enabled by the deployment are committed in one operation, so generic reads and the dedicated search see the same topic
+version. A replace requires current `scope.admin` access, creates the next immutable Revision, and must carry the current
+head's `If-Match`.
+
+Manage tags as described in [Organize with tags](manage-artifact-tags.md); whole-Artifact Topic Memory tags are
+read with `scope.read` and modified with `scope.admin`.
+
+Publish one exact Revision into another Scope with `POST /v1/artifact-publications`, which requires `scope.admin` in
+both the source and target Scopes. Publication creates an independent identity in the target Scope and carries its
+retrieval indexes; tags and direct Sources are not copied.
+
 ## Assemble into PreparedContext
 
 To inject topic summaries into one Agent turn, add `topic-memory` explicitly to `assembly` in
@@ -160,8 +190,7 @@ HTTP-only and is not exposed as an MCP tool.
 
 ## Current boundaries
 
-- There is no generic Topic Memory create, update, delete, or retire endpoint; topics are generated from Sources and stored as immutable Revisions.
-- Topic Memory is not in the current Taggable Artifact family list, so Memory, Experience, Skill, and Handoff tag APIs do not apply.
+- The generic interfaces do not accept Topic Memory delete or retire operations; topics are stored as immutable Revisions, and background processing or an explicit write advances the current head.
 - Source capture does not synchronously generate a topic; background processing and the required generation capability are needed.
 - Backups, recovery, worker availability, and retrieval failures belong to [deployment and operations](../operate/index.md), not this lifecycle.
 

@@ -20,6 +20,16 @@ it is temporary and does not create another Memory entry.
 Host tool names differ; see [Connect Agents](../integrations/index.md). The
 [HTTP API](../develop/http-api.md) exposes the complete request schemas and concurrency requirements.
 
+FTS uses the same query terms for candidate retrieval and admission. Query normalization excludes common English
+function words in longer queries and recognizes standalone execution instructions accompanying a question, such as
+"Use only supplied context" and "Do not call tools, read files, inspect old sessions, or delegate." Those instructions
+cannot supply evidence for an unrelated fact. Explicitly quoted terms remain searchable, including function words
+used as identifiers such as `"AND" "OR" precedence`. Domain-specific directives and unrecognized wording remain searchable;
+this is a conservative lexical rule, not a general intent classifier. The default threshold requires 25% of all
+remaining distinct terms, with a minimum of two matches; one- or two-term queries require one match. Direct search and
+prepared context share this rule, including when the optional recall gate relaxes the threshold. Stored text and
+vector queries are unchanged, and matching words alone do not establish semantic relevance.
+
 ## Automatic context and extraction
 
 Recall hooks ask the Server for bounded PreparedContext. An `empty` result is valid when no relevant information is

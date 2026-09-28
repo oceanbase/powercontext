@@ -46,6 +46,11 @@ unit-test: ## Run tests that do not cross the Server boundary end to end.
 e2e-test: ## Run CLI to Client SDK to Server end-to-end tests.
 	@uv run python -m pytest tests/e2e
 
+.PHONY: code-seekdb-test
+code-seekdb-test: ## Exercise native code indexing against a real embedded seekdb instance.
+	@uv sync --locked --extra seekdb --extra code
+	@uv run --locked --extra seekdb --extra code python -m pytest tests/e2e/test_native_code_seekdb.py
+
 .PHONY: real-e2e-test
 real-e2e-test: ## Run opt-in real Codex Experience/Skill tests; REAL_E2E_MODE defaults to all.
 	@uv run python -m pytest -s tests/e2e/real_experience_skill --run-real-e2e \

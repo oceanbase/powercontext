@@ -23,6 +23,7 @@ from powercontext.builtin.artifacts.memory.fusion import (
     admit_vector_candidates,
     fuse_rankings,
 )
+from powercontext.builtin.artifacts.search import AdmissionFloor
 
 
 def channel_hit(
@@ -99,6 +100,76 @@ def test_fts_admission_keeps_one_term_queries_usable() -> None:
     candidate = channel_hit("atomic", text="Use one atomic composition boundary.")
 
     assert admit_fts_candidates("atomic", (candidate,)) == (candidate,)
+
+
+@pytest.mark.parametrize(
+    "instructions",
+    [
+        "Use only the context already supplied to you. Do not call tools, read files, inspect old sessions, or delegate. "
+        "If the facts are absent, say unknown.",
+        "Answer concisely using available evidence. Avoid browsing websites, running commands, accessing documents, "
+        "querying external services, editing repositories, creating tasks, or starting background work.",
+    ],
+)
+@pytest.mark.parametrize("admission", [None, AdmissionFloor(lexical_coverage=0, lexical_min_matched_terms=1)])
+def test_long_prompt_admission_keeps_concise_facts_and_rejects_weak_overlap(instructions, admission) -> None:
+    query = "For the synthetic Quartz application, what are the deployment codename and validation command?"
+    facts = (
+        channel_hit("codename", text="The synthetic Quartz application has deployment codename QUARTZ-8413."),
+        channel_hit(
+            "validation", text="The validation command for the synthetic Quartz application is `python -m pytest -q`."
+        ),
+    )
+    unrelated = channel_hit("locks", text="Use PostgreSQL advisory locks for leader election.")
+    instruction_only = channel_hit("instructions", text=instructions)
+    candidates = (*facts, unrelated, instruction_only)
+
+    assert admit_fts_candidates(query, candidates, admission=admission) == facts
+    assert admit_fts_candidates(f"{query} {instructions}", candidates, admission=admission) == facts
+    assert admit_fts_candidates(f"{instructions} {query}", candidates, admission=admission) == facts
+
+
+def test_long_domain_query_still_requires_proportional_evidence() -> None:
+    query = " ".join(f"requirement{index}" for index in range(40))
+    weak = channel_hit("weak", text=" ".join(f"requirement{index}" for index in range(6)))
+    relevant = channel_hit("relevant", text=" ".join(f"requirement{index}" for index in range(12)))
+
+    assert admit_fts_candidates(query, (weak, relevant)) == (relevant,)
+
+
+@pytest.mark.parametrize(
+    ("query", "text"),
+    [
+        ("Which backups are safe? Do not read customer files without consent.", "Customer files require consent."),
+        ("What are the rules about calling tools and reading files?", "Do not call tools or read files."),
+        (
+            'Explain this policy: "Do not call tools. Do not read files. Never delegate."',
+            "Do not read files.",
+        ),
+        ("Do not call tools.", "Do not call tools."),
+    ],
+)
+def test_fts_keeps_domain_constraints_and_explicit_policy_queries(query, text) -> None:
+    candidate = channel_hit("policy", text=text)
+
+    assert admit_fts_candidates(query, (candidate,)) == (candidate,)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        '"AND" "OR" precedence',
+        "'AND' 'OR' precedence",
+        "`AND` `OR` precedence",
+        "“AND” “OR” precedence",
+        "‘AND’ ‘OR’ precedence",  # noqa: RUF001 - quoted identifiers use typographic single quotes.
+    ],
+)
+def test_quoted_function_words_remain_lexical_evidence(query) -> None:
+    operators = channel_hit("operators", text="AND binds more tightly than OR.")
+    arithmetic = channel_hit("arithmetic", text="Multiplication has precedence over addition.")
+
+    assert admit_fts_candidates(query, (operators, arithmetic)) == (operators,)
 
 
 def test_vector_admission_converts_unit_l2_distance_to_cosine_threshold() -> None:

@@ -6,8 +6,8 @@ description: 通过配置向导安装完整记忆能力，接入 Codex，并验�
 # 快速开始
 
 本页从安装开始，带你完成一次真实的记忆体验：在 Codex 中讨论项目，看到原始输入进入 Source、主题记忆生成并演进，
-再在新会话中找回决策。以下命令使用 PowerContext 1.0.0 正式版本，Agent 插件使用对应的
-`powercontext-v1.0.0` tag。
+再在新会话中找回决策。以下命令使用 PowerContext 1.1.0 正式版本，Agent 插件使用对应的
+`powercontext-v1.1.0` tag。
 
 需要 macOS 或 Linux、Python 3.11+、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/) 和已安装的 Codex CLI。
 完整记忆还需要可用的 Generation 和 Embedding 模型 API；准备好各自的地址、模型名和 API key。
@@ -17,7 +17,7 @@ Codex 或 Claude 的订阅登录不会自动为 PowerContext Server 提供这些
 ## 1. 安装并进入配置向导
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.0.0"
+uv tool install --force "powercontext[cli,server]==1.1.0"
 mkdir -p ~/powercontext-demo
 cd ~/powercontext-demo
 powercontext config init --language zh --output .env
@@ -54,9 +54,10 @@ powercontext config validate --env-file .env
 powercontext server run --env-file .env
 ```
 
-保持终端运行。在浏览器打开向导输出的 Dashboard 地址；本机默认是
-`http://127.0.0.1:8000/dashboard/home`，使用 **Server Token** 登录，不是模型 API key。
-首次没有数据是正常现象。需要关闭终端后继续运行时，改用[个人后台服务](../operate/deploy-server.md#运行持久个人-server)。
+保持终端运行。在浏览器打开向导输出的 Dashboard 地址，端口以 `.env` 中保存的
+`POWERCONTEXT_SERVER_HTTP_PORT` 为准。使用 **Server Token** 登录，不是模型 API key。
+首次没有数据是正常现象。需要关闭终端后继续运行时，先停止前台 Server，再通过
+`powercontext service install --env-file .env` 安装[个人后台服务](../operate/deploy-server.md#运行持久个人-server)，复用同一份配置。
 
 另开终端，加载客户端连接配置并检查服务：
 
@@ -91,7 +92,7 @@ POWERCONTEXT_CODEX_SCOPE_ID=替换为返回的scope_id
 set -a
 . ./.env
 set +a
-powercontext setup codex --ref powercontext-v1.0.0
+powercontext setup codex --ref powercontext-v1.1.0
 powercontext doctor codex
 codex
 ```

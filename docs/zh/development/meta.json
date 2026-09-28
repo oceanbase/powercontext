@@ -8,6 +8,7 @@
     "plugin-contract",
     "pydantic-ai-inference",
     "remote-access-implementation",
-    "dashboard"
+    "dashboard",
+    "desktop-delivery-plan"
   ]
 }

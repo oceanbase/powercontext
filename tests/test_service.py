@@ -372,6 +372,112 @@ def test_service_controller_installs_and_starts_one_native_registration(tmp_path
     assert adapter.events == ["write", "reload", "enable", "start:True"]
 
 
+def test_service_controller_allows_slow_native_startup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        if clock >= 45.0:
+            return ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok")
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+
+    status = ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    assert status.ok
+    assert clock >= 45.0
+
+
+def test_service_controller_keeps_waiting_while_the_native_job_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        # A first start with a cold bytecode cache: the port opens well after the
+        # wall-clock budget, but the native job never stopped making progress.
+        if clock >= 90.0:
+            return ProbeResult(ProbeState.LIVE, f"{endpoint} status=ok")
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+
+    status = ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    assert status.ok
+    assert clock >= 90.0
+
+
+def test_service_controller_stops_waiting_once_the_native_job_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    def start(*, reload_definition: bool) -> None:
+        adapter.events.append(f"start:{reload_definition}")
+        adapter.manager = ManagerState.FAILED
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+    monkeypatch.setattr(adapter, "start", start)
+
+    with pytest.raises(ServiceError, match="did not become live"):
+        ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    # The job is gone, so the grace period must not be entered at all.
+    assert 60.0 <= clock < 62.0
+
+
+def test_service_controller_gives_up_after_the_grace_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = FakeAdapter(tmp_path)
+    clock = 0.0
+
+    def monotonic() -> float:
+        return clock
+
+    def sleep(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    def probe(endpoint: str) -> ProbeResult:
+        return ProbeResult(ProbeState.UNREACHABLE, f"cannot reach {endpoint}")
+
+    monkeypatch.setattr("powercontext.service.controller.time.monotonic", monotonic)
+
+    # FakeAdapter.start() leaves the manager ACTIVE, so the port is the only thing missing.
+    with pytest.raises(ServiceError, match="did not become live"):
+        ServiceController(adapter, probe=probe, sleep=sleep).install()
+
+    # A running job earns a bounded extension, never an unbounded wait.
+    assert 180.0 <= clock < 182.0
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="login auto-start opt-out is Windows-specific")
 def test_service_controller_can_install_without_login_autostart(tmp_path: Path) -> None:
     adapter = FakeAdapter(tmp_path)
@@ -394,6 +500,28 @@ def test_service_install_is_idempotent_when_definition_is_current(tmp_path: Path
     status = controller.install()
 
     assert status.ok
+    assert adapter.events == ["enable"]
+
+
+def test_service_install_reconciles_native_settings_with_unchanged_metadata(tmp_path: Path) -> None:
+    adapter = FakeAdapter(tmp_path)
+    controller = ServiceController(adapter, probe=_manager_probe(adapter), sleep=lambda _: None)
+    controller.install()
+    assert adapter.definition is not None
+    definition = adapter.definition
+    # Native scheduling settings are not part of ServiceDefinition metadata.
+    adapter.content = b"previous native settings"
+    adapter.events.clear()
+
+    status = controller.install()
+
+    assert status.ok
+    assert adapter.definition == definition
+    assert adapter.content == adapter.render(definition)
+    assert adapter.events == ["write", "reload", "enable", "start:True"]
+
+    adapter.events.clear()
+    assert controller.install().ok
     assert adapter.events == ["enable"]
 
 
@@ -764,6 +892,7 @@ def test_launchd_definition_round_trips_with_argument_array_and_logs(
     assert installed.state is RegistrationState.INSTALLED
     assert installed.definition == definition
     assert payload["ProgramArguments"][0] == executable
+    assert payload["ProcessType"] == "Standard"
     assert payload["StandardOutPath"].replace("\\", "/").endswith("logs/server.stdout.log")
     retry_token = Path(definition.data_dir) / "logs" / "launchd-retry.enabled"
     assert payload["KeepAlive"] == {"PathState": {str(retry_token): True}}
@@ -1014,6 +1143,28 @@ def test_windows_uninstall_recovery_uses_scoped_task_commands(tmp_path: Path) ->
     assert adapter.uninstall_recovery("remove") == 'schtasks.exe /Delete /TN "\\PowerContext Test" /F /HRESULT'
 
 
+@pytest.mark.parametrize("changed_field", ["ProcessType", "ThrottleInterval", "ProgramArguments"])
+def test_launchd_inspect_accepts_only_an_intact_background_definition(tmp_path: Path, changed_field: str) -> None:
+    adapter = LaunchdUserAdapter(home=tmp_path, uid=501)
+    definition = _definition(tmp_path)
+    payload = plistlib.loads(adapter.render(definition))
+    payload["ProcessType"] = "Background"
+    adapter.write(plistlib.dumps(payload))
+
+    registration = adapter.inspect()
+
+    assert registration.state is RegistrationState.INSTALLED
+    assert registration.definition == definition
+
+    payload[changed_field] = {
+        "ProcessType": "Interactive",
+        "ThrottleInterval": 1,
+        "ProgramArguments": ["/bin/sleep", "30"],
+    }[changed_field]
+    adapter.artifact_path.write_bytes(plistlib.dumps(payload))
+    assert adapter.inspect().state is RegistrationState.INVALID
+
+
 def test_launchd_inspect_accepts_only_an_intact_legacy_owned_definition(tmp_path: Path) -> None:
     adapter = LaunchdUserAdapter(home=tmp_path, uid=501)
     definition = _definition(tmp_path, definition_version=1)
@@ -1029,6 +1180,7 @@ def test_launchd_inspect_accepts_only_an_intact_legacy_owned_definition(tmp_path
         "60",
     ]
     payload["KeepAlive"] = {"SuccessfulExit": False}
+    payload["ProcessType"] = "Background"
     adapter.artifact_path.parent.mkdir(parents=True)
     adapter.artifact_path.write_bytes(plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=True))
 

@@ -137,6 +137,9 @@ non_profile_reason = "Candidate decision authority is outside this capability co
 [[toolsets.tools]]
 id = "revise_artifact_candidate"
 non_profile_reason = "Candidate decision authority is outside this capability contract."
+[[toolsets.tools]]
+id = "query_code"
+non_profile_reason = "Experimental repository code queries require an explicit local repository binding and are disabled by default."
 
 [[toolsets]]
 id = "prompt-hooks"

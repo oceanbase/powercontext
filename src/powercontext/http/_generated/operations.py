@@ -36,6 +36,8 @@ from powercontext.http._generated.models import (
     CaptureContentSourceResponse,
     ClearScopeBindingRequest,
     ClearScopeBindingResponse,
+    CodeQueryRequest,
+    CodeQueryResponse,
     CommitConnectorCheckpointRequest,
     CommitHandoffRequest,
     CommittedHandoff,
@@ -179,7 +181,7 @@ from powercontext.http._generated.models import (
 OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
-API_VERSION = "1.0.0"
+API_VERSION = "1.1.0"
 
 RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
@@ -774,6 +776,35 @@ COMMIT_CONNECTOR_CHECKPOINT = Operation[CommitConnectorCheckpointRequest, Connec
     access=AccessRequirement(
         action="scope.contribute", resource="scope", scope_id_field="binding.scope_id", resolver="request"
     ),
+)
+
+QUERY_CODE = Operation[CodeQueryRequest, CodeQueryResponse](
+    method="POST",
+    path="/v1/scopes/{scope_id}/code/query",
+    operation_id="query_code",
+    request_type=CodeQueryRequest,
+    request_location="body",
+    path_parameters=("scope_id",),
+    response_type=CodeQueryResponse,
+    success_status=200,
+    summary="Query current repository code evidence",
+    tags=("code",),
+    scope_mode="current",
+    responses={
+        200: {
+            "description": "Bounded code evidence or index status.",
+            "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+        },
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+        501: {"description": "The requested code capability is unsupported."},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
 PREPARE_CONTEXT = Operation[PrepareContextRequest, PreparedContext](

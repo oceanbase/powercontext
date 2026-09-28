@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from email.message import Message
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -390,6 +391,11 @@ def test_setup_codex_persists_setup_only_token_in_codex_owned_storage(
         == "Bearer setup-token"
     )
     configure_desktop.assert_called_once_with("Bearer setup-token")
+    mcp = json.loads((tmp_path / "codex/plugins/cache/powercontext/powercontext/0.1.0/.mcp.json").read_text())
+    helper = mcp["mcpServers"]["powercontext"]["http_headers_helper"]
+    assert "mcp_headers.py" in helper
+    assert str(tmp_path / "codex/powercontext/credentials.json") in helper
+    assert "setup-token" not in json.dumps(mcp)
 
 
 def test_codex_diagnostics_use_matching_windows_user_authorization(tmp_path: Path, monkeypatch) -> None:
@@ -463,7 +469,7 @@ def test_codex_diagnostics_prefer_process_authorization_over_stale_stored_creden
     assert diagnostics["authorization"].checks == {
         "current_process": "configured",
         "setup_managed": "stale",
-        "desktop_restart": "not_configured",
+        "desktop_restart": "not_configured" if sys.platform == "win32" else "not_applicable",
     }
     assert "setup-managed credential is stale" in diagnostics["authorization"].detail
     assert diagnostics["mcp_tools"].status is DiagnosticStatus.OK
@@ -636,6 +642,48 @@ def test_codex_diagnostics_report_matching_desktop_override_separately_from_stal
         "desktop_restart": "matches_current_process",
     }
     probe.assert_called_once_with(authorization="Bearer replacement-token")
+
+
+@pytest.mark.parametrize("process_override", [False, True])
+def test_codex_diagnostics_probe_the_native_credential_helper_without_injecting_storage(
+    tmp_path: Path, monkeypatch, process_override: bool
+) -> None:
+    monkeypatch.setattr(system_cli, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        system_cli,
+        "_run_codex_json",
+        lambda *_args: {
+            "installed": [
+                {"name": "powercontext", "pluginId": "powercontext@powercontext", "installed": True, "enabled": True}
+            ]
+        },
+    )
+    servers = system_cli._run_codex_mcp_list()
+    servers[0]["transport"]["http_headers_helper"] = "<redacted>"
+    monkeypatch.setattr(system_cli, "_run_codex_mcp_list", lambda: servers)
+    authorization_cli.write_stored_authorization(
+        tmp_path / "codex/powercontext/credentials.json",
+        server_url="http://127.0.0.1:8000",
+        value="Bearer saved-test-token",
+    )
+    if process_override:
+        monkeypatch.setenv("POWERCONTEXT_CODEX_AUTHORIZATION", "Bearer override-test-token")
+    probe = Mock(return_value={"name": "powercontext", "tools": {"remember_memory": {}, "search_memory": {}}})
+    monkeypatch.setattr(system_cli, "_probe_codex_mcp_status", probe)
+
+    diagnostics = system_cli.run_codex_diagnostics()
+
+    assert diagnostics["authorization"].ok
+    assert diagnostics["mcp_tools"].ok
+    probe.assert_called_once_with(authorization="Bearer override-test-token" if process_override else None)
+    report = json.dumps({key: value.as_json() for key, value in diagnostics.items()})
+    assert "saved-test-token" not in report
+    assert "override-test-token" not in report
+    if not process_override:
+        assert diagnostics["authorization"].checks is not None
+        assert diagnostics["authorization"].checks["setup_managed"] == "available_to_host"
+    if sys.platform != "win32":
+        assert "Windows" not in report
 
 
 def test_codex_diagnostics_fail_when_setup_credential_is_unavailable_to_host(tmp_path: Path, monkeypatch) -> None:

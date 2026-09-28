@@ -56,6 +56,7 @@ class _McpEndpoint(BaseModel):
     url: str
     required: bool
     env_http_headers: dict[str, str]
+    http_headers_helper: str | None = None
 
     @model_validator(mode="after")
     def validate_url(self) -> _McpEndpoint:
@@ -141,10 +142,11 @@ class CodexPluginSettings(BaseSettings):
     bootstrap_context: bool = False
     bootstrap_max_bytes: int = Field(default=4096, ge=512, le=8192)
     bootstrap_handoff: BootstrapHandoff | None = None
+    include_code: bool = False
     capture_prompts: bool = True
     flush_on_capture: bool = False
-    request_timeout_seconds: float = Field(default=1.0, gt=0)
-    http_budget_seconds: float = Field(default=4.0, gt=0)
+    request_timeout_seconds: float = Field(default=3.0, gt=0)
+    http_budget_seconds: float = Field(default=6.0, gt=0)
     flush_max_calls: int = Field(default=4, ge=1, le=16)
 
     @field_validator("allow_insecure_http", mode="before")
@@ -220,8 +222,10 @@ def _server_url_from_mcp_configuration() -> str:
     return _http_base_url(configuration.mcp_servers["powercontext"].url, allow_insecure_http=True)
 
 
-def _stored_authorization(server_url: str) -> str | None:
-    path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser() / "powercontext" / "credentials.json"
+def _stored_authorization(server_url: str, *, credential_file: Path | None = None) -> str | None:
+    path = credential_file or (
+        Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser() / "powercontext" / "credentials.json"
+    )
     try:
         if path.is_symlink() or not path.is_file() or (os.name != "nt" and stat.S_IMODE(path.stat().st_mode) & 0o077):
             return None
@@ -243,6 +247,8 @@ def _stored_authorization(server_url: str) -> str | None:
             scheme.casefold() != "bearer"
             or not separator
             or not credential
+            or not credential.isascii()
+            or not credential.isprintable()
             or any(character.isspace() for character in credential)
         ):
             return None

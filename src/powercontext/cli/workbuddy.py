@@ -69,7 +69,7 @@ WORKBUDDY_MCP_AUTHORIZATION = f"${{{WORKBUDDY_AUTHORIZATION_ENV}:-}}"
 WORKBUDDY_LEGACY_MCP_URL = "http://127.0.0.1:8000/mcp"
 WORKBUDDY_MCP_DESCRIPTION = "PowerContext agent memory & handoff MCP server (local service on port 8000)"
 WORKBUDDY_HOOK_STATUS_MESSAGE = "Syncing PowerContext"
-WORKBUDDY_HOOK_TIMEOUT = 10
+WORKBUDDY_HOOK_TIMEOUT = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +135,6 @@ def install_workbuddy_plugin(*, source: str, ref: str, server_url: str | None = 
     from powercontext.cli.authorization import (
         configure_stored_authorization,
         setup_authorization_value,
-        setup_server_url,
     )
 
     return WorkBuddySetupResult(
@@ -146,7 +145,7 @@ def install_workbuddy_plugin(*, source: str, ref: str, server_url: str | None = 
         data_dir=str(data_dir),
         authorization_state=configure_stored_authorization(
             "workbuddy",
-            server_url=setup_server_url("workbuddy", "http://127.0.0.1:8000"),
+            server_url=server_url or "http://127.0.0.1:8000",
             value=setup_authorization_value("workbuddy"),
         ),
     )

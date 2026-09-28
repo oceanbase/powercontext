@@ -6,8 +6,8 @@ description: Configure full memory, connect Codex, and verify Source capture, To
 # Quick Start
 
 Start with installation, discuss a project in Codex, watch its input become Source evidence and an evolving topic,
-then recover the decisions in a new session. These instructions use the stable PowerContext 1.0.0 release,
-with the Agent plugin from the matching `powercontext-v1.0.0` tag.
+then recover the decisions in a new session. These instructions use the stable PowerContext 1.1.0 release,
+with the Agent plugin from the matching `powercontext-v1.1.0` tag.
 
 You need macOS or Linux, Python 3.11+, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/),
 and an installed Codex CLI. Full memory also needs working Generation and Embedding model APIs:
@@ -18,7 +18,7 @@ and recall; that does not enable automatic Topic Memory.
 ## 1. Install and open the wizard
 
 ```bash
-uv tool install --force "powercontext[cli,server]==1.0.0"
+uv tool install --force "powercontext[cli,server]==1.1.0"
 mkdir -p ~/powercontext-demo
 cd ~/powercontext-demo
 powercontext config init --language en --output .env
@@ -55,10 +55,11 @@ powercontext config validate --env-file .env
 powercontext server run --env-file .env
 ```
 
-Keep the terminal running. Open the Dashboard URL printed by the wizard; the local default is
-`http://127.0.0.1:8000/dashboard/home`. Sign in with the **Server token**, not a model API key.
-An empty Dashboard is expected before you capture data. For operation after closing the terminal, use a
-[persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server).
+Keep the terminal running. Open the Dashboard URL printed by the wizard, using the port saved as
+`POWERCONTEXT_SERVER_HTTP_PORT` in `.env`. Sign in with the **Server token**, not a model API key.
+An empty Dashboard is expected before you capture data. For operation after closing the terminal, stop the foreground
+Server and install a [persistent personal service](../operate/deploy-server.md#run-a-persistent-personal-server)
+with `powercontext service install --env-file .env` to reuse the same configuration.
 
 Open another terminal, load the client settings, and check the running service:
 
@@ -93,7 +94,7 @@ Reload the client settings and install the matching plugin:
 set -a
 . ./.env
 set +a
-powercontext setup codex --ref powercontext-v1.0.0
+powercontext setup codex --ref powercontext-v1.1.0
 powercontext doctor codex
 codex
 ```

@@ -178,6 +178,14 @@ def validate_dsh_setup_transport() -> None:
         ) from None
 
 
+def configured_native_endpoint(host: str) -> str | None:
+    """Read only explicitly configured native endpoints for setup conflict detection."""
+    if host == "codex":
+        return _codex_url()
+    native, url_key, _ = _native_settings(host)
+    return _url(native[url_key]) if url_key in native else None
+
+
 def resolve_host_transport(host: str) -> tuple[str, bool]:
     """Resolve the effective endpoint and consent, or report an unknown native configuration.
 

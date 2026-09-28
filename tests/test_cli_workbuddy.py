@@ -148,7 +148,7 @@ def test_setup_workbuddy_installs_from_a_local_checkout(tmp_path: Path, monkeypa
     settings = json.loads((home / "settings.json").read_text(encoding="utf-8"))
     hook = _powercontext_hook(settings)
     assert hook["command"] == _expected_hook_command(hooks_dir)
-    assert hook["timeout"] == 10
+    assert hook["timeout"] == 30
     assert hook["statusMessage"] == "Syncing PowerContext"
 
     mcp = json.loads((home / "mcp.json").read_text(encoding="utf-8"))
@@ -400,7 +400,7 @@ def test_setup_workbuddy_updates_an_existing_powercontext_hook(tmp_path: Path, m
     assert len(matchers) == 1
     hook = matchers[0]["hooks"][0]
     assert hook["command"] == _expected_hook_command(home / "hooks")
-    assert hook["timeout"] == 10
+    assert hook["timeout"] == 30
     assert hook["statusMessage"] == "Syncing PowerContext"
     assert hook["custom"] == "preserved"
 

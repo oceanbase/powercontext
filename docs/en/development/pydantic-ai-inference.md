@@ -92,7 +92,10 @@ the selected Pydantic AI provider.
 
 The Server rejects a partial embedding profile. `embedding_model`, `embedding_profile_id`, and `embedding_dimension`
 must be configured together. SQLite vector search uses that embedding configuration because the index dimension and
-stored vectors must agree.
+stored vectors must agree. `embedding_dimension` is also sent as the `dimensions` request field by default, and it
+overrides a `dimensions` value in model settings. For a fixed-dimension model that rejects the field, set
+`POWERCONTEXT_SERVER_INFERENCE_EMBEDDING_SEND_DIMENSIONS` to `false`. The local dimension stays required, and returned
+vectors are still validated against it.
 
 ## Compose generation directly
 

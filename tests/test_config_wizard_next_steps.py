@@ -31,6 +31,12 @@ from powercontext.cli.config_wizard_ui import WizardUI
 from powercontext.cli.env_file import parse_environment
 
 
+@pytest.fixture(autouse=True)
+def available_listener(monkeypatch) -> None:
+    """Keep instruction tests independent of locally occupied listener ports."""
+    monkeypatch.setattr(wizard, "_listener_port_available", lambda host, port: True)
+
+
 @pytest.mark.parametrize(
     "agents",
     [
@@ -43,16 +49,16 @@ def test_mixed_ssh_agents_keep_their_endpoints_and_codex_client_checks(tmp_path,
     result = CliRunner().invoke(
         app,
         ["init", "--language", "en", "--output", str(output)],
-        input=f"sqlite\n{tmp_path / 'context.db'}\nremote\nbase\ny\nssh\nt1\n18000\n{agents}none\ny\n",
+        input=f"sqlite\n{tmp_path / 'context.db'}\nremote\nbase\ny\nssh\n\nt1\n18000\n{agents}none\ny\n",
     )
 
     assert result.exit_code == 0, result.output
     client = parse_environment(output.read_text())
     assert client["POWERCONTEXT_CLIENT_SERVER_URL"] == "http://127.0.0.1:18000"
-    assert client["POWERCONTEXT_CLAUDE_SERVER_URL"] == "http://127.0.0.1:8000"
+    assert client["POWERCONTEXT_CLAUDE_SERVER_URL"] == "http://127.0.0.1:17429"
     steps = output.with_name("server.env.next-steps.md").read_text()
     assert "Run each Agent's commands on the computer where that Agent will run" in steps
-    assert "POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:8000 powercontext ready" in steps
+    assert "POWERCONTEXT_CLIENT_SERVER_URL=http://127.0.0.1:17429 powercontext ready" in steps
 
 
 def _state() -> wizard.Wizard:

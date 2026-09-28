@@ -119,6 +119,10 @@ from powercontext.builtin.artifacts.topic_memory import (
     TopicMemorySearchMode,
     TopicMemorySearchResult,
 )
+from powercontext.builtin.code.application import CodeApplication
+from powercontext.builtin.code.errors import CodeError
+from powercontext.builtin.code.models import CodeConfig, CodeQueryRequest, CodeQueryResult
+from powercontext.builtin.code.service import CodeService
 from powercontext.builtin.context import BuiltinArtifacts, BuiltinSources
 from powercontext.builtin.dream.application import DreamApplication
 from powercontext.builtin.dream.service import CandidateAttester, DreamAuthorizer, DreamService
@@ -128,6 +132,7 @@ from powercontext.builtin.inference import (
     InferenceTimeoutError,
     InferenceUnavailableError,
     InvalidInferenceOutputError,
+    embed_query,
 )
 from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
@@ -168,6 +173,7 @@ from powercontext.builtin.runtime.bootstrap_context import (
     BootstrapCandidate,
     build_bootstrap_context,
 )
+from powercontext.builtin.runtime.decision_model import DecisionModel
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
@@ -221,6 +227,7 @@ from powercontext.builtin.runtime.models import (
     SubmitSourceObservation,
     TopicMemoryFlushResult,
 )
+from powercontext.builtin.runtime.prepared_code import PreparedCodeCandidate, code_candidates
 from powercontext.builtin.runtime.prepared_context import (
     PreparedContextBuild,
     PreparedContextBuilder,
@@ -340,6 +347,9 @@ TopicMemorySearchObserver = Callable[[str, bool], None]
 
 logger = logging.getLogger(__name__)
 
+# Leave room for database reads and assembly within the default one-second Hook request.
+_CONTEXT_TOPIC_EMBEDDING_TIMEOUT_SECONDS = 0.25
+
 _MEMORY_CAPTURE_STAGE = "memory.capture"
 _MEMORY_CAPTURE_SOURCE_COUNT = "powercontext.memory.capture.source_count"
 _MEMORY_SEARCH_STAGE = "memory.search"
@@ -386,8 +396,8 @@ class TopicMemoryRecallOutcome:
     Produced and consumed entirely inside the Runtime layer, which is why it lives here rather
     than under ``artifacts/**``. ``query_embedding`` is the vector this search resolved (or
     reused); a later expansion round can hand it back so the next search does not re-embed. It
-    stays ``None`` when the search ran without a vector channel, in which case the next round
-    must pay for its own embedding.
+    stays ``None`` when the search ran without a vector channel. Prepare caches that outcome
+    too, so expansion rounds retain FTS after a failed embedding attempt.
     """
 
     hits: tuple[TopicMemorySearchHit, ...] = ()
@@ -857,7 +867,7 @@ class ScopedContextApplication:
         ):
             raise InvalidRuntimeRequestError("context-assembly-entry-limit")
         async with self._runtime._scope_operation(self.scope_id) as scope:
-            if request.assembly is not None and not request.assembly.sections:
+            if request.assembly is not None and not request.assembly.sections and not request.include_code:
                 return PreparedContextBuilder().empty()
             if authorize_scopes is not None:
                 await authorize_scopes((self.scope_id, *scope.context_references))
@@ -921,6 +931,8 @@ class ScopedContextApplication:
         """
 
         builder = PreparedContextBuilder()
+        if request.include_code:
+            builder.entry_limit = self._runtime.context_assembly_max_entries
         scope_ids = [self.scope_id, *scope.context_references]
         families: set[str] = (
             {section.family for section in request.assembly.sections}
@@ -930,7 +942,7 @@ class ScopedContextApplication:
         # Caller-owned cache of the query vectors round 0 already paid for, keyed by scope.
         # Expansion rounds read it so a repeat search does not re-embed; round 0 fills it.
         reuse: dict[str, MemoryQueryEmbedding] = {}
-        topic_reuse: dict[str, MemoryQueryEmbedding] = {}
+        topic_reuse: dict[str, MemoryQueryEmbedding | None] = {}
         injected_memory_keys: frozenset[tuple[object, ...]] = frozenset()
         if request.bootstrap_receipt_id is not None and self._runtime._bootstrap_receipts is not None:
             receipts = self._runtime._bootstrap_receipts
@@ -986,6 +998,7 @@ class ScopedContextApplication:
                 round_zero=round_zero,
                 excluded_memory=injected_memory_keys,
             )
+        code = await self._code_candidates(request) if request.include_code else ()
         with self._runtime._stage(
             "context.build",
             attributes={
@@ -998,6 +1011,7 @@ class ScopedContextApplication:
                     len(candidates.hits) for candidates in experience_candidates
                 ),
                 "powercontext.context.build.profile_candidate_count": len(profile_candidates),
+                "powercontext.context.build.code_candidate_count": len(code),
             },
         ) as span:
             build = builder.build_scopes_result(
@@ -1007,6 +1021,7 @@ class ScopedContextApplication:
                 topic_memory_hits=topic_memory_hits,
                 experience_candidates=experience_candidates,
                 profile_candidates=profile_candidates,
+                code_candidates=code,
             )
             if recall_effort is not None:
                 recall_effort = replace(
@@ -1018,7 +1033,10 @@ class ScopedContextApplication:
                 )
             if span is not None:
                 span.set_attributes({
-                    "powercontext.context.build.selected_count": len(build.origins),
+                    "powercontext.context.build.selected_count": len(build.origins) + len(build.code_origins),
+                    "powercontext.context.build.code_selected_count": len(build.code_origins),
+                    "powercontext.context.build.code_injected_count": len(build.code_origins),
+                    "powercontext.context.build.code_omitted_count": max(0, len(code) - len(build.code_origins)),
                     "powercontext.context.build.status": build.context.status,
                     "powercontext.context.build.content_bytes": build.context.content_bytes,
                 })
@@ -1034,6 +1052,37 @@ class ScopedContextApplication:
                     })
         return build, recall_effort
 
+    async def _code_candidates(self, request: PrepareContextRequest) -> tuple[PreparedCodeCandidate, ...]:
+        try:
+            result = await self._runtime.code.for_scope(self.scope_id).query(
+                CodeQueryRequest.model_validate({
+                    "operation": {"kind": "explore", "query": request.query},
+                    "max_bytes": 16000,
+                })
+            )
+        except CodeError as error:
+            log_safely(
+                logger,
+                logging.INFO,
+                "Code context unavailable",
+                extra={
+                    "event": "context.code.unavailable",
+                    "reason": error.code,
+                },
+            )
+            return ()
+        candidates = code_candidates(result) if isinstance(result, CodeQueryResult) else ()
+        log_safely(
+            logger,
+            logging.INFO,
+            "Code context retrieved",
+            extra={
+                "event": "context.code.retrieved",
+                "candidate_count": len(candidates),
+            },
+        )
+        return candidates
+
     async def _gated_recall_effort(  # noqa: C901 - the bounded expansion loop is intentionally explicit
         self,
         *,
@@ -1047,7 +1096,7 @@ class ScopedContextApplication:
         topic_memory_hits: tuple[TopicMemorySearchHit, ...],
         profile_candidates: Sequence[PreparedProfileCandidate],
         reuse: dict[str, MemoryQueryEmbedding],
-        topic_reuse: dict[str, MemoryQueryEmbedding],
+        topic_reuse: dict[str, MemoryQueryEmbedding | None],
         round_zero: _RecallRoundOutcome,
         excluded_memory: frozenset[tuple[object, ...]],
     ) -> tuple[
@@ -1266,7 +1315,7 @@ class ScopedContextApplication:
         *,
         admission: AdmissionFloor | None,
         reuse: dict[str, MemoryQueryEmbedding],
-        topic_reuse: dict[str, MemoryQueryEmbedding],
+        topic_reuse: dict[str, MemoryQueryEmbedding | None],
         excluded_memory: frozenset[tuple[object, ...]],
     ) -> _RecallRoundOutcome:
         memory_candidates: list[PreparedMemoryCandidates] = []
@@ -1314,11 +1363,12 @@ class ScopedContextApplication:
                 builder.topic_memory_candidate_limit,
                 admission=admission,
                 reuse=topic_reuse.get(self.scope_id),
+                allow_embedding=self.scope_id not in topic_reuse or topic_reuse[self.scope_id] is not None,
             )
             if TOPIC_MEMORY_FAMILY in families
             else TopicMemoryRecallOutcome()
         )
-        if topic_outcome.query_embedding is not None:
+        if TOPIC_MEMORY_FAMILY in families:
             topic_reuse[self.scope_id] = topic_outcome.query_embedding
         return _RecallRoundOutcome(
             memory=tuple(memory_candidates),
@@ -1443,6 +1493,7 @@ class ScopedContextApplication:
         *,
         admission: AdmissionFloor | None,
         reuse: MemoryQueryEmbedding | None,
+        allow_embedding: bool,
     ) -> TopicMemoryRecallOutcome:
         configured = self._runtime._topic_memory_search is not None
         bounded_query = _bounded_topic_memory_recall_query(query)
@@ -1461,6 +1512,8 @@ class ScopedContextApplication:
                         SearchTopicMemoryRequest(query=bounded_query, limit=limit),
                         admission=admission,
                         query_embedding=reuse,
+                        embedding_timeout_seconds=_CONTEXT_TOPIC_EMBEDDING_TIMEOUT_SECONDS,
+                        allow_embedding=allow_embedding,
                     )
                 )
             )
@@ -2996,6 +3049,8 @@ class ScopedTopicMemoryApplication:
         *,
         admission: AdmissionFloor | None = None,
         query_embedding: MemoryQueryEmbedding | None = None,
+        embedding_timeout_seconds: float | None = None,
+        allow_embedding: bool = True,
     ) -> TopicMemorySearchResult:
         search = self._runtime._topic_memory_search
         if search is None:
@@ -3013,7 +3068,10 @@ class ScopedTopicMemoryApplication:
             self.scope_id,
             embedding_purpose=ModelUsagePurpose.TOPIC_MEMORY_RECALL,
         ):
-            embedding = self._runtime._topic_memory_embedding_model
+            embedding = self._runtime._topic_memory_embedding_model if allow_embedding else None
+            browse = self._runtime._topic_memory_browse
+            if embedding is not None and browse is not None and not await browse(self.scope_id, limit=1, after=None):
+                embedding = None
             if embedding is None:
                 result = await search(
                     self.scope_id,
@@ -3030,6 +3088,7 @@ class ScopedTopicMemoryApplication:
                     search,
                     admission,
                     query_embedding,
+                    embedding_timeout_seconds,
                 )
         observer = self._runtime._topic_memory_search_observer
         if observer is not None:
@@ -3056,6 +3115,7 @@ class ScopedTopicMemoryApplication:
         search: TopicMemorySearch,
         admission: AdmissionFloor | None,
         query_embedding: MemoryQueryEmbedding | None,
+        embedding_timeout_seconds: float | None,
     ) -> tuple[TopicMemorySearchResult, bool]:
         if query_embedding is not None and query_embedding.embedding_profile == embedding.profile:
             result = await search(
@@ -3069,10 +3129,11 @@ class ScopedTopicMemoryApplication:
             )
             return result.model_copy(update={"query_embedding": query_embedding, "embedding_calls": 0}), False
         try:
-            embedded = await embedding.embed((request.query,))
+            async with asyncio.timeout(embedding_timeout_seconds):
+                embedded = await embed_query(embedding, (request.query,))
             if len(embedded.vectors) != 1:
                 raise InvalidInferenceOutputError("embed", "provider returned the wrong vector count")
-        except (InferenceUnavailableError, InferenceTimeoutError) as error:
+        except (InferenceUnavailableError, InferenceTimeoutError, TimeoutError) as error:
             used_fallback = True
             log_safely(
                 logger,
@@ -3083,7 +3144,9 @@ class ScopedTopicMemoryApplication:
                     "outcome": "fallback",
                     "mode": "fts",
                     "error_code": (
-                        "inference_timeout" if isinstance(error, InferenceTimeoutError) else "inference_unavailable"
+                        "inference_timeout"
+                        if isinstance(error, (InferenceTimeoutError, TimeoutError))
+                        else "inference_unavailable"
                     ),
                     "unit": "topic-memory",
                 },
@@ -3325,6 +3388,7 @@ class BuiltinRuntime:
         *,
         provider: PowerContextProvider[BuiltinSources, BuiltinArtifacts, BuiltinTriggers],
         capabilities: RuntimeCapabilities,
+        code_service: CodeService | None = None,
         source_window_limit: int = 100,
         context_assembly_max_entries: int = 8,
         recall_sufficiency_policy: RecallSufficiencyPolicy | None = None,
@@ -3364,6 +3428,7 @@ class BuiltinRuntime:
         prompt_service: PromptService | None = None,
         recall_token_estimator: RecallTokenEstimator | None = None,
         recall_effort_sink: RecallEffortSink | None = None,
+        decision_model: DecisionModel | None = None,
         publication_application: ArtifactPublicationApplication | None = None,
         scope_application: ScopeApplication | None = None,
         readiness: RuntimeReadinessChecks | None = None,
@@ -3420,6 +3485,9 @@ class BuiltinRuntime:
         self._prompt_service = prompt_service
         self._recall_token_estimator = recall_token_estimator
         self._recall_effort_sink = recall_effort_sink
+        # Public read-only seam for the cross-family decision role; deterministic Runtime callers
+        # (and tests) read it directly, and it is always fail-open wrapped before it gets here.
+        self.decision_model = decision_model
         self.publications = publication_application
         self.scopes = scope_application
         self._readiness = RuntimeReadinessChecks() if readiness is None else readiness
@@ -3446,6 +3514,7 @@ class BuiltinRuntime:
         self._scheduler_runtime_key: str | None = None
         self.sources = SourceApplication(self)
         self.ingestion = RemoteIngestionApplication(self, remote_ingestion)
+        self.code = CodeApplication(self, code_service or CodeService(CodeConfig()))
         self.context = ContextApplication(self)
         self.bootstrap = BootstrapApplication(self)
         self.experience = ExperienceApplication(self)

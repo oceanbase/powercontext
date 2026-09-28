@@ -482,6 +482,7 @@ def test_prepared_context_is_a_generic_typed_operation_outside_the_mcp_memory_to
         "max_bytes",
         "assembly",
         "bootstrap_receipt_id",
+        "include_code",
     }
     assert set(schemas["PreparedContext"]["properties"]) == {"schema", "status", "content", "content_bytes"}
     assert not {"memory", "mode", "selection"} & set(schemas["PreparedContext"]["properties"])
@@ -951,7 +952,10 @@ def test_base_access_uses_a_dedicated_source_type_reference() -> None:
         "ReplaceHandoffArtifactRequest",
     ):
         assert "sources" not in schemas[request_name]["properties"]
-    assert SourceTypeReference(source_type=SourceType.CONTENT, source_id="source").source_type is SourceType.CONTENT
+    for source_type in ("content", "note"):
+        for source_id in ("source", "用户偏好", "release notes"):
+            reference = SourceTypeReference(source_type=source_type, source_id=source_id)
+            assert reference.model_dump() == {"source_type": source_type, "source_id": source_id}
 
 
 def test_base_access_operations_describe_create_and_conditional_get() -> None:

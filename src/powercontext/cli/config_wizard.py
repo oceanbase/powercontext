@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -55,6 +56,7 @@ SERVER = "POWERCONTEXT_SERVER_"
 RUNTIME = f"{SERVER}RUNTIME_"
 INFERENCE = f"{SERVER}INFERENCE_"
 CLIENT = "POWERCONTEXT_CLIENT_"
+SUGGESTED_SERVER_PORT = 17429
 FEATURES = (
     ("memory", "Automatic Memory extraction", "后台 Memory 提取"),
     ("topic-memory", "Automatic Topic Memory", "Topic Memory 自动整理"),
@@ -434,18 +436,76 @@ def _server_url(ui: WizardUI, default: str) -> str:
             )
 
 
-def _stored_network_port(state: Wizard) -> tuple[int, bool]:
+def _stored_network_port(state: Wizard) -> int:
+    """Return a valid editable port default, warning when stored input is invalid."""
     try:
-        port = int(state.values.get(f"{SERVER}HTTP_PORT", "8000"))
+        port = int(state.values.get(f"{SERVER}HTTP_PORT", str(SUGGESTED_SERVER_PORT)))
     except ValueError:
         port = 0
     if 1 <= port <= 65535:
-        return port, False
+        return port
     state.ui.say(
-        "The existing Server port is invalid. Using 8000 as the editable default.",
-        "已有 Server 端口无效，将以 8000 作为可修改的默认值。",
+        f"The existing Server port is invalid. Using {SUGGESTED_SERVER_PORT} as the editable default.",
+        f"已有 Server 端口无效，将以 {SUGGESTED_SERVER_PORT} 作为可修改的默认值。",
     )
-    return 8000, True
+    return SUGGESTED_SERVER_PORT
+
+
+def _listener_port_available(host: str, port: int) -> bool:
+    """Probe local TCP bind availability; propagate errors other than address in use."""
+    addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    for family, socket_type, protocol, _, address in addresses:
+        with socket.socket(family, socket_type, protocol) as listener:
+            try:
+                listener.bind(address)
+            except OSError as error:
+                if error.errno == errno.EADDRINUSE:
+                    return False
+                raise
+    return True
+
+
+def _listener_port(state: Wizard, host: str, default: int, *, behind_proxy: bool = False) -> int:
+    """Ask for a validated local port and let the user resolve listener conflicts."""
+    ui = state.ui
+    while True:
+        port = ui.integer(
+            "Server port behind the proxy" if behind_proxy else "Server port",
+            "反向代理后的 Server 端口" if behind_proxy else "Server 端口",
+            default=default,
+            maximum=65535,
+        )
+        try:
+            available = _listener_port_available(host, port)
+        except OSError:
+            state.note(
+                f"Could not verify local listener {host}:{port}; check bind permissions and availability before startup.",
+                f"无法验证本机监听地址 {host}:{port}；启动前请检查绑定权限及端口可用性。",
+            )
+            return port
+        if available:
+            return port
+        ui.say(
+            f"Server port {host}:{port} is already in use.",
+            f"Server 端口 {host}:{port} 已被占用。",
+        )
+        choice = ui.choose(
+            "How should this port conflict be handled?",
+            "如何处理端口冲突？",
+            [
+                ("change", "Choose another port", "换一个端口"),
+                ("keep", "Keep this port; stop the occupying process before startup", "继续使用；启动前停止占用进程"),
+            ],
+            default="change",
+        )
+        if choice == "keep":
+            state.note(
+                f"Before starting Server on {host}:{port}, stop or terminate the process occupying this port. "
+                "The wizard will not terminate it for you.",
+                f"在 {host}:{port} 启动 Server 前，必须先停止或终止占用该端口的进程；向导不会自动结束该进程。",
+            )
+            return port
+        default = port
 
 
 def _custom_access(state: Wizard, port: int) -> tuple[str, int, str]:
@@ -458,7 +518,7 @@ def _custom_access(state: Wizard, port: int) -> tuple[str, int, str]:
         default=default_host,
         required=True,
     )
-    port = state.ui.integer("Server port", "Server 端口", default=port, maximum=65535)
+    port = _listener_port(state, host, port)
     state.ui.say(
         "The built-in Server provides HTTP only. The client URL below must be the HTTPS address exposed by your "
         "existing proxy, gateway, or load balancer.",
@@ -479,7 +539,7 @@ def _reverse_proxy_access(state: Wizard, port: int) -> tuple[str, int, str]:
         "PowerContext will stay on loopback behind an HTTPS proxy such as Nginx or Caddy.",
         "PowerContext 将监听环回地址，并由 Nginx、Caddy 等 HTTPS 反向代理对外提供服务。",
     )
-    port = state.ui.integer("Server port behind the proxy", "反向代理后的 Server 端口", default=port, maximum=65535)
+    port = _listener_port(state, "127.0.0.1", port, behind_proxy=True)
     address = _server_url(state.ui, state.values.get(f"{SERVER}PUBLIC_URL", ""))
     state.patch({f"{SERVER}PUBLIC_URL": address})
     state.note(
@@ -518,13 +578,21 @@ def _network(state: Wizard) -> None:
     dashboard = ui.confirm(
         "Enable the browser Dashboard? This also enables authenticated access and creates or retains a Server token.",
         "开启浏览器 Dashboard？这会同时启用访问认证，并生成或沿用 Server Token。",
-        default=state.values.get(f"{SERVER}DASHBOARD_ENABLED", "true") == "true",
+        default=state.values.get(f"{SERVER}DASHBOARD_ENABLED", "false") == "true",
     )
-    port, invalid_port = _stored_network_port(state)
+    ui.say(
+        "Dashboard, HTTP API, and MCP share the same Server listener and port.",
+        "Dashboard、HTTP API 和 MCP 共用同一个 Server 监听地址和端口。",
+    )
+    state.note(
+        "If Server is already running, restart it with the saved configuration for changes to take effect.",
+        "如果 Server 已在运行，请使用保存后的配置重启服务，修改才会生效。",
+    )
+    port = _stored_network_port(state)
     state.forwarded_address = ""
     state.ssh_tunnel_command = ""
-    if state.scenario == "local" and (invalid_port or port != 8000):
-        port = ui.integer("Server port", "Server 端口", default=port, maximum=65535)
+    if state.scenario == "local":
+        port = _listener_port(state, "127.0.0.1", port)
     host = "127.0.0.1"
     address = f"http://127.0.0.1:{port}"
     if state.scenario != "local":
@@ -547,9 +615,7 @@ def _network(state: Wizard) -> None:
             default="custom",
         )
         if access == "ssh":
-            if invalid_port:
-                port = ui.integer("Server port", "Server 端口", default=port, maximum=65535)
-                address = f"http://127.0.0.1:{port}"
+            port = _listener_port(state, "127.0.0.1", port)
             host, port, address = _ssh_forwarding_access(state, port, dashboard)
         elif access == "https":
             host, port, address = _reverse_proxy_access(state, port)
@@ -1556,11 +1622,11 @@ def _codex_endpoint_steps(state: Wizard) -> list[str]:
     }
     return [
         state.ui.text(
-            "Codex: setup codex applies the following connection. On Windows it also configures the current user's "
-            "Codex authorization environment. If you change the connection manually, rerun setup codex, then restart "
-            "Codex.",
-            "Codex：setup codex 会应用下方连接；在 Windows 上还会配置当前用户的 Codex 鉴权环境。"
-            "如果手工修改连接，请重新运行 setup codex，然后重启 Codex。",
+            "Codex: setup codex applies the following connection and installs a credential helper so new sessions "
+            "can use saved authorization without exporting it. If you change the connection manually, rerun setup "
+            "codex, then restart Codex. Preserve the generated http_headers_helper when editing the installed file.",
+            "Codex：setup codex 会应用下方连接并安装凭据 helper，新会话无需重复导出授权变量。"
+            "如果手工修改连接，请重新运行 setup codex，然后重启 Codex；编辑已安装文件时保留生成的 http_headers_helper。",
         ),
         "",
         "```json",

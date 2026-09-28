@@ -219,7 +219,6 @@ class RelationalMemoryBackend:
                     .where(
                         MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
                         MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == memory.artifact_id,
-                        MEMORY_ENTRY_HEADS_TABLE.c.head_revision == memory.revision,
                     )
                     .order_by(MEMORY_ENTRY_HEADS_TABLE.c.entry_id)
                 )
@@ -493,30 +492,56 @@ class RelationalMemoryBackend:
                 insert(MEMORY_ENTRY_VERSIONS_TABLE),
                 [_entry_values(self._scope_id, entry) for entry in value.entry_versions],
             )
-        # Clear the index before the heads go, as rebuild_projections does: index
-        # metadata may cascade from the heads, and an index can only find its
-        # rows through that metadata.
-        await self._index.replace(connection, self._scope_id, value.memory.as_ref(), ())
-        await connection.execute(
-            delete(MEMORY_ENTRY_HEADS_TABLE).where(
-                MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
-                MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == value.memory.artifact_id,
+        # Only entries whose pointer or state changed need projection work; the
+        # rest of the active head stays exactly as the previous revision left it.
+        previous_active = (
+            {}
+            if value.base is None
+            else {
+                item.entry_id: item.entry_version_id
+                for item in value.base.content.manifest.entries
+                if item.state == "active"
+            }
+        )
+        current_active = {
+            item.entry_id: item.entry_version_id
+            for item in value.memory.content.manifest.entries
+            if item.state == "active"
+        }
+        removed = tuple(sorted(entry_id for entry_id in previous_active if entry_id not in current_active))
+        changed = tuple(
+            sorted(
+                entry_id
+                for entry_id, entry_version_id in current_active.items()
+                if previous_active.get(entry_id) != entry_version_id
             )
         )
-        if value.projections:
+        drop = tuple(sorted({*removed, *changed}))
+        # Clear the index rows before the heads go, as rebuild_projections does:
+        # index metadata may cascade from the heads, and an index can only find its
+        # rows through that metadata.
+        await self._index.delete(connection, self._scope_id, value.memory.as_ref(), drop)
+        if drop:
+            await connection.execute(
+                delete(MEMORY_ENTRY_HEADS_TABLE).where(
+                    MEMORY_ENTRY_HEADS_TABLE.c.scope_id == self._scope_id,
+                    MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == value.memory.artifact_id,
+                    MEMORY_ENTRY_HEADS_TABLE.c.entry_id.in_(drop),
+                )
+            )
+        if changed:
+            by_entry = {projection.entry_version.entry_id: projection for projection in value.projections}
+            upserts = tuple(by_entry[entry_id] for entry_id in changed)
             await connection.execute(
                 insert(MEMORY_ENTRY_HEADS_TABLE),
-                [
-                    _projection_values(self._scope_id, value.memory.as_ref(), projection)
-                    for projection in value.projections
-                ],
+                [_projection_values(self._scope_id, value.memory.as_ref(), projection) for projection in upserts],
             )
-        await self._index.replace(
-            connection,
-            self._scope_id,
-            value.memory.as_ref(),
-            value.projections,
-        )
+            await self._index.upsert(
+                connection,
+                self._scope_id,
+                value.memory.as_ref(),
+                upserts,
+            )
         return committed
 
 

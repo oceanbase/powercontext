@@ -20,12 +20,13 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 
 if TYPE_CHECKING:
     from powercontext.cli.system import Diagnostic
+    from powercontext.cli.transport import SetupTransport
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +228,46 @@ def resolve_selected_hosts(*, requested: Sequence[str] | None, json_output: bool
     return parse_host_selection(sys.stdin.readline())
 
 
+@dataclass(frozen=True, slots=True)
+class HostInstallation:
+    """Return an adapter's native result alongside its persisted connection policy."""
+
+    result: Any
+    transport: SetupTransport
+
+
+def setup_host(
+    name: str,
+    *,
+    source: str,
+    ref: str,
+    server_url: str | None = None,
+    capture_prompts: bool = True,
+    allow_insecure_http: bool | None = None,
+    json_output: bool = False,
+) -> HostInstallation:
+    """Resolve, install, and persist one Agent using the common connection policy.
+
+    Resolution fails before installation side effects. Persistence happens only after
+    the adapter succeeds and before callers run their host-specific diagnostics.
+    """
+    from powercontext.cli.transport import prepare_setup_transport, save_setup_transport
+
+    transport = prepare_setup_transport(
+        name, server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
+    )
+    result = install_host(
+        name,
+        source=source,
+        ref=ref,
+        server_url=transport.server_url,
+        capture_prompts=capture_prompts,
+        allow_insecure_http=transport.allow_insecure_http,
+    )
+    save_setup_transport(transport)
+    return HostInstallation(result, transport)
+
+
 def setup_selected_hosts(
     *,
     selected: Sequence[str],
@@ -240,7 +281,6 @@ def setup_selected_hosts(
     """Install selected hosts and isolate failures from sibling hosts."""
 
     from powercontext.cli.system import SetupError
-    from powercontext.cli.transport import prepare_setup_transport, save_setup_transport
 
     selected_names = set(selected)
     rows: list[HostSetupRow] = []
@@ -249,19 +289,16 @@ def setup_selected_hosts(
             rows.append(HostSetupRow(host=host.name, status="skipped"))
             continue
         try:
-            transport = prepare_setup_transport(
-                host.name, server_url=server_url, allow_insecure_http=allow_insecure_http, json_output=json_output
-            )
-            install_host(
+            setup_host(
                 host.name,
                 source=source,
                 ref=ref,
-                server_url=transport.server_url,
+                server_url=server_url,
                 capture_prompts=capture_prompts,
-                allow_insecure_http=transport.allow_insecure_http,
+                allow_insecure_http=allow_insecure_http,
+                json_output=json_output,
             )
             verify_host(host.name)
-            save_setup_transport(transport)
         except SetupError as error:
             rows.append(HostSetupRow(host=host.name, status="failed", error=str(error)))
             continue
@@ -297,7 +334,7 @@ def install_host(
     if name == "dsh":
         from powercontext.cli.dsh import install_dsh_plugin
 
-        return install_dsh_plugin(source=source, ref=ref)
+        return install_dsh_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
     if name == "openclaw":
         from powercontext.cli.openclaw import install_openclaw_plugin
         from powercontext.cli.system import DEFAULT_OPENCLAW_SERVER_URL
@@ -311,11 +348,11 @@ def install_host(
     if name == "opencode":
         from powercontext.cli.opencode import install_opencode_plugin
 
-        return install_opencode_plugin(source=source, ref=ref)
+        return install_opencode_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
     if name == "pi":
         from powercontext.cli.pi import install_pi_plugin
 
-        return install_pi_plugin(source=source, ref=ref)
+        return install_pi_plugin(source=source, ref=ref, server_url=server_url or "http://127.0.0.1:8000")
     if name == "hermes":
         from powercontext.cli.hermes import install_hermes_plugin
 
@@ -323,7 +360,7 @@ def install_host(
     if name == "workbuddy":
         from powercontext.cli.workbuddy import install_workbuddy_plugin
 
-        return install_workbuddy_plugin(source=source, ref=ref)
+        return install_workbuddy_plugin(source=source, ref=ref, server_url=server_url)
     raise SetupSelectError.unknown_host(name)
 
 

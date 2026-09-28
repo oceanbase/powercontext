@@ -94,7 +94,7 @@ command string cannot expand environment variables.
           {
             "type": "command",
             "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Syncing PowerContext"
           }
         ]
@@ -223,8 +223,8 @@ changing them.
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | Flush until the captured Source is processed (testing only, default `false`) |
-| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `1.0`) |
-| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `4.0`) |
+| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `3.0`) |
+| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `6.0`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | Maximum flush calls (default `4`) |
 
 The hook validates its PowerContext MCP URL and derives the HTTP API base by
@@ -286,7 +286,7 @@ blocking the WorkBuddy session.
 | Empty prepared context | No context is injected; the hook emits an `empty` diagnostic |
 | Version mismatch | Hook fails open and emits a `version_mismatch` diagnostic |
 | Invalid or oversized response | Hook fails open and emits an `invalid_response` diagnostic; nothing is injected |
-| Hook timeout (10 s) | WorkBuddy continues; the hook process is stopped by the outer hook timeout |
+| Hook timeout (30 s) | WorkBuddy continues; the hook process is stopped by the outer hook timeout |
 
 Recall, capture, and flush fail independently. An unavailable Server never
 blocks normal WorkBuddy work.

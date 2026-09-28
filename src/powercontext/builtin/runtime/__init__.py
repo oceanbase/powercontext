@@ -100,6 +100,16 @@ from powercontext.builtin.runtime.config import (
     InferenceConfig,
     RuntimeConfig,
 )
+from powercontext.builtin.runtime.decision_model import (
+    DecisionModel,
+    DecisionModelOption,
+    DecisionModelRequest,
+    DecisionModelResult,
+    DecisionOutcome,
+    DecisionRequest,
+    DecisionResult,
+    StructuredDecisionModel,
+)
 from powercontext.builtin.runtime.errors import InvalidRuntimeRequestError, TopicMemoryProcessingUnavailableError
 from powercontext.builtin.runtime.models import (
     ApproveArtifactCandidateRequest,
@@ -225,6 +235,13 @@ __all__ = [
     "ContextAssemblySection",
     "CreateDreamRunRequest",
     "DatabaseConfig",
+    "DecisionModel",
+    "DecisionModelOption",
+    "DecisionModelRequest",
+    "DecisionModelResult",
+    "DecisionOutcome",
+    "DecisionRequest",
+    "DecisionResult",
     "DreamApplication",
     "DreamRun",
     "DreamRunPage",
@@ -351,6 +368,7 @@ __all__ = [
     "Statistics",
     "StatisticsApplication",
     "StatisticsPeriod",
+    "StructuredDecisionModel",
     "SubmitSourceObservation",
     "TopicMemoryApplication",
     "TopicMemoryFlushResult",

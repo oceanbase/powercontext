@@ -29,6 +29,11 @@ from powercontext.builtin.artifacts.profile.models import Profile
 from powercontext.builtin.artifacts.topic_memory import TopicMemory, TopicMemorySearchHit
 from powercontext.builtin.runtime.errors import PreparedContextInvariantError
 from powercontext.builtin.runtime.models import PrepareContextRequest, PreparedContext
+from powercontext.builtin.runtime.prepared_code import (
+    CodeEvidenceRef,
+    PreparedCodeCandidate,
+    assemble_code,
+)
 from powercontext.builtin.runtime.prepared_text import (
     TRUST_POLICY,
     ContextTextItem,
@@ -100,6 +105,7 @@ class PreparedContextBuild:
     context: PreparedContext
     origins: tuple[PreparedContextOrigin, ...]
     omissions: PreparedContextOmissions = PreparedContextOmissions()
+    code_origins: tuple[CodeEvidenceRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -150,6 +156,7 @@ class PreparedContextBuilder:
     topic_memory_entry_limit = 8
     experience_entry_limit = 2
     max_entry_content_bytes = 2000
+    _text_entry_limit: int | None = None
 
     def empty(self) -> PreparedContext:
         return PreparedContext(status="empty", content=None, content_bytes=0)
@@ -202,7 +209,25 @@ class PreparedContextBuilder:
         topic_memory_hits: Sequence[TopicMemorySearchHit] = (),
         experience_candidates: Sequence[PreparedExperienceCandidates] = (),
         profile_candidates: Sequence[PreparedProfileCandidate] = (),
+        code_candidates: Sequence[PreparedCodeCandidate] = (),
     ) -> PreparedContextBuild:
+        if request.include_code:
+
+            def historical(history_request: PrepareContextRequest, entries: int) -> PreparedContextBuild:
+                builder = PreparedContextBuilder()
+                builder.entry_limit = entries
+                builder._text_entry_limit = entries if entries < self.entry_limit else None
+                return builder.build_scopes_result(
+                    request=history_request.model_copy(update={"include_code": False}),
+                    current_scope_id=current_scope_id,
+                    memory_candidates=memory_candidates,
+                    topic_memory_hits=topic_memory_hits,
+                    experience_candidates=experience_candidates,
+                    profile_candidates=profile_candidates,
+                )
+
+            return assemble_code(request, code_candidates, self.entry_limit, historical)
+
         if sum(len(candidates.hits) for candidates in memory_candidates) > self.memory_candidate_limit:
             raise PreparedContextInvariantError("memory-candidate-limit")
         if len(topic_memory_hits) > self.topic_memory_candidate_limit:
@@ -341,6 +366,12 @@ class PreparedContextBuilder:
         dropped_below_min_bytes = 0
         dropped_no_fitting_truncation = 0
         for section in assembly.sections:
+            # Unfilled earlier sections leave their capacity available to later ones.
+            limit = (
+                section.limit
+                if self._text_entry_limit is None
+                else min(section.limit, self._text_entry_limit - len(included))
+            )
             if section.family == "profile":
                 entries = self._profile_entries(profile_candidates)
             elif section.family == "topic-memory":
@@ -365,6 +396,8 @@ class PreparedContextBuilder:
             rank = 0
             selected_count = 0
             for entry in entries:
+                if selected_count >= limit:
+                    break
                 item = _text_item(entry)
                 artifact = item.artifact
                 identity = (
@@ -389,8 +422,6 @@ class PreparedContextBuilder:
                 origins.append(entry.origin)
                 selected_count += 1
                 truncated_items += int(fitted.truncated)
-                if selected_count >= section.limit:
-                    break
         omissions = PreparedContextOmissions(
             truncated_items=truncated_items,
             dropped_items=dropped_below_min_bytes + dropped_no_fitting_truncation,

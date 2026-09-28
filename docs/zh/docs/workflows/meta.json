@@ -32,6 +32,7 @@
     "manage-prompts",
     "---上下文输出---",
     "prepare-context-text",
+    "repository-code",
     "configure-vector-search"
   ]
 }

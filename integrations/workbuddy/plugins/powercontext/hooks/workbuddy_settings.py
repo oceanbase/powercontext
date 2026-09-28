@@ -43,8 +43,8 @@ class WorkBuddyPluginSettings:
     context_assembly: dict[str, object] | None = None
     capture_prompts: bool = True
     flush_on_capture: bool = False
-    request_timeout_seconds: float = 1.0
-    http_budget_seconds: float = 4.0
+    request_timeout_seconds: float = 3.0
+    http_budget_seconds: float = 6.0
     flush_max_calls: int = 4
     allow_insecure_http: bool | None = None
 
@@ -86,11 +86,11 @@ class WorkBuddyPluginSettings:
             ),
             request_timeout_seconds=_environment_float(
                 "POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS",
-                default=1.0,
+                default=3.0,
             ),
             http_budget_seconds=_environment_float(
                 "POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS",
-                default=4.0,
+                default=6.0,
             ),
             flush_max_calls=_environment_int(
                 "POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS",

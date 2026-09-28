@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.artifacts.experience import Experience, ExperienceSearchOutcome
 from powercontext.builtin.artifacts.memory import CapabilityNotSupportedError
-from powercontext.builtin.artifacts.search import AdmissionFloor, analyze_text
+from powercontext.builtin.artifacts.search import AdmissionFloor, analyze_fts_query
 from powercontext.builtin.artifacts.skill import Skill, SkillPackageSnapshot, SkillSearchHit
 from powercontext.builtin.persistence.experience_index import (
     ensure_artifact_head_searchable_text,
@@ -88,7 +88,7 @@ class OceanBaseExperienceFTSIndex:
         *,
         admission: AdmissionFloor | None = None,
     ) -> ExperienceSearchOutcome:
-        analyzed = analyze_text(query)
+        analyzed = analyze_fts_query(query)
         if not analyzed:
             return ExperienceSearchOutcome()
         score = match(ARTIFACT_HEADS_TABLE.c.searchable_text, against=analyzed)
@@ -136,7 +136,7 @@ class OceanBaseExperienceFTSIndex:
         limit: int,
         /,
     ) -> tuple[SkillSearchHit, ...]:
-        analyzed = analyze_text(query)
+        analyzed = analyze_fts_query(query)
         if not analyzed:
             return ()
         score = match(ARTIFACT_HEADS_TABLE.c.searchable_text, against=analyzed)

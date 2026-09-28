@@ -54,7 +54,13 @@ from powercontext.service.probe import probe_server
 from powercontext.transport import is_loopback_host
 
 _PERSISTED_ENVIRONMENT_PREFIX = "POWERCONTEXT_SERVER_"
-_START_TIMEOUT_SECONDS = 30.0
+# A wall-clock budget cannot bound a first start on every supported machine: the
+# interpreter has to compile its bytecode cache before the Server can bind the port, and
+# that cost depends on the hardware. Past this budget the native job's own lifecycle
+# decides instead, so a job that is still running keeps one more grace period.
+_START_TIMEOUT_SECONDS = 60.0
+_START_GRACE_SECONDS = 120.0
+_MANAGER_RECHECK_SECONDS = 5.0
 
 
 class ServiceController:
@@ -90,7 +96,9 @@ class ServiceController:
             self._require_mutable_registration(registration)
             loaded = self._adapter.loaded_registration()
             self._require_mutable_manager_registration(loaded)
-            changed = registration.definition != definition
+            # Native settings such as launchd's scheduling policy are not
+            # represented in the shared metadata, but still require a reload.
+            changed = registration.definition != definition or registration.content != self._adapter.render(definition)
             loaded_changed = loaded.state is ManagerOwnershipState.OWNED and loaded.definition != definition
             manager_before = (
                 self._adapter.manager_state() if loaded.state is ManagerOwnershipState.OWNED else ManagerState.INACTIVE
@@ -111,10 +119,13 @@ class ServiceController:
                         f"the personal service was registered but the native manager could not start it: {error}",
                         exit_code=error.exit_code if isinstance(error, ServiceError) else 1,
                     ) from error
+                started = time.monotonic()
                 final_probe = self._wait_until_live(definition.endpoint)
                 if final_probe.state is not ProbeState.LIVE:
+                    elapsed = time.monotonic() - started
                     raise self._post_commit_error(  # noqa: TRY003
-                        f"the personal service was registered but did not become live: {final_probe.detail}; "
+                        f"the personal service was registered but did not become live within {elapsed:.0f}s:"
+                        f" {final_probe.detail}; "
                         f"inspect {self._adapter.log_location(definition) or 'the native service logs'}"
                     )
         return self.status()
@@ -339,10 +350,23 @@ class ServiceController:
         self._adapter.remove()
 
     def _wait_until_live(self, endpoint: str) -> ProbeResult:
-        deadline = time.monotonic() + _START_TIMEOUT_SECONDS
+        # Wait on the authority that can tell the two outcomes apart: a native job that is
+        # still running is still making progress, while a job that stopped will never
+        # answer. The wall-clock budget only bounds the wait until that authority is
+        # consulted, so a slow first start on a slow machine no longer fails by itself.
+        started = time.monotonic()
+        grace_deadline = started + _START_TIMEOUT_SECONDS + _START_GRACE_SECONDS
+        check_manager_at = started + _START_TIMEOUT_SECONDS
         delay = 0.1
         result = self._probe(endpoint)
-        while result.state is ProbeState.UNREACHABLE and time.monotonic() < deadline:
+        while result.state is ProbeState.UNREACHABLE:
+            now = time.monotonic()
+            if now >= grace_deadline:
+                break
+            if now >= check_manager_at:
+                if self._adapter.manager_state() is not ManagerState.ACTIVE:
+                    break
+                check_manager_at = min(now + _MANAGER_RECHECK_SECONDS, grace_deadline)
             self._sleep(delay)
             delay = min(delay * 2, 1.0)
             result = self._probe(endpoint)

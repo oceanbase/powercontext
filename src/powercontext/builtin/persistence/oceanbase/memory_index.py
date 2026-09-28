@@ -44,6 +44,7 @@ from powercontext.builtin.artifacts.memory import (
 from powercontext.builtin.artifacts.memory.canonical import embedding_content_hash, validate_embedding
 from powercontext.builtin.persistence.memory_index import memory_channel_hits
 from powercontext.builtin.persistence.tables import (
+    ARTIFACT_HEADS_TABLE,
     MAX_MEMORY_ENTRY_ID_LENGTH,
     MAX_MEMORY_HASH_LENGTH,
     MEMORY_ENTRY_HEADS_TABLE,
@@ -117,6 +118,26 @@ class OceanBaseMemoryFTSIndex:
         await connection.execute(select(MEMORY_ENTRY_HEADS_TABLE.c.entry_version_id).where(probe).limit(1))
 
     async def replace(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
+        del connection, scope_id, memory_ref, projections
+
+    async def delete(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        del connection, scope_id, memory_ref, entry_ids
+
+    async def upsert(
         self,
         connection: AsyncConnection,
         scope_id: str,
@@ -294,6 +315,34 @@ class OceanBaseMemoryVectorIndex:
                 self.table.c.memory_artifact_id == memory_ref.artifact_id,
             )
         )
+        await self.upsert(connection, scope_id, memory_ref, projections)
+
+    async def delete(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        entry_ids: tuple[str, ...],
+        /,
+    ) -> None:
+        if not entry_ids:
+            return
+        await connection.execute(
+            delete(self.table).where(
+                self.table.c.scope_id == scope_id,
+                self.table.c.memory_artifact_id == memory_ref.artifact_id,
+                self.table.c.entry_id.in_(entry_ids),
+            )
+        )
+
+    async def upsert(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        memory_ref: ArtifactRef,
+        projections: tuple[MemoryProjection, ...],
+        /,
+    ) -> None:
         values = []
         for projection in projections:
             if projection.embedding is None or projection.embedding_content_hash is None:
@@ -356,6 +405,17 @@ class OceanBaseMemoryVectorIndex:
         if profile != self.profile:
             return False
         for memory in memories:
+            current = await connection.scalar(
+                select(ARTIFACT_HEADS_TABLE.c.revision).where(
+                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                    ARTIFACT_HEADS_TABLE.c.family == "memory",
+                    ARTIFACT_HEADS_TABLE.c.artifact_id == memory.artifact_id,
+                )
+            )
+            if current is None or int(current) != memory.revision:
+                # The caller validated this head before the search. If it moved while
+                # this query ran, report a stale head so the runtime can retry with it.
+                raise CapabilityNotSupportedError("head")
             heads = (
                 await connection.execute(
                     select(
@@ -365,7 +425,6 @@ class OceanBaseMemoryVectorIndex:
                     ).where(
                         MEMORY_ENTRY_HEADS_TABLE.c.scope_id == scope_id,
                         MEMORY_ENTRY_HEADS_TABLE.c.memory_artifact_id == memory.artifact_id,
-                        MEMORY_ENTRY_HEADS_TABLE.c.head_revision == memory.revision,
                     )
                 )
             ).all()
@@ -379,7 +438,6 @@ class OceanBaseMemoryVectorIndex:
                     ).where(
                         self.table.c.scope_id == scope_id,
                         self.table.c.memory_artifact_id == memory.artifact_id,
-                        self.table.c.head_revision == memory.revision,
                     )
                 )
             ).all()

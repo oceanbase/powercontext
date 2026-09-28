@@ -23,7 +23,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
 from powercontext_eval.errors import PowerContextEvalError
 
@@ -32,6 +32,7 @@ UPSTREAM_HARNESS_COMMIT = "2cc8c540bdb87fe6761629b585e727e1c4704520"
 SMOKE_MANIFEST_SCHEMA = "powercontext.longmemeval-v2-smoke.v1"
 DATASET_LOCK_SCHEMA = "powercontext.longmemeval-v2-dataset-lock.v1"
 RUN_INPUT_MANIFEST_SCHEMA = "powercontext.longmemeval-v2-run-input.v1"
+RUN_SUBSET_SCHEMA = "powercontext.longmemeval-v2-run-subset.v1"
 
 Tier: TypeAlias = Literal["small", "medium"]
 Ability: TypeAlias = Literal[
@@ -66,6 +67,14 @@ _QUESTION_TYPE_ABILITIES: Mapping[str, Ability] = MappingProxyType(
 
 class LongMemEvalV2CatalogError(PowerContextEvalError):
     """The pinned LongMemEval-V2 inputs cannot be trusted."""
+
+
+class LongMemEvalV2InputError(LongMemEvalV2CatalogError):
+    """The requested smoke configuration is invalid."""
+
+
+class LongMemEvalV2EnvironmentError(LongMemEvalV2CatalogError):
+    """The pinned data, harness, or output environment is not ready."""
 
 
 @dataclass(frozen=True)
@@ -124,6 +133,16 @@ class SmokeSelection:
             "cases": [{"question_id": case.question_id, "ability": case.ability} for case in self.cases],
         }
 
+    def as_run_artifact_json(self) -> dict[str, object]:
+        """Identify one validated selection as a generated smoke artifact."""
+
+        return {
+            "schema": RUN_SUBSET_SCHEMA,
+            "classification": "smoke-subset",
+            "tier": self.tier,
+            "cases": [{"question_id": case.question_id, "ability": case.ability} for case in self.cases],
+        }
+
 
 @dataclass(frozen=True)
 class LongMemEvalV2Catalog:
@@ -146,7 +165,7 @@ class LongMemEvalV2Catalog:
         """Load and validate the three upstream files required by one tier."""
 
         if tier not in {"small", "medium"}:
-            raise LongMemEvalV2CatalogError(f"Unsupported LongMemEval-V2 tier: {tier}")
+            raise LongMemEvalV2InputError(f"Unsupported LongMemEval-V2 tier: {tier}")
         root = data_root.resolve()
         paths = {
             "questions.jsonl": root / "questions.jsonl",
@@ -172,19 +191,19 @@ class LongMemEvalV2Catalog:
         """Validate a fixed smoke subset without deriving one from benchmark metadata."""
 
         if not cases:
-            raise LongMemEvalV2CatalogError("Smoke subset must contain at least one question")
+            raise LongMemEvalV2InputError("Smoke subset must contain at least one question")
         selected: list[SmokeCase] = []
         seen: set[str] = set()
         source_positions = {question_id: index for index, question_id in enumerate(self.source_question_ids)}
         for case in cases:
             if case.question_id in seen:
-                raise LongMemEvalV2CatalogError(f"Smoke subset contains duplicate question id: {case.question_id}")
+                raise LongMemEvalV2InputError(f"Smoke subset contains duplicate question id: {case.question_id}")
             seen.add(case.question_id)
             question = self.questions.get(case.question_id)
             if question is None:
-                raise LongMemEvalV2CatalogError(f"Smoke subset references an unknown question id: {case.question_id}")
+                raise LongMemEvalV2InputError(f"Smoke subset references an unknown question id: {case.question_id}")
             if question.ability != case.ability:
-                raise LongMemEvalV2CatalogError(
+                raise LongMemEvalV2InputError(
                     f"Smoke subset ability mismatch for {case.question_id}: "
                     f"expected {question.ability}, got {case.ability}"
                 )
@@ -192,11 +211,11 @@ class LongMemEvalV2Catalog:
         if [source_positions[case.question_id] for case in selected] != sorted(
             source_positions[case.question_id] for case in selected
         ):
-            raise LongMemEvalV2CatalogError("Smoke subset question order must match the upstream source order")
+            raise LongMemEvalV2InputError("Smoke subset question order must match the upstream source order")
         selected_abilities = {case.ability for case in selected}
         missing = sorted(_ABILITIES - selected_abilities)
         if missing:
-            raise LongMemEvalV2CatalogError(f"Smoke subset is missing published abilities: {', '.join(missing)}")
+            raise LongMemEvalV2InputError(f"Smoke subset is missing published abilities: {', '.join(missing)}")
         return SmokeSelection(tier=self.tier, cases=tuple(selected))
 
 
@@ -204,30 +223,36 @@ def load_smoke_manifest(path: Path) -> SmokeSelection:
     """Load one exact smoke-subset declaration without selecting questions dynamically."""
 
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise LongMemEvalV2CatalogError(f"Cannot read LongMemEval-V2 smoke manifest: {path}") from error
+        content = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise LongMemEvalV2EnvironmentError(f"Cannot read LongMemEval-V2 smoke manifest: {path}") from error
+    except UnicodeDecodeError as error:
+        raise LongMemEvalV2InputError("LongMemEval-V2 smoke manifest is not valid UTF-8 JSON") from error
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise LongMemEvalV2InputError("LongMemEval-V2 smoke manifest is not valid UTF-8 JSON") from error
     if not isinstance(value, dict) or set(value) != {"schema", "tier", "cases"}:
-        raise LongMemEvalV2CatalogError("Smoke manifest must contain only schema, tier, and cases")
+        raise LongMemEvalV2InputError("Smoke manifest must contain only schema, tier, and cases")
     if value["schema"] != SMOKE_MANIFEST_SCHEMA:
-        raise LongMemEvalV2CatalogError("Smoke manifest schema is unsupported")
+        raise LongMemEvalV2InputError("Smoke manifest schema is unsupported")
     tier = value["tier"]
     if tier not in {"small", "medium"}:
-        raise LongMemEvalV2CatalogError("Smoke manifest tier must be small or medium")
+        raise LongMemEvalV2InputError("Smoke manifest tier must be small or medium")
     raw_cases = value["cases"]
     if not isinstance(raw_cases, list):
-        raise LongMemEvalV2CatalogError("Smoke manifest cases must be an array")
+        raise LongMemEvalV2InputError("Smoke manifest cases must be an array")
     cases: list[SmokeCase] = []
     for index, raw_case in enumerate(raw_cases):
         if not isinstance(raw_case, dict) or set(raw_case) != {"question_id", "ability"}:
-            raise LongMemEvalV2CatalogError(f"Smoke manifest case {index} has an invalid shape")
-        question_id = raw_case["question_id"]
-        ability = raw_case["ability"]
+            raise LongMemEvalV2InputError(f"Smoke manifest case {index} has an invalid shape")
+        question_id = raw_case.get("question_id")
+        ability = raw_case.get("ability")
         if not isinstance(question_id, str) or not question_id.strip():
-            raise LongMemEvalV2CatalogError(f"Smoke manifest case {index} has an invalid question id")
+            raise LongMemEvalV2InputError(f"Smoke manifest case {index} has an invalid question id")
         if ability not in _ABILITIES:
-            raise LongMemEvalV2CatalogError(f"Smoke manifest case {index} has an invalid ability")
-        cases.append(SmokeCase(question_id=question_id, ability=ability))
+            raise LongMemEvalV2InputError(f"Smoke manifest case {index} has an invalid ability")
+        cases.append(SmokeCase(question_id=question_id, ability=cast(Ability, ability)))
     return SmokeSelection(tier=tier, cases=tuple(cases))
 
 
@@ -235,26 +260,32 @@ def load_dataset_lock(path: Path) -> DatasetLock:
     """Load a fixed input identity before reading any benchmark data."""
 
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise LongMemEvalV2CatalogError(f"Cannot read LongMemEval-V2 dataset lock: {path}") from error
+        content = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise LongMemEvalV2EnvironmentError(f"Cannot read LongMemEval-V2 dataset lock: {path}") from error
+    except UnicodeDecodeError as error:
+        raise LongMemEvalV2InputError("LongMemEval-V2 dataset lock is not valid UTF-8 JSON") from error
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise LongMemEvalV2InputError("LongMemEval-V2 dataset lock is not valid UTF-8 JSON") from error
     if not isinstance(value, dict) or set(value) != {"schema", "upstream", "dataset_revision", "tier", "files"}:
-        raise LongMemEvalV2CatalogError(
+        raise LongMemEvalV2InputError(
             "Dataset lock must contain only schema, upstream, dataset_revision, tier, and files"
         )
     if value["schema"] != DATASET_LOCK_SCHEMA:
-        raise LongMemEvalV2CatalogError("Dataset lock schema is unsupported")
+        raise LongMemEvalV2InputError("Dataset lock schema is unsupported")
     upstream = value["upstream"]
     if not isinstance(upstream, dict) or set(upstream) != {"repository", "harness_commit"}:
-        raise LongMemEvalV2CatalogError("Dataset lock upstream identity is invalid")
+        raise LongMemEvalV2InputError("Dataset lock upstream identity is invalid")
     if upstream["repository"] != UPSTREAM_REPOSITORY or upstream["harness_commit"] != UPSTREAM_HARNESS_COMMIT:
-        raise LongMemEvalV2CatalogError("Dataset lock does not match the pinned LongMemEval-V2 harness")
+        raise LongMemEvalV2InputError("Dataset lock does not match the pinned LongMemEval-V2 harness")
     dataset_revision = value["dataset_revision"]
     if not isinstance(dataset_revision, str) or not dataset_revision.strip():
-        raise LongMemEvalV2CatalogError("Dataset lock dataset revision must be non-empty")
+        raise LongMemEvalV2InputError("Dataset lock dataset revision must be non-empty")
     tier = value["tier"]
     if tier not in {"small", "medium"}:
-        raise LongMemEvalV2CatalogError("Dataset lock tier must be small or medium")
+        raise LongMemEvalV2InputError("Dataset lock tier must be small or medium")
     files = value["files"]
     expected_names = {
         "questions.jsonl",
@@ -262,9 +293,9 @@ def load_dataset_lock(path: Path) -> DatasetLock:
         f"haystacks/lme_v2_{tier}.json",
     }
     if not isinstance(files, dict) or set(files) != expected_names:
-        raise LongMemEvalV2CatalogError("Dataset lock must provide digests for exactly the required files")
+        raise LongMemEvalV2InputError("Dataset lock must provide digests for exactly the required files")
     if any(not isinstance(digest, str) or len(digest) != 64 or not _is_lower_hex(digest) for digest in files.values()):
-        raise LongMemEvalV2CatalogError("Dataset lock file digests must be lowercase SHA-256 values")
+        raise LongMemEvalV2InputError("Dataset lock file digests must be lowercase SHA-256 values")
     return DatasetLock(tier=tier, dataset_revision=dataset_revision, file_digests=MappingProxyType(dict(files)))
 
 
@@ -273,14 +304,14 @@ def validate_harness_checkout(harness_root: Path) -> None:
 
     harness = harness_root.resolve()
     if not (harness / "evaluation" / "harness.py").is_file():
-        raise LongMemEvalV2CatalogError(f"LongMemEval-V2 harness is missing evaluation/harness.py: {harness}")
+        raise LongMemEvalV2EnvironmentError(f"LongMemEval-V2 harness is missing evaluation/harness.py: {harness}")
     revision = _harness_git(harness, "rev-parse", "HEAD").stdout.strip()
     if revision != UPSTREAM_HARNESS_COMMIT:
-        raise LongMemEvalV2CatalogError(
+        raise LongMemEvalV2EnvironmentError(
             f"LongMemEval-V2 harness checkout must be {UPSTREAM_HARNESS_COMMIT}, got {revision or 'unknown'}"
         )
     if _harness_git(harness, "diff", "--quiet", "HEAD", "--").returncode != 0:
-        raise LongMemEvalV2CatalogError("LongMemEval-V2 harness checkout has tracked changes relative to HEAD")
+        raise LongMemEvalV2EnvironmentError("LongMemEval-V2 harness checkout has tracked changes relative to HEAD")
 
 
 def _harness_git(harness: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -295,7 +326,7 @@ def _harness_git(harness: Path, *arguments: str) -> subprocess.CompletedProcess[
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError) as error:
-        raise LongMemEvalV2CatalogError(f"Cannot inspect LongMemEval-V2 harness checkout: {harness}") from error
+        raise LongMemEvalV2EnvironmentError(f"Cannot inspect LongMemEval-V2 harness checkout: {harness}") from error
 
 
 def _file_digest(path: Path, label: str) -> str:
@@ -309,9 +340,9 @@ def _file_digest(path: Path, label: str) -> str:
                 hasher.update(chunk)
                 bytes_read += len(chunk)
     except OSError as error:
-        raise LongMemEvalV2CatalogError(f"Missing LongMemEval-V2 input {label}: {path}") from error
+        raise LongMemEvalV2EnvironmentError(f"Missing LongMemEval-V2 input {label}: {path}") from error
     if bytes_read == 0:
-        raise LongMemEvalV2CatalogError(f"LongMemEval-V2 input {label} is blank")
+        raise LongMemEvalV2EnvironmentError(f"LongMemEval-V2 input {label} is blank")
     return hasher.hexdigest()
 
 
@@ -319,10 +350,10 @@ def _validate_expected_digests(actual: Mapping[str, str], expected: Mapping[str,
     if expected is None:
         return
     if set(expected) != set(actual):
-        raise LongMemEvalV2CatalogError("Expected input digests must name exactly the required files")
+        raise LongMemEvalV2InputError("Expected input digests must name exactly the required files")
     for name, digest in actual.items():
         if expected[name] != digest:
-            raise LongMemEvalV2CatalogError(f"LongMemEval-V2 SHA-256 mismatch for {name}")
+            raise LongMemEvalV2EnvironmentError(f"LongMemEval-V2 SHA-256 mismatch for {name}")
 
 
 def _questions(path: Path) -> tuple[dict[str, Question], tuple[str, ...]]:
@@ -331,15 +362,19 @@ def _questions(path: Path) -> tuple[dict[str, Question], tuple[str, ...]]:
     for index, row in enumerate(_jsonl(path, "questions.jsonl")):
         question_id = _nonblank(row.get("id"), f"question {index} id")
         if question_id in questions:
-            raise LongMemEvalV2CatalogError(f"Duplicate LongMemEval-V2 question id: {question_id}")
+            raise LongMemEvalV2EnvironmentError(f"Duplicate LongMemEval-V2 question id: {question_id}")
         domain = row.get("domain")
         if domain not in {"web", "enterprise"}:
-            raise LongMemEvalV2CatalogError(f"Invalid question domain for {question_id}")
+            raise LongMemEvalV2EnvironmentError(f"Invalid question domain for {question_id}")
         _nonblank(row.get("question"), f"question text for {question_id}")
         question_type = row.get("question_type")
         if question_type not in _QUESTION_TYPE_ABILITIES:
-            raise LongMemEvalV2CatalogError(f"Unsupported question type for {question_id}")
-        questions[question_id] = Question(question_id=question_id, domain=domain, question_type=question_type)
+            raise LongMemEvalV2EnvironmentError(f"Unsupported question type for {question_id}")
+        questions[question_id] = Question(
+            question_id=question_id,
+            domain=cast(Literal["web", "enterprise"], domain),
+            question_type=cast(str, question_type),
+        )
         source_order.append(question_id)
     return questions, tuple(source_order)
 
@@ -349,11 +384,11 @@ def _trajectories(path: Path) -> Mapping[str, Literal["web", "enterprise"]]:
     for index, row in enumerate(_jsonl(path, "trajectories.jsonl")):
         trajectory_id = _nonblank(row.get("id"), f"trajectory {index} id")
         if trajectory_id in trajectories:
-            raise LongMemEvalV2CatalogError(f"Duplicate LongMemEval-V2 trajectory id: {trajectory_id}")
+            raise LongMemEvalV2EnvironmentError(f"Duplicate LongMemEval-V2 trajectory id: {trajectory_id}")
         domain = row.get("domain")
         if domain not in {"web", "enterprise"}:
-            raise LongMemEvalV2CatalogError(f"Invalid trajectory domain for {trajectory_id}")
-        trajectories[trajectory_id] = domain
+            raise LongMemEvalV2EnvironmentError(f"Invalid trajectory domain for {trajectory_id}")
+        trajectories[trajectory_id] = cast(Literal["web", "enterprise"], domain)
     return MappingProxyType(trajectories)
 
 
@@ -362,21 +397,21 @@ def _haystack(path: Path) -> Mapping[str, tuple[str, ...]]:
         with path.open(encoding="utf-8") as source:
             value = json.load(source)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise LongMemEvalV2CatalogError("LongMemEval-V2 haystack is not valid JSON") from error
+        raise LongMemEvalV2EnvironmentError("LongMemEval-V2 haystack is not valid JSON") from error
     if not isinstance(value, dict):
-        raise LongMemEvalV2CatalogError("LongMemEval-V2 haystack must be a JSON object")
+        raise LongMemEvalV2EnvironmentError("LongMemEval-V2 haystack must be a JSON object")
     haystack: dict[str, tuple[str, ...]] = {}
     for question_id, trajectory_ids in value.items():
         if not isinstance(question_id, str) or not question_id:
-            raise LongMemEvalV2CatalogError("LongMemEval-V2 haystack contains an invalid question id")
+            raise LongMemEvalV2EnvironmentError("LongMemEval-V2 haystack contains an invalid question id")
         if not isinstance(trajectory_ids, list) or not trajectory_ids:
-            raise LongMemEvalV2CatalogError(f"LongMemEval-V2 haystack is empty for {question_id}")
+            raise LongMemEvalV2EnvironmentError(f"LongMemEval-V2 haystack is empty for {question_id}")
         if not all(isinstance(trajectory_id, str) and trajectory_id for trajectory_id in trajectory_ids):
-            raise LongMemEvalV2CatalogError(
+            raise LongMemEvalV2EnvironmentError(
                 f"LongMemEval-V2 haystack contains an invalid trajectory id for {question_id}"
             )
         if len(trajectory_ids) != len(set(trajectory_ids)):
-            raise LongMemEvalV2CatalogError(
+            raise LongMemEvalV2EnvironmentError(
                 f"LongMemEval-V2 haystack contains duplicate trajectories for {question_id}"
             )
         haystack[question_id] = tuple(trajectory_ids)
@@ -389,17 +424,19 @@ def _validate_haystack(
     haystack: Mapping[str, tuple[str, ...]],
 ) -> None:
     if set(haystack) != set(questions):
-        raise LongMemEvalV2CatalogError("LongMemEval-V2 questions and haystack ids must match exactly")
+        raise LongMemEvalV2EnvironmentError("LongMemEval-V2 questions and haystack ids must match exactly")
     for question_id, trajectory_ids in haystack.items():
         question = questions[question_id]
         for trajectory_id in trajectory_ids:
             trajectory_domain = trajectories.get(trajectory_id)
             if trajectory_domain is None:
-                raise LongMemEvalV2CatalogError(
+                raise LongMemEvalV2EnvironmentError(
                     f"LongMemEval-V2 haystack references an unknown trajectory: {trajectory_id}"
                 )
             if trajectory_domain != question.domain:
-                raise LongMemEvalV2CatalogError(f"LongMemEval-V2 haystack crosses domains for question {question_id}")
+                raise LongMemEvalV2EnvironmentError(
+                    f"LongMemEval-V2 haystack crosses domains for question {question_id}"
+                )
 
 
 def _jsonl(path: Path, label: str) -> Iterator[dict[str, object]]:
@@ -415,23 +452,23 @@ def _jsonl(path: Path, label: str) -> Iterator[dict[str, object]]:
                 try:
                     value = json.loads(line)
                 except json.JSONDecodeError as error:
-                    raise LongMemEvalV2CatalogError(
+                    raise LongMemEvalV2EnvironmentError(
                         f"LongMemEval-V2 input {label} has invalid JSON at {line_number}"
                     ) from error
                 if not isinstance(value, dict):
-                    raise LongMemEvalV2CatalogError(
+                    raise LongMemEvalV2EnvironmentError(
                         f"LongMemEval-V2 input {label} has a non-object row at {line_number}"
                     )
                 yield value
     except (OSError, UnicodeDecodeError) as error:
-        raise LongMemEvalV2CatalogError(f"Cannot read LongMemEval-V2 input {label}: {path}") from error
+        raise LongMemEvalV2EnvironmentError(f"Cannot read LongMemEval-V2 input {label}: {path}") from error
     if not found:
-        raise LongMemEvalV2CatalogError(f"LongMemEval-V2 input {label} is blank")
+        raise LongMemEvalV2EnvironmentError(f"LongMemEval-V2 input {label} is blank")
 
 
 def _nonblank(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise LongMemEvalV2CatalogError(f"Invalid LongMemEval-V2 {label}")
+        raise LongMemEvalV2EnvironmentError(f"Invalid LongMemEval-V2 {label}")
     return value
 
 

@@ -107,7 +107,7 @@ environment variables, so literal paths are required here.
           {
             "type": "command",
             "command": "\"<POWERCONTEXT_PYTHON>\" \"<WORKBUDDY_HOOKS_DIR>/workbuddy_powercontext_hook.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Syncing PowerContext"
           }
         ]
@@ -191,8 +191,8 @@ override the defaults; restart WorkBuddy after changing them.
 | `POWERCONTEXT_WORKBUDDY_SCOPE_ID` | Explicit server-owned Scope ID |
 | `POWERCONTEXT_WORKBUDDY_CAPTURE_PROMPTS` | Capture user prompts as Sources (default `true`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_ON_CAPTURE` | Flush until the captured Source is processed (testing only, default `false`) |
-| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `1.0`) |
-| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `4.0`) |
+| `POWERCONTEXT_WORKBUDDY_REQUEST_TIMEOUT_SECONDS` | Per-request HTTP timeout (default `3.0`) |
+| `POWERCONTEXT_WORKBUDDY_HTTP_BUDGET_SECONDS` | Shared wall-clock budget for one prompt (default `6.0`) |
 | `POWERCONTEXT_WORKBUDDY_FLUSH_MAX_CALLS` | Maximum flush calls (default `4`) |
 
 The hook selects its URL from `POWERCONTEXT_WORKBUDDY_SERVER_URL`,
@@ -221,14 +221,23 @@ HTTPS certificate verification remains enabled.
 - Recall calls `POST /v1/context/prepare` once per prompt, requests an
   8000-byte total budget, strictly validates `powercontext.prepared-context.v1`,
   and injects the returned content unchanged as untrusted history.
+- The query is a reduction of the joined prompt. WorkBuddy submits every user
+  message of the session joined into one prompt, so Recall reads the most recent
+  `<user_query>` element the host wrapped and falls back to the bounded prompt
+  when no element carries the host's wrapper boundaries. An opening tag is a
+  candidate only where it starts a line and its own closing tag ends at a message
+  boundary; a pair the turn quotes itself is enclosed by the turn, which is then
+  the element read. A reduction is reported on stderr as a `query_reduction`
+  event.
 - Capture independently posts the prompt to `POST /v1/sources/content` with
   stable, content-addressed `source_id` values.
 - Recall, capture, and flush fail independently. An unavailable Server never
   blocks normal WorkBuddy work.
 - For an empty result, authentication failure, version mismatch, unavailable
   Server, or invalid response, the hook writes one diagnostic JSON line to
-  stderr. Diagnostics contain status and byte counts only—never the query,
-  scope, content, citation, response body, or authorization value.
+  stderr. Diagnostics carry status codes, byte and character counts, and which
+  query source produced them—never the query, scope, content, citation, response
+  body, or authorization value.
 
 ## Authentication
 
