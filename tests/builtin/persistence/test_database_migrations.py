@@ -1,0 +1,417 @@
+# Copyright (c) 2026 OceanBase.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Observable safety and recovery behavior using actual SQLite DDL and files."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import sqlite3
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
+
+import pytest
+from alembic import command
+from sqlalchemy import Connection, create_engine, inspect, text
+
+from powercontext.builtin.persistence.migrations import MigrationBundle, MigrationError, SQLiteMigrationRunner
+
+FIXTURE = Path(__file__).resolve().parents[2] / "fixtures/database_migrations"
+
+
+@pytest.fixture
+def bundle() -> MigrationBundle:
+    return MigrationBundle(FIXTURE)
+
+
+def load_schema(database: Path, name: str = "pre_dream") -> None:
+    statements = json.loads((FIXTURE / "schemas" / f"{name}.json").read_text())["sqlite"]
+    with sqlite3.connect(database) as connection:
+        for statement in statements:
+            connection.execute(statement)
+
+
+def seed(connection: Connection) -> None:
+    connection.execute(
+        text(
+            "INSERT INTO pc_artifacts (scope_id, family, artifact_id, revision, content) VALUES ('s','memory','m',1,:body)"
+        ),
+        {"body": b'{"content":"original"}'},
+    )
+    connection.exec_driver_sql(
+        "INSERT INTO pc_artifact_heads (scope_id,family,artifact_id,revision) VALUES ('s','memory','m',1)"
+    )
+    connection.exec_driver_sql(
+        "INSERT INTO pc_artifact_tags (scope_id,family,artifact_id,target_type,target_id,tag_key_hash,tag_key,tag,assigned_at) "
+        "VALUES ('s','memory','m','artifact','m',X'00','keep','Keep','2026-09-28 12:00:00')"
+    )
+    connection.exec_driver_sql(
+        "INSERT INTO pc_artifact_candidate_versions "
+        "(scope_id,candidate_id,version,family,proposal,source_refs,artifact_refs) "
+        "VALUES ('s','c',1,'memory',X'7B7D',X'5B5D',X'5B5D')"
+    )
+
+
+def populate(database: Path) -> None:
+    engine = create_engine("sqlite:///" + str(database))
+    try:
+        with engine.begin() as connection:
+            seed(connection)
+    finally:
+        engine.dispose()
+
+
+def apply(runner: SQLiteMigrationRunner, **kwargs: Any):
+    return runner.apply(plan_id=runner.plan().plan_id, accepted=True, maintenance_confirmed=True, **kwargs)
+
+
+def rows(database: Path, query: str):
+    with sqlite3.connect(database) as connection:
+        return connection.execute(query).fetchall()
+
+
+def test_read_only_commands_do_not_create_missing_database_or_parent(tmp_path: Path, bundle: MigrationBundle) -> None:
+    database = tmp_path / "absent" / "nested" / "pc.sqlite3"
+    runner = SQLiteMigrationRunner(database, bundle)
+    assert runner.plan().state == "uninitialized"
+    with pytest.raises(MigrationError, match="uninitialized"):
+        runner.verify()
+    with pytest.raises(MigrationError, match="confirmation_required"):
+        runner.apply()
+    assert not list(tmp_path.iterdir())
+
+
+def test_empty_initialization_and_noop_apply(tmp_path: Path, bundle: MigrationBundle) -> None:
+    database = tmp_path / "new.sqlite3"
+    runner = SQLiteMigrationRunner(database, bundle)
+    result = apply(runner)
+    assert result.changed and result.run_id and result.backup_ref
+    assert runner.verify().revision == "p0003"
+    before = database.read_bytes()
+    files = sorted(str(path) for path in tmp_path.rglob("*"))
+    assert not runner.apply().changed
+    assert database.read_bytes() == before
+    assert sorted(str(path) for path in tmp_path.rglob("*")) == files
+    assert rows(database, "SELECT COUNT(*) FROM pc_migration_runs") == [(1,)]
+
+
+def test_distinct_databases_can_migrate_in_one_process_without_crossing_contexts(
+    tmp_path: Path, bundle: MigrationBundle
+) -> None:
+    runners = [SQLiteMigrationRunner(tmp_path / f"database-{index}.sqlite3", bundle) for index in range(4)]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(apply, runners))
+    assert len({result.run_id for result in results}) == 4
+    for runner in runners:
+        assert runner.verify().state == "ready"
+        assert rows(runner.database, "SELECT COUNT(*) FROM pc_migration_runs") == [(1,)]
+
+
+@pytest.mark.parametrize("source", ["pre_dream", "v1_1_0"])
+def test_known_historical_tables_preserve_data_and_indexes(
+    tmp_path: Path, bundle: MigrationBundle, source: str
+) -> None:
+    database = tmp_path / "legacy.sqlite3"
+    load_schema(database, source)
+    populate(database)
+    runner = SQLiteMigrationRunner(database, bundle)
+    original = database.read_bytes()
+    plan = runner.plan()
+    assert plan.adopt_baseline
+    with pytest.raises(MigrationError, match="migration_required"):
+        runner.verify()
+    assert database.read_bytes() == original
+    result = apply(runner)
+    assert result.backup_ref
+    backup = Path(result.backup_ref)
+    assert SQLiteMigrationRunner(backup, bundle).plan().schema_fingerprint == plan.schema_fingerprint
+    assert rows(backup, "SELECT content FROM pc_artifacts") == [(b'{"content":"original"}',)]
+    assert rows(database, "SELECT content FROM pc_artifacts") == [(b'{"content":"original"}',)]
+    assert rows(database, "SELECT tag, tag_key_hash FROM pc_artifact_tags") == [("Keep", b"\x00")]
+    assert rows(database, "SELECT proposal, memory_citations FROM pc_artifact_candidate_versions") == [(b"{}", None)]
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute(
+            "INSERT INTO pc_artifacts (scope_id,family,artifact_id,revision,content) VALUES ('s','topic-memory','t',1,X'7B7D')"
+        )
+        connection.execute(
+            "INSERT INTO pc_artifact_heads (scope_id,family,artifact_id,revision) VALUES ('s','topic-memory','t',1)"
+        )
+        connection.execute(
+            "INSERT INTO pc_artifact_tags VALUES ('s','topic-memory','t','artifact','t',X'01','new','New','2026-09-28')"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("UPDATE pc_artifact_tags SET target_id='not-the-artifact' WHERE artifact_id='t'")
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        indexes = {item[1] for item in connection.execute("PRAGMA index_list(pc_artifact_tags)")}
+        assert {"ix_pc_artifact_tags_family_key", "ix_pc_artifact_tags_key"} <= indexes
+    assert runner.verify().state == "ready"
+
+
+@pytest.mark.parametrize(
+    "ddl",
+    [
+        "CREATE TABLE surprise (id INTEGER)",
+        "CREATE TABLE pc_artifact_tags_topic_memory (id INTEGER)",
+        "CREATE TABLE pc_schema_revision (version_num TEXT)",
+    ],
+)
+def test_unknown_or_partial_schema_is_rejected_without_writes(
+    tmp_path: Path, bundle: MigrationBundle, ddl: str
+) -> None:
+    database = tmp_path / "unknown.sqlite3"
+    load_schema(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(ddl)
+    before = database.read_bytes()
+    runner = SQLiteMigrationRunner(database, bundle)
+    with pytest.raises(MigrationError, match=r"unknown_baseline|recovery_required"):
+        apply(runner)
+    assert database.read_bytes() == before
+    assert len(list(tmp_path.iterdir())) == 1
+
+
+def test_unknown_newer_revision_never_downgrades(tmp_path: Path, bundle: MigrationBundle) -> None:
+    database = tmp_path / "newer.sqlite3"
+    runner = SQLiteMigrationRunner(database, bundle)
+    apply(runner)
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE pc_schema_revision SET version_num='future-release'")
+    before = database.read_bytes()
+    with pytest.raises(MigrationError, match="incompatible_schema"):
+        runner.apply(accepted=True, maintenance_confirmed=True, plan_id="anything")
+    assert database.read_bytes() == before
+
+
+def test_changed_configuration_requires_a_new_plan(tmp_path: Path, bundle: MigrationBundle) -> None:
+    database = tmp_path / "new.sqlite3"
+    reviewed = SQLiteMigrationRunner(database, bundle, configuration={"projection": "fts"}).plan()
+    runner = SQLiteMigrationRunner(database, bundle, configuration={"projection": "hybrid"})
+    with pytest.raises(MigrationError, match="plan_changed"):
+        runner.apply(plan_id=reviewed.plan_id, accepted=True, maintenance_confirmed=True)
+    assert not database.exists()
+
+
+def test_confirmation_and_stopped_writes_are_both_required(tmp_path: Path, bundle: MigrationBundle) -> None:
+    runner = SQLiteMigrationRunner(tmp_path / "new.sqlite3", bundle)
+    with pytest.raises(MigrationError, match="confirmation_required"):
+        runner.apply(accepted=True, maintenance_confirmed=True)
+    with pytest.raises(MigrationError, match="maintenance_required"):
+        runner.apply(plan_id=runner.plan().plan_id, accepted=True)
+    assert not list(tmp_path.iterdir())
+
+
+def test_backup_failure_precedes_schema_writes(tmp_path: Path, bundle: MigrationBundle) -> None:
+    database = tmp_path / "legacy.sqlite3"
+    load_schema(database)
+    populate(database)
+    database.with_name(database.name + ".pc-migration-backups").write_text("not a directory")
+    before = database.read_bytes()
+    with pytest.raises(MigrationError, match="backup_required"):
+        apply(SQLiteMigrationRunner(database, bundle))
+    assert database.read_bytes() == before
+    assert not rows(database, "SELECT name FROM sqlite_schema WHERE name='pc_schema_revision'")
+
+
+def test_consistent_backup_includes_committed_wal_data_and_can_be_restored(
+    tmp_path: Path, bundle: MigrationBundle
+) -> None:
+    database = tmp_path / "wal.sqlite3"
+    load_schema(database)
+    populate(database)
+    with sqlite3.connect(database) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("UPDATE pc_artifact_tags SET tag='Committed in WAL'")
+        writer.commit()
+        assert Path(str(database) + "-wal").stat().st_size > 0
+        result = apply(SQLiteMigrationRunner(database, bundle))
+        assert result.backup_ref
+        backup = Path(result.backup_ref)
+        assert rows(backup, "SELECT tag FROM pc_artifact_tags") == [("Committed in WAL",)]
+        assert "memory_citations" not in {row[1] for row in rows(backup, "PRAGMA table_info(pc_artifacts)")}
+        restored = tmp_path / "restored.sqlite3"
+        shutil.copy2(backup, restored)
+        assert SQLiteMigrationRunner(restored, bundle).plan().source_revision == "p0001"
+        assert rows(restored, "PRAGMA integrity_check") == [("ok",)]
+
+
+def test_current_writer_blocks_even_with_confirmation(tmp_path: Path, bundle: MigrationBundle) -> None:
+    database = tmp_path / "busy.sqlite3"
+    load_schema(database)
+    with sqlite3.connect(database) as writer:
+        writer.execute("BEGIN IMMEDIATE")
+        with pytest.raises(MigrationError, match="active_writers"):
+            apply(SQLiteMigrationRunner(database, bundle))
+    assert not rows(database, "SELECT name FROM sqlite_schema WHERE name='pc_schema_revision'")
+    assert not database.with_name(database.name + ".pc-migration-backups").exists()
+
+
+@pytest.mark.parametrize("revision", ["p0001", "p0002", "p0003"])
+@pytest.mark.parametrize("after_commit", [False, True])
+def test_interruption_at_each_revision_boundary_resumes_one_run_and_backup(
+    tmp_path: Path, bundle: MigrationBundle, monkeypatch: pytest.MonkeyPatch, revision: str, after_commit: bool
+) -> None:
+    database = tmp_path / "interrupted.sqlite3"
+    runner = SQLiteMigrationRunner(database, bundle)
+    original_plan = runner.plan()
+    real_upgrade = command.upgrade
+    real_commit = Connection.commit
+    interrupted = False
+
+    def upgrade(config, target, **kwargs):
+        real_upgrade(config, target, **kwargs)
+        if target == revision:
+            raise InterruptedError("Injected after real DDL, before transaction commit")  # noqa: TRY003
+
+    def commit(connection):
+        nonlocal interrupted
+        present = connection.exec_driver_sql("SELECT name FROM sqlite_schema WHERE name='pc_migration_steps'").first()
+        completed = (
+            present
+            and connection.execute(
+                text("SELECT revision FROM pc_migration_steps WHERE revision=:revision"), {"revision": revision}
+            ).first()
+        )
+        real_commit(connection)
+        if completed and not interrupted:
+            interrupted = True
+            raise InterruptedError("Injected immediately after atomic commit")  # noqa: TRY003
+
+    with monkeypatch.context() as injection:
+        if after_commit:
+            injection.setattr(Connection, "commit", commit)
+        else:
+            injection.setattr(command, "upgrade", upgrade)
+        with pytest.raises(InterruptedError):
+            apply(runner)
+    recovery = runner.plan()
+    assert recovery.state == "recovery_required"
+    assert recovery.plan_id == original_plan.plan_id
+    assert recovery.resume_run_id
+    before_backups = list(tmp_path.glob("*.pc-migration-backups/*.sqlite3"))
+    assert len(before_backups) == 1
+    with pytest.raises(MigrationError, match="recovery_required"):
+        apply(runner)
+    with pytest.raises(MigrationError, match="recovery_required"):
+        runner.verify()
+    result = apply(runner, resume=recovery.resume_run_id)
+    assert result.run_id == recovery.resume_run_id
+    assert Path(result.backup_ref) == before_backups[0]
+    assert list(tmp_path.glob("*.pc-migration-backups/*.sqlite3")) == before_backups
+    assert rows(database, "SELECT COUNT(*) FROM pc_migration_runs") == [(1,)]
+    assert rows(database, "SELECT COUNT(*) FROM pc_migration_steps") == [(3,)]
+    assert runner.verify().state == "ready"
+
+
+@pytest.mark.parametrize("resource", ["versions/p0002_citations.py", "schemas/pre_dream.json"])
+def test_applied_revision_checksum_conflict_is_rejected(tmp_path: Path, resource: str) -> None:
+    copied = tmp_path / "bundle"
+    shutil.copytree(FIXTURE, copied)
+    database = tmp_path / "pc.sqlite3"
+    apply(SQLiteMigrationRunner(database, MigrationBundle(copied)))
+    script = copied / resource
+    script.write_text(script.read_text() + "\n")
+    with pytest.raises(MigrationError, match="checksum_conflict"):
+        SQLiteMigrationRunner(database, MigrationBundle(copied)).verify()
+
+
+def test_resume_requires_the_original_backup(
+    tmp_path: Path, bundle: MigrationBundle, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = SQLiteMigrationRunner(tmp_path / "pc.sqlite3", bundle)
+    real_upgrade = command.upgrade
+
+    def interrupted(config, target, **kwargs):
+        real_upgrade(config, target, **kwargs)
+        raise InterruptedError
+
+    with monkeypatch.context() as injection:
+        injection.setattr(command, "upgrade", interrupted)
+        with pytest.raises(InterruptedError):
+            apply(runner)
+    plan = runner.plan()
+    backups = list(tmp_path.glob("*.pc-migration-backups/*.sqlite3"))
+    assert len(backups) == 1
+    backups[0].write_bytes(b"not the original recovery point")
+    before = runner.database.read_bytes()
+    with pytest.raises(MigrationError, match="backup_required"):
+        apply(runner, resume=plan.resume_run_id)
+    assert runner.database.read_bytes() == before
+    assert list(tmp_path.glob("*.pc-migration-backups/*.sqlite3")) == backups
+
+
+def test_integrity_failure_blocks_readiness(tmp_path: Path, bundle: MigrationBundle) -> None:
+    database = tmp_path / "corrupt.sqlite3"
+    apply(SQLiteMigrationRunner(database, bundle))
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO pc_artifact_tags VALUES ('missing','memory','a','artifact','a',X'00','k','t','2026-09-28')"
+        )
+    before = database.read_bytes()
+    with pytest.raises(MigrationError, match="verification_failed"):
+        SQLiteMigrationRunner(database, bundle).verify()
+    assert database.read_bytes() == before
+
+
+def test_another_process_cannot_migrate_through_a_symlink_then_lock_owner_exit_releases(
+    tmp_path: Path, bundle: MigrationBundle
+) -> None:
+    database = tmp_path / "pc.sqlite3"
+    load_schema(database)
+    alias = tmp_path / "alias.sqlite3"
+    alias.symlink_to(database)
+    code = (
+        "from pathlib import Path; import sys; "
+        "from powercontext.builtin.persistence.migrations.locking import local_migration_lock; "
+        "lock=local_migration_lock(Path(sys.argv[1])); lock.__enter__(); "
+        "print('locked', flush=True); sys.stdin.read()"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, str(database)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
+    )
+    try:
+        assert process.stdout and process.stdout.readline().strip() == "locked"
+        with pytest.raises(MigrationError, match="migration_locked"):
+            apply(SQLiteMigrationRunner(alias, bundle))
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+    assert apply(SQLiteMigrationRunner(database, bundle)).state == "ready"
+
+
+def test_batch_rebuild_preserves_registered_triggers_and_foreign_keys(bundle: MigrationBundle) -> None:
+    engine = create_engine("sqlite://")
+    with engine.connect() as connection:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        command.upgrade(bundle.config(connection), "p0002")
+        seed(connection)
+        connection.exec_driver_sql("CREATE TABLE tag_audit (tag TEXT)")
+        connection.exec_driver_sql(
+            "CREATE TRIGGER registered_tag_audit AFTER UPDATE ON pc_artifact_tags "
+            "BEGIN INSERT INTO tag_audit VALUES (new.tag); END"
+        )
+        command.upgrade(bundle.config(connection), "p0003")
+        connection.exec_driver_sql("UPDATE pc_artifact_tags SET tag='Changed'")
+        assert connection.exec_driver_sql("SELECT tag FROM tag_audit").all() == [("Changed",)]
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+        assert {item["name"] for item in inspect(connection).get_check_constraints("pc_artifact_tags")} == {
+            "ck_pc_artifact_tags_target"
+        }
+        connection.commit()
+    engine.dispose()

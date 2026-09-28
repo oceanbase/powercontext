@@ -1,0 +1,25 @@
+{
+  "revision_resources": {
+    "p0001": [
+      "schemas/pre_dream.json"
+    ],
+    "p0002": [],
+    "p0003": []
+  },
+  "sqlite_baselines": {
+    "e1cae089a8a565291a7a1f782cea1f6c6e1a6cdd9eab75ef0c4ca61dfda453cb": "p0001",
+    "fcee685ed307ee6d02fe5e950ed4e80be75f38d19de902ccacf443f21ee8c73d": "p0003"
+  },
+  "sqlite_fingerprints": {
+    "p0001": [
+      "e1cae089a8a565291a7a1f782cea1f6c6e1a6cdd9eab75ef0c4ca61dfda453cb"
+    ],
+    "p0002": [
+      "2e487ed26e6dfec3f61fe71e304e5bfd2f33c449485ffbc2d8da02ba7defca7f"
+    ],
+    "p0003": [
+      "9958fa0413ed3c16442df27dc48057d438e2cf3f7e4312c5a914cccd9d3acaab",
+      "fcee685ed307ee6d02fe5e950ed4e80be75f38d19de902ccacf443f21ee8c73d"
+    ]
+  }
+}
