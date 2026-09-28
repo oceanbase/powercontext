@@ -16,15 +16,17 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import BigInteger, DateTime, Integer, String
+from sqlalchemy import BigInteger, DateTime, Integer, String, select
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
 from powercontext.builtin.artifacts.memory import MemoryEntryInput
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.persistence.tables import (
+    MEMORY_ENTRY_DIRECTORY_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
+    MEMORY_TAG_GENERATIONS_TABLE,
 )
 from powercontext.builtin.runtime import BuiltinConfig, open_builtin_contexts
 from powercontext.builtin.sources import ContentCapture, ContentSource
@@ -53,23 +55,100 @@ def _key_budget(constraint: PrimaryKeyConstraint | UniqueConstraint | ForeignKey
 def test_memory_schema_is_mysql_compilable_and_respects_key_and_payload_limits() -> None:
     dialect = mysql.dialect()
     versions = str(CreateTable(MEMORY_ENTRY_VERSIONS_TABLE).compile(dialect=dialect))
+    directory = str(CreateTable(MEMORY_ENTRY_DIRECTORY_TABLE).compile(dialect=dialect))
     heads = str(CreateTable(MEMORY_ENTRY_HEADS_TABLE).compile(dialect=dialect))
+    generations = str(CreateTable(MEMORY_TAG_GENERATIONS_TABLE).compile(dialect=dialect))
 
     assert "scope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in versions
     assert "text MEDIUMTEXT NOT NULL" in versions
     assert "source_refs MEDIUMBLOB NOT NULL" in versions
     assert "artifact_refs MEDIUMBLOB NOT NULL" in versions
+    assert "valid_from_revision INTEGER NOT NULL" in directory
+    assert "valid_to_revision INTEGER" in directory
     assert "searchable_text MEDIUMTEXT NOT NULL" in heads
+    assert "generation BIGINT NOT NULL" in generations
 
     budgets = [
         _key_budget(constraint)
-        for table in (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
+        for table in (
+            MEMORY_ENTRY_VERSIONS_TABLE,
+            MEMORY_ENTRY_DIRECTORY_TABLE,
+            MEMORY_ENTRY_HEADS_TABLE,
+            MEMORY_TAG_GENERATIONS_TABLE,
+        )
         for constraint in table.constraints
         if isinstance(constraint, PrimaryKeyConstraint | UniqueConstraint | ForeignKeyConstraint)
     ]
     assert budgets
     assert max(budgets) == 2560
     assert all(budget < _INNODB_MAX_INDEX_BYTES for budget in budgets)
+
+
+def test_sqlite_memory_directory_records_only_changed_revision_intervals() -> None:
+    async def scenario() -> None:
+        async with open_builtin_contexts(BuiltinConfig(database=SQLiteConfig())) as contexts:
+            context = await contexts.get("project")
+            service = context.artifacts.memory
+            first = await service.remember(
+                memory=None,
+                entries=(
+                    MemoryEntryInput(kind="decision", text="Keep the stable entry unchanged."),
+                    MemoryEntryInput(kind="constraint", text="Revise and then retire this entry."),
+                ),
+                mode="append",
+            )
+            assert first is not None
+            stable, changing = await service.entries(first)
+            second = await service.remember(
+                memory=first,
+                entries=(
+                    MemoryEntryInput(
+                        entry=changing,
+                        kind=changing.kind,
+                        text="This entry now has a second immutable version.",
+                    ),
+                ),
+                mode="append",
+            )
+            assert second is not None
+            revised = next(entry for entry in await service.entries(second) if entry.entry_id == changing.entry_id)
+            third = await service.forget(second, entries=(revised,), reason="No longer current.")
+
+            async with contexts.database.transaction() as connection:
+                rows = (
+                    (
+                        await connection.execute(
+                            select(MEMORY_ENTRY_DIRECTORY_TABLE).order_by(
+                                MEMORY_ENTRY_DIRECTORY_TABLE.c.entry_id,
+                                MEMORY_ENTRY_DIRECTORY_TABLE.c.valid_from_revision,
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                generation = await connection.scalar(select(MEMORY_TAG_GENERATIONS_TABLE.c.generation))
+
+            by_entry = {
+                entry_id: [row for row in rows if row["entry_id"] == entry_id]
+                for entry_id in {stable.entry_id, changing.entry_id}
+            }
+            assert [
+                (row["entry_version_id"], row["state"], row["valid_from_revision"], row["valid_to_revision"])
+                for row in by_entry[stable.entry_id]
+            ] == [(stable.entry_version_id, "active", 1, None)]
+            assert [
+                (row["entry_version_id"], row["state"], row["valid_from_revision"], row["valid_to_revision"])
+                for row in by_entry[changing.entry_id]
+            ] == [
+                (changing.entry_version_id, "active", 1, 2),
+                (revised.entry_version_id, "active", 2, 3),
+                (revised.entry_version_id, "inactive", 3, None),
+            ]
+            assert third.revision == 3
+            assert generation == 0
+
+    asyncio.run(scenario())
 
 
 def test_sqlite_memory_backend_commits_authoritative_history_and_fts() -> None:

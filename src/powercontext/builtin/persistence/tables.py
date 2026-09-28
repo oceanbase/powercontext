@@ -1013,7 +1013,84 @@ MEMORY_ENTRY_HEADS_TABLE = Table(
 )
 
 
-MEMORY_TABLES = (MEMORY_ENTRY_VERSIONS_TABLE, MEMORY_ENTRY_HEADS_TABLE)
+MEMORY_ENTRY_DIRECTORY_TABLE = Table(
+    "pc_memory_entry_directory",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("entry_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), primary_key=True),
+    Column("entry_version_id", identity_string(MAX_MEMORY_ENTRY_ID_LENGTH), nullable=False),
+    Column("state", identity_string(8), nullable=False),
+    Column("valid_from_revision", Integer, primary_key=True),
+    Column("valid_to_revision", Integer),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "memory_artifact_id", "valid_from_revision"),
+        (
+            "pc_artifacts.scope_id",
+            "pc_artifacts.family",
+            "pc_artifacts.artifact_id",
+            "pc_artifacts.revision",
+        ),
+        ondelete="RESTRICT",
+    ),
+    ForeignKeyConstraint(
+        ("scope_id", "memory_artifact_id", "entry_id", "entry_version_id"),
+        (
+            "pc_memory_entry_versions.scope_id",
+            "pc_memory_entry_versions.memory_artifact_id",
+            "pc_memory_entry_versions.entry_id",
+            "pc_memory_entry_versions.entry_version_id",
+        ),
+        ondelete="RESTRICT",
+    ),
+    CheckConstraint("state IN ('active', 'inactive')", name="ck_pc_memory_entry_directory_state"),
+    CheckConstraint(
+        "valid_from_revision > 0",
+        name="ck_pc_memory_entry_directory_from_positive",
+    ),
+    CheckConstraint(
+        "valid_to_revision IS NULL OR valid_to_revision > valid_from_revision",
+        name="ck_pc_memory_entry_directory_valid_range",
+    ),
+    Index(
+        "ix_pc_memory_entry_directory_page",
+        "scope_id",
+        "memory_artifact_id",
+        "entry_id",
+        "valid_from_revision",
+        "valid_to_revision",
+        "state",
+    ),
+)
+
+
+MEMORY_TAG_GENERATIONS_TABLE = Table(
+    "pc_memory_tag_generations",
+    SHARED_METADATA,
+    Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
+    Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    Column("memory_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
+    Column("generation", BigInteger, nullable=False),
+    ForeignKeyConstraint(
+        ("scope_id", "family", "memory_artifact_id"),
+        (
+            "pc_artifact_heads.scope_id",
+            "pc_artifact_heads.family",
+            "pc_artifact_heads.artifact_id",
+        ),
+        ondelete="CASCADE",
+    ),
+    CheckConstraint("generation >= 0", name="ck_pc_memory_tag_generations_nonnegative"),
+)
+
+
+MEMORY_TABLES = (
+    MEMORY_ENTRY_VERSIONS_TABLE,
+    MEMORY_ENTRY_DIRECTORY_TABLE,
+    MEMORY_ENTRY_HEADS_TABLE,
+    MEMORY_TAG_GENERATIONS_TABLE,
+)
 
 TOPIC_MEMORY_TABLES = (
     TOPIC_MEMORY_RETRIEVAL_SHAPE_TABLE,

@@ -35,7 +35,11 @@ from powercontext.builtin.artifacts.memory.models import Memory
 from powercontext.builtin.persistence.artifacts import ArtifactRepository
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
-from powercontext.builtin.persistence.tables import ARTIFACT_HEADS_TABLE, ARTIFACT_TAGS_TABLE
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_HEADS_TABLE,
+    ARTIFACT_TAGS_TABLE,
+    MEMORY_TAG_GENERATIONS_TABLE,
+)
 from powercontext.builtin.records import BaseValueNotFoundError, CursorExpiredError, InvalidCursorError
 from powercontext.builtin.tags import (
     ArtifactTagSet,
@@ -202,6 +206,30 @@ class RelationalTagService:
                         .where(_where(identity), ARTIFACT_TAGS_TABLE.c.tag_key == key)
                         .values(tag=label)
                     )
+            if isinstance(target, MemoryEntryTagTarget) and previous != desired:
+                generation = await connection.scalar(
+                    select(MEMORY_TAG_GENERATIONS_TABLE.c.generation).where(
+                        MEMORY_TAG_GENERATIONS_TABLE.c.scope_id == scope_id,
+                        MEMORY_TAG_GENERATIONS_TABLE.c.memory_artifact_id == target.artifact_id,
+                    )
+                )
+                if generation is None:
+                    await connection.execute(
+                        insert(MEMORY_TAG_GENERATIONS_TABLE).values(
+                            scope_id=scope_id,
+                            family=target.family,
+                            memory_artifact_id=target.artifact_id,
+                            generation=0,
+                        )
+                    )
+                await connection.execute(
+                    update(MEMORY_TAG_GENERATIONS_TABLE)
+                    .where(
+                        MEMORY_TAG_GENERATIONS_TABLE.c.scope_id == scope_id,
+                        MEMORY_TAG_GENERATIONS_TABLE.c.memory_artifact_id == target.artifact_id,
+                    )
+                    .values(generation=MEMORY_TAG_GENERATIONS_TABLE.c.generation + 1)
+                )
             return tag_set(scope_id, target, tags)
 
     async def query(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:

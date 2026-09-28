@@ -22,7 +22,7 @@ from dataclasses import dataclass, replace
 from typing import Any, ClassVar
 
 from pydantic import RootModel
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.artifacts import ArtifactDraft, ArtifactRef
@@ -60,8 +60,10 @@ from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
+    MEMORY_ENTRY_DIRECTORY_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
+    MEMORY_TAG_GENERATIONS_TABLE,
 )
 from powercontext.builtin.persistence.tags import tag_predicate
 from powercontext.builtin.tags import TagFilter
@@ -491,6 +493,58 @@ class RelationalMemoryBackend:
             await connection.execute(
                 insert(MEMORY_ENTRY_VERSIONS_TABLE),
                 [_entry_values(self._scope_id, entry) for entry in value.entry_versions],
+            )
+        previous_directory = (
+            {} if value.base is None else {item.entry_id: item for item in value.base.content.manifest.entries}
+        )
+        current_directory = {item.entry_id: item for item in value.memory.content.manifest.entries}
+        directory_changed = tuple(
+            sorted(
+                entry_id
+                for entry_id in previous_directory.keys() | current_directory.keys()
+                if previous_directory.get(entry_id) != current_directory.get(entry_id)
+            )
+        )
+        directory_closed = tuple(entry_id for entry_id in directory_changed if entry_id in previous_directory)
+        if directory_closed:
+            await connection.execute(
+                update(MEMORY_ENTRY_DIRECTORY_TABLE)
+                .where(
+                    MEMORY_ENTRY_DIRECTORY_TABLE.c.scope_id == self._scope_id,
+                    MEMORY_ENTRY_DIRECTORY_TABLE.c.memory_artifact_id == value.memory.artifact_id,
+                    MEMORY_ENTRY_DIRECTORY_TABLE.c.entry_id.in_(directory_closed),
+                    MEMORY_ENTRY_DIRECTORY_TABLE.c.valid_to_revision.is_(None),
+                )
+                .values(valid_to_revision=value.memory.revision)
+            )
+        directory_inserted = tuple(
+            current_directory[entry_id] for entry_id in directory_changed if entry_id in current_directory
+        )
+        if directory_inserted:
+            await connection.execute(
+                insert(MEMORY_ENTRY_DIRECTORY_TABLE),
+                [
+                    {
+                        "scope_id": self._scope_id,
+                        "family": Memory.family,
+                        "memory_artifact_id": value.memory.artifact_id,
+                        "entry_id": item.entry_id,
+                        "entry_version_id": item.entry_version_id,
+                        "state": item.state,
+                        "valid_from_revision": value.memory.revision,
+                        "valid_to_revision": None,
+                    }
+                    for item in directory_inserted
+                ],
+            )
+        if value.base is None:
+            await connection.execute(
+                insert(MEMORY_TAG_GENERATIONS_TABLE).values(
+                    scope_id=self._scope_id,
+                    family=Memory.family,
+                    memory_artifact_id=value.memory.artifact_id,
+                    generation=0,
+                )
             )
         # Only entries whose pointer or state changed need projection work; the
         # rest of the active head stays exactly as the previous revision left it.
