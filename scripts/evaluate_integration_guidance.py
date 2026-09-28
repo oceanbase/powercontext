@@ -52,7 +52,7 @@ ROUTES = {
         "powercontext_handoff_current_work",
         "pc_handoff_current",
     },
-    "review": {"pc_review_list", "list_artifact_candidates", "powercontext_list_artifact_candidates"},
+    "review": {"pc_review_list", "list_candidates", "powercontext_list_candidates"},
 }
 CASES = {
     "ordinary": (

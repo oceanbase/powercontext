@@ -158,51 +158,72 @@ class RelationalTagService:
     async def replace(
         self, scope_id: str, target: TagTarget, tags: tuple[str, ...], *, expected_etag: str
     ) -> ArtifactTagSet:
-        desired = normalize_tags(tags)
         async with self._database.transaction() as connection:
-            # Acquire the database write lock before any reads. In particular,
-            # SELECT FOR UPDATE alone cannot serialize empty-set writes on SQLite.
-            locked = await connection.execute(
-                update(ARTIFACT_HEADS_TABLE)
-                .where(
-                    ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
-                    ARTIFACT_HEADS_TABLE.c.family == target.family,
-                    ARTIFACT_HEADS_TABLE.c.artifact_id == target.artifact_id,
-                )
-                .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
+            return await self.replace_in_transaction(connection, scope_id, target, tags, expected_etag=expected_etag)
+
+    async def lock_target(self, connection: AsyncConnection, scope_id: str, target: TagTarget) -> None:
+        """Serialize catalog writes with changes to the owning content head."""
+        # Acquire the database write lock before any reads. In particular,
+        # SELECT FOR UPDATE alone cannot serialize empty-set writes on SQLite.
+        locked = await connection.execute(
+            update(ARTIFACT_HEADS_TABLE)
+            .where(
+                ARTIFACT_HEADS_TABLE.c.scope_id == scope_id,
+                ARTIFACT_HEADS_TABLE.c.family == target.family,
+                ARTIFACT_HEADS_TABLE.c.artifact_id == target.artifact_id,
             )
-            if locked.rowcount != 1:
-                raise BaseValueNotFoundError("artifact", target)
-            await self._target_reference(connection, scope_id, target)
-            current = await self._read(connection, scope_id, target)
-            if not hmac.compare_digest(expected_etag.encode("utf-8"), current.etag.encode("utf-8")):
-                raise TagPreconditionError
-            previous = normalize_tags(current.tags)
-            identity = _identity(scope_id, target)
-            removed = previous.keys() - desired.keys()
-            if removed:
+            .values(revision=ARTIFACT_HEADS_TABLE.c.revision)
+        )
+        if locked.rowcount != 1:
+            raise BaseValueNotFoundError("artifact", target)
+
+    async def replace_in_transaction(
+        self,
+        connection: AsyncConnection,
+        scope_id: str,
+        target: TagTarget,
+        tags: tuple[str, ...],
+        *,
+        expected_etag: str,
+    ) -> ArtifactTagSet:
+        """Publish labels inside the caller's transaction, including its review decision."""
+        desired = normalize_tags(tags)
+        await self.lock_target(connection, scope_id, target)
+        await self._target_reference(connection, scope_id, target)
+        current = await self._read(connection, scope_id, target, for_update=True)
+        if not hmac.compare_digest(expected_etag.encode("utf-8"), current.etag.encode("utf-8")):
+            raise TagPreconditionError
+        previous = normalize_tags(current.tags)
+        identity = _identity(scope_id, target)
+        removed = previous.keys() - desired.keys()
+        if removed:
+            await connection.execute(
+                delete(ARTIFACT_TAGS_TABLE).where(_where(identity), ARTIFACT_TAGS_TABLE.c.tag_key.in_(removed))
+            )
+        assigned_at = self._clock()
+        for key, label in desired.items():
+            if key not in previous:
                 await connection.execute(
-                    delete(ARTIFACT_TAGS_TABLE).where(_where(identity), ARTIFACT_TAGS_TABLE.c.tag_key.in_(removed))
+                    insert(ARTIFACT_TAGS_TABLE).values(
+                        **identity,
+                        tag_key=key,
+                        tag_key_hash=sha256(key.encode("utf-8")).digest(),
+                        tag=label,
+                        assigned_at=assigned_at,
+                    )
                 )
-            assigned_at = self._clock()
-            for key, label in desired.items():
-                if key not in previous:
-                    await connection.execute(
-                        insert(ARTIFACT_TAGS_TABLE).values(
-                            **identity,
-                            tag_key=key,
-                            tag_key_hash=sha256(key.encode("utf-8")).digest(),
-                            tag=label,
-                            assigned_at=assigned_at,
-                        )
-                    )
-                elif label != previous[key]:
-                    await connection.execute(
-                        update(ARTIFACT_TAGS_TABLE)
-                        .where(_where(identity), ARTIFACT_TAGS_TABLE.c.tag_key == key)
-                        .values(tag=label)
-                    )
-            return tag_set(scope_id, target, tags)
+            elif label != previous[key]:
+                await connection.execute(
+                    update(ARTIFACT_TAGS_TABLE)
+                    .where(_where(identity), ARTIFACT_TAGS_TABLE.c.tag_key == key)
+                    .values(tag=label)
+                )
+        return tag_set(scope_id, target, tags)
+
+    async def read_in_transaction(
+        self, connection: AsyncConnection, scope_id: str, target: TagTarget
+    ) -> ArtifactTagSet:
+        return await self._read(connection, scope_id, target, for_update=True)
 
     async def query(self, scope_id: str, query: TagQuery, *, caller: str = "runtime") -> TagQueryPage:
         binding = sha256(
@@ -288,8 +309,13 @@ class RelationalTagService:
         cursor = self._encode_cursor(keys[query.limit - 1], binding) if len(items) > query.limit else None
         return TagQueryPage(items=tuple(items[: query.limit]), next_cursor=cursor)
 
-    async def _read(self, connection: AsyncConnection, scope_id: str, target: TagTarget) -> ArtifactTagSet:
-        labels = await connection.scalars(select(ARTIFACT_TAGS_TABLE.c.tag).where(_where(_identity(scope_id, target))))
+    async def _read(
+        self, connection: AsyncConnection, scope_id: str, target: TagTarget, *, for_update: bool = False
+    ) -> ArtifactTagSet:
+        statement = select(ARTIFACT_TAGS_TABLE.c.tag).where(_where(_identity(scope_id, target)))
+        if for_update:
+            statement = statement.with_for_update()
+        labels = await connection.scalars(statement)
         return tag_set(scope_id, target, tuple(labels))
 
     async def _target_reference(

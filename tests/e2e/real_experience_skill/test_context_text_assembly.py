@@ -39,7 +39,7 @@ from powercontext.builtin.persistence.seekdb import SeekDBConfig, SeekDBProfile
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.client import PowerContextClient
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CaptureContentSourceRequest,
     CreateScopeRequest,
     GenerateExperienceRequest,
@@ -258,8 +258,8 @@ async def _api_scenario(url, token, scope_ids, report, output):
             })
         )
         assert pending.content and "## Experience" not in pending.content
-        approved = await client.approve_artifact_candidate(
-            ApproveArtifactCandidateRequest(
+        approved = await client.approve_candidate(
+            ApproveCandidateRequest(
                 scope_id=current,
                 candidate_id=generated.candidate.candidate_id,
                 expected_version=generated.candidate.version,

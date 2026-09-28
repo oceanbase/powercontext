@@ -248,6 +248,7 @@ export class PowerContextClient {
     spec: OperationSpec, request: PreparedRequest, signal?: AbortSignal, requestTimeoutMs = this.requestTimeoutMs,
   ): RequestInit {
     const headers: Record<string, string> = {
+      'X-PowerContext-Dream-Contract': '2',
       Accept: 'application/json',
       'User-Agent': PLUGIN_USER_AGENT,
       ...request.headers,

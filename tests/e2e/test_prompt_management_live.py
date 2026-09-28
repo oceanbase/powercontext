@@ -34,7 +34,7 @@ from powercontext.builtin.runtime import CaptureSource
 from powercontext.builtin.runtime.relational import RelationalContexts
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CommitHandoffRequest,
     CreateArtifactRequest,
     CreateScopeRequest,
@@ -306,8 +306,8 @@ async def _exercise(client, runtime, scopes: list[str], backend: str) -> None:
     )
     assert experience.candidate is not None
     assert any(ref.artifact_id == "experience.generate" for ref in experience.candidate.artifact_refs)
-    approved = await client.approve_artifact_candidate(
-        ApproveArtifactCandidateRequest(
+    approved = await client.approve_candidate(
+        ApproveCandidateRequest(
             scope_id=first,
             candidate_id=experience.candidate.candidate_id,
             expected_version=experience.candidate.version,
@@ -324,8 +324,8 @@ async def _exercise(client, runtime, scopes: list[str], backend: str) -> None:
     )
     assert skill.candidate is not None
     assert any(ref.artifact_id == "skill.generate" for ref in skill.candidate.artifact_refs)
-    skill_approved = await client.approve_artifact_candidate(
-        ApproveArtifactCandidateRequest(
+    skill_approved = await client.approve_candidate(
+        ApproveCandidateRequest(
             scope_id=first,
             candidate_id=skill.candidate.candidate_id,
             expected_version=skill.candidate.version,

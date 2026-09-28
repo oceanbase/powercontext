@@ -219,6 +219,8 @@ class HandoffOmission(_HandoffValue):
 class HandoffContent(_HandoffValue):
     """The complete content shared by temporary and committed Handoffs."""
 
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True, validate_by_name=True)
+
     generation: HandoffGenerationMetadata | None = Field(default=None, exclude_if=lambda value: value is None)
 
     schema_version: Literal["powercontext.handoff.v1"] = Field(

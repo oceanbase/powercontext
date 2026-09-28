@@ -67,6 +67,7 @@ _HOST_BLOCK_OPEN_PREFIXES = (
 _MAX_QUERY_CHARACTERS = 8192
 _MAX_QUERY_BYTES = 8192
 _REQUEST_HEADERS = {
+    "X-PowerContext-Dream-Contract": "2",
     "Accept": "application/json",
     "Content-Type": "application/json",
     "User-Agent": "powercontext-workbuddy-plugin/0.1.0",

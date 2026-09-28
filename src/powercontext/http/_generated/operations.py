@@ -18,9 +18,7 @@ from powercontext.http._generated.models import (
     AccessRolePage,
     AcknowledgeHandoffRequest,
     ActivateHandoffRequest,
-    ApproveArtifactCandidateRequest,
-    ArtifactCandidate,
-    ArtifactCandidatePage,
+    ApproveCandidateRequest,
     ArtifactCreated,
     ArtifactPage,
     ArtifactPublication,
@@ -28,6 +26,9 @@ from powercontext.http._generated.models import (
     ArtifactRevisionPage,
     ArtifactTagPage,
     ArtifactTagSet,
+    Candidate,
+    CandidateHistory,
+    CandidatePage,
     Capabilities,
     CaptureContentSourceRequest,
     CaptureContentSourceResponse,
@@ -66,7 +67,7 @@ from powercontext.http._generated.models import (
     GenerateExperienceRequest,
     GeneratePromptDemonstrationsRequest,
     GenerateSkillRequest,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetConnectorCheckpointRequest,
     GetExperienceRequest,
     GetHandoffReportRequest,
@@ -87,9 +88,9 @@ from powercontext.http._generated.models import (
     ListAccessBindingsRequest,
     ListAccessResourcesRequest,
     ListAccessRolesRequest,
-    ListArtifactCandidatesRequest,
     ListArtifactRevisionsRequest,
     ListArtifactsRequest,
+    ListCandidatesRequest,
     ListDreamRunsRequest,
     ListExternalSkillsRequest,
     ListExternalSkillsResponse,
@@ -127,7 +128,7 @@ from powercontext.http._generated.models import (
     RecordSkillUsageRequest,
     RecordTaskOutcomeRequest,
     RegisterSourceDefinitionRequest,
-    RejectArtifactCandidateRequest,
+    RejectCandidateRequest,
     RememberMemoryRequest,
     RemoteSkillPublication,
     RemoteSkillReceiptResponse,
@@ -142,7 +143,7 @@ from powercontext.http._generated.models import (
     ResolveScopeBindingRequest,
     ResolveScopeSelectionRequest,
     RetireMemoryEntryRequest,
-    ReviseArtifactCandidateRequest,
+    ReviseCandidateRequest,
     ReviseMemoryEntryRequest,
     RevokeAccessBindingRequest,
     RevokeRemoteSkillTargetRequest,
@@ -1405,6 +1406,7 @@ LIST_DREAM_RUNS = Operation[ListDreamRunsRequest, DreamRunPage](
     tags=("dream",),
     scope_mode="none",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The requested Dream state.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1433,6 +1435,7 @@ CREATE_DREAM_RUN = Operation[CreateDreamRunRequest, DreamRun](
     tags=("dream",),
     scope_mode="none",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         202: {
             "description": "The accepted queued or running Dream.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1469,6 +1472,7 @@ GET_DREAM_RUN = Operation[None, DreamRun](
     tags=("dream",),
     scope_mode="none",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The requested Dream state.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -1484,14 +1488,14 @@ GET_DREAM_RUN = Operation[None, DreamRun](
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="path_scope_read_access"),
 )
 
-PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, ArtifactCandidate](
+PROPOSE_EXPERIENCE = Operation[ProposeExperienceRequest, Candidate](
     method="POST",
     path="/v1/experience/propose",
     operation_id="propose_experience",
     request_type=ProposeExperienceRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=201,
     summary="Propose Experience content",
     tags=("experience",),
@@ -1569,14 +1573,14 @@ GET_EXPERIENCE = Operation[GetExperienceRequest, ExperienceArtifact](
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="exact_experience_access"),
 )
 
-PROPOSE_SKILL = Operation[ProposeSkillRequest, ArtifactCandidate](
+PROPOSE_SKILL = Operation[ProposeSkillRequest, Candidate](
     method="POST",
     path="/v1/skill/propose",
     operation_id="propose_skill",
     request_type=ProposeSkillRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=201,
     summary="Propose managed Skill content",
     tags=("skill",),
@@ -1752,14 +1756,14 @@ DOWNLOAD_SKILL_PACKAGE = Operation[GetSkillPackageRequest, SkillPackageDownload]
     access=AccessRequirement(action=None, resource=None, scope_id_field=None, resolver="exact_skill_access"),
 )
 
-PROPOSE_SKILL_PACKAGE = Operation[ProposeSkillPackageRequest, ArtifactCandidate](
+PROPOSE_SKILL_PACKAGE = Operation[ProposeSkillPackageRequest, Candidate](
     method="POST",
     path="/v1/skill/package/propose",
     operation_id="propose_skill_package",
     request_type=ProposeSkillPackageRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=201,
     summary="Propose an uploaded standard Skill package",
     tags=("skill",),
@@ -2146,19 +2150,20 @@ IMPORT_EXTERNAL_SKILL = Operation[ImportExternalSkillRequest, GeneratedCandidate
     ),
 )
 
-LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCandidatePage](
+LIST_CANDIDATES = Operation[ListCandidatesRequest, CandidatePage](
     method="POST",
-    path="/v1/artifact-candidates/list",
-    operation_id="list_artifact_candidates",
-    request_type=ListArtifactCandidatesRequest,
+    path="/v1/candidates/list",
+    operation_id="list_candidates",
+    request_type=ListCandidatesRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidatePage,
+    response_type=CandidatePage,
     success_status=200,
-    summary="List Artifact Candidates",
+    summary="List Candidates",
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The selected current Candidate heads.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2172,19 +2177,20 @@ LIST_ARTIFACT_CANDIDATES = Operation[ListArtifactCandidatesRequest, ArtifactCand
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidate](
+GET_CANDIDATE = Operation[GetCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/get",
-    operation_id="get_artifact_candidate",
-    request_type=GetArtifactCandidateRequest,
+    path="/v1/candidates/get",
+    operation_id="get_candidate",
+    request_type=GetCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Get an Artifact Candidate",
+    summary="Get a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The current Candidate head.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2199,19 +2205,20 @@ GET_ARTIFACT_CANDIDATE = Operation[GetArtifactCandidateRequest, ArtifactCandidat
     access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, ArtifactCandidate](
+APPROVE_CANDIDATE = Operation[ApproveCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/approve",
-    operation_id="approve_artifact_candidate",
-    request_type=ApproveArtifactCandidateRequest,
+    path="/v1/candidates/approve",
+    operation_id="approve_candidate",
+    request_type=ApproveCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Approve an Artifact Candidate",
+    summary="Approve a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The approved Candidate and exact result Artifact.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2227,19 +2234,20 @@ APPROVE_ARTIFACT_CANDIDATE = Operation[ApproveArtifactCandidateRequest, Artifact
     access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCandidate](
+REJECT_CANDIDATE = Operation[RejectCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/reject",
-    operation_id="reject_artifact_candidate",
-    request_type=RejectArtifactCandidateRequest,
+    path="/v1/candidates/reject",
+    operation_id="reject_candidate",
+    request_type=RejectCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Reject an Artifact Candidate",
+    summary="Reject a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The rejected Candidate.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2255,19 +2263,20 @@ REJECT_ARTIFACT_CANDIDATE = Operation[RejectArtifactCandidateRequest, ArtifactCa
     access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
-REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCandidate](
+REVISE_CANDIDATE = Operation[ReviseCandidateRequest, Candidate](
     method="POST",
-    path="/v1/artifact-candidates/revise",
-    operation_id="revise_artifact_candidate",
-    request_type=ReviseArtifactCandidateRequest,
+    path="/v1/candidates/revise",
+    operation_id="revise_candidate",
+    request_type=ReviseCandidateRequest,
     request_location="body",
     path_parameters=(),
-    response_type=ArtifactCandidate,
+    response_type=Candidate,
     success_status=200,
-    summary="Revise an Artifact Candidate",
+    summary="Revise a Candidate",
     tags=("review",),
     scope_mode="current",
     responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
         200: {
             "description": "The next pending Candidate version.",
             "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
@@ -2281,6 +2290,32 @@ REVISE_ARTIFACT_CANDIDATE = Operation[ReviseArtifactCandidateRequest, ArtifactCa
         500: {"$ref": "#/components/responses/InternalError"},
     },
     access=AccessRequirement(action="scope.review", resource="scope", scope_id_field="scope_id", resolver="request"),
+)
+
+GET_CANDIDATE_HISTORY = Operation[GetCandidateRequest, CandidateHistory](
+    method="POST",
+    path="/v1/candidates/history",
+    operation_id="get_candidate_history",
+    request_type=GetCandidateRequest,
+    request_location="body",
+    path_parameters=(),
+    response_type=CandidateHistory,
+    success_status=200,
+    summary="History Candidates",
+    tags=("review",),
+    scope_mode="current",
+    responses={
+        426: {"$ref": "#/components/responses/ClientUpgradeRequired"},
+        200: {"description": "Current Candidate state."},
+        401: {"$ref": "#/components/responses/Unauthorized"},
+        403: {"$ref": "#/components/responses/Forbidden"},
+        404: {"$ref": "#/components/responses/NotFound"},
+        409: {"$ref": "#/components/responses/Conflict"},
+        422: {"$ref": "#/components/responses/InvalidRequest"},
+        503: {"$ref": "#/components/responses/Unavailable"},
+        500: {"$ref": "#/components/responses/InternalError"},
+    },
+    access=AccessRequirement(action="scope.read", resource="scope", scope_id_field="scope_id", resolver="request"),
 )
 
 GET_STATS = Operation[GetStatsRequest, ScopedStats](

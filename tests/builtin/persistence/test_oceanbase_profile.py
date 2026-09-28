@@ -45,6 +45,10 @@ from powercontext.builtin.persistence.tables import (
 VALID_URL = "mysql+aoceanbase://root%40tenant:secret@127.0.0.1:2881/powercontext?charset=utf8mb4"
 
 
+async def _skip_candidate_migration(_engine: AsyncEngine) -> None:
+    """These profile unit tests use engine doubles; migration has integration coverage."""
+
+
 class _Result:
     def __init__(self, rows: tuple[tuple[object, ...], ...]) -> None:
         self._rows = rows
@@ -175,6 +179,7 @@ def test_oceanbase_profile_hides_sql_parameters(monkeypatch: pytest.MonkeyPatch)
 
         monkeypatch.setattr(oceanbase_profile_module, "create_async_engine", create_engine)
         monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_no_tables)
+        monkeypatch.setattr(oceanbase_profile_module, "migrate_candidate_schema", _skip_candidate_migration)
 
         async with OceanBaseProfile.open(OceanBaseConfig(url=SecretStr(VALID_URL)), tables=()):
             pass
@@ -231,6 +236,7 @@ def test_profile_rejects_legacy_identity_column_collation(monkeypatch: pytest.Mo
             created = True
 
         monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_no_tables)
+        monkeypatch.setattr(oceanbase_profile_module, "migrate_candidate_schema", _skip_candidate_migration)
         with pytest.raises(IncompatibleOceanBaseSchemaError, match="utf8mb4_general_ci") as caught:
             async with OceanBaseProfile.attach(
                 cast(AsyncEngine, engine),
@@ -284,6 +290,7 @@ def test_profile_creates_tables_for_empty_or_compatible_schema(
             created.append(tables)
 
         monkeypatch.setattr(oceanbase_profile_module, "create_tables", create_selected_tables)
+        monkeypatch.setattr(oceanbase_profile_module, "migrate_candidate_schema", _skip_candidate_migration)
         async with OceanBaseProfile.attach(cast(AsyncEngine, engine), tables=(SOURCES_TABLE,)):
             pass
 

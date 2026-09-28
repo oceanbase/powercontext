@@ -33,6 +33,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from powercontext.builtin.persistence.candidate_schema import migrate_candidate_schema
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.schema import create_tables
 
@@ -97,6 +98,7 @@ class SQLiteProfile:
         profile = cls(database=database, tables=tables)
         try:
             await _warm_sqlite(engine, config)
+            await migrate_candidate_schema(engine)
             async with database.transaction() as connection:
                 await create_tables(connection, tables)
             yield profile

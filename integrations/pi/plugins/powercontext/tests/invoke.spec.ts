@@ -63,9 +63,9 @@ describe('Pi native tool invocation', () => {
       ['record_task_outcome', { outcome: { summary: 'api_key=secret' } }],
       ['generate_experience', { reason: 'api_key=secret' }],
       ['generate_skill', { reason: 'api_key=secret' }],
-      ['approve_artifact_candidate', { candidate_id: 'api_key=secret', expected_version: 1 }],
-      ['reject_artifact_candidate', { reason: 'api_key=secret', candidate_id: 'candidate-1', expected_version: 1 }],
-      ['revise_artifact_candidate', { proposal: { lesson: 'api_key=secret' } }],
+      ['approve_candidate', { candidate_id: 'api_key=secret', expected_version: 1 }],
+      ['reject_candidate', { reason: 'api_key=secret', candidate_id: 'candidate-1', expected_version: 1 }],
+      ['revise_candidate', { proposal: { lesson: 'api_key=secret' } }],
       ['import_external_skill', { external_skill_id: 'skill-1', fingerprint: 'api_key=secret', mode: 'import' }],
     ] as const
     for (const [operationId, payload] of structuredWrites) {

@@ -158,6 +158,10 @@ CLI 不在 PATH 上时该行是 `missing`，不会让整条命令失败。各个
 缺失时仍会失败。矩阵保留每个宿主专有的全部集成检查，包括 OpenCode 独立的 `plugin` 与 `skill` 结果。
 DSH 检查 `dump-config` 是否列出 `powercontext-dsh`；Pi 检查 CLI 是否列出 PowerContext package。
 
+Candidate 的统一 HTTP 路径为 `/v1/candidates/list`、`get`、`history`、`revise`、`approve`、`reject`（均为 POST）。
+通过 `candidate_kind=artifact|tag` 区分类型；旧 Artifact Candidate 路径直接移除，调用方必须同步升级。
+Artifact 批准返回真实版本引用，Tag 批准返回标签集和 ETag，不生成正文版本。
+
 `candidate` 命令组提供面向人工的 Review Inbox。列出、检查、修订、批准和拒绝的操作步骤见
 [审核 Candidate](../workflows/review-candidates.md)。
 
@@ -263,7 +267,7 @@ Discovery 不进入 Review。显式调用 `import_external_skill` 并提供精�
 Scalar API reference，在 `/openapi.json` 提供 OpenAPI 文档，在 `/health/ready` 提供就绪检查，在
 `/v1/capabilities` 提供能力信息，并默认在 `/mcp` 提供 Streamable HTTP MCP。启用 Bearer authentication 后，
 Scalar reference 仍可公开访问，但其中描述的 operation 继续遵守各自的认证要求。HTTP 是完整应用契约，MCP 是
-面向 Agent 的 Source 采集、Memory 维护、工作连续性、scope Handoff Report 查询和 Candidate Review 精选子集。五个
+面向 Agent 的 Source 采集、Memory 维护、工作连续性、scope Handoff Report 查询和 Candidate Review 精选子集。六个
 Candidate Review operation 通过 HTTP 和 MCP 使用相同的 validation、`expected_version` 并发校验和 approval transaction。Experience/Skill generation、
 exact read、external Registry operation 和低阶 proposal operation 仍只通过 HTTP 提供。
 所有检查通过时 readiness 为 HTTP 200 的 `ready`；只有已配置的推理检查失败时为 HTTP 200 的 `degraded`；

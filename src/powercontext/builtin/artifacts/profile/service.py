@@ -133,6 +133,9 @@ class RelationalProfileService:
             async with self.database.transaction() as connection:
                 if await ScopeRepository().get(connection, scope_id) is None:
                     raise ScopeNotFoundError(scope_id)
+                intents = ArtifactProcessingIntentRepository()
+                await intents.ensure(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING)
+                await intents.load(connection, scope_id, PROFILE_SOURCE_WINDOW_BINDING, for_update=True)
                 current = await self.policies.get(connection, scope_id, for_update=True)
                 if current is None:
                     if expected_version != 0:

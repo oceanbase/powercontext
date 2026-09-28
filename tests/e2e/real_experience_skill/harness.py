@@ -50,11 +50,11 @@ from powercontext.builtin.runtime import DatabaseConfig, ExternalSkillsConfig, R
 from powercontext.builtin.sources import ContentSource
 from powercontext.client import PowerContextClient, ServerResponseError
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
-    ArtifactCandidate,
-    ArtifactCandidatePage,
+    ApproveCandidateRequest,
     ArtifactReference,
+    Candidate,
     CandidateFamily,
+    CandidatePage,
     CandidateStatus,
     CaptureContentSourceRequest,
     CreateScopeRequest,
@@ -66,18 +66,18 @@ from powercontext.http import (
     GeneratedCandidateStatus,
     GenerateExperienceRequest,
     GenerateSkillRequest,
-    GetArtifactCandidateRequest,
+    GetCandidateRequest,
     GetExperienceRequest,
     GetSkillRequest,
     ImportExternalSkillRequest,
-    ListArtifactCandidatesRequest,
+    ListCandidatesRequest,
     ListExternalSkillsRequest,
     MemoryMatchedBy,
     MemorySearchMode,
     PrepareContextRequest,
     ProposeExperienceRequest,
     ProposeSkillRequest,
-    RejectArtifactCandidateRequest,
+    RejectCandidateRequest,
     RememberMemoryRequest,
     ResolveExternalSkillRequest,
     ScanExternalSkillsRequest,
@@ -108,8 +108,8 @@ _SCOPE_TABLES = (
     "pc_memory_entry_heads",
     "pc_memory_entry_versions",
     "pc_skill_publications",
-    "pc_artifact_candidate_heads",
-    "pc_artifact_candidate_versions",
+    "pc_candidate_heads",
+    "pc_candidate_versions",
     "pc_artifact_heads",
     "pc_artifact_lineage_artifacts",
     "pc_artifact_lineage_sources",
@@ -563,8 +563,8 @@ async def _run_journey(
                 experience_candidate.proposal == proposal, "scheduled Experience changed typed Task Outcome content"
             )
             _require(prepared.status == "empty", "pending Experience entered PreparedContext")
-            approved_experience_candidate = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved_experience_candidate = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=experience_candidate.candidate_id,
                     expected_version=1,
@@ -617,8 +617,8 @@ async def _run_journey(
                     reason="Incubated from one exact approved Experience Revision.",
                 )
             )
-            skill_inbox = await client.list_artifact_candidates(
-                ListArtifactCandidatesRequest(scope_id=scope_id, family=CandidateFamily.SKILL)
+            skill_inbox = await client.list_candidates(
+                ListCandidatesRequest(scope_id=scope_id, family=CandidateFamily.SKILL)
             )
             prepared = await client.prepare_context(PrepareContextRequest(scope_id=scope_id, query=proposal.lesson))
             _require(skill_candidate.result_artifact is None, "pending managed Skill allocated an Artifact")
@@ -635,8 +635,8 @@ async def _run_journey(
             "Reviewer approves managed Skill with exact Experience lineage",
             "api/skill-approved.json",
         ):
-            approved_skill_candidate = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved_skill_candidate = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=skill_candidate.candidate_id,
                     expected_version=1,
@@ -744,19 +744,19 @@ async def _run_journey(
                     artifact_refs=[],
                 )
             )
-            rejected = await client.reject_artifact_candidate(
-                RejectArtifactCandidateRequest(
+            rejected = await client.reject_candidate(
+                RejectCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=rejected_candidate.candidate_id,
                     expected_version=1,
                     reason="The proposal exceeds the task authority boundary.",
                 )
             )
-            exact = await client.get_artifact_candidate(
-                GetArtifactCandidateRequest(scope_id=scope_id, candidate_id=rejected.candidate_id)
+            exact = await client.get_candidate(
+                GetCandidateRequest(scope_id=scope_id, candidate_id=rejected.candidate_id)
             )
-            rejected_page = await client.list_artifact_candidates(
-                ListArtifactCandidatesRequest(
+            rejected_page = await client.list_candidates(
+                ListCandidatesRequest(
                     scope_id=scope_id,
                     family=CandidateFamily.SKILL,
                     status=CandidateStatus.REJECTED,
@@ -924,8 +924,8 @@ async def _run_configured_journey(
             _require(experience_candidate.result_artifact is None, "pending Experience allocated an Artifact")
             _require(experience_candidate.source_refs == [task_outcome.source], "Experience lost exact task lineage")
             _require(prepared.status.value == "empty", "pending Experience entered Memory-only PreparedContext")
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=experience_candidate.candidate_id,
                     expected_version=experience_candidate.version,
@@ -973,8 +973,8 @@ async def _run_configured_journey(
                 )
             else:
                 _fail("Experience generation resolved evidence from another scope")
-            pending = await client.list_artifact_candidates(
-                ListArtifactCandidatesRequest(scope_id=artifact_scope, family=CandidateFamily.EXPERIENCE)
+            pending = await client.list_candidates(
+                ListCandidatesRequest(scope_id=artifact_scope, family=CandidateFamily.EXPERIENCE)
             )
             _require(not pending.candidates, "cross-scope generation persisted a Candidate")
             recorder.write_json("api/foreign-scope-source.json", foreign_source.model_dump(mode="json"))
@@ -1013,8 +1013,8 @@ async def _run_configured_journey(
             skill_text = skill_candidate.proposal.model_dump_json().lower()
             for required_text in ("config.json", "strict", "test_config.py"):
                 _require(required_text in skill_text, f"generated managed Skill omitted {required_text}")
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=skill_candidate.candidate_id,
                     expected_version=skill_candidate.version,
@@ -1078,8 +1078,8 @@ async def _run_configured_journey(
             prepared = await client.prepare_context(
                 PrepareContextRequest(scope_id=artifact_scope, query="invalid skill derived copy")
             )
-            rejected_page = await client.list_artifact_candidates(
-                ListArtifactCandidatesRequest(
+            rejected_page = await client.list_candidates(
+                ListCandidatesRequest(
                     scope_id=artifact_scope,
                     family=CandidateFamily.SKILL,
                     status=CandidateStatus.REJECTED,
@@ -1206,8 +1206,8 @@ async def _run_configured_journey(
             _require(
                 cross_task_candidate.result_artifact is None, "pending cross-task Experience allocated an Artifact"
             )
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=cross_task_candidate.candidate_id,
                     expected_version=cross_task_candidate.version,
@@ -1258,8 +1258,8 @@ async def _run_configured_journey(
                 generated_experience_v2,
                 "configured model returned no Experience replacement",
             )
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=experience_v2_candidate.candidate_id,
                     expected_version=experience_v2_candidate.version,
@@ -1285,8 +1285,8 @@ async def _run_configured_journey(
                 generated_skill_v2,
                 "configured model returned no managed Skill replacement",
             )
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=skill_v2_candidate.candidate_id,
                     expected_version=skill_v2_candidate.version,
@@ -1371,8 +1371,8 @@ async def _run_configured_journey(
                 and conflict_candidate.artifact_refs == [experience_v2.artifact],
                 "conflict replacement lost direct Source or predecessor lineage",
             )
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=conflict_candidate.candidate_id,
                     expected_version=conflict_candidate.version,
@@ -1446,8 +1446,8 @@ async def _run_configured_journey(
                 and fork_candidate.source_refs[0].name == "external-skill-snapshot",
                 "external fork lost exact snapshot Source lineage",
             )
-            rejected_fork = await client.reject_artifact_candidate(
-                RejectArtifactCandidateRequest(
+            rejected_fork = await client.reject_candidate(
+                RejectCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=fork_candidate.candidate_id,
                     expected_version=fork_candidate.version,
@@ -1473,8 +1473,8 @@ async def _run_configured_journey(
                 and imported_candidate.source_refs[0].name == "external-skill-snapshot",
                 "external import lost exact snapshot Source lineage",
             )
-            approved = await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            approved = await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=artifact_scope,
                     candidate_id=imported_candidate.candidate_id,
                     expected_version=imported_candidate.version,
@@ -1594,11 +1594,11 @@ async def _verify_configured_restart(
                     await client.get_skill(GetSkillRequest(scope_id=state.scopes.artifacts, artifact=expected.artifact))
                 )
             persisted_skills = tuple(persisted_skill_values)
-            rejected_values: list[ArtifactCandidate] = []
+            rejected_values: list[Candidate] = []
             for candidate_id in state.rejected_candidate_ids:
                 rejected_values.append(
-                    await client.get_artifact_candidate(
-                        GetArtifactCandidateRequest(scope_id=state.scopes.artifacts, candidate_id=candidate_id)
+                    await client.get_candidate(
+                        GetCandidateRequest(scope_id=state.scopes.artifacts, candidate_id=candidate_id)
                     )
                 )
             rejected = tuple(rejected_values)
@@ -1688,11 +1688,11 @@ async def _wait_for_experience_candidate(
     scope_id: str,
     *,
     timeout_seconds: float = 10.0,
-) -> ArtifactCandidatePage:
+) -> CandidatePage:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        inbox = await client.list_artifact_candidates(
-            ListArtifactCandidatesRequest(
+        inbox = await client.list_candidates(
+            ListCandidatesRequest(
                 scope_id=scope_id,
                 family=CandidateFamily.EXPERIENCE,
             )
@@ -1705,7 +1705,7 @@ async def _wait_for_experience_candidate(
     _fail("scheduled Experience Candidate did not reach the Review Inbox")
 
 
-def _required_generated_candidate(response: GeneratedCandidateResponse, message: str) -> ArtifactCandidate:
+def _required_generated_candidate(response: GeneratedCandidateResponse, message: str) -> Candidate:
     _require(response.status is GeneratedCandidateStatus.PENDING, message)
     candidate = response.candidate
     if candidate is None:
@@ -1717,13 +1717,13 @@ async def _reject_after_invalid_skill_approval(
     client: PowerContextClient,
     *,
     scope_id: str,
-    candidate: ArtifactCandidate,
+    candidate: Candidate,
     rejection_reason: str,
     accepted_message: str,
-) -> ArtifactCandidate:
+) -> Candidate:
     try:
-        await client.approve_artifact_candidate(
-            ApproveArtifactCandidateRequest(
+        await client.approve_candidate(
+            ApproveCandidateRequest(
                 scope_id=scope_id,
                 candidate_id=candidate.candidate_id,
                 expected_version=candidate.version,
@@ -1734,12 +1734,12 @@ async def _reject_after_invalid_skill_approval(
         _require(error.code == "invalid_request", "invalid Skill lineage returned an unexpected error code")
     else:
         _fail(accepted_message)
-    still_pending = await client.get_artifact_candidate(
-        GetArtifactCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id)
+    still_pending = await client.get_candidate(
+        GetCandidateRequest(scope_id=scope_id, candidate_id=candidate.candidate_id)
     )
     _require(still_pending.status is CandidateStatus.PENDING, "failed approval mutated Candidate status")
-    return await client.reject_artifact_candidate(
-        RejectArtifactCandidateRequest(
+    return await client.reject_candidate(
+        RejectCandidateRequest(
             scope_id=scope_id,
             candidate_id=candidate.candidate_id,
             expected_version=still_pending.version,
@@ -1764,8 +1764,8 @@ async def _replace_experience(client, scope_id, current, source):
             reason="Later real-Codex usage strengthened the original judgment.",
         )
     )
-    approved = await client.approve_artifact_candidate(
-        ApproveArtifactCandidateRequest(
+    approved = await client.approve_candidate(
+        ApproveCandidateRequest(
             scope_id=scope_id,
             candidate_id=candidate.candidate_id,
             expected_version=1,
@@ -1791,8 +1791,8 @@ async def _replace_skill(client, scope_id, current, source):
             reason="Real usage showed that validation evidence should be preserved explicitly.",
         )
     )
-    approved = await client.approve_artifact_candidate(
-        ApproveArtifactCandidateRequest(
+    approved = await client.approve_candidate(
+        ApproveCandidateRequest(
             scope_id=scope_id,
             candidate_id=candidate.candidate_id,
             expected_version=1,
@@ -2360,7 +2360,7 @@ def _required_executable(name: str) -> Path:
     return Path(value).resolve()
 
 
-def _result_artifact(candidate: ArtifactCandidate, message: str) -> ArtifactReference:
+def _result_artifact(candidate: Candidate, message: str) -> ArtifactReference:
     result = candidate.result_artifact
     if result is None:
         _fail(message)

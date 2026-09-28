@@ -69,7 +69,7 @@ class ScopeInvocation:
         intent = await self.guard(connection)
         self.dirty_generation = intent.dirty_generation
 
-    async def complete(self, connection: AsyncConnection, *, remaining_work: bool) -> None:
+    async def complete(self, connection: AsyncConnection, *, remaining_work: bool, dream: bool = False) -> None:
         await self.guard(connection)
         work = self.assignment
         await self.intents.acknowledge(
@@ -78,5 +78,6 @@ class ScopeInvocation:
             work.binding_name,
             work.claimed_request_generation,
             clean_generation=None if remaining_work else self.dirty_generation,
+            dream=dream,
         )
         await self.leases.require_fence(connection, work.fence)

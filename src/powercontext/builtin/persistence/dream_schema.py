@@ -19,12 +19,24 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.schema import CreateColumn
 
-from powercontext.builtin.persistence.tables import ARTIFACT_CANDIDATE_VERSIONS_TABLE, ARTIFACTS_TABLE
+from powercontext.builtin.persistence.tables import (
+    ARTIFACT_PROCESSING_INTENTS_TABLE,
+    ARTIFACTS_TABLE,
+    CANDIDATE_VERSIONS_TABLE,
+    DREAM_RUNS_TABLE,
+)
 
 
 async def ensure_dream_schema(connection: AsyncConnection, /) -> None:
-    for table in (ARTIFACTS_TABLE, ARTIFACT_CANDIDATE_VERSIONS_TABLE):
-        column = table.c.memory_citations
+    for table, name in (
+        (DREAM_RUNS_TABLE, "proposal_fingerprint"),
+        (ARTIFACTS_TABLE, "memory_citations"),
+        (CANDIDATE_VERSIONS_TABLE, "memory_citations"),
+        (ARTIFACT_PROCESSING_INTENTS_TABLE, "consecutive_dream_attempts"),
+    ):
+        if not await connection.run_sync(lambda sync, table_name=table.name: inspect(sync).has_table(table_name)):
+            continue
+        column = table.c[name]
         if await _has_column(connection, table.name, column.name):
             continue
         declaration = str(CreateColumn(column).compile(dialect=connection.dialect))
@@ -34,6 +46,12 @@ async def ensure_dream_schema(connection: AsyncConnection, /) -> None:
             # Concurrent startup may have applied the same additive migration.
             if not await _has_column(connection, table.name, column.name):
                 raise
+
+    for index in DREAM_RUNS_TABLE.indexes:
+        if index.name == "ix_pc_dream_runs_proposal_fingerprint" and await connection.run_sync(
+            lambda sync: inspect(sync).has_table(DREAM_RUNS_TABLE.name)
+        ):
+            await connection.run_sync(lambda sync, selected=index: selected.create(sync, checkfirst=True))
 
 
 async def _has_column(connection: AsyncConnection, table_name: str, column_name: str) -> bool:

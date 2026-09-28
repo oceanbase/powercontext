@@ -467,7 +467,7 @@ def test_candidate_permissions_preserve_proposer_restriction(tmp_path):
                 ("viewer", (False, False, False)),
             ):
                 response = await client.post(
-                    "/v1/artifact-candidates/get",
+                    "/v1/candidates/get",
                     headers={"Authorization": f"Bearer {principal}"},
                     json={"scope_id": scope_id, "candidate_id": candidate_id},
                 )
@@ -476,12 +476,10 @@ def test_candidate_permissions_preserve_proposer_restriction(tmp_path):
                     zip(("can_revise", "can_approve", "can_reject"), expected, strict=True)
                 )
             revision = payload | {"candidate_id": candidate_id, "expected_version": created.json()["version"]}
-            denied = await client.post(
-                "/v1/artifact-candidates/revise", headers={"Authorization": "Bearer bob"}, json=revision
-            )
+            denied = await client.post("/v1/candidates/revise", headers={"Authorization": "Bearer bob"}, json=revision)
             assert denied.status_code == 403, denied.text
             revised = await client.post(
-                "/v1/artifact-candidates/revise", headers={"Authorization": "Bearer alice"}, json=revision
+                "/v1/candidates/revise", headers={"Authorization": "Bearer alice"}, json=revision
             )
             assert revised.status_code == 200, revised.text
 

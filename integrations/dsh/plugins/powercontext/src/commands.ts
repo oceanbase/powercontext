@@ -58,14 +58,14 @@ async function handleReview(
   signal?: AbortSignal,
 ): Promise<CommandResult> {
   const action = tokens[1]
-  if (!action) return call(runtime, cwd, 'list_artifact_candidates', { status: 'pending' }, signal)
+  if (!action) return call(runtime, cwd, 'list_candidates', { status: 'pending' }, signal)
   if (action === 'approve') {
     const candidateId = tokens[2]
     const version = Number(tokens[3])
     if (!candidateId || !Number.isInteger(version)) {
       return { kind: 'error', text: 'Usage: /pc review approve <candidate_id> <expected_version>' }
     }
-    return call(runtime, cwd, 'approve_artifact_candidate', { candidate_id: candidateId, expected_version: version }, signal)
+    return call(runtime, cwd, 'approve_candidate', { candidate_id: candidateId, expected_version: version }, signal)
   }
   if (action === 'reject') {
     const candidateId = tokens[2]
@@ -74,7 +74,7 @@ async function handleReview(
     if (!candidateId || !Number.isInteger(version) || !reason) {
       return { kind: 'error', text: 'Usage: /pc review reject <candidate_id> <expected_version> <reason>' }
     }
-    return call(runtime, cwd, 'reject_artifact_candidate', {
+    return call(runtime, cwd, 'reject_candidate', {
       candidate_id: candidateId, expected_version: version, reason,
     }, signal)
   }

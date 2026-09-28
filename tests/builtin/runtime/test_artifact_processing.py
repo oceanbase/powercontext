@@ -213,6 +213,61 @@ def test_supervisor_close_kills_spawned_worker_and_stales_its_fence(tmp_path) ->
     asyncio.run(scenario())
 
 
+def test_supervisor_close_waits_for_active_sql_before_releasing_database(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(
+            url=f"sqlite+aiosqlite:///{tmp_path / 'active-sql-close.db'}",
+            busy_timeout_ms=100,
+        )
+        sql_started = threading.Event()
+        release_sql = threading.Event()
+
+        def wait_for_release() -> int:
+            sql_started.set()
+            release_sql.wait(timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+            return 1
+
+        class _SqlBlockingSupervisor(ArtifactProcessingSupervisor):
+            armed = False
+
+            async def _cycle(self) -> None:
+                if not self.armed:
+                    return
+                async with self._database.transaction() as connection:
+                    await ArtifactProcessingLeaseRepository().load(connection, for_update=True)
+                    raw_connection = await connection.get_raw_connection()
+                    driver_connection = cast(Any, raw_connection.driver_connection)
+                    await driver_connection.create_function("wait_for_release", 0, wait_for_release)
+                    await connection.exec_driver_sql("SELECT wait_for_release()")
+
+        async with SQLiteProfile.open(config, tables=SHARED_TABLES) as profile:
+            supervisor = _SqlBlockingSupervisor(
+                database=profile.database,
+                bindings=(),
+                lease_mode="single-process",
+                holder_id="holder-a",
+            )
+            await supervisor.start()
+            supervisor.armed = True
+            supervisor.wake()
+            assert await asyncio.to_thread(sql_started.wait, SPAWN_TEST_TIMEOUT_SECONDS)
+
+            close_task = asyncio.create_task(supervisor.close())
+            try:
+                await asyncio.sleep(0.05)
+                assert not close_task.done()
+            finally:
+                release_sql.set()
+            await asyncio.wait_for(close_task, timeout=SPAWN_TEST_TIMEOUT_SECONDS)
+
+            async with asyncio.timeout(SPAWN_TEST_TIMEOUT_SECONDS):
+                async with profile.database.transaction() as connection:
+                    lease = await ArtifactProcessingLeaseRepository().load(connection, for_update=True)
+                    assert lease is not None
+
+    asyncio.run(scenario())
+
+
 def test_supervisor_close_owns_cancelled_post_spawn_cleanup(tmp_path, monkeypatch) -> None:
     async def scenario() -> None:
         config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'spawn-cancel-close.db'}")

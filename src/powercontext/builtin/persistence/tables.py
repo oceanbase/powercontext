@@ -330,13 +330,14 @@ ARTIFACT_PUBLICATIONS_TABLE = Table(
 )
 
 
-ARTIFACT_CANDIDATE_VERSIONS_TABLE = Table(
-    "pc_artifact_candidate_versions",
+CANDIDATE_VERSIONS_TABLE = Table(
+    "pc_candidate_versions",
     SHARED_METADATA,
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("candidate_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("version", Integer, primary_key=True),
     Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
     Column("proposal", _canonical_payload_type(), nullable=False),
     Column("source_refs", _canonical_payload_type(), nullable=False),
     Column("artifact_refs", _canonical_payload_type(), nullable=False),
@@ -355,22 +356,25 @@ ARTIFACT_CANDIDATE_VERSIONS_TABLE = Table(
         ),
         ondelete="RESTRICT",
     ),
-    CheckConstraint("version > 0", name="ck_pc_artifact_candidate_versions_version_positive"),
+    CheckConstraint("version > 0", name="ck_pc_candidate_versions_version_positive"),
     CheckConstraint(
         "(target_family IS NULL AND target_artifact_id IS NULL AND target_revision IS NULL) OR "
         "(target_family IS NOT NULL AND target_artifact_id IS NOT NULL AND target_revision > 0)",
-        name="ck_pc_artifact_candidate_versions_target_complete",
+        name="ck_pc_candidate_versions_target_complete",
     ),
 )
 
-ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
-    "pc_artifact_candidate_heads",
+CANDIDATE_HEADS_TABLE = Table(
+    "pc_candidate_heads",
     SHARED_METADATA,
     Column("scope_id", identity_string(MAX_SCOPE_ID_LENGTH), primary_key=True),
     Column("candidate_id", identity_string(MAX_ARTIFACT_ID_LENGTH), primary_key=True),
     Column("family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH), nullable=False),
+    ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
     Column("version", Integer, nullable=False),
     Column("status", identity_string(16), nullable=False),
+    Column("candidate_kind", identity_string(16), nullable=False, server_default="artifact"),
+    Column("result_payload", _canonical_payload_type(), nullable=True),
     Column("result_family", identity_string(MAX_ARTIFACT_FAMILY_LENGTH)),
     Column("result_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
     Column("result_revision", Integer),
@@ -378,11 +382,11 @@ ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
     ForeignKeyConstraint(
         ("scope_id", "candidate_id", "version"),
         (
-            "pc_artifact_candidate_versions.scope_id",
-            "pc_artifact_candidate_versions.candidate_id",
-            "pc_artifact_candidate_versions.version",
+            "pc_candidate_versions.scope_id",
+            "pc_candidate_versions.candidate_id",
+            "pc_candidate_versions.version",
         ),
-        ondelete="RESTRICT",
+        ondelete="CASCADE",
     ),
     ForeignKeyConstraint(
         ("scope_id", "result_family", "result_artifact_id", "result_revision"),
@@ -394,18 +398,22 @@ ARTIFACT_CANDIDATE_HEADS_TABLE = Table(
         ),
         ondelete="RESTRICT",
     ),
+    CheckConstraint("candidate_kind IN ('artifact', 'tag')", name="ck_pc_candidate_kind"),
     CheckConstraint(
         "status IN ('pending', 'approved', 'rejected')",
-        name="ck_pc_artifact_candidate_heads_status",
+        name="ck_pc_candidate_heads_status",
     ),
     CheckConstraint(
-        "(status = 'approved' AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL "
-        "AND result_revision > 0 AND decision_reason IS NULL) OR "
-        "(status = 'rejected' AND result_family IS NULL AND result_artifact_id IS NULL "
+        "(status = 'approved' AND candidate_kind = 'artifact' AND result_payload IS NULL AND result_family IS NOT NULL AND result_artifact_id IS NOT NULL "
+        "AND result_revision IS NOT NULL AND result_revision > 0 AND decision_reason IS NULL) OR "
+        "(status = 'approved' AND candidate_kind = 'tag' AND result_payload IS NOT NULL "
+        "AND result_family IS NULL AND result_artifact_id IS NULL AND result_revision IS NULL "
+        "AND decision_reason IS NULL) OR "
+        "(status = 'rejected' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL "
         "AND result_revision IS NULL AND decision_reason IS NOT NULL) OR "
-        "(status = 'pending' AND result_family IS NULL AND result_artifact_id IS NULL "
+        "(status = 'pending' AND result_payload IS NULL AND result_family IS NULL AND result_artifact_id IS NULL "
         "AND result_revision IS NULL AND decision_reason IS NULL)",
-        name="ck_pc_artifact_candidate_heads_terminal_result",
+        name="ck_pc_candidate_heads_terminal_result",
     ),
 )
 
@@ -421,7 +429,7 @@ PROFILE_POLICIES_TABLE = Table(
     ForeignKeyConstraint(("scope_id",), ("pc_scopes.scope_id",), ondelete="CASCADE"),
     ForeignKeyConstraint(
         ("scope_id", "pending_candidate_id"),
-        ("pc_artifact_candidate_heads.scope_id", "pc_artifact_candidate_heads.candidate_id"),
+        ("pc_candidate_heads.scope_id", "pc_candidate_heads.candidate_id"),
         ondelete="RESTRICT",
     ),
     CheckConstraint(
@@ -519,6 +527,7 @@ ARTIFACT_PROCESSING_INTENTS_TABLE = Table(
     Column("requested_generation", BigInteger, nullable=False, server_default="0"),
     Column("handled_generation", BigInteger, nullable=False, server_default="0"),
     Column("last_auto_scan_generation", BigInteger, nullable=False, server_default="0"),
+    Column("consecutive_dream_attempts", BigInteger, nullable=False, server_default="0"),
     CheckConstraint("pending_sequence > 0", name="ck_pc_processing_intent_sequence"),
     CheckConstraint(
         "clean_generation >= 0 AND clean_generation <= dirty_generation",
@@ -903,8 +912,8 @@ SHARED_TABLES = (
     ARTIFACT_LINEAGE_SOURCES_TABLE,
     ARTIFACT_LINEAGE_ARTIFACTS_TABLE,
     ARTIFACT_PUBLICATIONS_TABLE,
-    ARTIFACT_CANDIDATE_VERSIONS_TABLE,
-    ARTIFACT_CANDIDATE_HEADS_TABLE,
+    CANDIDATE_VERSIONS_TABLE,
+    CANDIDATE_HEADS_TABLE,
     PROFILE_POLICIES_TABLE,
     SOURCE_CURSORS_TABLE,
     ARTIFACT_PROCESSING_LEASES_TABLE,
@@ -1069,6 +1078,7 @@ DREAM_RUNS_TABLE = Table(
     Column("principal_key", identity_string(64), nullable=False),
     Column("idempotency_key", identity_string(128), nullable=False),
     Column("request_digest", identity_string(71), nullable=False),
+    Column("proposal_fingerprint", String(71), nullable=True),
     Column("operation", identity_string(32), nullable=False),
     Column("status", identity_string(16), nullable=False),
     Column("accepted_at", BigInteger, nullable=False),
@@ -1080,6 +1090,7 @@ DREAM_RUNS_TABLE = Table(
     Index("ix_pc_dream_dispatch", "scope_id", "operation", "status", "request_generation"),
     Index("ix_pc_dream_list", "scope_id", "accepted_at", "run_id"),
     CheckConstraint("generation >= 0", name="ck_pc_dream_generation"),
+    Index("ix_pc_dream_runs_proposal_fingerprint", "scope_id", "principal_key", "proposal_fingerprint"),
 )
 
 RECEIPT_MIGRATION_REVIEW_TABLE = Table(

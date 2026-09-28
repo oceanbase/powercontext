@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import unicodedata
 from datetime import UTC, datetime
 from typing import ClassVar, Literal
@@ -30,7 +32,9 @@ PROFILE_FAMILY = "profile"
 PROFILE_ARTIFACT_ID = "profile"
 PROFILE_SOURCE_WINDOW_BINDING = "profile-source-window"
 ProfileActivationMode = Literal["automatic", "review_required"]
-ProfileGenerationMode = Literal["automatic", "manual_create", "manual_replace", "review_approved", "rollback"]
+ProfileGenerationMode = Literal[
+    "automatic", "manual_create", "manual_replace", "review_approved", "dream_review_approved", "rollback"
+]
 
 
 class _ProfileValue(BaseModel):
@@ -74,6 +78,7 @@ class ProfileGeneration(_ProfileValue):
     generator_id: str | None = None
     generator_version: str | None = None
     source_window: SourceWindow | None = None
+    dream_run_id: str | None = None
     restored_from_revision: int | None = Field(default=None, ge=1)
 
     @field_validator("created_at")
@@ -85,9 +90,12 @@ class ProfileGeneration(_ProfileValue):
 
     @model_validator(mode="after")
     def valid_generation(self):
-        generated = self.mode in {"automatic", "review_approved"}
-        if generated != (self.source_window is not None):
-            raise ValueError("only generated profiles require a Source window")  # noqa: TRY003
+        windowed = self.mode in {"automatic", "review_approved"}
+        if windowed != (self.source_window is not None):
+            raise ValueError("only Source-window profiles require a Source window")  # noqa: TRY003
+        if (self.mode == "dream_review_approved") != (self.dream_run_id is not None):
+            raise ValueError("only Dream-approved profiles name a Dream run")  # noqa: TRY003
+        generated = windowed or self.mode == "dream_review_approved"
         if generated and (not self.generator_id or not self.generator_version):
             raise ValueError("generated profiles require generator identity")  # noqa: TRY003
         if not generated and (self.generator_id is not None or self.generator_version is not None):
@@ -109,12 +117,31 @@ class ProfileContent(_ProfileValue):
         return normalize_profile_markdown(value)
 
 
+class ProfileDreamPolicy(_ProfileValue):
+    """Generation settings only; Source processing state cannot invalidate Dream."""
+
+    format_version: Literal[1] = 1
+    generation_enabled: bool
+
+    @classmethod
+    def from_policy(cls, policy: ProfilePolicy) -> ProfileDreamPolicy:
+        return cls(generation_enabled=policy.generation_enabled)
+
+    @property
+    def digest(self) -> str:
+        payload = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
+
+
 class ProfileCandidateProposal(_ProfileValue):
     schema_: Literal["powercontext.profile-candidate.v1"] = Field(
         default="powercontext.profile-candidate.v1", alias="schema"
     )
     content: str
-    source_window: SourceWindow
+    source_window: SourceWindow | None = None
+    dream_run_id: str | None = None
+    policy_snapshot: ProfileDreamPolicy | None = None
+    policy_digest: str | None = None
     generator_id: str = Field(min_length=1)
     generator_version: str = Field(min_length=1)
     created_at: datetime
@@ -128,6 +155,17 @@ class ProfileCandidateProposal(_ProfileValue):
     @classmethod
     def utc_timestamp(cls, value: datetime) -> datetime:
         return ProfileGeneration.utc_timestamp(value)
+
+    @model_validator(mode="after")
+    def valid_origin(self):
+        if (self.source_window is None) == (self.dream_run_id is None):
+            raise ValueError("Profile Candidate requires exactly one generation origin")  # noqa: TRY003
+        if self.dream_run_id is None:
+            if self.policy_snapshot is not None or self.policy_digest is not None:
+                raise ValueError("Source-window Candidate cannot contain Dream policy settings")  # noqa: TRY003
+        elif self.policy_snapshot is None or self.policy_digest != self.policy_snapshot.digest:
+            raise ValueError("Dream Profile Candidate requires matching policy settings and digest")  # noqa: TRY003
+        return self
 
 
 class Profile(Artifact[ProfileContent]):

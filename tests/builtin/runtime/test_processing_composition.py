@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.processing_migration import (
     ProcessingSchemaNotReadyError,
     apply_processing_migration,
+    bootstrap_processing_schema,
 )
 from powercontext.builtin.persistence.sqlite import SQLiteConfig, SQLiteProfile
 from powercontext.builtin.persistence.supervision import ArtifactProcessingFence
@@ -56,6 +58,18 @@ from powercontext.builtin.runtime.topic_memory_processing import TopicMemoryWork
 
 _FAMILIES = {"memory", "topic-memory", "experience", "profile"}
 _BINDING = "topic-memory-source-window"
+_PRE_HANDOFF_PROMPT_MANIFEST = {
+    "mode": "global",
+    "capabilities": [],
+    "bindings": {
+        "memory-source-window": "memory",
+        "topic-memory-source-window": "topic-memory",
+        "experience-incubation": "experience",
+        "profile-source-window": "profile",
+        "skill.dream.v1": "skill",
+    },
+    "legacy_automatic_bindings": ["topic-memory-source-window"],
+}
 _OCEANBASE = OceanBaseConfig(
     url=SecretStr("mysql+aoceanbase://root%40test@127.0.0.1:2881/composition_unused?charset=utf8mb4")
 )
@@ -99,6 +113,37 @@ def test_fresh_sqlite_bootstraps_and_reopens_after_business_data_is_written(tmp_
             await connection.execute(insert(SOURCE_JOURNAL_HEADS_TABLE).values(scope_id="project", position=1))
         async with open_builtin_runtime(config, scheduler_path=tmp_path / "scheduler.db") as runtime:
             assert runtime.artifact_processing_supervisor is None
+
+    asyncio.run(scenario())
+
+
+def test_startup_upgrades_manifest_written_by_pre_handoff_prompt_runtime(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        database = _sqlite(tmp_path / "pre-dream-bindings.db")
+        config = BuiltinConfig(database=database, runtime=RuntimeConfig(dream_enabled=False))
+        # This is the completed manifest emitted by the pre-Handoff/Prompt runtime,
+        # bootstrapped through the same SQLite schema path used by that version.
+        async with (
+            SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
+            profile.database.transaction() as connection,
+        ):
+            await bootstrap_processing_schema(connection, _PRE_HANDOFF_PROMPT_MANIFEST)
+
+        async with open_builtin_contexts(config):
+            pass
+
+        async with (
+            SQLiteProfile.open(database, tables=SHARED_TABLES) as profile,
+            profile.database.transaction() as connection,
+        ):
+            marker = (await connection.execute(select(ARTIFACT_PROCESSING_SCHEMA_TABLE))).mappings().one()
+        stored = json.loads(marker["config_manifest"])
+        current = canonical_processing_manifest(config)
+        assert marker["phase"] == "complete"
+        assert marker["migration_id"] == "fresh"
+        assert stored["bindings"] == current["bindings"]
+        assert stored["capabilities"] == current["capabilities"]
+        assert stored["legacy_automatic_bindings"] == _PRE_HANDOFF_PROMPT_MANIFEST["legacy_automatic_bindings"]
 
     asyncio.run(scenario())
 

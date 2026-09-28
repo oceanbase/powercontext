@@ -34,7 +34,7 @@ from powercontext.builtin.runtime import BuiltinConfig, InvalidRuntimeRequestErr
 from powercontext.builtin.runtime import PrepareContextRequest as RuntimePrepareContextRequest
 from powercontext.client import PowerContextClient
 from powercontext.http import (
-    ApproveArtifactCandidateRequest,
+    ApproveCandidateRequest,
     CaptureContentSourceRequest,
     CreateScopeRequest,
     ExperienceProposal,
@@ -220,8 +220,8 @@ def test_client_assembles_approved_evidence_and_preserves_exact_memory_versions(
             pending = await client.prepare_context(request)
             assert pending.content is not None
             assert "## Experience" not in pending.content
-            await client.approve_artifact_candidate(
-                ApproveArtifactCandidateRequest(
+            await client.approve_candidate(
+                ApproveCandidateRequest(
                     scope_id=scope_id,
                     candidate_id=candidate.candidate_id,
                     expected_version=candidate.version,
@@ -566,7 +566,7 @@ def test_prepare_profile_uses_committed_head_across_review_and_replacement(tmp_p
             assert pending.status_code == 200 and pending.json()["status"] == "review_pending"
             assert (await client.prepare_context(request)).status == "empty"
             approved = await transport.post(
-                "/v1/artifact-candidates/approve",
+                "/v1/candidates/approve",
                 json={
                     "scope_id": scope.scope_id,
                     "candidate_id": pending.json()["candidate_id"],
