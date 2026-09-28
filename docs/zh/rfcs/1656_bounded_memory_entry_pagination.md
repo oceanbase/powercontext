@@ -210,6 +210,6 @@ review 前运行定向 OpenAPI、cursor、Memory persistence、tag、migration�
 可用时的 OceanBase 证据；generated-code、contract、docs、format、lint、type check；以及 `make check` 和 `make unit-test`。
 不可用服务和 skipped check 必须与 pass 分开报告。
 
-当前状态：revision-valid directory、tag generation 失效、有界 runtime query 和 feature-scoped SQLite
-migration/readiness gate 已实现，并通过定向 persistence/runtime 测试。公开 OpenAPI、Server/client
-接口、运维 CLI、规模报告、OceanBase migration 证据和全仓检查仍待完成。
+当前状态：revision-valid directory、tag generation 失效、有界 runtime query、feature-scoped
+migration/readiness gate、运维 CLI 和公开 OpenAPI/Server/SDK/MCP 接口已实现，并通过定向
+persistence、contract、access 和 runtime 测试。规模报告、OceanBase migration 证据和全仓检查仍待完成。

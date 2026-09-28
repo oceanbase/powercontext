@@ -237,6 +237,7 @@ SQLite scale measurements; OceanBase evidence when its service is available; gen
 format, lint, and type checks; then `make check` and `make unit-test`. Report unavailable services and skipped checks
 separately from passes.
 
-Current status: the revision-valid directory, tag-generation invalidation, bounded runtime query, and feature-scoped
-SQLite migration/readiness gate are implemented with focused persistence and runtime tests. The public OpenAPI,
-Server/client surface, operator CLI, scale report, OceanBase migration evidence, and full repository checks remain.
+Current status: the revision-valid directory, tag-generation invalidation, bounded runtime query, feature-scoped
+migration/readiness gate, operator CLI, and public OpenAPI/Server/SDK/MCP surface are implemented with focused
+persistence, contract, access, and runtime tests. The scale report, OceanBase migration evidence, and full repository
+checks remain.

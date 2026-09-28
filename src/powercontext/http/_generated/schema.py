@@ -1639,6 +1639,55 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "x-powercontext-scope-mode": "current",
             }
         },
+        "/v1/memory/entries/query": {
+            "post": {
+                "tags": ["memory"],
+                "summary": "Query a bounded page of Memory entry identities",
+                "description": "Traverse compact Memory entry "
+                "identities in entry_id order "
+                "without loading entry bodies. "
+                "Page one pins the current Memory "
+                "Revision and later pages retain "
+                "that revision. Use this operation "
+                "for a bounded inventory or audit; "
+                "use exact entry detail for text "
+                "and evidence. Tag changes "
+                "invalidate a filtered "
+                "continuation and require "
+                "restarting from page one. An "
+                "empty page with a null memory_ref "
+                "means the Scope has no Memory.",
+                "operationId": "query_memory_entries",
+                "requestBody": {
+                    "content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/QueryMemoryEntriesRequest"}}
+                    },
+                    "required": True,
+                },
+                "responses": {
+                    "200": {
+                        "description": "One bounded page pinned to an exact Memory Revision.",
+                        "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/QueryMemoryEntriesResponse"}}
+                        },
+                    },
+                    "400": {"$ref": "#/components/responses/BadRequest"},
+                    "410": {"$ref": "#/components/responses/CursorExpired"},
+                    "413": {"$ref": "#/components/responses/MemoryDirectoryItemTooLarge"},
+                    "401": {"$ref": "#/components/responses/Unauthorized"},
+                    "403": {"$ref": "#/components/responses/Forbidden"},
+                    "422": {"$ref": "#/components/responses/InvalidRequest"},
+                    "503": {"$ref": "#/components/responses/Unavailable"},
+                    "500": {"$ref": "#/components/responses/InternalError"},
+                },
+                "x-powercontext-access": {
+                    "action": "scope.read",
+                    "resource": {"type": "scope", "scope-id-from": "scope_id"},
+                },
+                "x-powercontext-scope-mode": "current",
+            }
+        },
         "/v1/memory/entries/get": {
             "post": {
                 "tags": ["memory"],
@@ -7502,6 +7551,36 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "type": "object",
                 "required": ["entries"],
             },
+            "QueryMemoryEntriesRequest": {
+                "properties": {
+                    "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
+                    "include_inactive": {
+                        "type": "boolean",
+                        "description": "Include inactive entries from the pinned Memory Revision for explicit audit.",
+                        "default": False,
+                    },
+                    "tag_filter": {"$ref": "#/components/schemas/TagFilter"},
+                    "limit": {"type": "integer", "maximum": 100.0, "minimum": 1.0, "default": 50},
+                    "cursor": {"type": "string", "maxLength": 4096, "minLength": 1, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["scope_id"],
+            },
+            "QueryMemoryEntriesResponse": {
+                "properties": {
+                    "memory_ref": {"allOf": [{"$ref": "#/components/schemas/ArtifactReference"}], "nullable": True},
+                    "items": {
+                        "items": {"$ref": "#/components/schemas/MemoryDirectoryItem"},
+                        "type": "array",
+                        "maxItems": 100,
+                    },
+                    "next_cursor": {"type": "string", "maxLength": 4096, "nullable": True},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["memory_ref", "items", "next_cursor"],
+            },
             "ListArtifactCandidatesRequest": {
                 "properties": {
                     "scope_id": {"type": "string", "maxLength": 256, "minLength": 1, "pattern": ".*\\S.*"},
@@ -7536,6 +7615,17 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "additionalProperties": False,
                 "type": "object",
                 "required": ["citation", "version", "kind", "text", "state", "source_refs", "artifact_refs"],
+            },
+            "MemoryDirectoryItem": {
+                "properties": {
+                    "citation": {"$ref": "#/components/schemas/MemoryCitation"},
+                    "version": {"type": "integer", "minimum": 1.0},
+                    "kind": {"type": "string"},
+                    "state": {"$ref": "#/components/schemas/MemoryEntryState"},
+                },
+                "additionalProperties": False,
+                "type": "object",
+                "required": ["citation", "version", "kind", "state"],
             },
             "MemoryMutationResponse": {
                 "properties": {
@@ -9868,6 +9958,11 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
             },
             "ReportTooLarge": {
                 "description": "The selected Handoff Report exceeds the deterministic output limit.",
+                "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
+                "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+            },
+            "MemoryDirectoryItemTooLarge": {
+                "description": "One compact Memory directory item exceeds the public page byte budget.",
                 "headers": {"X-PowerContext-Request-ID": {"$ref": "#/components/headers/RequestId"}},
                 "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
             },

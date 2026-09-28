@@ -67,6 +67,7 @@ from powercontext.http import (
     PrepareHandoffRequest,
     ProposeExperienceRequest,
     ProposeSkillRequest,
+    QueryMemoryEntriesRequest,
     RecordTaskOutcomeRequest,
     ResolveExternalSkillRequest,
     ReviseArtifactCandidateRequest,
@@ -790,6 +791,30 @@ def test_scope_pagination_declares_cursor_failures() -> None:
 
     assert responses["400"] == {"$ref": "#/components/responses/BadRequest"}
     assert responses["410"] == {"$ref": "#/components/responses/CursorExpired"}
+
+
+def test_memory_directory_query_is_bounded_and_declares_cursor_failures() -> None:
+    contract = yaml.safe_load(CONTRACT_PATH.read_text())
+    operation = contract["paths"]["/v1/memory/entries/query"]["post"]
+    responses = operation["responses"]
+    schemas = contract["components"]["schemas"]
+
+    assert operation["operationId"] == "query_memory_entries"
+    assert operation["x-powercontext-access"] == {
+        "action": "scope.read",
+        "resource": {"type": "scope", "scope-id-from": "scope_id"},
+    }
+    assert responses["400"] == {"$ref": "#/components/responses/BadRequest"}
+    assert responses["410"] == {"$ref": "#/components/responses/CursorExpired"}
+    assert responses["413"] == {"$ref": "#/components/responses/MemoryDirectoryItemTooLarge"}
+    assert schemas["QueryMemoryEntriesRequest"]["properties"]["limit"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 50,
+    }
+    assert set(schemas["MemoryDirectoryItem"]["properties"]) == {"citation", "version", "kind", "state"}
+    assert QueryMemoryEntriesRequest(scope_id="project").limit == 50
 
 
 def test_base_access_create_requests_leave_identity_generation_to_the_server() -> None:

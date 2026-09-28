@@ -63,6 +63,7 @@ from powercontext.builtin.artifacts.memory.errors import (
     InvalidMemoryCandidateError,
     InvalidMemoryCitationError,
     InvalidMemoryEvidenceError,
+    MemoryDirectoryItemTooLargeError,
     MemoryEntryInactiveError,
     MemoryEntryNotFoundError,
 )
@@ -144,6 +145,7 @@ from powercontext.builtin.persistence.errors import (
     RepositoryNotFoundError,
     StoredPayloadConflictError,
 )
+from powercontext.builtin.persistence.memory_query_migration import MemoryQueryIndexUnavailableError
 from powercontext.builtin.persistence.skill_publications import SkillPublication
 from powercontext.builtin.publication import (
     ArtifactPublicationApplication,
@@ -212,6 +214,7 @@ from powercontext.builtin.runtime import (
     HandoffResolution,
     InvalidRuntimeRequestError,
     MemoryChangesPage,
+    MemoryDirectoryPage,
     MemoryEntriesPage,
     MemoryEntryRecord,
     MemoryFlushResult,
@@ -269,6 +272,7 @@ from powercontext.builtin.runtime import (
     ProposeExperienceRequest as RuntimeProposeExperienceRequest,
 )
 from powercontext.builtin.runtime import ProposeSkillRequest as RuntimeProposeSkillRequest
+from powercontext.builtin.runtime import QueryMemoryEntriesRequest as RuntimeQueryMemoryEntriesRequest
 from powercontext.builtin.runtime import (
     RejectArtifactCandidateRequest as RuntimeRejectArtifactCandidateRequest,
 )
@@ -496,6 +500,8 @@ from powercontext.http import (
     PublishArtifactRequest,
     PublishRemoteSkillRequest,
     PutProfilePolicyRequest,
+    QueryMemoryEntriesRequest,
+    QueryMemoryEntriesResponse,
     ReadinessResponse,
     ReadinessStatus,
     ReconcileRemoteSkillsRequest,
@@ -716,6 +722,7 @@ from powercontext.http._generated.operations import (
     PUT_PROFILE_POLICY,
     QUERY_ARTIFACT_TAGS,
     QUERY_CODE,
+    QUERY_MEMORY_ENTRIES,
     RECONCILE_REMOTE_SKILLS,
     RECORD_REMOTE_SKILL_RECEIPT,
     RECORD_SKILL_USAGE,
@@ -1156,6 +1163,8 @@ class _ScopedMemoryApplication(Protocol):
 
     async def search(self, request: RuntimeSearchMemoryRequest, /) -> MemorySearchPage: ...
 
+    async def query(self, request: RuntimeQueryMemoryEntriesRequest, /) -> MemoryDirectoryPage: ...
+
     async def list(
         self, *, include_inactive: bool = False, tag_filter: RuntimeTagFilter | None = None
     ) -> MemoryEntriesPage: ...
@@ -1425,6 +1434,7 @@ def create_app(
     _add_route(app, COMMIT_HANDOFF, commit_handoff)
     _add_route(app, CONTINUE_HANDOFF, continue_handoff)
     _add_route(app, LIST_MEMORY_ENTRIES, list_memory_entries)
+    _add_route(app, QUERY_MEMORY_ENTRIES, query_memory_entries)
     _add_route(app, GET_MEMORY_ENTRY, get_memory_entry)
     _add_route(app, REVISE_MEMORY_ENTRY, revise_memory_entry)
     _add_route(app, RETIRE_MEMORY_ENTRY, retire_memory_entry)
@@ -3100,6 +3110,25 @@ async def list_memory_entries(
     return mapping.entries_response(result)
 
 
+async def query_memory_entries(
+    request: QueryMemoryEntriesRequest,
+    application: Annotated[ServerApplication, Depends(_require_application)],
+) -> QueryMemoryEntriesResponse:
+    result = await application.memory.for_scope(request.scope_id).query(
+        RuntimeQueryMemoryEntriesRequest(
+            include_inactive=request.include_inactive,
+            tag_filter=(
+                None
+                if request.tag_filter is None
+                else RuntimeTagFilter.model_validate_json(request.tag_filter.model_dump_json())
+            ),
+            limit=request.limit,
+            cursor=request.cursor,
+        )
+    )
+    return mapping.directory_response(result)
+
+
 async def get_memory_entry(
     request: GetMemoryEntryRequest,
     application: Annotated[ServerApplication, Depends(_require_application)],
@@ -4318,6 +4347,7 @@ def _add_route(
 _COLLECTION_CONTENT_OPERATIONS = frozenset({
     "search_memory",
     "list_memory_entries",
+    "query_memory_entries",
     "list_memory_changes",
     "prepare_context",
     "list_managed_skills",
@@ -5190,6 +5220,20 @@ def _map_service_error(error: Exception) -> tuple[int, str, str, dict[str, Any] 
         )
     if isinstance(error, _RuntimeNotReadyError):
         return status.HTTP_503_SERVICE_UNAVAILABLE, "runtime_not_ready", "The Runtime is not ready.", None
+    if isinstance(error, MemoryQueryIndexUnavailableError):
+        return (
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "memory_query_index_unavailable",
+            "The Memory query index is not ready.",
+            None,
+        )
+    if isinstance(error, MemoryDirectoryItemTooLargeError):
+        return (
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "memory_directory_item_too_large",
+            "One Memory directory item exceeds the page byte budget.",
+            None,
+        )
     base_access_error = _map_base_access_error(error)
     if base_access_error is not None:
         return base_access_error

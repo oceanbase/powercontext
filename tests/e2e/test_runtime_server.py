@@ -39,8 +39,9 @@ from powercontext.builtin.artifacts.memory import (
     MemoryCandidateRequest,
     MemoryEntryInput,
 )
-from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCandidateError
+from powercontext.builtin.artifacts.memory.errors import InvalidMemoryCandidateError, MemoryDirectoryItemTooLargeError
 from powercontext.builtin.inference import EmbeddingResult, InferenceConfigurationError
+from powercontext.builtin.persistence.memory_query_migration import MemoryQueryIndexUnavailableError
 from powercontext.builtin.persistence.oceanbase import OceanBaseConfig
 from powercontext.builtin.persistence.sqlite import SQLiteConfig
 from powercontext.builtin.runtime import (
@@ -76,6 +77,7 @@ from powercontext.http import (
     ListMemoryEntriesRequest,
     PrepareContextRequest,
     PublishArtifactRequest,
+    QueryMemoryEntriesRequest,
     ReadinessStatus,
     RecordTaskOutcomeRequest,
     RememberMemoryRequest,
@@ -835,6 +837,13 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
                     include_inactive=True,
                 ),
             )
+            directory = await client.query_memory_entries(
+                QueryMemoryEntriesRequest(
+                    scope_id=scope_id,
+                    include_inactive=True,
+                    limit=1,
+                )
+            )
             retired_search = await client.search_memory(
                 SearchMemoryRequest(
                     scope_id=scope_id,
@@ -872,6 +881,15 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
         assert current.entries == []
         assert audited.memory == retired.memory
         assert audited.entries == [retired.entry]
+        assert directory.memory_ref == retired.memory
+        assert directory.next_cursor is None
+        assert len(directory.items) == 1
+        assert directory.items[0].model_dump() == {
+            "citation": retired.entry.citation.model_dump(),
+            "version": retired.entry.version,
+            "kind": retired.entry.kind,
+            "state": retired.entry.state,
+        }
         assert retired_search.memory == retired.memory
         assert retired_search.hits == []
         assert retired_exact == retired.entry
@@ -879,6 +897,35 @@ def test_sdk_memory_lifecycle_reaches_one_composed_runtime(tmp_path: Path) -> No
         assert (missing.value.status_code, missing.value.code) == (404, "memory_not_found")
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_code"),
+    [
+        (MemoryQueryIndexUnavailableError(), 503, "memory_query_index_unavailable"),
+        (MemoryDirectoryItemTooLargeError(), 413, "memory_directory_item_too_large"),
+    ],
+)
+def test_memory_directory_query_preserves_public_failure_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error: Exception,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    async def failing_query(self, request, /):
+        del self, request
+        raise error
+
+    monkeypatch.setattr(ScopedMemoryApplication, "query", failing_query)
+    app = create_server_app(settings=_server_settings(tmp_path / f"{expected_code}.db"))
+
+    with TestClient(app) as transport:
+        scope_id = transport.get("/v1/scopes/default").json()["scope_id"]
+        response = transport.post("/v1/memory/entries/query", json={"scope_id": scope_id})
+
+    assert response.status_code == expected_status
+    assert response.json()["error"]["code"] == expected_code
 
 
 def test_runtime_conflicts_keep_http_and_sdk_error_context(tmp_path: Path) -> None:
