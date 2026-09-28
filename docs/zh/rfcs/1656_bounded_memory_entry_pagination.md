@@ -94,7 +94,7 @@ Server 以固定 4 MiB 预算计量编码后 directory item payload。如果下�
 - 认证/授权错误优先于 readiness 和 Memory 存在性。
 - oversized item 不返回 item 和替换 cursor。
 - Memory/tag write 与对应 index/generation delta 一起 commit 或 rollback。
-- migration apply 保存有界 checkpoint，可恢复；只有 verify 能标记 complete。
+- migration apply 保存持久 revision checkpoint，可恢复；只有 verify 能标记 complete。
 
 ## 6. 并发与资源约束
 
@@ -105,6 +105,26 @@ Server 以固定 4 MiB 预算计量编码后 directory item payload。如果下�
 - 对 200/1,000/5,000 entry 记录 query plan 和实测工作量；区分 returned/materialized row 与 examined row，不夸大数据库保证。
 - Memory commit 只更新 pointer/state 已变的 validity row；未变 search projection 保持 #1709 的 delta 性质。
 - backfill 使用正 batch size 和持久 checkpoint；startup 不执行无界 rebuild。
+
+### 可复现 SQLite 规模证据
+
+运行 `uv run python scripts/measure_memory_directory.py`。2026-09-28 的结果使用 SQLite 3.50.4，通过生产
+Memory write/query 接口建立数据，再以 `batch_size=1` revision 重建派生 directory。
+
+| Entry 数 | 返回行 | Materialized 行 | Item bytes | Page bytes | Directory 新增/关闭 | Head 行变化 | Revision batch 后 directory 行数 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 200 | 100 | 101 | 24,200 | 24,805 | 1 / 1 | 0 | 200, 201 |
+| 1,000 | 100 | 101 | 24,200 | 24,805 | 1 / 1 | 0 | 1,000, 1,001 |
+| 5,000 | 100 | 101 | 24,200 | 24,805 | 1 / 1 | 0 | 5,000, 5,001 |
+
+三种规模的 `EXPLAIN QUERY PLAN` 都使用
+`ix_pc_memory_entry_directory_page (scope_id, memory_artifact_id, entry_id>?)` 索引搜索，再对
+`pc_memory_entry_versions` 执行索引精确查找。SQLite 不报告 examined-row 数，因此这份证据只声称返回
+100 行、应用层 materialize 101 行，不声称数据库 examined row 的数字上限。
+
+Migration batch size 限制的是权威 revision 数，不是单个 revision 内的 entry 数：上表的初始 revision
+必须为每个 entry 重建一行，第二个 revision 只新增一行。Migration authority 用 set read 和每 500 行一批的
+executemany write 避免 per-entry 数据库往返，但不声称任意大 manifest 具有常数 row work。
 
 ## 7. 非目标
 
@@ -211,5 +231,6 @@ review 前运行定向 OpenAPI、cursor、Memory persistence、tag、migration�
 不可用服务和 skipped check 必须与 pass 分开报告。
 
 当前状态：revision-valid directory、tag generation 失效、有界 runtime query、feature-scoped
-migration/readiness gate、运维 CLI 和公开 OpenAPI/Server/SDK/MCP 接口已实现，并通过定向
-persistence、contract、access 和 runtime 测试。规模报告、OceanBase migration 证据和全仓检查仍待完成。
+migration/readiness gate、运维 CLI、公开 OpenAPI/Server/SDK/MCP 接口与可复现 SQLite 规模报告已实现，
+并通过定向 persistence、contract、access 和 runtime 测试。配置测试服务后可运行真实 OceanBase migration
+contract；该服务与全仓检查仍待运行。

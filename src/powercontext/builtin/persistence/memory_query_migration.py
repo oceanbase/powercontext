@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from powercontext.builtin.artifacts.memory import Memory, MemoryContent
 from powercontext.builtin.persistence.codec import load_model, stored_bytes
+from powercontext.builtin.persistence.database import SELECTION_BATCH_SIZE
 from powercontext.builtin.persistence.errors import PersistenceError
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
@@ -384,58 +385,67 @@ async def _backfill_revision(connection: AsyncConnection, row: Mapping[Any, Any]
         }
     )
     current = {entry_id: (item.entry_version_id, item.state) for entry_id, item in manifest.items()}
-    changed_ids = {
+    changed_ids = sorted(
         entry_id for entry_id in previous.keys() | current.keys() if previous.get(entry_id) != current.get(entry_id)
-    }
+    )
 
-    for entry_id in sorted(changed_ids):
+    closed_ids = [entry_id for entry_id in changed_ids if entry_id in previous]
+    for offset in range(0, len(closed_ids), SELECTION_BATCH_SIZE):
+        batch = closed_ids[offset : offset + SELECTION_BATCH_SIZE]
         await connection.execute(
             update(MEMORY_ENTRY_DIRECTORY_TABLE)
             .where(
                 MEMORY_ENTRY_DIRECTORY_TABLE.c.scope_id == scope_id,
                 MEMORY_ENTRY_DIRECTORY_TABLE.c.memory_artifact_id == artifact_id,
-                MEMORY_ENTRY_DIRECTORY_TABLE.c.entry_id == entry_id,
+                MEMORY_ENTRY_DIRECTORY_TABLE.c.entry_id.in_(batch),
                 MEMORY_ENTRY_DIRECTORY_TABLE.c.valid_from_revision < revision,
                 MEMORY_ENTRY_DIRECTORY_TABLE.c.valid_to_revision.is_(None),
             )
             .values(valid_to_revision=revision)
         )
+
+    existing_rows = (
+        (
+            await connection.execute(
+                select(MEMORY_ENTRY_DIRECTORY_TABLE).where(
+                    MEMORY_ENTRY_DIRECTORY_TABLE.c.scope_id == scope_id,
+                    MEMORY_ENTRY_DIRECTORY_TABLE.c.memory_artifact_id == artifact_id,
+                    MEMORY_ENTRY_DIRECTORY_TABLE.c.valid_from_revision == revision,
+                )
+            )
+        )
+        .mappings()
+        .all()
+    )
+    existing_by_entry = {str(existing["entry_id"]): existing for existing in existing_rows}
+    inserted: list[dict[str, Any]] = []
+    for entry_id in changed_ids:
         item = manifest.get(entry_id)
         if item is None:
             continue
-        existing = (
-            (
-                await connection.execute(
-                    select(MEMORY_ENTRY_DIRECTORY_TABLE).where(
-                        MEMORY_ENTRY_DIRECTORY_TABLE.c.scope_id == scope_id,
-                        MEMORY_ENTRY_DIRECTORY_TABLE.c.memory_artifact_id == artifact_id,
-                        MEMORY_ENTRY_DIRECTORY_TABLE.c.entry_id == entry_id,
-                        MEMORY_ENTRY_DIRECTORY_TABLE.c.valid_from_revision == revision,
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
+        existing = existing_by_entry.get(entry_id)
         expected = {
             "entry_version_id": item.entry_version_id,
             "state": item.state,
         }
         if existing is None:
-            await connection.execute(
-                insert(MEMORY_ENTRY_DIRECTORY_TABLE).values(
-                    scope_id=scope_id,
-                    family=Memory.family,
-                    memory_artifact_id=artifact_id,
-                    entry_id=item.entry_id,
-                    entry_version_id=item.entry_version_id,
-                    state=item.state,
-                    valid_from_revision=revision,
-                    valid_to_revision=None,
-                )
-            )
+            inserted.append({
+                "scope_id": scope_id,
+                "family": Memory.family,
+                "memory_artifact_id": artifact_id,
+                "entry_id": item.entry_id,
+                "entry_version_id": item.entry_version_id,
+                "state": item.state,
+                "valid_from_revision": revision,
+                "valid_to_revision": None,
+            })
         elif any(existing[key] != value for key, value in expected.items()):
             raise MemoryQueryIndexUnavailableError("conflict")
+    for offset in range(0, len(inserted), SELECTION_BATCH_SIZE):
+        await connection.execute(
+            insert(MEMORY_ENTRY_DIRECTORY_TABLE),
+            inserted[offset : offset + SELECTION_BATCH_SIZE],
+        )
 
     generation = await connection.scalar(
         select(MEMORY_TAG_GENERATIONS_TABLE.c.generation).where(

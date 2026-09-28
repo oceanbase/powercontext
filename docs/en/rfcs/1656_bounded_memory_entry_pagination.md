@@ -69,7 +69,8 @@ After authentication and authorization, the new operation returns `503 memory_qu
 falls back to the legacy full-manifest path. Legacy list, exact detail, search, and Memory writes remain available
 outside a declared maintenance window.
 
-The operator runs an explicit offline `plan`, bounded/resumable `apply`, and `verify` workflow for SQLite or OceanBase.
+The operator runs an explicit offline `plan`, revision-batched/resumable `apply`, and `verify` workflow for SQLite or
+OceanBase.
 Only successful verification marks the feature ready. Interrupted apply remains resumable and never rewrites
 authoritative Memory data. Outside the maintenance window, new Memory commits maintain their directory deltas even
 while historical backfill is incomplete, but the query remains unavailable until full verification succeeds.
@@ -110,7 +111,7 @@ legacy data or a future incompatible shape creates one item that cannot fit, the
 - An oversized item returns no items and no replacement cursor.
 - Memory and tag writes are all-or-nothing: authoritative state and related index/generation deltas commit or roll back
   together.
-- Migration apply commits bounded checkpoints and is resumable; verify alone may mark readiness complete.
+- Migration apply commits durable revision checkpoints and is resumable; verify alone may mark readiness complete.
 
 ## 6. Concurrency and resource constraints
 
@@ -125,6 +126,27 @@ legacy data or a future incompatible shape creates one item that cannot fit, the
 - A Memory commit closes and inserts validity rows only for changed manifest pointers or states. Existing search
   projection rows for unchanged entries remain untouched, preserving #1709.
 - Backfill uses a positive batch size and durable checkpoint; startup never runs an unbounded rebuild.
+
+### Reproducible SQLite scale evidence
+
+Run `uv run python scripts/measure_memory_directory.py`. The 2026-09-28 run used SQLite 3.50.4 and exercised the
+production Memory write/query interfaces, then rebuilt the derived directory with `batch_size=1` revision.
+
+| Entries | Returned | Materialized | Item bytes | Page bytes | Directory add/close | Head row delta | Directory rows after revision batches |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 200 | 100 | 101 | 24,200 | 24,805 | 1 / 1 | 0 | 200, 201 |
+| 1,000 | 100 | 101 | 24,200 | 24,805 | 1 / 1 | 0 | 1,000, 1,001 |
+| 5,000 | 100 | 101 | 24,200 | 24,805 | 1 / 1 | 0 | 5,000, 5,001 |
+
+For all three sizes, `EXPLAIN QUERY PLAN` reported an index search on
+`ix_pc_memory_entry_directory_page (scope_id, memory_artifact_id, entry_id>?)` followed by an indexed exact lookup in
+`pc_memory_entry_versions`. SQLite does not report examined-row counts, so this evidence claims only 100 returned rows
+and 101 rows materialized by the application, not a numeric database-examined-row bound.
+
+The migration batch size limits authoritative revisions, not entries inside one revision: the initial revision above
+necessarily rebuilt one derived row per entry, while the second revision added one row. The migration authority uses
+set reads and executemany writes in chunks of 500, avoiding per-entry database round trips without claiming constant
+row work for an arbitrarily large manifest.
 
 ## 7. Non-goals
 
@@ -238,6 +260,6 @@ format, lint, and type checks; then `make check` and `make unit-test`. Report un
 separately from passes.
 
 Current status: the revision-valid directory, tag-generation invalidation, bounded runtime query, feature-scoped
-migration/readiness gate, operator CLI, and public OpenAPI/Server/SDK/MCP surface are implemented with focused
-persistence, contract, access, and runtime tests. The scale report, OceanBase migration evidence, and full repository
-checks remain.
+migration/readiness gate, operator CLI, public OpenAPI/Server/SDK/MCP surface, and reproducible SQLite scale report are
+implemented with focused persistence, contract, access, and runtime tests. A live OceanBase migration contract is
+available when its test service is configured; that service and the full repository checks remain to be run.

@@ -35,6 +35,12 @@ result before reporting success. If it stops, repeat it with the same migration
 ID. Do not clear the marker or directory rows; a different ID is rejected while
 an earlier migration is incomplete.
 
+The batch size counts revisions, not entries inside a revision. Rebuilding one
+large initial manifest therefore writes one derived directory row per entry in
+that transaction. Those rows use set reads and executemany writes in chunks of
+500; choose the revision batch size and maintenance window with the largest
+stored manifest in mind.
+
 Only restart writers and Server replicas after the command reports
 `ready: true`. The separately runnable `verify` action rechecks every
 authoritative revision and tag-generation row and is safe to repeat.

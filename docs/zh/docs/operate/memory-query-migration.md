@@ -29,6 +29,10 @@ powercontext server memory-query-migrate --action verify --env-file .env
 并在报告成功前验证结果。中断后使用相同 migration ID 重复执行即可。不要清除 marker 或
 directory 行；前一次迁移未完成时，更换 ID 会被拒绝。
 
+Batch size 计数的是 revision，不是一个 revision 内的 entry。因此重建大型初始 manifest 时，
+该事务仍会为每个 entry 写入一条派生 directory 行。实现使用 set read 和每 500 行一批的
+executemany write；选择 revision batch size 和维护窗口时，要把已存储的最大 manifest 纳入考虑。
+
 只有命令返回 `ready: true` 后才能重启 writer 和 Server 副本。独立的 `verify` action
 会重新检查所有权威 revision 和 tag generation 行，可安全重复执行。
 
