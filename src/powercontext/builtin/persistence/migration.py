@@ -209,6 +209,9 @@ def _prepare_legacy_revision(
     existing = set(inspector.get_table_names())
     existing.discard(SCHEDULER_LEASES_TABLE.name)
     existing.discard(SCHEMA_VERSION_TABLE)
+    # The code CLI can initialize its independently managed graph before the
+    # runtime's first startup. These tables do not imply a legacy domain schema.
+    existing.difference_update(("pc_code_generations", "pc_code_nodes", "pc_code_edges"))
     powercontext_tables = {name for name in existing if name.startswith("pc_") and name not in known_extension_tables}
     if not powercontext_tables:
         return

@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import pytest
-from sqlalchemy import func, inspect, select, text
+from sqlalchemy import Column, MetaData, Table, Text, func, inspect, select, text
 
 from powercontext.builtin.persistence import migration as migration_module
 from powercontext.builtin.persistence.database import AsyncDatabase
@@ -120,6 +120,30 @@ def test_complete_unversioned_baseline_is_validated_stamped_and_expanded(tmp_pat
         async with SQLiteProfile.open(config, tables=baseline) as profile:
             assert await migrate_database(profile.database) == CURRENT_SCHEMA_REVISION
             await require_current_schema(profile.database)
+
+    asyncio.run(scenario())
+
+
+def test_code_only_database_migrates_without_changing_existing_graphs(tmp_path) -> None:
+    async def scenario() -> None:
+        config = SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'code-only.db'}")
+        metadata = MetaData()
+        code_tables = tuple(
+            Table(name, metadata, Column("payload", Text, nullable=False))
+            for name in ("pc_code_generations", "pc_code_nodes", "pc_code_edges")
+        )
+        async with SQLiteProfile.open(config, tables=code_tables) as profile:
+            async with profile.database.transaction() as connection:
+                for table in code_tables:
+                    await connection.execute(table.insert().values(payload="existing graph"))
+
+            assert await migrate_database(profile.database) == CURRENT_SCHEMA_REVISION
+            assert await migrate_database(profile.database) == CURRENT_SCHEMA_REVISION
+            await require_current_schema(profile.database)
+            async with profile.database.transaction() as connection:
+                for table in code_tables:
+                    rows = await connection.execute(select(table.c.payload))
+                    assert rows.scalars().all() == ["existing graph"]
 
     asyncio.run(scenario())
 
