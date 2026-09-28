@@ -51,6 +51,9 @@ capabilities = ["memory_read"]
 id = "list_memory_entries"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
+id = "query_memory_entries"
+capabilities = ["memory_read"]
+[[toolsets.tools]]
 id = "get_memory_entry"
 capabilities = ["memory_read"]
 [[toolsets.tools]]
