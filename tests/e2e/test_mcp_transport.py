@@ -224,6 +224,7 @@ def test_mcp_projects_curated_tools_at_the_configured_server_path(tmp_path: Path
         "list_memory_entries",
         "list_scopes",
         "publish_artifact",
+        "query_memory_entries",
         "query_code",
         "record_task_outcome",
         "resolve_scope_binding",
