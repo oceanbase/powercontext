@@ -20,7 +20,7 @@ from marko import Markdown, block
 from marko.element import Element
 from marko.md_renderer import MarkdownRenderer
 
-from .models import EvaluationReport, TaskObservation
+from .models import ArmSummary, EvaluationReport, PairedReport, PairedSummary, TaskObservation
 
 
 def render_report(observation: TaskObservation, report: EvaluationReport) -> str:
@@ -66,6 +66,44 @@ def render_evaluation_summary(report: EvaluationReport) -> str:
         *_nodes(markdown, f"```text\n{_evaluation_text(report)}\n```"),
     ]
     return markdown.render(document)
+
+
+def render_paired_report(report: PairedReport) -> str:
+    markdown = Markdown(renderer=MarkdownRenderer)
+    document = block.Document()
+    children: list[Element] = [
+        *_nodes(markdown, "# PowerContext OFF/ON comparison"),
+        block.BlankLine(0),
+        *_nodes(
+            markdown,
+            f"Preliminary: {report.trials} trial(s) per arm and no uncertainty estimate. Errors and ON runs that did "
+            "not receive PowerContext's treatment are counted but left out of success rates and paired differences.",
+        ),
+    ]
+    for title, summary in (
+        *((f"`{task.task_id}`", task) for task in report.tasks),
+        ("All workloads", report.total),
+    ):
+        children.extend((block.BlankLine(0), *_nodes(markdown, f"## {title}"), block.BlankLine(0)))
+        children.extend(_nodes(markdown, _paired_summary_text(summary)))
+    document.children = children
+    return markdown.render(document)
+
+
+def _paired_summary_text(summary: PairedSummary) -> str:
+    delta = "n/a" if summary.mean_delta is None else f"{summary.mean_delta:+.2f}"
+    return "\n".join((
+        f"- OFF: {_arm_text(summary.off)}",
+        f"- ON: {_arm_text(summary.on)}",
+        f"- Scored pairs: {summary.pairs}; mean ON minus OFF: {delta}",
+    ))
+
+
+def _arm_text(arm: ArmSummary) -> str:
+    return (
+        f"{arm.passed}/{arm.scored} passed ({arm.timeouts} timed out); "
+        f"{arm.errors} error(s), {arm.integration_failures} integration failure(s) not scored"
+    )
 
 
 def _nodes(markdown: Markdown, source: str) -> list[Element]:

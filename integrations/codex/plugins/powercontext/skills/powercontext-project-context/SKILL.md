@@ -1,6 +1,6 @@
 ---
 name: powercontext-project-context
-description: PowerContext memory search/save, inventory, work handoff, Experience/Skill synthesis, external Skill import and candidate review (搜索记忆、记住、盘点、交接、经验、技能、审查候选). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.
+description: PowerContext memory search/save, inventory, work handoff, Experience/Skill synthesis, external Skill import and candidate review (搜索记忆、记住、盘点、交接、经验、技能、审查候选). Also use for binding or clearing a checkout Scope for later sessions (绑定项目 Scope). Use for explicit requests or missing project history; ordinary coding and current-context summaries need no Skill detour.
 ---
 
 # PowerContext routing
@@ -11,6 +11,7 @@ Read only the relevant reference when its workflow detail is needed; self-contai
 
 | Intent / 意图 | Operation and detail |
 | --- | --- |
+| Bind or clear a checkout Scope / 绑定或清除项目 Scope | `scripts/scope_binding.py`; [Scope and Memory](references/scope-memory.md). MCP binding tools target only the current Session. |
 | Find prior decisions / 搜索历史记忆 | `search_memory`; [Scope and Memory](references/scope-memory.md). |
 | Inventory or audit / 盘点、列出记忆 | `list_memory_entries`; [Scope and Memory](references/scope-memory.md). Empty search does not authorize inventory. |
 | Save, correct, retire / 记住、纠正、停用记忆 | `remember_memory` for explicit save; [Scope and Memory](references/scope-memory.md). |

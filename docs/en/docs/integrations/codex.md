@@ -59,6 +59,24 @@ Repository and directory identities are lookup inputs only; they never generate 
 binding for recall and capture, while `PreToolUse` injects it into data-plane tools so Agent input cannot redirect a
 read or write. The host must create or bind a different Scope when the Session changes work boundaries.
 
+To keep later sessions in one Git root on an existing Scope, bind that checkout:
+
+```bash
+uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+`$PLUGIN_ROOT` is the installed Codex plugin root, the same value the hooks use. In an ordinary terminal, replace it
+with that directory, such as `powercontext/powercontext/<version>` in the plugin cache or
+`integrations/codex/plugins/powercontext` in this repository. The command stores a binding with
+`integration=codex` and `kind=workspace`. Its external id is the SHA-256 of the Git root path. It does not create a
+Scope, and it does not derive a `scope_id` from the path, remote, or branch. Run the script again without
+`--bind-scope` to print the Scope resolved for that directory. `--clear-scope` removes only that workspace binding.
+
+`POWERCONTEXT_CODEX_SCOPE_ID` still takes precedence. A Session that already started keeps the Session binding written
+at startup. A new Session in that Git root uses the workspace binding when no explicit variable and no earlier Session
+binding apply. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
+
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The Runtime labels
 Memory-derived items as untrusted history, preserves exact citations, and owns final selection and rendering. Explicit

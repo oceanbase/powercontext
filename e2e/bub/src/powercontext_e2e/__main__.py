@@ -84,6 +84,24 @@ def main() -> None:
         help="Continue through case failures or stop the Harbor trial at the first failed step.",
     )
 
+    paired_parser = subparsers.add_parser("paired", help="Compare PowerContext off and on for continuation workloads.")
+    paired_parser.add_argument("--manifest", type=Path, default=Path("e2e/bub/paired-tasks"))
+    paired_parser.add_argument(
+        "--id",
+        action="append",
+        default=[],
+        metavar="WORKLOAD_ID",
+        help="Select one workload; repeat to select more than one. Defaults to the paired category.",
+    )
+    paired_parser.add_argument(
+        "--category",
+        action="append",
+        default=[],
+        help="Select one category; repeat to select more than one.",
+    )
+    paired_parser.add_argument("--trials", type=int, default=2, help="Trials per arm; the arm order alternates.")
+    paired_parser.add_argument("--output", type=Path, required=True)
+
     rescore_parser = subparsers.add_parser("rescore")
     rescore_parser.add_argument("replay", type=Path)
     rescore_parser.add_argument("--output", type=Path, required=True)
@@ -94,6 +112,19 @@ def main() -> None:
         from .rescore import rescore_replay
 
         passed = rescore_replay(args.replay, args.output, settings)
+    elif args.command == "paired":
+        from .catalog import load_tasks, select_tasks
+        from .paired import run_paired
+
+        selected = select_tasks(
+            load_tasks(args.manifest),
+            ids=tuple(args.id),
+            categories=tuple(args.category) or (() if args.id else ("paired",)),
+        )
+        report = asyncio.run(run_paired(selected, output_dir=args.output, settings=settings, trials=args.trials))
+        # The run is valid when every arm produced a measurement; the task outcome itself is the result.
+        unscored = report.total.off.errors + report.total.on.errors + report.total.on.integration_failures
+        passed = unscored == 0
     else:
         from .catalog import load_tasks, select_tasks
         from .runner import run_tasks

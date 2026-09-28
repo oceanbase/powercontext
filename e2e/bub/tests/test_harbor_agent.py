@@ -35,3 +35,10 @@ def test_install_bub_command_overrides_release_floor_for_mounted_source() -> Non
     assert _SOURCE_OVERRIDE.read_text(encoding="utf-8").splitlines()[-1] == (
         "powercontext[client] @ file:///opt/powercontext/source"
     )
+
+
+def test_off_arm_installs_bub_without_the_powercontext_plugin() -> None:
+    command = _install_bub_command(powercontext=False)
+
+    assert "integrations/bub" not in command
+    assert f"bub=={version('bub')}" in command

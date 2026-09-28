@@ -57,6 +57,17 @@ host 管理的 workspace binding、Server 默认 Scope。解析出的 Scope 会�
 binding，不生成 Scope ID。Prompt Hook 使用该 binding 完成召回和采集；`PreToolUse` 将同一 binding 注入 data-plane
 工具，Agent 输入不能把读写重定向到其他 Scope。Session 切换工作边界时，应由 host 创建或绑定另一个 Scope。
 
+已有 `scope_id` 时，把当前 Git 根登记到这个 Scope，供之后的新会话使用：
+
+```bash
+uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+`$PLUGIN_ROOT` 是已安装 Codex 插件的根目录，与 Hook 使用的变量相同。在普通终端里把它换成实际目录，例如插件缓存中的 `powercontext/powercontext/<version>`，或本仓库的 `integrations/codex/plugins/powercontext`。命令写入 `integration=codex`、`kind=workspace` 的绑定，外部身份是 Git 根路径的 SHA-256。它不创建 Scope，也不从路径、远程地址或分支生成 `scope_id`。去掉 `--bind-scope` 再执行一次，可以打印该目录当前解析到的编号。`--clear-scope` 只删除这条 workspace binding，不删除 Scope 里的内容。
+
+`POWERCONTEXT_CODEX_SCOPE_ID` 仍然优先于这条登记。已经开着的会话保持启动时写下的 Session binding；在该 Git 根新开一场会话后，没有显式变量、也没有更早的 Session binding 时，会使用这条 workspace binding。MCP 的 `set_scope_binding` 只改当前会话，不能代替这条命令。
+
 Codex 开始分析提示词前，Hook 只调用一次 `POST /v1/context/prepare`，请求 8000-byte 总预算。它严格校验
 `powercontext.prepared-context.v1`，并原样注入返回内容。Runtime 负责把 Memory 内容标记为不可信历史、保留
 精确 citation，并完成最终选择与渲染。显式搜索仍可通过 Client 和 MCP 使用，但不会成为第二次自动召回。自动注入的

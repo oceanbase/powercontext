@@ -680,6 +680,12 @@ def _artifact_processing_bindings(  # noqa: C901 - validate and assemble one reg
     }
     for family, schedule in automatic.items():
         if schedule is not None and family not in declared | registered:
+            if (
+                family == "topic-memory"
+                and config.runtime.artifact_processing_families is None
+                and config.inference.generation_model is not None
+            ):
+                validate_topic_memory_provider_settings(config.inference)
             issue = {
                 "memory": "scheduled-pipeline",
                 "experience": "scheduled-experience-pipeline",
@@ -895,12 +901,20 @@ async def open_builtin_contexts(
                 handoff_verification_keys=handoff_verification_keys,
                 topic_memory_write_timeout_seconds=config.inference.embedding_timeout_seconds,
                 topic_memory_write_concurrency=config.runtime.generation_concurrency,
+                model_usage_queue_capacity=config.runtime.model_usage_queue_capacity,
+                model_usage_write_timeout_seconds=config.runtime.model_usage_write_timeout_seconds,
+                model_usage_flush_timeout_seconds=config.runtime.model_usage_flush_timeout_seconds,
                 source_registry=source_registry,
                 cursor_secret=cursor_secret,
                 tracing=tracing,
             )
-            await contexts.scopes.bootstrap_default()
-            yield contexts
+            try:
+                await contexts.scopes.bootstrap_default()
+                yield contexts
+            finally:
+                # Producers are stopped by now, and the profile below still owns
+                # the database this recorder writes into.
+                await contexts.aclose_usage_recorder()
         return
     experience_index = OceanBaseExperienceFTSIndex()
     indexes = [OceanBaseMemoryFTSIndex()]
@@ -964,12 +978,20 @@ async def open_builtin_contexts(
             handoff_verification_keys=handoff_verification_keys,
             topic_memory_write_timeout_seconds=config.inference.embedding_timeout_seconds,
             topic_memory_write_concurrency=config.runtime.generation_concurrency,
+            model_usage_queue_capacity=config.runtime.model_usage_queue_capacity,
+            model_usage_write_timeout_seconds=config.runtime.model_usage_write_timeout_seconds,
+            model_usage_flush_timeout_seconds=config.runtime.model_usage_flush_timeout_seconds,
             source_registry=source_registry,
             cursor_secret=cursor_secret,
             tracing=tracing,
         )
-        await contexts.scopes.bootstrap_default()
-        yield contexts
+        try:
+            await contexts.scopes.bootstrap_default()
+            yield contexts
+        finally:
+            # Producers are stopped by now, and the profile below still owns the
+            # database this recorder writes into.
+            await contexts.aclose_usage_recorder()
 
 
 def _register_prompt_demonstrators(

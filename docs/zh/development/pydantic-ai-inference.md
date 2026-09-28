@@ -30,8 +30,13 @@ export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="provider:model-name"
 下面；例如，兼容的 OpenAI-style endpoint 可以这样关闭 Qwen thinking：
 
 ```bash
+export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL="openai-chat:<served-model-name>"
 export POWERCONTEXT_SERVER_INFERENCE_GENERATION_MODEL_SETTINGS='{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}'
 ```
+
+Topic Memory 也支持 `openai-chat:<model>` 使用这一精确的 `extra_body` 结构。值必须是 JSON 布尔值
+`false`；任一层的额外字段、其他 provider 前缀以及 Embedding 的 `extra_body` 仍不支持。端点必须实现
+`chat_template_kwargs.enable_thinking`；关闭 thinking 不保证推理一定在超时前完成。
 
 generation-backed pipeline、可选的 LLM reranker 和 readiness probe 共用这些 settings。PowerContext 仍保留自身的
 请求边界：readiness 使用 `max_tokens=1`，rerank 使用 `temperature=0`。credential 与 static header 应放在

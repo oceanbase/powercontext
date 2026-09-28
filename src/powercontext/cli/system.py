@@ -576,6 +576,51 @@ def setup_dsh(
     typer.echo("Next: run `powercontext server run`, then start `dsh web`.")
 
 
+@setup_app.command("zcode")
+def setup_zcode(
+    source: Annotated[
+        str, typer.Option(help="PowerContext Git source or local checkout path.")
+    ] = DEFAULT_MARKETPLACE_SOURCE,
+    ref: Annotated[str, typer.Option(help="Git ref for a remote source.")] = DEFAULT_MARKETPLACE_REF,
+    server_url: Annotated[
+        str | None, typer.Option(help="PowerContext Server URL; resolves environment and saved settings.")
+    ] = None,
+    capture_prompts: Annotated[bool, typer.Option(help="Capture ZCode prompts as Source evidence.")] = True,
+    allow_insecure_http: Annotated[
+        bool | None,
+        typer.Option("--allow-insecure-http/--no-allow-insecure-http", help="Allow unencrypted remote HTTP."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Write the result as JSON.")] = False,
+) -> None:
+    """Install the ZCode CLI or Windows desktop plugin."""
+
+    from powercontext.cli.zcode import preserve_zcode_installation, run_zcode_diagnostics
+
+    try:
+        with preserve_zcode_installation():
+            result = setup_host(
+                "zcode",
+                source=source,
+                ref=ref,
+                server_url=server_url,
+                capture_prompts=capture_prompts,
+                allow_insecure_http=allow_insecure_http,
+                json_output=json_output,
+            ).result
+    except SetupError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    diagnostics = run_zcode_diagnostics()
+    if not _diagnostics_ok(diagnostics):
+        _write_diagnostics(diagnostics, json_output=json_output)
+        raise typer.Exit(code=1)
+    if json_output:
+        typer.echo(json.dumps(asdict(result), indent=2))
+        return
+    typer.echo(f"PowerContext ZCode setup complete: {result.plugin_path}")
+    typer.echo("Next: fully quit and reopen ZCode, then start a new session and run `powercontext doctor zcode`.")
+
+
 @setup_app.command("openclaw")
 def setup_openclaw(
     source: Annotated[
@@ -980,6 +1025,21 @@ def doctor_dsh(
 
     diagnostics = run_dsh_diagnostics()
     add_transport_diagnostic(diagnostics, "dsh")
+    _write_diagnostics(diagnostics, json_output=json_output)
+    if not _diagnostics_ok(diagnostics):
+        raise typer.Exit(code=1)
+
+
+@doctor_app.command("zcode")
+def doctor_zcode(
+    json_output: Annotated[bool, typer.Option("--json", help="Write the result as JSON.")] = False,
+) -> None:
+    """Check ZCode plugin registration, Hook, MCP, and Server readiness."""
+
+    from powercontext.cli.zcode import run_zcode_diagnostics
+
+    diagnostics = run_zcode_diagnostics()
+    add_transport_diagnostic(diagnostics, "zcode")
     _write_diagnostics(diagnostics, json_output=json_output)
     if not _diagnostics_ok(diagnostics):
         raise typer.Exit(code=1)
