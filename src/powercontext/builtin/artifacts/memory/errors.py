@@ -21,6 +21,14 @@ class MemoryLayerError(PowerContextError):
     """Base exception for Memory domain and repository failures."""
 
 
+class MemoryCapacityExceededError(MemoryLayerError, RuntimeError):
+    def __init__(self, dimension: str, limit: int, observed: int) -> None:
+        self.dimension = dimension
+        self.limit = limit
+        self.observed = observed
+        super().__init__(f"memory capacity budget is exceeded: {dimension} {observed} > {limit}")
+
+
 class CapabilityNotSupportedError(MemoryLayerError, RuntimeError):
     def __init__(self, capability: str, detail: str | None = None) -> None:
         self.capability = capability

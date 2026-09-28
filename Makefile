@@ -97,6 +97,11 @@ harness-acceptance: ## Evaluate workloads by ID or category against an existing 
 	@uv run --project e2e/bub powercontext-e2e acceptance \
 		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results}" $(ARGS)
 
+.PHONY: harness-paired
+harness-paired: ## Compare PowerContext off and on for continuation workloads against an existing Server.
+	@uv run --project e2e/bub powercontext-e2e paired \
+		--output "$${POWERCONTEXT_E2E_OUTPUT:-e2e/bub/results/paired}" $(ARGS)
+
 .PHONY: harness-rescore
 harness-rescore: ## Rescore REPLAY without rerunning Bub or PowerContext.
 	@test -n "$${REPLAY:-}" || { echo "REPLAY is required" >&2; exit 2; }

@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": [
+              "${ZCODE_PLUGIN_ROOT}/hooks/user_prompt_submit.mjs"
+            ],
+            "timeoutMs": 5000,
+            "statusMessage": "Syncing PowerContext"
+          }
+        ]
+      }
+    ]
+  }
+}

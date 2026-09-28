@@ -65,6 +65,15 @@ def test_pi_declares_full_profile_after_external_skill_support_is_merged() -> No
     assert all(tool.capabilities == ("external_skill",) for tool in pi_tools.tools if tool.id in external_tools)
 
 
+def test_codex_full_profile_includes_managed_and_external_skill_operations() -> None:
+    manifest = load_integration_manifest()
+    codex = next(integration for integration in manifest.integrations if integration.id == "codex")
+    assert "full" in codex.profiles
+    assert {"experience_read_or_generate", "skill_read_or_generate", "candidate_review", "external_skill"} <= set(
+        codex.capabilities
+    )
+
+
 @pytest.mark.parametrize("missing_operation", [False, True])
 def test_tool_surface_probe_handles_long_descriptions_without_borrowing_operations(
     tmp_path: Path,

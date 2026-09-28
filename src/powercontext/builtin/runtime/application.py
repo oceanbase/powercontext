@@ -59,7 +59,9 @@ from powercontext.builtin.artifacts.handoff import (
 from powercontext.builtin.artifacts.memory import (
     EmbeddingProfile,
     Memory,
+    MemoryCapacity,
     MemoryCitation,
+    MemoryCompactionResult,
     MemoryEntryInput,
     MemoryEntryVersion,
     MemoryHit,
@@ -769,28 +771,23 @@ class ScopedStatisticsApplication:
         usage: InferenceUsage,
         /,
     ) -> None:
-        try:
-            async with self._runtime._scope_operation(self.scope_id):
-                await self._runtime._statistics(self.scope_id).record(
-                    purpose,
-                    operation,
-                    usage,
-                    self._runtime._clock().astimezone(UTC).date(),
-                )
-        except Exception as error:
-            log_safely(
-                logger,
-                logging.ERROR,
-                "Model usage recording failed",
-                exc_info=error,
-                extra={
-                    "event": "statistics.model_usage.failed",
-                    "purpose": purpose.value,
-                    "operation": operation.value,
-                    "outcome": "failure",
-                    "unit": "statistics",
-                },
-            )
+        """Freeze usage for this Scope; the recorder owns the write.
+
+        The enclosing operation already validated and leased the Scope, so this
+        callback performs no I/O. The runtime-owned recorder writes the record in
+        an independent short transaction outside the caller's model deadline.
+        A Runtime without statistics has no recorder, and accounting must never
+        turn a successful model call into a failure.
+        """
+
+        if self._runtime._statistics_service is None:
+            return
+        self._runtime._statistics(self.scope_id).offer_model_usage(
+            purpose,
+            operation,
+            usage,
+            self._runtime._clock().astimezone(UTC).date(),
+        )
 
     async def record_recall(self, measurement: RecallTokenMeasurement, /) -> None:
         try:
@@ -2915,6 +2912,36 @@ class ScopedMemoryApplication:
                         rerank=result.rerank,
                     )
 
+    async def capacity(self) -> MemoryCapacity:
+        """Read capacity of the Scope's current Memory, or raise when it does not exist."""
+
+        async with self._runtime._context(self.scope_id) as context:
+            service = context.artifacts.memory
+            current = await service.head(context.artifacts.memory_artifact_id)
+            _validate_memory_identity(context.artifacts.memory_artifact_id, current)
+            return await service.capacity(current)
+
+    async def compact(
+        self,
+        *,
+        dry_run: bool = False,
+        limit: int | None = None,
+        reason: str | None = None,
+        expected_revision: int | None = None,
+    ) -> MemoryCompactionResult:
+        """Explicitly compact the Scope's current Memory under the configured policy.
+
+        Enablement permits commits; it does not schedule them. Previews also work
+        while disabled. Pass the preview's revision to reject a changed head.
+        """
+
+        async with self._runtime._context(self.scope_id) as context, self._runtime._locked(self.scope_id):
+            service = context.artifacts.memory
+            current = await service.head(context.artifacts.memory_artifact_id)
+            _validate_memory_identity(context.artifacts.memory_artifact_id, current)
+            _validate_expected_revision(current, expected_revision)
+            return await service.compact(current, dry_run=dry_run, limit=limit, reason=reason)
+
     async def list(self, *, include_inactive: bool = False, tag_filter: TagFilter | None = None) -> MemoryEntriesPage:
         async with self._runtime._context(self.scope_id) as context:
             service = context.artifacts.memory
@@ -3733,7 +3760,17 @@ class BuiltinRuntime:
                 raise _RuntimeStateError("scope")
             registered = await self.scopes.get(scope)
             with self._scope_cache.lease(scope):
-                yield registered
+                try:
+                    yield registered
+                finally:
+                    # Every scoped operation, read or write, is a completion
+                    # boundary for the usage it accepted. The recorder owns its
+                    # own budget, so this never widens the operation's model
+                    # deadlines, and a Runtime without statistics has no recorder
+                    # to drain. One flush here covers the nested _scoped_operation
+                    # rather than paying for it twice.
+                    if self._statistics_service is not None:
+                        await self._statistics(scope).flush_model_usage()
 
     @asynccontextmanager
     async def _scoped_operation(

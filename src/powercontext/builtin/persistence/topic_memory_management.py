@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
@@ -34,7 +34,11 @@ from powercontext.builtin.artifacts.topic_memory import (
     chunk_topic_memory_detail,
     prepare_topic_memory_projection,
 )
-from powercontext.builtin.inference import EmbeddingModel, InferenceTimeoutError, InvalidInferenceOutputError
+from powercontext.builtin.inference import (
+    EmbeddingModel,
+    InferenceTimeoutError,
+    InvalidInferenceOutputError,
+)
 from powercontext.builtin.inference.usage import UsageReporter, bind_usage_reporter
 from powercontext.builtin.persistence.topic_memory import TopicMemoryRepository
 from powercontext.builtin.records import InvalidBaseAccessRequestError
@@ -96,12 +100,12 @@ class TopicMemoryManagementWriter:
             raise TopicMemoryCapabilityError("embedding-profile")
         chunks = chunk_topic_memory_detail(value.detail)
         texts = (f"{value.title}\n{value.summary}", *(chunk.text for chunk in chunks))
-        try:
-            with self._embedding_usage(usage_scope_id):
+        with self._embedding_usage(usage_scope_id):
+            try:
                 async with asyncio.timeout(self._timeout_seconds), self._slots:
                     result = await model.embed(texts)
-        except TimeoutError as error:
-            raise InferenceTimeoutError("topic-memory.index", self._timeout_seconds) from error
+            except TimeoutError as error:
+                raise InferenceTimeoutError("topic-memory.index", self._timeout_seconds) from error
         if len(result.vectors) != len(texts):
             raise InvalidInferenceOutputError("topic-memory.index", "requires one vector per input")
         return prepare_topic_memory_projection(
@@ -111,7 +115,15 @@ class TopicMemoryManagementWriter:
             embedding_profile=model.profile,
         )
 
-    def _embedding_usage(self, scope_id: str | None):
+    def _embedding_usage(self, scope_id: str | None) -> AbstractContextManager[None]:
+        """Bind topic-memory attribution for the embedding call itself.
+
+        The bound reporter only freezes the record for the runtime-owned
+        recorder, so binding it inside the model deadline adds no I/O. A second
+        request-local collector would double the record, and one that defers the
+        report past this block would let a later failure drop it.
+        """
+
         if self._usage_reporter is None or scope_id is None:
             return nullcontext()
         return bind_usage_reporter(

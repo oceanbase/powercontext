@@ -1,0 +1,8 @@
+{
+  "name": "powercontext",
+  "version": "0.1.0",
+  "description": "Project memory and handoffs backed by a PowerContext Server",
+  "author": "OceanBase",
+  "license": "Apache-2.0",
+  "skills": "skills"
+}

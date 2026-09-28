@@ -42,10 +42,10 @@ from powercontext.client.settings import ClientSettings
 from powercontext.http import CreateScopeRequest, ListMemoryEntriesRequest, PrepareContextRequest
 
 from .artifacts import write_artifacts
-from .catalog import E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
+from .catalog import ContinuationEvaluationSpec, E2ETask, MemoryEvaluationSpec, OutcomeEvaluationSpec
 from .evaluation import evaluate_observation, matches_forbidden_context
 from .evidence import fingerprint, load_resolved_instructions, redact, write_evaluation_report, write_evidence
-from .hosts import host_adapter
+from .hosts import host_adapter, source_mounts
 from .models import (
     CaptureRecord,
     EvaluationReport,
@@ -67,6 +67,9 @@ FailurePolicy = Literal["fail-fast", "collect-all"]
 TaskStatus = Literal["completed", "failed", "skipped"]
 BATCH_CATEGORY_PREFIX = "batch:"
 BATCH_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# Host integrations install against the local powercontext package, so the agent container gets that package's
+# sources and nothing else from the repository.
+POWERCONTEXT_PACKAGE_PATHS = ("pyproject.toml", "README.md", "LICENSE", "src")
 
 
 class TaskArtifacts(NamedTuple):
@@ -151,11 +154,9 @@ async def run_tasks(
     settings: HarnessSettings,
     failure_policy: FailurePolicy = "collect-all",
 ) -> bool:
-    model_workload_ids = tuple(
-        task.id for task in tasks if task.execution.model and not host_adapter(task).model_configured()
-    )
-    if model_workload_ids:
-        raise ModelNotConfiguredError(model_workload_ids)
+    if continuation_ids := [task.id for task in tasks if isinstance(task.evaluation, ContinuationEvaluationSpec)]:
+        raise ValueError(f"Run OFF/ON continuation workloads with the paired command: {continuation_ids!r}")  # noqa: TRY003
+    require_runtime_models(tasks)
 
     accepted = True
     for group in group_tasks(tasks):
@@ -166,6 +167,15 @@ async def run_tasks(
             failure_policy=failure_policy,
         )
     return accepted
+
+
+def require_runtime_models(tasks: tuple[E2ETask, ...]) -> None:
+    """Reject model-backed workloads whose host has no runtime-selected model."""
+
+    if model_workload_ids := tuple(
+        task.id for task in tasks if task.execution.model and not host_adapter(task).model_configured()
+    ):
+        raise ModelNotConfiguredError(model_workload_ids)
 
 
 def group_tasks(tasks: tuple[E2ETask, ...]) -> tuple[ExecutionGroup, ...]:
@@ -408,7 +418,7 @@ def _source_harbor_observation(
 def _job_config(
     task: E2ETask,
     run_id: str,
-    scope_id: str,
+    scope_id: str | None,
     output_dir: Path,
     settings: HarnessSettings,
     *,
@@ -418,14 +428,8 @@ def _job_config(
     host = host_adapter(task)
     repository = settings.repository_path()
     mounts: list[ServiceVolumeConfig] = [
-        {
-            "type": "bind",
-            "source": str(repository),
-            "target": "/opt/powercontext/source",
-            "read_only": True,
-            "bind": {"create_host_path": False},
-        },
-        *host.mounts(task),
+        *source_mounts(repository, POWERCONTEXT_PACKAGE_PATHS),
+        *host.mounts(task, repository),
     ]
     agent = host.agent_config(
         task,

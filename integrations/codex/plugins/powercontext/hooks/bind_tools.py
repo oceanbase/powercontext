@@ -57,6 +57,7 @@ _CURRENT_OPERATIONS = frozenset({
     "generate_skill",
     "get_artifact_candidate",
     "get_experience",
+    "get_memory_capacity",
     "get_memory_entry",
     "get_skill",
     "get_skill_package_manifest",

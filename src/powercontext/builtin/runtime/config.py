@@ -142,6 +142,19 @@ class RuntimeConfig(BaseModel):
     memory_rerank_enabled: bool = False
     memory_rerank_candidate_limit: int = Field(default=30, ge=1, le=100)
     decision_assistance_enabled: bool = False
+    memory_max_active_entries: int = Field(default=5_000, ge=1, le=100_000)
+    memory_max_manifest_entries: int = Field(default=10_000, ge=1, le=200_000)
+    memory_max_manifest_bytes: int = Field(default=4_194_304, ge=1_024, le=67_108_864)
+    memory_compaction_enabled: bool = False
+    memory_compaction_min_tombstone_revisions: int = Field(default=10, ge=0)
+    memory_max_history_revisions: int = Field(default=100, ge=1)
+
+    @model_validator(mode="after")
+    def validate_memory_capacity_order(self) -> RuntimeConfig:
+        if self.memory_max_active_entries > self.memory_max_manifest_entries:
+            raise ValueError("memory_max_active_entries cannot exceed memory_max_manifest_entries")  # noqa: TRY003
+        return self
+
     recall_gate_enabled: bool = False
     recall_gate_max_rounds: int = Field(default=2, ge=0, le=2)
     recall_gate_min_candidates: int = Field(default=2, ge=1)
@@ -207,6 +220,9 @@ class RuntimeConfig(BaseModel):
     experience_worker_timeout_seconds: float = Field(default=600, gt=0)
     skill_worker_timeout_seconds: float = Field(default=600, gt=0)
     profile_worker_timeout_seconds: float = Field(default=600, gt=0)
+    model_usage_queue_capacity: int = Field(default=256, ge=1, le=16_384)
+    model_usage_write_timeout_seconds: float = Field(default=1.0, gt=0, le=30)
+    model_usage_flush_timeout_seconds: float = Field(default=0.5, gt=0, le=30)
 
     @model_validator(mode="after")
     def validate_topic_memory_history_candidates(self) -> RuntimeConfig:

@@ -59,6 +59,24 @@ Repository and directory identities are lookup inputs only; they never generate 
 binding for recall and capture, while `PreToolUse` injects it into data-plane tools so Agent input cannot redirect a
 read or write. The host must create or bind a different Scope when the Session changes work boundaries.
 
+To keep later sessions in one Git root on an existing Scope, bind that checkout:
+
+```bash
+uv run --frozen --quiet --project "$PLUGIN_ROOT" python "$PLUGIN_ROOT/scripts/scope_binding.py" \
+  --cwd "$PWD" --bind-scope "SCOPE_ID"
+```
+
+`$PLUGIN_ROOT` is the installed Codex plugin root, the same value the hooks use. In an ordinary terminal, replace it
+with that directory, such as `powercontext/powercontext/<version>` in the plugin cache or
+`integrations/codex/plugins/powercontext` in this repository. The command stores a binding with
+`integration=codex` and `kind=workspace`. Its external id is the SHA-256 of the Git root path. It does not create a
+Scope, and it does not derive a `scope_id` from the path, remote, or branch. Run the script again without
+`--bind-scope` to print the Scope resolved for that directory. `--clear-scope` removes only that workspace binding.
+
+`POWERCONTEXT_CODEX_SCOPE_ID` still takes precedence. A Session that already started keeps the Session binding written
+at startup. A new Session in that Git root uses the workspace binding when no explicit variable and no earlier Session
+binding apply. The MCP `set_scope_binding` tool changes only the current Session and does not replace this command.
+
 The Hook calls `POST /v1/context/prepare` once before Codex analyzes the prompt. It requests an 8000-byte total budget,
 strictly validates `powercontext.prepared-context.v1`, and injects the returned content unchanged. The Runtime labels
 Memory-derived items as untrusted history, preserves exact citations, and owns final selection and rendering. Explicit
@@ -105,6 +123,37 @@ after successful injection, the first ordinary query sends that receipt so the R
 exact Memory entry versions. Entries truncated during bootstrap and revised versions remain eligible for recall.
 Preparation, validation, and receipt failures all fail open and inject nothing.
 Failures before a new lifecycle package is established, including invalid configuration, also clear any stale saved receipt.
+
+## Experience and Skill
+
+Alongside Memory, Source capture, context injection,
+Work Contracts, Handoffs, acknowledgements, Task Outcomes and candidate review, MCP exposes:
+
+| Capability | Tools |
+| --- | --- |
+| Experience | `get_experience`, `generate_experience`, `propose_experience` |
+| Managed Skill | `list_managed_skills`, `get_skill`, `generate_skill`, `propose_skill` |
+| External Skill | `scan_external_skills`, `list_external_skills`, `resolve_external_skill`, `import_external_skill` |
+
+For example, ask Codex to “generate an Experience candidate from these exact Source references” or “list the approved
+Skills in this Scope.” Generation requires the corresponding Server model configuration; caller-authored proposals
+do not. Generated and proposed content enters review as a pending candidate. A `no_op` result means no candidate was
+created. Only an explicit review decision produces an approved Artifact; reading or importing does not install or
+execute a Skill.
+
+External Skill discovery uses configured roots on the **Server host**. Configure `POWERCONTEXT_SERVER_EXTERNAL_SKILLS`
+for custom roots and host identity; see [Agent Skill targets](../workflows/configure-agent-skill-targets.md).
+A remote Server cannot scan the Codex workstation. Under enforced access control, scanning requires `server.admin`,
+listing and resolving require
+`server.observe`, and import requires contribution access to the bound Scope. Select an exact external Skill ID and
+fingerprint from the scan/list result before resolving or importing it. Changed content makes the old fingerprint
+unavailable. `mode: import` captures the exact package into review without generation; `mode: fork` requires a Skill
+generation model. See [Experience and Skill lifecycle](../workflows/experience-and-skill-lifecycle.md).
+
+Upgrade the Server and refresh the plugin together, then open a new Codex session to discover the tools. These MCP
+operations share the existing Session Scope binding and Server authorization checks. The shared MCP surface also
+provides these capabilities to Claude Code and WorkBuddy; `full` describes the capability profile, not automatic
+approval or guaranteed model availability.
 
 ## Choose standard context text
 

@@ -166,3 +166,41 @@ def test_model_workload_requires_a_runtime_model(tmp_path: Path) -> None:
         asyncio.run(run_tasks((task,), output_dir=output_dir, settings=HarnessSettings(repository=_REPOSITORY)))
 
     assert not output_dir.exists()
+
+
+def test_off_arm_runs_the_host_without_powercontext(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("BUB_MODEL", "provider:model")
+    monkeypatch.setenv("POWERCONTEXT_BUB_BASE_URL", "http://host-gateway:8000")
+    task = load_tasks(_REPOSITORY / "e2e" / "bub" / "paired-tasks" / "project-decision-continuation.yaml")[0]
+
+    off = _job_config(task, "run-1", None, tmp_path / "off", HarnessSettings(repository=_REPOSITORY))
+    on = _job_config(task, "run-1", "scope-1", tmp_path / "on", HarnessSettings(repository=_REPOSITORY))
+
+    (off_agent,) = off.agents
+    (on_agent,) = on.agents
+    assert not [name for name in off_agent.env if name.startswith("POWERCONTEXT_")]
+    assert off_agent.kwargs == {"powercontext": False}
+    assert off_agent.env["BUB_MODEL"] == on_agent.env["BUB_MODEL"] == "provider:model"
+    assert on_agent.env["POWERCONTEXT_BUB_SCOPE_ID"] == "scope-1"
+    assert on_agent.env["POWERCONTEXT_BUB_CAPTURE_EVENTS"] == "true"
+    assert on_agent.kwargs == {}
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    ["paired-tasks/project-decision-continuation.yaml", "tasks/acceptance-01-project-database-decision.yaml"],
+)
+def test_agent_container_cannot_read_workload_answers(tmp_path: Path, manifest: str) -> None:
+    # The agent can search its container, so no mount may expose task files, answer keys, or benchmark data.
+    task = load_tasks(_REPOSITORY / "e2e" / "bub" / manifest)[0]
+    protected = [_REPOSITORY / "e2e" / "bub" / name for name in ("harbor-tasks", "paired-tasks", "tasks")]
+    protected.append(_REPOSITORY / "benchmark")
+
+    sources = [Path(mount["source"]) for mount in _config(task, tmp_path).environment.mounts]
+
+    assert not [
+        (source, path)
+        for source in sources
+        for path in protected
+        if path.is_relative_to(source) or source.is_relative_to(path)
+    ]

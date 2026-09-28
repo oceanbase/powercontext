@@ -19,18 +19,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import AsyncExitStack
-from datetime import UTC, datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from powercontext._logging import log_safely
 from powercontext.builtin.artifacts.experience import EXPERIENCE_INCUBATION_CURSOR_NAME
 from powercontext.builtin.artifacts.profile.models import PROFILE_SOURCE_WINDOW_BINDING
 from powercontext.builtin.dream.bindings import SKILL_DREAM_BINDING
 from powercontext.builtin.dream.generation import DreamGenerator
-from powercontext.builtin.inference.models import InferenceUsage
 from powercontext.builtin.inference.usage import bind_usage_reporter
 from powercontext.builtin.persistence.dream import DreamRepository
 from powercontext.builtin.persistence.errors import ArtifactProcessingLeadershipLostError, GenerationConflictError
@@ -42,7 +39,7 @@ from powercontext.builtin.runtime.processing_contracts import (
 )
 from powercontext.builtin.runtime.processing_execution import InvocationAlreadyHandled, ScopeInvocation
 from powercontext.builtin.sources import BUILTIN_SOURCE_REGISTRY
-from powercontext.builtin.statistics import ModelUsageOperation, ModelUsagePurpose
+from powercontext.builtin.statistics import ModelUsagePurpose
 from powercontext.builtin.triggers import SOURCE_WINDOW_TRIGGER_NAME
 from powercontext.errors import RevisionConflictError
 
@@ -145,31 +142,25 @@ async def process_family_invocation(
 ) -> ArtifactProcessingWorkerCompletion:
     """Run one bounded domain window, preserving its own Review/Cursor rules."""
 
-    async def report(purpose: ModelUsagePurpose, operation: ModelUsageOperation, usage: InferenceUsage) -> None:
-        try:
-            await contexts.statistics(assignment.scope_id).record(purpose, operation, usage, datetime.now(UTC).date())
-        except Exception as error:
-            # Usage attribution keeps the same best-effort behavior as the SDK facade.
-            log_safely(
-                logger,
-                logging.WARNING,
-                "Artifact processing usage recording failed",
-                extra={"event": "artifact_processing.usage_failed", "exception_type": type(error).__name__},
-            )
-
     generation_purpose = {
         "memory": ModelUsagePurpose.MEMORY_EXTRACTION,
         "experience": ModelUsagePurpose.EXPERIENCE_GENERATION,
         "skill": ModelUsagePurpose.SKILL_GENERATION,
     }.get(assignment.artifact_family)
     with bind_usage_reporter(
-        report,
+        # The runtime-owned recorder writes this window's usage, so the worker's
+        # own deadline never covers a statistics transaction.
+        contexts.model_usage_reporter(assignment.scope_id),
         generation_purpose=generation_purpose,
         embedding_purpose=ModelUsagePurpose.MEMORY_INDEXING if assignment.artifact_family == "memory" else None,
     ):
-        return await _process_family_invocation(
-            contexts, assignment, config=config, security=security, dream_generator=dream_generator
-        )
+        try:
+            return await _process_family_invocation(
+                contexts, assignment, config=config, security=security, dream_generator=dream_generator
+            )
+        finally:
+            # A completed window leaves its own usage readable.
+            await contexts.flush_model_usage()
 
 
 async def _process_family_invocation(  # noqa: C901 - one guarded dispatch per registered Family
