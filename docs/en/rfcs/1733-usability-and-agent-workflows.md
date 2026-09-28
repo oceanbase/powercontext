@@ -88,7 +88,7 @@ Skills describe workflows; tools implement operations. Installer/operations tool
 
 ## Commands and operation entry points
 
-Commands belong to three tools: Installer / Ops, Client, and Server. Each tool has its own command entry. The tool names and subcommands below describe ownership and hierarchy; dedicated designs determine executable names and exact arguments.
+Commands are shown as separate Installer / Ops, Client, and Server CLI tools to describe their responsibilities. In practice, we favor a single command-line tool and entry point. The tool names and subcommands below describe ownership and hierarchy; dedicated designs determine the executable name and exact arguments.
 
 ```text
 Installer / Ops CLI
