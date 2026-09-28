@@ -254,6 +254,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "query parameters preserve the existing "
                 "complete-list behavior.",
                 "operationId": "list_scopes",
+                "x-powercontext-feature-contracts": ["scope.selection"],
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
                 "parameters": [
                     {"name": "query", "in": "query", "required": False, "schema": {"type": "string", "maxLength": 256}},
@@ -424,6 +425,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                 "its Memory, or authorize cross-Scope "
                 "access.",
                 "operationId": "get_scope",
+                "x-powercontext-feature-contracts": ["scope.selection"],
                 "x-powercontext-access": {"resolver": "path_scope_read_access"},
                 "parameters": [
                     {
@@ -490,6 +492,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                 },
+                "x-powercontext-feature-contracts": ["scope.selection"],
                 "x-powercontext-access": {"action": "server.observe", "resource": {"type": "server"}},
             },
             "put": {
@@ -1563,6 +1566,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-feature-contracts": ["memory.explicit"],
                 "x-powercontext-access": {
                     "action": "scope.contribute",
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
@@ -1608,6 +1612,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-feature-contracts": ["memory.explicit"],
                 "x-powercontext-access": {
                     "action": "scope.read",
                     "resource": {"type": "scope", "scope-id-from": "scope_id"},
@@ -1695,6 +1700,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "503": {"$ref": "#/components/responses/Unavailable"},
                     "500": {"$ref": "#/components/responses/InternalError"},
                 },
+                "x-powercontext-feature-contracts": ["memory.explicit"],
                 "x-powercontext-access": {"resolver": "exact_memory_access"},
                 "x-powercontext-scope-mode": "current",
             }
@@ -4339,6 +4345,7 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
                     "403": {"$ref": "#/components/responses/Forbidden"},
                     "503": {"$ref": "#/components/responses/Unavailable"},
                 },
+                "x-powercontext-feature-contracts": ["access.principal"],
                 "x-powercontext-access": {"action": "access.self", "resource": {"type": "server"}},
             }
         },
@@ -10047,4 +10054,9 @@ OPENAPI_SCHEMA: dict[str, JsonValue] = {
         },
     },
     "security": [{"BearerAuth": []}, {}],
+    "x-powercontext-feature-contracts": {
+        "access.principal": {"major": 1, "minor": 0},
+        "scope.selection": {"major": 1, "minor": 0},
+        "memory.explicit": {"major": 1, "minor": 0},
+    },
 }

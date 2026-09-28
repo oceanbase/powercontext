@@ -110,10 +110,16 @@ statistics 和 access endpoint 负责。
 operation 或兼容语义时增加 minor，移除、重命名或不兼容地改变已列 operation 时增加 major。兼容 client 必须忽略
 schema minor version 新增的未知可选字段。
 
-Server 在配置的主关系数据库中保存一条 identity singleton。启动时先幂等创建 identity table，再原子创建或读取
+OpenAPI 根级 `x-powercontext-feature-contracts` 显式声明 feature version，各受管 operation 使用同名扩展声明归属。
+`make api-generate` 从这些声明生成 discovery metadata，并拒绝非法版本、未知或重复归属及没有 operation 的 feature。
+版本号仍须显式修改，不会因归属变化而自动增加。
+
+Server 使用 Runtime 持有的主关系数据库保存一条 identity singleton。启动时先幂等创建 identity table，再原子创建或读取
 singleton，因此并发 initializer 会收敛到同一 ID，进程重启、package 升级、备份恢复以及共享同一数据库的 replica
 也会保持该 ID。identity schema 初始化或读取失败时，Server 会在进入 readiness 之前直接启动失败，而不会发布
 临时 identity。内存 SQLite（包括 SQLite URI memory mode）没有持久存储，所以每个数据库生命周期都会获得新 ID。
+使用同一共享内存 SQLite 数据库的 application 会共享数据和 identity；只要仍有 Runtime 连接，数据库就保持存活。
+最后一个连接关闭后，再次打开会重新创建数据和 identity。
 
 把备份恢复为原 deployment 时应保留原 ID。若用备份创建独立 clone，请停止所有使用 clone 数据库的 Server
 进程，然后只在 clone 上轮换：

@@ -49,6 +49,12 @@ class ServerIdentityRepository:
         self._database = database
         self._id_factory = (lambda: str(uuid4())) if id_factory is None else id_factory
 
+    async def initialize(self) -> None:
+        """Create the identity schema safely across concurrent initializers."""
+
+        async with self._database.transaction() as connection:
+            await connection.execute(CreateTable(SERVER_IDENTITY_TABLE, if_not_exists=True))
+
     async def load_or_create(self) -> str:
         """Return the durable identity, creating it once across concurrent replicas."""
 
@@ -109,9 +115,9 @@ async def open_server_identity_repository(config: DatabaseConfig) -> AsyncIterat
     else:
         raise TypeError(f"unsupported Server identity database: {type(config).__name__}")  # noqa: TRY003
     async with opened as profile:
-        async with profile.database.transaction() as connection:
-            await connection.execute(CreateTable(SERVER_IDENTITY_TABLE, if_not_exists=True))
-        yield ServerIdentityRepository(profile.database)
+        repository = ServerIdentityRepository(profile.database)
+        await repository.initialize()
+        yield repository
 
 
 __all__ = ("SERVER_IDENTITY_TABLE", "ServerIdentityRepository", "open_server_identity_repository")

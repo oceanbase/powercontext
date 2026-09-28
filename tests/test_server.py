@@ -17,7 +17,6 @@ import logging
 import os
 import re
 import shlex
-from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -308,12 +307,10 @@ def test_server_info_uses_one_durable_identity_across_restarts(tmp_path) -> None
 
 
 def test_server_startup_fails_when_identity_initialization_fails(tmp_path, monkeypatch) -> None:
-    @asynccontextmanager
-    async def unavailable_identity(_config):
+    async def unavailable_identity(_repository):
         raise OSError("identity backend unavailable")  # noqa: TRY003
-        yield
 
-    monkeypatch.setattr("powercontext.server.factory.open_server_identity_repository", unavailable_identity)
+    monkeypatch.setattr("powercontext.server.identity.ServerIdentityRepository.initialize", unavailable_identity)
     app = create_server_app(
         settings=ServerSettings(
             database=SQLiteConfig(url=f"sqlite+aiosqlite:///{tmp_path / 'runtime.db'}"),
@@ -324,6 +321,33 @@ def test_server_startup_fails_when_identity_initialization_fails(tmp_path, monke
 
     with pytest.raises(OSError, match="identity backend unavailable"), TestClient(app):
         pass
+
+
+def test_servers_sharing_memory_scopes_share_identity_for_the_database_lifetime(tmp_path) -> None:
+    settings = ServerSettings(
+        database=SQLiteConfig(url=f"sqlite+aiosqlite:///file:{tmp_path / 'shared'}?mode=memory&cache=shared&uri=true"),
+        auth=BearerAuthConfig(enabled=False),
+        mcp=McpConfig(enabled=False),
+    )
+
+    with TestClient(create_server_app(settings=settings)) as first:
+        original_id = first.get("/v1/server-info").json()["server_id"]
+        created = first.post(
+            "/v1/scopes",
+            json={"title": "Shared Scope", "summary": "Shared deployment data", "idempotency_key": "shared-scope"},
+        )
+        assert created.status_code == 201
+        scope_id = created.json()["scope_id"]
+        with TestClient(create_server_app(settings=settings)) as second:
+            assert second.get(f"/v1/scopes/{scope_id}").json() == created.json()
+            assert second.get("/v1/server-info").json()["server_id"] == original_id
+
+        assert first.get("/v1/server-info").json()["server_id"] == original_id
+        assert first.get(f"/v1/scopes/{scope_id}").status_code == 200
+
+    with TestClient(create_server_app(settings=settings)) as reopened:
+        assert reopened.get(f"/v1/scopes/{scope_id}").status_code == 404
+        assert reopened.get("/v1/server-info").json()["server_id"] != original_id
 
 
 def test_server_settings_use_configured_workspace_for_default_skill_targets(tmp_path, monkeypatch) -> None:

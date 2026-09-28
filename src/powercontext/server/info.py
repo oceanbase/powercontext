@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Authoritative static discovery contract for the PowerContext Server."""
+"""Project the generated discovery contract for the PowerContext Server."""
 
 from __future__ import annotations
 
@@ -21,23 +21,9 @@ from importlib.metadata import version
 from packaging.version import Version
 
 from powercontext.http import ServerInfo
-from powercontext.http._generated.operations import API_VERSION
+from powercontext.http._generated.operations import API_VERSION, FEATURE_CONTRACTS
 
 _SCHEMA_VERSION = {"major": 1, "minor": 0}
-_FEATURE_CONTRACTS = {
-    "access.principal": {
-        "version": {"major": 1, "minor": 0},
-        "operations": ["get_access_principal"],
-    },
-    "scope.selection": {
-        "version": {"major": 1, "minor": 0},
-        "operations": ["list_scopes", "get_scope", "get_default_scope"],
-    },
-    "memory.explicit": {
-        "version": {"major": 1, "minor": 0},
-        "operations": ["remember_memory", "search_memory", "get_memory_entry"],
-    },
-}
 
 
 def server_info(server_id: str) -> ServerInfo:
@@ -50,7 +36,7 @@ def server_info(server_id: str) -> ServerInfo:
         "server_id": server_id,
         "package_version": version("powercontext"),
         "api_contract_version": {"major": api_version.major, "minor": api_version.minor},
-        "feature_contracts": _FEATURE_CONTRACTS,
+        "feature_contracts": FEATURE_CONTRACTS,
     })
 
 

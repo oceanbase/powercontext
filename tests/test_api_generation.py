@@ -14,8 +14,11 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,3 +71,75 @@ def test_path_and_header_parameters_do_not_create_a_query_model_for_no_content_s
     assert "request_location=None" in source
     assert "response_type=None" in source
     assert "success_status=204" in source
+
+
+@pytest.fixture
+def feature_contract():
+    return {
+        "openapi": "3.0.3",
+        "info": {"title": "Test API", "version": "1.0.0"},
+        "x-powercontext-feature-contracts": {
+            "scope.selection": {"major": 1, "minor": 0},
+            "memory.explicit": {"major": 1, "minor": 0},
+        },
+        "paths": {
+            path: {
+                "get": {
+                    "summary": operation_id,
+                    "operationId": operation_id,
+                    "responses": {"204": {"description": "Done."}},
+                    "x-powercontext-feature-contracts": [feature],
+                }
+            }
+            for path, operation_id, feature in (
+                ("/scopes", "list_scopes", "scope.selection"),
+                ("/memory", "search_memory", "memory.explicit"),
+            )
+        },
+    }
+
+
+def test_generation_projects_explicit_feature_versions_and_operation_membership(feature_contract) -> None:
+    generator = _load_generator()
+    feature_contract["x-powercontext-feature-contracts"]["scope.selection"]["minor"] = 2
+    feature_contract["paths"]["/memory"]["get"]["x-powercontext-feature-contracts"] = [
+        "scope.selection",
+        "memory.explicit",
+    ]
+    source = generator._generate_operations(generator.OpenAPI.model_validate(feature_contract), {})
+    assignment = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "FEATURE_CONTRACTS"
+    )
+    assert assignment.value is not None
+    assert ast.literal_eval(assignment.value) == {
+        "scope.selection": {"version": {"major": 1, "minor": 2}, "operations": ["list_scopes", "search_memory"]},
+        "memory.explicit": {"version": {"major": 1, "minor": 0}, "operations": ["search_memory"]},
+    }
+
+
+@pytest.mark.parametrize(
+    ("invalid", "value"),
+    [
+        ("version", -1),
+        ("version", True),
+        ("membership", ["undefined.feature"]),
+        ("membership", "scope.selection"),
+        ("membership", ["scope.selection", "scope.selection"]),
+        ("unused", {"major": 1, "minor": 0}),
+    ],
+)
+def test_generation_rejects_invalid_feature_contract_declarations(feature_contract, invalid, value) -> None:
+    generator = _load_generator()
+    if invalid == "version":
+        feature_contract["x-powercontext-feature-contracts"]["scope.selection"]["minor"] = value
+    elif invalid == "membership":
+        feature_contract["paths"]["/scopes"]["get"]["x-powercontext-feature-contracts"] = value
+    else:
+        feature_contract["x-powercontext-feature-contracts"]["unused"] = value
+
+    with pytest.raises(generator.ContractGenerationError, match="feature"):
+        generator._generate_operations(generator.OpenAPI.model_validate(feature_contract), {})

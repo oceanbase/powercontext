@@ -179,6 +179,17 @@ OPENAPI_VERSION = "3.0.3"
 API_TITLE = "PowerContext API"
 API_DESCRIPTION = "Remote PowerContext transport. Runtime behavior is reported by /v1/capabilities."
 API_VERSION = "1.2.0"
+FEATURE_CONTRACTS: dict[str, dict[str, JsonValue]] = {
+    "access.principal": {"version": {"major": 1, "minor": 0}, "operations": ["get_access_principal"]},
+    "scope.selection": {
+        "version": {"major": 1, "minor": 0},
+        "operations": ["list_scopes", "get_scope", "get_default_scope"],
+    },
+    "memory.explicit": {
+        "version": {"major": 1, "minor": 0},
+        "operations": ["remember_memory", "search_memory", "get_memory_entry"],
+    },
+}
 
 RequestT = TypeVar("RequestT")
 ResponseT = TypeVar("ResponseT")
