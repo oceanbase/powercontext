@@ -4,7 +4,7 @@
 - 关联工作：[#1657](https://github.com/oceanbase/powercontext/issues/1657)、
   [#1709](https://github.com/oceanbase/powercontext/pull/1709) 和
   [#1718](https://github.com/oceanbase/powercontext/issues/1718)
-- 状态：核心设计原则已达成共识；澄清后的合同已规定；实现尚未开始
+- 状态：核心设计原则已达成共识；实现进行中
 
 # 摘要
 
@@ -210,4 +210,6 @@ review 前运行定向 OpenAPI、cursor、Memory persistence、tag、migration�
 可用时的 OceanBase 证据；generated-code、contract、docs、format、lint、type check；以及 `make check` 和 `make unit-test`。
 不可用服务和 skipped check 必须与 pass 分开报告。
 
-当前状态：本 SPEC 已对照 issue 讨论和当前调用路径审查。功能代码和功能测试尚未实现，不声称任何实现检查已通过。
+当前状态：revision-valid directory、tag generation 失效、有界 runtime query 和 feature-scoped SQLite
+migration/readiness gate 已实现，并通过定向 persistence/runtime 测试。公开 OpenAPI、Server/client
+接口、运维 CLI、规模报告、OceanBase migration 证据和全仓检查仍待完成。

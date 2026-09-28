@@ -1085,11 +1085,39 @@ MEMORY_TAG_GENERATIONS_TABLE = Table(
 )
 
 
+MEMORY_QUERY_INDEX_SCHEMA_TABLE = Table(
+    "pc_memory_query_index_schema",
+    SHARED_METADATA,
+    Column("singleton", Integer, primary_key=True, autoincrement=False),
+    Column("schema_version", Integer, nullable=False),
+    Column("phase", identity_string(16), nullable=False),
+    Column("migration_id", identity_string(64), nullable=False),
+    Column("checkpoint_scope_id", identity_string(MAX_SCOPE_ID_LENGTH)),
+    Column("checkpoint_artifact_id", identity_string(MAX_ARTIFACT_ID_LENGTH)),
+    Column("checkpoint_revision", Integer),
+    CheckConstraint("singleton = 1", name="ck_pc_memory_query_schema_singleton"),
+    CheckConstraint(
+        "phase IN ('bootstrap', 'backfill', 'verify', 'complete')",
+        name="ck_pc_memory_query_schema_phase",
+    ),
+    CheckConstraint(
+        "checkpoint_revision IS NULL OR checkpoint_revision > 0",
+        name="ck_pc_memory_query_schema_checkpoint_revision",
+    ),
+    CheckConstraint(
+        "(checkpoint_scope_id IS NULL AND checkpoint_artifact_id IS NULL AND checkpoint_revision IS NULL) OR "
+        "(checkpoint_scope_id IS NOT NULL AND checkpoint_artifact_id IS NOT NULL AND checkpoint_revision IS NOT NULL)",
+        name="ck_pc_memory_query_schema_checkpoint_complete",
+    ),
+)
+
+
 MEMORY_TABLES = (
     MEMORY_ENTRY_VERSIONS_TABLE,
     MEMORY_ENTRY_DIRECTORY_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_TAG_GENERATIONS_TABLE,
+    MEMORY_QUERY_INDEX_SCHEMA_TABLE,
 )
 
 TOPIC_MEMORY_TABLES = (

@@ -65,6 +65,7 @@ from powercontext.builtin.persistence.cursor_codec import Clock, SignedCursorCod
 from powercontext.builtin.persistence.database import AsyncDatabase
 from powercontext.builtin.persistence.errors import RepositoryNotFoundError
 from powercontext.builtin.persistence.memory_index import MemoryIndex, NoMemoryIndex
+from powercontext.builtin.persistence.memory_query_migration import require_memory_query_index
 from powercontext.builtin.persistence.tables import (
     ARTIFACT_HEADS_TABLE,
     MEMORY_ENTRY_DIRECTORY_TABLE,
@@ -223,6 +224,7 @@ class RelationalMemoryBackend:
         after_entry_id: str,
     ) -> tuple[int, int | None, list[Mapping[Any, Any]]] | None:
         async with self._database.transaction() as connection:
+            await require_memory_query_index(connection)
             current_revision = await connection.scalar(
                 select(ARTIFACT_HEADS_TABLE.c.revision).where(
                     ARTIFACT_HEADS_TABLE.c.scope_id == self._scope_id,

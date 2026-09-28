@@ -27,6 +27,7 @@ from powercontext.builtin.persistence.tables import (
     MEMORY_ENTRY_DIRECTORY_TABLE,
     MEMORY_ENTRY_HEADS_TABLE,
     MEMORY_ENTRY_VERSIONS_TABLE,
+    MEMORY_QUERY_INDEX_SCHEMA_TABLE,
     MEMORY_TAG_GENERATIONS_TABLE,
 )
 from powercontext.builtin.records import InvalidCursorError
@@ -61,6 +62,7 @@ def test_memory_schema_is_mysql_compilable_and_respects_key_and_payload_limits()
     directory = str(CreateTable(MEMORY_ENTRY_DIRECTORY_TABLE).compile(dialect=dialect))
     heads = str(CreateTable(MEMORY_ENTRY_HEADS_TABLE).compile(dialect=dialect))
     generations = str(CreateTable(MEMORY_TAG_GENERATIONS_TABLE).compile(dialect=dialect))
+    migration = str(CreateTable(MEMORY_QUERY_INDEX_SCHEMA_TABLE).compile(dialect=dialect))
 
     assert "scope_id VARCHAR(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL" in versions
     assert "text MEDIUMTEXT NOT NULL" in versions
@@ -70,6 +72,7 @@ def test_memory_schema_is_mysql_compilable_and_respects_key_and_payload_limits()
     assert "valid_to_revision INTEGER" in directory
     assert "searchable_text MEDIUMTEXT NOT NULL" in heads
     assert "generation BIGINT NOT NULL" in generations
+    assert "phase VARCHAR(16)" in migration
 
     budgets = [
         _key_budget(constraint)
@@ -78,6 +81,7 @@ def test_memory_schema_is_mysql_compilable_and_respects_key_and_payload_limits()
             MEMORY_ENTRY_DIRECTORY_TABLE,
             MEMORY_ENTRY_HEADS_TABLE,
             MEMORY_TAG_GENERATIONS_TABLE,
+            MEMORY_QUERY_INDEX_SCHEMA_TABLE,
         )
         for constraint in table.constraints
         if isinstance(constraint, PrimaryKeyConstraint | UniqueConstraint | ForeignKeyConstraint)

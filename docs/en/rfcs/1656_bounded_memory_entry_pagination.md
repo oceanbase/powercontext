@@ -4,7 +4,7 @@
 - Related work: [#1657](https://github.com/oceanbase/powercontext/issues/1657),
   [#1709](https://github.com/oceanbase/powercontext/pull/1709), and
   [#1718](https://github.com/oceanbase/powercontext/issues/1718)
-- Status: core design accepted in principle; clarified contract specified; implementation not started
+- Status: core design accepted in principle; implementation in progress
 
 # Summary
 
@@ -237,5 +237,6 @@ SQLite scale measurements; OceanBase evidence when its service is available; gen
 format, lint, and type checks; then `make check` and `make unit-test`. Report unavailable services and skipped checks
 separately from passes.
 
-Current status: this SPEC is checked against the issue discussion and current call paths. No feature code or feature
-tests exist yet, and no implementation check is claimed as passing.
+Current status: the revision-valid directory, tag-generation invalidation, bounded runtime query, and feature-scoped
+SQLite migration/readiness gate are implemented with focused persistence and runtime tests. The public OpenAPI,
+Server/client surface, operator CLI, scale report, OceanBase migration evidence, and full repository checks remain.
